@@ -97,7 +97,7 @@ class s3qlException(IOError):
     ----------
 
     :errno:  Errno to return to FUSE
-    :desc:   Detailed text error message")
+    :desc:   Detailed text error message
     :fatal:  Should be set if the error left the filesystem in an inconsistent state
 
     :path:   The path for which the error occured (if applicable)
@@ -978,7 +978,7 @@ if __name__ == '__main__':
 
     (options, pps) = parser.parse_args()
 
-    if False and options.awskey:
+    if options.awskey:
         # Read password
         if sys.stdin.isatty():
             pw = getpass("Enter AWS password: ")
@@ -986,7 +986,6 @@ if __name__ == '__main__':
             pw = sys.stdin.readline().rstrip()
     else:
         pw = None
-        pw = "wDJSauZ0a67zWOhpnjrvpdGfCiAt+j86IJ1imsTE"
 
     if not len(pps) == 2:
         parser.error("Wrong number of parameters")
