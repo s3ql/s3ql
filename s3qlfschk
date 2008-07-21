@@ -1,0 +1,83 @@
+#!/usr/bin/env python
+#
+#    Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
+#
+#    This program can be distributed under the terms of the GNU LGPL.
+#
+
+from boto.s3.connection import S3Connection
+from boto.s3.key import Key
+import apsw
+import os
+from stat import *
+from time import time
+from string import Template
+
+parser = OptionParser(
+    usage="%prog  [options] <bucketname>\n"
+    "%prog --help",
+    description="Checks and repairs an s3ql filesystem.")
+
+parser.add_option("--awskey", type="string",
+                  help="Amazon Webservices access key to use")
+
+(options, pps) = parser.parse_args()
+
+if not len(pps) == 1:
+    parser.error("bucketname not specificed")
+bucket = pps[0]
+
+if options.awskey:
+    # Read password
+    if sys.stdin.isatty():
+        awspass = getpass("Enter AWS password: ")
+    else:
+        awspass = sys.stdin.readline().rstrip()
+else:
+    awspass = None
+awskey = options.awskey
+
+
+dbdir = os.environ["HOME"].rstrip("/") + "/.s3qlfs/"
+dbfile = dbdir + bucket + ".db"
+
+# Preferences
+if not os.path.exists(self.dbdir):
+    os.mkdir(self.dbdir)
+
+
+# Check if the fs has the dirty object. If so, and we do not have
+# local metadata print warning and suggest to run the script on the
+# machine were the fs was last mounted.
+
+
+# Retrieve metadata from S3 and compare timestamp with local
+# metadata. Print warning if S3 is newer and continue using
+# the newer data.
+
+# Check that filesystem parameters are set
+
+# Obtain list of s3 objects
+
+# Make sure that each inode has a content entry, create missing
+# entries
+
+# Delete s3_object table entries whose object doesn't exist
+# anymore and fix s3_object and inode tables appropriately.
+
+# Check that all s3 objects are referenced in s3_objects and
+# assign unreferenced ones to new files in lost+found
+
+# Make sure that the ETAGS from the list match those of the
+# metadata. In case of conflict, update metadata and print
+# out warning for affected files
+
+
+# Make sure that the content table is valid, i.e. for eath
+# path all the path components exist on their own and are
+# indeed directories
+
+# Check that the offset are blocksize apart and that no s3 object
+# is larger than the blocksize
+
+# Commit metadata and mark fs as clean, both internally and as object

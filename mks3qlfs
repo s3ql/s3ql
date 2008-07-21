@@ -1,0 +1,319 @@
+#!/usr/bin/env python
+#
+#    Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
+#
+#    This program can be distributed under the terms of the GNU LGPL.
+#
+
+from boto.s3.connection import S3Connection
+from boto.exception import *
+from boto.s3.key import Key
+import apsw
+import os
+import sys
+import shutil
+import hashlib
+from getpass import getpass
+from stat import *
+from time import time
+from string import Template
+from optparse import OptionParser
+
+
+def main():
+    """Initializes an s3qlfs filesystem.
+    """
+
+    #
+    # Parse options
+    #
+    parser = OptionParser(
+        usage="%prog  [options] <bucketname>\n" \
+            "       %prog --help",
+        description="Initializes on Amazon S3 bucket for use as a filesystem")
+
+    parser.add_option("--awskey", type="string",
+                      help="Amazon Webservices access key to use")
+    parser.add_option("-L", type="string", help="Filesystem label",
+                      dest="name")
+    parser.add_option("--blocksize", type="int", default=10240,
+                      help="Maximum size of s3 objects in KB (default: %default)")
+    parser.add_option("-f", action="store_true", default=False,
+                      dest="force", help="Force creation and remove any existing data")
+    parser.add_option("-e", action="store_true", default=False,
+                      dest="encrypt", help="Create an AES encrypted filesystem")
+
+    (options, pps) = parser.parse_args()
+
+    if not len(pps) == 1:
+        parser.error("bucketname not specificed")
+    bucket = pps[0]
+
+    if options.awskey:
+        # Read password
+        if sys.stdin.isatty():
+            awspass = getpass("Enter AWS password: ")
+        else:
+            awspass = sys.stdin.readline().rstrip()
+    else:
+        awspass = None
+    awskey = options.awskey
+
+    if options.encrypt:
+        if sys.stdin.isatty():
+            options.encrypt = getpass("Enter encryption password: ")
+            if not options.encrypt == getpass("Confirm encryption password: "):
+                print >>sys.stderr, "Passwords don't match."
+                sys.exit(1)
+        else:
+            options.encrypt = sys.stdin.readline().rstrip()
+
+        # Hash to 16 bytes required for AES
+        m = hashlib.md5()
+        m.update(options.encrypt)
+        options.encrypt = m.digest()
+    else:
+        options.encrypt = None
+
+
+    #
+    # Setup local data
+    #
+
+    dbdir = os.environ["HOME"].rstrip("/") + "/.s3qlfs/"
+    dbfile = dbdir + bucket + ".db"
+    cachedir = dbdir + bucket + "-cache/"
+    if not os.path.exists(dbdir):
+        os.mkdir(dbdir)
+
+    if os.path.exists(dbfile) or \
+            os.path.exists(cachedir):
+        if options.force:
+            if os.path.exists(dbfile):
+                os.unlink(dbfile)
+            if os.path.exists(cachedir):
+                shutil.rmtree(cachedir)
+            print "Removed existing metadata.\n"
+        else:
+            print >> sys.stderr, \
+                "Local metadata file already exists!\n" \
+                "Use -f option to really remove the existing filesystem\n"
+            sys.exit(1)
+
+    #
+    # Setup remote data
+    #
+    conn = S3Connection(awskey, awspass)
+    try:
+        conn.get_bucket(bucket)
+    except S3ResponseError, e:
+        if e.status == 404:
+            # This is what we want
+            pass
+        else:
+            raise
+    else:
+        # Bucket exists
+        if options.force:
+            delete_bucket(conn, bucket)
+            print "Removed existing bucket."
+        else:
+            print >> sys.stderr, \
+                "Bucket already exists! \n" \
+                "Use -f option to remove the existing bucket.\n"
+            sys.exit(1)
+
+
+
+    #
+    # Create filesystem
+    #
+    try:
+        setup_db(dbfile, options)
+        setup_bucket(conn, bucket, dbfile)
+    finally:
+        # Delete metadata
+        os.unlink(dbfile)
+
+    sys.exit(0)
+
+
+def delete_bucket(conn, bucketname):
+    """Removes all keys in the given bucket and the bucket itself.
+    """
+
+    print "Removing existing keys..."
+    bucket = conn.get_bucket(bucketname)
+
+    for s3key in bucket.list():
+        print "\t", s3key.name
+        bucket.delete_key(s3key)
+
+    conn.delete_bucket(bucketname)
+
+
+def setup_bucket(conn, bucketname, dbfile):
+    """Creates a bucket and uploads metadata.
+    """
+
+    conn.create_bucket(bucketname)
+    bucket = conn.get_bucket(bucketname)
+
+    k = Key(bucket)
+    k.key = 'metadata'
+    k.set_contents_from_filename(dbfile)
+
+    k = Key(bucket)
+    k.key = 'dirty'
+    k.set_contents_from_string("no")
+
+
+
+def setup_db(dbfile,options):
+    """Creates the metadata tables
+    """
+
+    conn=apsw.Connection(dbfile)
+    cursor=conn.cursor()
+
+    # This command creates triggers that ensure referential integrity
+    trigger_cmd = Template("""
+    CREATE TRIGGER fki_${src_table}_${src_key}
+      BEFORE INSERT ON ${src_table}
+      FOR EACH ROW BEGIN
+          SELECT RAISE(ROLLBACK, 'insert in column $src_key of table $src_table violates foreign key constraint')
+          WHERE NEW.$src_key IS NOT NULL AND
+                (SELECT $ref_key FROM $ref_table WHERE $ref_key = NEW.$src_key) IS NULL;
+      END;
+
+    CREATE TRIGGER fku_${src_table}_${src_key}
+      BEFORE UPDATE ON ${src_table}
+      FOR EACH ROW BEGIN
+          SELECT RAISE(ROLLBACK, 'update in column $src_key of table $src_table violates foreign key constraint')
+          WHERE NEW.$src_key IS NOT NULL AND
+                (SELECT $ref_key FROM $ref_table WHERE $ref_key = NEW.$src_key) IS NULL;
+      END;
+
+
+    CREATE TRIGGER fkd_${src_table}_${src_key}
+      BEFORE DELETE ON $ref_table
+      FOR EACH ROW BEGIN
+          SELECT RAISE(ROLLBACK, 'delete on table $ref_table violates foreign key constraint of column $src_key in table ${src_table}')
+          WHERE (SELECT $src_key FROM $src_table WHERE $src_key = OLD.$ref_key) IS NOT NULL;
+      END;
+    """)
+
+
+    # Filesystem parameters
+    cursor.execute("""
+    CREATE TABLE parameters (
+        name        TEXT,
+        blocksize   INT NOT NULL,
+        last_fsck   INT NOT NULL,
+        mountcnt    INT NOT NULL,
+        needs_fsck  BOOLEAN NOT NULL
+    );
+    INSERT INTO parameters(name,blocksize,last_fsck,mountcnt,needs_fsck)
+        VALUES(?,?,?,?,?)
+    """, (options.name, options.blocksize * 1024, time(), 0, False))
+
+    # Table of filesystem objects
+    cursor.execute("""
+    CREATE TABLE contents (
+        name      BLOB(256) NOT NULL PRIMARY KEY,
+        inode     INT NOT NULL REFERENCES inodes(id)
+    );
+    CREATE INDEX ix_contents_inode ON contents(inode);
+    """)
+
+    # Table with filesystem metadata
+    cursor.execute("""
+    CREATE TABLE inodes (
+        -- id has to specified *exactly* as follows to become
+        -- an alias for the rowid
+        id        INTEGER PRIMARY KEY,
+        uid       INT NOT NULL DEFAULT 0,
+        gid       INT NOT NULL DEFAULT 0,
+        mode      INT NOT NULL DEFAULT 0,
+        mtime     INT NOT NULL DEFAULT 0,
+        atime     INT NOT NULL DEFAULT 0,
+        ctime     INT NOT NULL DEFAULT 0,
+
+        -- for symlinks only
+        target    BLOB,
+
+        -- for files only
+        size      INT CHECK (size >= 0),
+
+        -- device nodes
+        rdev      INT
+    );
+    """)
+    cursor.execute(trigger_cmd.substitute({ "src_table": "contents",
+                                            "src_key": "inode",
+                                            "ref_table": "inodes",
+                                            "ref_key": "id" }))
+
+    # Maps file data chunks to S3 objects
+    cursor.execute("""
+    CREATE TABLE s3_objects (
+        inode     INTEGER NOT NULL REFERENCES inodes(id),
+        offset    INT NOT NULL
+                  CHECK (offset >= 0),
+        s3key     TEXT(30) NOT NULL UNIQUE,
+        etag      TEXT,
+
+        -- for caching
+        fd        INTEGER,
+        atime     INTEGER NOT NULL,
+        dirty     BOOLEAN,
+        cachefile TEXT UNIQUE
+                  CHECK ((fd IS NULL AND cachefile IS NULL)
+                         OR (fd IS NOT NULL AND cachefile IS NOT NULL)),
+
+        PRIMARY KEY (inode, offset)
+    );
+    CREATE INDEX ix_s3 ON s3_objects(s3key);
+    CREATE INDEX ix_dirty ON s3_objects(dirty);
+    """);
+    cursor.execute(trigger_cmd.substitute({ "src_table": "s3_objects",
+                                            "src_key": "inode",
+                                            "ref_table": "inodes",
+                                            "ref_key": "id" }))
+
+
+    # Compute inode reference counts
+    cursor.execute("""
+    CREATE VIEW inode_refs AS
+       SELECT id, COUNT(name) AS refcount
+       FROM inodes LEFT JOIN contents ON id == inode GROUP BY id;
+    """)
+
+    # Create an inodes view with reference counts
+    cursor.execute("""
+    CREATE VIEW inodes_ext AS
+        SELECT * FROM inodes JOIN inode_refs USING(id);
+    """)
+
+    # Create a view of the whole fs with all information
+    cursor.execute("""
+    CREATE VIEW contents_ext AS
+        SELECT * FROM contents JOIN inodes_ext ON id == inode;
+    """)
+
+
+    # Insert root directory
+    cursor.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime) VALUES (?,?,?,?,?,?)",
+                   (S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR
+                   | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH, 0, 0, time(),
+                    time(), time()))
+    cursor.execute("INSERT INTO contents (name, inode) VALUES(?,?)",
+                   (buffer("/"), conn.last_insert_rowid()))
+
+    # Done setting up metadata table
+    conn.close()
+
+
+
+if __name__ == '__main__':
+    main()
