@@ -101,17 +101,21 @@ class s3qlError(IOError):
 
 
 
+# log function and log level, should be overridden by importer
+log_fn = sys.stderr.writelines
+log_level = 0
 def debug(arg):
+
     """ Log message if debug output has been activated
     """
 
-    if not debug_enabled:
+    if log_level < 1
         return
 
     if type(arg) != type([]):
         arg = [arg, "\n"]
 
-    print "".join(arg),
+    log_fn(arg)
 
 
 def error(arg):
@@ -121,4 +125,4 @@ def error(arg):
     if type(arg) != type([]):
         arg = [arg, "\n"]
 
-    print >>sys.stderr, "".join(arg),
+    log_fn(arg)

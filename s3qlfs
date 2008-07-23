@@ -61,9 +61,7 @@ if options.allow_root:
 # Activate logging
 #
 if options.debug:
-    debug_enabled = True
-else:
-    debug_enabled = False
+    s3ql.loglevel = 1
 
 
 #

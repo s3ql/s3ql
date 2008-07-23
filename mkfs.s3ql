@@ -254,6 +254,10 @@ def setup_db(dbfile,options):
                                             "src_key": "inode",
                                             "ref_table": "inodes",
                                             "ref_key": "id" }))
+    cursor.execute(trigger_cmd.substitute({ "src_table": "contents",
+                                            "src_key": "parent_inode",
+                                            "ref_table": "inodes",
+                                            "ref_key": "id" }))
 
     # Maps file data chunks to S3 objects
     cursor.execute("""
