@@ -57,6 +57,9 @@ if not os.path.exists(self.dbdir):
 
 # Check that filesystem parameters are set
 
+# Check that parent_inode and filename are consistent
+
+
 # Obtain list of s3 objects
 
 # Make sure that each inode has a content entry, create missing

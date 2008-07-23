@@ -221,7 +221,8 @@ def setup_db(dbfile,options):
     cursor.execute("""
     CREATE TABLE contents (
         name      BLOB(256) NOT NULL PRIMARY KEY,
-        inode     INT NOT NULL REFERENCES inodes(id)
+        inode     INT NOT NULL REFERENCES inodes(id),
+        parent_inode INT NOT NULL REFERENCES inodes(id)
     );
     CREATE INDEX ix_contents_inode ON contents(inode);
     """)
