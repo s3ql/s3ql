@@ -49,6 +49,80 @@ class fs(Fuse):
         self.dbfile = self.dbdir + bucketname + ".db"
         self.cachedir = self.dbdir + bucketname + "-cache/"
 
+        # Preferences
+        if not os.path.exists(self.dbdir):
+            os.mkdir(self.dbdir)
+
+
+        # Connect to S3
+        debug("Connecting to S3...")
+        self.bucket = S3Connection(self.awskey, self.awspass).\
+            get_bucket(self.bucketname)
+
+        # Check consistency
+        debug("Checking consistency...")
+        key = self.bucket.new_key("dirty")
+        if key.get_contents_as_string() != "no":
+            print >> sys.stderr, \
+                "Metadata is dirty! Either some changes have not yet propagated\n" \
+                "through S3 or the filesystem has not been umounted cleanly. In\n" \
+                "the later case you should run s3fsck on the system where the\n" \
+                "filesystem has been mounted most recently!\n"
+            sys.exit(1)
+
+        # Download metadata
+        debug("Downloading metadata...")
+        if os.path.exists(self.dbfile):
+            print >> sys.stderr, \
+                "Local metadata file already exists! Either you are trying to\n" \
+                "to mount a filesystem that is already mounted, or the filesystem\n" \
+                "has not been umounted cleanly. In the later case you should run\n" \
+                "s3fsck.\n"
+            sys.exit(1)
+        os.mknod(self.dbfile, 0600 | S_IFREG)
+        key = self.bucket.new_key("metadata")
+        key.get_contents_to_filename(self.dbfile)
+
+        # Init cache
+        if os.path.exists(self.cachedir):
+            print >> sys.stderr, \
+                "Local cache files already exists! Either you are trying to\n" \
+                "to mount a filesystem that is already mounted, or the filesystem\n" \
+                "has not been umounted cleanly. In the later case you should run\n" \
+                "s3fsck.\n"
+            sys.exit(1)
+        os.mkdir(self.cachedir, 0700)
+
+        # Connect to db
+        debug("Connecting to db...")
+        self.conn = apsw.Connection(self.dbfile)
+        self.conn.setbusytimeout(5000)
+        self.cursor = self.conn.cursor()
+
+        # Get blocksize
+        debug("Reading fs parameters...")
+        try:
+            (self.blocksize,) = self.cursor.execute("SELECT blocksize FROM parameters").next()
+        except StopIteration:
+            print >> sys.stderr, "Filesystem damaged, run s3fsk!\n"
+            sys.exit(1)
+
+        # Check that the fs itself is clean
+        dirty = False
+        try:
+            (dirty,) = self.cursor.execute("SELECT needs_fsck FROM parameters").next()
+        except StopIteration:
+            dirty = True
+        if dirty:
+            print >> sys.stderr, "Filesystem damaged, run s3fsk!\n"
+            #os.unlink(self.dbfile)
+            #os.rmdir(self.cachedir)
+            #sys.exit(1)
+
+        # Update mount count
+        self.cursor.execute("UPDATE parameters SET mountcnt = mountcnt + 1")
+
+
     # This function is also called internally, so we define
     # an unwrapped version
     def getattr_i(self, path):
@@ -411,82 +485,7 @@ class fs(Fuse):
 
     def main(self):
         """Starts the main loop handling FUSE requests.
-
-        This implementation only runs single-threaded.
         """
-
-        # Preferences
-        if not os.path.exists(self.dbdir):
-            os.mkdir(self.dbdir)
-
-
-        # Connect to S3
-        debug("Connecting to S3...")
-        self.bucket = S3Connection(self.awskey, self.awspass).\
-            get_bucket(self.bucketname)
-
-        # Check consistency
-        debug("Checking consistency...")
-        key = self.bucket.new_key("dirty")
-        if key.get_contents_as_string() != "no":
-            print >> sys.stderr, \
-                "Metadata is dirty! Either some changes have not yet propagated\n" \
-                "through S3 or the filesystem has not been umounted cleanly. In\n" \
-                "the later case you should run s3fsck on the system where the\n" \
-                "filesystem has been mounted most recently!\n"
-            sys.exit(1)
-
-        # Download metadata
-        debug("Downloading metadata...")
-        if os.path.exists(self.dbfile):
-            print >> sys.stderr, \
-                "Local metadata file already exists! Either you are trying to\n" \
-                "to mount a filesystem that is already mounted, or the filesystem\n" \
-                "has not been umounted cleanly. In the later case you should run\n" \
-                "s3fsck.\n"
-            sys.exit(1)
-        os.mknod(self.dbfile, 0600 | S_IFREG)
-        key = self.bucket.new_key("metadata")
-        key.get_contents_to_filename(self.dbfile)
-
-        # Init cache
-        if os.path.exists(self.cachedir):
-            print >> sys.stderr, \
-                "Local cache files already exists! Either you are trying to\n" \
-                "to mount a filesystem that is already mounted, or the filesystem\n" \
-                "has not been umounted cleanly. In the later case you should run\n" \
-                "s3fsck.\n"
-            sys.exit(1)
-        os.mkdir(self.cachedir, 0700)
-
-        # Connect to db
-        debug("Connecting to db...")
-        self.conn = apsw.Connection(self.dbfile)
-        self.conn.setbusytimeout(5000)
-        self.cursor = self.conn.cursor()
-
-        # Get blocksize
-        debug("Reading fs parameters...")
-        try:
-            (self.blocksize,) = self.cursor.execute("SELECT blocksize FROM parameters").next()
-        except StopIteration:
-            print >> sys.stderr, "Filesystem damaged, run s3fsk!\n"
-            sys.exit(1)
-
-        # Check that the fs itself is clean
-        dirty = False
-        try:
-            (dirty,) = self.cursor.execute("SELECT needs_fsck FROM parameters").next()
-        except StopIteration:
-            dirty = True
-        if dirty:
-            print >> sys.stderr, "Filesystem damaged, run s3fsk!\n"
-            #os.unlink(self.dbfile)
-            #os.rmdir(self.cachedir)
-            #sys.exit(1)
-
-        # Update mount count
-        self.cursor.execute("UPDATE parameters SET mountcnt = mountcnt + 1")
 
         # Start main event loop
         debug("Starting main event loop...")
@@ -498,6 +497,9 @@ class fs(Fuse):
         Fuse.main(self, [sys.argv[0], "-f", "-o" + ",".join(mountoptions),
                          self.mountpoint])
 
+
+
+    def close(self):
 
         # Flush file and datacache
         debug("Flushing cache...")
