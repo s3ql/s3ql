@@ -28,7 +28,7 @@ class file(object):
     :fs:     s3qlfs instance belonging to this file
     """
 
-    def __init__(self, fs, *a, **kw):
+    def __init__(self, fs, path, flags, mode=None):
         """Handles FUSE open() and create() requests.
         """
 
@@ -38,23 +38,15 @@ class file(object):
         self.direct_io = True
         self.keep_cache = None
 
-        if len(a) == 0 and len(kw) == 0: # internal call
-            return
-        else:
-            self.opencreate(*a, **kw)
-
-    def opencreate(self, path, flags, mode=None):
         self.path = path
         self.flags = flags
 
         # Create if not existing
         if mode:
-            self.fs.mknod_i(path, mode)
+            self.fs.mknod(path, mode)
 
         self.inode = self.fs.get_inode(path)
 
-
-    @fuse_request_handler
     def read(self, length, offset):
         """Handles FUSE read() requests.
 
@@ -134,7 +126,8 @@ class file(object):
 
         # Check etag
         if key.etag != etag:
-            debug("etag mismatch, trying to refetch..")
+            error(["Changes in %s apparently have not yet propagated. Waiting and retrying...\n" % s3key,
+                   "Try to increase the cache size to avoid this.\n"])
             waited = 0
             waittime = 0.01
             while key.etag != etag and \
@@ -146,11 +139,12 @@ class file(object):
 
             # If still not found
             if key.etag != etag:
-                raise S3fsError("Object etag doesn't match metadata!",
-                                s3key=s3key, inode=self.inode, path=self.path,
-                                fatal=True)
+                error(["etag for %s doesn't match metadata!" % s3key,
+                       "Filesystem is probably corrupted (or S3 is having problems), "
+                       "run fsck.s3ql as soon as possible.\n"])
+                self.fs.mark_damaged()
+                raise FUSEError(errno.EIO)
             else:
-                self.fs.error("etag mismatch for "+ s3key + ". Try increasing the cache size... ")
                 key.get_contents_to_filename(cachepath)
 
         fd = os.open(cachepath, os.O_RDWR)
@@ -182,7 +176,7 @@ class file(object):
         return (s3key,fd)
 
 
-    def write_i(self, buf, offset):
+    def write(self, buf, offset):
         """Handles FUSE write() requests.
 
         May write less byets than given in `buf`, to the ``direct_io`` FUSE
@@ -234,10 +228,9 @@ class file(object):
         self.fs.sql("UPDATE inodes SET mtime=? WHERE id = ?",
                             (time(), self.inode))
         return writelen
-    write = fuse_request_handler(write_i)
 
 
-    def ftruncate_i(self, len):
+    def ftruncate(self, len):
         """Handles FUSE ftruncate() requests.
         """
 
@@ -260,7 +253,7 @@ class file(object):
         # If we are actually extending the file, we just write a
         # 0-byte at the last position
         if len > cursize:
-            self.write_i("\0", len-1)
+            self.write("\0", len-1)
 
         # Otherwise we truncate the file and update
         # the file size
@@ -272,16 +265,14 @@ class file(object):
         # Update file's mtime
         self.fs.sql("UPDATE inodes SET mtime=?,ctime=? WHERE id = ?",
                             (time(), time(), self.inode))
-    ftruncate = fuse_request_handler(ftruncate_i)
 
-    def release_i(self, flags):
+    def release(self, flags):
         """Handles FUSE release() requests.
         """
         pass
-    release = fuse_request_handler(release_i)
 
 
-    def fsync_i(self, fdatasync):
+    def fsync(self, fdatasync):
         """Handles FUSE fsync() requests.
         """
 
@@ -301,19 +292,16 @@ class file(object):
             key.set_contents_from_filename(self.fs.cachedir + cachefile)
             self.fs.sql("UPDATE s3_objects SET etag=? WHERE s3key=?",
                         (key.etag, s3key))
-    fsync = fuse_request_handler(fsync_i)
 
 
     # Called for close() calls. Here we sync the data, so that we
     # can still return write errors.
-    @fuse_request_handler
     def flush(self):
         """Handles FUSE flush() requests.
         """
-        return self.fsync_i(False)
+        return self.fsync(False)
 
-    @fuse_request_handler
     def fgetattr(self):
         """Handles FUSE fgetattr() requests.
         """
-        return self.fs.getattr_i(self.path)
+        return self.fs.getattr(self.path)

@@ -160,7 +160,7 @@ class fs(Fuse):
 
     # This function is also called internally, so we define
     # an unwrapped version
-    def getattr_i(self, path):
+    def getattr(self, path):
         """Handles FUSE getattr() requests
         """
 
@@ -207,9 +207,7 @@ class fs(Fuse):
         fstat.st_ctime = int(fstat.st_ctime)
 
         return fstat
-    getattr = fuse_request_handler(getattr_i)
 
-    @fuse_request_handler
     def readlink(self, path):
         """Handles FUSE readlink() requests.
         """
@@ -220,7 +218,6 @@ class fs(Fuse):
 
         return str(target)
 
-    @fuse_request_handler
     def readdir(self, path, offset):
         """Handles FUSE readdir() requests
         """
@@ -282,7 +279,6 @@ class fs(Fuse):
         self.update_mtime(inode)
 
 
-    @fuse_request_handler
     def unlink(self, path):
         """Handles FUSE unlink() requests.
 
@@ -290,7 +286,7 @@ class fs(Fuse):
         not being used.
         """
 
-        fstat = self.getattr_i(path)
+        fstat = self.getattr(path)
         inode = fstat.st_ino
 
         self.sql("DELETE FROM contents WHERE name=?", (buffer(path),))
@@ -333,7 +329,6 @@ class fs(Fuse):
         self.sql("UPDATE parameters SET needs_fsck=?", (True,))
 
 
-    @fuse_request_handler
     def rmdir(self, path):
         """Handles FUSE rmdir() requests.
         """
@@ -346,9 +341,8 @@ class fs(Fuse):
         (entries,) = self.sql("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
                            (inode,)).next()
         if entries > 2: # 1 due to parent dir, 1 due to "."
-            raise s3qlError(errno=errno.EINVAL,
-                            desc="Attempted to remove nonempty directory",
-                            path=path, inode=inode)
+            debug("Attempted to remove nonempty directory %s" % path)
+            raise FUSEError(errno.EINVAL)
 
         # Delete
         self.sql("BEGIN TRANSACTION")
@@ -380,7 +374,6 @@ class fs(Fuse):
                  (time(), inode))
 
 
-    @fuse_request_handler
     def symlink(self, target, name):
         """Handles FUSE symlink() requests.
         """
@@ -402,7 +395,6 @@ class fs(Fuse):
         else:
             self.sql("COMMIT")
 
-    @fuse_request_handler
     def rename(self, old, new):
         """Handles FUSE rename() requests.
         """
@@ -419,7 +411,6 @@ class fs(Fuse):
             self.sql("COMMIT")
 
 
-    @fuse_request_handler
     def link(self, path, path1):
         """Handles FUSE link() requests.
         """
@@ -439,7 +430,6 @@ class fs(Fuse):
         else:
             self.sql("COMMIT")
 
-    @fuse_request_handler
     def chmod(self, path, mode):
         """Handles FUSE chmod() requests.
         """
@@ -447,7 +437,6 @@ class fs(Fuse):
         self.sql("UPDATE inodes SET mode=?,ctime=? WHERE id=(SELECT inode "
                  "FROM contents WHERE name=?)", (mode, time(), buffer(path)))
 
-    @fuse_request_handler
     def chown(self, path, user, group):
         """Handles FUSE chown() requests.
         """
@@ -457,7 +446,7 @@ class fs(Fuse):
 
     # This function is also called internally, so we define
     # an unwrapped version
-    def mknod_i(self, path, mode, dev=None):
+    def mknod(self, path, mode, dev=None):
         """Handles FUSE mknod() requests.
         """
 
@@ -476,10 +465,8 @@ class fs(Fuse):
             raise
         else:
             self.sql("COMMIT")
-    mknod = fuse_request_handler(mknod_i)
 
 
-    @fuse_request_handler
     def mkdir(self, path, mode):
         """Handles FUSE mkdir() requests.
         """
@@ -504,7 +491,6 @@ class fs(Fuse):
         else:
             self.sql("COMMIT")
 
-    @fuse_request_handler
     def utime(self, path, times):
         """Handles FUSE utime() requests.
         """
@@ -514,7 +500,6 @@ class fs(Fuse):
                  "FROM contents WHERE name=?)", (atime, mtime, time(), buffer(path)))
 
 
-    @fuse_request_handler
     def statfs(self):
         """Handles FUSE statfs() requests.
         """
@@ -539,15 +524,13 @@ class fs(Fuse):
         return stat
 
 
-    @fuse_request_handler
     def truncate(self, bpath, len):
         """Handles FUSE truncate() requests.
         """
 
-        file = self.file_class()
-        file.opencreate(bpath, os.O_WRONLY)
-        file.ftruncate_i(len)
-        file.release_i()
+        file = self.file_class(bpath, os.O_WRONLY)
+        file.ftruncate(len)
+        file.release()
 
     def main(self, mountpoint, fuse_options):
         """Starts the main loop handling FUSE requests.
@@ -556,6 +539,7 @@ class fs(Fuse):
         # Start main event loop
         debug("Starting main event loop...")
         self.multithreaded = 0
+        setup_excepthook(self)
         mountoptions =  [ "direct_io",
                           "default_permissions",
                           "use_ino",

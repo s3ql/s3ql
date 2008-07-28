@@ -15,106 +15,136 @@ import functools
 import s3ql
 import hashlib
 import stat
+import fuse
 from getpass import getpass
 
-def fuse_request_handler(fn):
-    """Top Level Exception Handler for FUSE.
+def setup_excepthook(fs):
+    """Install Top Level Exception Handler for FUSE.
 
-    If a FUSE request handler throws an exception almost all
-    information about the exception is lost, since only the
-    errno value can be reported to the caller. Moreover, the
-    default global exception handler prints to stdout, which is also
-    lost since FUSE is running as a daemon.
+    If a FUSE Python program encounters an unhandled exception, all
+    information about this exception is lost. This is because the
+    default global exception handlers prints to stdout, which is
+    closed for a daemon process.
 
-    Therefore, this function should be set as global exception
-    handler instead. It logs the exception using the defined
-    facilities and marks the filesystem as needing fsck.
+    Therefore, this function installs a new global exception handler
+    that logs the exception using the defined facilities and marks the
+    filesystem as needing fsck as a safety measure.
 
-    FIXME: Unfortunately, FUSE Python currently catches all
-    OSError and IOError exceptions, so they are "lost" completely.
 
-    FIXME: Code does not yet correspond to documentation.
+    Note: FUSE Python by default catches all `OSError` and `IOError`
+    exceptions, so they are never seen by the global exception
+    handler. To avoid this, this function also patches into the FUSE
+    Python code and replaces the `fuse.ErrnoWrapper` class by
+    `s3ql.ErrnoWrapper`.
     """
 
-    @functools.wraps(fn)
-    def wrapped(self, *a, **kw):
-        if hasattr(self, "fs"):
-            fs = self.fs
-            pathinfo = " [path=%s]" % self.path
+
+    # The Handler
+    def handler(type, value, tb):
+        error([ "Unexpected error:: %s\n" % str(value),
+                "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n",
+                "Please report this bug to the program author.\n"
+                "Traceback:\n",
+                ] + traceback.format_tb(tb))
+
+        fs.mark_damaged()
+
+    # Install
+    sys.excepthook = handler
+
+    # Replace ErrnoWrapper, see docstring
+    fuse.ErrnoWrapper = ErrnoWrapper
+
+
+class ErrnoWrapper(object):
+    """Dispatches calls to FUSE API methods
+
+    This class is meant to be installed as fuse.ErrnoWrapper instead
+    of the class shipped with FUSE Python.
+
+    In contrast to the default one, it catches only those exceptions
+    that have been designated for FUSE (type `FUSEError`). All other
+    exceptions are propagated and can be handled in the global
+    exception hook.
+
+    Moreover, the this ErrnoWrapper logs every request that it
+    dispatches with debug priority.
+    """
+
+    def __init__(self, func):
+        self.func = func
+
+        # Either we are a bound method...
+        if hasattr(func, "im_self"):
+            inst = func.im_self
+            self.name = func.__name__
+
+        # ...or we have open() and create() (I don't quite understand
+        # this myself, dig into lowwrap() in fuse.py if you like)
+        elif hasattr(func, "__name__") and \
+                func.__name__ == "wrap":
+            self.name = "file_class.__init__"
+
+        # ..or we have stateful I/O, which is also encapsulated
+        # differently
+        elif func.__class__.__name__ == "mpx":
+            self.name = "mpx"
+
         else:
-            fs = self
-            pathinfo = ""
+            error(["Error: Don't know what object to wrap\n",
+                   "Please report this as a bug to the author.\n"])
+            self.name = str(func)
 
-        fname = fn.__name__.rstrip("_i")
+    def __call__(self, *a, **kw):
+        """Calls the encapsulated function.
 
-        # Print request name and parameters
-        if fname == "write": # Special case: very large parameters
-            ap = ("<data>",) + a[1:]
+        If it raises a FUSEError, the exception is caught and
+        the appropriate errno is returned.
+        """
+
+        # If we have stateful IO functions, we don't want to
+        # print the file class and add the path as an
+        # additional information
+        if self.name == "mpx":
+            ap = a[1:-1]
+            pathinfo = " [path='%s']" % a[0]
+            name = "file_class." + self.func.name
         else:
             ap = a
-        debug("* Received FUSE request %s(%s)%s" %
-              (fname, ", ".join(map(repr, chain(ap, kw.values()))),
+            name = self.name
+            pathinfo = ""
+
+        # write() is handled special, because we don't want to dump
+        # out the whole buffer to the logs.
+        if name == "write":
+            ap = ("<data>",) + ap[1:-1]
+
+
+        # Print request name and parameters
+        debug("* %s(%s)%s" %
+              (name, ", ".join(map(repr, chain(ap, kw.values()))),
                pathinfo))
 
         try:
-            ret = fn(self, *a, **kw)
-            if fname == "__init__": # Constructors don't return values
-                ret = None
-        except s3qlError, e:
-            error([str(e), "\n",
-                   e.fatal and "fs has probably been damaged, run s3fsck as soon as possible\n" or "\n",
-                   "path: %s, inode: %s, s3key: %s" % (e.path, e.inode, e.s3key) ]
-                  + traceback.format_tb(sys.exc_info()[2]))
-            if e.fatal:
-                fs.mark_damaged()
-            raise
-
-        except:
-            error(["internal fs error:\n", str(sys.exc_info()[1]), "\n",
-                   "please report this as a bug!\n",
-                   "fs has probably been damaged, run s3fsck as soon as possible\n"]
-                  + traceback.format_tb(sys.exc_info()[2]))
-            fs.mark_damaged()
-            raise
-        return ret
-
-    return wrapped
+            return self.func(*a, **kw)
+        except FUSEError, e:
+            return -e.errno
 
 
+class FUSEError(Exception):
+    """Exception representing FUSE Errors to be returned to the kernel.
 
-class s3qlError(IOError):
-    """Class for exceptions generated by s3ql
-
-    Inherits from IOError so that FUSE detects and reports the correct
-    errno.
-
-    Attributes
-    ----------
-
-    :errno:  Errno to return to FUSE
-    :desc:   Detailed text error message
-    :fatal:  Should be set if the error left the filesystem in an inconsistent state
-
-    :path:   The path for which the error occured (if applicable)
-    :inode:  The inode for which the error occured (if applicable)
-    :s3key:  The s3 object key for which the error occured (if applicable)
+    This exception can store only an errno. It is meant to return
+    error codes to the kernel, which can only be done in this
+    limited form.
     """
-
-    def __init__(self, desc, errno=errno.EIO, path=None, inode=None,
-                 s3key = None, fatal=False):
+    def __init__(self, errno):
         self.errno = errno
-        self.desc = desc
-        self.path = path
-        self.inode = inode
-        self.s3key = s3key
-        self.fatal = fatal
 
     def __str__(self):
-        return self.desc
+        return str(self.errno)
 
 
-
-# log function and log level, should be overridden by importer
 def debug(arg):
 
     """ Log message if debug output has been activated
