@@ -153,7 +153,7 @@ class file(object):
                 self.fs.error("etag mismatch for "+ s3key + ". Try increasing the cache size... ")
                 key.get_contents_to_filename(cachepath)
 
-        fd = os.open(path, os.O_RDWR)
+        fd = os.open(cachepath, os.O_RDWR)
         self.fs.sql("UPDATE s3_objects SET dirty=?, fd=?, cachefile=? "
                     "WHERE s3key=?", (False, fd, cachefile, s3key))
 
