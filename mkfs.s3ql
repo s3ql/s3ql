@@ -9,19 +9,20 @@ from boto.s3.connection import S3Connection
 from boto.exception import *
 from boto.s3.key import Key
 import apsw
-import os
 import sys
-import shutil
+import os
 import hashlib
+import stat
 from getpass import getpass
-from stat import *
-from time import time
+import shutil
+from time import time, sleep
 from string import Template
 from optparse import OptionParser
+import s3ql
 
 
 def main():
-    """Initializes an s3qlfs filesystem.
+    """Initializes an S3QL filesystem.
     """
 
     #
@@ -49,15 +50,7 @@ def main():
         parser.error("bucketname not specificed")
     bucket = pps[0]
 
-    if options.awskey:
-        # Read password
-        if sys.stdin.isatty():
-            awspass = getpass("Enter AWS password: ")
-        else:
-            awspass = sys.stdin.readline().rstrip()
-    else:
-        awspass = None
-    awskey = options.awskey
+    (awskey, awspass) = s3ql.get_credentials(options.awskey)
 
     if options.encrypt:
         if sys.stdin.isatty():
@@ -80,11 +73,8 @@ def main():
     # Setup local data
     #
 
-    dbdir = os.environ["HOME"].rstrip("/") + "/.s3qlfs/"
-    dbfile = dbdir + bucket + ".db"
-    cachedir = dbdir + bucket + "-cache/"
-    if not os.path.exists(dbdir):
-        os.mkdir(dbdir)
+    dbfile = s3ql.get_dbfile(bucket)
+    cachedir = s3ql.get_cachedir(bucket)
 
     if os.path.exists(dbfile) or \
             os.path.exists(cachedir):
@@ -93,7 +83,7 @@ def main():
                 os.unlink(dbfile)
             if os.path.exists(cachedir):
                 shutil.rmtree(cachedir)
-            print "Removed existing metadata.\n"
+            print "Removed existing metadata."
         else:
             print >> sys.stderr, \
                 "Local metadata file already exists!\n" \
@@ -157,6 +147,7 @@ def setup_bucket(conn, bucketname, dbfile):
     """
 
     conn.create_bucket(bucketname)
+    sleep(5.0) # Give S3 some propagation time
     bucket = conn.get_bucket(bucketname)
 
     k = Key(bucket)
@@ -181,7 +172,7 @@ def setup_db(dbfile,options):
     CREATE TRIGGER fki_${src_table}_${src_key}
       BEFORE INSERT ON ${src_table}
       FOR EACH ROW BEGIN
-          SELECT RAISE(ROLLBACK, 'insert in column $src_key of table $src_table violates foreign key constraint')
+          SELECT RAISE(ABORT, 'insert in column $src_key of table $src_table violates foreign key constraint')
           WHERE NEW.$src_key IS NOT NULL AND
                 (SELECT $ref_key FROM $ref_table WHERE $ref_key = NEW.$src_key) IS NULL;
       END;
@@ -189,7 +180,7 @@ def setup_db(dbfile,options):
     CREATE TRIGGER fku_${src_table}_${src_key}
       BEFORE UPDATE ON ${src_table}
       FOR EACH ROW BEGIN
-          SELECT RAISE(ROLLBACK, 'update in column $src_key of table $src_table violates foreign key constraint')
+          SELECT RAISE(ABORT, 'update in column $src_key of table $src_table violates foreign key constraint')
           WHERE NEW.$src_key IS NOT NULL AND
                 (SELECT $ref_key FROM $ref_table WHERE $ref_key = NEW.$src_key) IS NULL;
       END;
@@ -198,7 +189,7 @@ def setup_db(dbfile,options):
     CREATE TRIGGER fkd_${src_table}_${src_key}
       BEFORE DELETE ON $ref_table
       FOR EACH ROW BEGIN
-          SELECT RAISE(ROLLBACK, 'delete on table $ref_table violates foreign key constraint of column $src_key in table ${src_table}')
+          SELECT RAISE(ABORT, 'delete on table $ref_table violates foreign key constraint of column $src_key in table ${src_table}')
           WHERE (SELECT $src_key FROM $src_table WHERE $src_key = OLD.$ref_key) IS NOT NULL;
       END;
     """)
@@ -211,11 +202,12 @@ def setup_db(dbfile,options):
         blocksize   INT NOT NULL,
         last_fsck   INT NOT NULL,
         mountcnt    INT NOT NULL,
+        version     INT NOT NULL,
         needs_fsck  BOOLEAN NOT NULL
     );
-    INSERT INTO parameters(name,blocksize,last_fsck,mountcnt,needs_fsck)
-        VALUES(?,?,?,?,?)
-    """, (options.name, options.blocksize * 1024, time(), 0, False))
+    INSERT INTO parameters(name,blocksize,last_fsck,mountcnt,needs_fsck,version)
+        VALUES(?,?,?,?,?, ?)
+    """, (options.name, options.blocksize * 1024, time(), 0, False, 1))
 
     # Table of filesystem objects
     cursor.execute("""
@@ -224,21 +216,26 @@ def setup_db(dbfile,options):
         inode     INT NOT NULL REFERENCES inodes(id),
         parent_inode INT NOT NULL REFERENCES inodes(id)
     );
-    CREATE INDEX ix_contents_inode ON contents(inode);
+    CREATE INDEX ix_contents_parent_inode ON contents(parent_inode);
     """)
 
     # Table with filesystem metadata
+    # The number of links `refcount` to an inode can in theory
+    # be determined from the `contents` table. However, there is no efficient
+    # statement to do so (because we have to count `..` references of all
+    # subdirectories), so we manage this separately.
     cursor.execute("""
     CREATE TABLE inodes (
         -- id has to specified *exactly* as follows to become
         -- an alias for the rowid
         id        INTEGER PRIMARY KEY,
-        uid       INT NOT NULL DEFAULT 0,
-        gid       INT NOT NULL DEFAULT 0,
-        mode      INT NOT NULL DEFAULT 0,
-        mtime     INT NOT NULL DEFAULT 0,
-        atime     INT NOT NULL DEFAULT 0,
-        ctime     INT NOT NULL DEFAULT 0,
+        uid       INT NOT NULL,
+        gid       INT NOT NULL,
+        mode      INT NOT NULL,
+        mtime     INT NOT NULL,
+        atime     INT NOT NULL,
+        ctime     INT NOT NULL,
+        refcount  INT NOT NULL,
 
         -- for symlinks only
         target    BLOB,
@@ -287,33 +284,24 @@ def setup_db(dbfile,options):
                                             "ref_key": "id" }))
 
 
-    # Compute inode reference counts
-    cursor.execute("""
-    CREATE VIEW inode_refs AS
-       SELECT id, COUNT(name) AS refcount
-       FROM inodes LEFT JOIN contents ON id == inode GROUP BY id;
-    """)
-
-    # Create an inodes view with reference counts
-    cursor.execute("""
-    CREATE VIEW inodes_ext AS
-        SELECT * FROM inodes JOIN inode_refs USING(id);
-    """)
-
     # Create a view of the whole fs with all information
     cursor.execute("""
     CREATE VIEW contents_ext AS
-        SELECT * FROM contents JOIN inodes_ext ON id == inode;
+        SELECT * FROM contents JOIN inodes ON id == inode;
     """)
 
 
     # Insert root directory
-    cursor.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime) VALUES (?,?,?,?,?,?)",
-                   (S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR
-                   | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH, 0, 0, time(),
-                    time(), time()))
-    cursor.execute("INSERT INTO contents (name, inode) VALUES(?,?)",
-                   (buffer("/"), conn.last_insert_rowid()))
+    cursor.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                   "VALUES (?,?,?,?,?,?,?)",
+                   (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
+                   | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
+                    os.getuid(), os.getgid(), time(), time(), time(), 2))
+    inode = conn.last_insert_rowid()
+    cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+                   (buffer("/"), inode, inode))
+    cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+                   (buffer("/.."), inode, inode))
 
     # Done setting up metadata table
     conn.close()

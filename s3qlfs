@@ -8,6 +8,8 @@
 from optparse import OptionParser
 from getpass  import getpass
 import s3ql
+import sys
+import os
 
 #
 # Parse command line
@@ -15,10 +17,12 @@ import s3ql
 parser = OptionParser(
     usage="%prog  [options] <bucketname> <mountpoint>\n"
           "       %prog --help",
-    description="Mounts an amazon S3 bucket as a filesystem")
+    description="Mounts an amazon S3 bucket as a filesystem.")
 
 parser.add_option("--awskey", type="string",
-                  help="Amazon Webservices access key to use")
+                  help="Amazon Webservices access key to use. The password is "
+                  "read from stdin. If this option is not specified, both access key "
+                  "and password are read from ~/.awssecret (separated by newlines).")
 parser.add_option("--debug", action="store_true", default=False,
                   help="Generate debugging output")
 parser.add_option("--s3timeout", type="int", default=50,
@@ -40,13 +44,8 @@ if not len(pps) == 2:
 #
 # Read password
 #
-if options.awskey:
-    if sys.stdin.isatty():
-        pw = getpass("Enter AWS password: ")
-    else:
-        pw = sys.stdin.readline().rstrip()
-else:
-    pw = None
+(awskey, pw) = s3ql.get_credentials(options.awskey)
+
 
 #
 # Pass on fuse options
@@ -61,16 +60,14 @@ if options.allow_root:
 # Activate logging
 #
 if options.debug:
-    s3ql.loglevel = 1
+    s3ql.log_level = 1
 
 
 #
 # Start server
 #
-server = s3ql.fs(awskey=options.awskey,
+server = s3ql.fs(awskey=awskey,
                  bucketname=pps[0],
-                 awspass=pw,
-                 fuse_options=fuse_opts,
-                 mountpoint=pps[1])
-server.main()
+                 awspass=pw)
+server.main(pps[1], fuse_opts)
 server.close()

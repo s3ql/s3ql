@@ -86,45 +86,34 @@ USAGE NOTES
 
   2. Wait a sufficient amount of time between subsequent mounts.
 
-  3. S3qlfs tries to enforce both of the above rules, but it cannot do
+  3. S3QL tries to enforce both of the above rules, but it cannot do
      so reliably by design. Thus it really is *your* responsibility.
 
-Having read, understood, and memorized the above, you can create the
-filesystem using:
+Having read, understood, and memorized the above, you can get started by
+obtaining an Amazon S3 account from http://aws.amazon.com/. Write your
+AWS access key and your AWS password into the file .awssecret in your
+home directory (separated by newlines).
 
-  # mks3qlfs --awskey <your_aws_key> bucketname
+Then create the filesystem with
+
+  # mkfs.s3ql <bucketname>
   
-If you do not yet have an Amazon S3 account, you can get one before at
-http://aws.amazon.com/.
-
-The mks3qlfs program also has some more options. You can use the
---help option to get a list.
 
 Now you can mount your filesystem using
 
-  # s3qlfs.py --awskey <your_aws_key> <mountpoint>
-  
-
-NOTE THAT, SINCE THIS IS A TESTING RELEASE, the program will stay in
-foreground and run only single threaded. So do not expect good
-performance. If it prints any errors or warnings, please report them
-as bugs.
-
-A faster, multithreaded version will be released as soon as the author
-decides that the testing phase is over. 
-  
+  # s3qlfs <bucketname> <mountpoint>
   
 
 IF SOMETHING BREAKS
 -------------------
 
 If the network connection (or the whole system) breaks down while the
-file system is mounted, you should try to run s3qlfschk on the machine
+file system is mounted, you should try to run fsck.s3ql on the machine
 where the filesystem was last mounted and by the user who did the last
 mount. This allows to commit any changes that are still cached locally
 and to recover the metadata.
 
-If you run s3fschk on a different machine, it will still bring the
+If you run fsck.s3ql on a different machine, it will still bring the
 filesystem in a consistent state, but you will probably loose much
 more data.
 
@@ -133,7 +122,7 @@ more data.
 IMPLEMENTATION NOTES
 --------------------
   
-S3qlfs stores all filesystem metadata in a single SQL table that is
+S3QL stores all filesystem metadata in a single SQL table that is
 retrieved from S3 when the filesystem is mounted and written back
 periodically. This means that you *must not* mount the same bucket
 more than once. Any attempt to do so will invariantly lead to one

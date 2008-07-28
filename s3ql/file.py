@@ -25,8 +25,6 @@ class file(object):
     Attributes
     ----------
 
-    :cursor: cursor for metadata db
-    :conn:   connection to metadata db
     :fs:     s3qlfs instance belonging to this file
     """
 
@@ -35,8 +33,6 @@ class file(object):
         """
 
         self.fs = fs
-        self.cursor = self.fs.cursor
-        self.conn = self.fs.conn
 
         # FIXME: Apparenty required, even though passed as parameter to fuse
         self.direct_io = True
@@ -45,17 +41,17 @@ class file(object):
         if len(a) == 0 and len(kw) == 0: # internal call
             return
         else:
-            self.opencreate(bpath, flags, mode)
+            self.opencreate(*a, **kw)
 
-    def opencreate(self, bpath, flags, mode=None):
-        self.path = bpath
+    def opencreate(self, path, flags, mode=None):
+        self.path = path
         self.flags = flags
 
         # Create if not existing
         if mode:
-            self.fs.mknod_i(bpath, mode)
+            self.fs.mknod_i(path, mode)
 
-        self.inode = self.fs.getattr_i(bpath).st_ino
+        self.inode = self.fs.get_inode(path)
 
 
     @fuse_request_handler
@@ -73,7 +69,7 @@ class file(object):
         if os.lseek(fd,offset - offset_i, os.SEEK_SET) != offset - offset_i:
             return "\0" * length
 
-        self.fs.update_atime(inode=self.inode)
+        self.fs.update_atime(self.inode)
         return os.read(fd,length)
 
 
@@ -91,13 +87,11 @@ class file(object):
         does not exist.
         """
 
-        # We need to avoid that another thread retrieves or
-        # creates the object at the same time
-        self.fs.lock_inode(self.inode)
+        # FIXME: We need to lock the s3 object here
 
         try:
             # Try to find key
-            (s3key, offset_i, fd, etag) = self.cursor.execute(
+            (s3key, offset_i, fd, etag) = self.fs.sql(
                 "SELECT s3key, offset, fd, etag FROM s3_objects WHERE inode = ? "
                 "AND offset <= ? AND offset >= ? ORDER BY offset DESC LIMIT 1",
                 (self.inode, offset, offset_min)).next()
@@ -107,8 +101,8 @@ class file(object):
                 # the cache.
                 fd = self.retrieve_s3(s3key, etag)
 
-            self.cursor.execute("UPDATE s3_objects SET atime=? WHERE s3key=?",
-                                (time(), s3key))
+            self.fs.sql("UPDATE s3_objects SET atime=? WHERE s3key=?",
+                        (time(), s3key))
             return (s3key, offset_i, fd)
 
         except StopIteration:
@@ -120,7 +114,8 @@ class file(object):
                 (s3key, fd) = self.create_s3(offset_i)
                 return (s3key, offset_i, fd)
         finally:
-            self.fs.unlock_inode(self.inode)
+            pass
+            # FIXME: Here we should unlock
 
 
     def retrieve_s3(self, s3key, etag):
@@ -151,17 +146,16 @@ class file(object):
 
             # If still not found
             if key.etag != etag:
-                raise S3fsException("Object etag doesn't match metadata!",
-                                    s3key=s3key, inode=self.inode, path=self.path,
-                                    fatal=True)
+                raise S3fsError("Object etag doesn't match metadata!",
+                                s3key=s3key, inode=self.inode, path=self.path,
+                                fatal=True)
             else:
                 self.fs.error("etag mismatch for "+ s3key + ". Try increasing the cache size... ")
                 key.get_contents_to_filename(cachepath)
 
         fd = os.open(path, os.O_RDWR)
-        self.cursor.execute(
-            "UPDATE s3_objects SET dirty=?, fd=?, cachefile=? "
-            "WHERE s3key=?", (False, fd, cachefile, s3key))
+        self.fs.sql("UPDATE s3_objects SET dirty=?, fd=?, cachefile=? "
+                    "WHERE s3key=?", (False, fd, cachefile, s3key))
 
         return fd
 
@@ -173,11 +167,13 @@ class file(object):
         """
 
         # Ensure that s3key is ASCII
+        # FIXME: If encryption is activated, the key shouldn't correspond
+        # to the path but to e.g. inode_offset (unique)
         s3key = repr(self.path)[1:-1] + "__" + ("%016d" % offset)
         cachefile = s3key[1:].replace("/", "_")
         cachepath = self.fs.cachedir + cachefile
         fd = os.open(cachepath, os.O_RDWR | os.O_CREAT)
-        self.cursor.execute(
+        self.fs.sql(
             "INSERT INTO s3_objects(inode,offset,dirty,fd,s3key,cachefile, atime) "
             "VALUES(?,?,?,?,?,?,?)", (self.inode, offset, True, fd, s3key, cachefile, time()))
 
@@ -203,7 +199,7 @@ class file(object):
 
         try:
             # Offset of the next s3 object
-            offset_f = self.cursor.execute(
+            offset_f = self.fs.sql(
                 "SELECT s3key FROM s3_objects WHERE inode = ? "
                 "AND offset > ? ORDER BY offset ASC LIMIT 1",
                 (self.inode, offset)).next()[0]
@@ -231,11 +227,11 @@ class file(object):
         # Update filesize if we are working at the last chunk
         if adjsize:
             obj_len = os.lseek(fd, 0, os.SEEK_END)
-            self.cursor.execute("UPDATE inodes SET size=?,ctime=? WHERE id=?",
+            self.fs.sql("UPDATE inodes SET size=?,ctime=? WHERE id=?",
             (offset_i + obj_len, time(), self.inode))
 
         # Update file mtime
-        self.cursor.execute("UPDATE inodes SET mtime=? WHERE id = ?",
+        self.fs.sql("UPDATE inodes SET mtime=? WHERE id = ?",
                             (time(), self.inode))
         return writelen
     write = fuse_request_handler(write_i)
@@ -246,16 +242,15 @@ class file(object):
         """
 
         # Delete all truncated s3 objects
-        res = self.cursor.execute(
-            "SELECT s3key,fd,cachefile FROM s3_objects WHERE "
-            "offset >= ? AND inode=?", (len,inode))
+        res = self.fs.sql("SELECT s3key,fd,cachefile FROM s3_objects WHERE "
+                          "offset >= ? AND inode=?", (len,inode))
 
         for (s3key, fd, cachefile) in res:
             if fd: # File is in cache
                 os.close(fd,0)
                 os.unlink(self.fs.cachedir + cachefile)
             self.fs.bucket.delete_key(s3key)
-        self.cursor.execute("DELETE FROM s3_objects WHERE "
+        self.fs.sql("DELETE FROM s3_objects WHERE "
                             "offset >= ? AND inode=?", (len,inode))
 
         # Get last object before truncation
@@ -271,11 +266,11 @@ class file(object):
         # the file size
         else:
             os.ftruncate(fd, len - offset_i)
-            self.cursor.execute("UPDATE inodes SET size=? WHERE id=?",
+            self.fs.sql("UPDATE inodes SET size=? WHERE id=?",
                                 (len, self.inode))
 
         # Update file's mtime
-        self.cursor.execute("UPDATE inodes SET mtime=?,ctime=? WHERE id = ?",
+        self.fs.sql("UPDATE inodes SET mtime=?,ctime=? WHERE id = ?",
                             (time(), time(), self.inode))
     ftruncate = fuse_request_handler(ftruncate_i)
 
@@ -292,20 +287,20 @@ class file(object):
 
         # Metadata is always synced automatically, so we ignore
         # fdatasync
-        res = self.cursor.execute(
+        res = self.fs.sql(
             "SELECT s3key, fd, cachefile FROM s3_objects WHERE "
             "dirty=? AND inode=?", (True, self.inode))
-        for (s3key, fd, cachefile) in list(res): # Duplicate res, because we need the cursor
+        for (s3key, fd, cachefile) in res:
             # We need to mark as clean *before* we write the changes,
             # because otherwise we would loose changes that occured
             # while we wrote to S3
-            self.cursor.execute("UPDATE s3_objects SET dirty=? WHERE s3key=?",
+            self.fs.sql("UPDATE s3_objects SET dirty=? WHERE s3key=?",
                                 (False, s3key))
             os.fsync(fd)
             key = self.fs.bucket.new_key(s3key)
             key.set_contents_from_filename(self.fs.cachedir + cachefile)
-            self.cursor.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
-                                (key.etag, s3key))
+            self.fs.sql("UPDATE s3_objects SET etag=? WHERE s3key=?",
+                        (key.etag, s3key))
     fsync = fuse_request_handler(fsync_i)
 
 

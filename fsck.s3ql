@@ -59,6 +59,7 @@ if not os.path.exists(self.dbdir):
 
 # Check that parent_inode and filename are consistent
 
+# Check that refcounts are correct
 
 # Obtain list of s3 objects
 
