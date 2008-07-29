@@ -33,6 +33,7 @@ class file(object):
         """
 
         self.fs = fs
+        self.bucket = fs.bucket
 
         # FIXME: Apparenty required, even though passed as parameter to fuse
         self.direct_io = True
@@ -121,31 +122,30 @@ class file(object):
 
         cachefile = s3key[1:].replace("/", "_")
         cachepath = self.fs.cachedir + cachefile
-        key = self.fs.bucket.new_key(s3key)
-        key.get_contents_to_filename(cachepath)
+        meta = self.bucket.fetch_to_file(s3key, cachepath)
 
         # Check etag
-        if key.etag != etag:
+        if meta.etag != etag:
             error(["Changes in %s apparently have not yet propagated. Waiting and retrying...\n" % s3key,
                    "Try to increase the cache size to avoid this.\n"])
             waited = 0
             waittime = 0.01
-            while key.etag != etag and \
+            while meta.etag != etag and \
                     waited < self.fs.timeout:
                 time.sleep(waittime)
                 waited += waittime
                 waittime *= 1.5
-                key = self.bucket.get_key(s3key) # Updates metadata
+                meta = self.bucket.lookup_key(s3key)
 
             # If still not found
-            if key.etag != etag:
+            if meta.etag != etag:
                 error(["etag for %s doesn't match metadata!" % s3key,
                        "Filesystem is probably corrupted (or S3 is having problems), "
                        "run fsck.s3ql as soon as possible.\n"])
                 self.fs.mark_damaged()
                 raise FUSEError(errno.EIO)
             else:
-                key.get_contents_to_filename(cachepath)
+                meta = self.bucket.fetch_to_file(s3key, cachepath)
 
         fd = os.open(cachepath, os.O_RDWR)
         self.fs.sql("UPDATE s3_objects SET dirty=?, fd=?, cachefile=? "
@@ -171,8 +171,7 @@ class file(object):
             "INSERT INTO s3_objects(inode,offset,dirty,fd,s3key,cachefile, atime) "
             "VALUES(?,?,?,?,?,?,?)", (self.inode, offset, True, fd, s3key, cachefile, time()))
 
-        k = self.fs.bucket.new_key(s3key)
-        k.set_contents_from_string("dirty")
+        self.bucket[s3key] = "dirty"
         return (s3key,fd)
 
 
@@ -242,7 +241,7 @@ class file(object):
             if fd: # File is in cache
                 os.close(fd,0)
                 os.unlink(self.fs.cachedir + cachefile)
-            self.fs.bucket.delete_key(s3key)
+            self.bucket.delete_key(s3key)
         self.fs.sql("DELETE FROM s3_objects WHERE "
                             "offset >= ? AND inode=?", (len,inode))
 
@@ -288,10 +287,9 @@ class file(object):
             self.fs.sql("UPDATE s3_objects SET dirty=? WHERE s3key=?",
                                 (False, s3key))
             os.fsync(fd)
-            key = self.fs.bucket.new_key(s3key)
-            key.set_contents_from_filename(self.fs.cachedir + cachefile)
+            meta = self.bucket.store_from_file(s3key, self.fs.cachedir + cachefile)
             self.fs.sql("UPDATE s3_objects SET etag=? WHERE s3key=?",
-                        (key.etag, s3key))
+                        (meta.etag, s3key))
 
 
     # Called for close() calls. Here we sync the data, so that we

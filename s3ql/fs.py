@@ -14,8 +14,6 @@ from fuse import Fuse, Direntry
 import fuse
 from time import time
 import threading
-from boto.s3.connection \
-              import S3Connection
 import s3ql
 from s3ql.common import *
 
@@ -31,7 +29,7 @@ class fs(Fuse):
     """ FUSE filesystem that stores its data on Amazon S3
     """
 
-    def __init__(self, bucketname, awskey=None, awspass=None):
+    def __init__(self, bucket):
         """Initializes S3QL fs.
         """
         Fuse.__init__(self)
@@ -44,17 +42,15 @@ class fs(Fuse):
 
         self.db_lock = threading.Lock() # Locking for database connection
         self.local = threading.local() # Thread local variables
-        self.dbfile = get_dbfile(bucketname)
-        self.cachedir = get_cachedir(bucketname)
+        self.dbfile = get_dbfile(bucket.name)
+        self.cachedir = get_cachedir(bucket.name)
 
         # Connect to S3
-        debug("Connecting to S3...")
-        self.bucket = S3Connection(awskey, awspass).get_bucket(bucketname)
+        self.bucket = bucket
 
         # Check consistency
         debug("Checking consistency...")
-        key = self.bucket.new_key("dirty")
-        if key.get_contents_as_string() != "no":
+        if bucket["dirty"] != "no":
             # FIXME: Replace this by an exception
             print >> sys.stderr, \
                 "Metadata is dirty! Either some changes have not yet propagated\n" \
@@ -85,9 +81,7 @@ class fs(Fuse):
                 "s3fsck.\n"
             sys.exit(1)
         os.mknod(self.dbfile, 0600 | stat.S_IFREG)
-        key = self.bucket.new_key("metadata")
-        key.get_contents_to_filename(self.dbfile)
-
+        bucket.fetch_to_file("metadata", self.dbfile)
 
         # Connect to db
         debug("Connecting to db...")
@@ -119,6 +113,10 @@ class fs(Fuse):
 
         # Update mount count
         self.sql("UPDATE parameters SET mountcnt = mountcnt + 1")
+
+
+    def fsinit(self):
+        debug("Hey guys, I'M here")
 
 
     def sql(self, *a, **kw):
@@ -561,8 +559,7 @@ class fs(Fuse):
             if dirty:
                 error([ "Warning! Object ", s3key, " has not yet been flushed.\n",
                              "Please report this as a bug!\n" ])
-                key = self.bucket.new_key(s3key)
-                key.set_contents_from_filename(self.cachedir + cachefile)
+                bucket.store_from_file(s3key, self.cachedir + cachefile)
                 self.sql_n("UPDATE s3_objects SET dirty=?, cachefile=?, "
                          "etag=?, fd=? WHERE s3key=?",
                          (False, None, key.etag, None, s3key))
@@ -577,11 +574,8 @@ class fs(Fuse):
         debug("Uploading database..")
         self.sql("VACUUM")
         self.conn.close()
-        key = self.bucket.new_key("metadata")
-        key.set_contents_from_filename(self.dbfile)
-
-        key = self.bucket.new_key("dirty")
-        key.set_contents_from_string("no")
+        self.bucket.store_from_file("metadata", self.dbfile)
+        self.bucket.store("dirty", "no")
 
         # Remove database
         debug("Cleaning up...")

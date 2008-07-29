@@ -9,29 +9,28 @@ from optparse import OptionParser
 from getpass  import getpass
 import s3ql
 import sys
+import os
+import tempfile
 
 #
 # Parse command line
 #
 parser = OptionParser(
-    usage="%prog  [options] <bucketname> <mountpoint>\n"
+    usage="%prog  [options] <mountpoint>\n"
           "       %prog --help",
-    description="Mounts an amazon S3 bucket as a filesystem.")
+    description="Emulates S3QL filesystem using in-memory storage"
+    "instead of actually connecting to S3. Only for testing purposes.")
 
-parser.add_option("--awskey", type="string",
-                  help="Amazon Webservices access key to use. The password is "
-                  "read from stdin. If this option is not specified, both access key "
-                  "and password are read from ~/.awssecret (separated by newlines).")
 parser.add_option("--debug", action="store_true", default=False,
                   help="Generate debugging output")
-parser.add_option("--s3timeout", type="int", default=50,
-                  help="Maximum time to wait for propagation in S3 (default: %default)")
 parser.add_option("--allow_others", action="store_true", default=False,
                   help="Allow others users to access the filesystem")
 parser.add_option("--allow_root", action="store_true", default=False,
                   help="Allow root to access the filesystem")
 parser.add_option("-e", action="store_true", default=None,
                   dest="encrypt", help="Create an AES encrypted filesystem")
+parser.add_option("--blocksize", type="int", default=1,
+                  help="Maximum size of s3 objects in KB (default: %default)")
 
 
 (options, pps) = parser.parse_args()
@@ -39,17 +38,14 @@ parser.add_option("-e", action="store_true", default=None,
 #
 # Verify parameters
 #
-if not len(pps) == 2:
+if not len(pps) == 1:
     parser.error("Wrong number of parameters")
-bucketname = pps[0]
-mountpoint = pps[1]
+mountpoint = pps[0]
 
 
 #
 # Read password(s)
 #
-(awskey, awspass) = s3ql.get_credentials(options.awskey)
-
 if options.encrypt:
     if sys.stdin.isatty():
         options.encrypt = getpass("Enter encryption password: ")
@@ -78,10 +74,15 @@ if options.debug:
 
 
 #
-# Connect to S3
+# Initialize local bucket
 #
-conn = s3ql.s3.Connection(awskey, awspass, options.encrypt)
-bucket = conn.get_bucket(bucketname)
+
+bucket = s3ql.s3.LocalBucket()
+dbfile = tempfile.mktemp()
+s3ql.setup_db(dbfile, options.blocksize, None)
+s3ql.setup_bucket(bucket, dbfile)
+os.unlink(dbfile)
+
 
 #
 # Start server

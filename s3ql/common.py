@@ -116,7 +116,7 @@ class ErrnoWrapper(object):
 
         # write() is handled special, because we don't want to dump
         # out the whole buffer to the logs.
-        if name == "write":
+        if name == "file_class.write":
             ap = ("<data>",) + ap[1:-1]
 
 
