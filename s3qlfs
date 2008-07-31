@@ -30,9 +30,12 @@ parser.add_option("--allow_others", action="store_true", default=False,
                   help="Allow others users to access the filesystem")
 parser.add_option("--allow_root", action="store_true", default=False,
                   help="Allow root to access the filesystem")
-parser.add_option("-e", action="store_true", default=None,
-                  dest="encrypt", help="Create an AES encrypted filesystem")
-
+parser.add_option("--encrypt", action="store_true", default=None,
+                  help="Create an AES encrypted filesystem")
+parser.add_option("--nonempty", action="store_true", default=False,
+                  help="Allow mount if even mount point is not empty")
+parser.add_option("--fg", action="store_true", default=False,
+                  help="Do not daemonize, stay in foreground")
 
 (options, pps) = parser.parse_args()
 
@@ -68,6 +71,8 @@ if options.allow_others:
     fuse_opts.append("allow_others")
 if options.allow_root:
     fuse_opts.append("allow_root")
+if options.non_empty:
+    fuse_opts.append("non_empty")
 
 
 #
@@ -87,5 +92,5 @@ bucket = conn.get_bucket(bucketname)
 # Start server
 #
 server = s3ql.fs(bucket)
-server.main(mountpoint, fuse_opts)
+server.main(mountpoint, fuse_opts, options.fg)
 server.close()

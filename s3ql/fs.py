@@ -530,7 +530,7 @@ class fs(Fuse):
         file.ftruncate(len)
         file.release()
 
-    def main(self, mountpoint, fuse_options):
+    def main(self, mountpoint, fuse_options=None, fg=False):
         """Starts the main loop handling FUSE requests.
         """
 
@@ -542,8 +542,13 @@ class fs(Fuse):
                           "default_permissions",
                           "use_ino",
                           "fsname=s3qlfs" ] + fuse_options
-        Fuse.main(self, [sys.argv[0], "-f", "-o" + ",".join(mountoptions),
-                         mountpoint])
+        args = [ sys.argv[0], "-o" + ",".join(mountoptions), mountpoint]
+
+        if fg:
+            args.append("-f")
+
+        Fuse.main(self, args)
+
 
 
 
