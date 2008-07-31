@@ -71,8 +71,8 @@ if options.allow_others:
     fuse_opts.append("allow_others")
 if options.allow_root:
     fuse_opts.append("allow_root")
-if options.non_empty:
-    fuse_opts.append("non_empty")
+if options.nonempty:
+    fuse_opts.append("nonempty")
 
 
 #
