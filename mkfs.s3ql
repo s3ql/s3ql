@@ -30,8 +30,8 @@ parser.add_option("--blocksize", type="int", default=10240,
                   help="Maximum size of s3 objects in KB (default: %default)")
 parser.add_option("-f", action="store_true", default=False,
                   dest="force", help="Force creation and remove any existing data")
-parser.add_option("-e", action="store_true", default=None,
-                  dest="encrypt", help="Create an AES encrypted filesystem")
+parser.add_option("--encrypt", action="store_true", default=None,
+                  help="Create an AES encrypted filesystem")
 
 (options, pps) = parser.parse_args()
 
