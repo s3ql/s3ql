@@ -31,7 +31,7 @@ parser.add_option("--allow_others", action="store_true", default=False,
 parser.add_option("--allow_root", action="store_true", default=False,
                   help="Allow root to access the filesystem")
 parser.add_option("--encrypt", action="store_true", default=None,
-                  help="Create an AES encrypted filesystem")
+                  help="Mount an encrypted filesystem")
 parser.add_option("--nonempty", action="store_true", default=False,
                   help="Allow mount if even mount point is not empty")
 parser.add_option("--fg", action="store_true", default=False,
