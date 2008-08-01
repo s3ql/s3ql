@@ -6,6 +6,7 @@
 #
 import hashlib
 from time import time, sleep
+from datetime import datetime
 from boto.s3.connection import S3Connection
 import boto.exception
 
@@ -222,7 +223,7 @@ class LocalBucket(Bucket):
         else:
             return self.keys[key][0]
 
-    def list_keys(self, prefix=None, separator=None):
+    def list_keys(self):
         for key in self.keys:
             yield self.keys[key]
 
@@ -232,11 +233,11 @@ class LocalBucket(Bucket):
     def fetch(self, key):
         return self.keys[key]
 
-    def store(self, key, val, metadata=None):
+    def store(self, key, val):
         metadata = Metadata(metadata) if metadata else Metadata()
         metadata.key = key
         metadata.size = len(val)
-        metadata.last_modified = time()
+        metadata.last_modified = datetime.now()
         metadata.etag =  hashlib.md5(val).hexdigest()
         self.keys[key] = (val, metadata)
         return metadata
@@ -249,12 +250,12 @@ class LocalBucket(Bucket):
         file.close()
         return metadata
 
-    def store_from_file(self, key, file, metadata=None):
+    def store_from_file(self, key, file):
         file = open(file, "rb")
         value = file.read()
         file.close()
 
-        return self.store(key, value, metadata)
+        return self.store(key, value)
 
 
 class Metadata(dict):
