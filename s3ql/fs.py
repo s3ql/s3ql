@@ -29,7 +29,7 @@ class fs(Fuse):
     """ FUSE filesystem that stores its data on Amazon S3
     """
 
-    def __init__(self, bucket):
+    def __init__(self, bucket, dbfile, cachedir):
         """Initializes S3QL fs.
         """
         Fuse.__init__(self)
@@ -42,48 +42,10 @@ class fs(Fuse):
 
         self.db_lock = threading.Lock() # Locking for database connection
         self.local = threading.local() # Thread local variables
-        self.dbfile = get_dbfile(bucket.name)
-        self.cachedir = get_cachedir(bucket.name)
-
-        # Connect to S3
+        self.dbfile = dbfile
+        self.cachedir = cachedir
         self.bucket = bucket
 
-        # Check consistency
-        debug("Checking consistency...")
-        if bucket["dirty"] != "no":
-            # FIXME: Replace this by an exception
-            print >> sys.stderr, \
-                "Metadata is dirty! Either some changes have not yet propagated\n" \
-                "through S3 or the filesystem has not been umounted cleanly. In\n" \
-                "the later case you should run s3fsck on the system where the\n" \
-                "filesystem has been mounted most recently!\n"
-            sys.exit(1)
-
-        # Init cache
-        if os.path.exists(self.cachedir):
-            # FIXME: Replace this by an exception
-            print >> sys.stderr, \
-                "Local cache files already exists! Either you are trying to\n" \
-                "to mount a filesystem that is already mounted, or the filesystem\n" \
-                "has not been umounted cleanly. In the later case you should run\n" \
-                "s3fsck.\n"
-            sys.exit(1)
-        os.mkdir(self.cachedir, 0700)
-
-        # Download metadata
-        debug("Downloading metadata...")
-        if os.path.exists(self.dbfile):
-            # FIXME: Replace this by an exception
-            print >> sys.stderr, \
-                "Local metadata file already exists! Either you are trying to\n" \
-                "to mount a filesystem that is already mounted, or the filesystem\n" \
-                "has not been umounted cleanly. In the later case you should run\n" \
-                "s3fsck.\n"
-            sys.exit(1)
-        os.mknod(self.dbfile, 0600 | stat.S_IFREG)
-        bucket.fetch_to_file("metadata", self.dbfile)
-
-        # Connect to db
         debug("Connecting to db...")
         self.conn = apsw.Connection(self.dbfile)
         self.conn.setbusytimeout(5000)
@@ -92,31 +54,18 @@ class fs(Fuse):
         debug("Reading fs parameters...")
         (self.blocksize,) = self.sql("SELECT blocksize FROM parameters").next()
 
-        # Check that the fs itself is clean
-        (dirty,) = self.sql("SELECT needs_fsck FROM parameters").next()
-        if dirty:
-            # FIXME: Replace this by an exception
-            print >> sys.stderr, "Filesystem damaged, run s3fsk!\n"
-            #os.unlink(self.dbfile)
-            #os.rmdir(self.cachedir)
-            #sys.exit(1)
-
         # Check filesystem revision
         (rev,) = self.sql("SELECT version FROM parameters").next()
         if rev < 1:
             # FIXME: Replace this by an exception
             print >> sys.stderr, "This version of S3QL is too old for the filesystem!\n"
-            #os.unlink(self.dbfile)
-            #os.rmdir(self.cachedir)
-            #sys.exit(1)
+            os.unlink(self.dbfile)
+            os.rmdir(self.cachedir)
+            sys.exit(1)
 
 
         # Update mount count
         self.sql("UPDATE parameters SET mountcnt = mountcnt + 1")
-
-
-    def fsinit(self):
-        debug("Hey guys, I'M here")
 
 
     def sql(self, *a, **kw):

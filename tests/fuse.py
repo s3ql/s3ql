@@ -27,8 +27,8 @@ class fuse(TestCase):
     def test_mount(self):
 
         # Mount
-        self.pid = os.spawnl(os.P_NOWAIT, "./s3qlfs_local",
-                             "s3qlfs_local", "--fg", "--nonempty", self.base)
+        self.pid = os.spawnl(os.P_NOWAIT, "./s3qlfs_local", "s3qlfs_local",
+                             "--fg", "--fsck", "--nonempty", self.base)
         time.sleep(1) # Should be sufficient
         assert_true(not os.path.exists(self.basefile))
 
@@ -49,8 +49,6 @@ class fuse(TestCase):
             assert_true(os.WIFEXITED(status))
             assert_equals(os.WEXITSTATUS(status), 0)
             assert_true(os.path.exists(self.basefile))
-
-            # FIXME: We should also run fsck now
 
     def random_name(self):
         return "s3ql" + str(randrange(10,99,1))

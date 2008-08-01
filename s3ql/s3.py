@@ -51,6 +51,9 @@ class Connection(object):
             self.create_bucket(name)
             # S3 needs some time before we can fetch the bucket
             sleep(5)
+        else:
+            # FIXME: Check that bucket encryption password is correct
+            pass
 
         return Bucket(self, name)
 
@@ -135,7 +138,7 @@ class Bucket(object):
         doesn't define the `metadata` variable).
         """
 
-        return self.bucket.list_keys()
+        return self.bucket.list()
 
 
     def fetch(self, key):
@@ -197,7 +200,11 @@ class Bucket(object):
 
         meta = Metadata(bkey.metadata)
         meta.etag = bkey.etag
-        meta.last_modified = datetime.strptime(bkey.last_modified, "%a, %d %b %Y %H:%M:%S %Z")
+        if bkey.last_modified is not None:
+            meta.last_modified = datetime.strptime(
+                bkey.last_modified, "%a, %d %b %Y %H:%M:%S %Z")
+        else:
+            meta.last_modified = None
         meta.size = bkey.size
 
         return meta

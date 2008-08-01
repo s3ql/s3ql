@@ -35,6 +35,8 @@ parser.add_option("--encrypt", action="store_true", default=None,
                   help="Create an AES encrypted filesystem")
 parser.add_option("--blocksize", type="int", default=1,
                   help="Maximum size of s3 objects in KB (default: %default)")
+parser.add_option("--fsck", action="store_true", default=False,
+                  help="Runs fsck after the filesystem is unmounted.")
 
 
 (options, pps) = parser.parse_args()
@@ -96,3 +98,13 @@ os.unlink(dbfile)
 server = s3ql.fs(bucket)
 server.main(mountpoint, fuse_opts, options.fg)
 server.close()
+
+#
+# Do fsck
+#
+ret = s3ql.fsck.check_bucket(bucket, checkonly=True)
+
+if not ret:
+    sys.exit(0)
+else:
+    sys.exit(1)
