@@ -134,3 +134,14 @@ if dirty:
 server = s3ql.fs(bucket, dbfile, cachepath)
 server.main(mountpoint, fuse_opts, options.fg)
 server.close()
+
+
+# Upload database
+debug("Uploading database..")
+bucket.store_from_file("metadata", dbfile)
+bucket.store("dirty", "no")
+
+# Remove database
+debug("Cleaning up...")
+os.unlink(dbfile)
+os.rmdir(cachedir)

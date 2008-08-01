@@ -13,8 +13,12 @@ def check_cache(cursor, checkonly):
     - For each file in the cache, there is an entry in the table
     - For each entry in the table, there is a cache file
 
+    If `checkonly` is disabled, it also:
+    - Commits all cache entries to S3 and deletes them
+
     Returns `False` if any errors have been found.
     """
+    return True
 
 def check_parameters(cursor, checkonly):
     """Check that filesystem parameters are set
@@ -22,6 +26,7 @@ def check_parameters(cursor, checkonly):
     Returns `False` if any errors have been found.
     """
     pass
+    return True
 
 def check_contents(cursor, checkonly):
     """Check contents table
@@ -34,6 +39,7 @@ def check_contents(cursor, checkonly):
     Returns `False` if any errors have been found.
     """
     pass
+    return True
 
 def check_inodes(cursor, checkonly):
     """Check inode table
@@ -45,6 +51,7 @@ def check_inodes(cursor, checkonly):
     Returns `False` if any errors have been found.
     """
     pass
+    return True
 
 def check_s3(cursor, checkonly):
     """Checks s3_objects table.
@@ -55,6 +62,7 @@ def check_s3(cursor, checkonly):
     Returns `False` if any errors have been found.
     """
     pass
+    return True
 
 
 def check_keylist(cursor, keylist, checkonly):
@@ -70,3 +78,4 @@ def check_keylist(cursor, keylist, checkonly):
     Returns `False` if any errors have been found.
     """
     pass
+    return True

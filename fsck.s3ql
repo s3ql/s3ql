@@ -139,7 +139,6 @@ else:
 
 conn = apsw.Connection(dbfile)
 cursor = conn.cursor()
-cursor2 = conn.cursor()
 
 # Check filesystem revision
 (rev,) = cursor.execute("SELECT version FROM parameters").next()
@@ -151,17 +150,9 @@ if rev < 1:
 # Now we can check
 print "Checking filesystem parameters..."
 s3ql.fsck.check_parameters(cursor, options.checkonly)
+
 print "Checking local cache..."
 s3ql.fsck.check_cache(cursor, options.checkonly)
-
-
-# Reopen all cache files here
-print "Reopening cache files..."
-res = cursor.execute("SELECT s3key,cachefile FROM s3_objects WHERE fd IS NOT NULL")
-for (s3key, cachefile) in res:
-    fd = os.open(cachedir + cachepath, os.O_RDWR)
-    cursor2.execute("UPDATE s3_objects SET fd=? WHERE s3key=?",
-                    (fd, s3key))
 
 print "Checking directory entries..."
 s3ql.fsck.check_contents(cursor, options.checkonly)
@@ -178,22 +169,6 @@ if not options.checkonly:
     print "Committing data to S3..."
     cursor.execute("UPDATE parameters SET needs_fsck=?, last_fsck=?, "
                    "mountcnt=?", (False, time.time(), 0))
-
-    res = cursor.execute("SELECT s3key, fd, dirty, cachefile FROM s3_objects WHERE fd IS NOT NULL")
-    for (s3key, fd, dirty, cachefile) in res:
-        s3ql.debug("\t" + s3key)
-        os.close(fd)
-        if dirty:
-            bucket.store_from_file(s3key, cachedir + cachefile)
-            cursor2.execute("UPDATE s3_objects SET dirty=?, cachefile=?, "
-                       "etag=?, fd=? WHERE s3key=?",
-                       (False, None, key.etag, None, s3key))
-        else:
-            cursor2.execute("UPDATE s3_objects SET cachefile=?, fd=? WHERE s3key=?",
-                       (None, None, s3key))
-
-        os.unlink(cachedir + cachefile)
-
 
     cursor.execute("VACUUM")
     conn.close()

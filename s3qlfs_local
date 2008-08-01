@@ -11,6 +11,7 @@ import s3ql
 import sys
 import os
 import tempfile
+import apsw
 
 #
 # Parse command line
@@ -87,24 +88,41 @@ if options.debug:
 
 bucket = s3ql.s3.LocalBucket()
 dbfile = tempfile.mktemp()
+cachedir = tempfile.mkdtemp()
 s3ql.setup_db(dbfile, options.blocksize, None)
 s3ql.setup_bucket(bucket, dbfile)
-os.unlink(dbfile)
 
 
 #
 # Start server
 #
-server = s3ql.fs(bucket)
+server = s3ql.fs(bucket, dbfile, cachedir)
 server.main(mountpoint, fuse_opts, options.fg)
 server.close()
+
 
 #
 # Do fsck
 #
-ret = s3ql.fsck.check_bucket(bucket, checkonly=True)
+ok = True
+if options.fsck:
+    conn = apsw.Connection(dbfile)
+    cursor = conn.cursor()
 
-if not ret:
+    if  not ( \
+        s3ql.fsck.check_contents(cursor, True) and
+        s3ql.fsck.check_inodes(cursor,  True) and
+        s3ql.fsck.check_s3(cursor,  True) and
+        s3ql.fsck.check_keylist(cursor, bucket.list_keys(), True)
+        ):
+        ok = False
+
+    conn.close()
+
+os.unlink(dbfile)
+os.rmdir(cachedir)
+
+if ok:
     sys.exit(0)
 else:
     sys.exit(1)

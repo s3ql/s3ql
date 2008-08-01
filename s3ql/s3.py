@@ -241,7 +241,7 @@ class LocalBucket(Bucket):
         return self.keys[key]
 
     def store(self, key, val):
-        metadata = Metadata(metadata) if metadata else Metadata()
+        metadata = Metadata()
         metadata.key = key
         metadata.size = len(val)
         metadata.last_modified = datetime.now()

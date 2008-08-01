@@ -524,14 +524,5 @@ class fs(Fuse):
             os.unlink(self.cachedir + cachefile)
 
 
-        # Upload database
-        debug("Uploading database..")
         self.sql("VACUUM")
         self.conn.close()
-        self.bucket.store_from_file("metadata", self.dbfile)
-        self.bucket.store("dirty", "no")
-
-        # Remove database
-        debug("Cleaning up...")
-        os.unlink(self.dbfile)
-        os.rmdir(self.cachedir)
