@@ -144,7 +144,6 @@ class FUSEError(Exception):
     def __str__(self):
         return str(self.errno)
 
-
 def debug(arg):
 
     """ Log message if debug output has been activated

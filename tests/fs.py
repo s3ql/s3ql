@@ -5,11 +5,9 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
-from common import *
-from file import *
-from fs import *
-import s3
-from mkfs import *
+from tests import TestCase, assert_true, assert_equals, assert_raises
 
-log_fn = sys.stderr.writelines
-log_level = 0
+class fs(TestCase):
+    pass
+
+    # Check that s3 objects are committed after fsync

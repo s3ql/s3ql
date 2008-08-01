@@ -1,0 +1,54 @@
+#!/usr/bin/env python
+#
+#    Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
+#
+#    This program can be distributed under the terms of the GNU LGPL.
+#
+
+import tests
+import types
+import traceback
+import sys
+
+
+#
+# Run tests
+#
+
+failcnt = 0
+total = 0
+for cl_ob in [ x for x in tests.__dict__.itervalues()
+               if hasattr(x, "__base__") and
+               x.__base__ == tests.TestCase ]:
+
+    # Instantiate TestCase
+    inst = cl_ob()
+
+    # Run test methods
+    fns = [ x for x in cl_ob.__dict__.itervalues() if
+                  type(x) is types.FunctionType and
+                  x.__name__.startswith("test") ]
+    fns.sort(key=lambda x: x.__name__)
+    for test in fns:
+        print ("%s.%s... " % (cl_ob.__name__, test.__name__)),
+        total += 1
+        try:
+            test(inst)
+        except AssertionError, e:
+            print "FAILED:", str(e)
+            print "".join(traceback.format_tb(sys.exc_info()[2])[1:-1])
+            failcnt += 1
+        else:
+            print "passed"
+
+    # Run destructor
+    inst.destroy()
+
+
+
+if failcnt > 0:
+    print "%d out of %d tests FAILED!" % (failcnt, total)
+    sys.exit(1)
+else:
+    print "All %d tests completed successfully." % total
+    sys.exit(0)
