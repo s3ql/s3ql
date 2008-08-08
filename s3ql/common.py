@@ -145,7 +145,6 @@ class FUSEError(Exception):
         return str(self.errno)
 
 def debug(arg):
-
     """ Log message if debug output has been activated
     """
 
@@ -159,6 +158,15 @@ def debug(arg):
 
 def error(arg):
     """ Log error message
+    """
+
+    if type(arg) != type([]):
+        arg = [arg, "\n"]
+
+    s3ql.log_fn(arg)
+
+def warn(arg):
+    """ Log warning message
     """
 
     if type(arg) != type([]):
@@ -219,3 +227,15 @@ def get_credentials(key=None):
     pw = file.readline().rstrip()
 
     return (awskey, pw)
+
+
+class RevisionError:
+    """Raised if the filesystem revision is too new for the program
+    """
+    def __init__(self, args):
+        self.rev_is = args[0]
+        self.rev_should = args[1]
+
+    def __str__(self):
+        return "Filesystem has revision %d, filesystem tools can only handle " \
+                "revisions up %d" % (self.rev_is, self.rev_should)

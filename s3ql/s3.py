@@ -9,6 +9,7 @@ from time import time, sleep
 from datetime import datetime
 from boto.s3.connection import S3Connection
 import boto.exception
+import threading
 
 class Connection(object):
     """Represents a connection to Amazon S3
@@ -87,6 +88,7 @@ class Bucket(object):
         self.name = name
         self.conn = conn
         self.bucket = conn.boto.get_bucket(name)
+
 
     def __str__(self):
         return "<bucket: %s>" % self.name
@@ -216,15 +218,26 @@ class LocalBucket(Bucket):
 
 
     This class doesn't actually connect but holds all data in
-    memory. It is meant only for testing purposes.
+    memory. It is meant only for testing purposes. It emulates a
+    propagation delay of 5 seconds and a transmit time of 5 seconds.
+    It raises ConcurrencyError if several threads try to write or read
+    the same object at a time.
     """
 
     def __init__(self, name="local"):
         self.keys = {}
         self.name = name
+        self.in_transmit = set()
+        self.tx_delay = 5
+        self.prop_delay = 5
 
 
     def lookup_key(self, key):
+        if key in self.in_transmit:
+            raise ConcurrencyError
+        self.in_transmit.add(key)
+        sleep(self.tx_delay)
+        self.in_transmit.remove(key)
         if not self.keys.has_key(key):
             return None
         else:
@@ -235,18 +248,37 @@ class LocalBucket(Bucket):
             yield self.keys[key]
 
     def delete_key(self, key):
+        if key in self.in_transmit:
+            raise ConcurrencyError
+        self.in_transmit.add(key)
+        sleep(self.tx_delay)
         del self.keys[key]
+        self.in_transmit.remove(key)
 
     def fetch(self, key):
+        if key in self.in_transmit:
+            raise ConcurrencyError
+        self.in_transmit.add(key)
+        sleep(self.tx_delay)
+        self.in_transmit.remove(key)
         return self.keys[key]
 
     def store(self, key, val):
+        if key in self.in_transmit:
+            raise ConcurrencyError
+        self.in_transmit.add(key)
+        sleep(self.tx_delay)
         metadata = Metadata()
         metadata.key = key
         metadata.size = len(val)
         metadata.last_modified = datetime.now()
         metadata.etag =  hashlib.md5(val).hexdigest()
-        self.keys[key] = (val, metadata)
+        def set():
+            sleep(self.prop_delay)
+            self.keys[key] = (val, metadata)
+        t = threading.Thread(target=set)
+        t.start()
+        self.in_transmit.remove(key)
         return metadata
 
 
@@ -275,4 +307,10 @@ class Metadata(dict):
     Note that the last-modified attribute is a datetime object.
     """
 
+    pass
+
+
+class ConcurrencyError(Exception):
+    """Raised if several threads try to access the same s3 object
+    """
     pass

@@ -36,6 +36,8 @@ parser.add_option("--nonempty", action="store_true", default=False,
                   help="Allow mount if even mount point is not empty")
 parser.add_option("--fg", action="store_true", default=False,
                   help="Do not daemonize, stay in foreground")
+parser.add_option("--cachesize", type="int", default=None,
+                  help="Cache size (default: 30 * fs blocksize)")
 
 (options, pps) = parser.parse_args()
 
@@ -113,35 +115,37 @@ if os.path.exists(cachedir) or os.path.exists(dbfile):
     sys.exit(1)
 
 # Init cache + get metadata
-debug("Downloading metadata...")
-os.mknod(dbfile, 0600 | stat.S_IFREG)
-os.mkdir(cachedir, 0700)
-bucket.fetch_to_file("metadata", dbfile)
+try:
+    debug("Downloading metadata...")
+    os.mknod(dbfile, 0600 | stat.S_IFREG)
+    os.mkdir(cachedir, 0700)
+    bucket.fetch_to_file("metadata", dbfile)
 
-# Check that the fs itself is clean
-conn = apsw.Connection(dbfile)
-(dirty,) = conn.cursor().execute("SELECT needs_fsck FROM parameters").next()
-conn.close()
-if dirty:
-    print >> sys.stderr, "Filesystem damaged, run s3fsk!\n"
-    os.unlink(dbfile)
-    os.rmdir(cachedir)
-    sys.exit(1)
+    # Check that the fs itself is clean
+    conn = apsw.Connection(dbfile)
+    (dirty,) = conn.cursor().execute("SELECT needs_fsck FROM parameters").next()
+    conn.close()
+    if dirty:
+        print >> sys.stderr, "Filesystem damaged, run s3fsk!\n"
+        sys.exit(1)
 
-#
-# Start server
-#
-server = s3ql.fs(bucket, dbfile, cachepath)
-server.main(mountpoint, fuse_opts, options.fg)
-server.close()
+    #
+    # Start server
+    #
+    server = s3ql.fs(bucket, dbfile, cachepath,
+                obfuscate_keys=(options.encrypt is not None),
+                cachesize=cachesize)
+    server.main(mountpoint, fuse_opts, options.fg)
+    server.close()
 
 
-# Upload database
-debug("Uploading database..")
-bucket.store_from_file("metadata", dbfile)
-bucket.store("dirty", "no")
+    # Upload database
+    debug("Uploading database..")
+    bucket.store_from_file("metadata", dbfile)
+    bucket.store("dirty", "no")
 
 # Remove database
-debug("Cleaning up...")
-os.unlink(dbfile)
-os.rmdir(cachedir)
+finally:
+    debug("Cleaning up...")
+    os.unlink(dbfile)
+    os.rmdir(cachedir)

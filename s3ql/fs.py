@@ -16,6 +16,7 @@ from time import time
 import threading
 import s3ql
 from s3ql.common import *
+import resource
 
 # Check fuse version
 if not hasattr(fuse, '__version__'):
@@ -27,10 +28,71 @@ fuse.feature_assert('stateful_files', 'has_init')
 
 class fs(Fuse):
     """ FUSE filesystem that stores its data on Amazon S3
+
+    Attributes:
+    -----------
+
+    :file_class:  Class implementing file access operations
+    :local:       Thread-local storage, used for database cursors
+    :dbfile:      Filename of metadata db
+    :cachedir:    Directory for s3 object cache
+    :conn:        Database connection
+    :db_lock:     Lock object for operations on the database connection
+    :bucket:      Bucket object for datatransfer with S3
+    :obfuscate_keys: If `True`, new s3 keys are generated from inode
+                  numbers. If `False`, new s3 keys contain the full
+                  pathname of the file they belong to.
+    :s3_lock:     Condition object for locking of specific s3 keys
+    :noatime:     True if entity access times shouldn't be updated.
+
+    Note: `noatime` does not guarantee that access time will not be
+    updated, but only prevents the update where it would adversely
+    influence performance.
+
+
+
+    Notes on Locking
+    ----------------
+
+    It is necessary to prevent simultanous access to the same s3
+    object by multiple threads. While read() and write() operations
+    could in principle also run unsychronized, cache flushing and
+    creation of new objects require complete synchronization (also
+    with read() and write()).
+
+    Unfortunately we cannot just use a global lock for all s3 object
+    operations, since this would slow down the application
+    considerably (even local operations would have to wait for network
+    operations to release the lock). Therefore we have to lock on a
+    per-object basis.
+
+    While this works fine in principle, we must keep in mind that the
+    lack of a global lock means that we must not rely on any
+    information associated with an s3 key before we hold the lock on
+    this key. An operation involving s3 objects is therefore always of
+    the following form:
+
+     1. Look up the s3 key if not yet known
+
+     2. Lock the s3 key
+
+     3. *Update any data associated with the s3 key* (!)
+
+     4. Perform actual operation
+
+     5. Unlock the s3 key
+
+
+    The locking and unlocking of the s3 keys has to be done with the
+    lock_s3key() and unlock_s3key methods.
     """
 
-    def __init__(self, bucket, dbfile, cachedir):
+    def __init__(self, bucket, dbfile, cachedir, obfuscate_keys=False,
+                 noatime=False, cachesize=None):
         """Initializes S3QL fs.
+
+        If `obfuscate_keys` is true, s3keys are not generated from
+        pathnames but from inode numbers.
         """
         Fuse.__init__(self)
 
@@ -40,11 +102,17 @@ class fs(Fuse):
                 s3ql.file.__init__(self2, self, *a, **kw)
         self.file_class = file_class
 
-        self.db_lock = threading.Lock() # Locking for database connection
-        self.local = threading.local() # Thread local variables
+        self.local = threading.local()
         self.dbfile = dbfile
         self.cachedir = cachedir
         self.bucket = bucket
+        self.obfuscate_keys = obfuscate_keys
+        self.noatime = noatime
+
+        # Init Locks
+        self.db_lock = threading.Lock()
+        self.s3_lock = threading.Condition()
+        self.s3_lock.locked_keys = set()
 
         debug("Connecting to db...")
         self.conn = apsw.Connection(self.dbfile)
@@ -54,19 +122,47 @@ class fs(Fuse):
         debug("Reading fs parameters...")
         (self.blocksize,) = self.sql("SELECT blocksize FROM parameters").next()
 
+        # Calculate cachesize
+        if cachesize is None:
+            self.cachesize = self.blocksize * 30
+        else:
+            self.cachesize = cachesize
+
         # Check filesystem revision
         (rev,) = self.sql("SELECT version FROM parameters").next()
         if rev < 1:
-            # FIXME: Replace this by an exception
-            print >> sys.stderr, "This version of S3QL is too old for the filesystem!\n"
-            os.unlink(self.dbfile)
-            os.rmdir(self.cachedir)
-            sys.exit(1)
-
+            raise RevisionError, (rev, 1)
 
         # Update mount count
         self.sql("UPDATE parameters SET mountcnt = mountcnt + 1")
 
+
+    def sql_value(self, *a, **kw):
+        """Executes a select statement and returns a single value.
+
+        The statement is passed to `self.sql`, and the first element
+        of the first result row is returned.
+        """
+
+        return self.sql(*a, **kw).next()[0]
+
+    def sql_list(self, *a, **kw):
+        """Executes a select statement and returns result list
+
+        The statement is passed to `self.sql`, and the result
+        elemented is converted to a list and returned
+        """
+
+        return list(self.sql(*a, **kw))
+
+    def sql_row(self, *a, **kw):
+        """Executes a select statement and returns first row
+
+        The statement is passed to `self.sql`, and the first result
+        row is returned as a tuple.
+        """
+
+        return self.sql(*a, **kw).next()
 
     def sql(self, *a, **kw):
         """Executes given SQL statement with thread-local cursor.
@@ -88,12 +184,15 @@ class fs(Fuse):
 
         return cursor.execute(*a, **kw)
 
-    def sql_n(self, *a, **kw):
+    def sql_sep(self, *a, **kw):
         """Executes given SQL statement with new cursor
 
         The statement is passed to the cursor.execute() method and
         the resulting object is returned. The cursor object
         is discarded.
+
+        The ``sep`` in the function name stands for the usage of a
+        separate cursor instead of the main one.
         """
 
         try:
@@ -127,10 +226,11 @@ class fs(Fuse):
              fstat.st_mtime,
              fstat.st_ctime) = res.next()
         except StopIteration:
-            return -errno.ENOENT
+            # Not truly an error
+            raise FUSEError(errno.ENOENT)
 
-        # FIXME: Preferred blocksize for doing IO
-        fstat.st_blksize = 512 * 1024
+        # preferred blocksize for doing IO
+        fstat.st_blksize = resource.getpagesize()
 
         if stat.S_ISREG(fstat.st_mode):
             # determine number of blocks for files
@@ -162,7 +262,6 @@ class fs(Fuse):
         (target,inode) = self.sql("SELECT target,inode FROM contents_ext "
                                   "WHERE name=?", (buffer(path),)).next()
         self.update_atime(inode)
-
         return str(target)
 
     def readdir(self, path, offset):
@@ -196,6 +295,9 @@ class fs(Fuse):
 
         The objects atime will be set to the current time.
         """
+
+        if self.noatime:
+            return
 
         self.sql("UPDATE inodes SET atime=? WHERE id=?", (time(), inode))
 
@@ -391,8 +493,6 @@ class fs(Fuse):
         self.sql("UPDATE inodes SET uid=?, gid=?, ctime=? WHERE id=(SELECT inode "
                  "FROM contents WHERE name=?)", (user, group, time(), buffer(path)))
 
-    # This function is also called internally, so we define
-    # an unwrapped version
     def mknod(self, path, mode, dev=None):
         """Handles FUSE mknod() requests.
         """
@@ -453,8 +553,8 @@ class fs(Fuse):
 
         stat = fuse.StatVfs()
 
-        # FIMXME: Blocksize, basically random
-        stat.f_bsize = 1024*1024*512 # 512 KB
+        # Blocksize
+        stat.f_bsize = resource.getpagesize()
         stat.f_frsize = stat.f_bsize
 
         # Get number of blocks & inodes blocks
@@ -483,9 +583,26 @@ class fs(Fuse):
         """Starts the main loop handling FUSE requests.
         """
 
+        # Check if apsw supports multithreading
+        def test_threading():
+            try:
+                self.sql("SELECT 42")
+            except apsw.ThreadingViolationError:
+                self.multithreaded = 0
+            except:
+                self.exc = sys.exc_info()[1]
+            else:
+                self.multithreaded = 1
+        t = threading.Thread(target=test_threading)
+        t.start()
+        t.join()
+        if hasattr(self, "exc"):
+            raise self.exc
+        if self.multithreaded == 0:
+            warn("WARNING: APSW library is too old, running single threaded only!")
+
         # Start main event loop
         debug("Starting main event loop...")
-        self.multithreaded = 0
         setup_excepthook(self)
         mountoptions =  [ "direct_io",
                           "default_permissions",
@@ -498,10 +615,13 @@ class fs(Fuse):
 
         Fuse.main(self, args)
 
-
-
-
     def close(self):
+        """Shut down FS instance.
+
+        This method must be called in order to commit the metadata
+        of the filesystem to S3 and to release any open locks and
+        database connections.
+        """
 
         # Flush file and datacache
         debug("Flushing cache...")
@@ -526,3 +646,8 @@ class fs(Fuse):
 
         self.sql("VACUUM")
         self.conn.close()
+        del self.conn
+
+    def __destroy__(self):
+        if hasattr(self, "conn"):
+            raise Exception, "s3ql.fs instance was destroyed without calling close()!"

@@ -8,6 +8,10 @@
 from tests import TestCase, assert_true, assert_equals, assert_raises
 
 class fs(TestCase):
-    pass
+    # Check that s3 object locking works when retrieving
+
+    # Check that s3 object locking works when creating
 
     # Check that s3 objects are committed after fsync
+
+    pass

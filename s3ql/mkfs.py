@@ -112,10 +112,10 @@ def setup_db(dbfile, blocksize, label=None):
     cursor.execute("""
     CREATE TABLE s3_objects (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
-        offset    INT NOT NULL
-                  CHECK (offset >= 0),
-        s3key     TEXT(30) NOT NULL UNIQUE,
+        offset    INT NOT NULL CHECK (offset >= 0),
+        s3key     TEXT NOT NULL UNIQUE,
         etag      TEXT,
+        size      INT NOT NULL,
 
         -- for caching
         fd        INTEGER,
@@ -129,6 +129,7 @@ def setup_db(dbfile, blocksize, label=None):
     );
     CREATE INDEX ix_s3 ON s3_objects(s3key);
     CREATE INDEX ix_dirty ON s3_objects(dirty);
+    CREATE INDEX ix_atime ON s3_objects(atime);
     """);
     cursor.execute(trigger_cmd.substitute({ "src_table": "s3_objects",
                                             "src_key": "inode",
