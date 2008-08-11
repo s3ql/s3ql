@@ -14,7 +14,9 @@ import threading
 class Connection(object):
     """Represents a connection to Amazon S3
 
-    Currently, this just dispatches everything to boto.
+    Currently, this just dispatches everything to boto. Note
+    that boto is not threadsafe, so we need to create a
+    separate s3 connection for each thread.
     """
 
     def __init__(self, awskey, awspass, encrypt=None):
@@ -22,7 +24,9 @@ class Connection(object):
         self.awspass = awspass
         self.encrypt = encrypt
 
-        self.boto = S3Connection(awskey, awspass)
+        self.tlocal = threading.local()
+
+        self.tlocal.boto = S3Connection(awskey, awspass)
 
     def delete_bucket(self, name, recursive=False):
         """Deletes a bucket from S3.
@@ -30,16 +34,29 @@ class Connection(object):
         Fails if there are objects in the bucket and `recursive` is
         `False`.
         """
+        boto = self.get_boto()
+
         if recursive:
-            bucket = self.boto.get_bucket(bucketname)
+            bucket = boto.get_bucket(bucketname)
             for s3key in bucket.list():
                 bucket.delete_key(s3key)
 
         boto.delete_bucket(bucketname)
 
+    def get_boto():
+        """Returns boto s3 connection local to current thread.
+        """
+
+        if not hasattr(self.tlocal, "boto"):
+            self.tlocal.boto = S3Connection(self.awskey, self.awspass)
+
+        return self.tlocal.boto
+
+
     def create_bucket(self, name):
         """Creates an S3 bucket
         """
+        boto = self.get_boto()
         boto.create_bucket(bucketname)
 
 
@@ -61,8 +78,9 @@ class Connection(object):
     def bucket_exists(self, name):
         """Checks if the bucket `name` exists.
         """
+        boto = self.get_boto()
         try:
-            self.boto.get_bucket(name)
+            boto.get_bucket(name)
         except boto.exception.S3ResponseError, e:
             if e.status == 404:
                 return False
@@ -87,7 +105,20 @@ class Bucket(object):
     def __init__(self, conn, name):
         self.name = name
         self.conn = conn
-        self.bucket = conn.boto.get_bucket(name)
+
+        self.tlocal = threading.Local()
+
+        self.tlocal.bucket = conn.get_conn().get_bucket(name)
+
+
+    def get_boto():
+        """Returns boto bucket object for current thread.
+        """
+
+        if not hasattr(self.tlocal, "boto"):
+            self.tlocal.boto = self.conn.get_boto().get_bucket(self.name)
+
+        return self.tlocal.boto
 
 
     def __str__(self):
@@ -112,10 +143,10 @@ class Bucket(object):
         If the key does not exist, `None` is returned. Otherwise a
         `Metadata` instance is returned.
         """
-        bkey = self.bucket.get_key(key)
+        bkey = self.get_boto().get_key(key)
 
         if bkey:
-            return self.boto_key_to_metadata(bkey)
+            return boto_key_to_metadata(bkey)
         else:
             return None
 
@@ -125,7 +156,7 @@ class Bucket(object):
         ``bucket.delete_key(key)`` can also be written as ``del bucket[key]``.
 
         """
-        self.bucket.delete_key(key)
+        self.get_boto().delete_key(key)
 
     def list_keys(self):
         """List keys in bucket
@@ -140,7 +171,7 @@ class Bucket(object):
         doesn't define the `metadata` variable).
         """
 
-        return self.bucket.list()
+        return self.get_boto().list()
 
 
     def fetch(self, key):
@@ -151,9 +182,9 @@ class Bucket(object):
         for ``bucket.fetch(key)[0]``.
         """
 
-        bkey = self.bucket.new_key(key)
+        bkey = self.get_boto().new_key(key)
         val = bkey.get_contents_as_string()
-        metadata = self.boto_key_to_metadata(bkey)
+        metadata = boto_key_to_metadata(bkey)
 
         return (val, metadata)
 
@@ -169,10 +200,10 @@ class Bucket(object):
         val)``.
         """
 
-        bkey = self.bucket.new_key(key)
+        bkey = self.get_boto().new_key(key)
         bkey.set_contents_from_string(val)
 
-        return self.boto_key_to_metadata(bkey)
+        return boto_key_to_metadata(bkey)
 
     def fetch_to_file(self, key, file):
         """Fetches data stored under `key` and writes them to `file`.
@@ -180,10 +211,10 @@ class Bucket(object):
         `file` has to be a file name. Returns the metadata in the
         format used by `lookup_key`.
         """
-        bkey = self.bucket.new_key(key)
+        bkey = self.get_boto().new_key(key)
         bkey.get_contents_to_filename(file)
 
-        return self.boto_key_to_metadata(bkey)
+        return boto_key_to_metadata(bkey)
 
     def store_from_file(self, key, file):
         """Reads `file` and stores the data under `key`
@@ -191,12 +222,13 @@ class Bucket(object):
         `file` has to be a file name. Returns the metadata in the
         format used by `lookup_key`.
         """
-        bkey = self.bucket.new_key(key)
+        bkey = self.get_boto().new_key(key)
         bkey.set_contents_from_filename(file)
 
-        return self.boto_key_to_metadata(bkey)
+        return boto_key_to_metadata(bkey)
 
-    def boto_key_to_metadata(self, bkey):
+    @staticmethod
+    def boto_key_to_metadata(bkey):
         """Extracts metadata from boto key object.
         """
 

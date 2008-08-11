@@ -18,6 +18,8 @@ def check_cache(cursor, checkonly):
 
     Returns `False` if any errors have been found.
     """
+
+
     return True
 
 def check_parameters(cursor, checkonly):
