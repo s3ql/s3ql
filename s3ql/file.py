@@ -28,14 +28,11 @@ class file(object):
     :fs:     s3qlfs instance belonging to this file
     :path:   path of the opened file
     :inode:  inode of the opened file
-    :obfuscate_keys: If `True`, new s3 keys are generated from inode
-             numbers. If `False`, new s3 keys contain the full
-             pathname of the file they belong to.
     :timeout: Maximum time to wait for s3 propagation
 
     Attributes copied from fs instance for faster access:
 
-    bucket, cachesize, blocksize, s3_lock
+    bucket, cachesize, blocksize
 
 
     """
@@ -45,8 +42,6 @@ class file(object):
         """
 
         self.fs = fs
-        self.obfuscate_keys = fs.obfuscate_keys
-        self.s3_lock = fs.s3_lock
         self.bucket = fs.bucket
         self.cachesize = fs.cachesize
         self.blocksize = fs.blocksize
@@ -83,9 +78,9 @@ class file(object):
         offset_i = self.blocksize * int(offset/self.blocksize)
         s3key = "s3ql_%d-%d" % (self.inode, offset_i)
 
-        self.lock_s3key(s3key)
+        self.fs.lock_s3key(s3key)
         try:
-            fd = self.retrieve_s3(offset_i)
+            fd = self.retrieve_s3(s3key)
 
             # If the object does not exist, we have a hole and return \0
             if fd is None:
@@ -99,44 +94,44 @@ class file(object):
             self.fs.update_atime(self.inode)
             return os.read(fd,length)
         finally:
-            self.unlock_s3key(s3key)
+            self.fs.unlock_s3key(s3key)
 
 
-    def retrieve_s3(self, offset, create=False):
-        """Returns fd for s3 object starting at `offset`.
+    def retrieve_s3(self, s3key, create=None):
+        """Returns fd for s3 object `s3key`.
 
         If the s3 object is not already cached, it is retrieved from
         Amazon and put into the cache.
 
-        If no such object exists and create=True, the object is
-        created. Otherwise, returns `None`.
+        If no such object exists and create is not None, the object is
+        created with offset `create`. Otherwise, returns `None.
 
         The s3 key should already be locked when this function is called.
         """
 
-        # Check offset
-        if offset % blocksize != 0:
-            raise Exception, "s3 objects must start at blocksize boundaries"
+        if create is not None:
+            offset = int(create)
 
-        # Calculate key name
-        s3key = "s3ql_%d-%d" % (self.inode, offset)
+            if offset % self.blocksize != 0:
+                raise Exception, "s3 objects must start at blocksize boundaries"
+
         cachefile = s3key[1:].replace("~", "~~").replace("/", "~")
         cachepath = self.fs.cachedir + cachefile
 
         # Check if existing
-        res = list(self.fs.sql("SELECT fd, etag FROM bucket WHERE key=?",
-                               (s3key,)))
+        res = self.fs.sql_list("SELECT fd, etag FROM s3_objects WHERE s3key=?",
+                              (s3key,))
 
         # Existing Key
         if len(res):
-            (fd, etag) = res
+            (fd, etag) = res[0]
 
         # New key
         else:
-            if not create:
+            if create is None:
                 return None
             fd = os.open(cachepath, os.O_RDWR | os.O_CREAT)
-            self.fs.sql("INSERT INTO bucket(key,dirty,fd,cachefile,atime,size,inode,offset) "
+            self.fs.sql("INSERT INTO s3_objects(s3key,dirty,fd,cachefile,atime,size,inode,offset) "
                         "VALUES(?,?,?,?,?,?,?,?)",
                         (s3key, True, fd, cachefile, time(), 0, self.inode, offset))
 
@@ -193,7 +188,7 @@ class file(object):
             s3key  = self.fs.sql_value("SELECT s3key FROM s3_objects WHERE fd IS NOT NULL "
                                        "ORDER BY atime ASC LIMIT 1")
 
-            self.lock_s3key(s3key)
+            self.fs.lock_s3key(s3key)
             try:
                 # Information may have changed while we waited for lock
                 res = self.fs.sql_list("SELECT dirty,fd,cachefile,size FROM s3_objects "
@@ -214,50 +209,9 @@ class file(object):
                             "WHERE s3key=?", (False, None, None, meta.etag, s3key))
                 os.unlink(self.cachedir + cachefile)
             finally:
-                self.unlock_s3key(s3key)
+                self.fs.unlock_s3key(s3key)
 
             used -= size
-
-
-
-    def lock_s3key(s3key):
-        """Locks the given s3 key.
-        """
-        cv = self.s3_lock
-
-        # Lock set of locked s3 keys (global lock)
-        cv.acquire()
-        try:
-
-            # Wait for given s3 key becoming unused
-            while s3key in cv.locked_keys:
-                cv.wait()
-
-            # Mark it as used (local lock)
-            cv.locked_keys.add(s3key)
-        finally:
-            # Release global lock
-            cv.release()
-
-
-    def unlock_s3key(s3key):
-        """Releases lock on given s3key
-        """
-        cv = self.s3_lock
-
-        # Lock set of locked s3 keys (global lock)
-        cv.acquire()
-        try:
-
-            # Mark key as free (release local lock)
-            cv.locked_keys.remove(s3key)
-
-            # Notify other threads
-            cv.notifyAll()
-
-        finally:
-            # Release global lock
-            cv.release()
 
 
     def write(self, buf, offset):
@@ -275,9 +229,9 @@ class file(object):
         offset_f = offset_i + self.blocksize
         maxwrite = offset_f - offset
 
-        self.lock_s3key(s3key)
+        self.fs.lock_s3key(s3key)
         try:
-            fd = self.retrieve_s3(offset_i, create=True)
+            fd = self.retrieve_s3(s3key, create=offset_i)
 
             # Determine number of bytes to write and write
             os.lseek(fd, offset - offset_i, os.SEEK_SET)
@@ -296,7 +250,7 @@ class file(object):
             # Update file size if changed
             res = self.fs.sql("SELECT s3key FROM s3_objects WHERE inode=? "
                               "AND offset > ?", (self.inode, offset_i))
-            if list(res):
+            if not list(res):
                 self.fs.sql("UPDATE inodes SET size=?,ctime=? WHERE id=?",
                             (offset_i + obj_len, time(), self.inode))
 
@@ -305,37 +259,40 @@ class file(object):
             return writelen
 
         finally:
-            self.unlock_s3key(s3key)
+            self.fs.unlock_s3key(s3key)
 
 
     def ftruncate(self, len):
         """Handles FUSE ftruncate() requests.
+
+        FIXME: We rely on FUSE not allowing any write() requests
+        on the part of the file that is going to be truncated.
         """
 
+
         # Delete all truncated s3 objects
-        # We first delete in the table and *then* on S3, because
-        # a different thread may otherwise recreate the s3
-        # object without adding it to the table again.
         res = self.fs.sql("SELECT s3key,fd,cachefile FROM s3_objects WHERE "
                           "offset >= ? AND inode=?", (len,inode))
-        res = list(res) # copy
-
-        self.fs.sql("DELETE FROM s3_objects WHERE offset >= ? AND inode=?",
-                    (len,inode))
-
         for (s3key, fd, cachefile) in res:
             if fd: # File is in cache
                 os.close(fd,0)
                 os.unlink(self.fs.cachedir + cachefile)
             self.bucket.delete_key(s3key)
 
+            self.fs.sql_sep("DELETE FROM s3_objects WHERE s3key=?",
+                            (s3key,))
+
 
         # Get last object before truncation
-        (s3key, offset_i, fd) = self.get_locked_s3(offset)
+        offset_i = self.blocksize * int(len-1/self.blocksize)
+        s3key = "s3ql_%d-%d" % (self.inode, offset_i)
+
+        self.fs.lock_s3key(s3key)
         try:
+            fd = self.retrieve_s3(s3key, create=offset_i)
             cursize = offset_i + os.lseek(fd, 0, os.SEEK_END)
 
-            # If we are actually extending the file, we just write a
+            # If we are actually extending this object, we just write a
             # 0-byte at the last position
             if len > cursize:
                 self.write("\0", len-1)
@@ -352,7 +309,7 @@ class file(object):
             # Update file's mtime
             self.fs.update_mtime(self.inode)
         finally:
-            self.unlock_s3key(s3key)
+            self.fs.unlock_s3key(s3key)
 
     def release(self, flags):
         """Handles FUSE release() requests.
@@ -375,11 +332,11 @@ class file(object):
         res = self.fs.sql("SELECT s3key, fd, cachefile FROM s3_objects WHERE "
                           "dirty=? AND inode=?", (True, self.inode))
         for (s3key, fd, cachefile) in res:
-            self.fs.sql_n("UPDATE s3_objects SET dirty=? WHERE s3key=?",
+            self.fs.sql_sep("UPDATE s3_objects SET dirty=? WHERE s3key=?",
                         (False, s3key))
             os.fsync(fd)
             meta = self.bucket.store_from_file(s3key, self.fs.cachedir + cachefile)
-            self.fs.sql_n("UPDATE s3_objects SET etag=? WHERE s3key=?",
+            self.fs.sql_sep("UPDATE s3_objects SET etag=? WHERE s3key=?",
                         (meta.etag, s3key))
 
 

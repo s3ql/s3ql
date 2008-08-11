@@ -588,17 +588,17 @@ class fs(Fuse):
             try:
                 self.sql("SELECT 42")
             except apsw.ThreadingViolationError:
-                self.multithreaded = 0
+                self.multithreaded = False
             except:
                 self.exc = sys.exc_info()[1]
             else:
-                self.multithreaded = 1
+                self.multithreaded = True
         t = threading.Thread(target=test_threading)
         t.start()
         t.join()
         if hasattr(self, "exc"):
             raise self.exc
-        if self.multithreaded == 0:
+        if not self.multithreaded:
             warn("WARNING: APSW library is too old, running single threaded only!")
 
         # Start main event loop
@@ -614,6 +614,8 @@ class fs(Fuse):
             args.append("-f")
 
         Fuse.main(self, args)
+
+        debug("Main event loop terminated.")
 
     def close(self):
         """Shut down FS instance.
@@ -634,11 +636,11 @@ class fs(Fuse):
                 error([ "Warning! Object ", s3key, " has not yet been flushed.\n",
                              "Please report this as a bug!\n" ])
                 bucket.store_from_file(s3key, self.cachedir + cachefile)
-                self.sql_n("UPDATE s3_objects SET dirty=?, cachefile=?, "
+                self.sql_sep("UPDATE s3_objects SET dirty=?, cachefile=?, "
                          "etag=?, fd=? WHERE s3key=?",
                          (False, None, key.etag, None, s3key))
             else:
-                self.sql_n("UPDATE s3_objects SET cachefile=?, fd=? WHERE s3key=?",
+                self.sql_sep("UPDATE s3_objects SET cachefile=?, fd=? WHERE s3key=?",
                          (None, None, s3key))
 
             os.unlink(self.cachedir + cachefile)
@@ -648,6 +650,46 @@ class fs(Fuse):
         self.conn.close()
         del self.conn
 
+        debug("buffers flushed, fs has shut down.")
+
     def __destroy__(self):
         if hasattr(self, "conn"):
             raise Exception, "s3ql.fs instance was destroyed without calling close()!"
+
+    def lock_s3key(self, s3key):
+        """Locks the given s3 key.
+        """
+        cv = self.s3_lock
+
+        # Lock set of locked s3 keys (global lock)
+        cv.acquire()
+        try:
+
+            # Wait for given s3 key becoming unused
+            while s3key in cv.locked_keys:
+                cv.wait()
+
+            # Mark it as used (local lock)
+            cv.locked_keys.add(s3key)
+        finally:
+            # Release global lock
+            cv.release()
+
+    def unlock_s3key(self,s3key):
+        """Releases lock on given s3key
+        """
+        cv = self.s3_lock
+
+        # Lock set of locked s3 keys (global lock)
+        cv.acquire()
+        try:
+
+            # Mark key as free (release local lock)
+            cv.locked_keys.remove(s3key)
+
+            # Notify other threads
+            cv.notifyAll()
+
+        finally:
+            # Release global lock
+            cv.release()

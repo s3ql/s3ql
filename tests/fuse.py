@@ -29,7 +29,7 @@ class fuse(TestCase):
         # Mount
         self.pid = os.spawnl(os.P_NOWAIT, "./s3qlfs_local", "s3qlfs_local",
                              "--fg", "--fsck", "--nonempty", self.base)
-        time.sleep(1) # Should be sufficient
+        time.sleep(15) # This takes quite a while because of the simulated latency
         assert_true(not os.path.exists(self.basefile))
 
         # Run Subtests

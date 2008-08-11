@@ -12,6 +12,7 @@ import sys
 import os
 import tempfile
 import apsw
+import syslog
 
 #
 # Parse command line
@@ -88,15 +89,30 @@ if options.debug:
 
 bucket = s3ql.s3.LocalBucket()
 dbfile = tempfile.mktemp()
-cachedir = tempfile.mkdtemp()
+cachedir = tempfile.mkdtemp() + "/"
 s3ql.setup_db(dbfile, options.blocksize, None)
 s3ql.setup_bucket(bucket, dbfile)
+
 
 
 #
 # Start server
 #
 server = s3ql.fs(bucket, dbfile, cachedir)
+
+# Init syslog before going bg
+if not options.fg:
+    syslog.openlog("s3ql", 0, syslog.LOG_USER)
+    def logger(args):
+        msg = "".join(args)
+        for line in msg.split("\n"):
+            if len(line) == 0:
+                continue
+            syslog.syslog(line)
+
+    s3ql.log_fn = logger
+
+
 server.main(mountpoint, fuse_opts, options.fg)
 server.close()
 

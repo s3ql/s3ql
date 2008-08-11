@@ -10,6 +10,7 @@ from datetime import datetime
 from boto.s3.connection import S3Connection
 import boto.exception
 import threading
+from s3ql.common import *
 
 class Connection(object):
     """Represents a connection to Amazon S3
@@ -260,11 +261,12 @@ class LocalBucket(Bucket):
         self.keys = {}
         self.name = name
         self.in_transmit = set()
-        self.tx_delay = 5
-        self.prop_delay = 5
+        self.tx_delay = 3
+        self.prop_delay = 6
 
 
     def lookup_key(self, key):
+        debug("LocalBucket: Received lookup for %s" % key)
         if key in self.in_transmit:
             raise ConcurrencyError
         self.in_transmit.add(key)
@@ -282,12 +284,14 @@ class LocalBucket(Bucket):
     def delete_key(self, key):
         if key in self.in_transmit:
             raise ConcurrencyError
+        debug("LocalBucket: Received delete for %s" % key)
         self.in_transmit.add(key)
         sleep(self.tx_delay)
         del self.keys[key]
         self.in_transmit.remove(key)
 
     def fetch(self, key):
+        debug("LocalBucket: Received fetch for %s" % key)
         if key in self.in_transmit:
             raise ConcurrencyError
         self.in_transmit.add(key)
@@ -296,6 +300,7 @@ class LocalBucket(Bucket):
         return self.keys[key]
 
     def store(self, key, val):
+        debug("LocalBucket: Received store for %s" % key)
         if key in self.in_transmit:
             raise ConcurrencyError
         self.in_transmit.add(key)
@@ -307,10 +312,12 @@ class LocalBucket(Bucket):
         metadata.etag =  hashlib.md5(val).hexdigest()
         def set():
             sleep(self.prop_delay)
+            debug("LocalBucket: Committing store for %s" % key)
             self.keys[key] = (val, metadata)
         t = threading.Thread(target=set)
         t.start()
         self.in_transmit.remove(key)
+        debug("LocalBucket: Returning from store for %s" % key)
         return metadata
 
 
