@@ -25,6 +25,8 @@ parser = OptionParser(
 
 parser.add_option("--debug", action="store_true", default=False,
                   help="Generate debugging output")
+parser.add_option("--quiet", action="store_true", default=False,
+                  help="Be really quiet")
 parser.add_option("--allow_others", action="store_true", default=False,
                   help="Allow others users to access the filesystem")
 parser.add_option("--allow_root", action="store_true", default=False,
@@ -33,6 +35,8 @@ parser.add_option("--nonempty", action="store_true", default=False,
                   help="Allow mount if even mount point is not empty")
 parser.add_option("--fg", action="store_true", default=False,
                   help="Do not daemonize, stay in foreground")
+parser.add_option("--single", action="store_true", default=False,
+                  help="Single threaded operation only")
 parser.add_option("--encrypt", action="store_true", default=None,
                   help="Create an AES encrypted filesystem")
 parser.add_option("--blocksize", type="int", default=1,
@@ -79,18 +83,25 @@ if options.nonempty:
 #
 # Activate logging
 #
+if options.quiet:
+    s3ql.log_level = 0
 if options.debug:
-    s3ql.log_level = 1
+    s3ql.log_level = 2
 
 
 #
 # Initialize local bucket
+# No propagation delays
 #
 
 bucket = s3ql.s3.LocalBucket()
+#bucket.tx_delay = 0
+#bucket.prop_delay = 0
+
+
 dbfile = tempfile.mktemp()
 cachedir = tempfile.mkdtemp() + "/"
-s3ql.setup_db(dbfile, options.blocksize, None)
+s3ql.setup_db(dbfile, options.blocksize * 1024, None)
 s3ql.setup_bucket(bucket, dbfile)
 
 
@@ -113,7 +124,8 @@ if not options.fg:
     s3ql.log_fn = logger
 
 
-server.main(mountpoint, fuse_opts, options.fg)
+server.main(mountpoint, fuse_opts, fg=options.fg,
+            mt=not options.single)
 server.close()
 
 
@@ -125,11 +137,11 @@ if options.fsck:
     conn = apsw.Connection(dbfile)
     cursor = conn.cursor()
 
-    if  not ( \
-        s3ql.fsck.check_contents(cursor, True) and
-        s3ql.fsck.check_inodes(cursor,  True) and
-        s3ql.fsck.check_s3(cursor,  True) and
-        s3ql.fsck.check_keylist(cursor, bucket.list_keys(), True)
+    if not ( \
+        s3ql.fsck.check_contents(conn, True) and
+        s3ql.fsck.check_inodes(conn,  True) and
+        s3ql.fsck.check_s3(conn,  True) and
+        s3ql.fsck.check_keylist(conn, bucket.list_keys(), True)
         ):
         ok = False
 

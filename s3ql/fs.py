@@ -39,9 +39,6 @@ class fs(Fuse):
     :conn:        Database connection
     :db_lock:     Lock object for operations on the database connection
     :bucket:      Bucket object for datatransfer with S3
-    :obfuscate_keys: If `True`, new s3 keys are generated from inode
-                  numbers. If `False`, new s3 keys contain the full
-                  pathname of the file they belong to.
     :s3_lock:     Condition object for locking of specific s3 keys
     :noatime:     True if entity access times shouldn't be updated.
 
@@ -87,12 +84,8 @@ class fs(Fuse):
     lock_s3key() and unlock_s3key methods.
     """
 
-    def __init__(self, bucket, dbfile, cachedir, obfuscate_keys=False,
-                 noatime=False, cachesize=None):
+    def __init__(self, bucket, dbfile, cachedir, noatime=False, cachesize=None):
         """Initializes S3QL fs.
-
-        If `obfuscate_keys` is true, s3keys are not generated from
-        pathnames but from inode numbers.
         """
         Fuse.__init__(self)
 
@@ -106,7 +99,6 @@ class fs(Fuse):
         self.dbfile = dbfile
         self.cachedir = cachedir
         self.bucket = bucket
-        self.obfuscate_keys = obfuscate_keys
         self.noatime = noatime
 
         # Init Locks
@@ -234,8 +226,8 @@ class fs(Fuse):
 
         if stat.S_ISREG(fstat.st_mode):
             # determine number of blocks for files
-            fstat.st_blocks = self.sql("SELECT COUNT(s3key) FROM s3_objects "
-                                       "WHERE inode=?", (fstat.st_ino,)).next()[0]
+            fstat.st_blocks = self.sql_value("SELECT COUNT(s3key) FROM s3_objects "
+                                             "WHERE inode=?", (fstat.st_ino,))
         else:
             # For special nodes, return arbitrary values
             fstat.st_size = 512
@@ -259,8 +251,8 @@ class fs(Fuse):
         """Handles FUSE readlink() requests.
         """
 
-        (target,inode) = self.sql("SELECT target,inode FROM contents_ext "
-                                  "WHERE name=?", (buffer(path),)).next()
+        (target,inode) = self.sql_row("SELECT target,inode FROM contents_ext "
+                                  "WHERE name=?", (buffer(path),))
         self.update_atime(inode)
         return str(target)
 
@@ -366,8 +358,8 @@ class fs(Fuse):
         """Returns inode of object at `path`.
         """
 
-        (inode,) = self.sql("SELECT inode FROM contents WHERE name=?",
-                            (buffer(path),)).next()
+        inode = self.sql_value("SELECT inode FROM contents WHERE name=?",
+                               (buffer(path),))
         return inode
 
 
@@ -464,8 +456,15 @@ class fs(Fuse):
         """Handles FUSE link() requests.
         """
 
-        inode = self.get_inode(path)
+        # We do not want the getattr() overhead here
+        (inode, mode) = self.sql_row("SELECT mode, inode FROM contents_ext WHERE name=?",
+                                     (buffer(path),))
         inode_p = self.get_inode(os.path.dirname(path1))
+
+        # Do not allow directory hardlinks
+        if stat.S_ISDIR(mode):
+            debug("Attempted to hardlink directory %s" % path)
+            raise FUSEError(errno.EINVAL)
 
         self.sql("BEGIN TRANSACTION")
         try:
@@ -579,27 +578,33 @@ class fs(Fuse):
         file.ftruncate(len)
         file.release()
 
-    def main(self, mountpoint, fuse_options=None, fg=False):
+    def main(self, mountpoint, fuse_options=None, fg=False, mt=True):
         """Starts the main loop handling FUSE requests.
+
+        fg: stay in foreground
+        mt: multithreaded operation
         """
 
-        # Check if apsw supports multithreading
-        def test_threading():
-            try:
-                self.sql("SELECT 42")
-            except apsw.ThreadingViolationError:
-                self.multithreaded = False
-            except:
-                self.exc = sys.exc_info()[1]
-            else:
-                self.multithreaded = True
-        t = threading.Thread(target=test_threading)
-        t.start()
-        t.join()
-        if hasattr(self, "exc"):
-            raise self.exc
-        if not self.multithreaded:
-            warn("WARNING: APSW library is too old, running single threaded only!")
+        if mt:
+            # Check if apsw supports multithreading
+            def test_threading():
+                try:
+                    self.sql("SELECT 42")
+                except apsw.ThreadingViolationError:
+                    self.multithreaded = False
+                except:
+                    self.exc = sys.exc_info()[1]
+                else:
+                    self.multithreaded = True
+            t = threading.Thread(target=test_threading)
+            t.start()
+            t.join()
+            if hasattr(self, "exc"):
+                raise self.exc
+            if not self.multithreaded:
+                warn("WARNING: APSW library is too old, running single threaded only!")
+        else:
+            self.multithreaded = False
 
         # Start main event loop
         debug("Starting main event loop...")

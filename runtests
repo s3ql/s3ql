@@ -17,12 +17,19 @@ import sys
 
 failcnt = 0
 total = 0
+def cb():
+    """Callback to signal progress
+    """
+
+    sys.stdout.write(".")
+    sys.stdout.flush()
+
 for cl_ob in [ x for x in tests.__dict__.itervalues()
                if hasattr(x, "__base__") and
                x.__base__ == tests.TestCase ]:
 
     # Instantiate TestCase
-    inst = cl_ob()
+    inst = cl_ob(cb)
 
     # Run test methods
     fns = [ x for x in cl_ob.__dict__.itervalues() if
@@ -31,6 +38,7 @@ for cl_ob in [ x for x in tests.__dict__.itervalues()
     fns.sort(key=lambda x: x.__name__)
     for test in fns:
         print ("%s.%s... " % (cl_ob.__name__, test.__name__)),
+        sys.stdout.flush()
         total += 1
         try:
             test(inst)

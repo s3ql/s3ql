@@ -46,3 +46,4 @@ def assert_equals(e1, e2):
 from tests.s3 import *
 from tests.fuse import *
 from tests.fs import *
+from tests.fsck import *

@@ -41,7 +41,7 @@ def setup_excepthook(fs):
 
     # The Handler
     def handler(type, value, tb):
-        error([ "Unexpected error:: %s\n" % str(value),
+        error([ "Unexpected %s error: %s\n" % (str(type), str(value)),
                 "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n",
                 "Please report this bug to the program author.\n"
                 "Traceback:\n",
@@ -148,6 +148,18 @@ def debug(arg):
     """ Log message if debug output has been activated
     """
 
+    if s3ql.log_level < 2:
+        return
+
+    if type(arg) != type([]):
+        arg = [arg, "\n"]
+
+    s3ql.log_fn(arg)
+
+def log(arg):
+    """ Log info message
+    """
+
     if s3ql.log_level < 1:
         return
 
@@ -155,6 +167,7 @@ def debug(arg):
         arg = [arg, "\n"]
 
     s3ql.log_fn(arg)
+
 
 def error(arg):
     """ Log error message
@@ -164,6 +177,7 @@ def error(arg):
         arg = [arg, "\n"]
 
     s3ql.log_fn(arg)
+
 
 def warn(arg):
     """ Log warning message
@@ -227,6 +241,14 @@ def get_credentials(key=None):
     pw = file.readline().rstrip()
 
     return (awskey, pw)
+
+
+def io2s3key(inode, offset):
+    """Gives s3key corresponding to given inode and starting offset
+    """
+
+    return "s3ql_%d-%d" % (inode, offset)
+
 
 
 class RevisionError:

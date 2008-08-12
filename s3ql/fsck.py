@@ -5,8 +5,12 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+import os
+import types
+import stat
+from s3ql.common import *
 
-def check_cache(cursor, checkonly):
+def check_cache(conn, cachedir, bucket, checkonly):
     """Verifies that the s3 table agrees with the cache.
 
     Checks that:
@@ -19,18 +23,78 @@ def check_cache(cursor, checkonly):
     Returns `False` if any errors have been found.
     """
 
+    c1 = conn.cursor()
+    c2 = conn.cursor()
+    found_errors = False
 
-    return True
+    # Go through all cache files according to DB
+    log("Checking cached s3 objects...")
+    res = c1.execute("SELECT s3key,cachefile,dirty FROM s3_objects "
+                     "WHERE cachefile IS NOT NULL")
 
-def check_parameters(cursor, checkonly):
+    for (s3key, cachefile, dirty) in res:
+        found_errors = True
+        if not os.path.exists(cachedir + cachefile):
+            if dirty:
+                warn("Dropped changes to %s (no longer in cache)" % s3key)
+            else:
+                warn("Removed cache flag for %s" % s3key)
+
+        if dirty:
+            warn("Committing cached changes for %s")
+            if not checkonly:
+                meta = bucket.store_from_file(s3key, cachedir + cachefile)
+                c2.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
+                           (meta.etag, s3key))
+
+        if not checkonly:
+            os.unlink(cachedir + cachefile)
+
+        if not checkonly:
+            c2.execute("UPDATE s3_objects SET cachefile=?,fd=?,dirty=? "
+                       "WHERE s3key=?", (None, None, False, s3key))
+
+
+    # Check if any cache files are left
+    log("Checking objects in cache...")
+    for cachefile in os.listdir(cachedir):
+        found_errors = True
+
+        warn("Removing unassociated cache file %s" % cachefile)
+        if not checkonly:
+            os.unlink(cachedir + cachefile)
+
+    return not found_errors
+
+def check_parameters(conn, checkonly):
     """Check that filesystem parameters are set
 
     Returns `False` if any errors have been found.
     """
-    pass
-    return True
+    found_errors = False
+    cursor = conn.cursor()
 
-def check_contents(cursor, checkonly):
+    log("Checking filesystem parameters...")
+    res = list(cursor.execute("SELECT label FROM parameters"))
+    if len(res) != 1:
+        found_errors = True
+        warn("No unique filesystem label - please report this as a bug")
+    if type(res[0][0]) not in types.StringTypes:
+        found_errors = True
+        warn("Filesystem label has wrong type - please report this as a bug")
+
+    res = list(cursor.execute("SELECT blocksize FROM parameters"))
+    if len(res) != 1:
+        found_errors = True
+        warn("No unique blocksize - please report this as a bug")
+    if type(res[0][0]) is not types.IntType:
+        found_errors = True
+        warn("Filesystem blocksize has wrong type - please report this as a bug")
+
+    return not found_errors
+
+
+def check_contents(conn, checkonly):
     """Check contents table
 
     Checks that:
@@ -40,10 +104,138 @@ def check_contents(cursor, checkonly):
 
     Returns `False` if any errors have been found.
     """
-    pass
-    return True
+    c1 = conn.cursor()
+    c2 = conn.cursor()
+    found_errors = False
+    log("Checking directory entries...")
 
-def check_inodes(cursor, checkonly):
+    #
+    # root directory
+    #
+    res = list(c1.execute("SELECT inode,parent_inode,mode FROM contents_ext "
+                          "WHERE name=?", (buffer("/"),)))
+    root_mode = (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
+                 | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+
+    # Exists
+    if not len(res):
+        found_errors = True
+        warn("Recreating missing root directory")
+        c1.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                       "VALUES (?,?,?,?,?,?,?)",
+                       (root_mode, os.getuid(), os.getgid(), time(), time(), time(), 3))
+        inode_r = conn.last_insert_rowid()
+        c1.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+                       (buffer("/"), inode_r, inode_r))
+
+    else:
+        (inode_r, inode_p, mode) = res[0]
+
+        # Has correct parent inode
+        if inode_r != inode_p:
+            found_errors = True
+            warn("Fixing parent of root directory")
+            if not checkonly:
+                c1.execute("UPDATE contents SET parent_inode=? WHERE inode=?",
+                           (inode_r, inode_r))
+
+        # Has correct mode
+        if mode != root_mode:
+            found_errors = True
+            warn("root has wrong mode, fixing.." % name)
+            if not changeonly:
+                c2.execute("UPDATE inodes SET mode=? WHERE inode=?",
+                           (root_mode, inode_r))
+
+    #
+    # /lost+found
+    #
+    res = list(c1.execute("SELECT inode,parent_inode,mode FROM contents_ext "
+                          "WHERE name=?", (buffer("/lost+found"),)))
+
+    # Exists
+    if not len(res):
+        found_errors = True
+        warn("Recreating missing lost+found directory")
+        c1.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                       "VALUES (?,?,?,?,?,?,?)",
+                       (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
+                        os.getuid(), os.getgid(), time(), time(), time(), 2))
+        inode = conn.last_insert_rowid()
+        c1.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+                       (buffer("/lost+found"), inode, inode_r))
+
+    else:
+        (inode_l, inode_p, mode) = res[0]
+
+        # Has correct parent inode
+        if inode_p != inode_r:
+            found_errors = True
+            warn("Fixing parent of lost+found directory")
+            if not checkonly:
+                c1.execute("UPDATE contents SET parent_inode=? WHERE inode=?",
+                           (inode_r, inode_l))
+
+        # Has correct mode
+        if not stat.S_ISDIR(mode):
+            found_errors = True
+            warn("lost+found has wrong mode, fixing.." % name)
+            if not changeonly:
+                c2.execute("UPDATE inodes SET mode=? WHERE inode=?",
+                           (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
+                            inode_l))
+
+
+    #
+    # remaining filesystem
+    #
+    res = c1.execute("SELECT name, inode, parent_inode FROM contents")
+
+    for (name, inode, inode_p) in res:
+        name = str(name)
+
+        if name in ["/", "/lost+found"]:
+            continue #already checked
+
+        # Look up parent by name
+        res = list(c2.execute("SELECT mode,inode FROM contents_ext WHERE name=?",
+                              (buffer(os.path.dirname(name)),)))
+
+        # Parent exists by name
+        if len(res) != 1:
+            found_errors = True
+            warn("%s does not have parent directory, moving to lost+found" % name)
+
+            if not checkonly:
+                newname = "/lost+found/" + name[1:].replace(":", "::").replace("/", ":")
+                c2.execute("UPDATE contents SET name=?, parent_inode=? WHERE inode=?",
+                           (buffer(newname), inode_l, inode))
+
+        else:
+            (mode, inode_p2) = res[0]
+
+            # Parent is directory
+            if not stat.S_ISDIR(mode):
+                found_errors = True
+                warn("Parent of %s is not a directory, moving to lost+found" % name)
+                if not changeonly:
+                    newname = "/lost+found/" + name[1:].replace(":", "::").replace("/", ":")
+                    c2.execute("UPDATE contents SET name=?, parent_inode=? WHERE inode=?",
+                               (buffer(newname), inode_l, inode))
+
+            # Parent inode is correct
+            if inode_p != inode_p2:
+                found_errors = True
+                warn("Fixing parent inode of %s" % name)
+                if not changeonly:
+                    c2.execute("UPDATE contents SET parent_inode=? WHERE inode=?",
+                               (inode_p2, inode))
+
+
+
+    return not found_errors
+
+def check_inodes(conn, checkonly):
     """Check inode table
 
     Checks that:
@@ -52,22 +244,156 @@ def check_inodes(cursor, checkonly):
 
     Returns `False` if any errors have been found.
     """
-    pass
-    return True
 
-def check_s3(cursor, checkonly):
+    log("Checking inodes...")
+    c1 = conn.cursor()
+    c2 = conn.cursor()
+    found_errors = False
+
+    # Find lost+found inode
+    # If we are in checkonly, it may not be present and we will
+    # not need it
+    if not checkonly:
+        inode_l = c1.execute("SELECT inode FROM contents WHERE name=?",
+                             (buffer("/lost+found"),)).next()[0]
+
+    res = c1.execute("SELECT id,refcount,mode FROM inodes")
+
+
+    for (inode,refcount,mode) in res:
+
+        # Ensure inode is referenced
+        res2 = list(c2.execute("SELECT name FROM contents WHERE inode=?",
+                               (inode,)))
+        if len(res2) == 0:
+            found_errors = True
+            warn("Inode %s not referenced, adding to lost+found")
+            if not changeonly:
+                c2.execute("INSERT INTO contents (name, inode, parent_inode) "
+                           "VALUES (?,?,?)", (buffer("/lost+found/%s" % str(inode)),
+                                              inode, inode_l))
+                c2.execute("UPDATE inodes SET refcount=? WHERE id=?",
+                           (1, inode))
+        else:
+            name = str(res2[0][0])
+
+
+        # Directory
+        if stat.S_ISDIR(mode):
+
+            if len(res2) > 1:
+                found_errors = True
+                warn("Replacing directory hardlink %s with symlink" % name)
+                if not checkonly:
+                    (uid, gid) = c2.execute("SELECT uid,gid FROM inodes "
+                                            "WHERE id=?", (inode,)).next()
+                    c2.execute("INSERT INTO inodes (mode,uid,gid,target,mtime,atime,ctime,refcount) "
+                               "VALUES(?, ?, ?, ?, ?, ?, ?, 1)",
+                               (stat.S_IFLNK, uid, gid, buffer(res2[1][0]),
+                                time(), time(), time()))
+                    c2.execute("UPDATE contents SET inode=? WHERE name=?",
+                               (conn.last_insert_rowid(), buffer(name)))
+
+
+            # Check reference count
+            res2 = c2.execute("SELECT mode FROM contents_ext WHERE "
+                              "parent_inode=?", (inode,))
+
+            no = 2
+            for (mode2,) in res2:
+                if stat.S_ISDIR(mode2):
+                    no += 1
+
+            if name == "/":
+                no -= 1 # we should not count / as its own parent
+
+            if no != refcount:
+                found_errors = True
+                warn("Fixing reference count of directory %s from %d to %d"
+                     % (name, refcount, no))
+                if not checkonly:
+                    c2.execute("UPDATE inodes SET refcount=? WHERE id=?",
+                               (no, inode))
+
+        # File
+        else:
+
+            # Check reference count
+            if refcount != len(res2):
+                found_errors = True
+                warn("Fixing reference count of file %s from %d to %d",
+                     (name, refcount, len(res2)))
+                if not checkonly:
+                    c2.execute("UPDATE inodes SET refcount=? WHERE id=?",
+                               (len(res2), inode))
+
+
+    return not found_errors
+
+def check_s3(conn, blocksize, bucket, checkonly):
     """Checks s3_objects table.
 
     Checks that:
     - offsets are blocksize apart
+    - s3key corresponds to inode and offset
 
     Returns `False` if any errors have been found.
     """
-    pass
-    return True
+    log("Checking S3 object table...")
+    c1 = conn.cursor()
+    c2 = conn.cursor()
+    found_errors = False
+
+    res = c1.execute("SELECT s3key,inode,offset FROM s3_objects")
+
+    for (s3key, inode, offset) in res:
+
+        # Check blocksize
+        if offset % blocksize != 0:
+            found_errors = True
+
+            # Try to shift upward or downward
+            offset_d = blocksize * int(offset/blocksize)
+            offset_u = blocksize * (int(offset/blocksize)+1)
+            if not list(c2.execute("SELECT s3key FROM s3_objects WHERE inode=? AND offset=?",
+                                   (inode, offset_d))):
+                warn("Object %s does not start at blocksize boundary, moving downwards"
+                     % s3key)
+                if not changeonly:
+                    c2.execute("UPDATE s3_objects SET offset=? WHERE s3key=?",
+                               (offset_d, s3key))
+
+            elif not list(c2.execute("SELECT s3key FROM s3_objects WHERE inode=? AND offset=?",
+                                     (inode, offset_u))):
+                warn("Object %s does not start at blocksize boundary, moving upwards"
+                     % s3key)
+                if not changeonly:
+                    c2.execute("UPDATE s3_objects SET offset=? WHERE s3key=?",
+                               (offset_u, s3key))
+
+            else:
+                warn("Object %s does not start at blocksize boundary, deleting"
+                     % s3key)
+                if not changeonly:
+                    c2.execute("DELETE FROM s3_objects WHERE s3key=?", (s3key,))
 
 
-def check_keylist(cursor, keylist, checkonly):
+        s3key2 = io2s3key(inode, offset)
+        if s3key2 != s3key:
+            found_errors = True
+            warn("Object %s has invalid s3key, replacing with %s"
+                 % (s3key, s3key2))
+            if not changeonly:
+                c2.execute("UPDATE s3_objects SET s3key=? WHERE s3key=?",
+                           (s3key2, s3key))
+                bucket.copy_key(s3key, s3key2)
+                bucket.delete_key(s3key)
+
+
+    return not found_errors
+
+
+def check_keylist(conn, keylist, blocksize, bucket, checkonly):
     """Checks the list of S3 objects.
 
     Checks that:
@@ -79,5 +405,47 @@ def check_keylist(cursor, keylist, checkonly):
 
     Returns `False` if any errors have been found.
     """
-    pass
-    return True
+    log("Checking S3 objects...")
+    c1 = conn.cursor()
+    c2 = conn.cursor()
+    found_errors = False
+
+    # We use this table to keep track of the s3keys that we have
+    # seen
+    c1.execute("CREATE TEMP TABLE s3keys AS SELECT s3key FROM s3_objects")
+
+
+    for (s3key, meta) in keylist:
+        c1.execute("DELETE FROM s3keys WHERE s3key=?", (s3key,))
+
+        # Size
+        if meta.size > blocksize:
+            found_errors = True
+            warn("object %s is larger than blocksize (%d > %d), truncating."
+                 % s3key, meta.size, blocksize)
+            if not changeonly:
+                tmp = tempfile.mktemp()
+                bucket.fetch_to_file(s3key, tmp)
+                fd = os.open(tmp, os.O_RDWR)
+                os.ftruncate(fd, blocksize)
+                os.close(fd)
+                bucket.store_from_file(s3key, tmp)
+                os.unlink(tmp)
+
+
+
+        res = list(c1.execute("SELECT etag,size FROM s3_objects WHERE s3key=?"),
+                   (s3key,))
+
+        if not res:
+            found_errors = True
+            warn("object %s not in referenced in table, adding to lost+found" % s3key)
+
+
+
+
+
+
+
+
+    return not found_errors

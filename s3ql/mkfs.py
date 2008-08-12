@@ -50,7 +50,7 @@ def setup_db(dbfile, blocksize, label=None):
     # Filesystem parameters
     cursor.execute("""
     CREATE TABLE parameters (
-        label        TEXT,
+        label       TEXT,
         blocksize   INT NOT NULL,
         last_fsck   INT NOT NULL,
         mountcnt    INT NOT NULL,
@@ -59,7 +59,7 @@ def setup_db(dbfile, blocksize, label=None):
     );
     INSERT INTO parameters(label,blocksize,last_fsck,mountcnt,needs_fsck,version)
         VALUES(?,?,?,?,?, ?)
-    """, (label, blocksize * 1024, time(), 0, False, 1))
+    """, (label, blocksize, time(), 0, False, 1))
 
     # Table of filesystem objects
     cursor.execute("""
@@ -145,16 +145,25 @@ def setup_db(dbfile, blocksize, label=None):
 
 
     # Insert root directory
+    # Refcount = 3: parent, ".", lost+found
     cursor.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                    "VALUES (?,?,?,?,?,?,?)",
                    (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
+                    os.getuid(), os.getgid(), time(), time(), time(), 3))
+    root_inode = conn.last_insert_rowid()
+    cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+                   (buffer("/"), root_inode, root_inode))
+
+    # Insert lost+found directory
+    # refcount = 2: parent, "."
+    cursor.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                   "VALUES (?,?,?,?,?,?,?)",
+                   (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
                     os.getuid(), os.getgid(), time(), time(), time(), 2))
     inode = conn.last_insert_rowid()
     cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   (buffer("/"), inode, inode))
-    cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   (buffer("/.."), inode, inode))
+                   (buffer("/lost+found"), inode, root_inode))
 
     # Done setting up metadata table
     conn.close()

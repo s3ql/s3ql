@@ -149,20 +149,20 @@ if rev < 1:
 
 # Now we can check
 print "Checking filesystem parameters..."
-s3ql.fsck.check_parameters(cursor, options.checkonly)
+s3ql.fsck.check_parameters(conn, options.checkonly)
 
 print "Checking local cache..."
-s3ql.fsck.check_cache(cursor, options.checkonly)
+s3ql.fsck.check_cache(conn, cachedir, bucket, options.checkonly)
 
 print "Checking directory entries..."
-s3ql.fsck.check_contents(cursor, options.checkonly)
+s3ql.fsck.check_contents(conn, options.checkonly)
 
 print "Checking inodes..."
-s3ql.fsck.check_inodes(cursor,  options.checkonly)
+s3ql.fsck.check_inodes(conn, options.checkonly)
 
 print "Checking s3 objects..."
-s3ql.fsck.check_s3(cursor,  options.checkonly)
-s3ql.fsck.check_keylist(cursor, bucket.list_keys(), options.checkonly)
+s3ql.fsck.check_s3(conn, options.checkonly)
+s3ql.fsck.check_keylist(conn, bucket.list_keys(), options.checkonly)
 
 if not options.checkonly:
     # Commit metadata and mark fs as clean, both internally and as object

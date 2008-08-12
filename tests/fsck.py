@@ -7,11 +7,9 @@
 
 from tests import TestCase, assert_true, assert_equals, assert_raises
 
-class s3(TestCase):
-    """Tests s3ql.s3 module
+class fsck(TestCase):
+    """Tests s3ql.fsck module
     """
 
     def __init__(self, cb):
         self.cb = cb
-
-    # check that delete_key raises keyerror for not existing keys

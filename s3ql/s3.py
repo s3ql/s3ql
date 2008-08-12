@@ -44,7 +44,7 @@ class Connection(object):
 
         boto.delete_bucket(bucketname)
 
-    def get_boto():
+    def get_boto(self):
         """Returns boto s3 connection local to current thread.
         """
 
@@ -107,12 +107,11 @@ class Bucket(object):
         self.name = name
         self.conn = conn
 
-        self.tlocal = threading.Local()
+        self.tlocal = threading.local()
+        self.tlocal.bucket = conn.get_boto().get_bucket(name)
 
-        self.tlocal.bucket = conn.get_conn().get_bucket(name)
 
-
-    def get_boto():
+    def get_boto(self):
         """Returns boto bucket object for current thread.
         """
 
@@ -172,7 +171,8 @@ class Bucket(object):
         doesn't define the `metadata` variable).
         """
 
-        return self.get_boto().list()
+        for key in self.get_boto().list():
+            yield (key.name, boto_key_to_metadata(key))
 
 
     def fetch(self, key):
@@ -240,7 +240,7 @@ class Bucket(object):
                 bkey.last_modified, "%a, %d %b %Y %H:%M:%S %Z")
         else:
             meta.last_modified = None
-        meta.size = bkey.size
+        meta.size = int(bkey.size)
 
         return meta
 
@@ -252,7 +252,7 @@ class LocalBucket(Bucket):
 
     This class doesn't actually connect but holds all data in
     memory. It is meant only for testing purposes. It emulates a
-    propagation delay of 5 seconds and a transmit time of 5 seconds.
+    propagation delay of 4 seconds and a transmit time of 2 seconds.
     It raises ConcurrencyError if several threads try to write or read
     the same object at a time.
     """
@@ -261,8 +261,8 @@ class LocalBucket(Bucket):
         self.keys = {}
         self.name = name
         self.in_transmit = set()
-        self.tx_delay = 3
-        self.prop_delay = 6
+        self.tx_delay = 2
+        self.prop_delay = 4
 
 
     def lookup_key(self, key):

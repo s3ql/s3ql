@@ -90,7 +90,7 @@ if os.path.exists(dbfile) or \
             "Local metadata file already exists!\n" \
             "Use -f option to really remove the existing filesystem\n"
         sys.exit(1)
-s3ql.setup_db(dbfile, options.blocksize, options.label)
+s3ql.setup_db(dbfile, options.blocksize * 1024, options.label)
 
 
 #

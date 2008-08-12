@@ -38,6 +38,8 @@ parser.add_option("--fg", action="store_true", default=False,
                   help="Do not daemonize, stay in foreground")
 parser.add_option("--cachesize", type="int", default=None,
                   help="Cache size (default: 30 * fs blocksize)")
+parser.add_option("--single", action="store_true", default=False,
+                  help="Single threaded operation only")
 
 (options, pps) = parser.parse_args()
 
@@ -81,7 +83,7 @@ if options.nonempty:
 # Activate logging
 #
 if options.debug:
-    s3ql.log_level = 1
+    s3ql.log_level = 2
 
 
 #
@@ -133,9 +135,22 @@ try:
     # Start server
     #
     server = s3ql.fs(bucket, dbfile, cachepath,
-                obfuscate_keys=(options.encrypt is not None),
-                cachesize=cachesize)
-    server.main(mountpoint, fuse_opts, options.fg)
+                     cachesize=cachesize)
+
+    # Init syslog before going bg
+    if not options.fg:
+        syslog.openlog("s3ql", 0, syslog.LOG_USER)
+        def logger(args):
+            msg = "".join(args)
+            for line in msg.split("\n"):
+                if len(line) == 0:
+                    continue
+                syslog.syslog(line)
+
+        s3ql.log_fn = logger
+
+    server.main(mountpoint, fuse_opts, options.fg,
+                mt=not options.single)
     server.close()
 
 

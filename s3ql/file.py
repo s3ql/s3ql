@@ -33,8 +33,6 @@ class file(object):
     Attributes copied from fs instance for faster access:
 
     bucket, cachesize, blocksize
-
-
     """
 
     def __init__(self, fs, path, flags, mode=None):
@@ -76,7 +74,7 @@ class file(object):
 
         # Obtain required s3 object
         offset_i = self.blocksize * int(offset/self.blocksize)
-        s3key = "s3ql_%d-%d" % (self.inode, offset_i)
+        s3key = io2s3key(self.inode, offset_i)
 
         self.fs.lock_s3key(s3key)
         try:
@@ -185,8 +183,15 @@ class file(object):
 
         while used + self.fs.blocksize > self.cachesize:
             # Find & lock object to flush
-            s3key  = self.fs.sql_value("SELECT s3key FROM s3_objects WHERE fd IS NOT NULL "
-                                       "ORDER BY atime ASC LIMIT 1")
+            res  = self.fs.sql_list("SELECT s3key FROM s3_objects WHERE fd IS NOT NULL "
+                                    "ORDER BY atime ASC LIMIT 1")
+
+            # If there is nothing to flush, we continue anyway
+            if not res:
+                continue
+
+
+            s3key = res[0][0]
 
             self.fs.lock_s3key(s3key)
             try:
@@ -223,7 +228,7 @@ class file(object):
 
         # Obtain required s3 object
         offset_i = self.blocksize * int(offset/self.blocksize)
-        s3key = "s3ql_%d-%d" % (self.inode, offset_i)
+        s3key = io2s3key(self.inode, offset_i)
 
         # We write at most one block
         offset_f = offset_i + self.blocksize
@@ -264,28 +269,38 @@ class file(object):
 
     def ftruncate(self, len):
         """Handles FUSE ftruncate() requests.
-
-        FIXME: We rely on FUSE not allowing any write() requests
-        on the part of the file that is going to be truncated.
         """
 
 
         # Delete all truncated s3 objects
-        res = self.fs.sql("SELECT s3key,fd,cachefile FROM s3_objects WHERE "
-                          "offset >= ? AND inode=?", (len,inode))
-        for (s3key, fd, cachefile) in res:
-            if fd: # File is in cache
-                os.close(fd,0)
-                os.unlink(self.fs.cachedir + cachefile)
-            self.bucket.delete_key(s3key)
+        res = self.fs.sql("SELECT s3key FROM s3_objects WHERE "
+                          "offset >= ? AND inode=? ORDER BY offset INC",
+                          (len, self.inode))
+        for (s3key,) in res:
+            self.fs.lock_s3key(s3key)
+            try:
+                (fd, cachefile) = self.fs.sql_row("SELECT fd,cachefile FROM s3_objects "
+                                                  "WHERE s3key=?", (s3key,))
 
-            self.fs.sql_sep("DELETE FROM s3_objects WHERE s3key=?",
-                            (s3key,))
+                if fd: # File is in cache
+                    os.close(fd)
+                    os.unlink(self.fs.cachedir + cachefile)
+
+                # Key may not yet been committed
+                try:
+                    self.bucket.delete_key(s3key)
+                except KeyError:
+                    pass
+
+                self.fs.sql_sep("DELETE FROM s3_objects WHERE s3key=?",
+                                (s3key,))
+            finally:
+                self.fs.unlock_s3key(s3key)
 
 
         # Get last object before truncation
-        offset_i = self.blocksize * int(len-1/self.blocksize)
-        s3key = "s3ql_%d-%d" % (self.inode, offset_i)
+        offset_i = self.blocksize * int( (len-1) / self.blocksize)
+        s3key = io2s3key(self.inode, offset_i)
 
         self.fs.lock_s3key(s3key)
         try:
@@ -295,16 +310,19 @@ class file(object):
             # If we are actually extending this object, we just write a
             # 0-byte at the last position
             if len > cursize:
-                self.write("\0", len-1)
+                os.lseek(fd, len - 1 - offset_i, os.SEEK_SET)
+                os.write(fd, "\0")
 
-            # Otherwise we truncate the file and update
-            # the file size
+
+            # Otherwise we truncate the file
             else:
                 os.ftruncate(fd, len - offset_i)
-                self.fs.sql("UPDATE inodes SET size=? WHERE id=?",
-                                    (len, self.inode))
-                self.fs.sql("UPDATE s3_objects SET size=? WHERE s3key=?",
-                            (len - offset_i, s3key))
+
+            # Update file size
+            self.fs.sql("UPDATE inodes SET size=? WHERE id=?",
+                        (len, self.inode))
+            self.fs.sql("UPDATE s3_objects SET size=?,dirty=? WHERE s3key=?",
+                        (len - offset_i, True, s3key))
 
             # Update file's mtime
             self.fs.update_mtime(self.inode)
