@@ -158,7 +158,7 @@ class Bucket(object):
         """
         self.get_boto().delete_key(key)
 
-    def list_keys(self):
+    def list_keys(self, prefix="", delim=""):
         """List keys in bucket
 
         Returns an iterator over all keys in the bucket. The iterator
@@ -169,9 +169,17 @@ class Bucket(object):
         iterative context: ``for key in bucket`` is the same as ``for
         (key,metadata) in bucket.list_keys()`` (except that the former
         doesn't define the `metadata` variable).
+
+        If `prefix` is specified, return only keys starting with
+        `prefix`.
+
+        If `delim` is specified, keys that contain the same string
+        between the prefix and the first occurrence of the delimiter
+        are rolled up into a single key. This key may have no metadata
+        associated with it since it may not actually exist.
         """
 
-        for key in self.get_boto().list():
+        for key in self.get_boto().list(prefix, delim):
             yield (key.name, boto_key_to_metadata(key))
 
 
