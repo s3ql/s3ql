@@ -99,7 +99,7 @@ dbfile = s3ql.get_dbfile(bucketname)
 # Check consistency
 #
 s3ql.debug("Checking consistency...")
-if bucket["dirty"] != "no":
+if bucket["s3ql_dirty"] != "no":
     print >> sys.stderr, \
         "Metadata is dirty! Either some changes have not yet propagated\n" \
         "through S3 or the filesystem has not been umounted cleanly. In\n" \
@@ -121,7 +121,7 @@ try:
     debug("Downloading metadata...")
     os.mknod(dbfile, 0600 | stat.S_IFREG)
     os.mkdir(cachedir, 0700)
-    bucket.fetch_to_file("metadata", dbfile)
+    bucket.fetch_to_file("s3ql_metadata", dbfile)
 
     # Check that the fs itself is clean
     conn = apsw.Connection(dbfile)
@@ -156,8 +156,8 @@ try:
 
     # Upload database
     debug("Uploading database..")
-    bucket.store_from_file("metadata", dbfile)
-    bucket.store("dirty", "no")
+    bucket.store_from_file("s3ql_metadata", dbfile)
+    bucket.store("s3ql_dirty", "no")
 
 # Remove database
 finally:

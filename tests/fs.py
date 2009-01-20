@@ -25,8 +25,6 @@ class fs(TestCase):
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
 
-        self.data =
-
         s3ql.setup_db(self.dbfile, self.blocksize)
         s3ql.setup_bucket(self.bucket, self.dbfile)
 

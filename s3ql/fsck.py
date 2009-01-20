@@ -28,7 +28,6 @@ def check_cache(conn, cachedir, bucket, checkonly):
     found_errors = False
 
     # Go through all cache files according to DB
-    log("Checking cached s3 objects...")
     res = c1.execute("SELECT s3key,cachefile,dirty FROM s3_objects "
                      "WHERE cachefile IS NOT NULL")
 
@@ -74,7 +73,6 @@ def check_parameters(conn, checkonly):
     found_errors = False
     cursor = conn.cursor()
 
-    log("Checking filesystem parameters...")
     res = list(cursor.execute("SELECT label FROM parameters"))
     if len(res) != 1:
         found_errors = True
@@ -107,7 +105,6 @@ def check_contents(conn, checkonly):
     c1 = conn.cursor()
     c2 = conn.cursor()
     found_errors = False
-    log("Checking directory entries...")
 
     #
     # root directory
@@ -245,7 +242,6 @@ def check_inodes(conn, checkonly):
     Returns `False` if any errors have been found.
     """
 
-    log("Checking inodes...")
     c1 = conn.cursor()
     c2 = conn.cursor()
     found_errors = False
@@ -330,7 +326,7 @@ def check_inodes(conn, checkonly):
 
     return not found_errors
 
-def check_s3(conn, blocksize, bucket, checkonly):
+def check_s3(conn, bucket, checkonly):
     """Checks s3_objects table.
 
     Checks that:
@@ -339,10 +335,12 @@ def check_s3(conn, blocksize, bucket, checkonly):
 
     Returns `False` if any errors have been found.
     """
-    log("Checking S3 object table...")
     c1 = conn.cursor()
     c2 = conn.cursor()
     found_errors = False
+
+    # Find blocksize
+    blocksize = c1.execute("SELECT blocksize FROM parameters").next()[0]
 
     res = c1.execute("SELECT s3key,inode,offset FROM s3_objects")
 
@@ -393,7 +391,7 @@ def check_s3(conn, blocksize, bucket, checkonly):
     return not found_errors
 
 
-def check_keylist(conn, keylist, blocksize, bucket, checkonly):
+def check_keylist(conn, bucket, checkonly):
     """Checks the list of S3 objects.
 
     Checks that:
@@ -405,10 +403,20 @@ def check_keylist(conn, keylist, blocksize, bucket, checkonly):
 
     Returns `False` if any errors have been found.
     """
-    log("Checking S3 objects...")
     c1 = conn.cursor()
     c2 = conn.cursor()
     found_errors = False
+
+    # Find lost+found inode
+    # If we are in checkonly, it may not be present and we will
+    # not need it
+    if not checkonly:
+        inode_l = c1.execute("SELECT inode FROM contents WHERE name=?",
+                             (buffer("/lost+found"),)).next()[0]
+
+    # Find blocksize
+    blocksize = c1.execute("SELECT blocksize FROM parameters").next()[0]
+
 
     # We use this table to keep track of the s3keys that we have
     # seen
@@ -434,12 +442,15 @@ def check_keylist(conn, keylist, blocksize, bucket, checkonly):
 
 
 
+        # Is referenced
         res = list(c1.execute("SELECT etag,size FROM s3_objects WHERE s3key=?"),
                    (s3key,))
 
         if not res:
             found_errors = True
             warn("object %s not in referenced in table, adding to lost+found" % s3key)
+            if not changeonly:
+
 
 
 

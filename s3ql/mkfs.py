@@ -172,5 +172,5 @@ def setup_db(dbfile, blocksize, label=None):
 def setup_bucket(bucket, dbfile):
     """Creates a bucket and uploads metadata.
     """
-    bucket.store_from_file(key='metadata', file=dbfile)
-    bucket.store(key='dirty', val="no")
+    bucket.store_from_file(key='s3ql_metadata', file=dbfile)
+    bucket.store(key='s3ql_dirty', val="no")

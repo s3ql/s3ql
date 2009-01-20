@@ -247,7 +247,7 @@ def io2s3key(inode, offset):
     """Gives s3key corresponding to given inode and starting offset
     """
 
-    return "s3ql_%d-%d" % (inode, offset)
+    return "s3ql_data_%d-%d" % (inode, offset)
 
 
 

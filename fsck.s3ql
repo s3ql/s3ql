@@ -44,7 +44,7 @@ cachedir = s3ql.get_cachedir(bucketname)
 # Activate logging
 #
 if options.debug:
-    s3ql.log_level = 1
+    s3ql.log_level = 2
 
 
 
@@ -74,7 +74,7 @@ bucket = conn.get_bucket(bucketname)
 #
 # Check if fs is dirty and we lack metadata
 #
-if bucket["dirty"] == "yes" and \
+if bucket["s3ql_dirty"] == "yes" and \
         (not os.path.exists(cachedir) or
          not os.path.exists(dbfile)):
     if not options.force:
@@ -107,7 +107,7 @@ if not os.path.exists(cachedir):
 if os.path.exists(dbfile):
     # Compare against online metadata
     local = datetime.fromtimestamp(os.stat(dbfile).st_mtime)
-    remote = bucket.lookup_key("metadata").last_modified
+    remote = bucket.lookup_key("s3ql_metadata").last_modified
 
     if remote > local:
         # remote metadata is newer
@@ -134,7 +134,7 @@ may also result in dataloss.
 else:
     # Download remote metadata
     os.mknod(dbfile, 0600 | stat.S_IFREG)
-    bucket.fetch_to_file("metadata", dbfile)
+    bucket.fetch_to_file("s3ql_metadata", dbfile)
 
 
 conn = apsw.Connection(dbfile)
@@ -161,8 +161,8 @@ print "Checking inodes..."
 s3ql.fsck.check_inodes(conn, options.checkonly)
 
 print "Checking s3 objects..."
-s3ql.fsck.check_s3(conn, options.checkonly)
-s3ql.fsck.check_keylist(conn, bucket.list_keys(), options.checkonly)
+s3ql.fsck.check_s3(conn, bucket, options.checkonly)
+s3ql.fsck.check_keylist(conn, bucket, options.checkonly)
 
 if not options.checkonly:
     # Commit metadata and mark fs as clean, both internally and as object
@@ -172,8 +172,8 @@ if not options.checkonly:
 
     cursor.execute("VACUUM")
     conn.close()
-    bucket.store_from_file("metadata", dbfile)
-    bucket.store("dirty", "no")
+    bucket.store_from_file("s3ql_metadata", dbfile)
+    bucket.store("s3ql_dirty", "no")
 
     os.unlink(dbfile)
     os.rmdir(cachedir)
