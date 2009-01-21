@@ -8,6 +8,7 @@
 from tests import TestCase, assert_true, assert_equals, assert_raises
 import tempfile
 import s3ql
+import os
 
 
 class fs(TestCase):

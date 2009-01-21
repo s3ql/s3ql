@@ -95,13 +95,13 @@ if options.debug:
 #
 
 bucket = s3ql.s3.LocalBucket()
-#bucket.tx_delay = 0
-#bucket.prop_delay = 0
+bucket.tx_delay = 0.5
+bucket.prop_delay = 1
 
 
 dbfile = tempfile.mktemp()
 cachedir = tempfile.mkdtemp() + "/"
-s3ql.setup_db(dbfile, options.blocksize * 1024, None)
+s3ql.setup_db(dbfile, options.blocksize * 1024)
 s3ql.setup_bucket(bucket, dbfile)
 
 
@@ -138,10 +138,12 @@ if options.fsck:
     cursor = conn.cursor()
 
     if not ( \
-        s3ql.fsck.check_contents(conn, True) and
-        s3ql.fsck.check_inodes(conn,  True) and
-        s3ql.fsck.check_s3(conn,  True) and
-        s3ql.fsck.check_keylist(conn, bucket.list_keys(), True)
+        s3ql.fsck.a_check_parameters(conn, checkonly=True) and
+        s3ql.fsck.b_check_cache(conn, cachedir, bucket, checkonly=True) and
+        s3ql.fsck.c_check_contents(conn, checkonly=True) and
+        s3ql.fsck.d_check_inodes(conn, checkonly=True) and
+        s3ql.fsck.e_check_s3(conn, bucket, checkonly=True) and
+        s3ql.fsck.f_check_keylist(conn, bucket, checkonly=True)
         ):
         ok = False
 

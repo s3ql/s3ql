@@ -10,7 +10,7 @@ import types
 import stat
 from s3ql.common import *
 
-def check_cache(conn, cachedir, bucket, checkonly):
+def b_check_cache(conn, cachedir, bucket, checkonly):
     """Verifies that the s3 table agrees with the cache.
 
     Checks that:
@@ -21,6 +21,9 @@ def check_cache(conn, cachedir, bucket, checkonly):
     - Commits all cache entries to S3 and deletes them
 
     Returns `False` if any errors have been found.
+
+    The prefix of the method name indicates the order in which
+    the fsck routines should be called.
     """
 
     c1 = conn.cursor()
@@ -39,15 +42,14 @@ def check_cache(conn, cachedir, bucket, checkonly):
             else:
                 warn("Removed cache flag for %s" % s3key)
 
-        if dirty:
-            warn("Committing cached changes for %s")
-            if not checkonly:
-                meta = bucket.store_from_file(s3key, cachedir + cachefile)
-                c2.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
-                           (meta.etag, s3key))
-
-        if not checkonly:
-            os.unlink(cachedir + cachefile)
+        else:
+            if dirty:
+                warn("Committing cached changes for %s")
+                if not checkonly:
+                    meta = bucket.store_from_file(s3key, cachedir + cachefile)
+                    c2.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
+                               (meta.etag, s3key))
+                    os.unlink(cachedir + cachefile)
 
         if not checkonly:
             c2.execute("UPDATE s3_objects SET cachefile=?,fd=?,dirty=? "
@@ -65,10 +67,13 @@ def check_cache(conn, cachedir, bucket, checkonly):
 
     return not found_errors
 
-def check_parameters(conn, checkonly):
+def a_check_parameters(conn, checkonly):
     """Check that filesystem parameters are set
 
     Returns `False` if any errors have been found.
+
+    The prefix of the method name indicates the order in which
+    the fsck routines should be called.
     """
     found_errors = False
     cursor = conn.cursor()
@@ -85,14 +90,14 @@ def check_parameters(conn, checkonly):
     if len(res) != 1:
         found_errors = True
         warn("No unique blocksize - please report this as a bug")
-    if type(res[0][0]) is not types.IntType:
+    if type(res[0][0]) is not types.LongType:
         found_errors = True
         warn("Filesystem blocksize has wrong type - please report this as a bug")
 
     return not found_errors
 
 
-def check_contents(conn, checkonly):
+def c_check_contents(conn, checkonly):
     """Check contents table
 
     Checks that:
@@ -101,6 +106,9 @@ def check_contents(conn, checkonly):
        directories
 
     Returns `False` if any errors have been found.
+
+    The prefix of the method name indicates the order in which
+    the fsck routines should be called.
     """
     c1 = conn.cursor()
     c2 = conn.cursor()
@@ -118,11 +126,12 @@ def check_contents(conn, checkonly):
     if not len(res):
         found_errors = True
         warn("Recreating missing root directory")
-        c1.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+        if not checkonly:
+            c1.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                        "VALUES (?,?,?,?,?,?,?)",
                        (root_mode, os.getuid(), os.getgid(), time(), time(), time(), 3))
-        inode_r = conn.last_insert_rowid()
-        c1.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+            inode_r = conn.last_insert_rowid()
+            c1.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                        (buffer("/"), inode_r, inode_r))
 
     else:
@@ -154,12 +163,13 @@ def check_contents(conn, checkonly):
     if not len(res):
         found_errors = True
         warn("Recreating missing lost+found directory")
-        c1.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+        if not checkonly:
+            c1.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                        "VALUES (?,?,?,?,?,?,?)",
                        (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
                         os.getuid(), os.getgid(), time(), time(), time(), 2))
-        inode = conn.last_insert_rowid()
-        c1.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+            inode = conn.last_insert_rowid()
+            c1.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                        (buffer("/lost+found"), inode, inode_r))
 
     else:
@@ -232,7 +242,7 @@ def check_contents(conn, checkonly):
 
     return not found_errors
 
-def check_inodes(conn, checkonly):
+def d_check_inodes(conn, checkonly):
     """Check inode table
 
     Checks that:
@@ -240,6 +250,9 @@ def check_inodes(conn, checkonly):
     - each inode has a content entry
 
     Returns `False` if any errors have been found.
+
+    The prefix of the method name indicates the order in which
+    the fsck routines should be called.
     """
 
     c1 = conn.cursor()
@@ -326,7 +339,7 @@ def check_inodes(conn, checkonly):
 
     return not found_errors
 
-def check_s3(conn, bucket, checkonly):
+def e_check_s3(conn, bucket, checkonly):
     """Checks s3_objects table.
 
     Checks that:
@@ -334,6 +347,9 @@ def check_s3(conn, bucket, checkonly):
     - s3key corresponds to inode and offset
 
     Returns `False` if any errors have been found.
+
+    The prefix of the method name indicates the order in which
+    the fsck routines should be called.
     """
     c1 = conn.cursor()
     c2 = conn.cursor()
@@ -391,7 +407,7 @@ def check_s3(conn, bucket, checkonly):
     return not found_errors
 
 
-def check_keylist(conn, bucket, checkonly):
+def f_check_keylist(conn, bucket, checkonly):
     """Checks the list of S3 objects.
 
     Checks that:
@@ -402,6 +418,9 @@ def check_keylist(conn, bucket, checkonly):
 
 
     Returns `False` if any errors have been found.
+
+    The prefix of the method name indicates the order in which
+    the fsck routines should be called.
     """
     c1 = conn.cursor()
     c2 = conn.cursor()
@@ -423,7 +442,12 @@ def check_keylist(conn, bucket, checkonly):
     c1.execute("CREATE TEMP TABLE s3keys AS SELECT s3key FROM s3_objects")
 
 
-    for (s3key, meta) in keylist:
+    for (s3key, meta) in bucket.list_keys():
+
+        # We only bother with our own objects
+        if not s3key.startswith("s3ql_"):
+            continue
+
         c1.execute("DELETE FROM s3keys WHERE s3key=?", (s3key,))
 
         # Size
@@ -437,24 +461,74 @@ def check_keylist(conn, bucket, checkonly):
                 fd = os.open(tmp, os.O_RDWR)
                 os.ftruncate(fd, blocksize)
                 os.close(fd)
-                bucket.store_from_file(s3key, tmp)
+                meta_new = bucket.store_from_file(s3key, tmp)
                 os.unlink(tmp)
+                c1.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
+                           (meta_new.etag, s3key))
 
 
 
-        # Is referenced
+        # Is it referenced in object table?
         res = list(c1.execute("SELECT etag,size FROM s3_objects WHERE s3key=?"),
                    (s3key,))
 
+        # Object is not listed in object table
         if not res:
             found_errors = True
             warn("object %s not in referenced in table, adding to lost+found" % s3key)
             if not changeonly:
+                c1.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                           "VALUES (?,?,?,?,?,?,?)",
+                           (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
+                            os.getuid(), os.getgid(), time(), time(), time(), 1))
+                inode = conn.last_insert_rowid()
+                c1.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+                           (buffer("/lost+found/%s" % s3key), inode, inode_l))
+
+                # Now we need to assign the s3 object to this inode, but this
+                # unfortunately means that we have to change the s3key.
+                tmp = tempfile.mktemp()
+                bucket.fetch_to_file(s3key, tmp)
+
+                s3key_new = io2s3key(inode,0)
+                c1.execute("INSERT INTO s3_objects (inode,offset,s3key,size) "
+                           "VALUES (?,?,?,?)", (inode, 0, buffer(s3key_new),
+                                                os.stat(tmp).st_size))
+                meta_new = bucket.store_from_file(s3key_new, tmp)
+                os.unlink(tmp)
+                bucket.delete_key(s3key)
+                c1.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
+                           (meta_new.etag, s3key_new))
 
 
+        # Object is in object table, check metadata
+        else:
+            (etag,size) = res.next()
+
+            if not size == meta.size:
+                found_errors = True
+                warn("object %s has incorrect size in metadata, adjusting" % s3key)
+
+                if not checkonly:
+                    c1.execute("UPDATE s3_objects SET size=? WHERE s3key=?",
+                               (meta.size, s3key))
+
+            if not etag == meta.etag:
+                found_errors = True
+                warn("object %s has incorrect etag in metadata, adjusting" % s3key)
+
+                if not checkonly:
+                    c1.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
+                               (meta.etag, s3key))
 
 
-
+    # Now handle objects that only exist in s3_objects
+    res = c2.execute("SELECT s3key FROM s3keys")
+    for (s3key,) in res:
+        found_errors = True
+        warn("object %s only exists in table but not on s3, deleting" % s3key)
+        if not changeonly:
+            c1.execute("DELETE FROM s3_objects WHERE s3key=?", (buffer(s3key),))
 
 
 

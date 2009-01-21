@@ -40,7 +40,9 @@ class fuse(TestCase):
         self.pid = os.spawnl(os.P_NOWAIT, "./s3qlfs_local", "s3qlfs_local",
                              "--fg", "--fsck", "--nonempty", "--blocksize", "1",
                              "--quiet", self.base)
-        time.sleep(2)
+
+        # This apparently takes quite some time
+        time.sleep(5)
         assert_true(not os.path.exists(self.basefile))
 
         # Run Subtests

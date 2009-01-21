@@ -12,7 +12,7 @@ from time import time
 from string import Template
 
 
-def setup_db(dbfile, blocksize, label=None):
+def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
     """Creates the metadata tables
     """
 
@@ -145,7 +145,7 @@ def setup_db(dbfile, blocksize, label=None):
 
 
     # Insert root directory
-    # Refcount = 3: parent, ".", lost+found
+    # Refcount = 3: parent (when mounted), ".", lost+found
     cursor.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                    "VALUES (?,?,?,?,?,?,?)",
                    (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR

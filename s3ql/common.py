@@ -244,7 +244,7 @@ def get_credentials(key=None):
 
 
 def io2s3key(inode, offset):
-    """Gives s3key corresponding to given inode and starting offset
+    """Gives s3key corresponding to given inode and starting offset.
     """
 
     return "s3ql_data_%d-%d" % (inode, offset)

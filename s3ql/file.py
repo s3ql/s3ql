@@ -62,7 +62,7 @@ class file(object):
     def read(self, length, offset):
         """Handles FUSE read() requests.
 
-        May return less than `length` bytes, to the ``direct_io`` FUSE
+        May return less than `length` bytes, so the ``direct_io`` FUSE
         option has to be enabled.
         """
 
@@ -273,8 +273,10 @@ class file(object):
 
 
         # Delete all truncated s3 objects
+        # I don't quite see why we are ordering the result, it doesn't
+        # seem important - can we omit it?
         res = self.fs.sql("SELECT s3key FROM s3_objects WHERE "
-                          "offset >= ? AND inode=? ORDER BY offset INC",
+                          "offset >= ? AND inode=? ORDER BY offset ASC",
                           (len, self.inode))
         for (s3key,) in res:
             self.fs.lock_s3key(s3key)

@@ -196,8 +196,6 @@ class fs(Fuse):
         return cursor.execute(*a, **kw)
 
 
-    # This function is also called internally, so we define
-    # an unwrapped version
     def getattr(self, path):
         """Handles FUSE getattr() requests
         """
@@ -252,7 +250,7 @@ class fs(Fuse):
         """
 
         (target,inode) = self.sql_row("SELECT target,inode FROM contents_ext "
-                                  "WHERE name=?", (buffer(path),))
+                                      "WHERE name=?", (buffer(path),))
         self.update_atime(inode)
         return str(target)
 
