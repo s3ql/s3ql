@@ -149,7 +149,7 @@ def c_check_contents(conn, checkonly):
         if mode != root_mode:
             found_errors = True
             warn("root has wrong mode, fixing.." % name)
-            if not changeonly:
+            if not checkonly:
                 c2.execute("UPDATE inodes SET mode=? WHERE inode=?",
                            (root_mode, inode_r))
 
@@ -187,7 +187,7 @@ def c_check_contents(conn, checkonly):
         if not stat.S_ISDIR(mode):
             found_errors = True
             warn("lost+found has wrong mode, fixing.." % name)
-            if not changeonly:
+            if not checkonly:
                 c2.execute("UPDATE inodes SET mode=? WHERE inode=?",
                            (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
                             inode_l))
@@ -225,7 +225,7 @@ def c_check_contents(conn, checkonly):
             if not stat.S_ISDIR(mode):
                 found_errors = True
                 warn("Parent of %s is not a directory, moving to lost+found" % name)
-                if not changeonly:
+                if not checkonly:
                     newname = "/lost+found/" + name[1:].replace(":", "::").replace("/", ":")
                     c2.execute("UPDATE contents SET name=?, parent_inode=? WHERE inode=?",
                                (buffer(newname), inode_l, inode))
@@ -234,7 +234,7 @@ def c_check_contents(conn, checkonly):
             if inode_p != inode_p2:
                 found_errors = True
                 warn("Fixing parent inode of %s" % name)
-                if not changeonly:
+                if not checkonly:
                     c2.execute("UPDATE contents SET parent_inode=? WHERE inode=?",
                                (inode_p2, inode))
 
@@ -277,7 +277,7 @@ def d_check_inodes(conn, checkonly):
         if len(res2) == 0:
             found_errors = True
             warn("Inode %s not referenced, adding to lost+found")
-            if not changeonly:
+            if not checkonly:
                 c2.execute("INSERT INTO contents (name, inode, parent_inode) "
                            "VALUES (?,?,?)", (buffer("/lost+found/%s" % str(inode)),
                                               inode, inode_l))
@@ -373,7 +373,7 @@ def e_check_s3(conn, bucket, checkonly):
                                    (inode, offset_d))):
                 warn("Object %s does not start at blocksize boundary, moving downwards"
                      % s3key)
-                if not changeonly:
+                if not checkonly:
                     c2.execute("UPDATE s3_objects SET offset=? WHERE s3key=?",
                                (offset_d, s3key))
 
@@ -381,14 +381,14 @@ def e_check_s3(conn, bucket, checkonly):
                                      (inode, offset_u))):
                 warn("Object %s does not start at blocksize boundary, moving upwards"
                      % s3key)
-                if not changeonly:
+                if not checkonly:
                     c2.execute("UPDATE s3_objects SET offset=? WHERE s3key=?",
                                (offset_u, s3key))
 
             else:
                 warn("Object %s does not start at blocksize boundary, deleting"
                      % s3key)
-                if not changeonly:
+                if not checkonly:
                     c2.execute("DELETE FROM s3_objects WHERE s3key=?", (s3key,))
 
 
@@ -397,7 +397,7 @@ def e_check_s3(conn, bucket, checkonly):
             found_errors = True
             warn("Object %s has invalid s3key, replacing with %s"
                  % (s3key, s3key2))
-            if not changeonly:
+            if not checkonly:
                 c2.execute("UPDATE s3_objects SET s3key=? WHERE s3key=?",
                            (s3key2, s3key))
                 bucket.copy_key(s3key, s3key2)
@@ -455,7 +455,7 @@ def f_check_keylist(conn, bucket, checkonly):
             found_errors = True
             warn("object %s is larger than blocksize (%d > %d), truncating."
                  % s3key, meta.size, blocksize)
-            if not changeonly:
+            if not checkonly:
                 tmp = tempfile.mktemp()
                 bucket.fetch_to_file(s3key, tmp)
                 fd = os.open(tmp, os.O_RDWR)
@@ -476,7 +476,7 @@ def f_check_keylist(conn, bucket, checkonly):
         if not res:
             found_errors = True
             warn("object %s not in referenced in table, adding to lost+found" % s3key)
-            if not changeonly:
+            if not checkonly:
                 c1.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                            "VALUES (?,?,?,?,?,?,?)",
                            (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
@@ -527,7 +527,7 @@ def f_check_keylist(conn, bucket, checkonly):
     for (s3key,) in res:
         found_errors = True
         warn("object %s only exists in table but not on s3, deleting" % s3key)
-        if not changeonly:
+        if not checkonly:
             c1.execute("DELETE FROM s3_objects WHERE s3key=?", (buffer(s3key),))
 
 
