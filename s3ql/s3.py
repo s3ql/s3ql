@@ -134,6 +134,19 @@ class Bucket(object):
         self.delete_key(key)
 
     def __iter__(self):
+        return self.keys()
+
+    def  __contains__(self, key):
+        return self.has_key(key)
+
+    def has_key(self, key):
+        return self.lookup_key(key) is not None
+
+    def iteritems(self):
+        for key in self.keys():
+            yield (key, self[key])
+
+    def keys(self):
         for (key,metadata) in self.list_keys():
             yield key
 
@@ -192,6 +205,9 @@ class Bucket(object):
         """
 
         bkey = self.get_boto().new_key(key)
+        if not bkey:
+            raise KeyError
+
         val = bkey.get_contents_as_string()
         metadata = boto_key_to_metadata(bkey)
 
@@ -258,15 +274,20 @@ class LocalBucket(Bucket):
     """Represents a bucket stored in Amazon S3.
 
 
-    This class doesn't actually connect but holds all data in
-    memory. It is meant only for testing purposes. It emulates a
-    propagation delay of 4 seconds and a transmit time of 2 seconds.
+    This class doesn't actually connect but holds all data in memory.
+    It is meant only for testing purposes. It emulates an artificial
+    propagation delay and transmit time.
+
     It raises ConcurrencyError if several threads try to write or read
-    the same object at a time.
+    the same object at a time. The reason for this is not that
+    concurrent accesses to the same object were in itself harmful, but
+    that they should not occur because the write(), sync() etc.
+    systemcalls are synchronized. So if the s3 accesses occur
+    concurrent, something went wrong with the syscall synchronization.
     """
 
     def __init__(self, name="local"):
-        self.keys = {}
+        self.keystore = {}
         self.name = name
         self.in_transmit = set()
         self.tx_delay = 2
@@ -280,14 +301,14 @@ class LocalBucket(Bucket):
         self.in_transmit.add(key)
         sleep(self.tx_delay)
         self.in_transmit.remove(key)
-        if not self.keys.has_key(key):
+        if not self.keystore.has_key(key):
             return None
         else:
-            return self.keys[key][0]
+            return self.keystore[key][0]
 
     def list_keys(self):
-        for key in self.keys:
-            yield self.keys[key]
+        for key in self.keystore:
+            yield (key, self.keystore[key][1])
 
     def delete_key(self, key):
         if key in self.in_transmit:
@@ -295,8 +316,23 @@ class LocalBucket(Bucket):
         debug("LocalBucket: Received delete for %s" % key)
         self.in_transmit.add(key)
         sleep(self.tx_delay)
-        del self.keys[key]
         self.in_transmit.remove(key)
+
+        # Make sure the key exists, otherwise we get an error
+        # in a different thread
+        if not self.keystore.has_key(key):
+            raise KeyError
+
+        def set():
+            sleep(self.prop_delay)
+            debug("LocalBucket: Committing delete for %s" % key)
+            # Don't bother if some other thread already deleted it
+            try:
+                del self.keystore[key]
+            except KeyError:
+                pass
+
+        threading.Thread(target=set).start()
 
     def fetch(self, key):
         debug("LocalBucket: Received fetch for %s" % key)
@@ -305,7 +341,7 @@ class LocalBucket(Bucket):
         self.in_transmit.add(key)
         sleep(self.tx_delay)
         self.in_transmit.remove(key)
-        return self.keys[key]
+        return self.keystore[key]
 
     def store(self, key, val):
         debug("LocalBucket: Received store for %s" % key)
@@ -321,7 +357,7 @@ class LocalBucket(Bucket):
         def set():
             sleep(self.prop_delay)
             debug("LocalBucket: Committing store for %s" % key)
-            self.keys[key] = (val, metadata)
+            self.keystore[key] = (val, metadata)
         t = threading.Thread(target=set)
         t.start()
         self.in_transmit.remove(key)
