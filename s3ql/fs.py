@@ -335,7 +335,11 @@ class fs(Fuse):
             res = self.sql("SELECT s3key FROM s3_objects WHERE inode=?",
                            (inode,))
             for (id,) in res:
-                self.bucket.delete_key(id)
+                # The object may not have been comitted yet
+                try:
+                    self.bucket.delete_key(id)
+                except KeyError:
+                    pass
 
             # Drop cache
             res = self.sql("SELECT fd, cachefile FROM s3_objects WHERE inode=?",
@@ -606,6 +610,7 @@ class fs(Fuse):
 
         # Start main event loop
         debug("Starting main event loop...")
+        old_excepthook = sys.excepthook
         setup_excepthook(self)
         mountoptions =  [ "direct_io",
                           "default_permissions",
@@ -618,6 +623,8 @@ class fs(Fuse):
 
         Fuse.main(self, args)
 
+        # Remove exception hook
+        sys.excepthook = old_excepthook
         debug("Main event loop terminated.")
 
     def close(self):
