@@ -91,12 +91,11 @@ if options.debug:
 
 #
 # Initialize local bucket
-# No propagation delays
 #
 
 bucket = s3ql.s3.LocalBucket()
-bucket.tx_delay = 0.5
-bucket.prop_delay = 1
+bucket.tx_delay = 0
+bucket.prop_delay = 0.2
 
 
 dbfile = tempfile.mktemp()
