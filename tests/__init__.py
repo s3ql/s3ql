@@ -23,6 +23,10 @@ def assert_true(res):
     if not res:
         raise AssertionError
 
+def assert_false(res):
+    if res:
+        raise AssertionError
+
 def assert_raises(exc, fn, *a, **kw):
     try:
         fn(*a, **kw)
@@ -30,7 +34,7 @@ def assert_raises(exc, fn, *a, **kw):
         return
     except:
         raise AssertionError, "Expression raised %s rather than %s" \
-            % (sys.exc_info()[1], exc)
+            % (sys.exc_info()[0], exc)
 
     else:
         raise AssertionError, "Expression did not raise %s" \
@@ -41,6 +45,13 @@ def assert_equals(e1, e2):
         return
 
     raise AssertionError, "%s != %s" % (e1, e2)
+
+
+def assert_none(e1):
+    if e1 is None:
+        return
+
+    raise AssertionError, "%s is not None" % e1
 
 
 from tests.s3 import *
