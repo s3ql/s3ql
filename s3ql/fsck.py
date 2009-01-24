@@ -445,7 +445,7 @@ def f_check_keylist(conn, bucket, checkonly):
     for (s3key, meta) in bucket.list_keys():
 
         # We only bother with our own objects
-        if not s3key.startswith("s3ql_"):
+        if not s3key.startswith("s3ql_data_"):
             continue
 
         c1.execute("DELETE FROM s3keys WHERE s3key=?", (s3key,))
@@ -454,7 +454,7 @@ def f_check_keylist(conn, bucket, checkonly):
         if meta.size > blocksize:
             found_errors = True
             warn("object %s is larger than blocksize (%d > %d), truncating."
-                 % s3key, meta.size, blocksize)
+                 % (s3key, meta.size, blocksize))
             if not checkonly:
                 tmp = tempfile.mktemp()
                 bucket.fetch_to_file(s3key, tmp)
@@ -469,8 +469,8 @@ def f_check_keylist(conn, bucket, checkonly):
 
 
         # Is it referenced in object table?
-        res = list(c1.execute("SELECT etag,size FROM s3_objects WHERE s3key=?"),
-                   (s3key,))
+        res = list(c1.execute("SELECT etag,size FROM s3_objects WHERE s3key=?",
+                   (s3key,)))
 
         # Object is not listed in object table
         if not res:
