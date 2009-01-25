@@ -18,13 +18,13 @@ class s3_local(TestCase):
     def __init__(self, cb):
         self.cb = cb
         self.bucket = s3ql.s3.LocalBucket()
-        self.bucket.tx_delay = 0
-        self.bucket.prop_delay = 0.2
 
     def random_name(self, prefix=""):
         return "s3ql_" + prefix + str(randrange(100,999,1))
 
     def test_01_store_fetch_lookup_delete_key(self):
+        self.bucket.tx_delay = 0
+        self.bucket.prop_delay = 0
         key = self.random_name("key_")
         value = self.random_name("value_")
         assert_none(self.bucket.lookup_key(key))
@@ -44,6 +44,8 @@ class s3_local(TestCase):
 
 
     def test_02_meta(self):
+        self.bucket.tx_delay = 0
+        self.bucket.prop_delay = 0
         key = self.random_name()
         value1 = self.random_name()
         value2 = self.random_name()
@@ -72,6 +74,8 @@ class s3_local(TestCase):
 
 
     def test_03_list_keys(self):
+        self.bucket.tx_delay = 0
+        self.bucket.prop_delay = 0
         # Keys need to be unique
         keys = [ self.random_name("key_") + str(x) for x in range(12) ]
         values = [ self.random_name("value_") for x in range(12) ]
@@ -90,10 +94,11 @@ class s3_local(TestCase):
         sleep(self.bucket.prop_delay)
 
     def test_04_delays(self):
-        old_tx = self.bucket.tx_delay
-        old_prop = self.bucket.prop_delay
+        # The other threads may not start immediately, so
+        # we need some tolerance here.
+        prop_delay = 0.6
         self.bucket.tx_delay = 0
-        self.bucket.prop_delay = 0.5
+        self.bucket.prop_delay = 0.3
 
         key = self.random_name()
         value1 = self.random_name()
@@ -102,31 +107,25 @@ class s3_local(TestCase):
         assert_false(self.bucket.has_key(key))
         self.bucket[key] = value1
         assert_false(self.bucket.has_key(key))
-        sleep(self.bucket.prop_delay)
+        sleep(prop_delay)
         assert_true(self.bucket.has_key(key))
         assert_equals(self.bucket[key], value1)
         self.cb()
 
         self.bucket[key] = value2
         assert_equals(self.bucket[key], value1)
-        sleep(self.bucket.prop_delay)
+        sleep(prop_delay)
         assert_equals(self.bucket[key], value2)
         self.cb()
 
         self.bucket.delete_key(key)
         assert_true(self.bucket.has_key(key))
         assert_equals(self.bucket[key], value2)
-        sleep(self.bucket.prop_delay)
+        sleep(prop_delay)
         assert_false(self.bucket.has_key(key))
-
-        self.bucket.tx_delay = old_tx
-        self.bucket.prop_delay = old_prop
 
 
     def test_05_concurrency(self):
-        old_tx = self.bucket.tx_delay
-        old_prop = self.bucket.prop_delay
-        tx_delay = 0.4
         self.bucket.tx_delay = 0.2
         self.bucket.prop_delay = 0
         key = self.random_name()
@@ -134,37 +133,45 @@ class s3_local(TestCase):
 
         def async():
            self.bucket[key] = value
-        threading.Thread(target=async).start()
+        t = threading.Thread(target=async)
+        t.start()
+        sleep(0.1) # Make sure the other thread is actually running
         assert_raises(s3ql.s3.ConcurrencyError, self.bucket.store, key, value)
-        sleep(tx_delay)
+        t.join()
         assert_true(self.bucket.store(key, value) is not None)
         self.cb()
 
         def async():
            self.bucket[key] = value
-        threading.Thread(target=async).start()
+        t = threading.Thread(target=async)
+        t.start()
+        sleep(0.1) # Make sure the other thread is actually running
         assert_raises(s3ql.s3.ConcurrencyError, self.bucket.fetch, key)
-        sleep(tx_delay)
+        t.join()
         assert_true(self.bucket.fetch(key) is not None)
         self.cb()
 
         def async():
            self.bucket.fetch(key)
-        threading.Thread(target=async).start()
+        t = threading.Thread(target=async)
+        t.start()
+        sleep(0.1) # Make sure the other thread is actually running
         assert_raises(s3ql.s3.ConcurrencyError, self.bucket.store, key, value)
-        sleep(tx_delay)
+        t.join()
         assert_true(self.bucket.store(key, value) is not None)
         self.cb()
 
         def async():
            self.bucket.fetch(key)
-        threading.Thread(target=async).start()
+        t = threading.Thread(target=async)
+        t.start()
+        sleep(0.1) # Make sure the other thread is actually running
         assert_raises(s3ql.s3.ConcurrencyError, self.bucket.fetch, key)
-        sleep(tx_delay)
+        t.join()
         assert_true(self.bucket.fetch(key) is not None)
         self.cb()
 
 
+        self.bucket.tx_delay = 0
+        self.bucket.prop_delay = 0
         del self.bucket[key]
-        self.bucket.tx_delay = old_tx
-        self.bucket.prop_delay = old_prop

@@ -39,9 +39,13 @@ class fuse(TestCase):
         # Mount
         self.pid = os.spawnl(os.P_NOWAIT, "./s3qlfs_local", "s3qlfs_local",
                              "--fg", "--fsck", "--nonempty", "--blocksize", "1",
-                             "--quiet", self.base)
+                             "--quiet", "--txdelay", "0.2", "--propdelay",
+                             "0.2", self.base)
 
-        # This apparently takes quite some time
+        # Normally the program daemonizes when the mount point is set
+        # up. But since we need the exit status, we cannot daemonize
+        # and need to wait some time for the mountpoint to come up
+        # (mostly due to the simulated delays)
         time.sleep(5)
         assert_true(not os.path.exists(self.basefile))
 
@@ -55,7 +59,6 @@ class fuse(TestCase):
             self.t_truncate()
         finally:
             # Umount
-            time.sleep(3)
             assert_equals(os.spawnlp(os.P_WAIT, "fusermount",
                                     "fusermount", "-u", self.base), 0)
             (pid, status) = os.waitpid(self.pid, 0)
@@ -65,7 +68,7 @@ class fuse(TestCase):
             assert_true(os.path.exists(self.basefile))
 
     def random_name(self):
-        return "s3ql" + str(randrange(10,99,1))
+        return "s3ql" + str(randrange(100,999,1))
 
 
     def t_mkdir(self):

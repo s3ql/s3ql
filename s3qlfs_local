@@ -43,6 +43,10 @@ parser.add_option("--blocksize", type="int", default=1,
                   help="Maximum size of s3 objects in KB (default: %default)")
 parser.add_option("--fsck", action="store_true", default=False,
                   help="Runs fsck after the filesystem is unmounted.")
+parser.add_option("--txdelay", type="float", default=0.0,
+                  help="Simulated transmission time to/from S3 in seconds (default: %default)")
+parser.add_option("--propdelay", type="float", default=0.0,
+                  help="Simulated propagation in S3 in seconds (default: %default)")
 
 
 (options, pps) = parser.parse_args()
@@ -94,8 +98,8 @@ if options.debug:
 #
 
 bucket = s3ql.s3.LocalBucket()
-bucket.tx_delay = 0
-bucket.prop_delay = 0.2
+bucket.tx_delay = options.txdelay
+bucket.prop_delay = options.propdelay
 
 
 dbfile = tempfile.mktemp()
