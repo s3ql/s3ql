@@ -149,7 +149,7 @@ try:
 
         s3ql.log_fn = logger
 
-    setup_excepthook(server)
+    s3ql.setup_excepthook(server)
     server.main(mountpoint, fuse_opts, options.fg,
                 mt=not options.single)
     server.close()
