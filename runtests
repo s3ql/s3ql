@@ -24,12 +24,20 @@ def cb():
     sys.stdout.write(".")
     sys.stdout.flush()
 
+
 for cl_ob in [ x for x in tests.__dict__.itervalues()
                if hasattr(x, "__base__") and
                x.__base__ == tests.TestCase ]:
 
     # Instantiate TestCase
-    inst = cl_ob(cb)
+    try:
+        inst = cl_ob(cb)
+    except BaseException, e:
+        print "FAILED to instantiate test case:", str(e)
+        print "".join(traceback.format_tb(sys.exc_info()[2])[1:-1])
+        failcnt += 1
+        continue
+
 
     # Run test methods
     fns = [ x for x in cl_ob.__dict__.itervalues() if
@@ -42,7 +50,7 @@ for cl_ob in [ x for x in tests.__dict__.itervalues()
         total += 1
         try:
             test(inst)
-        except AssertionError, e:
+        except BaseException, e:
             print "FAILED:", str(e)
             print "".join(traceback.format_tb(sys.exc_info()[2])[1:-1])
             failcnt += 1
@@ -56,6 +64,8 @@ for cl_ob in [ x for x in tests.__dict__.itervalues()
 
 if failcnt > 0:
     print "%d out of %d tests FAILED!" % (failcnt, total)
+    print "Please report this on the issue tracker on the mailing list, "
+    print "both reachable from http://code.google.com/p/s3ql/"
     sys.exit(1)
 else:
     print "All %d tests completed successfully." % total
