@@ -610,8 +610,6 @@ class fs(Fuse):
 
         # Start main event loop
         debug("Starting main event loop...")
-        old_excepthook = sys.excepthook
-        setup_excepthook(self)
         mountoptions =  [ "direct_io",
                           "default_permissions",
                           "use_ino",
@@ -623,8 +621,6 @@ class fs(Fuse):
 
         Fuse.main(self, args)
 
-        # Remove exception hook
-        sys.excepthook = old_excepthook
         debug("Main event loop terminated.")
 
     def close(self):

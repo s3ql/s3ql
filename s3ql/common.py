@@ -41,13 +41,22 @@ def setup_excepthook(fs):
 
     # The Handler
     def handler(type, value, tb):
-        error([ "Unexpected %s error: %s\n" % (str(type), str(value)),
-                "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n",
-                "Please report this bug to the program author.\n"
-                "Traceback:\n",
-                ] + traceback.format_tb(tb))
 
-        fs.mark_damaged()
+        # Check if the file system is still mounted, or if the
+        # error occurred before or after mounting.
+        if hasattr(fs, "conn"):
+            error([ "Unexpected %s error: %s\n" % (str(type), str(value)),
+                    "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n",
+                    "Please report this bug to the program author.\n"
+                    "Traceback:\n",
+                    ] + traceback.format_tb(tb))
+
+            fs.mark_damaged()
+        else:
+            error([ "Unexpected %s error: %s\n" % (str(type), str(value)),
+                    "Please report this bug to the program author.\n"
+                    "Traceback:\n",
+                    ] + traceback.format_tb(tb))
 
     # Install
     sys.excepthook = handler
