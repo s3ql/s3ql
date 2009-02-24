@@ -58,7 +58,7 @@ class Connection(object):
         """Creates an S3 bucket
         """
         boto = self.get_boto()
-        boto.create_bucket(bucketname)
+        boto.create_bucket(name)
 
 
     def get_bucket(self, name):
@@ -250,7 +250,7 @@ class Bucket(object):
         bkey = self.get_boto().new_key(key)
         bkey.set_contents_from_filename(file)
 
-        return boto_key_to_metadata(bkey)
+        return self.boto_key_to_metadata(bkey)
 
     @staticmethod
     def boto_key_to_metadata(bkey):
