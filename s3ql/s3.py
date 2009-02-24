@@ -8,7 +8,7 @@ import hashlib
 from time import time, sleep
 from datetime import datetime
 from boto.s3.connection import S3Connection
-import boto.exception
+import boto.exception as bex
 import threading
 from s3ql.common import *
 
@@ -82,7 +82,7 @@ class Connection(object):
         boto = self.get_boto()
         try:
             boto.get_bucket(name)
-        except boto.exception.S3ResponseError, e:
+        except bex.S3ResponseError, e:
             if e.status == 404:
                 return False
             else:
