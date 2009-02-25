@@ -23,7 +23,9 @@ parser = OptionParser(
     description="Initializes on Amazon S3 bucket for use as a filesystem")
 
 parser.add_option("--awskey", type="string",
-                  help="Amazon Webservices access key to use")
+                  help="Amazon Webservices access key to use. The password is "
+                  "read from stdin. If this option is not specified, both access key "
+                  "and password are read from ~/.awssecret (separated by newlines).")
 parser.add_option("-L", type="string", help="Filesystem label",
                   dest="label")
 parser.add_option("--blocksize", type="int", default=10240,
