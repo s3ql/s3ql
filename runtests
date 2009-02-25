@@ -64,7 +64,7 @@ for cl_ob in [ x for x in tests.__dict__.itervalues()
 
 if failcnt > 0:
     print "%d out of %d tests FAILED!" % (failcnt, total)
-    print "Please report this on the issue tracker on the mailing list, "
+    print "Please report this on the issue tracker or the mailing list, "
     print "both reachable from http://code.google.com/p/s3ql/"
     sys.exit(1)
 else:
