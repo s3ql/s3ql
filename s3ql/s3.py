@@ -159,7 +159,7 @@ class Bucket(object):
         bkey = self.get_boto().get_key(key)
 
         if bkey:
-            return boto_key_to_metadata(bkey)
+            return self.boto_key_to_metadata(bkey)
         else:
             return None
 
@@ -193,7 +193,7 @@ class Bucket(object):
         """
 
         for key in self.get_boto().list(prefix, delim):
-            yield (key.name, boto_key_to_metadata(key))
+            yield (key.name, self.boto_key_to_metadata(key))
 
 
     def fetch(self, key):
@@ -209,7 +209,7 @@ class Bucket(object):
             raise KeyError
 
         val = bkey.get_contents_as_string()
-        metadata = boto_key_to_metadata(bkey)
+        metadata = self.boto_key_to_metadata(bkey)
 
         return (val, metadata)
 
@@ -228,7 +228,7 @@ class Bucket(object):
         bkey = self.get_boto().new_key(key)
         bkey.set_contents_from_string(val)
 
-        return boto_key_to_metadata(bkey)
+        return self.boto_key_to_metadata(bkey)
 
     def fetch_to_file(self, key, file):
         """Fetches data stored under `key` and writes them to `file`.
@@ -239,7 +239,7 @@ class Bucket(object):
         bkey = self.get_boto().new_key(key)
         bkey.get_contents_to_filename(file)
 
-        return boto_key_to_metadata(bkey)
+        return self.boto_key_to_metadata(bkey)
 
     def store_from_file(self, key, file):
         """Reads `file` and stores the data under `key`
