@@ -12,6 +12,7 @@ import sys
 import os
 import stat
 import apsw
+import syslog
 
 #
 # Parse command line
@@ -137,8 +138,8 @@ try:
     #
     # Start server
     #
-    server = s3ql.fs(bucket, dbfile, cachepath,
-                     cachesize=cachesize)
+    server = s3ql.fs(bucket, dbfile, cachedir,
+                     cachesize=options.cachesize)
 
     # Init syslog before going bg
     if not options.fg:
@@ -154,7 +155,7 @@ try:
 
     s3ql.setup_excepthook(server)
     server.main(mountpoint, fuse_opts, options.fg,
-                mt=not options.single)
+                mt=(not options.single))
     server.close()
 
 
