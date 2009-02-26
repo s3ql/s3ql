@@ -9,6 +9,9 @@ from optparse import OptionParser
 from getpass  import getpass
 import s3ql
 import sys
+import os
+import stat
+import apsw
 
 #
 # Parse command line
@@ -118,7 +121,7 @@ if os.path.exists(cachedir) or os.path.exists(dbfile):
 
 # Init cache + get metadata
 try:
-    debug("Downloading metadata...")
+    s3ql.debug("Downloading metadata...")
     os.mknod(dbfile, 0600 | stat.S_IFREG)
     os.mkdir(cachedir, 0700)
     bucket.fetch_to_file("s3ql_metadata", dbfile)
@@ -156,12 +159,16 @@ try:
 
 
     # Upload database
-    debug("Uploading database..")
+    s3ql.debug("Uploading database..")
     bucket.store_from_file("s3ql_metadata", dbfile)
     bucket.store("s3ql_dirty", "no")
 
 # Remove database
 finally:
-    debug("Cleaning up...")
-    os.unlink(dbfile)
-    os.rmdir(cachedir)
+    # Ignore exceptions when cleaning up
+    try:
+        s3ql.debug("Cleaning up...")
+        os.unlink(dbfile)
+        os.rmdir(cachedir)
+    except:
+        pass
