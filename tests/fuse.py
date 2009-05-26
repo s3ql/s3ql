@@ -72,32 +72,34 @@ class fuse(TestCase):
 
     def t_mkdir(self):
         dirname = self.random_name()
-        os.mkdir(self.base + dirname)
-        fstat = os.stat(self.base + dirname)
+        fullname = self.base + "/" + dirname
+        os.mkdir(fullname)
+        fstat = os.stat(fullname)
         assert_true(stat.S_ISDIR(fstat.st_mode))
-        assert_equals(os.listdir(self.base + dirname), [])
+        assert_equals(os.listdir(fullname), [])
         assert_equals(fstat.st_nlink, 2)
         assert_true(dirname in os.listdir(self.base))
-        os.rmdir(self.base + dirname)
-        assert_raises(OSError, os.stat, self.base + dirname)
+        os.rmdir(fullname)
+        assert_raises(OSError, os.stat, fullname)
         assert_true(dirname not in os.listdir(self.base))
         self.cb()
 
     def t_symlink(self):
         linkname = self.random_name()
-        os.symlink("/imaginary/dest", self.base + linkname)
-        fstat = os.lstat(self.base + linkname)
+        fullname = self.base + "/" + linkname
+        os.symlink("/imaginary/dest", fullname)
+        fstat = os.lstat(fullname)
         assert_true(stat.S_ISLNK(fstat.st_mode))
-        assert_equals(os.readlink(self.base + linkname), "/imaginary/dest")
+        assert_equals(os.readlink(fullname), "/imaginary/dest")
         assert_equals(fstat.st_nlink, 1)
         assert_true(linkname in os.listdir(self.base))
-        os.unlink(self.base + linkname)
-        assert_raises(OSError, os.lstat, self.base + linkname)
+        os.unlink(fullname)
+        assert_raises(OSError, os.lstat, fullname)
         assert_true(linkname not in os.listdir(self.base))
         self.cb()
 
     def t_mknod(self):
-        filename = self.base + self.random_name()
+        filename = self.base + "/" + self.random_name()
         src = self.src
         shutil.copyfile(src, filename)
         fstat = os.lstat(filename)
@@ -112,8 +114,8 @@ class fuse(TestCase):
 
 
     def t_link(self):
-        name1 = self.base + self.random_name()
-        name2 = self.base + self.random_name()
+        name1 = self.base + "/" + self.random_name()
+        name2 = self.base + "/" + self.random_name()
         src = self.src
         shutil.copyfile(src, name1)
         os.link(name1, name2)
@@ -133,7 +135,7 @@ class fuse(TestCase):
         self.cb()
 
     def t_readdir(self):
-        dir = self.base + self.random_name()
+        dir = self.base + "/" + self.random_name()
         file = dir + "/" + self.random_name()
         subdir = dir + "/" + self.random_name()
         subfile = subdir + "/" + self.random_name()
@@ -157,7 +159,7 @@ class fuse(TestCase):
         self.cb()
 
     def t_truncate(self):
-        filename = self.base + self.random_name()
+        filename = self.base + "/" + self.random_name()
         src = self.src
         shutil.copyfile(src, filename)
         fstat = os.stat(filename)

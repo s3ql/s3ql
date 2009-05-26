@@ -33,12 +33,12 @@ class s3_local(TestCase):
         self.cb()
 
         self.bucket.store(key, value)
-        sleep(self.bucket.prop_delay)
+        sleep(self.bucket.prop_delay+0.1)
         assert_equals(self.bucket[key], value)
         self.cb()
 
         self.bucket.delete_key(key)
-        sleep(self.bucket.prop_delay)
+        sleep(self.bucket.prop_delay+0.1)
         assert_false(self.bucket.has_key(key))
         self.cb()
 
@@ -51,7 +51,7 @@ class s3_local(TestCase):
         value2 = self.random_name()
 
         meta1 = self.bucket.store(key, value1)
-        sleep(self.bucket.prop_delay)
+        sleep(self.bucket.prop_delay+0.1)
 
         assert_equals(meta1.key, key)
         assert_equals(meta1.size, len(value1))
@@ -59,7 +59,7 @@ class s3_local(TestCase):
         self.cb()
 
         meta2 = self.bucket.store(key, value2)
-        sleep(self.bucket.prop_delay)
+        sleep(self.bucket.prop_delay+0.1)
 
         assert_equals(meta2.key, key)
         assert_equals(meta2.size, len(value2))
@@ -84,14 +84,14 @@ class s3_local(TestCase):
             self.bucket[keys[i]] = values[i]
 
 
-        sleep(self.bucket.prop_delay)
+        sleep(self.bucket.prop_delay+0.1)
         assert_equals(sorted(self.bucket.keys()), sorted(keys))
 
         for i in range(12):
             del self.bucket[keys[i]]
 
 
-        sleep(self.bucket.prop_delay)
+        sleep(self.bucket.prop_delay+0.1)
 
     def test_04_delays(self):
         # The other threads may not start immediately, so

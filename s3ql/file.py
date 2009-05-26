@@ -234,6 +234,8 @@ class file(object):
         offset_f = offset_i + self.blocksize
         maxwrite = offset_f - offset
 
+        debug("Writing to s3key " + s3key)
+
         self.fs.lock_s3key(s3key)
         try:
             fd = self.retrieve_s3(s3key, create=offset_i)
