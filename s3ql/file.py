@@ -296,7 +296,7 @@ class file(object):
                 except KeyError:
                     pass
 
-                self.fs.sql_sep("DELETE FROM s3_objects WHERE s3key=?",
+                self.fs.sql("DELETE FROM s3_objects WHERE s3key=?",
                                 (s3key,))
             finally:
                 self.fs.unlock_s3key(s3key)
@@ -354,11 +354,11 @@ class file(object):
         res = self.fs.sql("SELECT s3key, fd, cachefile FROM s3_objects WHERE "
                           "dirty=? AND inode=?", (True, self.inode))
         for (s3key, fd, cachefile) in res:
-            self.fs.sql_sep("UPDATE s3_objects SET dirty=? WHERE s3key=?",
+            self.fs.sql("UPDATE s3_objects SET dirty=? WHERE s3key=?",
                         (False, s3key))
             os.fsync(fd)
             meta = self.bucket.store_from_file(s3key, self.fs.cachedir + cachefile)
-            self.fs.sql_sep("UPDATE s3_objects SET etag=? WHERE s3key=?",
+            self.fs.sql("UPDATE s3_objects SET etag=? WHERE s3key=?",
                         (meta.etag, s3key))
 
 

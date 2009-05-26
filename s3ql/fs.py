@@ -17,6 +17,7 @@ import threading
 import s3ql
 from s3ql.common import *
 import resource
+import warnings
 
 # Check fuse version
 if not hasattr(fuse, '__version__'):
@@ -33,11 +34,9 @@ class fs(Fuse):
     -----------
 
     :file_class:  Class implementing file access operations
-    :local:       Thread-local storage, used for database cursors
+    :local:       Thread-local storage, used for database connections
     :dbfile:      Filename of metadata db
     :cachedir:    Directory for s3 object cache
-    :conn:        Database connection
-    :db_lock:     Lock object for operations on the database connection
     :bucket:      Bucket object for datatransfer with S3
     :s3_lock:     Condition object for locking of specific s3 keys
     :noatime:     True if entity access times shouldn't be updated.
@@ -102,13 +101,8 @@ class fs(Fuse):
         self.noatime = noatime
 
         # Init Locks
-        self.db_lock = threading.Lock()
         self.s3_lock = threading.Condition()
         self.s3_lock.locked_keys = set()
-
-        debug("Connecting to db...")
-        self.conn = apsw.Connection(self.dbfile)
-        self.conn.setbusytimeout(5000)
 
         # Get blocksize
         debug("Reading fs parameters...")
@@ -157,22 +151,18 @@ class fs(Fuse):
         return self.sql(*a, **kw).next()
 
     def sql(self, *a, **kw):
-        """Executes given SQL statement with thread-local cursor.
+        """Executes given SQL statement with thread-local connection.
 
         The statement is passed to the cursor.execute() method and
         the resulting object is returned.
         """
 
-        if hasattr(self.local, "cursor"):
-            cursor = self.local.cursor
-        else:
-            try:
-                self.db_lock.acquire()
-                cursor = self.conn.cursor()
-            finally:
-                self.db_lock.release()
-            self.local.cursor = cursor
+        if not hasattr(self.local, "conn"):
+            debug("Creating new db connection...")
+            self.local.conn = apsw.Connection(self.dbfile)
+            self.local.conn.setbusytimeout(5000)
 
+        cursor = self.local.conn.cursor()
 
         return cursor.execute(*a, **kw)
 
@@ -187,13 +177,8 @@ class fs(Fuse):
         separate cursor instead of the main one.
         """
 
-        try:
-            self.db_lock.acquire()
-            cursor = self.conn.cursor()
-        finally:
-            self.db_lock.release()
-
-        return cursor.execute(*a, **kw)
+        warnings.warn("sql_sep is superseded by sql", DeprecationWarning)
+        self.sql(*a,**kw)
 
 
     def getattr(self, path):
@@ -430,7 +415,7 @@ class fs(Fuse):
                                 (stat.S_IFLNK, con["uid"], con["gid"], buffer(target),
                                  time(), time(), time()))
             self.sql("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                                (buffer(name), self.conn.last_insert_rowid(), inode_p))
+                                (buffer(name), self.local.conn.last_insert_rowid(), inode_p))
             self.update_mtime(inode_p)
         except:
             self.sql("ROLLBACK")
@@ -506,7 +491,7 @@ class fs(Fuse):
                      "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
                      (time(), time(), time(), con["uid"], con["gid"], mode, dev, 1))
             self.sql("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                     (buffer(path), self.conn.last_insert_rowid(), inode_p))
+                     (buffer(path), self.local.conn.last_insert_rowid(), inode_p))
             self.update_mtime(inode_p)
         except:
             self.sql("ROLLBACK")
@@ -528,7 +513,7 @@ class fs(Fuse):
             self.sql("INSERT INTO inodes (mtime,atime,ctime,uid,gid,mode,refcount) "
                      "VALUES(?, ?, ?, ?, ?, ?, ?)",
                      (time(), time(), time(), con["uid"], con["gid"], mode, 2))
-            inode = self.conn.last_insert_rowid()
+            inode = self.local.conn.last_insert_rowid()
             self.sql("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
                 (buffer(path), inode, inode_p))
             self.increase_refcount(inode_p)
@@ -642,20 +627,17 @@ class fs(Fuse):
                 error([ "Warning! Object ", s3key, " has not yet been flushed.\n",
                              "Please report this as a bug!\n" ])
                 bucket.store_from_file(s3key, self.cachedir + cachefile)
-                self.sql_sep("UPDATE s3_objects SET dirty=?, cachefile=?, "
+                self.sql("UPDATE s3_objects SET dirty=?, cachefile=?, "
                          "etag=?, fd=? WHERE s3key=?",
                          (False, None, key.etag, None, s3key))
             else:
-                self.sql_sep("UPDATE s3_objects SET cachefile=?, fd=? WHERE s3key=?",
+                self.sql("UPDATE s3_objects SET cachefile=?, fd=? WHERE s3key=?",
                          (None, None, s3key))
 
             os.unlink(self.cachedir + cachefile)
 
 
         self.sql("VACUUM")
-        self.conn.close()
-        del self.conn
-
         debug("buffers flushed, fs has shut down.")
 
     def __destroy__(self):
