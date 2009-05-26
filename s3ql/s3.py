@@ -10,6 +10,7 @@ from datetime import datetime
 from boto.s3.connection import S3Connection
 import boto.exception as bex
 import threading
+import copy
 from s3ql.common import *
 
 class Connection(object):
@@ -252,6 +253,12 @@ class Bucket(object):
 
         return self.boto_key_to_metadata(bkey)
 
+    def copy(self, src, dest):
+        """Copies data stored under `src` to `dest`
+        """
+        self.get_boto().copy_key(dest,self.name,src)
+
+
     @staticmethod
     def boto_key_to_metadata(bkey):
         """Extracts metadata from boto key object.
@@ -378,6 +385,24 @@ class LocalBucket(Bucket):
         file.close()
 
         return self.store(key, value)
+
+    def copy(self, src, dest):
+        """Copies data stored under `src` to `dest`
+        """
+        debug("LocalBucket: Received copy from %s to %s" % (src,dest))
+        if dest in self.in_transmit or src in self.in_transmit:
+            raise ConcurrencyError
+        self.in_transmit.add(src)
+        self.in_transmit.add(dest)
+        sleep(self.tx_delay)
+        def set():
+            sleep(self.prop_delay)
+            debug("LocalBucket: Committing copy from %s to %s" % (src,dest))
+            self.keystore[dest] = copy.deepcopy(self.keystore[src])
+        threading.Thread(target=set).start()
+        self.in_transmit.remove(dest)
+        self.in_transmit.remove(src)
+        debug("LocalBucket: Returning from copy %s to %s" % (src,dest))
 
 
 class Metadata(dict):

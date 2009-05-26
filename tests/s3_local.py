@@ -42,7 +42,6 @@ class s3_local(TestCase):
         assert_false(self.bucket.has_key(key))
         self.cb()
 
-
     def test_02_meta(self):
         self.bucket.tx_delay = 0
         self.bucket.prop_delay = 0
@@ -175,3 +174,20 @@ class s3_local(TestCase):
         self.bucket.tx_delay = 0
         self.bucket.prop_delay = 0
         del self.bucket[key]
+
+    def test_05_copy(self):
+        self.bucket.tx_delay = 0
+        self.bucket.prop_delay = 0
+        key1 = self.random_name("key_1")
+        key2 = self.random_name("key_2")
+        value = self.random_name("value_")
+        assert_none(self.bucket.lookup_key(key1))
+        assert_none(self.bucket.lookup_key(key2))
+
+        self.bucket.store(key1, value)
+        sleep(self.bucket.prop_delay+0.1)
+        self.bucket.copy(key1, key2)
+
+        sleep(self.bucket.prop_delay+0.1)
+        assert_equals(self.bucket[key2], value)
+        self.cb()
