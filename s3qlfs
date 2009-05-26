@@ -5,6 +5,10 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+# Python boto uses several deprecated modules
+import warnings
+warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
+
 from optparse import OptionParser
 from getpass  import getpass
 import s3ql

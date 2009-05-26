@@ -5,6 +5,11 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+
+# Python boto uses several deprecated modules
+import warnings
+warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
+
 import sys
 import os
 from getpass import getpass

@@ -222,7 +222,7 @@ class file(object):
     def write(self, buf, offset):
         """Handles FUSE write() requests.
 
-        May write less byets than given in `buf`, to the ``direct_io`` FUSE
+        May write less bytes than given in `buf`, so the ``direct_io`` FUSE
         option has to be enabled.
         """
 
