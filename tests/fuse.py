@@ -12,20 +12,18 @@ import sys
 from os.path  import basename
 from random   import randrange
 import filecmp
+import tempfile
 import time
-from tests import TestCase, assert_true, assert_equals, assert_raises
+import posixpath
+from tests import *
 
 class fuse(TestCase):
     """Perform checks on a mounted S3QL filesystem
     """
 
     def __init__(self, cb):
-        self.base = "test_mp/"
-        self.basefile = self.base + "README"
+        self.base = tempfile.mkdtemp()
         self.cb = cb
-
-        if not os.path.exists(self.basefile):
-            raise Exception, "test directory %s does not exist" % self.base
 
         # We need this to test multi block operations
         self.src = sys.argv[0]
@@ -47,7 +45,7 @@ class fuse(TestCase):
         # and need to wait some time for the mountpoint to come up
         # (mostly due to the simulated delays)
         time.sleep(5)
-        assert_true(not os.path.exists(self.basefile))
+        assert_true(posixpath.ismount(self.base))
 
         # Run Subtests
         try:
@@ -65,7 +63,8 @@ class fuse(TestCase):
 
             assert_true(os.WIFEXITED(status))
             assert_equals(os.WEXITSTATUS(status), 0)
-            assert_true(os.path.exists(self.basefile))
+            assert_false(posixpath.ismount(self.base))
+            os.rmdir(self.base)
 
     def random_name(self):
         return "s3ql" + str(randrange(100,999,1))

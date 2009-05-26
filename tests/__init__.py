@@ -54,7 +54,7 @@ def assert_none(e1):
     raise AssertionError, "%s is not None" % e1
 
 
-from tests.s3 import *
+from tests.s3_local import *
 from tests.fuse import *
 from tests.fs import *
 from tests.fsck import *
