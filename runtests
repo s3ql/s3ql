@@ -15,12 +15,14 @@ import unittest
 import os
 import sys
 
+# Find and import tests
+modules_to_test =  [ "tests." + name[:-3] for name in
+                     os.listdir(os.path.join(os.path.dirname(__file__), "tests"))
+                     if name.endswith(".py") and not name.startswith("__") ]
+map(__import__, modules_to_test)
+
 # Runs all tests in test/ directory
 def suite():
-    modules_to_test =  [ "tests." + name[:-3] for name in
-                         os.listdir(os.path.join(os.path.dirname(__file__), "tests"))
-                         if name.endswith(".py") and not name.startswith("__") ]
-    map(__import__, modules_to_test)
     alltests = unittest.TestSuite()
     for name in modules_to_test:
         alltests.addTest(unittest.findTestCases(sys.modules[name]))

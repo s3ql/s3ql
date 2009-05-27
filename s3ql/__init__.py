@@ -8,9 +8,10 @@
 from common import *
 from file import *
 from fs import *
+from mkfs import *
+
 import s3
 import fsck
-from mkfs import *
 
 log_fn = sys.stderr.writelines
 log_level = 1

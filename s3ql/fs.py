@@ -28,7 +28,7 @@ fuse.feature_assert('stateful_files', 'has_init')
 
 
 class fs(Fuse):
-    """ FUSE filesystem that stores its data on Amazon S3
+    """FUSE filesystem that stores its data on Amazon S3
 
     Attributes:
     -----------
@@ -368,7 +368,7 @@ class fs(Fuse):
         # Check if directory is empty
         (entries,) = self.sql("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
                            (inode,)).next()
-        if entries > 2: # 1 due to parent dir, 1 due to "."
+        if entries >= 1:
             debug("Attempted to remove nonempty directory %s" % path)
             raise FUSEError(errno.EINVAL)
 
@@ -524,7 +524,7 @@ class fs(Fuse):
         else:
             self.sql("COMMIT")
 
-    def utime(self, path, times):
+    def utimens(self, path, times):
         """Handles FUSE utime() requests.
         """
 
