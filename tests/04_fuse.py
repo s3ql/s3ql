@@ -15,24 +15,24 @@ import filecmp
 import tempfile
 import time
 import posixpath
-from tests import *
+import unittest
 
-class fuse(TestCase):
-    """Perform checks on a mounted S3QL filesystem
-    """
-
-    def __init__(self, cb):
+class fuse_tests(unittest.TestCase):
+    def setUp(self):
         self.base = tempfile.mkdtemp()
-        self.cb = cb
 
         # We need this to test multi block operations
-        self.src = sys.argv[0]
+        self.src = __file__
         fstat = os.stat(self.src)
         if fstat.st_size <= 1024: # 1 kb blocksize, see below
             raise Exception, "test file %s should be bigger than 1 kb" % self.src
 
+    def random_name(self):
+        return "s3ql" + str(randrange(100,999,1))
 
     def test_mount(self):
+        """Operations on mounted filesystem
+        """
 
         # Mount
         self.pid = os.spawnl(os.P_NOWAIT, "./s3qlfs_local", "s3qlfs_local",
@@ -45,7 +45,7 @@ class fuse(TestCase):
         # and need to wait some time for the mountpoint to come up
         # (mostly due to the simulated delays)
         time.sleep(5)
-        assert_true(posixpath.ismount(self.base))
+        self.assertTrue(posixpath.ismount(self.base))
 
         # Run Subtests
         try:
@@ -57,17 +57,15 @@ class fuse(TestCase):
             self.t_truncate()
         finally:
             # Umount
-            assert_equals(os.spawnlp(os.P_WAIT, "fusermount",
+            self.assertEquals(os.spawnlp(os.P_WAIT, "fusermount",
                                     "fusermount", "-u", self.base), 0)
             (pid, status) = os.waitpid(self.pid, 0)
 
-            assert_true(os.WIFEXITED(status))
-            assert_equals(os.WEXITSTATUS(status), 0)
-            assert_false(posixpath.ismount(self.base))
+            self.assertTrue(os.WIFEXITED(status))
+            self.assertEquals(os.WEXITSTATUS(status), 0)
+            self.assertFalse(posixpath.ismount(self.base))
             os.rmdir(self.base)
 
-    def random_name(self):
-        return "s3ql" + str(randrange(100,999,1))
 
 
     def t_mkdir(self):
@@ -75,42 +73,39 @@ class fuse(TestCase):
         fullname = self.base + "/" + dirname
         os.mkdir(fullname)
         fstat = os.stat(fullname)
-        assert_true(stat.S_ISDIR(fstat.st_mode))
-        assert_equals(os.listdir(fullname), [])
-        assert_equals(fstat.st_nlink, 2)
-        assert_true(dirname in os.listdir(self.base))
+        self.assertTrue(stat.S_ISDIR(fstat.st_mode))
+        self.assertEquals(os.listdir(fullname), [])
+        self.assertEquals(fstat.st_nlink, 2)
+        self.assertTrue(dirname in os.listdir(self.base))
         os.rmdir(fullname)
-        assert_raises(OSError, os.stat, fullname)
-        assert_true(dirname not in os.listdir(self.base))
-        self.cb()
+        self.assertRaises(OSError, os.stat, fullname)
+        self.assertTrue(dirname not in os.listdir(self.base))
 
     def t_symlink(self):
         linkname = self.random_name()
         fullname = self.base + "/" + linkname
         os.symlink("/imaginary/dest", fullname)
         fstat = os.lstat(fullname)
-        assert_true(stat.S_ISLNK(fstat.st_mode))
-        assert_equals(os.readlink(fullname), "/imaginary/dest")
-        assert_equals(fstat.st_nlink, 1)
-        assert_true(linkname in os.listdir(self.base))
+        self.assertTrue(stat.S_ISLNK(fstat.st_mode))
+        self.assertEquals(os.readlink(fullname), "/imaginary/dest")
+        self.assertEquals(fstat.st_nlink, 1)
+        self.assertTrue(linkname in os.listdir(self.base))
         os.unlink(fullname)
-        assert_raises(OSError, os.lstat, fullname)
-        assert_true(linkname not in os.listdir(self.base))
-        self.cb()
+        self.assertRaises(OSError, os.lstat, fullname)
+        self.assertTrue(linkname not in os.listdir(self.base))
 
     def t_mknod(self):
         filename = self.base + "/" + self.random_name()
         src = self.src
         shutil.copyfile(src, filename)
         fstat = os.lstat(filename)
-        assert_true(stat.S_ISREG(fstat.st_mode))
-        assert_equals(fstat.st_nlink, 1)
-        assert_true(basename(filename) in os.listdir(self.base))
-        assert_true(filecmp.cmp(src, filename, False))
+        self.assertTrue(stat.S_ISREG(fstat.st_mode))
+        self.assertEquals(fstat.st_nlink, 1)
+        self.assertTrue(basename(filename) in os.listdir(self.base))
+        self.assertTrue(filecmp.cmp(src, filename, False))
         os.unlink(filename)
-        assert_raises(OSError, os.stat, filename)
-        assert_true(basename(filename) not in os.listdir(self.base))
-        self.cb()
+        self.assertRaises(OSError, os.stat, filename)
+        self.assertTrue(basename(filename) not in os.listdir(self.base))
 
 
     def t_link(self):
@@ -123,16 +118,15 @@ class fuse(TestCase):
         fstat1 = os.lstat(name1)
         fstat2 = os.lstat(name2)
 
-        assert_equals(fstat1, fstat2)
-        assert_equals(fstat1.st_nlink, 2)
+        self.assertEquals(fstat1, fstat2)
+        self.assertEquals(fstat1.st_nlink, 2)
 
-        assert_true(basename(name2) in os.listdir(self.base))
-        assert_true(filecmp.cmp(name1, name2, False))
+        self.assertTrue(basename(name2) in os.listdir(self.base))
+        self.assertTrue(filecmp.cmp(name1, name2, False))
         os.unlink(name2)
         fstat1 = os.lstat(name1)
-        assert_equals(fstat1.st_nlink, 1)
+        self.assertEquals(fstat1.st_nlink, 1)
         os.unlink(name1)
-        self.cb()
 
     def t_readdir(self):
         dir = self.base + "/" + self.random_name()
@@ -150,13 +144,12 @@ class fuse(TestCase):
         listdir_is.sort()
         listdir_should = [ basename(file), basename(subdir) ]
         listdir_should.sort()
-        assert_equals(listdir_is, listdir_should)
+        self.assertEquals(listdir_is, listdir_should)
 
         os.unlink(file)
         os.unlink(subfile)
         os.rmdir(subdir)
         os.rmdir(dir)
-        self.cb()
 
     def t_truncate(self):
         filename = self.base + "/" + self.random_name()
@@ -167,11 +160,20 @@ class fuse(TestCase):
         fd = os.open(filename, os.O_RDWR)
 
         os.ftruncate(fd, size + 1024) # add > 1 block
-        assert_equals(os.stat(filename).st_size, size + 1024)
+        self.assertEquals(os.stat(filename).st_size, size + 1024)
 
         os.ftruncate(fd, size - 1024) # Truncate > 1 block
-        assert_equals(os.stat(filename).st_size, size - 1024)
+        self.assertEquals(os.stat(filename).st_size, size - 1024)
 
         os.close(fd)
         os.unlink(filename)
-        self.cb()
+
+
+# Somehow important according to pyunit documentation
+def suite():
+    return unittest.makeSuite(fuse_tests)
+
+
+# Allow calling from command line
+if __name__ == "__main__":
+            unittest.main()

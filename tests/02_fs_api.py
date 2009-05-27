@@ -5,19 +5,14 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
-from tests import TestCase, assert_true, assert_equals, assert_raises
 import tempfile
+import unittest
 import s3ql
 import os
 
+class fs_api_tests(unittest.TestCase):
 
-class fs(TestCase):
-    """Tests s3ql.fs and s3ql.file modules
-    """
-
-    def __init__(self, cb):
-        self.cb = cb
-
+    def setUp(self):
         self.bucket = s3ql.s3.LocalBucket()
         self.bucket.tx_delay = 0
         self.bucket.prop_delay = 0
@@ -32,8 +27,7 @@ class fs(TestCase):
         self.server = s3ql.fs(self.bucket, self.dbfile, self.cachedir)
 
 
-
-    def test_mt(self):
+    def testMt(self):
         """ Checks multithreading
         """
 
@@ -50,3 +44,13 @@ class fs(TestCase):
         self.server.close()
         os.unlink(self.dbfile)
         os.rmdir(self.cachedir)
+
+
+# Somehow important according to pyunit documentation
+def suite():
+    return unittest.makeSuite(fs_api_tests)
+
+
+# Allow calling from command line
+if __name__ == "__main__":
+            unittest.main()

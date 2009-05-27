@@ -5,18 +5,15 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
-from tests import TestCase, assert_true, assert_equals, assert_raises, assert_false, assert_none
+import unittest
 import s3ql
 from random   import randrange
 import threading
 from time import sleep
 
-class s3_local(TestCase):
-    """Tests s3ql.s3 module
-    """
+class s3_tests(unittest.TestCase):
 
-    def __init__(self, cb):
-        self.cb = cb
+    def setUp(self):
         self.bucket = s3ql.s3.LocalBucket()
 
     def random_name(self, prefix=""):
@@ -27,20 +24,17 @@ class s3_local(TestCase):
         self.bucket.prop_delay = 0
         key = self.random_name("key_")
         value = self.random_name("value_")
-        assert_none(self.bucket.lookup_key(key))
-        assert_raises(KeyError, self.bucket.delete_key, key)
-        assert_raises(KeyError, self.bucket.fetch, key)
-        self.cb()
+        self.assertEquals(self.bucket.lookup_key(key), None)
+        self.assertRaises(KeyError, self.bucket.delete_key, key)
+        self.assertRaises(KeyError, self.bucket.fetch, key)
 
         self.bucket.store(key, value)
         sleep(self.bucket.prop_delay+0.1)
-        assert_equals(self.bucket[key], value)
-        self.cb()
+        self.assertEquals(self.bucket[key], value)
 
         self.bucket.delete_key(key)
         sleep(self.bucket.prop_delay+0.1)
-        assert_false(self.bucket.has_key(key))
-        self.cb()
+        self.assertFalse(self.bucket.has_key(key))
 
     def test_02_meta(self):
         self.bucket.tx_delay = 0
@@ -52,22 +46,19 @@ class s3_local(TestCase):
         meta1 = self.bucket.store(key, value1)
         sleep(self.bucket.prop_delay+0.1)
 
-        assert_equals(meta1.key, key)
-        assert_equals(meta1.size, len(value1))
-        assert_equals(self.bucket.fetch(key), (value1,meta1))
-        self.cb()
+        self.assertEquals(meta1.key, key)
+        self.assertEquals(meta1.size, len(value1))
+        self.assertEquals(self.bucket.fetch(key), (value1,meta1))
 
         meta2 = self.bucket.store(key, value2)
         sleep(self.bucket.prop_delay+0.1)
 
-        assert_equals(meta2.key, key)
-        assert_equals(meta2.size, len(value2))
-        assert_equals(self.bucket.fetch(key), (value2,meta2))
-        self.cb()
+        self.assertEquals(meta2.key, key)
+        self.assertEquals(meta2.size, len(value2))
+        self.assertEquals(self.bucket.fetch(key), (value2,meta2))
 
-        assert_true(meta1.etag != meta2.etag)
-        assert_true(meta1.last_modified < meta2.last_modified)
-        self.cb()
+        self.assertTrue(meta1.etag != meta2.etag)
+        self.assertTrue(meta1.last_modified < meta2.last_modified)
 
         del self.bucket[key]
 
@@ -84,7 +75,7 @@ class s3_local(TestCase):
 
 
         sleep(self.bucket.prop_delay+0.1)
-        assert_equals(sorted(self.bucket.keys()), sorted(keys))
+        self.assertEquals(sorted(self.bucket.keys()), sorted(keys))
 
         for i in range(12):
             del self.bucket[keys[i]]
@@ -103,25 +94,23 @@ class s3_local(TestCase):
         value1 = self.random_name()
         value2 = self.random_name()
 
-        assert_false(self.bucket.has_key(key))
+        self.assertFalse(self.bucket.has_key(key))
         self.bucket[key] = value1
-        assert_false(self.bucket.has_key(key))
+        self.assertFalse(self.bucket.has_key(key))
         sleep(prop_delay)
-        assert_true(self.bucket.has_key(key))
-        assert_equals(self.bucket[key], value1)
-        self.cb()
+        self.assertTrue(self.bucket.has_key(key))
+        self.assertEquals(self.bucket[key], value1)
 
         self.bucket[key] = value2
-        assert_equals(self.bucket[key], value1)
+        self.assertEquals(self.bucket[key], value1)
         sleep(prop_delay)
-        assert_equals(self.bucket[key], value2)
-        self.cb()
+        self.assertEquals(self.bucket[key], value2)
 
         self.bucket.delete_key(key)
-        assert_true(self.bucket.has_key(key))
-        assert_equals(self.bucket[key], value2)
+        self.assertTrue(self.bucket.has_key(key))
+        self.assertEquals(self.bucket[key], value2)
         sleep(prop_delay)
-        assert_false(self.bucket.has_key(key))
+        self.assertFalse(self.bucket.has_key(key))
 
 
     def test_05_concurrency(self):
@@ -135,40 +124,36 @@ class s3_local(TestCase):
         t = threading.Thread(target=async)
         t.start()
         sleep(0.1) # Make sure the other thread is actually running
-        assert_raises(s3ql.s3.ConcurrencyError, self.bucket.store, key, value)
+        self.assertRaises(s3ql.s3.ConcurrencyError, self.bucket.store, key, value)
         t.join()
-        assert_true(self.bucket.store(key, value) is not None)
-        self.cb()
+        self.assertTrue(self.bucket.store(key, value) is not None)
 
         def async():
            self.bucket[key] = value
         t = threading.Thread(target=async)
         t.start()
         sleep(0.1) # Make sure the other thread is actually running
-        assert_raises(s3ql.s3.ConcurrencyError, self.bucket.fetch, key)
+        self.assertRaises(s3ql.s3.ConcurrencyError, self.bucket.fetch, key)
         t.join()
-        assert_true(self.bucket.fetch(key) is not None)
-        self.cb()
+        self.assertTrue(self.bucket.fetch(key) is not None)
 
         def async():
            self.bucket.fetch(key)
         t = threading.Thread(target=async)
         t.start()
         sleep(0.1) # Make sure the other thread is actually running
-        assert_raises(s3ql.s3.ConcurrencyError, self.bucket.store, key, value)
+        self.assertRaises(s3ql.s3.ConcurrencyError, self.bucket.store, key, value)
         t.join()
-        assert_true(self.bucket.store(key, value) is not None)
-        self.cb()
+        self.assertTrue(self.bucket.store(key, value) is not None)
 
         def async():
            self.bucket.fetch(key)
         t = threading.Thread(target=async)
         t.start()
         sleep(0.1) # Make sure the other thread is actually running
-        assert_raises(s3ql.s3.ConcurrencyError, self.bucket.fetch, key)
+        self.assertRaises(s3ql.s3.ConcurrencyError, self.bucket.fetch, key)
         t.join()
-        assert_true(self.bucket.fetch(key) is not None)
-        self.cb()
+        self.assertTrue(self.bucket.fetch(key) is not None)
 
 
         self.bucket.tx_delay = 0
@@ -181,13 +166,22 @@ class s3_local(TestCase):
         key1 = self.random_name("key_1")
         key2 = self.random_name("key_2")
         value = self.random_name("value_")
-        assert_none(self.bucket.lookup_key(key1))
-        assert_none(self.bucket.lookup_key(key2))
+        self.assertEquals(self.bucket.lookup_key(key1), None)
+        self.assertEquals(self.bucket.lookup_key(key2), None)
 
         self.bucket.store(key1, value)
         sleep(self.bucket.prop_delay+0.1)
         self.bucket.copy(key1, key2)
 
         sleep(self.bucket.prop_delay+0.1)
-        assert_equals(self.bucket[key2], value)
-        self.cb()
+        self.assertEquals(self.bucket[key2], value)
+
+
+# Somehow important according to pyunit documentation
+def suite():
+    return unittest.makeSuite(s3_tests)
+
+
+# Allow calling from command line
+if __name__ == "__main__":
+            unittest.main()
