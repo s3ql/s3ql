@@ -214,7 +214,7 @@ def c_check_contents(conn, checkonly):
             warn("%s does not have parent directory, moving to lost+found" % name)
 
             if not checkonly:
-                newname = "/lost+found/" + name[1:].replace(":", "::").replace("/", ":")
+                newname = "/lost+found/" + unused_lf_name(c2, name[1:].replace("/", ":"))
                 c2.execute("UPDATE contents SET name=?, parent_inode=? WHERE inode=?",
                            (buffer(newname), inode_l, inode))
 
@@ -226,7 +226,7 @@ def c_check_contents(conn, checkonly):
                 found_errors = True
                 warn("Parent of %s is not a directory, moving to lost+found" % name)
                 if not checkonly:
-                    newname = "/lost+found/" + name[1:].replace(":", "::").replace("/", ":")
+                    newname = "/lost+found/" + unused_lf_name(c2, name[1:].replace("/", ":"))
                     c2.execute("UPDATE contents SET name=?, parent_inode=? WHERE inode=?",
                                (buffer(newname), inode_l, inode))
 
@@ -241,6 +241,25 @@ def c_check_contents(conn, checkonly):
 
 
     return not found_errors
+
+
+def unused_lf_name(cursor, name=""):
+    """Returns an unused name for a file in lost+found.
+
+    If `name` does not already exist, it is returned. Otherwise
+    it is made unique by adding suffixes and then returned.
+    """
+
+    if not list(c2.execute("SELECT inode FROM contents WHERE name=?",
+                           (buffer("/lost+found/" + name),))):
+        return name
+
+    i=0
+    while list(c2.execute("SELECT inode FROM contents WHERE name=?",
+                          (buffer("/lost+found/%s-%d" % (name,i)),))):
+        i += 1
+    return "%s-%d" % (name,i)
+
 
 def d_check_inodes(conn, checkonly):
     """Check inode table
@@ -278,9 +297,9 @@ def d_check_inodes(conn, checkonly):
             found_errors = True
             warn("Inode %s not referenced, adding to lost+found")
             if not checkonly:
+                name = "/lost+found/" + unused_lf_name(c2, str(inode))
                 c2.execute("INSERT INTO contents (name, inode, parent_inode) "
-                           "VALUES (?,?,?)", (buffer("/lost+found/%s" % str(inode)),
-                                              inode, inode_l))
+                           "VALUES (?,?,?)", (buffer(name), inode, inode_l))
                 c2.execute("UPDATE inodes SET refcount=? WHERE id=?",
                            (1, inode))
         else:
@@ -477,13 +496,14 @@ def f_check_keylist(conn, bucket, checkonly):
             found_errors = True
             warn("object %s not in referenced in table, adding to lost+found" % s3key)
             if not checkonly:
+                lfname = unused_lf_name(c1, s3key)
                 c1.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                            "VALUES (?,?,?,?,?,?,?)",
                            (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                             os.getuid(), os.getgid(), time(), time(), time(), 1))
                 inode = conn.last_insert_rowid()
                 c1.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                           (buffer("/lost+found/%s" % s3key), inode, inode_l))
+                           (buffer("/lost+found/%s" % lfname), inode, inode_l))
 
                 # Now we need to assign the s3 object to this inode, but this
                 # unfortunately means that we have to change the s3key.
