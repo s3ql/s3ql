@@ -53,8 +53,7 @@ class file(object):
         self.inode = self.fs.get_inode(path)
         assert self.inode > 0
 
-
-        # FIXME: Apparenty required, even though passed as parameter to fuse
+        # Apparenty required, even though passed as parameter to fuse
         self.direct_io = True
         self.keep_cache = None
 

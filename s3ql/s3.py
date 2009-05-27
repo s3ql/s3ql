@@ -72,7 +72,6 @@ class Connection(object):
             # S3 needs some time before we can fetch the bucket
             sleep(5)
         else:
-            # FIXME: Check that bucket encryption password is correct
             pass
 
         return Bucket(self, name)
