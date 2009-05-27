@@ -419,7 +419,7 @@ def e_check_s3(conn, bucket, checkonly):
             if not checkonly:
                 c2.execute("UPDATE s3_objects SET s3key=? WHERE s3key=?",
                            (s3key2, s3key))
-                bucket.copy_key(s3key, s3key2)
+                bucket.copy(s3key, s3key2)
                 bucket.delete_key(s3key)
 
 
@@ -507,19 +507,13 @@ def f_check_keylist(conn, bucket, checkonly):
 
                 # Now we need to assign the s3 object to this inode, but this
                 # unfortunately means that we have to change the s3key.
-                tmp = tempfile.mktemp()
-                bucket.fetch_to_file(s3key, tmp)
-
                 s3key_new = io2s3key(inode,0)
-                c1.execute("INSERT INTO s3_objects (inode,offset,s3key,size) "
-                           "VALUES (?,?,?,?)", (inode, 0, buffer(s3key_new),
-                                                os.stat(tmp).st_size))
-                meta_new = bucket.store_from_file(s3key_new, tmp)
-                os.unlink(tmp)
-                bucket.delete_key(s3key)
-                c1.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
-                           (meta_new.etag, s3key_new))
+                bucket.copy(s3key, s3key_new)
+                del bucket[s3key]
 
+                c1.execute("INSERT INTO s3_objects (inode,offset,s3key,size,etag) "
+                           "VALUES (?,?,?,?)", (inode, 0, buffer(s3key_new),
+                                                os.stat(tmp).st_size, meta.etag))
 
         # Object is in object table, check metadata
         else:
@@ -549,8 +543,5 @@ def f_check_keylist(conn, bucket, checkonly):
         warn("object %s only exists in table but not on s3, deleting" % s3key)
         if not checkonly:
             c1.execute("DELETE FROM s3_objects WHERE s3key=?", (buffer(s3key),))
-
-
-
 
     return not found_errors
