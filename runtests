@@ -10,16 +10,22 @@
 import warnings
 warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 
-
 import unittest
 import os
 import sys
 
 # Find and import tests
-modules_to_test =  [ "tests." + name[:-3] for name in
-                     os.listdir(os.path.join(os.path.dirname(__file__), "tests"))
-                     if name.endswith(".py") and not name.startswith("__") ]
-map(__import__, modules_to_test)
+testdir = os.path.join(os.path.dirname(__file__), "tests")
+sys.path.insert(0,testdir)
+modules_to_test =  [ name[:-3] for name in os.listdir(testdir) if name.endswith(".py") ]
+
+# Import the modules
+# We need to add them to the global namespace in order for
+# unittest.main() to find them if specific tests are given on
+# the command line.
+for name in modules_to_test:
+    globals()[name] = __import__(name)
+
 
 # Runs all tests in test/ directory
 def suite():
