@@ -8,6 +8,8 @@
 import os
 import types
 import stat
+import resource
+import tempfile
 from s3ql.common import *
 
 def b_check_cache(conn, cachedir, bucket, checkonly):
@@ -472,11 +474,16 @@ def f_check_keylist(conn, bucket, checkonly):
         # Size
         if meta.size > blocksize:
             found_errors = True
-            warn("object %s is larger than blocksize (%d > %d), truncating."
+            warn("object %s is larger than blocksize (%d > %d), truncating (original object in lost+found)"
                  % (s3key, meta.size, blocksize))
             if not checkonly:
                 tmp = tempfile.mktemp()
                 bucket.fetch_to_file(s3key, tmp)
+
+                # Save full object in lost+found
+                addfile("/lost+found/" + unused_lf_name(c1, s3key), tmp, c1)
+
+                # Truncate and readd
                 fd = os.open(tmp, os.O_RDWR)
                 os.ftruncate(fd, blocksize)
                 os.close(fd)
@@ -545,3 +552,61 @@ def f_check_keylist(conn, bucket, checkonly):
             c1.execute("DELETE FROM s3_objects WHERE s3key=?", (buffer(s3key),))
 
     return not found_errors
+
+def addfile(remote, local, cursor):
+    """Adds the specified local file to the fs
+    """
+
+    cursor.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                   "VALUES (?,?,?,?,?,?,?)",
+                   (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
+                    os.getuid(), os.getgid(), time(), time(), time(), 1))
+    inode = conn.last_insert_rowid()
+
+    parent = os.path.basename(os.path.dirname(remote))
+    inode_p = cursor.execute("SELECT inode FROM contents WHERE name=?",
+                             (buffer(parent),)).next()[0]
+
+    cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+                   (buffer(remote), inode, inode_p))
+
+    # Add s3 objects
+    blocksize = cursor.execute("SELECT blocksize FROM parameters").next()[0]
+
+    # Since the blocksize might be large, we work in chunks rather
+    # than in memory
+    chunksize = resource.getpagesize()
+
+    fh = open(local, "rb")
+    tmp = tempfile.NamedTemporaryFile()
+    cursize = 0
+    blockno = 0
+    buf = fh.read(chunksize)
+    while True:
+
+        # S3 Block completed or end of file
+        if cursize + len(buf) >= blocksize or len(buf) == 0:
+            tmp.write(buf[:blocksize-cursize])
+            buf = buf[blocksize-cursize:]
+            s3key = io2s3key(inode,blockno * blocksize)
+            meta = bucket.store_from_file(s3key, tmp.name)
+            cursor.execute("INSERT INTO s3_objects (inode,offset,s3key,size,etag) "
+                           "VALUES (?,?,?,?)", (inode, blockno * blocksize,
+                                                buffer(s3key_new), cursize, meta.etag))
+            cursize = 0
+            blockno += 1
+            tmp.seek(0)
+            tmp.truncate(0)
+
+            # End of file
+            if len(buf) == 0:
+                break
+
+        # Write until we have a complete block
+        else:
+            tmp.write(buf)
+            cursize += len(buf)
+            buf = fh.read(chunksize)
+
+    tmp.close()
+    fh.close()
