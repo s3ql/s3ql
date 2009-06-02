@@ -223,7 +223,9 @@ class fs(Fuse):
         if not stat.S_ISCHR(fstat.st_mode) and not stat.S_ISBLK(fstat.st_mode):
             fstat.st_rdev = 0
 
-        # Make integers
+        # We can only return the int part, since nanosecond
+        # resolution for getattr() is not yet supported by the
+        # fuse python api.
         fstat.st_mtime = int(fstat.st_mtime)
         fstat.st_atime = int(fstat.st_atime)
         fstat.st_ctime = int(fstat.st_ctime)
@@ -530,7 +532,10 @@ class fs(Fuse):
 
         (atime, mtime) = times
         self.sql("UPDATE inodes SET atime=?,mtime=?,ctime=? WHERE id=(SELECT inode "
-                 "FROM contents WHERE name=?)", (atime, mtime, time(), buffer(path)))
+                 "FROM contents WHERE name=?)",
+                 (atime.tv_sec + atime.tv_nsec/float(10**9),
+                  mtime.tv_sec + mtime.tv_nsec/float(10**9),
+                  time(), buffer(path)))
 
 
     def statfs(self):
