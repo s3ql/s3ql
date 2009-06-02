@@ -10,6 +10,8 @@ import unittest
 import s3ql
 import stat
 import os
+import time
+import fuse
 from random   import randrange
 
 class fs_api_tests(unittest.TestCase):
@@ -35,12 +37,44 @@ class fs_api_tests(unittest.TestCase):
         fstat = self.server.getattr("/")
         self.assertTrue(stat.S_ISDIR(fstat.st_mode))
 
+    def test_utimens(self):
+
+        # We work on the root directory
+        path="/"
+        fstat_old = self.server.getattr(path)
+        time.sleep(1)
+        mtime_new = fuse.Timespec()
+        mtime_new.tv_sec = fstat_old.st_mtime - 72
+        mtime_new.tv_nsec = 0
+        atime_new = fuse.Timespec()
+        atime_new.tv_sec = fstat_old.st_atime - 72
+        atime_new.tv_nsec = 0
+        self.server.utimens(path, (atime, mtime))
+        fstat_new = self.server.getattr(path)
+
+
+        self.assertEquals(fstat_new.st_mtime, mtime_new.tv_sec)
+        self.assertEquals(fstat_new.st_atime, atime_new.tv_sec)
+        self.assertTrue(fstat_new.st_ctime > fstat_old.st_ctime)
+
+    def reset_times(self, path):
+        mtime_new = fuse.Timespec()
+        mtime_new.tv_sec = time() - 42
+        mtime_new.tv_nsec = 0
+        atime_new = fuse.Timespec()
+        atime_new.tv_sec = time() - 42
+        atime_new.tv_nsec = 0
+        self.server.utimens(path, (atime, mtime))
+
+
     def test_mkdir_rmdir(self):
         linkcnt = self.server.getattr("/").st_nlink
 
+        self.reset_times("/")
         name = os.path.join("/",  self.random_name())
         self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
         self.server.mkdir(name, stat.S_IRUSR | stat.S_IXUSR)
+        self.assertTrue(self.server.getattr("/").st_mtime >= time())
         fstat = self.server.getattr(name)
 
         self.assertEquals(self.server.getattr("/").st_nlink, linkcnt+1)
@@ -64,7 +98,9 @@ class fs_api_tests(unittest.TestCase):
         self.assertRaises(s3ql.FUSEError, self.server.getattr, sub)
         self.assertEquals(self.server.getattr(name).st_nlink, 2)
 
+        self.reset_times("/")
         self.server.rmdir(name)
+        self.assertTrue(self.server.getattr("/").st_mtime >= time())
         self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
         self.assertTrue(self.server.getattr("/").st_nlink == linkcnt)
 
@@ -72,7 +108,9 @@ class fs_api_tests(unittest.TestCase):
         name = os.path.join("/",  self.random_name())
         target = "../../wherever/this/is"
         self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
+        self.reset_times("/")
         self.server.symlink(target, name)
+        self.assertTrue(self.server.getattr("/").st_mtime >= time())
         fstat = self.server.getattr(name)
 
         self.assertTrue(stat.S_ISLNK(fstat.st_mode))
@@ -80,7 +118,9 @@ class fs_api_tests(unittest.TestCase):
 
         self.assertEquals(self.server.readlink(name), target)
 
+        self.reset_times("/")
         self.server.unlink(name)
+        self.assertTrue(self.server.getattr("/").st_mtime >= time())
         self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
 
 
