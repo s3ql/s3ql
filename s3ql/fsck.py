@@ -11,6 +11,7 @@ import stat
 import resource
 import tempfile
 from s3ql.common import *
+import fs
 
 def b_check_cache(conn, cachedir, bucket, checkonly):
     """Verifies that the s3 table agrees with the cache.
@@ -413,7 +414,7 @@ def e_check_s3(conn, bucket, checkonly):
                     c2.execute("DELETE FROM s3_objects WHERE s3key=?", (s3key,))
 
 
-        s3key2 = io2s3key(inode, offset)
+        s3key2 = fs.io2s3key(inode, offset)
         if s3key2 != s3key:
             found_errors = True
             warn("Object %s has invalid s3key, replacing with %s"
@@ -514,7 +515,7 @@ def f_check_keylist(conn, bucket, checkonly):
 
                 # Now we need to assign the s3 object to this inode, but this
                 # unfortunately means that we have to change the s3key.
-                s3key_new = io2s3key(inode,0)
+                s3key_new = fs.io2s3key(inode,0)
                 bucket.copy(s3key, s3key_new)
                 del bucket[s3key]
 
@@ -524,7 +525,7 @@ def f_check_keylist(conn, bucket, checkonly):
 
         # Object is in object table, check metadata
         else:
-            (etag,size) = res.next()
+            (etag,size) = res[0]
 
             if not size == meta.size:
                 found_errors = True
@@ -588,7 +589,7 @@ def addfile(remote, local, cursor):
         if cursize + len(buf) >= blocksize or len(buf) == 0:
             tmp.write(buf[:blocksize-cursize])
             buf = buf[blocksize-cursize:]
-            s3key = io2s3key(inode,blockno * blocksize)
+            s3key = fs.io2s3key(inode,blockno * blocksize)
             meta = bucket.store_from_file(s3key, tmp.name)
             cursor.execute("INSERT INTO s3_objects (inode,offset,s3key,size,etag) "
                            "VALUES (?,?,?,?)", (inode, blockno * blocksize,

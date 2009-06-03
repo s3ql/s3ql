@@ -94,7 +94,7 @@ class fs_api_tests(unittest.TestCase):
         target = "../../wherever/this/is"
         self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
         mtime_old = self.server.getattr("/")["st_mtime"]
-        self.server.symlink(target, name)
+        self.server.symlink(name, target)
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
         fstat = self.server.getattr(name)
 

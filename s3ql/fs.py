@@ -31,6 +31,32 @@ class FUSEError(Exception):
         return str(self.errno)
 
 
+class fuse_adaptor(fuse.FUSE):
+    """Overwrite some functions
+    """
+
+    def readdir(self, path, buf, filler, offset, fi):
+        def pyfiller(name, attrs, off):
+            if attrs:
+                st = fuse.c_stat()
+                for key, val in attrs.items():
+                    if key in ('st_atime', 'st_mtime', 'st_ctime'):
+                        timespec = getattr(st, key + 'spec')
+                        timespec.tv_sec = int(val)
+                        timespec.tv_nsec = int((val - timespec.tv_sec) * 10 ** 9)
+                    elif hasattr(st, key):
+                        setattr(st, key, val)
+            else:
+                st = None
+            filler(buf, name, st, off)
+
+        self.operations("readdir", path, pyfiller, offset, fi.contents.fh)
+        return 0
+
+    def ftruncate(self, path, length, fi):
+        return self.operations('ftruncate', path, length, fi.contents.fh)
+
+
 class server(fuse.Operations):
     """FUSE filesystem that stores its data on Amazon S3
 
@@ -92,12 +118,16 @@ class server(fuse.Operations):
         # write() is handled specially, because we don't want to dump
         # out the whole buffer to the logs.
         if op == "write":
-            ap = ("<data>",) + ap[1:-1]
+            ap = [a[0],
+                  "<data, len=%ik>" % int(len(a[1])/1024)] + map(repr,a[2:])
+        elif op == "readdir":
+            ap = map(repr, a)
+            ap[1] = "<filler>"
         else:
-            ap = a
+            ap = map(repr, a)
 
         # Print request name and parameters
-        debug("* %s(%s)" % (op, ", ".join(map(repr, ap))))
+        debug("* %s(%s)" % (op, ", ".join(ap)))
 
         try:
             return getattr(self, op)(*a)
@@ -109,7 +139,7 @@ class server(fuse.Operations):
 
             error([ "Unexpected %s error: %s\n" % (etype.__name__, str(value)),
                     "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n",
-                    "Please report this bug to the program author.\n"
+                    "Please report this bug on http://code.google.com/p/s3ql/.\n"
                     "Traceback:\n"] + traceback.format_tb(tb))
             self.mark_damaged()
             raise OSError(errno.EIO)
@@ -231,7 +261,10 @@ class server(fuse.Operations):
         filler(".", self.getattr(path), 0)
         filler("..", self.getattr(os.path.dirname(path)), 0)
 
-        striplen = len(path)
+        if path == "/":
+            striplen = 1
+        else:
+            striplen = len(path)+1
 
         # Actual contents
         res = cur.execute("SELECT name FROM contents_ext WHERE parent_inode=? "
@@ -512,7 +545,7 @@ class server(fuse.Operations):
         kw["use_ino"] = True
         kw["kernel_cache"] = True
         kw["fsname"] = "s3ql"
-        fuse.FUSE(self, mountpoint, **kw)
+        fuse_adaptor(self, mountpoint, **kw)
         debug("Main event loop terminated.")
 
     def close(self):
@@ -597,7 +630,28 @@ class server(fuse.Operations):
         cur = self.get_cursor()
         return get_inode(path, cur)
 
-    def read(self, length, offset, inode):
+    def create(self, path, mode):
+        cur = self.get_cursor()
+        (uid, gid, pid) = fuse.fuse_get_context()
+        inode_p = get_inode(os.path.dirname(path), cur)
+        cur.execute("BEGIN TRANSACTION")
+        try:
+            cur.execute("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev,refcount,size) "
+                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
+                     (time(), time(), time(), uid, gid, mode, None, 1))
+            inode = cur.last_rowid()
+            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
+                     (buffer(path), inode, inode_p))
+            update_mtime(inode_p, cur)
+        except:
+            cur.execute("ROLLBACK")
+            raise
+        else:
+            cur.execute("COMMIT")
+
+        return inode
+
+    def read(self, path, length, offset, inode):
         """Handles FUSE read() requests.
 
         May return less than `length` bytes, so the ``direct_io`` FUSE
@@ -617,7 +671,7 @@ class server(fuse.Operations):
 
         self.lock_s3key(s3key)
         try:
-            fd = self.retrieve_s3(s3key)
+            fd = self.retrieve_s3(s3key, inode)
 
             # If the object does not exist, we have a hole and return \0
             if fd is None:
@@ -635,7 +689,7 @@ class server(fuse.Operations):
             self.unlock_s3key(s3key)
 
 
-    def retrieve_s3(self, s3key, create=None):
+    def retrieve_s3(self, s3key, inode, create=None):
         """Returns fd for s3 object `s3key`.
 
         If the s3 object is not already cached, it is retrieved from
@@ -759,7 +813,7 @@ class server(fuse.Operations):
             used -= size
 
 
-    def write(self, buf, offset, inode):
+    def write(self, path, buf, offset, inode):
         """Handles FUSE write() requests.
 
         May write less bytes than given in `buf`, so the ``direct_io`` FUSE
@@ -779,7 +833,7 @@ class server(fuse.Operations):
 
         self.lock_s3key(s3key)
         try:
-            fd = self.retrieve_s3(s3key, create=offset_i)
+            fd = self.retrieve_s3(s3key, inode, create=offset_i)
 
             # Determine number of bytes to write and write
             os.lseek(fd, offset - offset_i, os.SEEK_SET)
@@ -810,7 +864,7 @@ class server(fuse.Operations):
             self.unlock_s3key(s3key)
 
 
-    def ftruncate(self, len, inode):
+    def ftruncate(self, path, len, inode):
         """Handles FUSE ftruncate() requests.
         """
         cur = self.get_cursor()
@@ -853,7 +907,7 @@ class server(fuse.Operations):
 
         self.lock_s3key(s3key)
         try:
-            fd = self.retrieve_s3(s3key, create=offset_i)
+            fd = self.retrieve_s3(s3key, inode, create=offset_i)
             cursize = offset_i + os.lseek(fd, 0, os.SEEK_END)
 
             # If we are actually extending this object, we just write a
@@ -913,7 +967,7 @@ class server(fuse.Operations):
 
     # Called for close() calls. Here we sync the data, so that we
     # can still return write errors.
-    def flush(self, inode):
+    def flush(self, path, inode):
         """Handles FUSE flush() requests.
         """
         return self.fsync(False, inode)
