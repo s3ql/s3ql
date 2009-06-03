@@ -80,14 +80,17 @@ if options.encrypt:
 #
 # Pass on fuse options
 #
-fuse_opts = []
+fuse_opts = dict()
 if options.allow_others:
-    fuse_opts.append("allow_others")
+    fuse_opts["allow_others"] = True
 if options.allow_root:
-    fuse_opts.append("allow_root")
+    fuse_opts["allow_root"] = True
 if options.nonempty:
-    fuse_opts.append("nonempty")
-
+    fuse_opts["nonempty"] = True
+if options.single:
+    fuse_opts["nothreads"] = True
+if options.fg:
+    fuse_opts["foreground"] = True
 
 #
 # Activate logging
@@ -116,7 +119,7 @@ s3ql.debug("Temporary database in " + dbfile)
 #
 # Start server
 #
-server = s3ql.fs(bucket, dbfile, cachedir)
+server = s3ql.server(bucket, dbfile, cachedir)
 
 # Init syslog before going bg
 if not options.fg:
@@ -130,9 +133,7 @@ if not options.fg:
 
     s3ql.log_fn = logger
 
-s3ql.setup_excepthook(server)
-server.main(mountpoint, fuse_opts, fg=options.fg,
-            mt=not options.single)
+server.main(mountpoint, **fuse_opts)
 server.close()
 
 # We have to make sure that all changes have been comitted by the

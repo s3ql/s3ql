@@ -28,14 +28,14 @@ class fs_api_tests(unittest.TestCase):
         s3ql.setup_db(self.dbfile, self.blocksize)
         s3ql.setup_bucket(self.bucket, self.dbfile)
 
-        self.server = s3ql.fs(self.bucket, self.dbfile, self.cachedir)
+        self.server = s3ql.server(self.bucket, self.dbfile, self.cachedir)
 
     def random_name(self):
         return "s3ql" + str(randrange(100,999,1))
 
     def test_getattr_root(self):
         fstat = self.server.getattr("/")
-        self.assertTrue(stat.S_ISDIR(fstat.st_mode))
+        self.assertTrue(stat.S_ISDIR(fstat["st_mode"]))
 
     def test_utimens(self):
 
@@ -43,43 +43,28 @@ class fs_api_tests(unittest.TestCase):
         path="/"
         fstat_old = self.server.getattr(path)
         time.sleep(1)
-        mtime_new = fuse.Timespec()
-        mtime_new.tv_sec = fstat_old.st_mtime - 72
-        mtime_new.tv_nsec = 0
-        atime_new = fuse.Timespec()
-        atime_new.tv_sec = fstat_old.st_atime - 72
-        atime_new.tv_nsec = 0
-        self.server.utimens(path, (atime, mtime))
+        atime_new = fstat_old["st_atime"] - 72
+        mtime_new = fstat_old["st_mtime"] - 72
+        self.server.utimens(path, (atime_new, mtime_new))
         fstat_new = self.server.getattr(path)
 
-
-        self.assertEquals(fstat_new.st_mtime, mtime_new.tv_sec)
-        self.assertEquals(fstat_new.st_atime, atime_new.tv_sec)
-        self.assertTrue(fstat_new.st_ctime > fstat_old.st_ctime)
-
-    def reset_times(self, path):
-        mtime_new = fuse.Timespec()
-        mtime_new.tv_sec = time() - 42
-        mtime_new.tv_nsec = 0
-        atime_new = fuse.Timespec()
-        atime_new.tv_sec = time() - 42
-        atime_new.tv_nsec = 0
-        self.server.utimens(path, (atime, mtime))
-
+        self.assertEquals(fstat_new["st_mtime"], mtime_new)
+        self.assertEquals(fstat_new["st_atime"], atime_new)
+        self.assertTrue(fstat_new["st_ctime"] > fstat_old["st_ctime"])
 
     def test_mkdir_rmdir(self):
-        linkcnt = self.server.getattr("/").st_nlink
+        linkcnt = self.server.getattr("/")["st_nlink"]
 
-        self.reset_times("/")
         name = os.path.join("/",  self.random_name())
+        mtime_old = self.server.getattr("/")["st_mtime"]
         self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
         self.server.mkdir(name, stat.S_IRUSR | stat.S_IXUSR)
-        self.assertTrue(self.server.getattr("/").st_mtime >= time())
+        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
         fstat = self.server.getattr(name)
 
-        self.assertEquals(self.server.getattr("/").st_nlink, linkcnt+1)
-        self.assertTrue(stat.S_ISDIR(fstat.st_mode))
-        self.assertEquals(fstat.st_nlink, 2)
+        self.assertEquals(self.server.getattr("/")["st_nlink"], linkcnt+1)
+        self.assertTrue(stat.S_ISDIR(fstat["st_mode"]))
+        self.assertEquals(fstat["st_nlink"], 2)
 
         sub = os.path.join(name, self.random_name())
         self.assertRaises(s3ql.FUSEError, self.server.getattr, sub)
@@ -88,40 +73,43 @@ class fs_api_tests(unittest.TestCase):
         fstat = self.server.getattr(name)
         fstat2 = self.server.getattr(sub)
 
-        self.assertTrue(stat.S_ISDIR(fstat2.st_mode))
-        self.assertEquals(fstat.st_nlink, 3)
-        self.assertEquals(fstat2.st_nlink, 2)
-        self.assertTrue(self.server.getattr("/").st_nlink == linkcnt+1)
+        self.assertTrue(stat.S_ISDIR(fstat2["st_mode"]))
+        self.assertEquals(fstat["st_nlink"], 3)
+        self.assertEquals(fstat2["st_nlink"], 2)
+        self.assertTrue(self.server.getattr("/")["st_nlink"] == linkcnt+1)
 
         self.assertRaises(s3ql.FUSEError, self.server.rmdir, name)
         self.server.rmdir(sub)
         self.assertRaises(s3ql.FUSEError, self.server.getattr, sub)
-        self.assertEquals(self.server.getattr(name).st_nlink, 2)
+        self.assertEquals(self.server.getattr(name)["st_nlink"], 2)
 
-        self.reset_times("/")
+        mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.rmdir(name)
-        self.assertTrue(self.server.getattr("/").st_mtime >= time())
+        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
         self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
-        self.assertTrue(self.server.getattr("/").st_nlink == linkcnt)
+        self.assertTrue(self.server.getattr("/")["st_nlink"] == linkcnt)
 
     def test_symlink(self):
         name = os.path.join("/",  self.random_name())
         target = "../../wherever/this/is"
         self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
-        self.reset_times("/")
+        mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.symlink(target, name)
-        self.assertTrue(self.server.getattr("/").st_mtime >= time())
+        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
         fstat = self.server.getattr(name)
 
-        self.assertTrue(stat.S_ISLNK(fstat.st_mode))
-        self.assertEquals(fstat.st_nlink, 1)
+        self.assertTrue(stat.S_ISLNK(fstat["st_mode"]))
+        self.assertEquals(fstat["st_nlink"], 1)
 
         self.assertEquals(self.server.readlink(name), target)
 
-        self.reset_times("/")
+        mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.unlink(name)
-        self.assertTrue(self.server.getattr("/").st_mtime >= time())
+        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
         self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
+
+
+    # Also check the addfile function from fsck.py here
 
 
     # Check that s3 object locking works when retrieving

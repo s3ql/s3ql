@@ -6,7 +6,6 @@
 #
 
 from common import *
-from file import *
 from fs import *
 from mkfs import *
 

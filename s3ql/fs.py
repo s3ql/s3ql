@@ -10,30 +10,33 @@ import sys
 import apsw
 import errno
 import stat
-from fuse import Fuse, Direntry
 import fuse
-from time import time
 import threading
-import s3ql
-from s3ql.common import *
+import traceback
+from common import *
 import resource
-import warnings
+from time import time
 
-# Check fuse version
-if not hasattr(fuse, '__version__'):
-    raise RuntimeError, \
-        "your fuse-py doesn't know of fuse.__version__, probably it's too old."
-fuse.fuse_python_api = (0, 2)
-fuse.feature_assert('stateful_files', 'has_init')
+class FUSEError(Exception):
+    """Exception representing FUSE Errors to be returned to the kernel.
+
+    This exception can store only an errno. It is meant to return
+    error codes to the kernel, which can only be done in this
+    limited form.
+    """
+    def __init__(self, errno):
+        self.errno = errno
+
+    def __str__(self):
+        return str(self.errno)
 
 
-class fs(Fuse):
+class server(fuse.Operations):
     """FUSE filesystem that stores its data on Amazon S3
 
     Attributes:
     -----------
 
-    :file_class:  Class implementing file access operations
     :local:       Thread-local storage, used for database connections
     :dbfile:      Filename of metadata db
     :cachedir:    Directory for s3 object cache
@@ -83,16 +86,38 @@ class fs(Fuse):
     lock_s3key() and unlock_s3key methods.
     """
 
+
+    def __call__(self, op, *a):
+
+        # write() is handled specially, because we don't want to dump
+        # out the whole buffer to the logs.
+        if op == "write":
+            ap = ("<data>",) + ap[1:-1]
+        else:
+            ap = a
+
+        # Print request name and parameters
+        debug("* %s(%s)" % (op, ", ".join(map(repr, ap))))
+
+        try:
+            return getattr(self, op)(*a)
+        except FUSEError, e:
+            # Final error handling is done in fuse.py
+            raise OSError(e.errno)
+        except:
+            (etype, value, tb) = sys.exc_info()
+
+            error([ "Unexpected %s error: %s\n" % (etype.__name__, str(value)),
+                    "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n",
+                    "Please report this bug to the program author.\n"
+                    "Traceback:\n"] + traceback.format_tb(tb))
+            self.mark_damaged()
+            raise OSError(errno.EIO)
+
+
     def __init__(self, bucket, dbfile, cachedir, noatime=False, cachesize=None):
         """Initializes S3QL fs.
         """
-        Fuse.__init__(self)
-
-        # We mess around to pass ourselves to the file class
-        class file_class (s3ql.file):
-            def __init__(self2, *a, **kw):
-                s3ql.file.__init__(self2, self, *a, **kw)
-        self.file_class = file_class
 
         self.local = threading.local()
         self.dbfile = dbfile
@@ -104,9 +129,18 @@ class fs(Fuse):
         self.s3_lock = threading.Condition()
         self.s3_lock.locked_keys = set()
 
-        # Get blocksize
+        # Check filesystem revision
         debug("Reading fs parameters...")
-        (self.blocksize,) = self.sql("SELECT blocksize FROM parameters").next()
+        cur = self.get_cursor()
+        rev = cur.get_val("SELECT version FROM parameters")
+        if rev < 1:
+            raise RevisionError, (rev, 1)
+
+        # Update mount count
+        cur.execute("UPDATE parameters SET mountcnt = mountcnt + 1")
+
+        # Get blocksize
+        self.blocksize = cur.get_val("SELECT blocksize FROM parameters")
 
         # Calculate cachesize
         if cachesize is None:
@@ -114,47 +148,13 @@ class fs(Fuse):
         else:
             self.cachesize = cachesize
 
-        # Check filesystem revision
-        (rev,) = self.sql("SELECT version FROM parameters").next()
-        if rev < 1:
-            raise RevisionError, (rev, 1)
-
-        # Update mount count
-        self.sql("UPDATE parameters SET mountcnt = mountcnt + 1")
 
 
-    def sql_value(self, *a, **kw):
-        """Executes a select statement and returns a single value.
+    def get_cursor(self, *a, **kw):
+        """Returns a cursor from thread-local connection.
 
-        The statement is passed to `self.sql`, and the first element
-        of the first result row is returned.
-        """
-
-        return self.sql(*a, **kw).next()[0]
-
-    def sql_list(self, *a, **kw):
-        """Executes a select statement and returns result list
-
-        The statement is passed to `self.sql`, and the result
-        elemented is converted to a list and returned
-        """
-
-        return list(self.sql(*a, **kw))
-
-    def sql_row(self, *a, **kw):
-        """Executes a select statement and returns first row
-
-        The statement is passed to `self.sql`, and the first result
-        row is returned as a tuple.
-        """
-
-        return self.sql(*a, **kw).next()
-
-    def sql(self, *a, **kw):
-        """Executes given SQL statement with thread-local connection.
-
-        The statement is passed to the cursor.execute() method and
-        the resulting object is returned.
+        The cursor is augmented with the convenience functions
+        get_row, get_value and get_list.
         """
 
         if not hasattr(self.local, "conn"):
@@ -162,148 +162,93 @@ class fs(Fuse):
             self.local.conn = apsw.Connection(self.dbfile)
             self.local.conn.setbusytimeout(5000)
 
-        cursor = self.local.conn.cursor()
-
-        return cursor.execute(*a, **kw)
-
-    def sql_sep(self, *a, **kw):
-        """Executes given SQL statement with new cursor
-
-        The statement is passed to the cursor.execute() method and
-        the resulting object is returned. The cursor object
-        is discarded.
-
-        The ``sep`` in the function name stands for the usage of a
-        separate cursor instead of the main one.
-        """
-
-        warnings.warn("sql_sep is superseded by sql", DeprecationWarning)
-        self.sql(*a,**kw)
+        return my_cursor(self.local.conn.cursor())
 
 
-    def getattr(self, path):
+    def getattr(self, path, fh=None):
         """Handles FUSE getattr() requests
         """
 
-        fstat = fuse.Stat()
+        fstat = dict()
+        cur = self.get_cursor()
         try:
-            res = self.sql("SELECT mode, refcount, uid, gid, size, inode, rdev, "
-                           "atime, mtime, ctime FROM contents_ext WHERE name=? ",
-                           (buffer(path),))
-            (fstat.st_mode,
-             fstat.st_nlink,
-             fstat.st_uid,
-             fstat.st_gid,
-             fstat.st_size,
-             fstat.st_ino,
-             fstat.st_rdev,
-             fstat.st_atime,
-             fstat.st_mtime,
-             fstat.st_ctime) = res.next()
+            res = cur.execute("SELECT mode, refcount, uid, gid, size, inode, rdev, "
+                              "atime, mtime, ctime FROM contents_ext WHERE name=? ",
+                              (buffer(path),))
+            (fstat["st_mode"],
+             fstat["st_nlink"],
+             fstat["st_uid"],
+             fstat["st_gid"],
+             fstat["st_size"],
+             fstat["st_ino"],
+             fstat["st_rdev"],
+             fstat["st_atime"],
+             fstat["st_mtime"],
+             fstat["st_ctime"]) = res.next()
         except StopIteration:
             # Not truly an error
             raise FUSEError(errno.ENOENT)
 
         # preferred blocksize for doing IO
-        fstat.st_blksize = resource.getpagesize()
+        fstat["st_blksize"] = resource.getpagesize()
 
-        if stat.S_ISREG(fstat.st_mode):
+        if stat.S_ISREG(fstat["st_mode"]):
             # determine number of blocks for files
-            fstat.st_blocks = self.sql_value("SELECT COUNT(s3key) FROM s3_objects "
-                                             "WHERE inode=?", (fstat.st_ino,))
+            fstat["st_blocks"] = cur.get_val("SELECT COUNT(s3key) FROM s3_objects "
+                                             "WHERE inode=?", (fstat["st_ino"],))
         else:
             # For special nodes, return arbitrary values
-            fstat.st_size = 512
-            fstat.st_blocks = 1
-
-        # Not applicable and/or overwritten anyway
-        fstat.st_dev = 0
+            fstat["st_size"] = 512
+            fstat["st_blocks"] = 1
 
         # Device ID = 0 unless we have a device node
-        if not stat.S_ISCHR(fstat.st_mode) and not stat.S_ISBLK(fstat.st_mode):
-            fstat.st_rdev = 0
-
-        # We can only return the int part, since nanosecond
-        # resolution for getattr() is not yet supported by the
-        # fuse python api.
-        fstat.st_mtime = int(fstat.st_mtime)
-        fstat.st_atime = int(fstat.st_atime)
-        fstat.st_ctime = int(fstat.st_ctime)
+        if not stat.S_ISCHR(fstat["st_mode"]) and not stat.S_ISBLK(fstat["st_mode"]):
+            fstat["st_rdev"] = 0
 
         return fstat
 
     def readlink(self, path):
         """Handles FUSE readlink() requests.
         """
+        cur = self.get_cursor()
 
-        (target,inode) = self.sql_row("SELECT target,inode FROM contents_ext "
-                                      "WHERE name=?", (buffer(path),))
-        self.update_atime(inode)
+        (target, inode) = cur.get_row("SELECT target,inode FROM contents_ext "
+                                       "WHERE name=?", (buffer(path),))
+
+        if not self.noatime:
+            update_atime(inode, cur)
         return str(target)
 
-    def readdir(self, path, offset):
+    def readdir(self, path, filler, offset, fh):
         """Handles FUSE readdir() requests
         """
+        cur = self.get_cursor()
 
-        inode = self.get_inode(path)
-        self.update_atime(inode)
+        inode = get_inode(path, cur)
+        if not self.noatime:
+            update_atime(inode, cur)
 
-        # Current directory
-        yield Direntry(".", ino=inode, type=stat.S_IFDIR)
+        filler(".", self.getattr(path), 0)
+        filler("..", self.getattr(os.path.dirname(path)), 0)
 
-        # Parent directory
-        if path == "/":
-            yield Direntry("..", ino=inode, type=stat.S_IFDIR)
-            strip = 1
-        else:
-            yield Direntry("..", ino=self.get_inode(os.path.dirname(path)),
-                           type=stat.S_IFDIR)
-            strip = len(path)+1
+        striplen = len(path)
 
         # Actual contents
-        res = self.sql("SELECT name,inode,mode FROM contents_ext WHERE parent_inode=? "
-                       "AND inode != ?", (inode,inode)) # Avoid to get / which is its own parent
-        for (name,inode,mode) in res:
-            yield Direntry(str(name)[strip:], ino=inode, type=stat.S_IFMT(mode))
+        res = cur.execute("SELECT name FROM contents_ext WHERE parent_inode=? "
+                          "AND inode != ?", (inode, inode)) # Avoid to get / which is its own parent
+        for (name,) in res:
+            name = str(name)
+            fstat = self.getattr(name)
+            filler(name[striplen:], fstat, 0)
 
+    def getxattr(self, path, name, position=0):
+        raise FUSEError(fuse.ENOTSUP)
 
-    def update_atime(self, inode):
-        """Updates the atime of the specified object.
+    def removexattr(self, path, name):
+        raise FUSEError(fuse.ENOTSUP)
 
-        The objects atime will be set to the current time.
-        """
-
-        if self.noatime:
-            return
-
-        self.sql("UPDATE inodes SET atime=? WHERE id=?", (time(), inode))
-
-    def update_ctime(self, inode):
-        """Updates the ctime of the specified object.
-
-        The objects ctime will be set to the current time.
-        """
-
-        self.sql("UPDATE inodes SET ctime=? WHERE id=?", (time(), inode))
-
-
-    def update_mtime(self, inode):
-        """Updates the mtime of the specified object.
-
-        The objects mtime will be set to the current time.
-        """
-
-        self.sql("UPDATE inodes SET mtime=? WHERE id=?", (time(), inode))
-
-    def update_mtime_parent(self, path):
-        """Updates the mtime of the parent of the specified object.
-
-        The mtime will be set to the current time.
-        """
-
-        inode = self.get_inode(os.path.dirname(path))
-        self.update_mtime(inode)
-
+    def setxattr(self, path, name, value, options, position=0):
+        raise FUSEError(fuse.ENOTSUP)
 
     def unlink(self, path):
         """Handles FUSE unlink() requests.
@@ -312,14 +257,15 @@ class fs(Fuse):
         not being used.
         """
 
+        cur = self.get_cursor()
         fstat = self.getattr(path)
-        inode = fstat.st_ino
+        inode = fstat["st_ino"]
 
-        self.sql("DELETE FROM contents WHERE name=?", (buffer(path),))
+        cur.execute("DELETE FROM contents WHERE name=?", (buffer(path),))
 
         # No more links, remove datablocks
-        if fstat.st_nlink == 1:
-            res = self.sql("SELECT s3key FROM s3_objects WHERE inode=?",
+        if fstat["st_nlink"] == 1:
+            res = cur.execute("SELECT s3key FROM s3_objects WHERE inode=?",
                            (inode,))
             for (id,) in res:
                 # The object may not have been comitted yet
@@ -329,235 +275,217 @@ class fs(Fuse):
                     pass
 
             # Drop cache
-            res = self.sql("SELECT fd, cachefile FROM s3_objects WHERE inode=?",
+            res = cur.execute("SELECT fd, cachefile FROM s3_objects WHERE inode=?",
                            (inode,))
             for (fd, cachefile) in res:
                 os.close(fd)
                 os.unlink(self.cachedir + cachefile)
 
-            self.sql("DELETE FROM s3_objects WHERE inode=?", (inode,))
-            self.sql("DELETE FROM inodes WHERE id=?", (inode,))
+            cur.execute("DELETE FROM s3_objects WHERE inode=?", (inode,))
+            cur.execute("DELETE FROM inodes WHERE id=?", (inode,))
         else:
             # Also updates ctime
-            self.decrease_refcount(inode)
+            decrease_refcount(inode, cur)
 
-        self.update_mtime_parent(path)
-
-    def get_inode(self, path):
-        """Returns inode of object at `path`.
-        """
-
-        inode = self.sql_value("SELECT inode FROM contents WHERE name=?",
-                               (buffer(path),))
-        return inode
+        update_mtime_parent(path, cur)
 
 
     def mark_damaged(self):
         """Marks the filesystem as being damaged and needing fsck.
         """
 
-        self.sql("UPDATE parameters SET needs_fsck=?", (True,))
+        cur = self.get_cursor()
+        cur.execute("UPDATE parameters SET needs_fsck=?", (True,))
 
 
     def rmdir(self, path):
         """Handles FUSE rmdir() requests.
         """
+        cur = self.get_cursor()
 
-        inode = self.get_inode(path)
-        inode_p = self.get_inode(os.path.dirname(path))
+        inode = get_inode(path, cur)
+        inode_p = get_inode(os.path.dirname(path), cur)
 
 
         # Check if directory is empty
-        (entries,) = self.sql("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
+        (entries,) = cur.execute("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
                            (inode,)).next()
         if entries >= 1:
             debug("Attempted to remove nonempty directory %s" % path)
             raise FUSEError(errno.EINVAL)
 
         # Delete
-        self.sql("BEGIN TRANSACTION")
+        cur.execute("BEGIN TRANSACTION")
         try:
-            self.sql("DELETE FROM contents WHERE name=?", (buffer(path),))
-            self.sql("DELETE FROM inodes WHERE id=?", (inode,))
-            self.decrease_refcount(inode_p)
-            self.update_mtime(inode_p)
+            cur.execute("DELETE FROM contents WHERE name=?", (buffer(path),))
+            cur.execute("DELETE FROM inodes WHERE id=?", (inode,))
+            decrease_refcount(inode_p, cur)
+            update_mtime(inode_p, cur)
         except:
-            self.sql("ROLLBACK")
+            cur.execute("ROLLBACK")
             raise
         else:
-            self.sql("COMMIT")
-
-    def decrease_refcount(self, inode):
-        """Decrease reference count for inode by 1.
-
-        Also updates ctime.
-        """
-        self.sql("UPDATE inodes SET refcount=refcount-1,ctime=? WHERE id=?",
-                 (time(), inode))
-
-    def increase_refcount(self, inode):
-        """Increase reference count for inode by 1.
-
-        Also updates ctime.
-        """
-        self.sql("UPDATE inodes SET refcount=refcount+1, ctime=? WHERE id=?",
-                 (time(), inode))
-
+            cur.execute("COMMIT")
 
     def symlink(self, target, name):
         """Handles FUSE symlink() requests.
         """
 
-        con = self.GetContext()
-        inode_p = self.get_inode(os.path.dirname(name))
-        self.sql("BEGIN TRANSACTION")
+        cur = self.get_cursor()
+        (uid,gid,pid) = fuse.fuse_get_context()
+        inode_p = get_inode(os.path.dirname(name), cur)
+        cur.execute("BEGIN TRANSACTION")
         try:
-            self.sql("INSERT INTO inodes (mode,uid,gid,target,mtime,atime,ctime,refcount) "
+            cur.execute("INSERT INTO inodes (mode,uid,gid,target,mtime,atime,ctime,refcount) "
                                 "VALUES(?, ?, ?, ?, ?, ?, ?, 1)",
-                                (stat.S_IFLNK, con["uid"], con["gid"], buffer(target),
+                                (stat.S_IFLNK, uid, gid, buffer(target),
                                  time(), time(), time()))
-            self.sql("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
+            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                                 (buffer(name), self.local.conn.last_insert_rowid(), inode_p))
-            self.update_mtime(inode_p)
+            update_mtime(inode_p, cur)
         except:
-            self.sql("ROLLBACK")
+            cur.execute("ROLLBACK")
             raise
         else:
-            self.sql("COMMIT")
+            cur.execute("COMMIT")
 
     def rename(self, old, new):
         """Handles FUSE rename() requests.
         """
 
-        self.sql("BEGIN TRANSACTION")
+        cur = self.get_cursor()
+        cur.execute("BEGIN TRANSACTION")
         try:
-            self.sql("UPDATE contents SET name=? WHERE name=?", (buffer(new), buffer(old)))
-            self.update_mtime_parent(old)
-            self.update_mtime_parent(new)
+            cur.execute("UPDATE contents SET name=? WHERE name=?", (buffer(new), buffer(old)))
+            update_mtime_parent(old, cur)
+            update_mtime_parent(new, cur)
         except:
-            self.sql("ROLLBACK")
+            cur.execute("ROLLBACK")
             raise
         else:
-            self.sql("COMMIT")
+            cur.execute("COMMIT")
 
 
-    def link(self, path, path1):
+    def link(self, source, target):
         """Handles FUSE link() requests.
         """
+        cur = self.get_cursor()
 
         # We do not want the getattr() overhead here
-        (inode, mode) = self.sql_row("SELECT mode, inode FROM contents_ext WHERE name=?",
-                                     (buffer(path),))
-        inode_p = self.get_inode(os.path.dirname(path1))
+        (inode, mode) = cur.get_row("SELECT mode, inode FROM contents_ext WHERE name=?",
+                                     (buffer(source),))
+        inode_p = get_inode(os.path.dirname(target), cur)
 
         # Do not allow directory hardlinks
         if stat.S_ISDIR(mode):
-            debug("Attempted to hardlink directory %s" % path)
+            debug("Attempted to hardlink directory %s" % source)
             raise FUSEError(errno.EINVAL)
 
-        self.sql("BEGIN TRANSACTION")
+        cur.execute("BEGIN TRANSACTION")
         try:
-            self.sql("INSERT INTO contents (name,inode,parent_inode) VALUES(?,?,?)",
-                     (buffer(path1), inode, inode_p))
-            self.increase_refcount(inode)
-            self.update_mtime(inode_p)
+            cur.execute("INSERT INTO contents (name,inode,parent_inode) VALUES(?,?,?)",
+                     (buffer(target), inode, inode_p))
+            increase_refcount(inode, cur)
+            update_mtime(inode_p, cur)
         except:
-            self.sql("ROLLBACK")
+            cur.execute("ROLLBACK")
             raise
         else:
-            self.sql("COMMIT")
+            cur.execute("COMMIT")
 
     def chmod(self, path, mode):
         """Handles FUSE chmod() requests.
         """
 
-        self.sql("UPDATE inodes SET mode=?,ctime=? WHERE id=(SELECT inode "
+        cur = self.get_cursor()
+        cur.execute("UPDATE inodes SET mode=?,ctime=? WHERE id=(SELECT inode "
                  "FROM contents WHERE name=?)", (mode, time(), buffer(path)))
 
     def chown(self, path, user, group):
         """Handles FUSE chown() requests.
         """
 
-        self.sql("UPDATE inodes SET uid=?, gid=?, ctime=? WHERE id=(SELECT inode "
+        cur = self.get_cursor()
+        cur.execute("UPDATE inodes SET uid=?, gid=?, ctime=? WHERE id=(SELECT inode "
                  "FROM contents WHERE name=?)", (user, group, time(), buffer(path)))
 
     def mknod(self, path, mode, dev=None):
         """Handles FUSE mknod() requests.
         """
 
-        con = self.GetContext()
-        inode_p = self.get_inode(os.path.dirname(path))
-        self.sql("BEGIN TRANSACTION")
+        cur = self.get_cursor()
+        (uid, gid, pid) = fuse.fuse_get_context()
+        inode_p = get_inode(os.path.dirname(path), cur)
+        cur.execute("BEGIN TRANSACTION")
         try:
-            self.sql("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev,refcount,size) "
+            cur.execute("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev,refcount,size) "
                      "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
-                     (time(), time(), time(), con["uid"], con["gid"], mode, dev, 1))
-            self.sql("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                     (buffer(path), self.local.conn.last_insert_rowid(), inode_p))
-            self.update_mtime(inode_p)
+                     (time(), time(), time(), uid, gid, mode, dev, 1))
+            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
+                     (buffer(path), cur.last_rowid(), inode_p))
+            update_mtime(inode_p, cur)
         except:
-            self.sql("ROLLBACK")
+            cur.execute("ROLLBACK")
             raise
         else:
-            self.sql("COMMIT")
+            cur.execute("COMMIT")
 
 
     def mkdir(self, path, mode):
         """Handles FUSE mkdir() requests.
         """
 
+        cur = self.get_cursor()
         mode |= stat.S_IFDIR # Set type to directory
-        inode_p = self.get_inode(os.path.dirname(path))
-        con = self.GetContext()
-        self.sql("BEGIN TRANSACTION")
+        inode_p = get_inode(os.path.dirname(path), cur)
+        (uid, gid, pid) = fuse.fuse_get_context()
+        cur.execute("BEGIN TRANSACTION")
         try:
             # refcount is 2 because of "."
-            self.sql("INSERT INTO inodes (mtime,atime,ctime,uid,gid,mode,refcount) "
+            cur.execute("INSERT INTO inodes (mtime,atime,ctime,uid,gid,mode,refcount) "
                      "VALUES(?, ?, ?, ?, ?, ?, ?)",
-                     (time(), time(), time(), con["uid"], con["gid"], mode, 2))
-            inode = self.local.conn.last_insert_rowid()
-            self.sql("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
+                     (time(), time(), time(), uid, gid, mode, 2))
+            inode = cur.last_rowid()
+            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
                 (buffer(path), inode, inode_p))
-            self.increase_refcount(inode_p)
-            self.update_mtime(inode_p)
+            increase_refcount(inode_p, cur)
+            update_mtime(inode_p, cur)
         except:
-            self.sql("ROLLBACK")
+            cur.execute("ROLLBACK")
             raise
         else:
-            self.sql("COMMIT")
+            cur.execute("COMMIT")
 
     def utimens(self, path, times):
         """Handles FUSE utime() requests.
         """
 
+        cur = self.get_cursor()
         (atime, mtime) = times
-        self.sql("UPDATE inodes SET atime=?,mtime=?,ctime=? WHERE id=(SELECT inode "
-                 "FROM contents WHERE name=?)",
-                 (atime.tv_sec + atime.tv_nsec/float(10**9),
-                  mtime.tv_sec + mtime.tv_nsec/float(10**9),
-                  time(), buffer(path)))
-
+        cur.execute("UPDATE inodes SET atime=?,mtime=?,ctime=? WHERE id=(SELECT inode "
+                    "FROM contents WHERE name=?)", (atime, mtime, time(), buffer(path)))
 
     def statfs(self):
         """Handles FUSE statfs() requests.
         """
 
-        stat = fuse.StatVfs()
+        cur = self.get_cursor()
+        stat = dict()
 
         # Blocksize
-        stat.f_bsize = resource.getpagesize()
-        stat.f_frsize = stat.f_bsize
+        stat["f_bsize"] = resource.getpagesize()
+        stat["f_frsize"] = stat.f_bsize
 
         # Get number of blocks & inodes blocks
-        (blocks,) = self.sql("SELECT COUNT(s3key) FROM s3_objects").next()
-        (inodes,) = self.sql("SELECT COUNT(id) FROM inodes").next()
+        blocks = cur.get_val("SELECT COUNT(s3key) FROM s3_objects")
+        inodes = cur.get_val("SELECT COUNT(id) FROM inodes")
 
         # Since S3 is unlimited, always return a half-full filesystem
-        stat.f_blocks = 2 * blocks
-        stat.f_bfree = blocks
-        stat.f_bavail = blocks
-        stat.f_files = 2 * inodes
-        stat.f_ffree = inodes
+        stat["f_blocks"] = 2 * blocks
+        stat["f_bfree"] = blocks
+        stat["f_bavail"] = blocks
+        stat["f_files"] = 2 * inodes
+        stat["f_ffree"] = inodes
 
         return stat
 
@@ -566,51 +494,22 @@ class fs(Fuse):
         """Handles FUSE truncate() requests.
         """
 
-        file = self.file_class(bpath, os.O_WRONLY)
-        file.ftruncate(len)
-        file.release()
+        fh = self.open(bpath, os.O_WRONLY)
+        self.ftruncate(bpath, len, fh)
+        self.release(bpath, fh)
 
-    def main(self, mountpoint, fuse_options=None, fg=False, mt=True):
+    def main(self, mountpoint, **kw):
         """Starts the main loop handling FUSE requests.
-
-        fg: stay in foreground
-        mt: multithreaded operation
         """
-
-        if mt:
-            # Check if apsw supports multithreading
-            def test_threading():
-                try:
-                    self.sql("SELECT 42")
-                except apsw.ThreadingViolationError:
-                    self.multithreaded = False
-                except:
-                    self.exc = sys.exc_info()[1]
-                else:
-                    self.multithreaded = True
-            t = threading.Thread(target=test_threading)
-            t.start()
-            t.join()
-            if hasattr(self, "exc"):
-                raise self.exc
-            if not self.multithreaded:
-                warn("WARNING: APSW library is too old, running single threaded only!")
-        else:
-            self.multithreaded = False
 
         # Start main event loop
         debug("Starting main event loop...")
-        mountoptions =  [ "direct_io",
-                          "default_permissions",
-                          "use_ino",
-                          "fsname=s3qlfs" ] + fuse_options
-        args = [ sys.argv[0], "-o" + ",".join(mountoptions), mountpoint]
-
-        if fg:
-            args.append("-f")
-
-        Fuse.main(self, args)
-
+        kw["direct_io"] = True
+        kw["default_permissions"] = True
+        kw["use_ino"] = True
+        kw["kernel_cache"] = True
+        kw["fsname"] = "s3ql"
+        fuse.FUSE(self, mountpoint, **kw)
         debug("Main event loop terminated.")
 
     def close(self):
@@ -620,10 +519,14 @@ class fs(Fuse):
         of the filesystem to S3 and to release any open locks and
         database connections.
         """
+        cur = self.get_cursor()
+        cur2 = self.get_cursor()
 
         # Flush file and datacache
         debug("Flushing cache...")
-        res = self.sql(
+        ### FIXME: Are we in trouble here? We are changing the result
+        ### set while iterating over it...
+        res = cur.execute(
             "SELECT s3key, fd, dirty, cachefile FROM s3_objects WHERE fd IS NOT NULL")
         for (s3key, fd, dirty, cachefile) in res:
             debug("\tCurrent object: " + s3key)
@@ -632,17 +535,17 @@ class fs(Fuse):
                 error([ "Warning! Object ", s3key, " has not yet been flushed.\n",
                              "Please report this as a bug!\n" ])
                 bucket.store_from_file(s3key, self.cachedir + cachefile)
-                self.sql("UPDATE s3_objects SET dirty=?, cachefile=?, "
-                         "etag=?, fd=? WHERE s3key=?",
-                         (False, None, key.etag, None, s3key))
+                cur2.execute("UPDATE s3_objects SET dirty=?, cachefile=?, "
+                             "etag=?, fd=? WHERE s3key=?",
+                             (False, None, key.etag, None, s3key))
             else:
-                self.sql("UPDATE s3_objects SET cachefile=?, fd=? WHERE s3key=?",
-                         (None, None, s3key))
+                cur2.execute("UPDATE s3_objects SET cachefile=?, fd=? WHERE s3key=?",
+                             (None, None, s3key))
 
             os.unlink(self.cachedir + cachefile)
 
 
-        self.sql("VACUUM")
+        cur.execute("VACUUM")
         debug("buffers flushed, fs has shut down.")
 
     def __destroy__(self):
@@ -686,3 +589,347 @@ class fs(Fuse):
         finally:
             # Release global lock
             cv.release()
+
+    def open(self, path, flags):
+        cur = self.get_cursor()
+        return get_inode(path, cur)
+
+    def read(self, length, offset, inode):
+        """Handles FUSE read() requests.
+
+        May return less than `length` bytes, so the ``direct_io`` FUSE
+        option has to be enabled.
+        """
+        cur = self.get_cursor()
+
+        # Calculate starting offset of next s3 object, we don't
+        # read further than that
+        offset_f = self.blocksize * (int(offset/self.blocksize)+1)
+        if offset + length > offset_f:
+            length = offset_f - offset
+
+        # Obtain required s3 object
+        offset_i = self.blocksize * int(offset/self.blocksize)
+        s3key = io2s3key(inode, offset_i)
+
+        self.lock_s3key(s3key)
+        try:
+            fd = self.retrieve_s3(s3key)
+
+            # If the object does not exist, we have a hole and return \0
+            if fd is None:
+                return "\0" * length
+
+            # If we do not reach the desired position, then
+            # we have a hole as well
+            if os.lseek(fd,offset - offset_i, os.SEEK_SET) != offset - offset_i:
+                return "\0" * length
+
+            if not self.noatime:
+                update_atime(inode, cur)
+            return os.read(fd, length)
+        finally:
+            self.unlock_s3key(s3key)
+
+
+    def retrieve_s3(self, s3key, create=None):
+        """Returns fd for s3 object `s3key`.
+
+        If the s3 object is not already cached, it is retrieved from
+        Amazon and put into the cache.
+
+        If no such object exists and create is not None, the object is
+        created with offset `create`. Otherwise, returns `None.
+
+        The s3 key should already be locked when this function is called.
+        """
+        cur = self.get_cursor()
+
+        if create is not None:
+            offset = int(create)
+
+            if offset % self.blocksize != 0:
+                raise Exception, "s3 objects must start at blocksize boundaries"
+
+        cachefile = s3key[1:].replace("~", "~~").replace("/", "~")
+        cachepath = self.cachedir + cachefile
+
+        # Check if existing
+        res = cur.get_list("SELECT fd, etag FROM s3_objects WHERE s3key=?", (s3key,))
+
+        # Existing Key
+        if len(res):
+            (fd, etag) = res[0]
+
+        # New key
+        else:
+            if create is None:
+                return None
+            fd = os.open(cachepath, os.O_RDWR | os.O_CREAT)
+            cur.execute("INSERT INTO s3_objects(s3key,dirty,fd,cachefile,atime,size,inode,offset) "
+                     "VALUES(?,?,?,?,?,?,?,?)",
+                     (s3key, True, fd, cachefile, time(), 0, inode, offset))
+
+        # Not yet in cache
+        if fd is None:
+            self.expire_cache()
+            meta = self.bucket.fetch_to_file(s3key, cachepath)
+
+            # Check etag
+            if meta.etag != etag:
+                warn(["Changes in %s apparently have not yet propagated. Waiting and retrying...\n" % s3key,
+                       "Try to increase the cache size to avoid this.\n"])
+                waited = 0
+                waittime = 0.01
+                while meta.etag != etag and \
+                        waited < self.timeout:
+                    time.sleep(waittime)
+                    waited += waittime
+                    waittime *= 1.5
+                    meta = self.bucket.lookup_key(s3key)
+
+                # If still not found
+                if meta.etag != etag:
+                    error(["etag for %s doesn't match metadata!" % s3key,
+                           "Filesystem is probably corrupted (or S3 is having problems), "
+                           "run fsck.s3ql as soon as possible.\n"])
+                    self.mark_damaged()
+                    raise FUSEError(errno.EIO)
+                else:
+                    meta = self.bucket.fetch_to_file(s3key, cachepath)
+
+            fd = os.open(cachepath, os.O_RDWR)
+            cur.execute("UPDATE s3_objects SET dirty=?,fd=?,cachefile=? "
+                     "WHERE s3key=?", (False, fd, cachefile, s3key))
+
+
+        # Update atime
+        cur.execute("UPDATE s3_objects SET atime=? WHERE s3key=?", (time(), s3key))
+
+        return fd
+
+    def expire_cache(self):
+        """Performs cache expiry.
+
+        If the cache is bigger than `self.cachesize`, the oldest
+        entries are flushed until at least `self.blocksize`
+        bytes are available.
+        """
+        cur = self.get_cursor()
+        used = cur.get_val("SELECT SUM(size) FROM s3_objects WHERE fd IS NOT NULL")
+
+        while used + self.blocksize > self.cachesize:
+            # Find & lock object to flush
+            res  = cur.get_list("SELECT s3key FROM s3_objects WHERE fd IS NOT NULL "
+                                    "ORDER BY atime ASC LIMIT 1")
+
+            # If there is nothing to flush, we continue anyway
+            if not res:
+                continue
+
+
+            s3key = res[0][0]
+
+            self.lock_s3key(s3key)
+            try:
+                # Information may have changed while we waited for lock
+                res = cur.get_list("SELECT dirty,fd,cachefile,size FROM s3_objects "
+                                       "WHERE s3key=?", (s3key,))
+                if not res:
+                    # has been deleted
+                    continue
+
+                (dirty,fd,cachefile,size) = res[0]
+                if fd is None:
+                    # already flushed now
+                    continue
+
+                # flush
+                os.close(fd)
+                meta = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
+                cur.execute("UPDATE s3_objects SET dirty=?,fd=?,cachefile=?,etag=? "
+                            "WHERE s3key=?", (False, None, None, meta.etag, s3key))
+                os.unlink(self.cachedir + cachefile)
+            finally:
+                self.unlock_s3key(s3key)
+
+            used -= size
+
+
+    def write(self, buf, offset, inode):
+        """Handles FUSE write() requests.
+
+        May write less bytes than given in `buf`, so the ``direct_io`` FUSE
+        option has to be enabled.
+        """
+        cur = self.get_cursor()
+
+        # Obtain required s3 object
+        offset_i = self.blocksize * int(offset/self.blocksize)
+        s3key = io2s3key(inode, offset_i)
+
+        # We write at most one block
+        offset_f = offset_i + self.blocksize
+        maxwrite = offset_f - offset
+
+        debug("Writing to s3key " + s3key)
+
+        self.lock_s3key(s3key)
+        try:
+            fd = self.retrieve_s3(s3key, create=offset_i)
+
+            # Determine number of bytes to write and write
+            os.lseek(fd, offset - offset_i, os.SEEK_SET)
+            if len(buf) > maxwrite:
+                writelen = maxwrite
+                writelen = os.write(fd, buf[:maxwrite])
+            else:
+                writelen = os.write(fd,buf)
+
+
+            # Update object size
+            obj_len = os.lseek(fd, 0, os.SEEK_END)
+            cur.execute("UPDATE s3_objects SET size=? WHERE s3key=?",
+                        (obj_len, s3key))
+
+            # Update file size if changed
+            res = cur.execute("SELECT s3key FROM s3_objects WHERE inode=? "
+                              "AND offset > ?", (inode, offset_i))
+            if not list(res):
+                cur.execute("UPDATE inodes SET size=?,ctime=? WHERE id=?",
+                            (offset_i + obj_len, time(), inode))
+
+            # Update file mtime
+            update_mtime(inode, cur)
+            return writelen
+
+        finally:
+            self.unlock_s3key(s3key)
+
+
+    def ftruncate(self, len, inode):
+        """Handles FUSE ftruncate() requests.
+        """
+        cur = self.get_cursor()
+        cur2 = self.get_cursor()
+
+
+        # Delete all truncated s3 objects
+        # I don't quite see why we are ordering the result, it doesn't
+        # seem important - can we omit it?
+        ### FIXME: Are we in trouble here? We change the result set
+        ### that we are iterating over...
+        res = cur.execute("SELECT s3key FROM s3_objects WHERE "
+                          "offset >= ? AND inode=? ORDER BY offset ASC",
+                          (len, inode))
+        for (s3key,) in res:
+            self.lock_s3key(s3key)
+            try:
+                (fd, cachefile) = cur2.get_row("SELECT fd,cachefile FROM s3_objects "
+                                                  "WHERE s3key=?", (s3key,))
+
+                if fd: # File is in cache
+                    os.close(fd)
+                    os.unlink(self.cachedir + cachefile)
+
+                # Key may not yet been committed
+                try:
+                    self.bucket.delete_key(s3key)
+                except KeyError:
+                    pass
+
+                cur2.execute("DELETE FROM s3_objects WHERE s3key=?",
+                                (s3key,))
+            finally:
+                self.unlock_s3key(s3key)
+
+
+        # Get last object before truncation
+        offset_i = self.blocksize * int( (len-1) / self.blocksize)
+        s3key = io2s3key(inode, offset_i)
+
+        self.lock_s3key(s3key)
+        try:
+            fd = self.retrieve_s3(s3key, create=offset_i)
+            cursize = offset_i + os.lseek(fd, 0, os.SEEK_END)
+
+            # If we are actually extending this object, we just write a
+            # 0-byte at the last position
+            if len > cursize:
+                os.lseek(fd, len - 1 - offset_i, os.SEEK_SET)
+                os.write(fd, "\0")
+
+
+            # Otherwise we truncate the file
+            else:
+                os.ftruncate(fd, len - offset_i)
+
+            # Update file size
+            cur.execute("UPDATE inodes SET size=? WHERE id=?",
+                        (len, inode))
+            cur.execute("UPDATE s3_objects SET size=?,dirty=? WHERE s3key=?",
+                        (len - offset_i, True, s3key))
+
+            # Update file's mtime
+            update_mtime(inode, cur)
+        finally:
+            self.unlock_s3key(s3key)
+
+    def fsync(self, fdatasync, inode):
+        """Handles FUSE fsync() requests.
+
+        We do not lock the s3 objects, because we do not remove them
+        from the cache and we mark them as clean before(!) we send
+        them to S3. This ensures that if another thread writes
+        while we are still sending, the object is correctly marked
+        dirty again and will be resent on the next fsync().
+        """
+        cur = self.get_cursor()
+        cur2 = self.get_cursor()
+
+        # Metadata is always synced automatically, so we ignore
+        # fdatasync
+        ### FIXME: Are we in trouble here? We change the result set
+        ### that we are iterating over...
+        res = cur.execute("SELECT s3key, fd, cachefile FROM s3_objects WHERE "
+                          "dirty=? AND inode=?", (True, inode))
+        for (s3key, fd, cachefile) in res:
+            try:
+                cur2.execute("UPDATE s3_objects SET dirty=? WHERE s3key=?",
+                             (False, s3key))
+                os.fsync(fd)
+                meta = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
+            except:
+                cur2.execute("UPDATE s3_objects SET dirty=? WHERE s3key=?",
+                             (True, s3key))
+                raise
+
+            cur2.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
+                         (meta.etag, s3key))
+
+
+    # Called for close() calls. Here we sync the data, so that we
+    # can still return write errors.
+    def flush(self, inode):
+        """Handles FUSE flush() requests.
+        """
+        return self.fsync(False, inode)
+
+
+class RevisionError:
+    """Raised if the filesystem revision is too new for the program
+    """
+    def __init__(self, args):
+        self.rev_is = args[0]
+        self.rev_should = args[1]
+
+    def __str__(self):
+        return "Filesystem has revision %d, filesystem tools can only handle " \
+            "revisions up %d" % (self.rev_is, self.rev_should)
+
+
+def io2s3key(inode, offset):
+    """Gives s3key corresponding to given inode and starting offset.
+    """
+
+    return "s3ql_data_%d-%d" % (inode, offset)

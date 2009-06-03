@@ -15,143 +15,98 @@ import functools
 import s3ql
 import hashlib
 import stat
-import fuse
+from time import time
 from getpass import getpass
 
-def setup_excepthook(fs):
-    """Install Top Level Exception Handler for FUSE.
-
-    If a FUSE Python program encounters an unhandled exception, all
-    information about this exception is lost. This is because the
-    default global exception handlers prints to stdout, which is
-    closed for a daemon process.
-
-    Therefore, this function installs a new global exception handler
-    that logs the exception using the defined facilities and marks the
-    filesystem as needing fsck as a safety measure.
-
-
-    Note: FUSE Python by default catches all `OSError` and `IOError`
-    exceptions, so they are never seen by the global exception
-    handler. To avoid this, this function also patches into the FUSE
-    Python code and replaces the `fuse.ErrnoWrapper` class by
-    `s3ql.ErrnoWrapper`.
+class my_cursor(object):
+    """Wraps an apsw cursor to add some convenience functions.
     """
 
+    def __init__(self, cursor):
+        self.cursor = cursor
 
-    # The Handler
-    def handler(type, value, tb):
+    def execute(self, *a, **kw):
+        return self.cursor.execute(*a, **kw)
 
-        # Check if the file system is still mounted, or if the
-        # error occurred before or after mounting.
-        if hasattr(fs, "conn"):
-            error([ "Unexpected %s error: %s\n" % (str(type), str(value)),
-                    "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n",
-                    "Please report this bug to the program author.\n"
-                    "Traceback:\n",
-                    ] + traceback.format_tb(tb))
-
-            fs.mark_damaged()
-        else:
-            error([ "Unexpected %s error: %s\n" % (str(type), str(value)),
-                    "Please report this bug to the program author.\n"
-                    "Traceback:\n",
-                    ] + traceback.format_tb(tb))
-
-    # Install
-    sys.excepthook = handler
-
-    # Replace ErrnoWrapper, see docstring
-    fuse.ErrnoWrapper = ErrnoWrapper
-
-
-class ErrnoWrapper(object):
-    """Dispatches calls to FUSE API methods
-
-    This class is meant to be installed as fuse.ErrnoWrapper instead
-    of the class shipped with FUSE Python.
-
-    In contrast to the default one, it catches only those exceptions
-    that have been designated for FUSE (type `FUSEError`). All other
-    exceptions are propagated and can be handled in the global
-    exception hook.
-
-    Moreover, the this ErrnoWrapper logs every request that it
-    dispatches with debug priority.
-    """
-
-    def __init__(self, func):
-        self.func = func
-
-        # Either we are a bound method...
-        if hasattr(func, "im_self"):
-            inst = func.im_self
-            self.name = func.__name__
-
-        # ...or we have open() and create() (I don't quite understand
-        # this myself, dig into lowwrap() in fuse.py if you like)
-        elif hasattr(func, "__name__") and \
-                func.__name__ == "wrap":
-            self.name = "file_class.__init__"
-
-        # ..or we have stateful I/O, which is also encapsulated
-        # differently
-        elif func.__class__.__name__ == "mpx":
-            self.name = "mpx"
-
-        else:
-            error(["Error: Don't know what object to wrap\n",
-                   "Please report this as a bug to the author.\n"])
-            self.name = str(func)
-
-    def __call__(self, *a, **kw):
-        """Calls the encapsulated function.
-
-        If it raises a FUSEError, the exception is caught and
-        the appropriate errno is returned.
+    def get_val(self, *a, **kw):
+        """Executes a select statement and returns first element of first row.
         """
 
-        # If we have stateful IO functions, we don't want to
-        # print the file class and add the path as an
-        # additional information
-        if self.name == "mpx":
-            ap = a[1:-1]
-            pathinfo = " [path='%s']" % a[0]
-            name = "file_class." + self.func.name
-        else:
-            ap = a
-            name = self.name
-            pathinfo = ""
+        return self.execute(*a, **kw).next()[0]
 
-        # write() is handled special, because we don't want to dump
-        # out the whole buffer to the logs.
-        if name == "file_class.write":
-            ap = ("<data>",) + ap[1:-1]
+    def get_list(self, *a, **kw):
+        """Executes a select statement and returns result list.
+        """
 
+        return list(self.execute(*a, **kw))
 
-        # Print request name and parameters
-        debug("* %s(%s)%s" %
-              (name, ", ".join(map(repr, chain(ap, kw.values()))),
-               pathinfo))
+    def get_row(self, *a, **kw):
+        """Executes a select statement and returns first row.
+        """
 
-        try:
-            return self.func(*a, **kw)
-        except FUSEError, e:
-            return -e.errno
+        return self.execute(*a, **kw).next()
 
+    def last_rowid(self):
+        """Returns last inserted rowid.
 
-class FUSEError(Exception):
-    """Exception representing FUSE Errors to be returned to the kernel.
+        Note that this returns the last rowid that has been inserted using
+        this *connection*, not cursor.
+        """
+        return self.cursor.getconnection().last_insert_rowid()
 
-    This exception can store only an errno. It is meant to return
-    error codes to the kernel, which can only be done in this
-    limited form.
+def update_atime(inode, cur):
+    """Updates the atime of the specified object.
+
+    The objects atime will be set to the current time.
     """
-    def __init__(self, errno):
-        self.errno = errno
+    cur.execute("UPDATE inodes SET atime=? WHERE id=?", (time(), inode))
 
-    def __str__(self):
-        return str(self.errno)
+def update_ctime(inode, cur):
+    """Updates the ctime of the specified object.
+
+    The objects ctime will be set to the current time.
+    """
+    cur.execute("UPDATE inodes SET ctime=? WHERE id=?", (time(), inode))
+
+
+def update_mtime(inode, cur):
+    """Updates the mtime of the specified object.
+
+    The objects mtime will be set to the current time.
+    """
+    cur.execute("UPDATE inodes SET mtime=? WHERE id=?", (time(), inode))
+
+def update_mtime_parent(path, cur):
+    """Updates the mtime of the parent of the specified object.
+
+    The mtime will be set to the current time.
+    """
+    inode = get_inode(os.path.dirname(path), cur)
+    update_mtime(inode, cur)
+
+def get_inode(path, cur):
+    """Returns inode of object at `path`.
+    """
+    inode = cur.get_val("SELECT inode FROM contents WHERE name=?",
+                        (buffer(path),))
+    return inode
+
+def decrease_refcount(inode, cur):
+    """Decrease reference count for inode by 1.
+
+    Also updates ctime.
+    """
+    cur.execute("UPDATE inodes SET refcount=refcount-1,ctime=? WHERE id=?",
+             (time(), inode))
+
+def increase_refcount(inode, cur):
+    """Increase reference count for inode by 1.
+
+    Also updates ctime.
+    """
+    cur.execute("UPDATE inodes SET refcount=refcount+1, ctime=? WHERE id=?",
+             (time(), inode))
+
 
 def debug(arg):
     """ Log message if debug output has been activated
@@ -250,23 +205,3 @@ def get_credentials(key=None):
     pw = file.readline().rstrip()
 
     return (awskey, pw)
-
-
-def io2s3key(inode, offset):
-    """Gives s3key corresponding to given inode and starting offset.
-    """
-
-    return "s3ql_data_%d-%d" % (inode, offset)
-
-
-
-class RevisionError:
-    """Raised if the filesystem revision is too new for the program
-    """
-    def __init__(self, args):
-        self.rev_is = args[0]
-        self.rev_should = args[1]
-
-    def __str__(self):
-        return "Filesystem has revision %d, filesystem tools can only handle " \
-                "revisions up %d" % (self.rev_is, self.rev_should)
