@@ -35,7 +35,7 @@ class fuse_tests(unittest.TestCase):
         """
 
         # Mount
-        self.pid = os.spawnl(os.P_NOWAIT, "./s3qlfs_local", "s3qlfs_local",
+        self.pid = os.spawnl(os.P_NOWAIT, "./mount.s3ql_local", "mount.s3ql_local",
                              "--fg", "--fsck", "--nonempty", "--blocksize", "1",
                              "--quiet", "--txdelay", "0.2", "--propdelay",
                              "0.2", self.base)

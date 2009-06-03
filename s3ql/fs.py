@@ -327,7 +327,7 @@ class server(fuse.Operations):
         else:
             cur.execute("COMMIT")
 
-    def symlink(self, target, name):
+    def symlink(self, name, target):
         """Handles FUSE symlink() requests.
         """
 
@@ -336,9 +336,12 @@ class server(fuse.Operations):
         inode_p = get_inode(os.path.dirname(name), cur)
         cur.execute("BEGIN TRANSACTION")
         try:
+            mode = ( stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
+                     stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP |
+                     stat.S_IROTH |stat.S_IWOTH | stat.S_IXOTH )
             cur.execute("INSERT INTO inodes (mode,uid,gid,target,mtime,atime,ctime,refcount) "
                                 "VALUES(?, ?, ?, ?, ?, ?, ?, 1)",
-                                (stat.S_IFLNK, uid, gid, buffer(target),
+                                (mode, uid, gid, buffer(target),
                                  time(), time(), time()))
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                                 (buffer(name), self.local.conn.last_insert_rowid(), inode_p))
