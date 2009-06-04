@@ -145,7 +145,6 @@ sleep(options.propdelay)
 #
 if options.fsck:
     conn = apsw.Connection(dbfile)
-    cursor = conn.cursor()
 
     if not ( \
         s3ql.fsck.a_check_parameters(conn, checkonly=True) and

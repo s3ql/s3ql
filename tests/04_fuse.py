@@ -44,7 +44,7 @@ class fuse_tests(unittest.TestCase):
         # up. But since we need the exit status, we cannot daemonize
         # and need to wait some time for the mountpoint to come up
         # (mostly due to the simulated delays)
-        time.sleep(5)
+        time.sleep(3)
         self.assertTrue(posixpath.ismount(self.base))
 
         # Run Subtests
@@ -57,6 +57,7 @@ class fuse_tests(unittest.TestCase):
             self.t_truncate()
         finally:
             # Umount
+            time.sleep(1)
             self.assertEquals(os.spawnlp(os.P_WAIT, "fusermount",
                                     "fusermount", "-u", self.base), 0)
             (pid, status) = os.waitpid(self.pid, 0)

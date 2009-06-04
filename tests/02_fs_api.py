@@ -8,6 +8,7 @@
 import tempfile
 import unittest
 import s3ql
+import apsw
 import stat
 import os
 import time
@@ -25,24 +26,42 @@ class fs_api_tests(unittest.TestCase):
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
 
+        # Only warnings and errors
+        s3ql.log_level = 0
+
         s3ql.setup_db(self.dbfile, self.blocksize)
         s3ql.setup_bucket(self.bucket, self.dbfile)
 
         self.server = s3ql.server(self.bucket, self.dbfile, self.cachedir)
 
+
+    def tearDown(self):
+        os.unlink(self.dbfile)
+        os.rmdir(self.cachedir)
+
+
+    def fsck(self):
+        self.server.close()
+        conn = apsw.Connection(self.dbfile)
+        self.assertTrue(s3ql.fsck.a_check_parameters(conn, checkonly=True))
+        self.assertTrue(s3ql.fsck.b_check_cache(conn, self.cachedir, self.bucket, checkonly=True))
+        self.assertTrue(s3ql.fsck.c_check_contents(conn, checkonly=True))
+        self.assertTrue(s3ql.fsck.d_check_inodes(conn, checkonly=True))
+        self.assertTrue(s3ql.fsck.e_check_s3(conn, self.bucket, checkonly=True))
+        self.assertTrue(s3ql.fsck.f_check_keylist(conn, self.bucket, checkonly=True))
+
     def random_name(self):
         return "s3ql" + str(randrange(100,999,1))
 
-    def test_getattr_root(self):
+    def test_01_getattr_root(self):
         fstat = self.server.getattr("/")
         self.assertTrue(stat.S_ISDIR(fstat["st_mode"]))
+        self.fsck()
 
-    def test_utimens(self):
-
+    def test_02_utimens(self):
         # We work on the root directory
         path="/"
         fstat_old = self.server.getattr(path)
-        time.sleep(1)
         atime_new = fstat_old["st_atime"] - 72
         mtime_new = fstat_old["st_mtime"] - 72
         self.server.utimens(path, (atime_new, mtime_new))
@@ -52,7 +71,9 @@ class fs_api_tests(unittest.TestCase):
         self.assertEquals(fstat_new["st_atime"], atime_new)
         self.assertTrue(fstat_new["st_ctime"] > fstat_old["st_ctime"])
 
-    def test_mkdir_rmdir(self):
+        self.fsck()
+
+    def test_03_mkdir_rmdir(self):
         linkcnt = self.server.getattr("/")["st_nlink"]
 
         name = os.path.join("/",  self.random_name())
@@ -89,7 +110,9 @@ class fs_api_tests(unittest.TestCase):
         self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
         self.assertTrue(self.server.getattr("/")["st_nlink"] == linkcnt)
 
-    def test_symlink(self):
+        self.fsck()
+
+    def test_04_symlink(self):
         name = os.path.join("/",  self.random_name())
         target = "../../wherever/this/is"
         self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
@@ -108,21 +131,36 @@ class fs_api_tests(unittest.TestCase):
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
         self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
 
+        self.fsck()
+
+    def test_05_create_unlink(self):
+        name = os.path.join("/",  self.random_name())
+        mode = ( stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
+                 stat.S_IRGRP )
+
+        self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
+        mtime_old = self.server.getattr("/")["st_mtime"]
+        fh = self.server.create(name, mode)
+        self.assertEquals(self.server.getattr(name)["st_mode"], mode)
+        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
+
+        self.server.release(name, fh)
+        self.server.flush(name, fh)
+
+        mtime_old = self.server.getattr("/")["st_mtime"]
+        self.server.unlink(name)
+        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
+        self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
+
+        self.fsck()
 
     # Also check the addfile function from fsck.py here
-
 
     # Check that s3 object locking works when retrieving
 
     # Check that s3 object locking works when creating
 
     # Check that s3 objects are committed after fsync
-
-    def tearDown(self):
-
-        self.server.close()
-        os.unlink(self.dbfile)
-        os.rmdir(self.cachedir)
 
 
 # Somehow important according to pyunit documentation
