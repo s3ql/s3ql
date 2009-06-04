@@ -404,19 +404,19 @@ class server(fuse.Operations):
         cur = self.get_cursor()
 
         # We do not want the getattr() overhead here
-        (inode, mode) = cur.get_row("SELECT mode, inode FROM contents_ext WHERE name=?",
-                                     (buffer(source),))
-        inode_p = get_inode(os.path.dirname(target), cur)
+        (inode, mode) = cur.get_row("SELECT inode,mode FROM contents_ext WHERE name=?",
+                                     (buffer(target),))
+        inode_p = get_inode(os.path.dirname(source), cur)
 
         # Do not allow directory hardlinks
         if stat.S_ISDIR(mode):
-            debug("Attempted to hardlink directory %s" % source)
+            debug("Attempted to hardlink directory %s" % target)
             raise FUSEError(errno.EINVAL)
 
         cur.execute("BEGIN TRANSACTION")
         try:
             cur.execute("INSERT INTO contents (name,inode,parent_inode) VALUES(?,?,?)",
-                     (buffer(target), inode, inode_p))
+                     (buffer(source), inode, inode_p))
             increase_refcount(inode, cur)
             update_mtime(inode_p, cur)
         except:
@@ -428,6 +428,11 @@ class server(fuse.Operations):
     def chmod(self, path, mode):
         """Handles FUSE chmod() requests.
         """
+
+        omode = self.getattr(path)["st_mode"]
+        if stat.S_IFMT(mode) != stat.S_IFMT(omode):
+            warn("chmod: attempted to change file mode")
+            raise FUSEError(errno.EINVAL)
 
         cur = self.get_cursor()
         cur.execute("UPDATE inodes SET mode=?,ctime=? WHERE id=(SELECT inode "
@@ -444,6 +449,13 @@ class server(fuse.Operations):
     def mknod(self, path, mode, dev=None):
         """Handles FUSE mknod() requests.
         """
+
+        # We create only these types (and no hybrids)
+        modetype = stat.S_IFMT(mode)
+        if not (modetype == stat.S_IFCHR or modetype == stat.S_IFBLK or
+                modetype == stat.S_IFIFO):
+            log("mknod: invalid mode")
+            raise FUSEError(errno.EINVAL)
 
         cur = self.get_cursor()
         (uid, gid, pid) = fuse.fuse_get_context()
@@ -467,8 +479,16 @@ class server(fuse.Operations):
         """Handles FUSE mkdir() requests.
         """
 
+        # Check mode
+        if (stat.S_IFMT(mode) != stat.S_IFDIR and
+            stat.S_IFMT(mode) != 0):
+            warn("mkdir: invalid mode")
+            raise FUSEError(errno.EINVAL)
+
+        # Ensure correct mode
+        mode = (mode & ~stat.S_IFMT(mode)) | stat.S_IFDIR
+
         cur = self.get_cursor()
-        mode |= stat.S_IFDIR # Set type to directory
         inode_p = get_inode(os.path.dirname(path), cur)
         (uid, gid, pid) = fuse.fuse_get_context()
         cur.execute("BEGIN TRANSACTION")
@@ -627,6 +647,15 @@ class server(fuse.Operations):
         return get_inode(path, cur)
 
     def create(self, path, mode):
+        # check mode
+        if (stat.S_IFMT(mode) != stat.S_IFREG and
+            stat.S_IFMT(mode) != 0):
+            warn("create: invalid mode")
+            raise FUSEError(errno.EINVAL)
+
+        # Ensure correct mode
+        mode = (mode & ~stat.S_IFMT(mode)) | stat.S_IFREG
+
         cur = self.get_cursor()
         (uid, gid, pid) = fuse.fuse_get_context()
         inode_p = get_inode(os.path.dirname(path), cur)

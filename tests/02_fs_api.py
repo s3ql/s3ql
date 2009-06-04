@@ -50,8 +50,8 @@ class fs_api_tests(unittest.TestCase):
         self.assertTrue(s3ql.fsck.e_check_s3(conn, self.bucket, checkonly=True))
         self.assertTrue(s3ql.fsck.f_check_keylist(conn, self.bucket, checkonly=True))
 
-    def random_name(self):
-        return "s3ql" + str(randrange(100,999,1))
+    def random_name(self, prefix=""):
+        return "s3ql" + prefix + str(randrange(100,999,1))
 
     def test_01_getattr_root(self):
         fstat = self.server.getattr("/")
@@ -135,17 +135,17 @@ class fs_api_tests(unittest.TestCase):
 
     def test_05_create_unlink(self):
         name = os.path.join("/",  self.random_name())
-        mode = ( stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
-                 stat.S_IRGRP )
+        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
 
         self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
         mtime_old = self.server.getattr("/")["st_mtime"]
         fh = self.server.create(name, mode)
-        self.assertEquals(self.server.getattr(name)["st_mode"], mode)
-        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
-
         self.server.release(name, fh)
         self.server.flush(name, fh)
+
+        self.assertEquals(self.server.getattr(name)["st_mode"], mode | stat.S_IFREG)
+        self.assertEquals(self.server.getattr(name)["st_nlink"], 1)
+        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
 
         mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.unlink(name)
@@ -153,6 +153,63 @@ class fs_api_tests(unittest.TestCase):
         self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
 
         self.fsck()
+
+
+    def test_06_chmod_chown(self):
+        # Create file
+        name = os.path.join("/",  self.random_name())
+        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+        fh = self.server.create(name, mode)
+        self.server.release(name, fh)
+        self.server.flush(name, fh)
+
+        mode_new = ( stat.S_IFREG |
+                     stat.S_IROTH | stat.S_IWOTH | stat.S_IXGRP | stat.S_IRGRP )
+        ctime_old = self.server.getattr(name)["st_ctime"]
+        self.server.chmod(name, mode_new)
+        self.assertEquals(self.server.getattr(name)["st_mode"], mode_new | stat.S_IFREG)
+        self.assertTrue(self.server.getattr(name)["st_ctime"] > ctime_old)
+
+
+        uid_new = 1231
+        gid_new = 3213
+        ctime_old = self.server.getattr(name)["st_ctime"]
+        self.server.chown(name, uid_new, gid_new)
+        self.assertEquals(self.server.getattr(name)["st_uid"], uid_new)
+        self.assertEquals(self.server.getattr(name)["st_gid"], gid_new)
+        self.assertTrue(self.server.getattr(name)["st_ctime"] > ctime_old)
+
+        self.server.unlink(name)
+        self.fsck()
+
+    def test_07_link(self):
+        # Create file
+        target = os.path.join("/",  self.random_name("target"))
+        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+        fh = self.server.create(target, mode)
+        self.server.release(target, fh)
+        self.server.flush(target, fh)
+
+
+        name = os.path.join("/",  self.random_name())
+        self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
+        mtime_old = self.server.getattr("/")["st_mtime"]
+        self.server.link(name, target)
+        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
+        fstat = self.server.getattr(name)
+
+        self.assertEquals(fstat, self.server.getattr(target))
+        self.assertEquals(fstat["st_nlink"], 2)
+
+        self.server.unlink(name)
+        self.assertEquals(self.server.getattr(target)["st_nlink"], 1)
+        self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
+
+        self.server.unlink(target)
+        self.assertRaises(s3ql.FUSEError, self.server.getattr, target)
+
+        self.fsck()
+
 
     # Also check the addfile function from fsck.py here
 
