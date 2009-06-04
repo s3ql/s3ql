@@ -14,6 +14,7 @@ import fuse
 import threading
 import traceback
 from common import *
+from cStringIO import StringIO
 import resource
 from time import time
 
@@ -556,7 +557,6 @@ class server(fuse.Operations):
 
         # Start main event loop
         debug("Starting main event loop...")
-        kw["direct_io"] = True
         kw["default_permissions"] = True
         kw["use_ino"] = True
         kw["kernel_cache"] = True
@@ -677,10 +677,21 @@ class server(fuse.Operations):
         return inode
 
     def read(self, path, length, offset, inode):
+        cur = self.get_cursor()
+        buf = StringIO()
+        while length > 0:
+            if offset >= cur.get_val("SELECT size FROM inodes WHERE id=?", (inode,)):
+                break
+            tmp = self.read_direct(path, length, offset, inode)
+            buf.write(tmp)
+            length -= len(tmp)
+            offset += len(tmp)
+        return buf.getvalue()
+
+    def read_direct(self, path, length, offset, inode):
         """Handles FUSE read() requests.
 
-        May return less than `length` bytes, so the ``direct_io`` FUSE
-        option has to be enabled.
+        May return less than `length` bytes.
         """
         cur = self.get_cursor()
 
@@ -837,12 +848,19 @@ class server(fuse.Operations):
 
             used -= size
 
-
     def write(self, path, buf, offset, inode):
+        total = len(buf)
+        while len(buf) > 0:
+            written = self.write_direct(path, buf, offset, inode)
+            offset += written
+            buf = buf[written:]
+        return total
+
+
+    def write_direct(self, path, buf, offset, inode):
         """Handles FUSE write() requests.
 
-        May write less bytes than given in `buf`, so the ``direct_io`` FUSE
-        option has to be enabled.
+        May write less bytes than given in `buf`.
         """
         cur = self.get_cursor()
 
