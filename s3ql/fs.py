@@ -39,13 +39,7 @@ class fuse_adaptor(fuse.FUSE):
         def pyfiller(name, attrs, off):
             if attrs:
                 st = fuse.c_stat()
-                for key, val in attrs.items():
-                    if key in ('st_atime', 'st_mtime', 'st_ctime'):
-                        timespec = getattr(st, key + 'spec')
-                        timespec.tv_sec = int(val)
-                        timespec.tv_nsec = int((val - timespec.tv_sec) * 10 ** 9)
-                    elif hasattr(st, key):
-                        setattr(st, key, val)
+                fuse.set_st_attrs(st, attrs)
             else:
                 st = None
             filler(buf, name, st, off)
@@ -133,7 +127,9 @@ class server(fuse.Operations):
             return getattr(self, op)(*a)
         except FUSEError, e:
             # Final error handling is done in fuse.py
-            raise OSError(e.errno)
+            # OSError apparently has to be initialized with a tuple, otherwise
+            # errno is not stored correctly
+            raise OSError(e.errno, "")
         except:
             (etype, value, tb) = sys.exc_info()
 
