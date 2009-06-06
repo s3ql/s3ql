@@ -701,6 +701,11 @@ class server(fuse.Operations):
         if offset + length > offset_f:
             length = offset_f - offset
 
+        # Additionally, we don't read beyond the end of the file
+        size = cur.get_val("SELECT size FROM inodes WHERE id=?", (inode,))
+        if offset + length > size:
+            length = size - offset
+
         # Obtain required s3 object
         offset_i = self.blocksize * int(offset/self.blocksize)
         s3key = io2s3key(inode, offset_i)
