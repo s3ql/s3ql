@@ -718,14 +718,21 @@ class server(fuse.Operations):
             if fd is None:
                 return "\0" * length
 
-            # If we do not reach the desired position, then
-            # we have a hole as well
-            if os.lseek(fd,offset - offset_i, os.SEEK_SET) != offset - offset_i:
-                return "\0" * length
-
+            # If we can't read enough, we have a hole as well
+            # (since we already adjusted the length to be within the file size)
+            os.lseek(fd,offset - offset_i, os.SEEK_SET)
+            buf = StringIO()
+            while length > 0:
+                tmp = os.read(fd, length)
+                if len(tmp) == 0:
+                    return buf.getvalue() + "\0" * length
+                buf.write(tmp)
+                length -= len(tmp)
+                
             if not self.noatime:
                 update_atime(inode, cur)
-            return os.read(fd, length)
+                
+            return buf.getvalue()
         finally:
             self.unlock_s3key(s3key)
 
