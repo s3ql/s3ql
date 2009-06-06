@@ -586,10 +586,10 @@ class server(fuse.Operations):
             if dirty:
                 error([ "Warning! Object ", s3key, " has not yet been flushed.\n",
                              "Please report this as a bug!\n" ])
-                bucket.store_from_file(s3key, self.cachedir + cachefile)
+                meta = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
                 cur2.execute("UPDATE s3_objects SET dirty=?, cachefile=?, "
                              "etag=?, fd=? WHERE s3key=?",
-                             (False, None, key.etag, None, s3key))
+                             (False, None, meta.etag, None, s3key))
             else:
                 cur2.execute("UPDATE s3_objects SET cachefile=?, fd=? WHERE s3key=?",
                              (None, None, s3key))

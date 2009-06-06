@@ -13,7 +13,8 @@ import stat
 import os
 import time
 import fuse
-from random   import randrange
+import resource
+from random import randrange
 
 class fs_api_tests(unittest.TestCase):
 
@@ -36,12 +37,16 @@ class fs_api_tests(unittest.TestCase):
 
 
     def tearDown(self):
+        # May not have been called if a test failed
+        if hasattr(self, "server"):
+            self.server.close()
         os.unlink(self.dbfile)
         os.rmdir(self.cachedir)
 
 
     def fsck(self):
         self.server.close()
+        del self.server
         conn = apsw.Connection(self.dbfile)
         self.assertTrue(s3ql.fsck.a_check_parameters(conn, checkonly=True))
         self.assertTrue(s3ql.fsck.b_check_cache(conn, self.cachedir, self.bucket, checkonly=True))
@@ -170,7 +175,6 @@ class fs_api_tests(unittest.TestCase):
         self.assertEquals(self.server.getattr(name)["st_mode"], mode_new | stat.S_IFREG)
         self.assertTrue(self.server.getattr(name)["st_ctime"] > ctime_old)
 
-
         uid_new = 1231
         gid_new = 3213
         ctime_old = self.server.getattr(name)["st_ctime"]
@@ -182,7 +186,43 @@ class fs_api_tests(unittest.TestCase):
         self.server.unlink(name)
         self.fsck()
 
-    def test_07_link(self):
+    def test_07_open_write_read(self):
+        # Create file
+        name = os.path.join("/",  self.random_name())
+        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+        fh = self.server.create(name, mode)
+        self.server.release(name, fh)
+        self.server.flush(name, fh)
+
+        # Write testfile
+        destfh = self.server.open(name, os.O_RDWR)
+        bufsize = resource.getpagesize()
+
+        srcfh = open(__file__, "rb")
+
+        buf = srcfh.read(bufsize)
+        off = 0
+        while len(buf) != 0:
+            self.assertEquals(self.server.write(name, buf, off, destfh), len(buf))
+            off += len(buf)
+            buf = srcfh.read(bufsize)
+
+        # Read testfile
+        srcfh.seek(0)
+        buf = srcfh.read(bufsize)
+        off = 0
+        while len(buf) != 0:
+            self.assertTrue(buf == self.server.read(name, bufsize, off, destfh))
+            off += len(buf)
+            buf = srcfh.read(bufsize)
+        self.server.release(name, fh)
+        self.server.flush(name, fh)
+
+        srcfh.close()
+        self.fsck()
+
+
+    def test_08_link(self):
         # Create file
         target = os.path.join("/",  self.random_name("target"))
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
@@ -210,6 +250,37 @@ class fs_api_tests(unittest.TestCase):
 
         self.fsck()
 
+    def test_09_write_read_cmplx(self):
+        # Create file
+        name = os.path.join("/",  self.random_name())
+        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+        fh = self.server.create(name, mode)
+        self.server.release(name, fh)
+        self.server.flush(name, fh)
+
+        # Create file with holes
+        data = "Teststring" * int(0.2 * self.blocksize)
+        off = int(5.9 * self.blocksize)
+        fh = self.server.open(name, os.O_RDWR)
+        self.server.write(name, data, off, fh)
+        filelen = len(data) + off
+        self.assertEquals(self.server.getattr(name)["st_size"], filelen)
+
+        off2 = int(0.5 * self.blocksize)
+        self.assertEquals(self.server.read(name, len(data)+off2, off, fh), data)
+        self.assertEquals(self.server.read(name, len(data)+off2, off-off2, fh), "\0" * off2 + data)
+        self.assertEquals(self.server.read(name, 182, off+len(data), fh), "")
+
+
+        off = int(1.9 * self.blocksize)
+        self.server.write(name, data, off, fh)
+        self.assertEquals(self.server.getattr(name)["st_size"], filelen)
+        self.assertEquals(self.server.read(name, len(data)+off2, off, fh), data + "\0" * off2)
+
+        self.server.release(name, fh)
+        self.server.flush(name, fh)
+
+        self.fsck()
 
     # Also check the addfile function from fsck.py here
 
@@ -227,4 +298,4 @@ def suite():
 
 # Allow calling from command line
 if __name__ == "__main__":
-            unittest.main()
+    unittest.main()
