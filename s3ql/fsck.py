@@ -10,7 +10,7 @@ import types
 import stat
 import resource
 import tempfile
-from s3ql.common import *
+from common import *
 import fs
 
 def b_check_cache(conn, cachedir, bucket, checkonly):
@@ -102,31 +102,23 @@ def a_check_parameters(conn, checkonly):
 
 def c_check_contents(conn, checkonly):
     """Check contents table
-
-    Checks that:
-    - parent_inode and filename are consistent
-    - for each path all the path components exist and are
-       directories
-
+    
     Returns `False` if any errors have been found.
 
     The prefix of the method name indicates the order in which
     the fsck routines should be called.
     """
-    c1 = conn.cursor()
-    c2 = conn.cursor()
+    c1 = my_cursor(conn.cursor())                 
+    c2 = my_cursor(conn.cursor())
     found_errors = False
 
     #
     # root directory
     #
-    res = list(c1.execute("SELECT inode,parent_inode,mode FROM contents_ext "
-                          "WHERE name=?", (buffer("/"),)))
-    root_mode = (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
-                 | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+    res = c1.get_row("SELECT inode, parent_inode, mode FROM contents_ext "
+                     "WHERE inode = parent_inode")
 
-    # Exists
-    if not len(res):
+    if not res:
         found_errors = True
         warn("Recreating missing root directory")
         if not checkonly:
@@ -136,34 +128,19 @@ def c_check_contents(conn, checkonly):
             inode_r = conn.last_insert_rowid()
             c1.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                        (buffer("/"), inode_r, inode_r))
-
-    else:
-        (inode_r, inode_p, mode) = res[0]
-
-        # Has correct parent inode
-        if inode_r != inode_p:
-            found_errors = True
-            warn("Fixing parent of root directory")
-            if not checkonly:
-                c1.execute("UPDATE contents SET parent_inode=? WHERE inode=?",
-                           (inode_r, inode_r))
-
-        # Has correct mode
-        if mode != root_mode:
-            found_errors = True
-            warn("root has wrong mode, fixing.." % name)
-            if not checkonly:
-                c2.execute("UPDATE inodes SET mode=? WHERE inode=?",
-                           (root_mode, inode_r))
+        else:
+            # Otherwise the other tests throw exceptions
+            inode_r = 0
+    else:    
+        inode_r = res[0]
 
     #
     # /lost+found
     #
-    res = list(c1.execute("SELECT inode,parent_inode,mode FROM contents_ext "
-                          "WHERE name=?", (buffer("/lost+found"),)))
+    res = c1.get_row("SELECT inode, mode FROM contents_ext WHERE name=? AND parent_inode=?", 
+                     (buffer("lost+found"), inode_r))
 
-    # Exists
-    if not len(res):
+    if not res:
         found_errors = True
         warn("Recreating missing lost+found directory")
         if not checkonly:
@@ -173,28 +150,18 @@ def c_check_contents(conn, checkonly):
                         os.getuid(), os.getgid(), time(), time(), time(), 2))
             inode = conn.last_insert_rowid()
             c1.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                       (buffer("/lost+found"), inode, inode_r))
+                       (buffer("lost+found"), inode, inode_r))
 
     else:
-        (inode_l, inode_p, mode) = res[0]
+        (inode_l, mode) = res
 
-        # Has correct parent inode
-        if inode_p != inode_r:
-            found_errors = True
-            warn("Fixing parent of lost+found directory")
-            if not checkonly:
-                c1.execute("UPDATE contents SET parent_inode=? WHERE inode=?",
-                           (inode_r, inode_l))
-
-        # Has correct mode
-        if not stat.S_ISDIR(mode):
-            found_errors = True
-            warn("lost+found has wrong mode, fixing.." % name)
-            if not checkonly:
-                c2.execute("UPDATE inodes SET mode=? WHERE inode=?",
-                           (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                            inode_l))
-
+    if not stat.S_ISDIR(mode):
+        found_errors = True
+        warn("lost+found has wrong mode, fixing.." % name)
+        if not checkonly:
+            c2.execute("UPDATE inodes SET mode=? WHERE inode=?",
+                       (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
+                        inode_l))
 
     #
     # remaining filesystem
@@ -203,63 +170,36 @@ def c_check_contents(conn, checkonly):
 
     for (name, inode, inode_p) in res:
         name = str(name)
+        
+        mode = c2.get_val("SELECT mode FROM inodes WHERE id=?", (inode_p,))
 
-        if name in ["/", "/lost+found"]:
-            continue #already checked
-
-        # Look up parent by name
-        res = list(c2.execute("SELECT mode,inode FROM contents_ext WHERE name=?",
-                              (buffer(os.path.dirname(name)),)))
-
-        # Parent exists by name
-        if len(res) != 1:
+        # Parent is directory
+        if not stat.S_ISDIR(mode):
             found_errors = True
-            warn("%s does not have parent directory, moving to lost+found" % name)
-
+            path = get_path(name, inode_p, cur)
+            warn("Parent of %s is not a directory, moving to lost+found" % path)
             if not checkonly:
-                newname = "/lost+found/" + unused_lf_name(c2, name[1:].replace("/", ":"))
-                c2.execute("UPDATE contents SET name=?, parent_inode=? WHERE inode=?",
-                           (buffer(newname), inode_l, inode))
-
-        else:
-            (mode, inode_p2) = res[0]
-
-            # Parent is directory
-            if not stat.S_ISDIR(mode):
-                found_errors = True
-                warn("Parent of %s is not a directory, moving to lost+found" % name)
-                if not checkonly:
-                    newname = "/lost+found/" + unused_lf_name(c2, name[1:].replace("/", ":"))
-                    c2.execute("UPDATE contents SET name=?, parent_inode=? WHERE inode=?",
-                               (buffer(newname), inode_l, inode))
-
-            # Parent inode is correct
-            if inode_p != inode_p2:
-                found_errors = True
-                warn("Fixing parent inode of %s" % name)
-                if not checkonly:
-                    c2.execute("UPDATE contents SET parent_inode=? WHERE inode=?",
-                               (inode_p2, inode))
-
-
+                newname = unused_name(c2, path[1:].replace("/", ":"), inode_l)
+                c2.execute("UPDATE contents SET name=?, parent_inode=? WHERE name=? AND parent_inode=?",
+                           (buffer(newname), inode_l, buffer(name), inode_p))
 
     return not found_errors
 
 
-def unused_lf_name(cursor, name=""):
-    """Returns an unused name for a file in lost+found.
+def unused_name(cur, name, inode_p):
+    """Returns an unused name for a file in the directory `inode_p_
 
     If `name` does not already exist, it is returned. Otherwise
     it is made unique by adding suffixes and then returned.
     """
-
-    if not list(c2.execute("SELECT inode FROM contents WHERE name=?",
-                           (buffer("/lost+found/" + name),))):
+    
+    if not cur.get_row("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
+                           (buffer(name), inode_p)):
         return name
 
     i=0
-    while list(c2.execute("SELECT inode FROM contents WHERE name=?",
-                          (buffer("/lost+found/%s-%d" % (name,i)),))):
+    while cur.get_row("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
+                          (buffer("%s-%d" % (name,i)), inode_p)):
         i += 1
     return "%s-%d" % (name,i)
 
@@ -277,30 +217,29 @@ def d_check_inodes(conn, checkonly):
     the fsck routines should be called.
     """
 
-    c1 = conn.cursor()
-    c2 = conn.cursor()
+    c1 = my_cursor(conn.cursor())
+    c2 = my_cursor(conn.cursor())
     found_errors = False
 
     # Find lost+found inode
     # If we are in checkonly, it may not be present and we will
     # not need it
     if not checkonly:
-        inode_l = c1.execute("SELECT inode FROM contents WHERE name=?",
-                             (buffer("/lost+found"),)).next()[0]
+        inode_r = c1.get_val("SELECT inode FROM contents WHERE inode = parent_inode")
+        inode_l = c1.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
+                             (buffer("lost+found"), inode_r))
+
 
     res = c1.execute("SELECT id,refcount,mode FROM inodes")
-
-
     for (inode,refcount,mode) in res:
 
         # Ensure inode is referenced
-        res2 = list(c2.execute("SELECT name FROM contents WHERE inode=?",
-                               (inode,)))
-        if len(res2) == 0:
+        res2 = c2.get_list("SELECT name FROM contents WHERE inode=?", (inode,))
+        if not res2:
             found_errors = True
             warn("Inode %s not referenced, adding to lost+found")
             if not checkonly:
-                name = "/lost+found/" + unused_lf_name(c2, str(inode))
+                name =  unused_name(c2, "inode-" + str(inode), inode_l)
                 c2.execute("INSERT INTO contents (name, inode, parent_inode) "
                            "VALUES (?,?,?)", (buffer(name), inode, inode_l))
                 c2.execute("UPDATE inodes SET refcount=? WHERE id=?",
@@ -313,6 +252,7 @@ def d_check_inodes(conn, checkonly):
         if stat.S_ISDIR(mode):
 
             if len(res2) > 1:
+                ### FIXME: The following is not working.
                 found_errors = True
                 warn("Replacing directory hardlink %s with symlink" % name)
                 if not checkonly:
@@ -327,16 +267,12 @@ def d_check_inodes(conn, checkonly):
 
 
             # Check reference count
-            res2 = c2.execute("SELECT mode FROM contents_ext WHERE "
-                              "parent_inode=?", (inode,))
+            res2 = c2.execute("SELECT mode FROM contents_ext WHERE parent_inode=? AND inode != parent_inode", (inode,))
 
             no = 2
             for (mode2,) in res2:
                 if stat.S_ISDIR(mode2):
                     no += 1
-
-            if name == "/":
-                no -= 1 # we should not count / as its own parent
 
             if no != refcount:
                 found_errors = True
@@ -444,20 +380,20 @@ def f_check_keylist(conn, bucket, checkonly):
     The prefix of the method name indicates the order in which
     the fsck routines should be called.
     """
-    c1 = conn.cursor()
-    c2 = conn.cursor()
+    c1 = my_cursor(conn.cursor())
+    c2 = my_cursor(conn.cursor())
     found_errors = False
 
     # Find lost+found inode
     # If we are in checkonly, it may not be present and we will
     # not need it
     if not checkonly:
-        inode_l = c1.execute("SELECT inode FROM contents WHERE name=?",
-                             (buffer("/lost+found"),)).next()[0]
+        inode_r = c1.get_val("SELECT inode FROM contents WHERE inode = parent_inode")
+        inode_l = c1.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
+                             (buffer("lost+found"), inode_r))
 
     # Find blocksize
     blocksize = c1.execute("SELECT blocksize FROM parameters").next()[0]
-
 
     # We use this table to keep track of the s3keys that we have
     # seen
@@ -482,7 +418,7 @@ def f_check_keylist(conn, bucket, checkonly):
                 bucket.fetch_to_file(s3key, tmp)
 
                 # Save full object in lost+found
-                addfile("/lost+found/" + unused_lf_name(c1, s3key), tmp, c1)
+                addfile(unused_name(c1, s3key, inode_l), tmp, inode_l, c1)
 
                 # Truncate and readd
                 fd = os.open(tmp, os.O_RDWR)
@@ -504,14 +440,14 @@ def f_check_keylist(conn, bucket, checkonly):
             found_errors = True
             warn("object %s not in referenced in table, adding to lost+found" % s3key)
             if not checkonly:
-                lfname = unused_lf_name(c1, s3key)
+                lfname = unused_name(c1, s3key, inode_l)
                 c1.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                            "VALUES (?,?,?,?,?,?,?)",
                            (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                             os.getuid(), os.getgid(), time(), time(), time(), 1))
                 inode = conn.last_insert_rowid()
                 c1.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                           (buffer("/lost+found/%s" % lfname), inode, inode_l))
+                           (buffer(lfname), inode, inode_l))
 
                 # Now we need to assign the s3 object to this inode, but this
                 # unfortunately means that we have to change the s3key.
@@ -554,25 +490,21 @@ def f_check_keylist(conn, bucket, checkonly):
 
     return not found_errors
 
-def addfile(remote, local, cursor):
-    """Adds the specified local file to the fs
+def addfile(remote, local, inode_p, cursor):
+    """Adds the specified local file to the fs in directory `inode_p`
     """
 
     cursor.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                    "VALUES (?,?,?,?,?,?,?)",
                    (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                     os.getuid(), os.getgid(), time(), time(), time(), 1))
-    inode = conn.last_insert_rowid()
-
-    parent = os.path.basename(os.path.dirname(remote))
-    inode_p = cursor.execute("SELECT inode FROM contents WHERE name=?",
-                             (buffer(parent),)).next()[0]
+    inode = cur.last_rowid()
 
     cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                    (buffer(remote), inode, inode_p))
 
     # Add s3 objects
-    blocksize = cursor.execute("SELECT blocksize FROM parameters").next()[0]
+    blocksize = cursor.get_val("SELECT blocksize FROM parameters")
 
     # Since the blocksize might be large, we work in chunks rather
     # than in memory

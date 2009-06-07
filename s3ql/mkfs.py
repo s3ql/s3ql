@@ -64,10 +64,11 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
     # Table of filesystem objects
     cursor.execute("""
     CREATE TABLE contents (
-        name      BLOB(256) NOT NULL PRIMARY KEY,
+        name      BLOB(256) NOT NULL,
         inode     INT NOT NULL REFERENCES inodes(id),
         parent_inode INT NOT NULL REFERENCES inodes(id)
     );
+    CREATE UNIQUE INDEX ix_contents_primary ON contents(name, parent_inode);
     CREATE INDEX ix_contents_parent_inode ON contents(parent_inode);
     """)
 
@@ -163,7 +164,7 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
                     os.getuid(), os.getgid(), time(), time(), time(), 2))
     inode = conn.last_insert_rowid()
     cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   (buffer("/lost+found"), inode, root_inode))
+                   (buffer("lost+found"), inode, root_inode))
 
     # Done setting up metadata table
     conn.close()

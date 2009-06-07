@@ -113,8 +113,8 @@ class server(fuse.Operations):
         # write() is handled specially, because we don't want to dump
         # out the whole buffer to the logs.
         if op == "write":
-            ap = [a[0],
-                  "<data, len=%ik>" % int(len(a[1])/1024)] + map(repr,a[2:])
+            ap = [a[0], 
+                  "<data, len=%ik>" % int(len(a[1])/1024)] + map(repr, a[2:])
         elif op == "readdir":
             ap = map(repr, a)
             ap[1] = "<filler>"
@@ -134,8 +134,8 @@ class server(fuse.Operations):
         except:
             (etype, value, tb) = sys.exc_info()
 
-            error([ "Unexpected %s error: %s\n" % (etype.__name__, str(value)),
-                    "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n",
+            error([ "Unexpected %s error: %s\n" % (etype.__name__, str(value)), 
+                    "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n", 
                     "Please report this bug on http://code.google.com/p/s3ql/.\n"
                     "Traceback:\n"] + traceback.format_tb(tb))
             self.mark_damaged()
@@ -192,37 +192,37 @@ class server(fuse.Operations):
         return my_cursor(self.local.conn.cursor())
 
 
-    def getattr(self, path, fh=None):
+    def getattr(self, path, inode=None):
         """Handles FUSE getattr() requests
         """
 
         fstat = dict()
         cur = self.get_cursor()
-        try:
-            res = cur.execute("SELECT mode, refcount, uid, gid, size, inode, rdev, "
-                              "atime, mtime, ctime FROM contents_ext WHERE name=? ",
-                              (buffer(path),))
-            (fstat["st_mode"],
-             fstat["st_nlink"],
-             fstat["st_uid"],
-             fstat["st_gid"],
-             fstat["st_size"],
-             fstat["st_ino"],
-             fstat["st_rdev"],
-             fstat["st_atime"],
-             fstat["st_mtime"],
-             fstat["st_ctime"]) = res.next()
-        except StopIteration:
-            # Not truly an error
-            raise FUSEError(errno.ENOENT)
-
+        if not inode:            
+            inode = get_inode(path, cur)
+            if not inode: # not found
+                raise(FUSEError(errno.ENOENT))
+        
+        (fstat["st_mode"], 
+         fstat["st_nlink"], 
+         fstat["st_uid"], 
+         fstat["st_gid"], 
+         fstat["st_size"], 
+         fstat["st_ino"], 
+         fstat["st_rdev"], 
+         fstat["st_atime"], 
+         fstat["st_mtime"], 
+         fstat["st_ctime"]) = cur.get_row("SELECT mode, refcount, uid, gid, size, inode, rdev, "
+                                          "atime, mtime, ctime FROM contents_ext WHERE inode=? ", 
+                                          (inode,))
+            
         # preferred blocksize for doing IO
         fstat["st_blksize"] = resource.getpagesize()
 
         if stat.S_ISREG(fstat["st_mode"]):
             # determine number of blocks for files
             fstat["st_blocks"] = cur.get_val("SELECT COUNT(s3key) FROM s3_objects "
-                                             "WHERE inode=?", (fstat["st_ino"],))
+                                             "WHERE inode=?", (inode,))
         else:
             # For special nodes, return arbitrary values
             fstat["st_size"] = 512
@@ -239,8 +239,8 @@ class server(fuse.Operations):
         """
         cur = self.get_cursor()
 
-        (target, inode) = cur.get_row("SELECT target,inode FROM contents_ext "
-                                       "WHERE name=?", (buffer(path),))
+        inode = get_inode(path, cur)
+        target = cur.get_val("SELECT target FROM inodes WHERE id=?", (inode,))
 
         if not self.noatime:
             update_atime(inode, cur)
@@ -251,25 +251,24 @@ class server(fuse.Operations):
         """
         cur = self.get_cursor()
 
-        inode = get_inode(path, cur)
+        if path == "/":
+            inode = get_inode(path, cur)
+            inode_p = inode
+        else:
+            (inode_p, inode) = get_inode(path, cur, trace=True)[-2:]
+
         if not self.noatime:
             update_atime(inode, cur)
 
-        filler(".", self.getattr(path), 0)
-        filler("..", self.getattr(os.path.dirname(path)), 0)
-
-        if path == "/":
-            striplen = 1
-        else:
-            striplen = len(path)+1
+        filler(".", self.getattr(None, inode), 0)
+        filler("..", self.getattr(None, inode_p), 0)
 
         # Actual contents
-        res = cur.execute("SELECT name FROM contents_ext WHERE parent_inode=? "
-                          "AND inode != ?", (inode, inode)) # Avoid to get / which is its own parent
-        for (name,) in res:
+        res = cur.execute("SELECT name, inode FROM contents WHERE parent_inode=? "
+                          "AND inode != parent_inode", (inode,)) # Avoid to get / which is its own parent
+        for (name,inode) in res:
             name = str(name)
-            fstat = self.getattr(name)
-            filler(name[striplen:], fstat, 0)
+            filler(name, self.getattr(None, inode), 0)
 
     def getxattr(self, path, name, position=0):
         raise FUSEError(fuse.ENOTSUP)
@@ -288,14 +287,16 @@ class server(fuse.Operations):
         """
 
         cur = self.get_cursor()
-        fstat = self.getattr(path)
-        inode = fstat["st_ino"]
+        (inode_p, inode) = get_inode(path, cur, trace=True)[-2:]
+        fstat = self.getattr(None, inode)
 
-        cur.execute("DELETE FROM contents WHERE name=?", (buffer(path),))
+
+        cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?", 
+                    (buffer(os.path.basename(path)), inode_p))
 
         # No more links, remove datablocks
         if fstat["st_nlink"] == 1:
-            res = cur.execute("SELECT s3key FROM s3_objects WHERE inode=?",
+            res = cur.execute("SELECT s3key FROM s3_objects WHERE inode=?", 
                            (inode,))
             for (id,) in res:
                 # The object may not have been comitted yet
@@ -305,7 +306,7 @@ class server(fuse.Operations):
                     pass
 
             # Drop cache
-            res = cur.execute("SELECT fd, cachefile FROM s3_objects WHERE inode=?",
+            res = cur.execute("SELECT fd, cachefile FROM s3_objects WHERE inode=?", 
                            (inode,))
             for (fd, cachefile) in res:
                 os.close(fd)
@@ -317,7 +318,7 @@ class server(fuse.Operations):
             # Also updates ctime
             decrease_refcount(inode, cur)
 
-        update_mtime_parent(path, cur)
+        update_mtime(inode_p, cur)
 
 
     def mark_damaged(self):
@@ -333,21 +334,18 @@ class server(fuse.Operations):
         """
         cur = self.get_cursor()
 
-        inode = get_inode(path, cur)
-        inode_p = get_inode(os.path.dirname(path), cur)
-
-
+        (inode_p, inode) = get_inode(path, cur, trace=True)[-2:]
+        
         # Check if directory is empty
-        (entries,) = cur.execute("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
-                           (inode,)).next()
-        if entries >= 1:
+        if cur.get_val("SELECT refcount FROM inodes WHERE id=?", (inode,)) > 2: 
             debug("Attempted to remove nonempty directory %s" % path)
             raise FUSEError(errno.EINVAL)
 
         # Delete
         cur.execute("BEGIN TRANSACTION")
         try:
-            cur.execute("DELETE FROM contents WHERE name=?", (buffer(path),))
+            cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
+                        (buffer(os.path.basename(path)), inode_p))
             cur.execute("DELETE FROM inodes WHERE id=?", (inode,))
             decrease_refcount(inode_p, cur)
             update_mtime(inode_p, cur)
@@ -362,19 +360,19 @@ class server(fuse.Operations):
         """
 
         cur = self.get_cursor()
-        (uid,gid,pid) = fuse.fuse_get_context()
+        (uid, gid, pid) = fuse.fuse_get_context()
         inode_p = get_inode(os.path.dirname(name), cur)
         cur.execute("BEGIN TRANSACTION")
         try:
-            mode = ( stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
+            mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
                      stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP |
-                     stat.S_IROTH |stat.S_IWOTH | stat.S_IXOTH )
+                     stat.S_IROTH |stat.S_IWOTH | stat.S_IXOTH)
             cur.execute("INSERT INTO inodes (mode,uid,gid,target,mtime,atime,ctime,refcount) "
-                                "VALUES(?, ?, ?, ?, ?, ?, ?, 1)",
-                                (mode, uid, gid, buffer(target),
+                                "VALUES(?, ?, ?, ?, ?, ?, ?, 1)", 
+                                (mode, uid, gid, buffer(target), 
                                  time(), time(), time()))
-            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                                (buffer(name), self.local.conn.last_insert_rowid(), inode_p))
+            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)", 
+                                (buffer(os.path.basename(name)), self.local.conn.last_insert_rowid(), inode_p))
             update_mtime(inode_p, cur)
         except:
             cur.execute("ROLLBACK")
@@ -387,17 +385,18 @@ class server(fuse.Operations):
         """
 
         cur = self.get_cursor()
-        cur.execute("BEGIN TRANSACTION")
-        try:
-            cur.execute("UPDATE contents SET name=? WHERE name=?", (buffer(new), buffer(old)))
-            update_mtime_parent(old, cur)
-            update_mtime_parent(new, cur)
-        except:
-            cur.execute("ROLLBACK")
-            raise
-        else:
-            cur.execute("COMMIT")
-
+        inode_p_old = get_inode(os.path.dirname(old), cur)
+        inode_p_new = get_inode(os.path.dirname(new), cur)
+        
+        if not inode_p_new:
+            warn("rename: path %s does not exist" % new)
+            raise FUSEError(errno.EINVAL)
+        
+        cur.execute("UPDATE contents SET name=?, parent_inode=? WHERE name=? "
+                    "AND parent_inode=?", (buffer(os.path.basename(new)), inode_p_new,
+                                           buffer(os.path.basename(old)), inode_p_old))
+        update_mtime(inode_p_old, cur)
+        update_mtime(inode_p_new, cur)
 
     def link(self, source, target):
         """Handles FUSE link() requests.
@@ -405,20 +404,19 @@ class server(fuse.Operations):
         cur = self.get_cursor()
 
         # We do not want the getattr() overhead here
-        (inode, mode) = cur.get_row("SELECT inode,mode FROM contents_ext WHERE name=?",
-                                     (buffer(target),))
+        fstat = self.getattr(target)
         inode_p = get_inode(os.path.dirname(source), cur)
 
         # Do not allow directory hardlinks
-        if stat.S_ISDIR(mode):
+        if stat.S_ISDIR(fstat["st_mode"]):
             debug("Attempted to hardlink directory %s" % target)
             raise FUSEError(errno.EINVAL)
 
         cur.execute("BEGIN TRANSACTION")
         try:
-            cur.execute("INSERT INTO contents (name,inode,parent_inode) VALUES(?,?,?)",
-                     (buffer(source), inode, inode_p))
-            increase_refcount(inode, cur)
+            cur.execute("INSERT INTO contents (name,inode,parent_inode) VALUES(?,?,?)", 
+                     (buffer(os.path.basename(source)), fstat["st_ino"], inode_p))
+            increase_refcount(fstat["st_ino"], cur)
             update_mtime(inode_p, cur)
         except:
             cur.execute("ROLLBACK")
@@ -430,22 +428,21 @@ class server(fuse.Operations):
         """Handles FUSE chmod() requests.
         """
 
-        omode = self.getattr(path)["st_mode"]
-        if stat.S_IFMT(mode) != stat.S_IFMT(omode):
+        fstat = self.getattr(path)
+        if stat.S_IFMT(mode) != stat.S_IFMT(fstat["st_mode"]):
             warn("chmod: attempted to change file mode")
             raise FUSEError(errno.EINVAL)
 
         cur = self.get_cursor()
-        cur.execute("UPDATE inodes SET mode=?,ctime=? WHERE id=(SELECT inode "
-                 "FROM contents WHERE name=?)", (mode, time(), buffer(path)))
+        cur.execute("UPDATE inodes SET mode=?,ctime=? WHERE id=?", (mode, time(), fstat["st_ino"]))
 
     def chown(self, path, user, group):
         """Handles FUSE chown() requests.
         """
 
         cur = self.get_cursor()
-        cur.execute("UPDATE inodes SET uid=?, gid=?, ctime=? WHERE id=(SELECT inode "
-                 "FROM contents WHERE name=?)", (user, group, time(), buffer(path)))
+        inode = get_inode(path, cur)
+        cur.execute("UPDATE inodes SET uid=?, gid=?, ctime=? WHERE id=?", (user, group, time(), inode))
 
     def mknod(self, path, mode, dev=None):
         """Handles FUSE mknod() requests.
@@ -464,10 +461,10 @@ class server(fuse.Operations):
         cur.execute("BEGIN TRANSACTION")
         try:
             cur.execute("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev,refcount,size) "
-                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
+                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)", 
                      (time(), time(), time(), uid, gid, mode, dev, 1))
-            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                     (buffer(path), cur.last_rowid(), inode_p))
+            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)", 
+                     (buffer(os.path.basename(path)), cur.last_rowid(), inode_p))
             update_mtime(inode_p, cur)
         except:
             cur.execute("ROLLBACK")
@@ -496,11 +493,11 @@ class server(fuse.Operations):
         try:
             # refcount is 2 because of "."
             cur.execute("INSERT INTO inodes (mtime,atime,ctime,uid,gid,mode,refcount) "
-                     "VALUES(?, ?, ?, ?, ?, ?, ?)",
+                     "VALUES(?, ?, ?, ?, ?, ?, ?)", 
                      (time(), time(), time(), uid, gid, mode, 2))
             inode = cur.last_rowid()
-            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
-                (buffer(path), inode, inode_p))
+            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)", 
+                (buffer(os.path.basename(path)), inode, inode_p))
             increase_refcount(inode_p, cur)
             update_mtime(inode_p, cur)
         except:
@@ -515,8 +512,9 @@ class server(fuse.Operations):
 
         cur = self.get_cursor()
         (atime, mtime) = times
-        cur.execute("UPDATE inodes SET atime=?,mtime=?,ctime=? WHERE id=(SELECT inode "
-                    "FROM contents WHERE name=?)", (atime, mtime, time(), buffer(path)))
+        inode = get_inode(path, cur)
+        cur.execute("UPDATE inodes SET atime=?,mtime=?,ctime=? WHERE id=?",
+                     (atime, mtime, time(), inode))
 
     def statfs(self):
         """Handles FUSE statfs() requests.
@@ -584,14 +582,14 @@ class server(fuse.Operations):
             debug("\tCurrent object: " + s3key)
             os.close(fd)
             if dirty:
-                error([ "Warning! Object ", s3key, " has not yet been flushed.\n",
+                error([ "Warning! Object ", s3key, " has not yet been flushed.\n", 
                              "Please report this as a bug!\n" ])
                 meta = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
                 cur2.execute("UPDATE s3_objects SET dirty=?, cachefile=?, "
-                             "etag=?, fd=? WHERE s3key=?",
+                             "etag=?, fd=? WHERE s3key=?", 
                              (False, None, meta.etag, None, s3key))
             else:
-                cur2.execute("UPDATE s3_objects SET cachefile=?, fd=? WHERE s3key=?",
+                cur2.execute("UPDATE s3_objects SET cachefile=?, fd=? WHERE s3key=?", 
                              (None, None, s3key))
 
             os.unlink(self.cachedir + cachefile)
@@ -623,7 +621,7 @@ class server(fuse.Operations):
             # Release global lock
             cv.release()
 
-    def unlock_s3key(self,s3key):
+    def unlock_s3key(self, s3key):
         """Releases lock on given s3key
         """
         cv = self.s3_lock
@@ -643,10 +641,24 @@ class server(fuse.Operations):
             cv.release()
 
     def open(self, path, flags):
+        """Opens file `path`.
+        
+        `flags` is ignored. Returns a file descriptor that is equal to the
+        inode of the file, so it is not possible to distinguish between
+        different open() and `create()` calls for the same inode.
+        """
+        
         cur = self.get_cursor()
         return get_inode(path, cur)
 
     def create(self, path, mode):
+        """Creates file `path` with mode `mode`
+        
+        Returns a file descriptor that is equal to the
+        inode of the file, so it is not possible to distinguish between
+        different open() and create() calls for the same inode.
+        """
+
         # check mode
         if (stat.S_IFMT(mode) != stat.S_IFREG and
             stat.S_IFMT(mode) != 0):
@@ -658,15 +670,17 @@ class server(fuse.Operations):
 
         cur = self.get_cursor()
         (uid, gid, pid) = fuse.fuse_get_context()
-        inode_p = get_inode(os.path.dirname(path), cur)
+        dir = os.path.dirname(path)
+        name = os.path.basename(path)
+        inode_p = get_inode(dir, cur)
         cur.execute("BEGIN TRANSACTION")
         try:
             cur.execute("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev,refcount,size) "
-                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
+                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)", 
                      (time(), time(), time(), uid, gid, mode, None, 1))
             inode = cur.last_rowid()
-            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                     (buffer(path), inode, inode_p))
+            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)", 
+                     (buffer(name), inode, inode_p))
             update_mtime(inode_p, cur)
         except:
             cur.execute("ROLLBACK")
@@ -720,7 +734,7 @@ class server(fuse.Operations):
 
             # If we can't read enough, we have a hole as well
             # (since we already adjusted the length to be within the file size)
-            os.lseek(fd,offset - offset_i, os.SEEK_SET)
+            os.lseek(fd, offset - offset_i, os.SEEK_SET)
             buf = StringIO()
             while length > 0:
                 tmp = os.read(fd, length)
@@ -772,7 +786,7 @@ class server(fuse.Operations):
                 return None
             fd = os.open(cachepath, os.O_RDWR | os.O_CREAT)
             cur.execute("INSERT INTO s3_objects(s3key,dirty,fd,cachefile,atime,size,inode,offset) "
-                     "VALUES(?,?,?,?,?,?,?,?)",
+                     "VALUES(?,?,?,?,?,?,?,?)", 
                      (s3key, True, fd, cachefile, time(), 0, inode, offset))
 
         # Not yet in cache
@@ -782,7 +796,7 @@ class server(fuse.Operations):
 
             # Check etag
             if meta.etag != etag:
-                warn(["Changes in %s apparently have not yet propagated. Waiting and retrying...\n" % s3key,
+                warn(["Changes in %s apparently have not yet propagated. Waiting and retrying...\n" % s3key, 
                        "Try to increase the cache size to avoid this.\n"])
                 waited = 0
                 waittime = 0.01
@@ -795,7 +809,7 @@ class server(fuse.Operations):
 
                 # If still not found
                 if meta.etag != etag:
-                    error(["etag for %s doesn't match metadata!" % s3key,
+                    error(["etag for %s doesn't match metadata!" % s3key, 
                            "Filesystem is probably corrupted (or S3 is having problems), "
                            "run fsck.s3ql as soon as possible.\n"])
                     self.mark_damaged()
@@ -844,7 +858,7 @@ class server(fuse.Operations):
                     # has been deleted
                     continue
 
-                (dirty,fd,cachefile,size) = res[0]
+                (dirty, fd, cachefile, size) = res[0]
                 if fd is None:
                     # already flushed now
                     continue
@@ -896,19 +910,19 @@ class server(fuse.Operations):
                 writelen = maxwrite
                 writelen = os.write(fd, buf[:maxwrite])
             else:
-                writelen = os.write(fd,buf)
+                writelen = os.write(fd, buf)
 
 
             # Update object size
             obj_len = os.lseek(fd, 0, os.SEEK_END)
-            cur.execute("UPDATE s3_objects SET size=? WHERE s3key=?",
+            cur.execute("UPDATE s3_objects SET size=? WHERE s3key=?", 
                         (obj_len, s3key))
 
             # Update file size if changed
             res = cur.execute("SELECT s3key FROM s3_objects WHERE inode=? "
                               "AND offset > ?", (inode, offset_i))
             if not list(res):
-                cur.execute("UPDATE inodes SET size=?,ctime=? WHERE id=?",
+                cur.execute("UPDATE inodes SET size=?,ctime=? WHERE id=?", 
                             (offset_i + obj_len, time(), inode))
 
             # Update file mtime
@@ -932,7 +946,7 @@ class server(fuse.Operations):
         ### FIXME: Are we in trouble here? We change the result set
         ### that we are iterating over...
         res = cur.execute("SELECT s3key FROM s3_objects WHERE "
-                          "offset >= ? AND inode=? ORDER BY offset ASC",
+                          "offset >= ? AND inode=? ORDER BY offset ASC", 
                           (len, inode))
         for (s3key,) in res:
             self.lock_s3key(s3key)
@@ -950,14 +964,14 @@ class server(fuse.Operations):
                 except KeyError:
                     pass
 
-                cur2.execute("DELETE FROM s3_objects WHERE s3key=?",
+                cur2.execute("DELETE FROM s3_objects WHERE s3key=?", 
                                 (s3key,))
             finally:
                 self.unlock_s3key(s3key)
 
 
         # Get last object before truncation
-        offset_i = self.blocksize * int( (len-1) / self.blocksize)
+        offset_i = self.blocksize * int((len-1) / self.blocksize)
         s3key = io2s3key(inode, offset_i)
 
         self.lock_s3key(s3key)
@@ -977,9 +991,9 @@ class server(fuse.Operations):
                 os.ftruncate(fd, len - offset_i)
 
             # Update file size
-            cur.execute("UPDATE inodes SET size=? WHERE id=?",
+            cur.execute("UPDATE inodes SET size=? WHERE id=?", 
                         (len, inode))
-            cur.execute("UPDATE s3_objects SET size=?,dirty=? WHERE s3key=?",
+            cur.execute("UPDATE s3_objects SET size=?,dirty=? WHERE s3key=?", 
                         (len - offset_i, True, s3key))
 
             # Update file's mtime
@@ -1007,16 +1021,16 @@ class server(fuse.Operations):
                           "dirty=? AND inode=?", (True, inode))
         for (s3key, fd, cachefile) in res:
             try:
-                cur2.execute("UPDATE s3_objects SET dirty=? WHERE s3key=?",
+                cur2.execute("UPDATE s3_objects SET dirty=? WHERE s3key=?", 
                              (False, s3key))
                 os.fsync(fd)
                 meta = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
             except:
-                cur2.execute("UPDATE s3_objects SET dirty=? WHERE s3key=?",
+                cur2.execute("UPDATE s3_objects SET dirty=? WHERE s3key=?", 
                              (True, s3key))
                 raise
 
-            cur2.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
+            cur2.execute("UPDATE s3_objects SET etag=? WHERE s3key=?", 
                          (meta.etag, s3key))
 
 

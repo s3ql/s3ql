@@ -18,6 +18,9 @@ from random import randrange
 
 class fs_api_tests(unittest.TestCase):
 
+    # FIXME: Whenever we test that an entry exist (or does not exist),
+    # we have to use both readdir() and getattr(), not only one!
+ 
     def setUp(self):
         self.bucket = s3ql.s3.LocalBucket()
         self.bucket.tx_delay = 0
@@ -281,6 +284,43 @@ class fs_api_tests(unittest.TestCase):
         self.server.flush(name, fh)
 
         self.fsck()
+        
+    def test_10_rename(self):    
+        dirname_old = os.path.join("/", self.random_name("olddir"))
+        dirname_new = os.path.join("/", self.random_name("newdir"))
+        filename_old = os.path.join(dirname_old, self.random_name("oldfile"))
+        filename_new = self.random_name("newfile")
+        filename_new1 = os.path.join(dirname_old, filename_new)
+        filename_new2 = os.path.join(dirname_new, filename_new)
+        
+        # Create directory with file
+        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IFDIR )
+        self.server.mkdir(dirname_old, mode)
+        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR )
+        fh = self.server.create(filename_old, mode)
+        self.server.write(dirname_old, "Some random contents", 0, fh)
+        self.server.release(filename_old, fh)
+        self.server.flush(filename_old, fh)
+        
+        # Rename file
+        fstat = self.server.getattr(filename_old)
+        mtime_old = self.server.getattr(dirname_old)["st_mtime"]
+        self.server.rename(filename_old, filename_new1)
+        self.assertRaises(s3ql.FUSEError, self.server.getattr, filename_old)
+        self.assertEquals(fstat, self.server.getattr(filename_new1))
+        self.assertTrue(self.server.getattr(dirname_old)["st_mtime"] > mtime_old)
+        
+        # Rename directory
+        fstat2 = self.server.getattr(filename_new1)
+        fstat = self.server.getattr(dirname_old)
+        mtime_old = self.server.getattr("/")["st_mtime"]
+        self.server.rename(dirname_old, dirname_new)
+        self.assertRaises(s3ql.FUSEError, self.server.getattr, dirname_old)
+        self.assertRaises(s3ql.FUSEError, self.server.getattr, filename_new1)
+        self.assertEquals(fstat, self.server.getattr(dirname_new))
+        self.assertEquals(fstat2, self.server.getattr(filename_new2))
+        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
+        
 
     # Also check the addfile function from fsck.py here
 

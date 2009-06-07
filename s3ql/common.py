@@ -30,6 +30,8 @@ class my_cursor(object):
 
     def get_val(self, *a, **kw):
         """Executes a select statement and returns first element of first row.
+        
+        Throws `StopIteration` if there is no result row.
         """
 
         return self.execute(*a, **kw).next()[0]
@@ -42,10 +44,18 @@ class my_cursor(object):
 
     def get_row(self, *a, **kw):
         """Executes a select statement and returns first row.
+        
+        If there are no result rows, returns None.
         """
 
-        return self.execute(*a, **kw).next()
-
+        res = self.execute(*a, **kw)
+        try:
+            row = res.next()
+        except StopIteration:
+            row = None
+       
+        return row        
+     
     def last_rowid(self):
         """Returns last inserted rowid.
 
@@ -84,13 +94,56 @@ def update_mtime_parent(path, cur):
     inode = get_inode(os.path.dirname(path), cur)
     update_mtime(inode, cur)
 
-def get_inode(path, cur):
+def get_inode(path, cur, trace=False):
     """Returns inode of object at `path`.
+    
+    If not found, returns None. If `trace` is `True`, returns a list
+    of all (directory) inodes that need to be traversed to reach `path`
     """
-    inode = cur.get_val("SELECT inode FROM contents WHERE name=?",
-                        (buffer(path),))
-    return inode
+    
+    # Remove leading and trailing /
+    path = path.lstrip("/").rstrip("/")
+    
+    # Root inode
+    inode = cur.get_val("SELECT inode FROM contents WHERE inode=parent_inode")
+    
+    # Root directory requested
+    if not path:
+        return [inode] if trace else inode
+    
+    # Traverse
+    visited = [inode]
+    for el in path.split(os.sep):
+        res = cur.get_list("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
+                             (buffer(el), inode))
+        if not res:
+            return None
+        inode = res[0][0]
+        visited.append(inode)
 
+    if trace:
+        return visited
+    else:
+        return inode
+
+def get_path(name, inode_p, cur):
+    """Returns the full path of `name` with parent inode `inode_p`.
+    """
+    
+    # Root inode
+    inode_r = cur.get_val("SELECT inode FROM contents WHERE inode=parent_inode")
+    
+    path = [name]
+    
+    while inode_p != inode_r:
+        (name, inode_p) = cur.get_row("SELECT name, parent_inode FROM contents "
+                                      "WHERE inode=?", (inode_p,)) # Not ambigious, since we don't allow directory hardlinks
+        name = str(name)
+        path.insert(0, name)
+        
+    return "/" + os.path.join(*path)
+    
+    
 def decrease_refcount(inode, cur):
     """Decrease reference count for inode by 1.
 

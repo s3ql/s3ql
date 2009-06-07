@@ -44,8 +44,15 @@ class fuse_tests(unittest.TestCase):
         # up. But since we need the exit status, we cannot daemonize
         # and need to wait some time for the mountpoint to come up
         # (mostly due to the simulated delays)
-        time.sleep(3)
+        waittime = 10
+        while waittime > 0:
+            if posixpath.ismount(self.base):
+                break
+            time.sleep(1)
+            waittime -= 1
+              
         self.assertTrue(posixpath.ismount(self.base))
+        
 
         # Run Subtests
         try:
