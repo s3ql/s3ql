@@ -18,6 +18,12 @@ import stat
 from time import time, sleep
 from getpass import getpass
 
+__all__ = [ "debug", "decrease_refcount", "error", "get_cachedir",
+           "get_credentials", "get_dbfile", "get_inode", "get_path",
+           "increase_refcount", "log", 
+           "my_cursor", "update_atime", "update_mtime", "update_ctime", 
+           "waitfor", "warn" ]
+
 class my_cursor(object):
     """Wraps an apsw cursor to add some convenience functions.
     """
