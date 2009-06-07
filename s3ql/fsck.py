@@ -49,9 +49,9 @@ def b_check_cache(conn, cachedir, bucket, checkonly):
             if dirty:
                 warn("Committing cached changes for %s")
                 if not checkonly:
-                    meta = bucket.store_from_file(s3key, cachedir + cachefile)
+                    etag = bucket.store_from_file(s3key, cachedir + cachefile)
                     c2.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
-                               (meta.etag, s3key))
+                               (etag, s3key))
                     os.unlink(cachedir + cachefile)
 
         if not checkonly:
@@ -424,10 +424,10 @@ def f_check_keylist(conn, bucket, checkonly):
                 fd = os.open(tmp, os.O_RDWR)
                 os.ftruncate(fd, blocksize)
                 os.close(fd)
-                meta_new = bucket.store_from_file(s3key, tmp)
+                etag_new = bucket.store_from_file(s3key, tmp)
                 os.unlink(tmp)
                 c1.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
-                           (meta_new.etag, s3key))
+                           (etag_new, s3key))
 
 
 
@@ -522,10 +522,10 @@ def addfile(remote, local, inode_p, cursor):
             tmp.write(buf[:blocksize-cursize])
             buf = buf[blocksize-cursize:]
             s3key = fs.io2s3key(inode,blockno * blocksize)
-            meta = bucket.store_from_file(s3key, tmp.name)
+            etag = bucket.store_from_file(s3key, tmp.name)
             cursor.execute("INSERT INTO s3_objects (inode,offset,s3key,size,etag) "
                            "VALUES (?,?,?,?)", (inode, blockno * blocksize,
-                                                buffer(s3key_new), cursize, meta.etag))
+                                                buffer(s3key_new), cursize, etag))
             cursize = 0
             blockno += 1
             tmp.seek(0)

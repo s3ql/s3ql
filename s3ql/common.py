@@ -15,7 +15,7 @@ import functools
 import s3ql
 import hashlib
 import stat
-from time import time
+from time import time, sleep
 from getpass import getpass
 
 class my_cursor(object):
@@ -237,24 +237,60 @@ def get_credentials(key=None):
     read the password from stdin. Otherwise, tries to read
     ~/.awssecret.
     """
-
-
+    
+    pw = None
+    keyfile = os.path.join(os.environ["HOME"], ".awssecret")
+    
     if key:
         if sys.stdin.isatty():
             pw = getpass("Enter AWS password: ")
         else:
             pw = sys.stdin.readline().rstrip()
-        return (key, pw)
+            
+    else:
+        
+        if os.path.isfile(keyfile):
+            mode = os.stat(keyfile).st_mode
+            file = open(keyfile, "r")
+            key = file.readline().rstrip()
 
-    # Read file
-    path = os.environ["HOME"].rstrip("/") + "/.awssecret"
-    mode = os.stat(path).st_mode
-    if mode & stat.S_IRGRP or \
-            mode & stat.S_IROTH:
-        sys.stderr.write("%s has insecure permissions, bailing out\n" % path)
-        sys.exit(1)
-    file = open(path, "r")
-    awskey = file.readline().rstrip()
-    pw = file.readline().rstrip()
+            if mode & (stat.S_IRGRP | stat.S_IROTH):
+                sys.stderr.write("~/.awssecret has insecure permissions, reading password from terminal instead!\n")        
+            else:    
+                pw = file.readline().rstrip()
+            file.close()    
+            
+        if not key:
+           if sys.stdin.isatty():
+               print "Enter AWS access key: ",
+           key = sys.stdin.readline().rstrip()
+           
+        if not pw:
+            if sys.stdin.isatty():
+                pw = getpass("Enter AWS password: ")
+            else:
+                pw = sys.stdin.readline().rstrip()
 
-    return (awskey, pw)
+    return (key, pw)
+
+def waitfor(timeout, fn, *a, **kw):
+    """Wait for fn(*a, **kw) to return True.
+    
+    Waits in increasing periods. Returns False if a timeout occurs, 
+    True otherwise.
+    """
+    
+    if fn(*a, **kw):
+        return True
+    
+    step = 0.2
+    while timeout > 0:    
+        sleep(step)
+        timeout -= step
+        step *= 2
+        if fn(*a, **kw):
+            return True
+        
+    return False
+    
+    

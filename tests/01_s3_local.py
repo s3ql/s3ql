@@ -7,12 +7,13 @@
 
 import unittest
 import s3ql
+from s3ql.common import *
 from random   import randrange
 import threading
 from time import sleep
 
-class s3_tests(unittest.TestCase):
-
+class s3_tests_local(unittest.TestCase):
+    
     def setUp(self):
         self.bucket = s3ql.s3.LocalBucket()
 
@@ -43,19 +44,21 @@ class s3_tests(unittest.TestCase):
         value1 = self.random_name()
         value2 = self.random_name()
 
-        meta1 = self.bucket.store(key, value1)
+        etag1 = self.bucket.store(key, value1)
         sleep(self.bucket.prop_delay+0.1)
+        meta1 = self.bucket.fetch(key)[1]
 
         self.assertEquals(meta1.key, key)
+        self.assertEquals(meta1.etag, etag1)
         self.assertEquals(meta1.size, len(value1))
-        self.assertEquals(self.bucket.fetch(key), (value1,meta1))
 
-        meta2 = self.bucket.store(key, value2)
+        etag2 = self.bucket.store(key, value2)
         sleep(self.bucket.prop_delay+0.1)
-
+        meta2 = self.bucket.fetch(key)[1]
+        
         self.assertEquals(meta2.key, key)
+        self.assertEquals(meta2.etag, etag2)
         self.assertEquals(meta2.size, len(value2))
-        self.assertEquals(self.bucket.fetch(key), (value2,meta2))
 
         self.assertTrue(meta1.etag != meta2.etag)
         self.assertTrue(meta1.last_modified < meta2.last_modified)
@@ -73,15 +76,12 @@ class s3_tests(unittest.TestCase):
         for i in range(12):
             self.bucket[keys[i]] = values[i]
 
-
         sleep(self.bucket.prop_delay+0.1)
         self.assertEquals(sorted(self.bucket.keys()), sorted(keys))
 
         for i in range(12):
             del self.bucket[keys[i]]
 
-
-        sleep(self.bucket.prop_delay+0.1)
 
     def test_04_delays(self):
         # The other threads may not start immediately, so
@@ -155,12 +155,11 @@ class s3_tests(unittest.TestCase):
         t.join()
         self.assertTrue(self.bucket.fetch(key) is not None)
 
-
         self.bucket.tx_delay = 0
         self.bucket.prop_delay = 0
         del self.bucket[key]
 
-    def test_05_copy(self):
+    def test_06_copy(self):
         self.bucket.tx_delay = 0
         self.bucket.prop_delay = 0
         key1 = self.random_name("key_1")
@@ -179,7 +178,7 @@ class s3_tests(unittest.TestCase):
 
 # Somehow important according to pyunit documentation
 def suite():
-    return unittest.makeSuite(s3_tests)
+    return unittest.makeSuite(s3_tests_local)
 
 
 # Allow calling from command line

@@ -7,6 +7,7 @@
 import hashlib
 from time import time, sleep
 from datetime import datetime
+import isodate
 from boto.s3.connection import S3Connection
 import boto.exception as bex
 import threading
@@ -39,11 +40,11 @@ class Connection(object):
         boto = self.get_boto()
 
         if recursive:
-            bucket = boto.get_bucket(bucketname)
+            bucket = boto.get_bucket(name)
             for s3key in bucket.list():
                 bucket.delete_key(s3key)
 
-        boto.delete_bucket(bucketname)
+        boto.delete_bucket(name)
 
     def get_boto(self):
         """Returns boto s3 connection local to current thread.
@@ -69,10 +70,9 @@ class Connection(object):
         """
         if not self.bucket_exists(name):
             self.create_bucket(name)
+            
             # S3 needs some time before we can fetch the bucket
-            sleep(5)
-        else:
-            pass
+            waitfor(10, self.bucket_exists, name)
 
         return Bucket(self, name)
 
@@ -156,20 +156,26 @@ class Bucket(object):
         If the key does not exist, `None` is returned. Otherwise a
         `Metadata` instance is returned.
         """
+ 
         bkey = self.get_boto().get_key(key)
 
         if bkey:
             return self.boto_key_to_metadata(bkey)
         else:
             return None
-
+  
     def delete_key(self, key):
         """Deletes the specified key
 
         ``bucket.delete_key(key)`` can also be written as ``del bucket[key]``.
 
         """
-        self.get_boto().delete_key(key)
+ 
+        boto = self.get_boto()
+        if not boto.get_key(key):
+            raise KeyError
+        boto.delete_key(key)
+
 
     def list_keys(self, prefix="", delim=""):
         """List keys in bucket
@@ -203,43 +209,49 @@ class Bucket(object):
         itself is required, ``bucket[key]`` is a more concise notation
         for ``bucket.fetch(key)[0]``.
         """
-
-        bkey = self.get_boto().new_key(key)
+ 
+        bkey = self.get_boto().get_key(key)
         if not bkey:
             raise KeyError
 
         val = bkey.get_contents_as_string()
-        metadata = self.boto_key_to_metadata(bkey)
-
+        metadata = self.boto_key_to_metadata(bkey)            
+  
         return (val, metadata)
 
     def store(self, key, val):
         """Store data under `key`.
 
-        Returns the newly associated metadata as returned by
-        `lookup_key`.
+        Returns the etag of the data.
 
         If the metadata is not required, one can simply assign to the
         subscripted bucket instead of using this function:
         ``bucket[key] = val`` is equivalent to ``bucket.store(key,
         val)``.
         """
-
+ 
         bkey = self.get_boto().new_key(key)
         bkey.set_contents_from_string(val)
 
-        return self.boto_key_to_metadata(bkey)
+        return bkey.etag.rstrip('"').lstrip('"')
 
+            
     def fetch_to_file(self, key, file):
         """Fetches data stored under `key` and writes them to `file`.
 
         `file` has to be a file name. Returns the metadata in the
         format used by `lookup_key`.
         """
-        bkey = self.get_boto().new_key(key)
-        bkey.get_contents_to_filename(file)
+ 
+        bkey = self.get_boto().get_key(key)
+        if not bkey.exists():
+            raise KeyError
 
-        return self.boto_key_to_metadata(bkey)
+        bkey.get_contents_to_filename(file)
+        metadata = self.boto_key_to_metadata(bkey)            
+
+
+        return metadata
 
     def store_from_file(self, key, file):
         """Reads `file` and stores the data under `key`
@@ -247,16 +259,18 @@ class Bucket(object):
         `file` has to be a file name. Returns the metadata in the
         format used by `lookup_key`.
         """
+
         bkey = self.get_boto().new_key(key)
         bkey.set_contents_from_filename(file)
 
-        return self.boto_key_to_metadata(bkey)
+        return bkey.etag.rstrip('"').lstrip('"')
+ 
 
     def copy(self, src, dest):
         """Copies data stored under `src` to `dest`
         """
-        self.get_boto().copy_key(dest,self.name,src)
 
+        self.get_boto().copy_key(dest,self.name,src)
 
     @staticmethod
     def boto_key_to_metadata(bkey):
@@ -264,10 +278,20 @@ class Bucket(object):
         """
 
         meta = Metadata(bkey.metadata)
-        meta.etag = bkey.etag
+        meta.etag = bkey.etag.rstrip('"').lstrip('"')
+        meta.key = bkey.name
+        
         if bkey.last_modified is not None:
-            meta.last_modified = datetime.strptime(
-                bkey.last_modified, "%a, %d %b %Y %H:%M:%S %Z")
+            # The format depends on how the data has been retrieved (fetch or list)
+            try:
+                meta.last_modified = datetime.strptime(bkey.last_modified, "%a, %d %b %Y %H:%M:%S %Z")
+            except ValueError:
+                meta.last_modified = isodate.parse_datetime(bkey.last_modified)
+                
+            # Convert to UTC if timezone aware
+            if meta.last_modified.utcoffset():
+                meta.last_modified = (meta.last-modified - meta.last_modified.utcoffset()).replace(tzinfo=None)
+                                                 
         else:
             meta.last_modified = None
         meta.size = int(bkey.size)
@@ -284,8 +308,9 @@ class LocalBucket(Bucket):
     It is meant only for testing purposes. It emulates an artificial
     propagation delay and transmit time.
 
-    It raises ConcurrencyError if several threads try to write or read
-    the same object at a time. The reason for this is not that
+    It tries to raise ConcurrencyError if several threads try to write or read
+    the same object at a time (but it cannot guarantee to catch these cases).
+    The reason for this is not that
     concurrent accesses to the same object were in itself harmful, but
     that they should not occur because the write(), sync() etc.
     systemcalls are synchronized. So if the s3 accesses occur
@@ -358,7 +383,7 @@ class LocalBucket(Bucket):
         metadata = Metadata()
         metadata.key = key
         metadata.size = len(val)
-        metadata.last_modified = datetime.now()
+        metadata.last_modified = datetime.utcnow()
         metadata.etag =  hashlib.md5(val).hexdigest()
         def set():
             sleep(self.prop_delay)
@@ -368,7 +393,7 @@ class LocalBucket(Bucket):
         t.start()
         self.in_transmit.remove(key)
         debug("LocalBucket: Returning from store for %s" % key)
-        return metadata
+        return metadata.etag
 
 
     def fetch_to_file(self, key, file):

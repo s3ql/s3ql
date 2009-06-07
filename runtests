@@ -33,6 +33,5 @@ def suite():
     for name in modules_to_test:
         alltests.addTest(unittest.findTestCases(sys.modules[name]))
     return alltests
-
-if __name__ == '__main__':
-    unittest.main(defaultTest='suite')
+    
+unittest.main(defaultTest='suite')

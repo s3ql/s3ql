@@ -584,10 +584,10 @@ class server(fuse.Operations):
             if dirty:
                 error([ "Warning! Object ", s3key, " has not yet been flushed.\n", 
                              "Please report this as a bug!\n" ])
-                meta = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
+                etag = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
                 cur2.execute("UPDATE s3_objects SET dirty=?, cachefile=?, "
                              "etag=?, fd=? WHERE s3key=?", 
-                             (False, None, meta.etag, None, s3key))
+                             (False, None, etag, None, s3key))
             else:
                 cur2.execute("UPDATE s3_objects SET cachefile=?, fd=? WHERE s3key=?", 
                              (None, None, s3key))
@@ -865,9 +865,9 @@ class server(fuse.Operations):
 
                 # flush
                 os.close(fd)
-                meta = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
+                etag = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
                 cur.execute("UPDATE s3_objects SET dirty=?,fd=?,cachefile=?,etag=? "
-                            "WHERE s3key=?", (False, None, None, meta.etag, s3key))
+                            "WHERE s3key=?", (False, None, None, etag, s3key))
                 os.unlink(self.cachedir + cachefile)
             finally:
                 self.unlock_s3key(s3key)
@@ -1024,14 +1024,14 @@ class server(fuse.Operations):
                 cur2.execute("UPDATE s3_objects SET dirty=? WHERE s3key=?", 
                              (False, s3key))
                 os.fsync(fd)
-                meta = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
+                etag = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
             except:
                 cur2.execute("UPDATE s3_objects SET dirty=? WHERE s3key=?", 
                              (True, s3key))
                 raise
 
             cur2.execute("UPDATE s3_objects SET etag=? WHERE s3key=?", 
-                         (meta.etag, s3key))
+                         (etag, s3key))
 
 
     # Called for close() calls. Here we sync the data, so that we
