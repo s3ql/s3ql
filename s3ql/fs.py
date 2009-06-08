@@ -572,12 +572,10 @@ class server(fuse.Operations):
         database connections.
         """
         cur = self.get_cursor()
-        cur2 = self.get_cursor()
 
         # Flush file and datacache
         debug("Flushing cache...")
-        res = cur.execute(
-            "SELECT s3key, fd, dirty, cachefile FROM s3_objects WHERE fd IS NOT NULL")
+        res = cur.get_list("SELECT s3key, fd, dirty, cachefile FROM s3_objects WHERE fd IS NOT NULL")
         for (s3key, fd, dirty, cachefile) in res:
             debug("\tCurrent object: " + s3key)
             os.close(fd)
@@ -585,11 +583,11 @@ class server(fuse.Operations):
                 error([ "Warning! Object ", s3key, " has not yet been flushed.\n", 
                              "Please report this as a bug!\n" ])
                 etag = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
-                cur2.execute("UPDATE s3_objects SET dirty=?, cachefile=?, "
+                cur.execute("UPDATE s3_objects SET dirty=?, cachefile=?, "
                              "etag=?, fd=? WHERE s3key=?", 
                              (False, None, etag, None, s3key))
             else:
-                cur2.execute("UPDATE s3_objects SET cachefile=?, fd=? WHERE s3key=?", 
+                cur.execute("UPDATE s3_objects SET cachefile=?, fd=? WHERE s3key=?", 
                              (None, None, s3key))
 
             os.unlink(self.cachedir + cachefile)
@@ -937,19 +935,17 @@ class server(fuse.Operations):
         """Handles FUSE ftruncate() requests.
         """
         cur = self.get_cursor()
-        cur2 = self.get_cursor()
-
 
         # Delete all truncated s3 objects
-        # I don't quite see why we are ordering the result, it doesn't
+        # TODO: I don't quite see why we are ordering the result, it doesn't
         # seem important - can we omit it?
-        res = cur.execute("SELECT s3key FROM s3_objects WHERE "
+        res = cur.get_list("SELECT s3key FROM s3_objects WHERE "
                           "offset >= ? AND inode=? ORDER BY offset ASC", 
                           (len, inode))
         for (s3key,) in res:
             self.lock_s3key(s3key)
             try:
-                (fd, cachefile) = cur2.get_row("SELECT fd,cachefile FROM s3_objects "
+                (fd, cachefile) = cur.get_row("SELECT fd,cachefile FROM s3_objects "
                                                   "WHERE s3key=?", (s3key,))
 
                 if fd: # File is in cache
@@ -962,7 +958,7 @@ class server(fuse.Operations):
                 except KeyError:
                     pass
 
-                cur2.execute("DELETE FROM s3_objects WHERE s3key=?", 
+                cur.execute("DELETE FROM s3_objects WHERE s3key=?", 
                                 (s3key,))
             finally:
                 self.unlock_s3key(s3key)
@@ -1009,24 +1005,23 @@ class server(fuse.Operations):
         dirty again and will be resent on the next fsync().
         """
         cur = self.get_cursor()
-        cur2 = self.get_cursor()
 
         # Metadata is always synced automatically, so we ignore
         # fdatasync
-        res = cur.execute("SELECT s3key, fd, cachefile FROM s3_objects WHERE "
+        res = cur.get_list("SELECT s3key, fd, cachefile FROM s3_objects WHERE "
                           "dirty=? AND inode=?", (True, inode))
         for (s3key, fd, cachefile) in res:
             try:
-                cur2.execute("UPDATE s3_objects SET dirty=? WHERE s3key=?", 
+                cur.execute("UPDATE s3_objects SET dirty=? WHERE s3key=?", 
                              (False, s3key))
                 os.fsync(fd)
                 etag = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
             except:
-                cur2.execute("UPDATE s3_objects SET dirty=? WHERE s3key=?", 
+                cur.execute("UPDATE s3_objects SET dirty=? WHERE s3key=?", 
                              (True, s3key))
                 raise
 
-            cur2.execute("UPDATE s3_objects SET etag=? WHERE s3key=?", 
+            cur.execute("UPDATE s3_objects SET etag=? WHERE s3key=?", 
                          (etag, s3key))
 
 
