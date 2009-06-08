@@ -13,6 +13,9 @@ import tempfile
 from common import *
 import fs
 
+__all__ = [" a_check_parameters", "b_check_cache", "c_check_contents", "d_check_inodes",
+           "e_check_s3", "f_check_keylist" ]
+
 def b_check_cache(conn, cachedir, bucket, checkonly):
     """Verifies that the s3 table agrees with the cache.
 
@@ -186,22 +189,6 @@ def c_check_contents(conn, checkonly):
     return not found_errors
 
 
-def unused_name(cur, name, inode_p):
-    """Returns an unused name for a file in the directory `inode_p_
-
-    If `name` does not already exist, it is returned. Otherwise
-    it is made unique by adding suffixes and then returned.
-    """
-    
-    if not cur.get_row("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                           (buffer(name), inode_p)):
-        return name
-
-    i=0
-    while cur.get_row("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                          (buffer("%s-%d" % (name,i)), inode_p)):
-        i += 1
-    return "%s-%d" % (name,i)
 
 
 def d_check_inodes(conn, checkonly):
@@ -490,56 +477,4 @@ def f_check_keylist(conn, bucket, checkonly):
 
     return not found_errors
 
-def addfile(remote, local, inode_p, cursor):
-    """Adds the specified local file to the fs in directory `inode_p`
-    """
 
-    cursor.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
-                   "VALUES (?,?,?,?,?,?,?)",
-                   (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
-                    os.getuid(), os.getgid(), time(), time(), time(), 1))
-    inode = cur.last_rowid()
-
-    cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   (buffer(remote), inode, inode_p))
-
-    # Add s3 objects
-    blocksize = cursor.get_val("SELECT blocksize FROM parameters")
-
-    # Since the blocksize might be large, we work in chunks rather
-    # than in memory
-    chunksize = resource.getpagesize()
-
-    fh = open(local, "rb")
-    tmp = tempfile.NamedTemporaryFile()
-    cursize = 0
-    blockno = 0
-    buf = fh.read(chunksize)
-    while True:
-
-        # S3 Block completed or end of file
-        if cursize + len(buf) >= blocksize or len(buf) == 0:
-            tmp.write(buf[:blocksize-cursize])
-            buf = buf[blocksize-cursize:]
-            s3key = fs.io2s3key(inode,blockno * blocksize)
-            etag = bucket.store_from_file(s3key, tmp.name)
-            cursor.execute("INSERT INTO s3_objects (inode,offset,s3key,size,etag) "
-                           "VALUES (?,?,?,?)", (inode, blockno * blocksize,
-                                                buffer(s3key_new), cursize, etag))
-            cursize = 0
-            blockno += 1
-            tmp.seek(0)
-            tmp.truncate(0)
-
-            # End of file
-            if len(buf) == 0:
-                break
-
-        # Write until we have a complete block
-        else:
-            tmp.write(buf)
-            cursize += len(buf)
-            buf = fh.read(chunksize)
-
-    tmp.close()
-    fh.close()

@@ -15,8 +15,8 @@ import os
 from getpass import getpass
 import shutil
 from optparse import OptionParser
-import s3ql
-
+from s3ql import mkfs, s3
+from s3ql.common import *
 
 
 #
@@ -50,7 +50,7 @@ bucket = pps[0]
 #
 # Read password(s)
 #
-(awskey, awspass) = s3ql.get_credentials(options.awskey)
+(awskey, awspass) = get_credentials(options.awskey)
 
 if options.encrypt:
     if sys.stdin.isatty():
@@ -66,7 +66,7 @@ if options.encrypt:
 #
 # Setup bucket
 #
-conn = s3ql.s3.Connection(awskey, awspass, options.encrypt)
+conn = s3.Connection(awskey, awspass, options.encrypt)
 if conn.bucket_exists(bucket):
     if options.force:
         print "Removing existing bucket..."
@@ -81,8 +81,8 @@ if conn.bucket_exists(bucket):
 #
 # Setup database
 #
-dbfile = s3ql.get_dbfile(bucket)
-cachedir = s3ql.get_cachedir(bucket)
+dbfile = get_dbfile(bucket)
+cachedir = get_cachedir(bucket)
 
 if os.path.exists(dbfile) or \
         os.path.exists(cachedir):
@@ -97,7 +97,7 @@ if os.path.exists(dbfile) or \
             "Local metadata file already exists!\n" \
             "Use -f option to really remove the existing filesystem\n"
         sys.exit(1)
-s3ql.setup_db(dbfile, options.blocksize * 1024, options.label)
+mkfs.setup_db(dbfile, options.blocksize * 1024, options.label)
 
 
 #
@@ -105,6 +105,6 @@ s3ql.setup_db(dbfile, options.blocksize * 1024, options.label)
 #
 try:
     bucket = conn.get_bucket(bucket)
-    s3ql.setup_bucket(bucket, dbfile)
+    mkfs.setup_bucket(bucket, dbfile)
 finally:
     os.unlink(dbfile)

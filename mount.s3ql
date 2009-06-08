@@ -11,7 +11,8 @@ warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 
 from optparse import OptionParser
 from getpass  import getpass
-import s3ql
+from s3ql import fs, s3
+from s3ql.common import *
 import sys
 import os
 import stat
@@ -63,7 +64,7 @@ mountpoint = pps[1]
 #
 # Read password(s)
 #
-(awskey, awspass) = s3ql.get_credentials(options.awskey)
+(awskey, awspass) = get_credentials(options.awskey)
 
 if options.encrypt:
     if sys.stdin.isatty():
@@ -95,22 +96,22 @@ if options.fg:
 # Activate logging
 #
 if options.debug:
-    s3ql.log_level = 2
+    logger.log_level = 2
 
 
 #
 # Connect to S3
 #
-conn = s3ql.s3.Connection(awskey, awspass, options.encrypt)
+conn = s3.Connection(awskey, awspass, options.encrypt)
 bucket = conn.get_bucket(bucketname)
 
-cachedir = s3ql.get_cachedir(bucketname)
-dbfile = s3ql.get_dbfile(bucketname)
+cachedir = get_cachedir(bucketname)
+dbfile = get_dbfile(bucketname)
 
 #
 # Check consistency
 #
-s3ql.debug("Checking consistency...")
+debug("Checking consistency...")
 if bucket["s3ql_dirty"] != "no":
     print >> sys.stderr, \
         "Metadata is dirty! Either some changes have not yet propagated\n" \
@@ -130,7 +131,7 @@ if os.path.exists(cachedir) or os.path.exists(dbfile):
 
 # Init cache + get metadata
 try:
-    s3ql.debug("Downloading metadata...")
+    debug("Downloading metadata...")
     os.mknod(dbfile, 0600 | stat.S_IFREG)
     os.mkdir(cachedir, 0700)
     bucket.fetch_to_file("s3ql_metadata", dbfile)
@@ -146,27 +147,26 @@ try:
     #
     # Start server
     #
-    server = s3ql.server(bucket, dbfile, cachedir,
-                         cachesize=options.cachesize)
+    server = fs.server(bucket, dbfile, cachedir, cachesize=options.cachesize)
 
     # Init syslog before going bg
     if not options.fg:
         syslog.openlog("s3ql", 0, syslog.LOG_USER)
-        def logger(args):
+        def log_fn(args):
             msg = "".join(args)
             for line in msg.split("\n"):
                 if len(line) == 0:
                     continue
                 syslog.syslog(line)
 
-        s3ql.log_fn = logger
+        logger.log_fn = log_fn
 
     server.main(mountpoint, **fuse_opts)
     server.close()
 
 
     # Upload database
-    s3ql.debug("Uploading database..")
+    debug("Uploading database..")
     if bucket.has_key("s3ql_metadata_bak_2"):
         bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3");
     if bucket.has_key("s3ql_metadata_bak_1"):
@@ -179,7 +179,7 @@ try:
 finally:
     # Ignore exceptions when cleaning up
     try:
-        s3ql.debug("Cleaning up...")
+        debug("Cleaning up...")
         os.unlink(dbfile)
         os.rmdir(cachedir)
     except:

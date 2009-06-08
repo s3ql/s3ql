@@ -7,7 +7,8 @@
 
 import tempfile
 import unittest
-import s3ql
+from s3ql import mkfs, s3, fs, fsck
+from s3ql.common import *
 import apsw
 import stat
 import os
@@ -22,7 +23,7 @@ class fs_api_tests(unittest.TestCase):
     # we have to use both readdir() and getattr(), not only one!
  
     def setUp(self):
-        self.bucket = s3ql.s3.LocalBucket()
+        self.bucket = s3.LocalBucket()
         self.bucket.tx_delay = 0
         self.bucket.prop_delay = 0
 
@@ -31,12 +32,12 @@ class fs_api_tests(unittest.TestCase):
         self.blocksize = 1024
 
         # Only warnings and errors
-        s3ql.log_level = 0
+        logger.log_level = 0
 
-        s3ql.setup_db(self.dbfile, self.blocksize)
-        s3ql.setup_bucket(self.bucket, self.dbfile)
+        mkfs.setup_db(self.dbfile, self.blocksize)
+        mkfs.setup_bucket(self.bucket, self.dbfile)
 
-        self.server = s3ql.server(self.bucket, self.dbfile, self.cachedir)
+        self.server = fs.server(self.bucket, self.dbfile, self.cachedir)
 
 
     def tearDown(self):
@@ -51,12 +52,12 @@ class fs_api_tests(unittest.TestCase):
         self.server.close()
         del self.server
         conn = apsw.Connection(self.dbfile)
-        self.assertTrue(s3ql.fsck.a_check_parameters(conn, checkonly=True))
-        self.assertTrue(s3ql.fsck.b_check_cache(conn, self.cachedir, self.bucket, checkonly=True))
-        self.assertTrue(s3ql.fsck.c_check_contents(conn, checkonly=True))
-        self.assertTrue(s3ql.fsck.d_check_inodes(conn, checkonly=True))
-        self.assertTrue(s3ql.fsck.e_check_s3(conn, self.bucket, checkonly=True))
-        self.assertTrue(s3ql.fsck.f_check_keylist(conn, self.bucket, checkonly=True))
+        self.assertTrue(fsck.a_check_parameters(conn, checkonly=True))
+        self.assertTrue(fsck.b_check_cache(conn, self.cachedir, self.bucket, checkonly=True))
+        self.assertTrue(fsck.c_check_contents(conn, checkonly=True))
+        self.assertTrue(fsck.d_check_inodes(conn, checkonly=True))
+        self.assertTrue(fsck.e_check_s3(conn, self.bucket, checkonly=True))
+        self.assertTrue(fsck.f_check_keylist(conn, self.bucket, checkonly=True))
 
     def random_name(self, prefix=""):
         return "s3ql" + prefix + str(randrange(100,999,1))
@@ -86,7 +87,7 @@ class fs_api_tests(unittest.TestCase):
 
         name = os.path.join("/",  self.random_name())
         mtime_old = self.server.getattr("/")["st_mtime"]
-        self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
+        self.assertRaises(fs.FUSEError, self.server.getattr, name)
         self.server.mkdir(name, stat.S_IRUSR | stat.S_IXUSR)
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
         fstat = self.server.getattr(name)
@@ -96,7 +97,7 @@ class fs_api_tests(unittest.TestCase):
         self.assertEquals(fstat["st_nlink"], 2)
 
         sub = os.path.join(name, self.random_name())
-        self.assertRaises(s3ql.FUSEError, self.server.getattr, sub)
+        self.assertRaises(fs.FUSEError, self.server.getattr, sub)
         self.server.mkdir(sub, stat.S_IRUSR | stat.S_IXUSR)
 
         fstat = self.server.getattr(name)
@@ -107,15 +108,15 @@ class fs_api_tests(unittest.TestCase):
         self.assertEquals(fstat2["st_nlink"], 2)
         self.assertTrue(self.server.getattr("/")["st_nlink"] == linkcnt+1)
 
-        self.assertRaises(s3ql.FUSEError, self.server.rmdir, name)
+        self.assertRaises(fs.FUSEError, self.server.rmdir, name)
         self.server.rmdir(sub)
-        self.assertRaises(s3ql.FUSEError, self.server.getattr, sub)
+        self.assertRaises(fs.FUSEError, self.server.getattr, sub)
         self.assertEquals(self.server.getattr(name)["st_nlink"], 2)
 
         mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.rmdir(name)
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
-        self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
+        self.assertRaises(fs.FUSEError, self.server.getattr, name)
         self.assertTrue(self.server.getattr("/")["st_nlink"] == linkcnt)
 
         self.fsck()
@@ -123,7 +124,7 @@ class fs_api_tests(unittest.TestCase):
     def test_04_symlink(self):
         name = os.path.join("/",  self.random_name())
         target = "../../wherever/this/is"
-        self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
+        self.assertRaises(fs.FUSEError, self.server.getattr, name)
         mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.symlink(name, target)
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
@@ -137,7 +138,7 @@ class fs_api_tests(unittest.TestCase):
         mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.unlink(name)
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
-        self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
+        self.assertRaises(fs.FUSEError, self.server.getattr, name)
 
         self.fsck()
 
@@ -145,7 +146,7 @@ class fs_api_tests(unittest.TestCase):
         name = os.path.join("/",  self.random_name())
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
 
-        self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
+        self.assertRaises(fs.FUSEError, self.server.getattr, name)
         mtime_old = self.server.getattr("/")["st_mtime"]
         fh = self.server.create(name, mode)
         self.server.release(name, fh)
@@ -158,7 +159,7 @@ class fs_api_tests(unittest.TestCase):
         mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.unlink(name)
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
-        self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
+        self.assertRaises(fs.FUSEError, self.server.getattr, name)
 
         self.fsck()
 
@@ -235,7 +236,7 @@ class fs_api_tests(unittest.TestCase):
 
 
         name = os.path.join("/",  self.random_name())
-        self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
+        self.assertRaises(fs.FUSEError, self.server.getattr, name)
         mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.link(name, target)
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
@@ -246,10 +247,10 @@ class fs_api_tests(unittest.TestCase):
 
         self.server.unlink(name)
         self.assertEquals(self.server.getattr(target)["st_nlink"], 1)
-        self.assertRaises(s3ql.FUSEError, self.server.getattr, name)
+        self.assertRaises(fs.FUSEError, self.server.getattr, name)
 
         self.server.unlink(target)
-        self.assertRaises(s3ql.FUSEError, self.server.getattr, target)
+        self.assertRaises(fs.FUSEError, self.server.getattr, target)
 
         self.fsck()
 
@@ -306,7 +307,7 @@ class fs_api_tests(unittest.TestCase):
         fstat = self.server.getattr(filename_old)
         mtime_old = self.server.getattr(dirname_old)["st_mtime"]
         self.server.rename(filename_old, filename_new1)
-        self.assertRaises(s3ql.FUSEError, self.server.getattr, filename_old)
+        self.assertRaises(fs.FUSEError, self.server.getattr, filename_old)
         self.assertEquals(fstat, self.server.getattr(filename_new1))
         self.assertTrue(self.server.getattr(dirname_old)["st_mtime"] > mtime_old)
         
@@ -315,8 +316,8 @@ class fs_api_tests(unittest.TestCase):
         fstat = self.server.getattr(dirname_old)
         mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.rename(dirname_old, dirname_new)
-        self.assertRaises(s3ql.FUSEError, self.server.getattr, dirname_old)
-        self.assertRaises(s3ql.FUSEError, self.server.getattr, filename_new1)
+        self.assertRaises(fs.FUSEError, self.server.getattr, dirname_old)
+        self.assertRaises(fs.FUSEError, self.server.getattr, filename_new1)
         self.assertEquals(fstat, self.server.getattr(dirname_new))
         self.assertEquals(fstat2, self.server.getattr(filename_new2))
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)

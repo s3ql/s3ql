@@ -18,6 +18,8 @@ from cStringIO import StringIO
 import resource
 from time import time
 
+__all__ = [ "FUSEError", "server", "RevisionError", "io2s3key" ]
+
 class FUSEError(Exception):
     """Exception representing FUSE Errors to be returned to the kernel.
 

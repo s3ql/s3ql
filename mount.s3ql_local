@@ -12,7 +12,8 @@ warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 from optparse import OptionParser
 from getpass  import getpass
 from time import sleep
-import s3ql
+from s3ql.common import *
+from s3ql import fs, s3, mkfs, fsck
 import sys
 import os
 import tempfile
@@ -96,42 +97,42 @@ if options.fg:
 # Activate logging
 #
 if options.quiet:
-    s3ql.log_level = 0
+    logger.log_level = 0
 if options.debug:
-    s3ql.log_level = 2
+    logger.log_level = 2
 
 
 #
 # Initialize local bucket
 #
 
-bucket = s3ql.s3.LocalBucket()
+bucket = s3.LocalBucket()
 bucket.tx_delay = options.txdelay
 bucket.prop_delay = options.propdelay
 
 
 dbfile = tempfile.mktemp()
 cachedir = tempfile.mkdtemp() + "/"
-s3ql.setup_db(dbfile, options.blocksize * 1024)
-s3ql.setup_bucket(bucket, dbfile)
-s3ql.debug("Temporary database in " + dbfile)
+mkfs.setup_db(dbfile, options.blocksize * 1024)
+mkfs.setup_bucket(bucket, dbfile)
+debug("Temporary database in " + dbfile)
 
 #
 # Start server
 #
-server = s3ql.server(bucket, dbfile, cachedir)
+server = fs.server(bucket, dbfile, cachedir)
 
 # Init syslog before going bg
 if not options.fg:
     syslog.openlog("s3ql", 0, syslog.LOG_USER)
-    def logger(args):
+    def log_fn(args):
         msg = "".join(args)
         for line in msg.split("\n"):
             if len(line) == 0:
                 continue
             syslog.syslog(line)
 
-    s3ql.log_fn = logger
+    logger.log_fn = log_fn
 
 server.main(mountpoint, **fuse_opts)
 server.close()
@@ -147,12 +148,12 @@ if options.fsck:
     conn = apsw.Connection(dbfile)
 
     if not ( \
-        s3ql.fsck.a_check_parameters(conn, checkonly=True) and
-        s3ql.fsck.b_check_cache(conn, cachedir, bucket, checkonly=True) and
-        s3ql.fsck.c_check_contents(conn, checkonly=True) and
-        s3ql.fsck.d_check_inodes(conn, checkonly=True) and
-        s3ql.fsck.e_check_s3(conn, bucket, checkonly=True) and
-        s3ql.fsck.f_check_keylist(conn, bucket, checkonly=True)
+        fsck.a_check_parameters(conn, checkonly=True) and
+        fsck.b_check_cache(conn, cachedir, bucket, checkonly=True) and
+        fsck.c_check_contents(conn, checkonly=True) and
+        fsck.d_check_inodes(conn, checkonly=True) and
+        fsck.e_check_s3(conn, bucket, checkonly=True) and
+        fsck.f_check_keylist(conn, bucket, checkonly=True)
         ):
         print "fsck found errors -- preserving database in " + dbfile
         conn.close()

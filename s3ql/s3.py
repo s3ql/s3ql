@@ -14,6 +14,8 @@ import threading
 import copy
 from s3ql.common import *
 
+__all__ = [ "Connection", "ConcurrencyError", "Bucket", "LocalBucket", "Metadata" ]
+
 class Connection(object):
     """Represents a connection to Amazon S3
 

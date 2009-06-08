@@ -6,7 +6,7 @@
 #
 
 import unittest
-import s3ql
+import s3ql.s3
 from s3ql.common import *
 from random   import randrange
 import threading

@@ -5,5 +5,7 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
-__all__ = [ "common", "fs", "fsck", "mkfs", "s3" ]
 
+# Export all modules
+testdir = os.path.dirname(__file__)
+__all__  =  [ name[:-3] for name in os.listdir(testdir) if name.endswith(".py") ]

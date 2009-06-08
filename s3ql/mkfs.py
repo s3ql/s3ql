@@ -11,6 +11,7 @@ import os
 from time import time
 from string import Template
 
+__all__ = [ "setup_bucket", "setup_db" ]
 
 def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
     """Creates the metadata tables
