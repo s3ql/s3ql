@@ -8,33 +8,36 @@
 import apsw
 import tempfile
 import unittest
-from random   import randrange, sample
+from random import randrange, sample
 
 class apsw_tests(unittest.TestCase):
     """In S3QL, we rely on the fact that the result set is not affected
     by changes that we made to the database while we iterate over it.
-    
-    Since I could not find any documentation of this feature, I test for 
+
+    Since I could not find any documentation of this feature, I test for
     it extensively.
     """
-    
-    
+
+
     def setUp(self):
-        self.file = tempfile.NamedTemporaryFile()
-        self.db = apsw.Connection(self.file.name)
-        
+        self.db = apsw.Connection(":memory:")
+
+        self.cur1 = self.db.cursor()
+        self.cur2 = self.db.cursor()
+
+        self.cur1.execute("CREATE TEMPORARY TABLE foo (id INT, flag BOOLEAN);")
+
+
     def tearDown(self):
-        self.file.close()
-        
+        pass
+
     def test_remove(self):
         """SELECT unaffected by removals in result set
         """
-        
-        cur1 = self.db.cursor()
-        cur2 = self.db.cursor()
-        
-        cur1.execute("CREATE TABLE foo (id INT, flag BOOLEAN);")
-          
+        cur1 = self.cur1
+        cur2 = self.cur2
+
+
         # Fill table
         no_total = 300
         entries = sample(xrange(10**9), no_total)
@@ -46,46 +49,51 @@ class apsw_tests(unittest.TestCase):
         flag = [ entries[randrange(0,no_total)] for x in range(no_flag) ]
         for id in flag:
             cur1.execute("UPDATE foo SET flag=? WHERE id=?", (True, id))
-         
+
         # Execute SELECT
         res = cur1.execute("SELECT id FROM foo WHERE flag = ?", (True,))
-        
+
+        # Start transaction
+        cur2.execute("BEGIN")
+
         # Read half the result set
         read = [ res.next()[0] for x in range(int(no_flag/2)) ]
-        
+
         # Update some entries
         no_update = int(no_flag/2)
         update = [ flag[randrange(0,no_flag)] for x in range(no_update) ]
         for id in update:
             cur2.execute("UPDATE foo SET flag=? WHERE id=?", (False, id))
-        
+
         # And remove some
         no_remove = int(no_flag/2)
         remove = [ flag[randrange(0,no_flag)] for x in range(no_remove) ]
         for id in remove:
             cur2.execute("DELETE FROM foo WHERE id=?", (id,))
-        
-        # Now read the rest of the result 
+
+        # Now read the rest of the result, which should be unaffected
         read += [ id for (id,) in res ]
         self.assertEquals(read.sort(), flag.sort())
 
         # But now the first cursor is done, so we should get the reduced list
+        cur2.execute("COMMIT")
         res = cur1.execute("SELECT id FROM foo WHERE flag = ?", (True,))
         read = [ id for (id,) in res ]
         self.assertEquals(read.sort(), list(set(flag) - set(update) - set(remove)).sort() )
-        
+
     def test_add(self):
         """SELECT unaffected by insertions in result set
         """
-        
-        cur1 = self.db.cursor()
-        cur2 = self.db.cursor()
-        
-        cur1.execute("CREATE TABLE foo (id INT, flag BOOLEAN);")
-          
+
+        cur1 = self.cur1
+        cur2 = self.cur2
+
         # Fill table
         no_total = 300
-        entries = sample(xrange(10**9), no_total)
+        no_add = 150
+        entries = sample(xrange(10**9), no_total+no_add)
+        add = entries[-no_add:]
+        entries = entries[:no_total]
         for id in entries:
             cur1.execute("INSERT INTO foo(id, flag) VALUES(?,?)", (id,False))
 
@@ -94,37 +102,43 @@ class apsw_tests(unittest.TestCase):
         flag = [ entries[randrange(0,no_total)] for x in range(no_flag) ]
         for id in flag:
             cur1.execute("UPDATE foo SET flag=? WHERE id=?", (True, id))
-         
+
         # Execute SELECT
         res = cur1.execute("SELECT id FROM foo WHERE flag = ?", (True,))
-        
+
+        cur2.execute("BEGIN")
+
         # Read half the result set
         read = [ res.next()[0] for x in range(int(no_flag/2)) ]
-        
+
         # Update some entries
         no_update = int(no_total/2)
         update = [ flag[randrange(0,no_flag)] for x in range(no_update) ]
         for id in update:
             cur2.execute("UPDATE foo SET flag=? WHERE id=?", (True, id))
-                
-        # Now read the rest of the result 
+
+        # And add some
+        for id in add:
+            cur2.execute("INSERT INTO foo (id, flag) VALUES(?,?)",
+		         (id, True))
+
+        # Now read the rest of the result
         read += [ id for (id,) in res ]
-        self.assertEquals(read.sort(), flag.sort())
+        self.assertEquals(set(read), set(flag))
 
         # But now the first cursor is done, so we should get the reduced list
+        cur2.execute("COMMIT")
         res = cur1.execute("SELECT id FROM foo WHERE flag = ?", (True,))
         read = [ id for (id,) in res ]
-        self.assertEquals(read.sort(), list(set(flag).union(set(update))).sort() )        
- 
+        self.assertEquals(set(read), set(flag+update+add))
+
     def test_updates(self):
         """SELECT unaffected by updates at current row in result set
         """
-        
-        cur1 = self.db.cursor()
-        cur2 = self.db.cursor()
-        
-        cur1.execute("CREATE TABLE foo (id INT, flag BOOLEAN);")
-          
+
+        cur1 = self.cur1
+        cur2 = self.cur2
+
         # Fill table
         no_total = 300
         entries = sample(xrange(10**9), no_total)
@@ -136,27 +150,30 @@ class apsw_tests(unittest.TestCase):
         flag = [ entries[randrange(0,no_total)] for x in range(no_flag) ]
         for id in flag:
             cur1.execute("UPDATE foo SET flag=? WHERE id=?", (True, id))
-         
+
         # Execute SELECT
         res = cur1.execute("SELECT id FROM foo WHERE flag = ?", (True,))
-        
+
+        cur2.execute("BEGIN")
+
         # Read the result set and update at the same time
         read = list()
         for (id,) in res:
             read.append(id)
             cur2.execute("UPDATE foo SET flag=? WHERE id=?", (False, id))
-                
+
         self.assertEquals(read.sort(), flag.sort())
 
         # But now the first cursor is done, so we should get the reduced list
+        cur2.execute("COMMIT")
         res = cur1.execute("SELECT id FROM foo WHERE flag = ?", (True,))
         read = [ id for (id,) in res ]
-        self.assertEquals(read, list())     
-        
-            
+        self.assertEquals(read, list())
+
+
 # Somehow important according to pyunit documentation
 def suite():
-    return unittest.makeSuite(s3_tests_local)
+    return unittest.makeSuite(apsw_tests)
 
 
 # Allow calling from command line
