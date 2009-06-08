@@ -18,6 +18,7 @@ import sys
 testdir = os.path.join(os.path.dirname(__file__), "tests")
 sys.path.insert(0,testdir)
 modules_to_test =  [ name[:-3] for name in os.listdir(testdir) if name.endswith(".py") ]
+modules_to_test.sort()
 
 # Import the modules
 # We need to add them to the global namespace in order for

@@ -7,5 +7,6 @@
 
 
 # Export all modules
+import os
 testdir = os.path.dirname(__file__)
 __all__  =  [ name[:-3] for name in os.listdir(testdir) if name.endswith(".py") ]
