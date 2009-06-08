@@ -576,8 +576,6 @@ class server(fuse.Operations):
 
         # Flush file and datacache
         debug("Flushing cache...")
-        ### FIXME: Are we in trouble here? We are changing the result
-        ### set while iterating over it...
         res = cur.execute(
             "SELECT s3key, fd, dirty, cachefile FROM s3_objects WHERE fd IS NOT NULL")
         for (s3key, fd, dirty, cachefile) in res:
@@ -945,8 +943,6 @@ class server(fuse.Operations):
         # Delete all truncated s3 objects
         # I don't quite see why we are ordering the result, it doesn't
         # seem important - can we omit it?
-        ### FIXME: Are we in trouble here? We change the result set
-        ### that we are iterating over...
         res = cur.execute("SELECT s3key FROM s3_objects WHERE "
                           "offset >= ? AND inode=? ORDER BY offset ASC", 
                           (len, inode))
@@ -1017,8 +1013,6 @@ class server(fuse.Operations):
 
         # Metadata is always synced automatically, so we ignore
         # fdatasync
-        ### FIXME: Are we in trouble here? We change the result set
-        ### that we are iterating over...
         res = cur.execute("SELECT s3key, fd, cachefile FROM s3_objects WHERE "
                           "dirty=? AND inode=?", (True, inode))
         for (s3key, fd, cachefile) in res:
