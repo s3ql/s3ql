@@ -401,22 +401,19 @@ def f_check_keylist(conn, bucket, checkonly):
             warn("object %s is larger than blocksize (%d > %d), truncating (original object in lost+found)"
                  % (s3key, meta.size, blocksize))
             if not checkonly:
-                tmp = tempfile.mktemp()
-                bucket.fetch_to_file(s3key, tmp)
+                tmp = tempfile.NamedTemporaryFile()
+                bucket.fetch_to_file(s3key, tmp.name)
 
                 # Save full object in lost+found
                 addfile(unused_name(c1, s3key, inode_l), tmp, inode_l, c1)
 
                 # Truncate and readd
-                fd = os.open(tmp, os.O_RDWR)
-                os.ftruncate(fd, blocksize)
-                os.close(fd)
-                etag_new = bucket.store_from_file(s3key, tmp)
-                os.unlink(tmp)
+                tmp.seek(blocksize)
+                tmp.truncate()
+                etag_new = bucket.store_from_file(s3key, tmp.name)
+                tmp.close()
                 c1.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
                            (etag_new, s3key))
-
-
 
         # Is it referenced in object table?
         res = list(c1.execute("SELECT etag,size FROM s3_objects WHERE s3key=?",

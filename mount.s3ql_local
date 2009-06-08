@@ -111,16 +111,16 @@ bucket.tx_delay = options.txdelay
 bucket.prop_delay = options.propdelay
 
 
-dbfile = tempfile.mktemp()
+dbfile = tempfile.NamedTemporaryFile()
 cachedir = tempfile.mkdtemp() + "/"
-mkfs.setup_db(dbfile, options.blocksize * 1024)
-mkfs.setup_bucket(bucket, dbfile)
-debug("Temporary database in " + dbfile)
+mkfs.setup_db(dbfile.name, options.blocksize * 1024)
+mkfs.setup_bucket(bucket, dbfile.name)
+debug("Temporary database in " + dbfile.name)
 
 #
 # Start server
 #
-server = fs.server(bucket, dbfile, cachedir)
+server = fs.server(bucket, dbfile.name, cachedir)
 
 # Init syslog before going bg
 if not options.fg:
@@ -145,7 +145,7 @@ sleep(options.propdelay)
 # Do fsck
 #
 if options.fsck:
-    conn = apsw.Connection(dbfile)
+    conn = apsw.Connection(dbfile.name)
 
     if not ( \
         fsck.a_check_parameters(conn, checkonly=True) and
@@ -161,10 +161,10 @@ if options.fsck:
         sys.exit(1)
     else:
         conn.close()
-        os.unlink(dbfile)
+        dbfile.close()
         os.rmdir(cachedir)
         sys.exit(0)
 else:
-    os.unlink(dbfile)
+    dbfile.close()
     os.rmdir(cachedir)
     sys.exit(0)

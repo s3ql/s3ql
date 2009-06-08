@@ -27,31 +27,31 @@ class fs_api_tests(unittest.TestCase):
         self.bucket.tx_delay = 0
         self.bucket.prop_delay = 0
 
-        self.dbfile = tempfile.mktemp()
+        self.dbfile = tempfile.NamedTemporaryFile()
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
 
         # Only warnings and errors
         logger.log_level = 0
 
-        mkfs.setup_db(self.dbfile, self.blocksize)
-        mkfs.setup_bucket(self.bucket, self.dbfile)
+        mkfs.setup_db(self.dbfile.name, self.blocksize)
+        mkfs.setup_bucket(self.bucket, self.dbfile.name)
 
-        self.server = fs.server(self.bucket, self.dbfile, self.cachedir)
+        self.server = fs.server(self.bucket, self.dbfile.name, self.cachedir)
 
 
     def tearDown(self):
         # May not have been called if a test failed
         if hasattr(self, "server"):
             self.server.close()
-        os.unlink(self.dbfile)
+        self.dbfile.close()
         os.rmdir(self.cachedir)
 
 
     def fsck(self):
         self.server.close()
         del self.server
-        conn = apsw.Connection(self.dbfile)
+        conn = apsw.Connection(self.dbfile.name)
         self.assertTrue(fsck.a_check_parameters(conn, checkonly=True))
         self.assertTrue(fsck.b_check_cache(conn, self.cachedir, self.bucket, checkonly=True))
         self.assertTrue(fsck.c_check_contents(conn, checkonly=True))
