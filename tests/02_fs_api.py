@@ -288,7 +288,7 @@ class fs_api_tests(unittest.TestCase):
 
         self.fsck()
         
-    def test_11_truncate(self):
+    def test_11_truncate_within(self):
         # Create file with holes
         name = os.path.join("/",  self.random_name())
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
@@ -321,18 +321,51 @@ class fs_api_tests(unittest.TestCase):
         self.assertEquals(self.server. getattr(name)["st_size"], filelen)
         self.assertEquals(self.server.read(name, len(data)+2 * ext, off, fh),
                           data[0:-ext] + "\0" * ext)
-        
-        
-        # Same procedure over a block boundary
-        
-        
-    
 
         self.server.release(name, fh)
         self.server.flush(name, fh)
         self.fsck()
+        
+    def test_12_truncate_across(self):
+        # Create file with holes
+        name = os.path.join("/",  self.random_name())
+        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+        off = int(5.5 * self.blocksize)
+        datalen = int(0.3 * self.blocksize)
+        data = self.random_data(datalen)
+    
+        fh = self.server.create(name, mode)
+        self.server.write(name, data, off, fh)
+        filelen = datalen + off
+        self.assertEquals(self.server.getattr(name)["st_size"], filelen)
+
+        # Extend within same block
+        ext = int(0.5 * self.blocksize)
+        self.server.ftruncate(name, filelen+ext, fh)
+        self.assertEquals(self.server.getattr(name)["st_size"], filelen+ext)
+        self.assertEquals(self.server.read(name, len(data)+2*ext, off, fh),
+                          data + "\0" * ext)
+        self.assertEquals(self.server.read(name, 2*ext, off+len(data), fh),
+                          "\0" * ext)
+        
+        # Truncate it
+        ext = int(0.1 * self.blocksize)
+        self.server.ftruncate(name, filelen-ext, fh)
+        self.assertEquals(self.server.getattr(name)["st_size"], filelen-ext)
+        self.assertEquals(self.server.read(name, len(data)+2 * ext, off, fh), 
+                          data[0:-ext])
+        
+        # And back to original size, data should have been lost
+        self.server.ftruncate(name, filelen, fh)
+        self.assertEquals(self.server. getattr(name)["st_size"], filelen)
+        self.assertTrue(self.server.read(name, len(data)+2 * ext, off, fh) ==
+                          data[0:-ext] + "\0" * ext)
+        
+        self.server.release(name, fh)
+        self.server.flush(name, fh)
+        self.fsck()
                 
-    def test_10_rename(self):    
+    def test_10_rename(self):
         dirname_old = os.path.join("/", self.random_name("olddir"))
         dirname_new = os.path.join("/", self.random_name("newdir"))
         filename_old = os.path.join(dirname_old, self.random_name("oldfile"))
