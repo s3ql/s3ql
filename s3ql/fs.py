@@ -937,11 +937,8 @@ class server(fuse.Operations):
         cur = self.get_cursor()
 
         # Delete all truncated s3 objects
-        # TODO: I don't quite see why we are ordering the result, it doesn't
-        # seem important - can we omit it?
         res = cur.get_list("SELECT s3key FROM s3_objects WHERE "
-                          "offset >= ? AND inode=? ORDER BY offset ASC", 
-                          (len, inode))
+                          "offset >= ? AND inode=?", (len, inode))
         for (s3key,) in res:
             self.lock_s3key(s3key)
             try:
@@ -953,13 +950,9 @@ class server(fuse.Operations):
                     os.unlink(self.cachedir + cachefile)
 
                 # Key may not yet been committed
-                try:
-                    self.bucket.delete_key(s3key)
-                except KeyError:
-                    pass
+                self.bucket.delete_key(s3key, force=True)
 
-                cur.execute("DELETE FROM s3_objects WHERE s3key=?", 
-                                (s3key,))
+                cur.execute("DELETE FROM s3_objects WHERE s3key=?", (s3key,))
             finally:
                 self.unlock_s3key(s3key)
 
@@ -970,26 +963,18 @@ class server(fuse.Operations):
 
         self.lock_s3key(s3key)
         try:
-            fd = self.retrieve_s3(s3key, inode, create=offset_i)
-            cursize = offset_i + os.lseek(fd, 0, os.SEEK_END)
-
-            # If we are actually extending this object, we just write a
-            # 0-byte at the last position
-            if len > cursize:
-                os.lseek(fd, len - 1 - offset_i, os.SEEK_SET)
-                os.write(fd, "\0")
-
-
-            # Otherwise we truncate the file
-            else:
+            fd = self.retrieve_s3(s3key, inode)
+            
+            if fd:
+                # Object exists, truncate
                 os.ftruncate(fd, len - offset_i)
-
-            # Update file size
+                cur.execute("UPDATE s3_objects SET size=?,dirty=? WHERE s3key=?", 
+                        (len - offset_i, True, s3key))
+                
+            # Otherwise only update file size, holes are handled in read_direct()
             cur.execute("UPDATE inodes SET size=? WHERE id=?", 
                         (len, inode))
-            cur.execute("UPDATE s3_objects SET size=?,dirty=? WHERE s3key=?", 
-                        (len - offset_i, True, s3key))
-
+            
             # Update file's mtime
             update_mtime(inode, cur)
         finally:

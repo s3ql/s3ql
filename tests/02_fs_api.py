@@ -254,28 +254,30 @@ class fs_api_tests(unittest.TestCase):
 
         self.fsck()
 
+    @staticmethod   
+    def random_data(len):
+        fd = open("/dev/urandom", "rb")
+        return fd.read(len)
+        
     def test_09_write_read_cmplx(self):
-        # Create file
+        # Create file with holes
         name = os.path.join("/",  self.random_name())
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
-        fh = self.server.create(name, mode)
-        self.server.release(name, fh)
-        self.server.flush(name, fh)
-
-        # Create file with holes
-        data = "Teststring" * int(0.2 * self.blocksize)
         off = int(5.9 * self.blocksize)
-        fh = self.server.open(name, os.O_RDWR)
+        datalen = int(0.2 * self.blocksize)
+        data = self.random_data(datalen)
+        fh = self.server.create(name, mode)
         self.server.write(name, data, off, fh)
-        filelen = len(data) + off
+        filelen = datalen + off
         self.assertEquals(self.server.getattr(name)["st_size"], filelen)
 
         off2 = int(0.5 * self.blocksize)
         self.assertEquals(self.server.read(name, len(data)+off2, off, fh), data)
-        self.assertEquals(self.server.read(name, len(data)+off2, off-off2, fh), "\0" * off2 + data)
+        self.assertEquals(self.server.read(name, len(data)+off2, off-off2, fh), 
+                          "\0" * off2 + data)
         self.assertEquals(self.server.read(name, 182, off+len(data), fh), "")
 
-
+        # Write at another position
         off = int(1.9 * self.blocksize)
         self.server.write(name, data, off, fh)
         self.assertEquals(self.server.getattr(name)["st_size"], filelen)
@@ -286,6 +288,50 @@ class fs_api_tests(unittest.TestCase):
 
         self.fsck()
         
+    def test_11_truncate(self):
+        # Create file with holes
+        name = os.path.join("/",  self.random_name())
+        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+        off = int(5.5 * self.blocksize)
+        datalen = int(0.3 * self.blocksize)
+        data = self.random_data(datalen)
+    
+        fh = self.server.create(name, mode)
+        self.server.write(name, data, off, fh)
+        filelen = datalen + off
+        self.assertEquals(self.server.getattr(name)["st_size"], filelen)
+
+        # Extend within same block
+        ext = int(0.15 * self.blocksize)
+        self.server.ftruncate(name, filelen+ext, fh)
+        self.assertEquals(self.server.getattr(name)["st_size"], filelen+ext)
+        self.assertEquals(self.server.read(name, len(data)+2*ext, off, fh),
+                          data + "\0" * ext)
+        self.assertEquals(self.server.read(name, 2*ext, off+len(data), fh),
+                          "\0" * ext)
+        
+        # Truncate it
+        self.server.ftruncate(name, filelen-ext, fh)
+        self.assertEquals(self.server.getattr(name)["st_size"], filelen-ext)
+        self.assertEquals(self.server.read(name, len(data)+2 * ext, off, fh), 
+                          data[0:-ext])
+        
+        # And back to original size, data should have been lost
+        self.server.ftruncate(name, filelen, fh)
+        self.assertEquals(self.server. getattr(name)["st_size"], filelen)
+        self.assertEquals(self.server.read(name, len(data)+2 * ext, off, fh),
+                          data[0:-ext] + "\0" * ext)
+        
+        
+        # Same procedure over a block boundary
+        
+        
+    
+
+        self.server.release(name, fh)
+        self.server.flush(name, fh)
+        self.fsck()
+                
     def test_10_rename(self):    
         dirname_old = os.path.join("/", self.random_name("olddir"))
         dirname_new = os.path.join("/", self.random_name("newdir"))
@@ -322,7 +368,6 @@ class fs_api_tests(unittest.TestCase):
         self.assertEquals(fstat2, self.server.getattr(filename_new2))
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
         
-
     # Also check the addfile function from fsck.py here
 
     # Check that s3 object locking works when retrieving

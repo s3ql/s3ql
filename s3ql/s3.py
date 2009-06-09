@@ -166,15 +166,16 @@ class Bucket(object):
         else:
             return None
   
-    def delete_key(self, key):
+    def delete_key(self, key, force=False):
         """Deletes the specified key
 
         ``bucket.delete_key(key)`` can also be written as ``del bucket[key]``.
+        If `force` is true, do not return an error if the key does not exist.
 
         """
  
         boto = self.get_boto()
-        if not boto.get_key(key):
+        if not force and not boto.get_key(key):
             raise KeyError
         boto.delete_key(key)
 
@@ -343,7 +344,7 @@ class LocalBucket(Bucket):
         for key in self.keystore:
             yield (key, self.keystore[key][1])
 
-    def delete_key(self, key):
+    def delete_key(self, key, force=False):
         if key in self.in_transmit:
             raise ConcurrencyError
         debug("LocalBucket: Received delete for %s" % key)
@@ -353,7 +354,7 @@ class LocalBucket(Bucket):
 
         # Make sure the key exists, otherwise we get an error
         # in a different thread
-        if not self.keystore.has_key(key):
+        if not force and not self.keystore.has_key(key):
             raise KeyError
 
         def set():

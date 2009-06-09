@@ -19,7 +19,7 @@ Exposes:
   - asString(i)
     i being an integer or float. Returns a conforming string.
   
-TODO:
+TOxDO:
   - Precision? it would be nice to have an interface that tells us how
     precise a datestring is, so that we don't make assumptions about it; 
     e.g., 2001 != 2001-01-01T00:00:00Z.
