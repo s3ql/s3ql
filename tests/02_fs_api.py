@@ -19,9 +19,6 @@ from random import randrange
 
 class fs_api_tests(unittest.TestCase):
 
-    # FIXME: Whenever we test that an entry exist (or does not exist),
-    # we have to use both readdir() and getattr(), not only one!
- 
     def setUp(self):
         self.bucket = s3.LocalBucket()
         self.bucket.tx_delay = 0
@@ -59,9 +56,42 @@ class fs_api_tests(unittest.TestCase):
         self.assertTrue(fsck.e_check_s3(conn, self.bucket, checkonly=True))
         self.assertTrue(fsck.f_check_keylist(conn, self.bucket, checkonly=True))
 
-    def random_name(self, prefix=""):
+    @staticmethod
+    def random_name(prefix=""):
         return "s3ql" + prefix + str(randrange(100,999,1))
-
+    
+    @staticmethod   
+    def random_data(len):
+        fd = open("/dev/urandom", "rb")
+        return fd.read(len)
+      
+    def assert_entry_doesnt_exist(self, name):
+        self.assertRaises(fs.FUSEError, self.server.getattr, name)
+        
+        path = os.path.dirname(name)
+        fh = self.server.opendir(path)
+        entries = list()
+        def filler(name, fstat, off):
+            entries.append(name)
+        self.server.readdir(path, filler, 0, fh)
+        self.server.releasedir(path, fh)
+            
+        self.assertTrue(os.path.basename(name) not in entries)
+        
+    def assert_entry_exists(self, name):
+        self.assertTrue(self.server.getattr(name) is not None)
+        
+        path = os.path.dirname(name)
+        fh = self.server.opendir(path)
+        entries = list()
+        def filler(name, fstat, off):
+            entries.append(name)
+        self.server.readdir(path, filler, 0, fh)
+        self.server.releasedir(path, fh)
+            
+        self.assertTrue(os.path.basename(name) in entries)
+    
+        
     def test_01_getattr_root(self):
         fstat = self.server.getattr("/")
         self.assertTrue(stat.S_ISDIR(fstat["st_mode"]))
@@ -87,8 +117,9 @@ class fs_api_tests(unittest.TestCase):
 
         name = os.path.join("/",  self.random_name())
         mtime_old = self.server.getattr("/")["st_mtime"]
-        self.assertRaises(fs.FUSEError, self.server.getattr, name)
+        self.assert_entry_doesnt_exist(name)
         self.server.mkdir(name, stat.S_IRUSR | stat.S_IXUSR)
+        self.assert_entry_exists(name)
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
         fstat = self.server.getattr(name)
 
@@ -97,8 +128,9 @@ class fs_api_tests(unittest.TestCase):
         self.assertEquals(fstat["st_nlink"], 2)
 
         sub = os.path.join(name, self.random_name())
-        self.assertRaises(fs.FUSEError, self.server.getattr, sub)
+        self.assert_entry_doesnt_exist(sub)
         self.server.mkdir(sub, stat.S_IRUSR | stat.S_IXUSR)
+        self.assert_entry_exists(sub)
 
         fstat = self.server.getattr(name)
         fstat2 = self.server.getattr(sub)
@@ -110,13 +142,13 @@ class fs_api_tests(unittest.TestCase):
 
         self.assertRaises(fs.FUSEError, self.server.rmdir, name)
         self.server.rmdir(sub)
-        self.assertRaises(fs.FUSEError, self.server.getattr, sub)
+        self.assert_entry_doesnt_exist(sub)
         self.assertEquals(self.server.getattr(name)["st_nlink"], 2)
 
         mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.rmdir(name)
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
-        self.assertRaises(fs.FUSEError, self.server.getattr, name)
+        self.assert_entry_doesnt_exist(name)
         self.assertTrue(self.server.getattr("/")["st_nlink"] == linkcnt)
 
         self.fsck()
@@ -124,9 +156,10 @@ class fs_api_tests(unittest.TestCase):
     def test_04_symlink(self):
         name = os.path.join("/",  self.random_name())
         target = "../../wherever/this/is"
-        self.assertRaises(fs.FUSEError, self.server.getattr, name)
+        self.assert_entry_doesnt_exist(name)
         mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.symlink(name, target)
+        self.assert_entry_exists(name)
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
         fstat = self.server.getattr(name)
 
@@ -137,8 +170,8 @@ class fs_api_tests(unittest.TestCase):
 
         mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.unlink(name)
+        self.assert_entry_doesnt_exist(name)
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
-        self.assertRaises(fs.FUSEError, self.server.getattr, name)
 
         self.fsck()
 
@@ -146,9 +179,10 @@ class fs_api_tests(unittest.TestCase):
         name = os.path.join("/",  self.random_name())
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
 
-        self.assertRaises(fs.FUSEError, self.server.getattr, name)
+        self.assert_entry_doesnt_exist(name)
         mtime_old = self.server.getattr("/")["st_mtime"]
         fh = self.server.create(name, mode)
+        self.assert_entry_exists(name)
         self.server.release(name, fh)
         self.server.flush(name, fh)
 
@@ -158,8 +192,8 @@ class fs_api_tests(unittest.TestCase):
 
         mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.unlink(name)
+        self.assert_entry_doesnt_exist(name)
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
-        self.assertRaises(fs.FUSEError, self.server.getattr, name)
 
         self.fsck()
 
@@ -236,9 +270,10 @@ class fs_api_tests(unittest.TestCase):
 
 
         name = os.path.join("/",  self.random_name())
-        self.assertRaises(fs.FUSEError, self.server.getattr, name)
+        self.assert_entry_doesnt_exist(name)
         mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.link(name, target)
+        self.assert_entry_exists(target)
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
         fstat = self.server.getattr(name)
 
@@ -247,18 +282,13 @@ class fs_api_tests(unittest.TestCase):
 
         self.server.unlink(name)
         self.assertEquals(self.server.getattr(target)["st_nlink"], 1)
-        self.assertRaises(fs.FUSEError, self.server.getattr, name)
+        self.assert_entry_doesnt_exist(name)
 
         self.server.unlink(target)
-        self.assertRaises(fs.FUSEError, self.server.getattr, target)
+        self.assert_entry_doesnt_exist(target)
 
         self.fsck()
-
-    @staticmethod   
-    def random_data(len):
-        fd = open("/dev/urandom", "rb")
-        return fd.read(len)
-        
+  
     def test_09_write_read_cmplx(self):
         # Create file with holes
         name = os.path.join("/",  self.random_name())
@@ -386,7 +416,8 @@ class fs_api_tests(unittest.TestCase):
         fstat = self.server.getattr(filename_old)
         mtime_old = self.server.getattr(dirname_old)["st_mtime"]
         self.server.rename(filename_old, filename_new1)
-        self.assertRaises(fs.FUSEError, self.server.getattr, filename_old)
+        self.assert_entry_doesnt_exist(filename_old)
+        self.assert_entry_exists(filename_new1)
         self.assertEquals(fstat, self.server.getattr(filename_new1))
         self.assertTrue(self.server.getattr(dirname_old)["st_mtime"] > mtime_old)
         
@@ -395,8 +426,12 @@ class fs_api_tests(unittest.TestCase):
         fstat = self.server.getattr(dirname_old)
         mtime_old = self.server.getattr("/")["st_mtime"]
         self.server.rename(dirname_old, dirname_new)
-        self.assertRaises(fs.FUSEError, self.server.getattr, dirname_old)
+        self.assert_entry_doesnt_exist(dirname_old)
+        self.assert_entry_exists(dirname_new)
+
+        # Make sure subentries are not there any longer
         self.assertRaises(fs.FUSEError, self.server.getattr, filename_new1)
+        
         self.assertEquals(fstat, self.server.getattr(dirname_new))
         self.assertEquals(fstat2, self.server.getattr(filename_new2))
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)

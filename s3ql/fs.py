@@ -268,7 +268,7 @@ class server(fuse.Operations):
         # Actual contents
         res = cur.execute("SELECT name, inode FROM contents WHERE parent_inode=? "
                           "AND inode != parent_inode", (inode,)) # Avoid to get / which is its own parent
-        for (name,inode) in res:
+        for (name, inode) in res:
             name = str(name)
             filler(name, self.getattr(None, inode), 0)
 
