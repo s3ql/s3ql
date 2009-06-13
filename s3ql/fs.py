@@ -13,7 +13,9 @@ import stat
 import fuse
 import threading
 import traceback
-from s3ql.common import *
+from s3ql.common import (debug, error, decrease_refcount, get_inode, log,
+                         increase_refcount, io2s3key, my_cursor, update_atime,
+                         update_mtime, warn)
 from cStringIO import StringIO
 import resource
 from time import time
@@ -370,7 +372,7 @@ class server(fuse.Operations):
         """
 
         cur = self.get_cursor()
-        (uid, gid, pid) = fuse.fuse_get_context()
+        (uid, gid) = fuse.fuse_get_context()[:2]
         inode_p = get_inode(os.path.dirname(name), cur)
         cur.execute("BEGIN TRANSACTION")
         try:
@@ -466,7 +468,7 @@ class server(fuse.Operations):
             raise FUSEError(errno.EINVAL)
 
         cur = self.get_cursor()
-        (uid, gid, pid) = fuse.fuse_get_context()
+        (uid, gid) = fuse.fuse_get_context()[:2]
         inode_p = get_inode(os.path.dirname(path), cur)
         cur.execute("BEGIN TRANSACTION")
         try:
@@ -498,7 +500,7 @@ class server(fuse.Operations):
 
         cur = self.get_cursor()
         inode_p = get_inode(os.path.dirname(path), cur)
-        (uid, gid, pid) = fuse.fuse_get_context()
+        (uid, gid) = fuse.fuse_get_context()[:2]
         cur.execute("BEGIN TRANSACTION")
         try:
             # refcount is 2 because of "."
@@ -675,7 +677,7 @@ class server(fuse.Operations):
         mode = (mode & ~stat.S_IFMT(mode)) | stat.S_IFREG
 
         cur = self.get_cursor()
-        (uid, gid, pid) = fuse.fuse_get_context()
+        (uid, gid) = fuse.fuse_get_context()[:2]
         dir = os.path.dirname(path)
         name = os.path.basename(path)
         inode_p = get_inode(dir, cur)

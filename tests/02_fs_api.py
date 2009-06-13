@@ -8,7 +8,7 @@
 import tempfile
 import unittest
 from s3ql import mkfs, s3, fs, fsck
-from s3ql.common import *
+from s3ql.common import (logger)
 import apsw
 import stat
 import os

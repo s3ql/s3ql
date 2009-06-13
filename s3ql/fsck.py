@@ -10,7 +10,7 @@ import types
 import stat
 from time import time
 import tempfile
-from common import *
+from s3ql.common import (addfile, log, get_path, my_cursor, unused_name, warn)
 import fs
 
 __all__ = [" a_check_parameters", "b_check_cache", "c_check_contents", "d_check_inodes",
