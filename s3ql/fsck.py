@@ -8,7 +8,7 @@
 import os
 import types
 import stat
-import resource
+from time import time
 import tempfile
 from common import *
 import fs
@@ -96,7 +96,7 @@ def a_check_parameters(conn, checkonly):
     if len(res) != 1:
         found_errors = True
         warn("No unique blocksize - please report this as a bug")
-    if type(res[0][0]) is not types.LongType:
+    if type(res[0][0]) not in [types.LongType, types.IntType]:
         found_errors = True
         warn("Filesystem blocksize has wrong type - please report this as a bug")
 
@@ -127,7 +127,9 @@ def c_check_contents(conn, checkonly):
         if not checkonly:
             c1.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                        "VALUES (?,?,?,?,?,?,?)",
-                       (root_mode, os.getuid(), os.getgid(), time(), time(), time(), 3))
+                        (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
+                         | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
+                         os.getuid(), os.getgid(), time(), time(), time(), 3))
             inode_r = conn.last_insert_rowid()
             c1.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                        (buffer("/"), inode_r, inode_r))
@@ -160,7 +162,7 @@ def c_check_contents(conn, checkonly):
 
     if not stat.S_ISDIR(mode):
         found_errors = True
-        warn("lost+found has wrong mode, fixing.." % name)
+        warn("lost+found has wrong mode, fixing..")
         if not checkonly:
             c2.execute("UPDATE inodes SET mode=? WHERE inode=?",
                        (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
@@ -179,7 +181,7 @@ def c_check_contents(conn, checkonly):
         # Parent is directory
         if not stat.S_ISDIR(mode):
             found_errors = True
-            path = get_path(name, inode_p, cur)
+            path = get_path(name, inode_p, c2)
             warn("Parent of %s is not a directory, moving to lost+found" % path)
             if not checkonly:
                 newname = unused_name(c2, path[1:].replace("/", ":"), inode_l)
@@ -405,7 +407,7 @@ def f_check_keylist(conn, bucket, checkonly):
                 bucket.fetch_to_file(s3key, tmp.name)
 
                 # Save full object in lost+found
-                addfile(unused_name(c1, s3key, inode_l), tmp, inode_l, c1)
+                addfile(unused_name(c1, s3key, inode_l), tmp, inode_l, c1, bucket)
 
                 # Truncate and readd
                 tmp.seek(blocksize)

@@ -5,15 +5,10 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
-
-import traceback
-import errno
 import sys
 import os
-from itertools import chain
-import functools
-import s3ql
-import hashlib
+import tempfile
+import resource
 import stat
 from time import time, sleep
 from getpass import getpass
@@ -22,7 +17,7 @@ __all__ = [ "debug", "decrease_refcount", "error", "get_cachedir",
            "get_credentials", "get_dbfile", "get_inode", "get_path",
            "increase_refcount", "log", "logger", "unused_name", "addfile",
            "my_cursor", "update_atime", "update_mtime", "update_ctime", 
-           "waitfor", "warn" ]
+           "waitfor", "warn", "io2s3key" ]
 
 # Initialize logging
 ### FIXME: We really want to use the standard logging module instead
@@ -178,7 +173,7 @@ def increase_refcount(inode, cur):
 
 
 def debug(arg):
-    """ Log message if debug output has been activated
+    """Log message if debug output has been activated
     """
 
     if logger.log_level < 2:
@@ -277,9 +272,9 @@ def get_credentials(key=None):
             file.close()    
             
         if not key:
-           if sys.stdin.isatty():
-               print "Enter AWS access key: ",
-           key = sys.stdin.readline().rstrip()
+            if sys.stdin.isatty():
+                print "Enter AWS access key: ",
+            key = sys.stdin.readline().rstrip()
            
         if not pw:
             if sys.stdin.isatty():
@@ -309,7 +304,7 @@ def waitfor(timeout, fn, *a, **kw):
         
     return False
     
-def addfile(remote, local, inode_p, cursor):
+def addfile(remote, local, inode_p, cursor, bucket):
     """Adds the specified local file to the fs in directory `inode_p`
     """
 
@@ -317,7 +312,7 @@ def addfile(remote, local, inode_p, cursor):
                    "VALUES (?,?,?,?,?,?,?)",
                    (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                     os.getuid(), os.getgid(), time(), time(), time(), 1))
-    inode = cur.last_rowid()
+    inode = cursor.last_rowid()
 
     cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                    (buffer(remote), inode, inode_p))
@@ -340,11 +335,11 @@ def addfile(remote, local, inode_p, cursor):
         if cursize + len(buf) >= blocksize or len(buf) == 0:
             tmp.write(buf[:blocksize-cursize])
             buf = buf[blocksize-cursize:]
-            s3key = fs.io2s3key(inode,blockno * blocksize)
+            s3key = io2s3key(inode,blockno * blocksize)
             etag = bucket.store_from_file(s3key, tmp.name)
             cursor.execute("INSERT INTO s3_objects (inode,offset,s3key,size,etag) "
                            "VALUES (?,?,?,?)", (inode, blockno * blocksize,
-                                                buffer(s3key_new), cursize, etag))
+                                                buffer(s3key), cursize, etag))
             cursize = 0
             blockno += 1
             tmp.seek(0)
@@ -362,7 +357,14 @@ def addfile(remote, local, inode_p, cursor):
 
     tmp.close()
     fh.close()
-        
+
+
+def io2s3key(inode, offset):
+    """Gives s3key corresponding to given inode and starting offset.
+    """
+
+    return "s3ql_data_%d-%d" % (inode, offset)
+
         
 def unused_name(cur, name, inode_p):
     """Returns an unused name for a file in the directory `inode_p_

@@ -13,7 +13,7 @@ import stat
 import fuse
 import threading
 import traceback
-from common import *
+from s3ql.common import *
 from cStringIO import StringIO
 import resource
 from time import time
@@ -189,9 +189,17 @@ class server(fuse.Operations):
         if not hasattr(self.local, "conn"):
             debug("Creating new db connection...")
             self.local.conn = apsw.Connection(self.dbfile)
-            self.local.conn.setbusytimeout(5000)
+            self.local.conn.setbusytimeout(500)
+            cur = my_cursor(self.local.conn.cursor())
+            
+            # For better performance (but risks db corruption if computer crashes)
+            cur.execute("PRAGMA temp_store = 2")
+            cur.execute("PRAGMA synchronous = off")
+            
+            return cur
 
-        return my_cursor(self.local.conn.cursor())
+        else:
+            return my_cursor(self.local.conn.cursor())
 
 
     def getattr(self, path, inode=None):
@@ -572,7 +580,7 @@ class server(fuse.Operations):
         database connections.
         """
         cur = self.get_cursor()
-
+        
         # Flush file and datacache
         debug("Flushing cache...")
         res = cur.get_list("SELECT s3key, fd, dirty, cachefile FROM s3_objects WHERE fd IS NOT NULL")
@@ -596,7 +604,7 @@ class server(fuse.Operations):
         cur.execute("VACUUM")
         debug("buffers flushed, fs has shut down.")
 
-    def __destroy__(self):
+    def __del__(self):
         if hasattr(self, "conn"):
             raise Exception, "s3ql.fs instance was destroyed without calling close()!"
 
@@ -706,7 +714,7 @@ class server(fuse.Operations):
         May return less than `length` bytes.
         """
         cur = self.get_cursor()
-
+        
         # Calculate starting offset of next s3 object, we don't
         # read further than that
         offset_f = self.blocksize * (int(offset/self.blocksize)+1)
@@ -761,7 +769,7 @@ class server(fuse.Operations):
         The s3 key should already be locked when this function is called.
         """
         cur = self.get_cursor()
-
+        
         if create is not None:
             offset = int(create)
 
@@ -773,7 +781,7 @@ class server(fuse.Operations):
 
         # Check if existing
         res = cur.get_list("SELECT fd, etag FROM s3_objects WHERE s3key=?", (s3key,))
-
+  
         # Existing Key
         if len(res):
             (fd, etag) = res[0]
@@ -786,6 +794,7 @@ class server(fuse.Operations):
             cur.execute("INSERT INTO s3_objects(s3key,dirty,fd,cachefile,atime,size,inode,offset) "
                      "VALUES(?,?,?,?,?,?,?,?)", 
                      (s3key, True, fd, cachefile, time(), 0, inode, offset))
+            
 
         # Not yet in cache
         if fd is None:
@@ -833,7 +842,7 @@ class server(fuse.Operations):
         bytes are available.
         """
         cur = self.get_cursor()
-        used = cur.get_val("SELECT SUM(size) FROM s3_objects WHERE fd IS NOT NULL")
+        used = cur.get_val("SELECT SUM(size) FROM s3_objects WHERE fd IS NOT NULL") or 0
 
         while used + self.blocksize > self.cachesize:
             # Find & lock object to flush
@@ -857,7 +866,7 @@ class server(fuse.Operations):
                     continue
 
                 (dirty, fd, cachefile, size) = res[0]
-                if fd is None:
+                if fd is None or not dirty:
                     # already flushed now
                     continue
 
@@ -1030,8 +1039,3 @@ class RevisionError:
             "revisions up %d" % (self.rev_is, self.rev_should)
 
 
-def io2s3key(inode, offset):
-    """Gives s3key corresponding to given inode and starting offset.
-    """
-
-    return "s3ql_data_%d-%d" % (inode, offset)

@@ -12,8 +12,6 @@ from s3ql.common import *
 import apsw
 import stat
 import os
-import time
-import fuse
 import resource
 from random import randrange
 
@@ -43,7 +41,6 @@ class fs_api_tests(unittest.TestCase):
             self.server.close()
         self.dbfile.close()
         os.rmdir(self.cachedir)
-
 
     def fsck(self):
         self.server.close()
@@ -92,6 +89,65 @@ class fs_api_tests(unittest.TestCase):
         self.assertTrue(os.path.basename(name) in entries)
     
         
+    def test_bug_31(self):
+        """issue 31
+        
+        The close method may fail if there are still other cursors around
+        and apsw is not recent enough. Cursors may still be around if they
+        are referenced by an exception object.
+        (see http://bugs.python.org/issue5641)
+        """
+        
+        # Create additional database connection
+        def fail(self):
+            cur = self.get_cursor()
+            cur.execute("SELECT * FROM parameters")
+            raise TypeError
+        
+        # For some reason the following two variants are *not* equivalent
+        self.server.fail = fail
+        try:
+            self.server.fail()
+        except TypeError:
+            pass       
+        self.server.close()
+
+        try:
+            fail(self.server)
+        except TypeError:
+            pass
+   
+        self.server.close()
+        
+    def test_bug_32(self):
+        """issue 32
+        
+        Current cache size is None if there are no objects in cache - this should
+        be handled properly by expire_cache()
+        """
+        
+        # Create file
+        name = os.path.join("/",  self.random_name())
+        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+        fh = self.server.create(name, mode)
+        datalen = 4096
+        self.server.write(name, self.random_data(datalen), 0, fh)
+        self.server.release(name, fh)
+        self.server.flush(name, fh)
+        self.server.close()
+
+        # Restart server with empty cache, try to read file
+        self.server = fs.server(self.bucket, self.dbfile.name, self.cachedir)
+        fh = self.server.open(name, os.O_RDONLY)
+        self.server.debug = True
+        self.server.read(name, datalen, 0, fh)
+        self.server.close()
+        
+        self.server.release(name, fh)
+        self.server.flush(name,fh)
+        
+        self.fsck()
+                 
     def test_01_getattr_root(self):
         fstat = self.server.getattr("/")
         self.assertTrue(stat.S_ISDIR(fstat["st_mode"]))
@@ -452,4 +508,5 @@ def suite():
 
 # Allow calling from command line
 if __name__ == "__main__":
+    #import sys; sys.argv = [ "", "fs_api_tests.test_bug_31" ]
     unittest.main()
