@@ -10,11 +10,13 @@ import warnings
 warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 
 import os, sys
-import s3ql
+from s3ql import s3, fsck
 import apsw
 import time
 from optparse import OptionParser
 from datetime import datetime
+from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
+import logging
 
 #
 # Parse Command line
@@ -33,29 +35,29 @@ parser.add_option("--checkonly", action="store_true", default=None,
                   help="Only check, do not fix errors.")
 parser.add_option("--force", action="store_true", default=None,
                   help="Force checking even if current metadata is not available")
-parser.add_option("--debug", action="store_true", default=False,
-                  help="Generate debugging output")
+parser.add_option("--debug", action="append", 
+                  help="Activate debugging output from specified facility. Valid facility names "
+                        "are: fsck, s3, frontend. "
+                        "This option can be specified multiple times.")
+
 
 (options, pps) = parser.parse_args()
 
 if not len(pps) == 1:
     parser.error("bucketname not specificed")
 bucketname = pps[0]
-dbfile = s3ql.get_dbfile(bucketname)
-cachedir = s3ql.get_cachedir(bucketname)
+dbfile = get_dbfile(bucketname)
+cachedir = get_cachedir(bucketname)
 
-#
 # Activate logging
-#
-if options.debug:
-    s3ql.log_level = 2
-
+init_logging(True, False, options.debug)
+log = logging.getLogger("frontend")
 
 
 #
 # Read password(s)
 #
-(awskey, awspass) = s3ql.get_credentials(options.awskey)
+(awskey, awspass) = get_credentials(options.awskey)
 if options.encrypt:
     if sys.stdin.isatty():
         options.encrypt = getpass("Enter encryption password: ")
@@ -67,7 +69,7 @@ if options.encrypt:
 #
 # Open bucket
 #
-conn = s3ql.s3.Connection(awskey, awspass, options.encrypt)
+conn = s3.Connection(awskey, awspass, options.encrypt)
 if not conn.bucket_exists(bucketname):
     print >> sys.stderr, "Bucket does not exists."
     sys.exit(1)
@@ -152,25 +154,25 @@ if rev < 1:
 
 
 # Now we can check
-print "Checking filesystem parameters..."
-s3ql.fsck.check_parameters(conn, options.checkonly)
+log.info("Checking filesystem parameters...")
+fsck.a_check_parameters(conn, options.checkonly)
 
-print "Checking local cache..."
-s3ql.fsck.check_cache(conn, cachedir, bucket, options.checkonly)
+log.info("Checking local cache...")
+fsck.b_check_cache(conn, cachedir, bucket, options.checkonly)
 
-print "Checking directory entries..."
-s3ql.fsck.check_contents(conn, options.checkonly)
+log.info("Checking directory entries...")
+fsck.c_check_contents(conn, options.checkonly)
 
-print "Checking inodes..."
-s3ql.fsck.check_inodes(conn, options.checkonly)
+log.info("Checking inodes...")
+fsck.d_check_inodes(conn, options.checkonly)
 
-print "Checking s3 objects..."
-s3ql.fsck.check_s3(conn, bucket, options.checkonly)
-s3ql.fsck.check_keylist(conn, bucket, options.checkonly)
+log.info("Checking s3 objects...")
+fsck.e_check_s3(conn, bucket, options.checkonly)
+fsck.f_check_keylist(conn, bucket, options.checkonly)
 
 if not options.checkonly:
     # Commit metadata and mark fs as clean, both internally and as object
-    print "Committing data to S3..."
+    log.info("Committing data to S3...")
     cursor.execute("UPDATE parameters SET needs_fsck=?, last_fsck=?, "
                    "mountcnt=?", (False, time.time(), 0))
 

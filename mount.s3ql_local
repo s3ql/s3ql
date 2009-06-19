@@ -12,13 +12,14 @@ warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 from optparse import OptionParser
 from getpass  import getpass
 from time import sleep
-from s3ql.common import *
+from s3ql.common import init_logging
 from s3ql import fs, s3, mkfs, fsck
 import sys
 import os
 import tempfile
 import apsw
 import syslog
+import logging
 
 #
 # Parse command line
@@ -29,8 +30,10 @@ parser = OptionParser(
     description="Emulates S3QL filesystem using in-memory storage"
     "instead of actually connecting to S3. Only for testing purposes.")
 
-parser.add_option("--debug", action="store_true", default=False,
-                  help="Generate debugging output")
+parser.add_option("--debug", action="append", 
+                  help="Activate debugging output from specified facility. Valid facility names "
+                        "are: fs, fs.fuse, s3, fsck, mkfs, frontend. "
+                        "This option can be specified multiple times.")
 parser.add_option("--quiet", action="store_true", default=False,
                   help="Be really quiet")
 parser.add_option("--allow_others", action="store_true", default=False,
@@ -93,14 +96,10 @@ if options.single:
 if options.fg:
     fuse_opts["foreground"] = True
 
-#
-# Activate logging
-#
-if options.quiet:
-    logger.log_level = 0
-if options.debug:
-    logger.log_level = 2
 
+# Activate logging
+init_logging(options.fg, options.quiet, options.debug)
+log = logging.getLogger("frontend")
 
 #
 # Initialize local bucket
@@ -110,30 +109,16 @@ bucket = s3.LocalBucket()
 bucket.tx_delay = options.txdelay
 bucket.prop_delay = options.propdelay
 
-
 dbfile = tempfile.NamedTemporaryFile()
 cachedir = tempfile.mkdtemp() + "/"
 mkfs.setup_db(dbfile.name, options.blocksize * 1024)
 mkfs.setup_bucket(bucket, dbfile.name)
-debug("Temporary database in " + dbfile.name)
+log.debug("Temporary database in " + dbfile.name)
 
 #
 # Start server
 #
 server = fs.server(bucket, dbfile.name, cachedir)
-
-# Init syslog before going bg
-if not options.fg:
-    syslog.openlog("s3ql", 0, syslog.LOG_USER)
-    def log_fn(args):
-        msg = "".join(args)
-        for line in msg.split("\n"):
-            if len(line) == 0:
-                continue
-            syslog.syslog(line)
-
-    logger.log_fn = log_fn
-
 server.main(mountpoint, **fuse_opts)
 server.close()
 
@@ -155,7 +140,7 @@ if options.fsck:
         fsck.e_check_s3(conn, bucket, checkonly=True) and
         fsck.f_check_keylist(conn, bucket, checkonly=True)
         ):
-        print "fsck found errors -- preserving database in " + dbfile
+        log.info("fsck found errors -- preserving database in %s", dbfile)
         conn.close()
         os.rmdir(cachedir)
         sys.exit(1)

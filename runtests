@@ -13,26 +13,39 @@ warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 import unittest
 import os
 import sys
+from optparse import OptionParser
+from s3ql.common import init_logging
 
-# Find and import tests
+#
+# Parse commandline
+#
+parser = OptionParser(
+    usage="%prog  [options] <testnames>\n" \
+        "       %prog --help",
+    description="Runs unit tests for s3ql")
+
+parser.add_option("--debug", action="append", 
+                  help="Activate debugging output from specified facility. Valid facility names "
+                        "are: mkfs, fsck, fs, fuse, s3, frontend. "
+                        "This option can be specified multiple times.")
+(options, test_names) = parser.parse_args()
+
+# Init Logging
+init_logging(True, True, options.debug)
+
+# Find and import all tests
 testdir = os.path.join(os.path.dirname(__file__), "tests")
-sys.path.insert(0,testdir)
 modules_to_test =  [ name[:-3] for name in os.listdir(testdir) if name.endswith(".py") ]
 modules_to_test.sort()
-
-# Import the modules
-# We need to add them to the global namespace in order for
-# unittest.main() to find them if specific tests are given on
-# the command line.
+self = __import__("__main__")
+sys.path.insert(0, testdir)
 for name in modules_to_test:
-    globals()[name] = __import__(name)
+    # Note that __import__ itself does not add the modules to the namespace
+    setattr(self, name, __import__(name))
 
-
-# Runs all tests in test/ directory
-def suite():
-    alltests = unittest.TestSuite()
-    for name in modules_to_test:
-        alltests.addTest(unittest.findTestCases(sys.modules[name]))
-    return alltests
+if not test_names:
+    test_names = modules_to_test
     
-unittest.main(defaultTest='suite')
+# Run tests
+result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromNames(test_names))
+sys.exit(not result.wasSuccessful())    

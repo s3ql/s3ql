@@ -6,21 +6,27 @@
 #
 
 import os
-import sys
 import apsw
 import errno
 import stat
 import fuse
 import threading
-import traceback
-from s3ql.common import (debug, error, decrease_refcount, get_inode, log,
-                         increase_refcount, io2s3key, my_cursor, update_atime,
-                         update_mtime, warn)
+import logging
+from s3ql.common import (decrease_refcount, get_inode, update_mtime, 
+                         increase_refcount, io2s3key, my_cursor, update_atime)
 from cStringIO import StringIO
 import resource
 from time import time
 
+
 __all__ = [ "FUSEError", "server", "RevisionError", "io2s3key" ]
+
+# standard logger for this module
+log = logging.getLogger("fs")
+
+# Logger for low-level fuse
+log_fuse = logging.getLogger("fuse")
+
 
 class FUSEError(Exception):
     """Exception representing FUSE Errors to be returned to the kernel.
@@ -126,7 +132,7 @@ class server(fuse.Operations):
             ap = map(repr, a)
 
         # Print request name and parameters
-        debug("* %s(%s)" % (op, ", ".join(ap)))
+        log_fuse.debug("* %s(%s)", op, ", ".join(ap))
 
         try:
             return getattr(self, op)(*a)
@@ -136,12 +142,10 @@ class server(fuse.Operations):
             # errno is not stored correctly
             raise OSError(e.errno, "")
         except:
-            (etype, value, tb) = sys.exc_info()
-
-            error([ "Unexpected %s error: %s\n" % (etype.__name__, str(value)), 
-                    "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n", 
-                    "Please report this bug on http://code.google.com/p/s3ql/.\n"
-                    "Traceback:\n"] + traceback.format_tb(tb))
+            log_fuse.error("Unexpected internal filesystem error."
+                           "Filesystem may be corrupted, run fsck.s3ql as soon as possible!" 
+                           "Please report this bug on http://code.google.com/p/s3ql/.",
+                           exc_info=True)
             self.mark_damaged()
             raise OSError(errno.EIO)
 
@@ -161,7 +165,7 @@ class server(fuse.Operations):
         self.s3_lock.locked_keys = set()
 
         # Check filesystem revision
-        debug("Reading fs parameters...")
+        log.debug("Reading fs parameters...")
         cur = self.get_cursor()
         rev = cur.get_val("SELECT version FROM parameters")
         if rev < 1:
@@ -189,7 +193,7 @@ class server(fuse.Operations):
         """
 
         if not hasattr(self.local, "conn"):
-            debug("Creating new db connection...")
+            log.debug("Creating new db connection...")
             self.local.conn = apsw.Connection(self.dbfile)
             self.local.conn.setbusytimeout(500)
             cur = my_cursor(self.local.conn.cursor())
@@ -350,7 +354,7 @@ class server(fuse.Operations):
         
         # Check if directory is empty
         if cur.get_val("SELECT refcount FROM inodes WHERE id=?", (inode,)) > 2: 
-            debug("Attempted to remove nonempty directory %s" % path)
+            log.debug("Attempted to remove nonempty directory %s", path)
             raise FUSEError(errno.EINVAL)
 
         # Delete
@@ -401,7 +405,7 @@ class server(fuse.Operations):
         inode_p_new = get_inode(os.path.dirname(new), cur)
         
         if not inode_p_new:
-            warn("rename: path %s does not exist" % new)
+            log.warn("rename: path %s does not exist" % new)
             raise FUSEError(errno.EINVAL)
         
         cur.execute("UPDATE contents SET name=?, parent_inode=? WHERE name=? "
@@ -421,7 +425,7 @@ class server(fuse.Operations):
 
         # Do not allow directory hardlinks
         if stat.S_ISDIR(fstat["st_mode"]):
-            debug("Attempted to hardlink directory %s" % target)
+            log.info("Attempted to hardlink directory %s", target)
             raise FUSEError(errno.EINVAL)
 
         cur.execute("BEGIN TRANSACTION")
@@ -442,7 +446,7 @@ class server(fuse.Operations):
 
         fstat = self.getattr(path)
         if stat.S_IFMT(mode) != stat.S_IFMT(fstat["st_mode"]):
-            warn("chmod: attempted to change file mode")
+            log.warn("chmod: attempted to change file mode")
             raise FUSEError(errno.EINVAL)
 
         cur = self.get_cursor()
@@ -492,7 +496,7 @@ class server(fuse.Operations):
         # Check mode
         if (stat.S_IFMT(mode) != stat.S_IFDIR and
             stat.S_IFMT(mode) != 0):
-            warn("mkdir: invalid mode")
+            log.warn("mkdir: invalid mode")
             raise FUSEError(errno.EINVAL)
 
         # Ensure correct mode
@@ -566,13 +570,13 @@ class server(fuse.Operations):
         """
 
         # Start main event loop
-        debug("Starting main event loop...")
+        log.debug("Starting main event loop...")
         kw["default_permissions"] = True
         kw["use_ino"] = True
         kw["kernel_cache"] = True
         kw["fsname"] = "s3ql"
         fuse_adaptor(self, mountpoint, **kw)
-        debug("Main event loop terminated.")
+        log.debug("Main event loop terminated.")
 
     def close(self):
         """Shut down FS instance.
@@ -584,14 +588,14 @@ class server(fuse.Operations):
         cur = self.get_cursor()
         
         # Flush file and datacache
-        debug("Flushing cache...")
+        log.debug("Flushing cache...")
         res = cur.get_list("SELECT s3key, fd, dirty, cachefile FROM s3_objects WHERE fd IS NOT NULL")
         for (s3key, fd, dirty, cachefile) in res:
-            debug("\tCurrent object: " + s3key)
+            log.debug("\tCurrent object: " + s3key)
             os.close(fd)
             if dirty:
-                error([ "Warning! Object ", s3key, " has not yet been flushed.\n", 
-                             "Please report this as a bug!\n" ])
+                log.error("Warning! Object %s has not yet been flushed.\n" 
+                          "Please report this as a bug!", s3key )
                 etag = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
                 cur.execute("UPDATE s3_objects SET dirty=?, cachefile=?, "
                              "etag=?, fd=? WHERE s3key=?", 
@@ -604,7 +608,7 @@ class server(fuse.Operations):
 
 
         cur.execute("VACUUM")
-        debug("buffers flushed, fs has shut down.")
+        log.debug("buffers flushed, fs has shut down.")
 
     def __del__(self):
         if hasattr(self, "conn"):
@@ -670,7 +674,7 @@ class server(fuse.Operations):
         # check mode
         if (stat.S_IFMT(mode) != stat.S_IFREG and
             stat.S_IFMT(mode) != 0):
-            warn("create: invalid mode")
+            log.warn("create: invalid mode")
             raise FUSEError(errno.EINVAL)
 
         # Ensure correct mode
@@ -805,8 +809,8 @@ class server(fuse.Operations):
 
             # Check etag
             if meta.etag != etag:
-                warn(["Changes in %s apparently have not yet propagated. Waiting and retrying...\n" % s3key, 
-                       "Try to increase the cache size to avoid this.\n"])
+                log.warn("Changes in %s apparently have not yet propagated. Waiting and retrying...\n"
+                         "Try to increase the cache size to avoid this.", s3key)
                 waited = 0
                 waittime = 0.01
                 while meta.etag != etag and \
@@ -818,9 +822,9 @@ class server(fuse.Operations):
 
                 # If still not found
                 if meta.etag != etag:
-                    error(["etag for %s doesn't match metadata!" % s3key, 
-                           "Filesystem is probably corrupted (or S3 is having problems), "
-                           "run fsck.s3ql as soon as possible.\n"])
+                    log.error("etag for %s doesn't match metadata!" 
+                              "Filesystem is probably corrupted (or S3 is having problems), "
+                              "run fsck.s3ql as soon as possible.", s3key)
                     self.mark_damaged()
                     raise FUSEError(errno.EIO)
                 else:
@@ -907,7 +911,7 @@ class server(fuse.Operations):
         offset_f = offset_i + self.blocksize
         maxwrite = offset_f - offset
 
-        debug("Writing to s3key " + s3key)
+        log.debug("Writing to s3key " + s3key)
 
         self.lock_s3key(s3key)
         try:

@@ -12,12 +12,13 @@ warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 from optparse import OptionParser
 from getpass  import getpass
 from s3ql import fs, s3
-from s3ql.common import *
+from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
 import sys
 import os
 import stat
 import apsw
 import syslog
+import logging
 
 #
 # Parse command line
@@ -31,8 +32,10 @@ parser.add_option("--awskey", type="string",
                   help="Amazon Webservices access key to use. The password is "
                   "read from stdin. If this option is not specified, both access key "
                   "and password are read from ~/.awssecret (separated by newlines).")
-parser.add_option("--debug", action="store_true", default=False,
-                  help="Generate debugging output")
+parser.add_option("--debug", action="append", 
+                  help="Activate debugging output from specified facility. Valid facility names "
+                        "are: fs, fs.fuse, s3, frontend. "
+                        "This option can be specified multiple times.")
 parser.add_option("--s3timeout", type="int", default=50,
                   help="Maximum time to wait for propagation in S3 (default: %default)")
 parser.add_option("--allow_others", action="store_true", default=False,
@@ -91,13 +94,9 @@ if options.single:
 if options.fg:
     fuse_opts["foreground"] = True
 
-
-#
 # Activate logging
-#
-if options.debug:
-    logger.log_level = 2
-
+init_logging(options.fg, options.quiet, options.debug)
+log = logging.getLogger("frontend")
 
 #
 # Connect to S3
@@ -111,7 +110,7 @@ dbfile = get_dbfile(bucketname)
 #
 # Check consistency
 #
-debug("Checking consistency...")
+log.debug("Checking consistency...")
 if bucket["s3ql_dirty"] != "no":
     print >> sys.stderr, \
         "Metadata is dirty! Either some changes have not yet propagated\n" \
@@ -131,7 +130,7 @@ if os.path.exists(cachedir) or os.path.exists(dbfile):
 
 # Init cache + get metadata
 try:
-    debug("Downloading metadata...")
+    log.debug("Downloading metadata...")
     os.mknod(dbfile, 0600 | stat.S_IFREG)
     os.mkdir(cachedir, 0700)
     bucket.fetch_to_file("s3ql_metadata", dbfile)
@@ -149,24 +148,12 @@ try:
     #
     server = fs.server(bucket, dbfile, cachedir, cachesize=options.cachesize)
 
-    # Init syslog before going bg
-    if not options.fg:
-        syslog.openlog("s3ql", 0, syslog.LOG_USER)
-        def log_fn(args):
-            msg = "".join(args)
-            for line in msg.split("\n"):
-                if len(line) == 0:
-                    continue
-                syslog.syslog(line)
-
-        logger.log_fn = log_fn
-
     server.main(mountpoint, **fuse_opts)
     server.close()
 
 
     # Upload database
-    debug("Uploading database..")
+    log.debug("Uploading database..")
     if bucket.has_key("s3ql_metadata_bak_2"):
         bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3");
     if bucket.has_key("s3ql_metadata_bak_1"):
@@ -179,7 +166,7 @@ try:
 finally:
     # Ignore exceptions when cleaning up
     try:
-        debug("Cleaning up...")
+        log.debug("Cleaning up...")
         os.unlink(dbfile)
         os.rmdir(cachedir)
     except:

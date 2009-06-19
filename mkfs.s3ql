@@ -16,8 +16,8 @@ from getpass import getpass
 import shutil
 from optparse import OptionParser
 from s3ql import mkfs, s3
-from s3ql.common import *
-
+from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
+import logging
 
 #
 # Parse options
@@ -39,6 +39,11 @@ parser.add_option("-f", action="store_true", default=False,
                   dest="force", help="Force creation and remove any existing data")
 parser.add_option("--encrypt", action="store_true", default=None,
                   help="Create an AES encrypted filesystem")
+parser.add_option("--debug", action="append", 
+                  help="Activate debugging output from specified facility. Valid facility names "
+                        "are: mkfs, s3, frontend. "
+                        "This option can be specified multiple times.")
+
 
 (options, pps) = parser.parse_args()
 
@@ -61,7 +66,9 @@ if options.encrypt:
     else:
         options.encrypt = sys.stdin.readline().rstrip()
 
-
+# Activate logging
+init_logging(True, False, options.debug)
+log = logging.getLogger("frontend")
 
 #
 # Setup bucket

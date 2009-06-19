@@ -5,17 +5,20 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 import hashlib
-from time import time, sleep
+from time import sleep
 from datetime import datetime
 import isodate
 from boto.s3.connection import S3Connection
 import boto.exception as bex
 import threading
 import copy
-from s3ql.common import *
+from s3ql.common import (waitfor) 
+import logging
 
 __all__ = [ "Connection", "ConcurrencyError", "Bucket", "LocalBucket", "Metadata" ]
 
+log = logging.getLogger("s3")
+ 
 class Connection(object):
     """Represents a connection to Amazon S3
 
@@ -149,8 +152,8 @@ class Bucket(object):
             yield (key, self[key])
 
     def keys(self):
-        for (key,metadata) in self.list_keys():
-            yield key
+        for pair in self.list_keys():
+            yield pair[0]
 
     def lookup_key(self, key):
         """Return metadata for given key.
@@ -293,7 +296,7 @@ class Bucket(object):
                 
             # Convert to UTC if timezone aware
             if meta.last_modified.utcoffset():
-                meta.last_modified = (meta.last-modified - meta.last_modified.utcoffset()).replace(tzinfo=None)
+                meta.last_modified = (meta.last_modified - meta.last_modified.utcoffset()).replace(tzinfo=None)
                                                  
         else:
             meta.last_modified = None
@@ -329,7 +332,7 @@ class LocalBucket(Bucket):
 
 
     def lookup_key(self, key):
-        debug("LocalBucket: Received lookup for %s" % key)
+        log.debug("LocalBucket: Received lookup for %s", key)
         if key in self.in_transmit:
             raise ConcurrencyError
         self.in_transmit.add(key)
@@ -347,7 +350,7 @@ class LocalBucket(Bucket):
     def delete_key(self, key, force=False):
         if key in self.in_transmit:
             raise ConcurrencyError
-        debug("LocalBucket: Received delete for %s" % key)
+        log.debug("LocalBucket: Received delete for %s", key)
         self.in_transmit.add(key)
         sleep(self.tx_delay)
         self.in_transmit.remove(key)
@@ -359,7 +362,7 @@ class LocalBucket(Bucket):
 
         def set():
             sleep(self.prop_delay)
-            debug("LocalBucket: Committing delete for %s" % key)
+            log.debug("LocalBucket: Committing delete for %s", key)
             # Don't bother if some other thread already deleted it
             try:
                 del self.keystore[key]
@@ -369,7 +372,7 @@ class LocalBucket(Bucket):
         threading.Thread(target=set).start()
 
     def fetch(self, key):
-        debug("LocalBucket: Received fetch for %s" % key)
+        log.debug("LocalBucket: Received fetch for %s", key)
         if key in self.in_transmit:
             raise ConcurrencyError
         self.in_transmit.add(key)
@@ -378,7 +381,7 @@ class LocalBucket(Bucket):
         return self.keystore[key]
 
     def store(self, key, val):
-        debug("LocalBucket: Received store for %s" % key)
+        log.debug("LocalBucket: Received store for %s", key)
         if key in self.in_transmit:
             raise ConcurrencyError
         self.in_transmit.add(key)
@@ -390,12 +393,12 @@ class LocalBucket(Bucket):
         metadata.etag =  hashlib.md5(val).hexdigest()
         def set():
             sleep(self.prop_delay)
-            debug("LocalBucket: Committing store for %s" % key)
+            log.debug("LocalBucket: Committing store for %s" % key)
             self.keystore[key] = (val, metadata)
         t = threading.Thread(target=set)
         t.start()
         self.in_transmit.remove(key)
-        debug("LocalBucket: Returning from store for %s" % key)
+        log.debug("LocalBucket: Returning from store for %s" % key)
         return metadata.etag
 
 
@@ -416,7 +419,7 @@ class LocalBucket(Bucket):
     def copy(self, src, dest):
         """Copies data stored under `src` to `dest`
         """
-        debug("LocalBucket: Received copy from %s to %s" % (src,dest))
+        log.debug("LocalBucket: Received copy from %s to %s" % (src,dest))
         if dest in self.in_transmit or src in self.in_transmit:
             raise ConcurrencyError
         self.in_transmit.add(src)
@@ -424,12 +427,12 @@ class LocalBucket(Bucket):
         sleep(self.tx_delay)
         def set():
             sleep(self.prop_delay)
-            debug("LocalBucket: Committing copy from %s to %s" % (src,dest))
+            log.debug("LocalBucket: Committing copy from %s to %s" % (src,dest))
             self.keystore[dest] = copy.deepcopy(self.keystore[src])
         threading.Thread(target=set).start()
         self.in_transmit.remove(dest)
         self.in_transmit.remove(src)
-        debug("LocalBucket: Returning from copy %s to %s" % (src,dest))
+        log.debug("LocalBucket: Returning from copy %s to %s" % (src,dest))
 
 
 class Metadata(dict):

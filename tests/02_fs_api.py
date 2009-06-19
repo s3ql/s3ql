@@ -8,7 +8,6 @@
 import tempfile
 import unittest
 from s3ql import mkfs, s3, fs, fsck
-from s3ql.common import (logger)
 import apsw
 import stat
 import os
@@ -25,9 +24,6 @@ class fs_api_tests(unittest.TestCase):
         self.dbfile = tempfile.NamedTemporaryFile()
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
-
-        # Only warnings and errors
-        logger.log_level = 0
 
         mkfs.setup_db(self.dbfile.name, self.blocksize)
         mkfs.setup_bucket(self.bucket, self.dbfile.name)

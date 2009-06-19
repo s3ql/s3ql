@@ -10,25 +10,78 @@ import os
 import tempfile
 import resource
 import stat
+import logging
 from time import time, sleep
 from getpass import getpass
 
-__all__ = [ "debug", "decrease_refcount", "error", "get_cachedir",
+__all__ = [ "decrease_refcount",  "get_cachedir", "init_logging",
            "get_credentials", "get_dbfile", "get_inode", "get_path",
-           "increase_refcount", "log", "logger", "unused_name", "addfile",
+           "increase_refcount", "unused_name", "addfile",
            "my_cursor", "update_atime", "update_mtime", "update_ctime", 
-           "waitfor", "warn", "io2s3key" ]
+           "waitfor", "io2s3key" ]
 
-# Initialize logging
-### FIXME: We really want to use the standard logging module instead
-class logger_class(object):
-    def __init__(self, log_fn=sys.stderr.writelines, log_level=1):
-        self.log_fn = log_fn
-        self.log_level = log_level
+class Filter(object):
+    """
+    For use with the logging module as a message filter.
+    
+    This filter accepts all messages with priority higher than
+    a given value or coming from a configured list of loggers.    
+    """
+    def __init__(self, acceptnames=[], acceptlevel=logging.DEBUG):
+        """Initializes a Filter object.
         
-logger = logger_class()    
+        Passes through all messages with priority higher than
+        `acceptlevel` or coming from a logger with name in `acceptnames`. 
+        """
+        self.acceptlevel = acceptlevel
+        self.acceptnames = acceptnames
+        
+    def filter(self, record):
+        if record.levelno > self.acceptlevel:
+            return True
+        
+        for name in self.acceptnames:
+            if record.name.startswith(name):
+                return True
+        
+        return False
+            
+def init_logging(fg, quiet=False, debug=[]):
+    """Initializes logging system.
+    
+    If `fg` is set, logging messages are send to stdout. Otherwise logging
+    is done via unix syslog.
+    
+    If `quiet` is set, only messages with priority larger than
+    logging.WARN are printed.
+    
+    `debug` can be set to a list of logger names from which debugging
+    messages are to be printed.
+    """            
+    root_logger = logging.getLogger()
+    log_filter = Filter()
+    
+    if fg:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter('%(asctime)s [%(name)s] %(message)s',
+                                               datefmt="%Y-%m-%d %H:%M:%S"))
+    else:
+        handler = logging.handlers.SysLogHandler("/dev/log")
+        handler.setFormatter(logging.Formatter('s3ql[%(process)d]: [%(name)s] %(message)s'))
 
+    handler.addFilter(log_filter)  # If we add the filter to the logger, it has no effect!
+    root_logger.addHandler(handler)
 
+    # Default
+    root_logger.setLevel(logging.INFO)
+    
+    if quiet:
+        root_logger.setLevel(logging.WARN)
+        
+    if debug:
+        root_logger.setLevel(logging.DEBUG)
+        log_filter.acceptnames = debug
+    
 class my_cursor(object):
     """Wraps an apsw cursor to add some convenience functions.
     """
@@ -170,51 +223,6 @@ def increase_refcount(inode, cur):
     """
     cur.execute("UPDATE inodes SET refcount=refcount+1, ctime=? WHERE id=?",
              (time(), inode))
-
-
-def debug(arg):
-    """Log message if debug output has been activated
-    """
-
-    if logger.log_level < 2:
-        return
-
-    if type(arg) != type([]):
-        arg = [arg, "\n"]
-
-    logger.log_fn(arg)
-
-def log(arg):
-    """ Log info message
-    """
-
-    if logger.log_level < 1:
-        return
-
-    if type(arg) != type([]):
-        arg = [arg, "\n"]
-
-    logger.log_fn(arg)
-
-
-def error(arg):
-    """ Log error message
-    """
-
-    if type(arg) != type([]):
-        arg = [arg, "\n"]
-
-    logger.log_fn(arg)
-
-
-def warn(arg):
-    """ Log warning message
-    """
-
-    if type(arg) != type([]):
-        arg = [arg, "\n"]
-
-    logger.log_fn(arg)
 
 
 def get_cachedir(bucketname):
