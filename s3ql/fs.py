@@ -34,9 +34,17 @@ class FUSEError(Exception):
 
     This exception can store only an errno. It is meant to return error codes to
     the kernel, which can only be done in this limited form.
+    
+    Attributes
+    ----------
+    :fatal:    If set, the fs will mark the filesystem as needing fsck.
     """
-    def __init__(self, errno):
+    
+    __slots__ = [ 'errno', 'fatal' ]
+    
+    def __init__(self, errno, fatal=False):
         self.errno = errno
+        self.fatal = fatal
 
     def __str__(self):
         return str(self.errno)
@@ -128,6 +136,8 @@ class Server(fuse.Operations):
         try:
             return getattr(self, op)(*a)
         except FUSEError, e:
+            if e.fatal:
+                self.mark_damaged()
             # Final error handling is done in fuse.py
             # OSError apparently has to be initialized with a tuple, otherwise
             # errno is not stored correctly
@@ -162,8 +172,7 @@ class Server(fuse.Operations):
 
         # Get blocksize
         self.blocksize = cur.get_val("SELECT blocksize FROM parameters")
-
-        self.cache = S3Cache(self, cachedir, cachesize or self.blocksize * 30)
+        self.cache = S3Cache(bucket, cachedir, cachesize or self.blocksize * 30)
 
 
     def get_cursor(self, *a, **kw):
