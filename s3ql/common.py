@@ -4,10 +4,7 @@
 #
 #    This program can be distributed under the terms of the GNU LGPL.
 #
-# TODO: Currently we return None at several places in s3ql
-# to indicate the absence of data. However, this is bad
-# practive. Instead, we should throw an exception and
-# handle it if desired. 
+
 
 import sys
 import os
@@ -100,13 +97,10 @@ class my_cursor(object):
     def get_val(self, *a, **kw):
         """Executes a select statement and returns first element of first row.
         
-        If there is no result row, return None.
+        If there is no result row, raises StopIteration.
         """
 
-        try:
-            return self.execute(*a, **kw).next()[0]
-        except StopIteration:
-            return None
+        return self.execute(*a, **kw).next()[0]
 
     def get_list(self, *a, **kw):
         """Executes a select statement and returns result list.
@@ -117,16 +111,10 @@ class my_cursor(object):
     def get_row(self, *a, **kw):
         """Executes a select statement and returns first row.
         
-        If there are no result rows, returns None.
+        If there are no result rows, raises StopIteration.
         """
 
-        res = self.execute(*a, **kw)
-        try:
-            row = res.next()
-        except StopIteration:
-            row = None
-       
-        return row        
+        return self.execute(*a, **kw).next()
      
     def last_rowid(self):
         """Returns last inserted rowid.
@@ -178,20 +166,15 @@ def update_mtime_parent(path, cur):
 def get_inode(path, cur):
     """Returns inode of object at `path`.
     
-    Returns `None` if the path does not exist.
+    Raises `KeyError` if the path does not exist.
     """
-    list = get_inodes(path, cur)
-    if list is not None:
-        return list[-1]
-    else:
-        return None
-
+    return get_inodes(path, cur)[-1]
     
 def get_inodes(path, cur):
     """Returns the inodes of the elements in `path`.
     
     The first inode of the resulting list will always be the inode
-    of the root directory. Returns `None` if any component of the path
+    of the root directory. Raises `KeyError` if the path
     does not exist.
     """
     
@@ -208,10 +191,12 @@ def get_inodes(path, cur):
     # Traverse
     visited = [inode]
     for el in path.split(os.sep):
-        inode = cur.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                          (buffer(el), inode))
-        if inode is None:
-            return None
+        try:
+            inode = cur.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
+                                (buffer(el), inode))
+        except StopIteration:
+            raise KeyError('Path does not exist', path)
+        
         visited.append(inode)
 
     return visited

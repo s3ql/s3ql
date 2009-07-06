@@ -121,10 +121,10 @@ class S3Cache(object):
         
         # Get s3 key
         with self.global_lock:
-            s3key = cur.get_val("SELECT s3key FROM inode_s3key WHERE inode=? AND offset=?", 
-                                (inode, offset))
-        
-            if s3key is None:
+            try:
+                s3key = cur.get_val("SELECT s3key FROM inode_s3key WHERE inode=? AND offset=?", 
+                                    (inode, offset))
+            except StopIteration:
                 # Create and add to cache
                 cur.execute("SAVEPOINT 'S3Cache.get'")
                 try:

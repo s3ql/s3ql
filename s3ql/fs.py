@@ -179,7 +179,7 @@ class Server(fuse.Operations):
         """Returns a cursor from thread-local connection.
 
         The cursor is augmented with the convenience functions
-        get_row, get_value and get_list.
+        get_row, get_val and get_list.
         """
 
         if not hasattr(self.local, "conn"):
@@ -202,8 +202,9 @@ class Server(fuse.Operations):
         """
         
         cur = self.get_cursor()
-        inode = get_inode(path, cur)
-        if not inode: # not found
+        try:
+            inode = get_inode(path, cur)
+        except StopIteration: # not found
             raise(FUSEError(errno.ENOENT))
 
         return self.getattr_ino(inode)
