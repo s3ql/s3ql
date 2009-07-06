@@ -18,8 +18,8 @@ class OrderedDictElement(object):
     Attributes:
     -----------
 
-    :next:      Next element in list (closer to last element)
-    :prev:      Previous element in list (closer to first element) 
+    :next:      Next element in list (closer to tail)
+    :prev:      Previous element in list (closer to head) 
     :key:       Dict key of the element
     :value:     Dict value of the element
     """
@@ -32,6 +32,29 @@ class OrderedDictElement(object):
         self.next = next
         self.prev = prev
     
+class HeadSentinel(object):
+    '''Sentinel that marks the head of a linked list
+    '''
+    
+    __slots__ = [ 'next' ]
+    
+    def __init__(self, next=None):
+        self.next = next
+    
+    def __str__(self):
+        return '<head sentinel>'
+
+class TailSentinel(object):
+    '''Sentinel that marks the tail of a linked list
+    '''
+    
+    __slots__ = [ 'prev' ]
+    
+    def __init__(self, prev=None):
+        self.prev = prev
+    
+    def __str__(self):
+        return '<tail sentinel>'    
     
 class OrderedDict(collections.MutableMapping):
     """Implements an ordered dictionary
@@ -49,29 +72,26 @@ class OrderedDict(collections.MutableMapping):
     -----------
     :data:    Backend dict object that holds OrderedDictElement instances
     :lock:    Global lock, required when rearranging the order
-    :first:   First element in list
-    :last:    Last element in list
+    :head:    First element in list
+    :tail:    Last element in list
     
     """
     
     def __init__(self):
         self.data = dict()
         self.lock = threading.Lock()
-        
-        # Sentinels
-        self.first = OrderedDictElement(None, None)
-        self.last = OrderedDictElement(None, None)
-        self.first.next = self.last
-        self.last.prev = self.first
+        self.head = HeadSentinel()
+        self.tail = TailSentinel(self.head)
+        self.head.next = self.tail
 
     def __setitem__(self, key, value):
         if key in self.data:
             self.data[key].value = value
         else:
             with self.lock:
-                el = OrderedDictElement(key, value, next=self.first.next, prev=self.first)
-                self.first.next.prev = el
-                self.first.next = el
+                el = OrderedDictElement(key, value, next=self.head.next, prev=self.head)
+                self.head.next.prev = el
+                self.head.next = el
                 self.data[key] = el
                 
     def __delitem__(self, key):
@@ -87,22 +107,22 @@ class OrderedDict(collections.MutableMapping):
         return len(self.data)
     
     def __iter__(self):
-        cur = self.first.next
-        while cur is not self.last:
+        cur = self.head.next
+        while cur is not self.tail:
             yield cur.key
             cur = cur.next
     
     def __reversed__(self):
-        cur = self.last.prev
-        while cur is not self.first:
+        cur = self.tail.prev
+        while cur is not self.head:
             yield cur.key
             cur = cur.prev
                     
     def __contains__(self, key):
         return key in self.data
     
-    def to_front(self, key):
-        """Moves `key` to the front in the ordering
+    def to_head(self, key):
+        """Moves `key` to the head in the ordering
         """
         with self.lock:
             el = self.data[key]
@@ -111,13 +131,13 @@ class OrderedDict(collections.MutableMapping):
             el.next.prev = el.prev
             
             # Insert back at front
-            el.next = self.first.next
-            el.prev = self.first
+            el.next = self.head.next
+            el.prev = self.head
             
-            self.first.next.prev = el
-            self.first.next = el
+            self.head.next.prev = el
+            self.head.next = el
         
-    def to_end(self, key):
+    def to_tail(self, key):
         """Moves `key` to the end in the ordering
         """
         with self.lock:
@@ -127,53 +147,53 @@ class OrderedDict(collections.MutableMapping):
             el.next.prev = el.prev
             
             # Insert back at end
-            el.next = self.last 
-            el.prev = self.last.prev
+            el.next = self.tail 
+            el.prev = self.tail.prev
             
-            self.last.prev.next = el
-            self.last.prev = el
+            self.tail.prev.next = el
+            self.tail.prev = el
 
     def pop_last(self):
         """Fetch and remove last element 
         """
         with self.lock:
-            el = self.last.prev
-            if el is self.first:
+            el = self.tail.prev
+            if el is self.head:
                 raise IndexError()
             
             del self.data[el.key]
-            self.last.prev = el.prev
-            el.prev.next = self.last
+            self.tail.prev = el.prev
+            el.prev.next = self.tail
                             
         return el.value
         
     def get_last(self):
         """Fetch last element 
         """
-        if self.last.prev is self.first:
+        if self.tail.prev is self.head:
             raise IndexError()
 
-        return self.last.prev.value
+        return self.tail.prev.value
 
     def pop_first(self):
         """Fetch and remove first element 
         """
         with self.lock:
-            el = self.first.next
-            if el is self.last:
+            el = self.head.next
+            if el is self.tail:
                 raise IndexError
             del self.data[el.key]
-            self.first.next = el.next 
-            el.next.prev = self.first
+            self.head.next = el.next 
+            el.next.prev = self.head
             
         return el.value
         
     def get_first(self):
-        """Fetch last element 
+        """Fetch first element 
         """
-        if self.first.next is self.last:
+        if self.head.next is self.tail:
             raise IndexError()
 
-        return self.first.next.value
+        return self.head.next.value
 
         

@@ -147,7 +147,7 @@ class S3Cache(object):
                 self.keys[s3key] = el
             else:
                 el = self.keys[s3key]
-                self.keys.to_front(s3key)
+                self.keys.to_head(s3key)
                        
             # Now the fh is made available 
             if markdirty:

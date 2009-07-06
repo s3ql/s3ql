@@ -4,6 +4,10 @@
 #
 #    This program can be distributed under the terms of the GNU LGPL.
 #
+# TODO: Currently we return None at several places in s3ql
+# to indicate the absence of data. However, this is bad
+# practive. Instead, we should throw an exception and
+# handle it if desired. 
 
 import sys
 import os

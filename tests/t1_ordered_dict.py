@@ -9,36 +9,8 @@ import unittest
 from s3ql.ordered_dict import OrderedDict
 
 class OrderedDictTests(unittest.TestCase):
-
-    def setUp(self):
-        pass
-
-
-    def tearDown(self):
-        pass
-
-
-    def test_strangebug(self):
-        od = OrderedDict()
-        
-        key1 = 'key1'
-        val1 = 'val1'
-        key2 = 'key2'
-        val2 = 'val2'
                
-        od[key1] = val1
-        od[key2] = val2     
-        
-        od.to_front(key1)
-        del od[key1]
-        
-        it = iter(od)
-        for dummy in range(len(od)):
-            it.next()
-            
-        self.assertRaises(StopIteration, it.next)
-               
-    def test_add_del(self):
+    def test_1_add_del(self):
         od = OrderedDict()
     
         key1 = 'key1'
@@ -80,7 +52,7 @@ class OrderedDictTests(unittest.TestCase):
         self.assertRaises(IndexError, od.get_last)        
      
           
-    def test_order(self):
+    def test_2_order_simple(self):
         od = OrderedDict()
     
         key1 = 'key1'
@@ -98,22 +70,67 @@ class OrderedDictTests(unittest.TestCase):
         self.assertEqual(od.get_first(), val2)
         self.assertEquals(od.get_last(), val1) 
         
-        od.to_end(key1)
+        od.to_tail(key1)
         self.assertEqual(od.get_first(), val2)
         self.assertEquals(od.get_last(), val1) 
 
-        od.to_front(key1)
+        od.to_head(key1)
         self.assertEqual(od.get_first(), val1)
         self.assertEquals(od.get_last(), val2) 
     
-        od.clear()
-        keys = [ 'key number %d' % i for i in range(10) ]
-        vals = [ 'value number %d' % i for i in range(10) ] 
-        for i in range(10):
+    def test_3_order_cmplx(self):
+        od = OrderedDict()
+        no = 10
+        
+        keys = [ 'key number %d' % i for i in range(no) ]
+        vals = [ 'value number %d' % i for i in range(no) ]
+         
+        for i in range(no):
             od[keys[i]] = vals[i]
-        self.assertEquals(list(od), list(reversed(keys))) 
+        keys.reverse()    
+        self._compareOrder(od, keys) 
         
+        # Move around different elements
+        for i in [ 0, int((no-1)/2), no-1]:
+            od.to_head(keys[i])
+            keys = [ keys[i] ] + keys[:i] + keys[i+1:] 
+            self._compareOrder(od, keys)
+  
+            od.to_tail(keys[i])
+            keys = keys[:i] + keys[i+1:] + [ keys[i] ] 
+            self._compareOrder(od, keys)
+            
+            remove = keys[i]
+            del od[remove]
+            keys = keys[:i] + keys[i+1:]
+            self._compareOrder(od, keys)
+            
+            od[remove] = 'something new'
+            keys.insert(0, remove)
+            self._compareOrder(od, keys)
+          
+    def _compareOrder(self, od, keys):
+        od_i = iter(od)
+        keys_i = iter(keys)
+        while True:
+            try:
+                key = keys_i.next()
+            except StopIteration:
+                break
+            self.assertEquals(od_i.next(), key)
+        self.assertRaises(StopIteration, od_i.next)
         
+        od_i = reversed(od)
+        keys_i = reversed(keys)
+        while True:
+            try:
+                key = keys_i.next()
+            except StopIteration:
+                break
+            self.assertEquals(od_i.next(), key)
+        self.assertRaises(StopIteration, od_i.next)
+        
+      
 def suite():
     return unittest.makeSuite(OrderedDictTests)
 
