@@ -14,7 +14,6 @@ import threading
 import logging
 from s3ql.common import (decrease_refcount, get_inode, update_mtime, get_inodes,
                          increase_refcount, my_cursor, update_atime)
-from s3ql.s3cache import S3Cache
 from cStringIO import StringIO
 import resource
 from time import time
@@ -81,7 +80,6 @@ class Server(fuse.Operations):
     :local:       Thread-local storage, used for database connections
     :dbfile:      Filename of metadata db
     :cache:       Holds information about cached s3 objects
-    :bucket:      Bucket object for datatransfer with S3
     :noatime:     True if entity access times shouldn't be updated.
 
     Note: `noatime` does not guarantee that access time will not be
@@ -151,14 +149,14 @@ class Server(fuse.Operations):
             raise OSError(errno.EIO)
 
 
-    def __init__(self, bucket, dbfile, cachedir, noatime=False, cachesize=None):
+    def __init__(self, cache, dbfile, noatime=True):
         """Initializes S3QL fs.
         """
 
         self.local = threading.local()
         self.dbfile = dbfile
-        self.bucket = bucket
         self.noatime = noatime
+        self.cache = cache
             
         # Check filesystem revision
         log.debug("Reading fs parameters...")
@@ -172,7 +170,6 @@ class Server(fuse.Operations):
 
         # Get blocksize
         self.blocksize = cur.get_val("SELECT blocksize FROM parameters")
-        self.cache = S3Cache(bucket, cachedir, cachesize or self.blocksize * 30)
 
 
     def get_cursor(self, *a, **kw):
@@ -204,7 +201,7 @@ class Server(fuse.Operations):
         cur = self.get_cursor()
         try:
             inode = get_inode(path, cur)
-        except StopIteration: # not found
+        except KeyError: # not found
             raise(FUSEError(errno.ENOENT))
 
         return self.getattr_ino(inode)
@@ -318,7 +315,7 @@ class Server(fuse.Operations):
     
             # No more links, remove datablocks
             if fstat["st_nlink"] == 1:
-                self.cache.remove(inode)                
+                self.cache.remove(inode, cur)                
                 cur.execute("DELETE FROM inodes WHERE id=?", (inode,))
             else:
                 # Also updates ctime
@@ -572,19 +569,6 @@ class Server(fuse.Operations):
         FuseAdaptor(self, mountpoint, **kw)
         log.debug("Main event loop terminated.")
 
-    def close(self):
-        """Shut down FS instance.
-
-        This method must be called in order to commit the metadata
-        of the filesystem to S3 and to release any open locks and
-        database connections.
-        """
-        self.cache.close() 
-
-    def __del__(self):
-        if hasattr(self, "conn"):
-            raise RuntimeError("s3ql.fs instance was destroyed without calling close()!")
-
 
     def open(self, path, flags):
         """Opens file `path`.
@@ -672,7 +656,7 @@ class Server(fuse.Operations):
 
         # Obtain required s3 object
         offset_i = self.blocksize * int(offset / self.blocksize)
-        with self.cache.get(inode, offset_i) as fh:
+        with self.cache.get(inode, offset_i, cur) as fh:
             fh.seek(offset - offset_i, os.SEEK_SET)
             buf = fh.read(length)
             
@@ -708,7 +692,7 @@ class Server(fuse.Operations):
             buf = buf[:maxwrite]
 
         # Obtain required s3 object
-        with self.cache.get(inode, offset_i, markdirty=True) as fh:
+        with self.cache.get(inode, offset_i, cur, markdirty=True) as fh:
             fh.seek(offset - offset_i, os.SEEK_SET)
             fh.write(buf)
 
@@ -730,11 +714,11 @@ class Server(fuse.Operations):
         cur = self.get_cursor()
 
         # Delete all truncated s3 objects
-        self.cache.remove(inode, len)
+        self.cache.remove(inode, cur, len)
 
         # Get last object before truncation
         offset_i = self.blocksize * int((len - 1) / self.blocksize)
-        with self.cache.get(inode, offset_i, markdirty=True) as fh:
+        with self.cache.get(inode, offset_i, cur, markdirty=True) as fh:
             fh.truncate(len - offset_i)
                 
         # Update file size
@@ -748,7 +732,7 @@ class Server(fuse.Operations):
 
         # Metadata is always synced automatically, so we ignore
         # fdatasync
-        self.cache.flush(inode)
+        self.cache.flush(inode, self.get_cursor())
 
 
     # Called for close() calls. Here we sync the data, so that we

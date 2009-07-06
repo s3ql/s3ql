@@ -12,6 +12,7 @@ warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 from optparse import OptionParser
 from getpass  import getpass
 from s3ql import fs, s3
+from s3ql.s3cache import S3Cache
 from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
 import sys
 import os
@@ -48,8 +49,8 @@ parser.add_option("--nonempty", action="store_true", default=False,
                   help="Allow mount if even mount point is not empty")
 parser.add_option("--fg", action="store_true", default=False,
                   help="Do not daemonize, stay in foreground")
-parser.add_option("--cachesize", type="int", default=None,
-                  help="Cache size (default: 30 * fs blocksize)")
+parser.add_option("--cachesize", type="int", default=50,
+                  help="Cache size in MB (default: 50)")
 parser.add_option("--single", action="store_true", default=False,
                   help="Single threaded operation only")
 
@@ -145,10 +146,11 @@ try:
     #
     # Start server
     #
-    server = fs.server(bucket, dbfile, cachedir, cachesize=options.cachesize)
-
+    cache =  S3Cache(bucket, cachedir, options.cachesize * 1024 * 1024,
+                     cur.get_val("SELECT blocksize FROM parameters"))
+    server = fs.server(cache, dbfile)
     server.main(mountpoint, **fuse_opts)
-    server.close()
+    cache.close(cur)
 
 
     # Upload database
