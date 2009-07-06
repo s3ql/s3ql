@@ -8,15 +8,14 @@
 import shutil
 import os
 import stat
-import sys
 from os.path  import basename
 from random   import randrange
+from s3ql.common import waitfor
 import filecmp
 import tempfile
 import time
 import posixpath
 import unittest
-from s3ql.common import *
 
 class fuse_tests(unittest.TestCase):
     def setUp(self):
@@ -62,7 +61,7 @@ class fuse_tests(unittest.TestCase):
             time.sleep(1)
             self.assertEquals(os.spawnlp(os.P_WAIT, "fusermount",
                                     "fusermount", "-u", self.base), 0)
-            (pid, status) = os.waitpid(self.pid, 0)
+            (dummy, status) = os.waitpid(self.pid, 0)
 
             self.assertTrue(os.WIFEXITED(status))
             self.assertEquals(os.WEXITSTATUS(status), 0)

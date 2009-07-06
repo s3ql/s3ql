@@ -53,8 +53,9 @@ All copyrightable changes by Andrew Dalke are released into the public domain.
 No copyright protection is asserted.
 """
 
+#@PydevCodeAnalysisIgnore
 
-import sys, time, re, operator
+import time, re
 from types import IntType, FloatType
 from calendar import timegm
 

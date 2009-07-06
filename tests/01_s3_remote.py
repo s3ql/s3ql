@@ -7,9 +7,8 @@
 
 import unittest
 import s3ql.s3
-from s3ql.common import *
+from s3ql.common import get_credentials
 from random   import randrange
-import threading
 from time import sleep
 
 class s3_tests_remote(unittest.TestCase):
@@ -90,7 +89,7 @@ class s3_tests_remote(unittest.TestCase):
             tries -= 1
             
         if tries == 0:
-            raise RuntimeException, "Failed to find an unused bucket name."
+            raise Exception, "Failed to find an unused bucket name."
         
         self.bucket = self.conn.get_bucket(self.bucketname)
         

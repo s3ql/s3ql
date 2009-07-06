@@ -12,14 +12,15 @@ import stat
 import fuse
 import threading
 import logging
-from s3ql.common import (decrease_refcount, get_inode, update_mtime, 
-                         increase_refcount, io2s3key, my_cursor, update_atime)
+from s3ql.common import (decrease_refcount, get_inode, update_mtime, get_inodes,
+                         increase_refcount, my_cursor, update_atime)
+from s3ql.s3cache import S3Cache
 from cStringIO import StringIO
 import resource
 from time import time
 
 
-__all__ = [ "FUSEError", "server", "RevisionError", "io2s3key" ]
+__all__ = [ "FUSEError", "Server", "RevisionError" ]
 
 # standard logger for this module
 log = logging.getLogger("fs")
@@ -31,9 +32,8 @@ log_fuse = logging.getLogger("fuse")
 class FUSEError(Exception):
     """Exception representing FUSE Errors to be returned to the kernel.
 
-    This exception can store only an errno. It is meant to return
-    error codes to the kernel, which can only be done in this
-    limited form.
+    This exception can store only an errno. It is meant to return error codes to
+    the kernel, which can only be done in this limited form.
     """
     def __init__(self, errno):
         self.errno = errno
@@ -42,7 +42,7 @@ class FUSEError(Exception):
         return str(self.errno)
 
 
-class fuse_adaptor(fuse.FUSE):
+class FuseAdaptor(fuse.FUSE):
     """Overwrite some functions
     """
 
@@ -62,7 +62,9 @@ class fuse_adaptor(fuse.FUSE):
         return self.operations('ftruncate', path, length, fi.contents.fh)
 
 
-class server(fuse.Operations):
+
+
+class Server(fuse.Operations):
     """FUSE filesystem that stores its data on Amazon S3
 
     Attributes:
@@ -70,51 +72,40 @@ class server(fuse.Operations):
 
     :local:       Thread-local storage, used for database connections
     :dbfile:      Filename of metadata db
-    :cachedir:    Directory for s3 object cache
+    :cache:       Holds information about cached s3 objects
     :bucket:      Bucket object for datatransfer with S3
-    :s3_lock:     Condition object for locking of specific s3 keys
     :noatime:     True if entity access times shouldn't be updated.
 
     Note: `noatime` does not guarantee that access time will not be
     updated, but only prevents the update where it would adversely
     influence performance.
 
-
-
-    Notes on Locking
-    ----------------
-
-    It is necessary to prevent simultanous access to the same s3
-    object by multiple threads. While read() and write() operations
-    could in principle also run unsychronized, cache flushing and
-    creation of new objects require complete synchronization (also
-    with read() and write()).
-
-    Unfortunately we cannot just use a global lock for all s3 object
-    operations, since this would slow down the application
-    considerably (even local operations would have to wait for network
-    operations to release the lock). Therefore we have to lock on a
-    per-object basis.
-
-    While this works fine in principle, we must keep in mind that the
-    lack of a global lock means that we must not rely on any
-    information associated with an s3 key before we hold the lock on
-    this key. An operation involving s3 objects is therefore always of
-    the following form:
-
-     1. Look up the s3 key if not yet known
-
-     2. Lock the s3 key
-
-     3. *Update any data associated with the s3 key* (!)
-
-     4. Perform actual operation
-
-     5. Unlock the s3 key
-
-
-    The locking and unlocking of the s3 keys has to be done with the
-    lock_s3key() and unlock_s3key methods.
+    Notes on database usage
+    -----------------------
+    
+    Database cursors should always be obtained from server.get_cursor(). 
+    This ensures that every thread uses a thread-local connection, so
+    that one can uniquely retrieve the last inserted rowid and the
+    number of rows affected by the last statement.
+    
+    Since sqlite does not support nested transactions, named 
+    savepoints have to be used instead. The name of the savepoint
+    should be the name of the class and the invoking method,
+    separated by a dot. This should make the name unique.
+    
+    Keep in mind that, in contrast to `BEGIN ... ROLLBACK`,
+    `SAVEPOINT name .. ROLLBACK TO name` does not cancel the
+    transaction. Hence the correct logic is:
+    
+    cursor.execute("SAVEPOINT 'classname.methodname'")
+    try:
+        # perform transaction statements
+    except:
+        cursor.execute("ROLLBACK TO 'classname.methodname'")
+        raise
+    finally:
+        cursor.execute("RELEASE 'classname.methodname'")
+    
     """
 
 
@@ -123,8 +114,8 @@ class server(fuse.Operations):
         # write() is handled specially, because we don't want to dump
         # out the whole buffer to the logs.
         if op == "write":
-            ap = [a[0], 
-                  "<data, len=%ik>" % int(len(a[1])/1024)] + map(repr, a[2:])
+            ap = [a[0],
+                  "<data, len=%ik>" % int(len(a[1]) / 1024)] + map(repr, a[2:])
         elif op == "readdir":
             ap = map(repr, a)
             ap[1] = "<filler>"
@@ -156,14 +147,9 @@ class server(fuse.Operations):
 
         self.local = threading.local()
         self.dbfile = dbfile
-        self.cachedir = cachedir
         self.bucket = bucket
         self.noatime = noatime
-
-        # Init Locks
-        self.s3_lock = threading.Condition()
-        self.s3_lock.locked_keys = set()
-
+            
         # Check filesystem revision
         log.debug("Reading fs parameters...")
         cur = self.get_cursor()
@@ -177,12 +163,7 @@ class server(fuse.Operations):
         # Get blocksize
         self.blocksize = cur.get_val("SELECT blocksize FROM parameters")
 
-        # Calculate cachesize
-        if cachesize is None:
-            self.cachesize = self.blocksize * 30
-        else:
-            self.cachesize = cachesize
-
+        self.cache = S3Cache(self, cachedir, cachesize or self.blocksize * 30)
 
 
     def get_cursor(self, *a, **kw):
@@ -207,29 +188,32 @@ class server(fuse.Operations):
         else:
             return my_cursor(self.local.conn.cursor())
 
-
-    def getattr(self, path, inode=None):
+    def getattr(self, path):
         """Handles FUSE getattr() requests
         """
-
-        fstat = dict()
-        cur = self.get_cursor()
-        if not inode:            
-            inode = get_inode(path, cur)
-            if not inode: # not found
-                raise(FUSEError(errno.ENOENT))
         
-        (fstat["st_mode"], 
-         fstat["st_nlink"], 
-         fstat["st_uid"], 
-         fstat["st_gid"], 
-         fstat["st_size"], 
-         fstat["st_ino"], 
-         fstat["st_rdev"], 
-         fstat["st_atime"], 
-         fstat["st_mtime"], 
-         fstat["st_ctime"]) = cur.get_row("SELECT mode, refcount, uid, gid, size, inode, rdev, "
-                                          "atime, mtime, ctime FROM contents_ext WHERE inode=? ", 
+        cur = self.get_cursor()
+        inode = get_inode(path, cur)
+        if not inode: # not found
+            raise(FUSEError(errno.ENOENT))
+
+        return self.getattr_ino(inode)
+
+    def getattr_ino(self, inode):
+        cur = self.get_cursor()
+        fstat = dict()
+        
+        (fstat["st_mode"],
+         fstat["st_nlink"],
+         fstat["st_uid"],
+         fstat["st_gid"],
+         fstat["st_size"],
+         fstat["st_ino"],
+         fstat["st_rdev"],
+         fstat["st_atime"],
+         fstat["st_mtime"],
+         fstat["st_ctime"]) = cur.get_row("SELECT mode, refcount, uid, gid, size, id, rdev, "
+                                          "atime, mtime, ctime FROM inodes WHERE id=? ",
                                           (inode,))
             
         # preferred blocksize for doing IO
@@ -237,8 +221,13 @@ class server(fuse.Operations):
 
         if stat.S_ISREG(fstat["st_mode"]):
             # determine number of blocks for files
-            fstat["st_blocks"] = cur.get_val("SELECT COUNT(s3key) FROM s3_objects "
-                                             "WHERE inode=?", (inode,))
+            # The exact semantics are not clear. For now we just return 1,
+            # since the file occupies exactly as much space as it is large.
+            fstat["st_blocks"] = 1
+            
+            # We could also count the number of s3 objects:
+            #fstat["st_blocks"] = cur.get_val("SELECT COUNT(s3key) FROM inode_s3key "
+            #                                 "WHERE inode=?", (inode,))
         else:
             # For special nodes, return arbitrary values
             fstat["st_size"] = 512
@@ -249,6 +238,7 @@ class server(fuse.Operations):
             fstat["st_rdev"] = 0
 
         return fstat
+
 
     def readlink(self, path):
         """Handles FUSE readlink() requests.
@@ -262,6 +252,7 @@ class server(fuse.Operations):
             update_atime(inode, cur)
         return str(target)
 
+
     def readdir(self, path, filler, offset, fh):
         """Handles FUSE readdir() requests
         """
@@ -271,29 +262,33 @@ class server(fuse.Operations):
             inode = get_inode(path, cur)
             inode_p = inode
         else:
-            (inode_p, inode) = get_inode(path, cur, trace=True)[-2:]
+            (inode_p, inode) = get_inodes(path, cur)[-2:]
 
         if not self.noatime:
             update_atime(inode, cur)
 
-        filler(".", self.getattr(None, inode), 0)
-        filler("..", self.getattr(None, inode_p), 0)
+        filler(".", self.getattr_ino(inode), 0)
+        filler("..", self.getattr_ino(inode_p), 0)
 
         # Actual contents
         res = cur.execute("SELECT name, inode FROM contents WHERE parent_inode=? "
                           "AND inode != parent_inode", (inode,)) # Avoid to get / which is its own parent
         for (name, inode) in res:
             name = str(name)
-            filler(name, self.getattr(None, inode), 0)
+            filler(name, self.getattr_ino(inode), 0)
+
 
     def getxattr(self, path, name, position=0):
         raise FUSEError(fuse.ENOTSUP)
 
+
     def removexattr(self, path, name):
         raise FUSEError(fuse.ENOTSUP)
 
+
     def setxattr(self, path, name, value, options, position=0):
         raise FUSEError(fuse.ENOTSUP)
+
 
     def unlink(self, path):
         """Handles FUSE unlink() requests.
@@ -303,39 +298,28 @@ class server(fuse.Operations):
         """
 
         cur = self.get_cursor()
-        (inode_p, inode) = get_inode(path, cur, trace=True)[-2:]
-        fstat = self.getattr(None, inode)
+        (inode_p, inode) = get_inodes(path, cur)[-2:]
+        fstat = self.getattr_ino(inode)
 
-
-        cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?", 
-                    (buffer(os.path.basename(path)), inode_p))
-
-        # No more links, remove datablocks
-        if fstat["st_nlink"] == 1:
-            res = cur.execute("SELECT s3key FROM s3_objects WHERE inode=?", 
-                           (inode,))
-            for (id,) in res:
-                # The object may not have been comitted yet
-                try:
-                    self.bucket.delete_key(id)
-                except KeyError:
-                    pass
-
-            # Drop cache
-            res = cur.execute("SELECT fd, cachefile FROM s3_objects WHERE inode=?", 
-                           (inode,))
-            for (fd, cachefile) in res:
-                os.close(fd)
-                os.unlink(self.cachedir + cachefile)
-
-            cur.execute("DELETE FROM s3_objects WHERE inode=?", (inode,))
-            cur.execute("DELETE FROM inodes WHERE id=?", (inode,))
-        else:
-            # Also updates ctime
-            decrease_refcount(inode, cur)
-
-        update_mtime(inode_p, cur)
-
+        cur.execute("SAVEPOINT 'Server.unlink'")
+        try:
+            cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
+                        (buffer(os.path.basename(path)), inode_p))
+    
+            # No more links, remove datablocks
+            if fstat["st_nlink"] == 1:
+                self.cache.remove(inode)                
+                cur.execute("DELETE FROM inodes WHERE id=?", (inode,))
+            else:
+                # Also updates ctime
+                decrease_refcount(inode, cur)
+    
+            update_mtime(inode_p, cur)
+        except:
+            cur.execute("ROLLBACK TO 'Server.unlink'")
+            raise
+        finally:
+            cur.execute("RELEASE 'Server.unlink'")
 
     def mark_damaged(self):
         """Marks the filesystem as being damaged and needing fsck.
@@ -350,7 +334,7 @@ class server(fuse.Operations):
         """
         cur = self.get_cursor()
 
-        (inode_p, inode) = get_inode(path, cur, trace=True)[-2:]
+        (inode_p, inode) = get_inodes(path, cur)[-2:]
         
         # Check if directory is empty
         if cur.get_val("SELECT refcount FROM inodes WHERE id=?", (inode,)) > 2: 
@@ -358,7 +342,7 @@ class server(fuse.Operations):
             raise FUSEError(errno.EINVAL)
 
         # Delete
-        cur.execute("BEGIN TRANSACTION")
+        cur.execute("SAVEPOINT 'Server.rmdir'")
         try:
             cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
                         (buffer(os.path.basename(path)), inode_p))
@@ -366,10 +350,10 @@ class server(fuse.Operations):
             decrease_refcount(inode_p, cur)
             update_mtime(inode_p, cur)
         except:
-            cur.execute("ROLLBACK")
+            cur.execute("ROLLBACK TO 'Server.rmdir'")
             raise
-        else:
-            cur.execute("COMMIT")
+        finally:
+            cur.execute("RELEASE 'Server.rmdir'")
 
     def symlink(self, name, target):
         """Handles FUSE symlink() requests.
@@ -378,23 +362,23 @@ class server(fuse.Operations):
         cur = self.get_cursor()
         (uid, gid) = fuse.fuse_get_context()[:2]
         inode_p = get_inode(os.path.dirname(name), cur)
-        cur.execute("BEGIN TRANSACTION")
+        cur.execute("SAVEPOINT 'Server.symlink'")
         try:
-            mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
-                     stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP |
-                     stat.S_IROTH |stat.S_IWOTH | stat.S_IXOTH)
+            mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | 
+                     stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | 
+                     stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
             cur.execute("INSERT INTO inodes (mode,uid,gid,target,mtime,atime,ctime,refcount) "
-                                "VALUES(?, ?, ?, ?, ?, ?, ?, 1)", 
-                                (mode, uid, gid, buffer(target), 
+                                "VALUES(?, ?, ?, ?, ?, ?, ?, 1)",
+                                (mode, uid, gid, buffer(target),
                                  time(), time(), time()))
-            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)", 
+            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                                 (buffer(os.path.basename(name)), self.local.conn.last_insert_rowid(), inode_p))
             update_mtime(inode_p, cur)
         except:
-            cur.execute("ROLLBACK")
+            cur.execute("ROLLBACK TO 'Server.symlink'")
             raise
-        else:
-            cur.execute("COMMIT")
+        finally:
+            cur.execute("RELEASE 'Server.symlink'")
 
     def rename(self, old, new):
         """Handles FUSE rename() requests.
@@ -428,17 +412,17 @@ class server(fuse.Operations):
             log.info("Attempted to hardlink directory %s", target)
             raise FUSEError(errno.EINVAL)
 
-        cur.execute("BEGIN TRANSACTION")
+        cur.execute("SAVEPOINT 'Server.link'")
         try:
-            cur.execute("INSERT INTO contents (name,inode,parent_inode) VALUES(?,?,?)", 
+            cur.execute("INSERT INTO contents (name,inode,parent_inode) VALUES(?,?,?)",
                      (buffer(os.path.basename(source)), fstat["st_ino"], inode_p))
             increase_refcount(fstat["st_ino"], cur)
             update_mtime(inode_p, cur)
         except:
-            cur.execute("ROLLBACK")
+            cur.execute("ROLLBACK TO 'Server.link'")
             raise
-        else:
-            cur.execute("COMMIT")
+        finally:
+            cur.execute("RELEASE 'Server.link'")
 
     def chmod(self, path, mode):
         """Handles FUSE chmod() requests.
@@ -474,19 +458,19 @@ class server(fuse.Operations):
         cur = self.get_cursor()
         (uid, gid) = fuse.fuse_get_context()[:2]
         inode_p = get_inode(os.path.dirname(path), cur)
-        cur.execute("BEGIN TRANSACTION")
+        cur.execute("SAVEPOINT 'Server.mknod'")
         try:
             cur.execute("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev,refcount,size) "
-                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)", 
+                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
                      (time(), time(), time(), uid, gid, mode, dev, 1))
-            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)", 
+            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                      (buffer(os.path.basename(path)), cur.last_rowid(), inode_p))
             update_mtime(inode_p, cur)
         except:
-            cur.execute("ROLLBACK")
+            cur.execute("ROLLBACK TO 'Server.mknod'")
             raise
-        else:
-            cur.execute("COMMIT")
+        finally:
+            cur.execute("RELEASE 'Server.mknod'")
 
 
     def mkdir(self, path, mode):
@@ -505,22 +489,22 @@ class server(fuse.Operations):
         cur = self.get_cursor()
         inode_p = get_inode(os.path.dirname(path), cur)
         (uid, gid) = fuse.fuse_get_context()[:2]
-        cur.execute("BEGIN TRANSACTION")
+        cur.execute("SAVEPOINT 'Server.mkdir'")
         try:
             # refcount is 2 because of "."
             cur.execute("INSERT INTO inodes (mtime,atime,ctime,uid,gid,mode,refcount) "
-                     "VALUES(?, ?, ?, ?, ?, ?, ?)", 
+                     "VALUES(?, ?, ?, ?, ?, ?, ?)",
                      (time(), time(), time(), uid, gid, mode, 2))
             inode = cur.last_rowid()
-            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)", 
+            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
                 (buffer(os.path.basename(path)), inode, inode_p))
             increase_refcount(inode_p, cur)
             update_mtime(inode_p, cur)
         except:
-            cur.execute("ROLLBACK")
+            cur.execute("ROLLBACK TO 'Server.mkdir'")
             raise
-        else:
-            cur.execute("COMMIT")
+        finally:
+            cur.execute("RELEASE 'Server.mkdir'")
 
     def utimens(self, path, times):
         """Handles FUSE utime() requests.
@@ -544,7 +528,7 @@ class server(fuse.Operations):
         stat["f_frsize"] = stat.f_bsize
 
         # Get number of blocks & inodes blocks
-        blocks = cur.get_val("SELECT COUNT(s3key) FROM s3_objects")
+        blocks = cur.get_val("SELECT COUNT(id) FROM s3_objects")
         inodes = cur.get_val("SELECT COUNT(id) FROM inodes")
 
         # Since S3 is unlimited, always return a half-full filesystem
@@ -575,7 +559,7 @@ class server(fuse.Operations):
         kw["use_ino"] = True
         kw["kernel_cache"] = True
         kw["fsname"] = "s3ql"
-        fuse_adaptor(self, mountpoint, **kw)
+        FuseAdaptor(self, mountpoint, **kw)
         log.debug("Main event loop terminated.")
 
     def close(self):
@@ -585,72 +569,12 @@ class server(fuse.Operations):
         of the filesystem to S3 and to release any open locks and
         database connections.
         """
-        cur = self.get_cursor()
-        
-        # Flush file and datacache
-        log.debug("Flushing cache...")
-        res = cur.get_list("SELECT s3key, fd, dirty, cachefile FROM s3_objects WHERE fd IS NOT NULL")
-        for (s3key, fd, dirty, cachefile) in res:
-            log.debug("\tCurrent object: " + s3key)
-            os.close(fd)
-            if dirty:
-                log.error("Warning! Object %s has not yet been flushed.\n" 
-                          "Please report this as a bug!", s3key )
-                etag = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
-                cur.execute("UPDATE s3_objects SET dirty=?, cachefile=?, "
-                             "etag=?, fd=? WHERE s3key=?", 
-                             (False, None, etag, None, s3key))
-            else:
-                cur.execute("UPDATE s3_objects SET cachefile=?, fd=? WHERE s3key=?", 
-                             (None, None, s3key))
-
-            os.unlink(self.cachedir + cachefile)
-
-
-        cur.execute("VACUUM")
-        log.debug("buffers flushed, fs has shut down.")
+        self.cache.close() 
 
     def __del__(self):
         if hasattr(self, "conn"):
-            raise Exception, "s3ql.fs instance was destroyed without calling close()!"
+            raise RuntimeError("s3ql.fs instance was destroyed without calling close()!")
 
-    def lock_s3key(self, s3key):
-        """Locks the given s3 key.
-        """
-        cv = self.s3_lock
-
-        # Lock set of locked s3 keys (global lock)
-        cv.acquire()
-        try:
-
-            # Wait for given s3 key becoming unused
-            while s3key in cv.locked_keys:
-                cv.wait()
-
-            # Mark it as used (local lock)
-            cv.locked_keys.add(s3key)
-        finally:
-            # Release global lock
-            cv.release()
-
-    def unlock_s3key(self, s3key):
-        """Releases lock on given s3key
-        """
-        cv = self.s3_lock
-
-        # Lock set of locked s3 keys (global lock)
-        cv.acquire()
-        try:
-
-            # Mark key as free (release local lock)
-            cv.locked_keys.remove(s3key)
-
-            # Notify other threads
-            cv.notifyAll()
-
-        finally:
-            # Release global lock
-            cv.release()
 
     def open(self, path, flags):
         """Opens file `path`.
@@ -688,10 +612,10 @@ class server(fuse.Operations):
         cur.execute("BEGIN TRANSACTION")
         try:
             cur.execute("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev,refcount,size) "
-                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)", 
+                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
                      (time(), time(), time(), uid, gid, mode, None, 1))
             inode = cur.last_rowid()
-            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)", 
+            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                      (buffer(name), inode, inode_p))
             update_mtime(inode_p, cur)
         except:
@@ -723,7 +647,7 @@ class server(fuse.Operations):
         
         # Calculate starting offset of next s3 object, we don't
         # read further than that
-        offset_f = self.blocksize * (int(offset/self.blocksize)+1)
+        offset_f = self.blocksize * (int(offset / self.blocksize) + 1)
         if offset + length > offset_f:
             length = offset_f - offset
 
@@ -731,161 +655,23 @@ class server(fuse.Operations):
         size = cur.get_val("SELECT size FROM inodes WHERE id=?", (inode,))
         if offset + length > size:
             length = size - offset
+            
+        # Update access time
+        if not self.noatime:
+            update_atime(inode, cur)
 
         # Obtain required s3 object
-        offset_i = self.blocksize * int(offset/self.blocksize)
-        s3key = io2s3key(inode, offset_i)
-
-        self.lock_s3key(s3key)
-        try:
-            fd = self.retrieve_s3(s3key, inode)
-
-            # If the object does not exist, we have a hole and return \0
-            if fd is None:
-                return "\0" * length
-
-            # If we can't read enough, we have a hole as well
-            # (since we already adjusted the length to be within the file size)
-            os.lseek(fd, offset - offset_i, os.SEEK_SET)
-            buf = StringIO()
-            while length > 0:
-                tmp = os.read(fd, length)
-                if len(tmp) == 0:
-                    return buf.getvalue() + "\0" * length
-                buf.write(tmp)
-                length -= len(tmp)
-                
-            if not self.noatime:
-                update_atime(inode, cur)
-                
-            return buf.getvalue()
-        finally:
-            self.unlock_s3key(s3key)
-
-
-    def retrieve_s3(self, s3key, inode, create=None):
-        """Returns fd for s3 object `s3key`.
-
-        If the s3 object is not already cached, it is retrieved from
-        Amazon and put into the cache.
-
-        If no such object exists and create is not None, the object is
-        created with offset `create`. Otherwise, returns `None.
-
-        The s3 key should already be locked when this function is called.
-        """
-        cur = self.get_cursor()
-        
-        if create is not None:
-            offset = int(create)
-
-            if offset % self.blocksize != 0:
-                raise Exception, "s3 objects must start at blocksize boundaries"
-
-        cachefile = s3key[1:].replace("~", "~~").replace("/", "~")
-        cachepath = self.cachedir + cachefile
-
-        # Check if existing
-        res = cur.get_list("SELECT fd, etag FROM s3_objects WHERE s3key=?", (s3key,))
-  
-        # Existing Key
-        if len(res):
-            (fd, etag) = res[0]
-
-        # New key
-        else:
-            if create is None:
-                return None
-            fd = os.open(cachepath, os.O_RDWR | os.O_CREAT)
-            cur.execute("INSERT INTO s3_objects(s3key,dirty,fd,cachefile,atime,size,inode,offset) "
-                     "VALUES(?,?,?,?,?,?,?,?)", 
-                     (s3key, True, fd, cachefile, time(), 0, inode, offset))
+        offset_i = self.blocksize * int(offset / self.blocksize)
+        with self.cache.get(inode, offset_i) as fh:
+            fh.seek(offset - offset_i, os.SEEK_SET)
+            buf = fh.read(length)
             
-
-        # Not yet in cache
-        if fd is None:
-            self.expire_cache()
-            meta = self.bucket.fetch_to_file(s3key, cachepath)
-
-            # Check etag
-            if meta.etag != etag:
-                log.warn("Changes in %s apparently have not yet propagated. Waiting and retrying...\n"
-                         "Try to increase the cache size to avoid this.", s3key)
-                waited = 0
-                waittime = 0.01
-                while meta.etag != etag and \
-                        waited < self.timeout:
-                    time.sleep(waittime)
-                    waited += waittime
-                    waittime *= 1.5
-                    meta = self.bucket.lookup_key(s3key)
-
-                # If still not found
-                if meta.etag != etag:
-                    log.error("etag for %s doesn't match metadata!" 
-                              "Filesystem is probably corrupted (or S3 is having problems), "
-                              "run fsck.s3ql as soon as possible.", s3key)
-                    self.mark_damaged()
-                    raise FUSEError(errno.EIO)
-                else:
-                    meta = self.bucket.fetch_to_file(s3key, cachepath)
-
-            fd = os.open(cachepath, os.O_RDWR)
-            cur.execute("UPDATE s3_objects SET dirty=?,fd=?,cachefile=? "
-                     "WHERE s3key=?", (False, fd, cachefile, s3key))
-
-
-        # Update atime
-        cur.execute("UPDATE s3_objects SET atime=? WHERE s3key=?", (time(), s3key))
-
-        return fd
-
-    def expire_cache(self):
-        """Performs cache expiry.
-
-        If the cache is bigger than `self.cachesize`, the oldest
-        entries are flushed until at least `self.blocksize`
-        bytes are available.
-        """
-        cur = self.get_cursor()
-        used = cur.get_val("SELECT SUM(size) FROM s3_objects WHERE fd IS NOT NULL") or 0
-
-        while used + self.blocksize > self.cachesize:
-            # Find & lock object to flush
-            res  = cur.get_list("SELECT s3key FROM s3_objects WHERE fd IS NOT NULL "
-                                    "ORDER BY atime ASC LIMIT 1")
-
-            # If there is nothing to flush, we continue anyway
-            if not res:
-                continue
-
-
-            s3key = res[0][0]
-
-            self.lock_s3key(s3key)
-            try:
-                # Information may have changed while we waited for lock
-                res = cur.get_list("SELECT dirty,fd,cachefile,size FROM s3_objects "
-                                       "WHERE s3key=?", (s3key,))
-                if not res:
-                    # has been deleted
-                    continue
-
-                (dirty, fd, cachefile, size) = res[0]
-                if fd is None or not dirty:
-                    # already flushed now
-                    continue
-
-                # flush
-                os.close(fd)
-                etag = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
-                cur.execute("UPDATE s3_objects SET dirty=?,fd=?,cachefile=?,etag=? "
-                            "WHERE s3key=?", (False, None, None, etag, s3key))
-                os.unlink(self.cachedir + cachefile)
-            finally:
-                self.unlock_s3key(s3key)
-
-            used -= size
+            if len(buf) == length:
+                return buf
+            else:
+                # If we can't read enough, we have a hole as well
+                # (since we already adjusted the length to be within the file size)
+                return buf + "\0" * (length - len(buf))
 
     def write(self, path, buf, offset, inode):
         total = len(buf)
@@ -902,49 +688,31 @@ class server(fuse.Operations):
         May write less bytes than given in `buf`.
         """
         cur = self.get_cursor()
-
-        # Obtain required s3 object
-        offset_i = self.blocksize * int(offset/self.blocksize)
-        s3key = io2s3key(inode, offset_i)
-
+        
+        offset_i = self.blocksize * int(offset / self.blocksize)
+        
         # We write at most one block
         offset_f = offset_i + self.blocksize
         maxwrite = offset_f - offset
+        if len(buf) > maxwrite:
+            buf = buf[:maxwrite]
 
-        log.debug("Writing to s3key " + s3key)
+        # Obtain required s3 object
+        with self.cache.get(inode, offset_i, markdirty=True) as fh:
+            fh.seek(offset - offset_i, os.SEEK_SET)
+            fh.write(buf)
 
-        self.lock_s3key(s3key)
-        try:
-            fd = self.retrieve_s3(s3key, inode, create=offset_i)
-
-            # Determine number of bytes to write and write
-            os.lseek(fd, offset - offset_i, os.SEEK_SET)
-            if len(buf) > maxwrite:
-                writelen = maxwrite
-                writelen = os.write(fd, buf[:maxwrite])
-            else:
-                writelen = os.write(fd, buf)
-
-
-            # Update object size
-            obj_len = os.lseek(fd, 0, os.SEEK_END)
-            cur.execute("UPDATE s3_objects SET size=? WHERE s3key=?", 
-                        (obj_len, s3key))
-
-            # Update file size if changed
-            res = cur.execute("SELECT s3key FROM s3_objects WHERE inode=? "
-                              "AND offset > ?", (inode, offset_i))
-            if not list(res):
-                cur.execute("UPDATE inodes SET size=?,ctime=? WHERE id=?", 
-                            (offset_i + obj_len, time(), inode))
-
-            # Update file mtime
+        # Update file size if changed
+        # FIXME: Can we rely on FUSE to ensure that there isn't another
+        # thread that changes the length of this file at the same time?
+        minsize = offset + len(buf)
+        cur.execute("UPDATE inodes SET size=MAX(size,?), ctime=?, mtime=? WHERE id=?",
+                    (minsize, time(), time(), inode))
+        if cur.changes == 0:
+            # Still update mtime
             update_mtime(inode, cur)
-            return writelen
-
-        finally:
-            self.unlock_s3key(s3key)
-
+        
+        return len(buf)
 
     def ftruncate(self, path, len, inode):
         """Handles FUSE ftruncate() requests.
@@ -952,77 +720,25 @@ class server(fuse.Operations):
         cur = self.get_cursor()
 
         # Delete all truncated s3 objects
-        res = cur.get_list("SELECT s3key FROM s3_objects WHERE "
-                          "offset >= ? AND inode=?", (len, inode))
-        for (s3key,) in res:
-            self.lock_s3key(s3key)
-            try:
-                (fd, cachefile) = cur.get_row("SELECT fd,cachefile FROM s3_objects "
-                                                  "WHERE s3key=?", (s3key,))
-
-                if fd: # File is in cache
-                    os.close(fd)
-                    os.unlink(self.cachedir + cachefile)
-
-                # Key may not yet been committed
-                self.bucket.delete_key(s3key, force=True)
-
-                cur.execute("DELETE FROM s3_objects WHERE s3key=?", (s3key,))
-            finally:
-                self.unlock_s3key(s3key)
-
+        self.cache.remove(inode, len)
 
         # Get last object before truncation
-        offset_i = self.blocksize * int((len-1) / self.blocksize)
-        s3key = io2s3key(inode, offset_i)
-
-        self.lock_s3key(s3key)
-        try:
-            fd = self.retrieve_s3(s3key, inode)
-            
-            if fd:
-                # Object exists, truncate
-                os.ftruncate(fd, len - offset_i)
-                cur.execute("UPDATE s3_objects SET size=?,dirty=? WHERE s3key=?", 
-                        (len - offset_i, True, s3key))
+        offset_i = self.blocksize * int((len - 1) / self.blocksize)
+        with self.cache.get(inode, offset_i, markdirty=True) as fh:
+            fh.truncate(len - offset_i)
                 
-            # Otherwise only update file size, holes are handled in read_direct()
-            cur.execute("UPDATE inodes SET size=? WHERE id=?", 
-                        (len, inode))
+        # Update file size
+        cur.execute("UPDATE inodes SET size=?,mtime=?,ctime=? WHERE id=?",
+                     (len, time(), time(), inode))
             
-            # Update file's mtime
-            update_mtime(inode, cur)
-        finally:
-            self.unlock_s3key(s3key)
 
     def fsync(self, fdatasync, inode):
         """Handles FUSE fsync() requests.
-
-        We do not lock the s3 objects, because we do not remove them
-        from the cache and we mark them as clean before(!) we send
-        them to S3. This ensures that if another thread writes
-        while we are still sending, the object is correctly marked
-        dirty again and will be resent on the next fsync().
         """
-        cur = self.get_cursor()
 
         # Metadata is always synced automatically, so we ignore
         # fdatasync
-        res = cur.get_list("SELECT s3key, fd, cachefile FROM s3_objects WHERE "
-                          "dirty=? AND inode=?", (True, inode))
-        for (s3key, fd, cachefile) in res:
-            try:
-                cur.execute("UPDATE s3_objects SET dirty=? WHERE s3key=?", 
-                             (False, s3key))
-                os.fsync(fd)
-                etag = self.bucket.store_from_file(s3key, self.cachedir + cachefile)
-            except:
-                cur.execute("UPDATE s3_objects SET dirty=? WHERE s3key=?", 
-                             (True, s3key))
-                raise
-
-            cur.execute("UPDATE s3_objects SET etag=? WHERE s3key=?", 
-                         (etag, s3key))
+        self.cache.flush(inode)
 
 
     # Called for close() calls. Here we sync the data, so that we

@@ -20,59 +20,27 @@ __all__ = [" a_check_parameters", "b_check_cache", "c_check_contents", "d_check_
 log = logging.getLogger("fsck")
 
 def b_check_cache(conn, cachedir, bucket, checkonly):
-    """Verifies that the s3 table agrees with the cache.
+    """Commits any uncommitted cache files
 
-    Checks that:
-    - For each file in the cache, there is an entry in the table
-    - For each entry in the table, there is a cache file
-
-    If `checkonly` is disabled, it also:
-    - Commits all cache entries to S3 and deletes them
-
-    Returns `False` if any errors have been found.
+    Returns `False` if any cache files have been found
 
     The prefix of the method name indicates the order in which
     the fsck routines should be called.
     """
 
-    c1 = conn.cursor()
-    c2 = conn.cursor()
+    cur = conn.cursor()
     found_errors = False
 
-    # Go through all cache files according to DB
-    res = c1.execute("SELECT s3key,cachefile,dirty FROM s3_objects "
-                     "WHERE cachefile IS NOT NULL")
-
-    for (s3key, cachefile, dirty) in res:
-        found_errors = True
-        if not os.path.exists(cachedir + cachefile):
-            if dirty:
-                log.warn("Dropped changes to %s (no longer in cache)" % s3key)
-            else:
-                log.warn("Removed cache flag for %s" % s3key)
-
-        else:
-            if dirty:
-                log.warn("Committing cached changes for %s")
-                if not checkonly:
-                    etag = bucket.store_from_file(s3key, cachedir + cachefile)
-                    c2.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
-                               (etag, s3key))
-                    os.unlink(cachedir + cachefile)
-
-        if not checkonly:
-            c2.execute("UPDATE s3_objects SET cachefile=?,fd=?,dirty=? "
-                       "WHERE s3key=?", (None, None, False, s3key))
-
-
-    # Check if any cache files are left
     log.info("Checking objects in cache...")
-    for cachefile in os.listdir(cachedir):
+    for s3key in os.listdir(cachedir):
         found_errors = True
-
-        log.warn("Removing unassociated cache file %s" % cachefile)
+        log.warn("Committing (potentially changed) cache for %s", s3key)
         if not checkonly:
-            os.unlink(cachedir + cachefile)
+            etag = bucket.store_from_file(s3key, cachedir + s3key)
+            cur.execute("UPDATE s3_objects SET etag=?,last_modified=? WHERE id=?",
+                        (etag, time(), s3key))
+            os.unlink(cachedir + s3key)
+
 
     return not found_errors
 

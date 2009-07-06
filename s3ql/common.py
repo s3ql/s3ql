@@ -16,9 +16,9 @@ from getpass import getpass
 
 __all__ = [ "decrease_refcount",  "get_cachedir", "init_logging",
            "get_credentials", "get_dbfile", "get_inode", "get_path",
-           "increase_refcount", "unused_name", "addfile",
+           "increase_refcount", "unused_name", "addfile", "get_inodes",
            "my_cursor", "update_atime", "update_mtime", "update_ctime", 
-           "waitfor", "io2s3key" ]
+           "waitfor" ]
 
 class Filter(object):
     """
@@ -88,6 +88,7 @@ class my_cursor(object):
 
     def __init__(self, cursor):
         self.cursor = cursor
+        self.conn = cursor.getconnection()
 
     def execute(self, *a, **kw):
         return self.cursor.execute(*a, **kw)
@@ -95,10 +96,13 @@ class my_cursor(object):
     def get_val(self, *a, **kw):
         """Executes a select statement and returns first element of first row.
         
-        Throws `StopIteration` if there is no result row.
+        If there is no result row, return None.
         """
 
-        return self.execute(*a, **kw).next()[0]
+        try:
+            return self.execute(*a, **kw).next()[0]
+        except StopIteration:
+            return None
 
     def get_list(self, *a, **kw):
         """Executes a select statement and returns result list.
@@ -126,7 +130,16 @@ class my_cursor(object):
         Note that this returns the last rowid that has been inserted using
         this *connection*, not cursor.
         """
-        return self.cursor.getconnection().last_insert_rowid()
+        return self.conn.last_insert_rowid()
+    
+    def changes(self):
+        """Returns number of rows affected by last statement
+
+        Note that this returns the number of changed rows due to the last statement
+        executed in this connection*, not cursor.
+        """
+        return self.conn.changes()
+    
 
 def update_atime(inode, cur):
     """Updates the atime of the specified object.
@@ -158,11 +171,24 @@ def update_mtime_parent(path, cur):
     inode = get_inode(os.path.dirname(path), cur)
     update_mtime(inode, cur)
 
-def get_inode(path, cur, trace=False):
+def get_inode(path, cur):
     """Returns inode of object at `path`.
     
-    If not found, returns None. If `trace` is `True`, returns a list
-    of all (directory) inodes that need to be traversed to reach `path`
+    Returns `None` if the path does not exist.
+    """
+    list = get_inodes(path, cur)
+    if list is not None:
+        return list[-1]
+    else:
+        return None
+
+    
+def get_inodes(path, cur):
+    """Returns the inodes of the elements in `path`.
+    
+    The first inode of the resulting list will always be the inode
+    of the root directory. Returns `None` if any component of the path
+    does not exist.
     """
     
     # Remove leading and trailing /
@@ -173,23 +199,19 @@ def get_inode(path, cur, trace=False):
     
     # Root directory requested
     if not path:
-        return [inode] if trace else inode
+        return [inode]
     
     # Traverse
     visited = [inode]
     for el in path.split(os.sep):
-        res = cur.get_list("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                             (buffer(el), inode))
-        if not res:
+        inode = cur.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
+                          (buffer(el), inode))
+        if inode is None:
             return None
-        inode = res[0][0]
         visited.append(inode)
 
-    if trace:
-        return visited
-    else:
-        return inode
-
+    return visited
+    
 def get_path(name, inode_p, cur):
     """Returns the full path of `name` with parent inode `inode_p`.
     """
@@ -197,14 +219,16 @@ def get_path(name, inode_p, cur):
     # Root inode
     inode_r = cur.get_val("SELECT inode FROM contents WHERE inode=parent_inode")
     
-    path = [name]
-    
+    path = list()
     while inode_p != inode_r:
-        (name, inode_p) = cur.get_row("SELECT name, parent_inode FROM contents "
+        (name2, inode_p) = cur.get_row("SELECT name, parent_inode FROM contents "
                                       "WHERE inode=?", (inode_p,)) # Not ambigious, since we don't allow directory hardlinks
-        name = str(name)
-        path.insert(0, name)
+        name2 = str(name2)
+        path.append(name2)
         
+    path.append(name)
+    path = path.reverse()
+    
     return "/" + os.path.join(*path)
     
     
@@ -343,11 +367,13 @@ def addfile(remote, local, inode_p, cursor, bucket):
         if cursize + len(buf) >= blocksize or len(buf) == 0:
             tmp.write(buf[:blocksize-cursize])
             buf = buf[blocksize-cursize:]
-            s3key = io2s3key(inode,blockno * blocksize)
+            s3key = "%d_%d" % (inode, blockno * blocksize)
             etag = bucket.store_from_file(s3key, tmp.name)
-            cursor.execute("INSERT INTO s3_objects (inode,offset,s3key,size,etag) "
-                           "VALUES (?,?,?,?)", (inode, blockno * blocksize,
-                                                buffer(s3key), cursize, etag))
+            cursor.execute("INSERT INTO s3_objects (id, etag, last_modified, refcount) VALUES(?,?,?,?)", 
+                           (s3key, etag, time(), 1))
+            cursor.execute("INSERT INTO inode_s3key (inode,offset,s3key) "
+                           "VALUES (?,?,?)", (inode, blockno * blocksize, s3key))
+            
             cursize = 0
             blockno += 1
             tmp.seek(0)
@@ -365,13 +391,6 @@ def addfile(remote, local, inode_p, cursor, bucket):
 
     tmp.close()
     fh.close()
-
-
-def io2s3key(inode, offset):
-    """Gives s3key corresponding to given inode and starting offset.
-    """
-
-    return "s3ql_data_%d-%d" % (inode, offset)
 
         
 def unused_name(cur, name, inode_p):

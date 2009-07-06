@@ -137,9 +137,8 @@ try:
 
     # Check that the fs itself is clean
     conn = apsw.Connection(dbfile)
-    (dirty,) = conn.cursor().execute("SELECT needs_fsck FROM parameters").next()
-    conn.close()
-    if dirty:
+    cur = mycursor(conn.cursor())
+    if cur.get_val("SELECT needs_fsck FROM parameters"):
         print >> sys.stderr, "Filesystem damaged, run s3fsk!\n"
         sys.exit(1)
 
@@ -153,6 +152,7 @@ try:
 
 
     # Upload database
+    cur.execute("VACUUM")
     log.debug("Uploading database..")
     if bucket.has_key("s3ql_metadata_bak_2"):
         bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3");

@@ -53,7 +53,7 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
     CREATE TABLE parameters (
         label       TEXT,
         blocksize   INT NOT NULL,
-        last_fsck   INT NOT NULL,
+        last_fsck   REAL NOT NULL,
         mountcnt    INT NOT NULL,
         version     INT NOT NULL,
         needs_fsck  BOOLEAN NOT NULL
@@ -67,17 +67,19 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
     CREATE TABLE contents (
         name      BLOB(256) NOT NULL,
         inode     INT NOT NULL REFERENCES inodes(id),
-        parent_inode INT NOT NULL REFERENCES inodes(id)
+        parent_inode INT NOT NULL REFERENCES inodes(id),
+        
+        PRIMARY KEY (name, parent_inode)
     );
-    CREATE UNIQUE INDEX ix_contents_primary ON contents(name, parent_inode);
     CREATE INDEX ix_contents_parent_inode ON contents(parent_inode);
+    CREATE INDEX ix_contents_inode ON contents(inode);
     """)
 
     # Table with filesystem metadata
     # The number of links `refcount` to an inode can in theory
-    # be determined from the `contents` table. However, there is no efficient
-    # statement to do so (because we have to count `..` references of all
-    # subdirectories), so we manage this separately.
+    # be determined from the `contents` table. However, managing
+    # this separately should be significantly faster (the information
+    # is required for every getattr!)
     cursor.execute("""
     CREATE TABLE inodes (
         -- id has to specified *exactly* as follows to become
@@ -86,9 +88,9 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
         uid       INT NOT NULL,
         gid       INT NOT NULL,
         mode      INT NOT NULL,
-        mtime     INT NOT NULL,
-        atime     INT NOT NULL,
-        ctime     INT NOT NULL,
+        mtime     REAL NOT NULL,
+        atime     REAL NOT NULL,
+        ctime     REAL NOT NULL,
         refcount  INT NOT NULL,
 
         -- for symlinks only
@@ -109,41 +111,38 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
                                             "src_key": "parent_inode",
                                             "ref_table": "inodes",
                                             "ref_key": "id" }))
-
+    
     # Maps file data chunks to S3 objects
+    # Refcount is included for performance reasons
     cursor.execute("""
     CREATE TABLE s3_objects (
+        id        TEXT PRIMARY KEY,
+        last_modified REAL,
+        etag      TEXT,
+        refcount  INT NOT NULL
+    );
+    """);
+    
+    # Maps file data chunks to S3 objects
+    cursor.execute("""
+    CREATE TABLE inode_s3key (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
         offset    INT NOT NULL CHECK (offset >= 0),
-        s3key     TEXT NOT NULL UNIQUE,
-        etag      TEXT,
-        size      INT NOT NULL,
-
-        -- for caching
-        fd        INTEGER,
-        atime     INTEGER NOT NULL,
-        dirty     BOOLEAN,
-        cachefile TEXT UNIQUE
-                  CHECK ((fd IS NULL AND cachefile IS NULL)
-                         OR (fd IS NOT NULL AND cachefile IS NOT NULL)),
-
+        s3key     INTEGER NOT NULL REFERENCES s3_objects(id),
+ 
         PRIMARY KEY (inode, offset)
     );
-    CREATE INDEX ix_s3 ON s3_objects(s3key);
-    CREATE INDEX ix_dirty ON s3_objects(dirty);
-    CREATE INDEX ix_atime ON s3_objects(atime);
     """);
-    cursor.execute(trigger_cmd.substitute({ "src_table": "s3_objects",
+    cursor.execute(trigger_cmd.substitute({ "src_table": "inode_s3key",
                                             "src_key": "inode",
                                             "ref_table": "inodes",
                                             "ref_key": "id" }))
+    cursor.execute(trigger_cmd.substitute({ "src_table": "inode_s3key",
+                                            "src_key": "s3key",
+                                            "ref_table": "s3_objects",
+                                            "ref_key": "id" }))
 
 
-    # Create a view of the whole fs with all information
-    cursor.execute("""
-    CREATE VIEW contents_ext AS
-        SELECT * FROM contents JOIN inodes ON id == inode;
-    """)
 
 
     # Insert root directory

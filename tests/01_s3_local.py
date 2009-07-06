@@ -7,7 +7,6 @@
 
 import unittest
 import s3ql.s3
-from s3ql.common import *
 from random   import randrange
 import threading
 from time import sleep
@@ -119,36 +118,36 @@ class s3_tests_local(unittest.TestCase):
         key = self.random_name()
         value = self.random_name()
 
-        def async():
-           self.bucket[key] = value
-        t = threading.Thread(target=async)
+        def async1():
+            self.bucket[key] = value
+        t = threading.Thread(target=async1)
         t.start()
         sleep(0.1) # Make sure the other thread is actually running
         self.assertRaises(s3ql.s3.ConcurrencyError, self.bucket.store, key, value)
         t.join()
         self.assertTrue(self.bucket.store(key, value) is not None)
 
-        def async():
-           self.bucket[key] = value
-        t = threading.Thread(target=async)
+        def async2():
+            self.bucket[key] = value
+        t = threading.Thread(target=async2)
         t.start()
         sleep(0.1) # Make sure the other thread is actually running
         self.assertRaises(s3ql.s3.ConcurrencyError, self.bucket.fetch, key)
         t.join()
         self.assertTrue(self.bucket.fetch(key) is not None)
 
-        def async():
-           self.bucket.fetch(key)
-        t = threading.Thread(target=async)
+        def async3():
+            self.bucket.fetch(key)
+        t = threading.Thread(target=async3)
         t.start()
         sleep(0.1) # Make sure the other thread is actually running
         self.assertRaises(s3ql.s3.ConcurrencyError, self.bucket.store, key, value)
         t.join()
         self.assertTrue(self.bucket.store(key, value) is not None)
 
-        def async():
-           self.bucket.fetch(key)
-        t = threading.Thread(target=async)
+        def async4():
+            self.bucket.fetch(key)
+        t = threading.Thread(target=async4)
         t.start()
         sleep(0.1) # Make sure the other thread is actually running
         self.assertRaises(s3ql.s3.ConcurrencyError, self.bucket.fetch, key)

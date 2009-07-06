@@ -341,7 +341,7 @@ class LocalBucket(Bucket):
         if not self.keystore.has_key(key):
             return None
         else:
-            return self.keystore[key][0]
+            return self.keystore[key][1]
 
     def list_keys(self):
         for key in self.keystore:
