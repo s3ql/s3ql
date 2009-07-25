@@ -15,9 +15,11 @@ import os
 from getpass import getpass
 import shutil
 from optparse import OptionParser
+import logging
+
 from s3ql import mkfs, s3
 from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
-import logging
+
 
 #
 # Parse options

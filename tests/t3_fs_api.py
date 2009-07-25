@@ -42,8 +42,6 @@ class fs_api_tests(unittest.TestCase):
 
     def fsck(self):
         self.cache.close(my_cursor(apsw.Connection(self.dbfile.name).cursor()))
-        return 
-        # FIXME: fsck is currently broken
         conn = apsw.Connection(self.dbfile.name)
         self.assertTrue(fsck.a_check_parameters(conn, checkonly=True))
         self.assertTrue(fsck.b_check_cache(conn, self.cachedir, self.bucket, checkonly=True))

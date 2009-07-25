@@ -12,14 +12,13 @@ warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 from optparse import OptionParser
 from getpass  import getpass
 from time import sleep
-from s3ql.common import init_logging, my_cursor
+from s3ql.common import init_logging, MyCursor
 from s3ql import fs, s3, mkfs, fsck
 from s3ql.s3cache import S3Cache
 import sys
 import os
 import tempfile
 import apsw
-import syslog
 import logging
 
 #
@@ -120,9 +119,9 @@ log.debug("Temporary database in " + dbfile.name)
 # Start server
 #
 cache =  S3Cache(bucket, cachedir, options.blocksize * 5, options.blocksize)
-server = fs.server(cache, dbfile.name)
+server = fs.Server(cache, dbfile.name)
 server.main(mountpoint, **fuse_opts)
-cache.close(my_cursor(apsw.Connection(dbfile.name).cursor()))
+cache.close(MyCursor(apsw.Connection(dbfile.name).cursor()))
 
 # We have to make sure that all changes have been comitted by the
 # background threads
@@ -134,14 +133,7 @@ sleep(options.propdelay)
 if options.fsck:
     conn = apsw.Connection(dbfile.name)
 
-    if not ( \
-        fsck.a_check_parameters(conn, checkonly=True) and
-        fsck.b_check_cache(conn, cachedir, bucket, checkonly=True) and
-        fsck.c_check_contents(conn, checkonly=True) and
-        fsck.d_check_inodes(conn, checkonly=True) and
-        fsck.e_check_s3(conn, bucket, checkonly=True) and
-        fsck.f_check_keylist(conn, bucket, checkonly=True)
-        ):
+    if not fsck.fsck(conn, cachedir, bucket, checkonly=True):
         log.info("fsck found errors -- preserving database in %s", dbfile)
         conn.close()
         os.rmdir(cachedir)

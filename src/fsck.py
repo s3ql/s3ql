@@ -9,16 +9,19 @@
 import warnings
 warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 
+from getpass  import getpass
 import os, sys
-from s3ql import s3, fsck
 import apsw
+import stat
 import time
 from optparse import OptionParser
 from datetime import datetime
 from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
 import logging
 
-#
+from s3ql import s3, fsck
+
+# 
 # Parse Command line
 #
 parser = OptionParser(
@@ -154,21 +157,8 @@ if rev < 1:
 
 
 # Now we can check
-log.info("Checking filesystem parameters...")
-fsck.a_check_parameters(conn, options.checkonly)
+fsck.fsck(conn, cachedir, bucket, options.checkonly)
 
-log.info("Checking local cache...")
-fsck.b_check_cache(conn, cachedir, bucket, options.checkonly)
-
-log.info("Checking directory entries...")
-fsck.c_check_contents(conn, options.checkonly)
-
-log.info("Checking inodes...")
-fsck.d_check_inodes(conn, options.checkonly)
-
-log.info("Checking s3 objects...")
-fsck.e_check_s3(conn, bucket, options.checkonly)
-fsck.f_check_keylist(conn, bucket, options.checkonly)
 
 if not options.checkonly:
     # Commit metadata and mark fs as clean, both internally and as object
@@ -178,6 +168,7 @@ if not options.checkonly:
 
     cursor.execute("VACUUM")
     conn.close()
+    # TODO: Backup old metadata
     bucket.store_from_file("s3ql_metadata", dbfile)
     bucket.store("s3ql_dirty", "no")
 

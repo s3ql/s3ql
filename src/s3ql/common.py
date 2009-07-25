@@ -18,8 +18,8 @@ from getpass import getpass
 __all__ = [ "decrease_refcount",  "get_cachedir", "init_logging",
            "get_credentials", "get_dbfile", "get_inode", "get_path",
            "increase_refcount", "unused_name", "addfile", "get_inodes",
-           "my_cursor", "update_atime", "update_mtime", "update_ctime", 
-           "waitfor" ]
+           "MyCursor", "update_atime", "update_mtime", "update_ctime", 
+           "waitfor", "ROOT_INODE" ]
 
 class Filter(object):
     """
@@ -83,7 +83,7 @@ def init_logging(fg, quiet=False, debug=[]):
         root_logger.setLevel(logging.DEBUG)
         log_filter.acceptnames = debug
     
-class my_cursor(object):
+class MyCursor(object):
     """Wraps an apsw cursor to add some convenience functions.
     """
 
@@ -181,8 +181,8 @@ def get_inodes(path, cur):
     # Remove leading and trailing /
     path = path.lstrip("/").rstrip("/")
     
-    # Root inode
-    inode = cur.get_val("SELECT inode FROM contents WHERE inode=parent_inode")
+
+    inode = ROOT_INODE
     
     # Root directory requested
     if not path:
@@ -206,7 +206,7 @@ def get_path(name, inode_p, cur):
     """
     
     # Root inode
-    inode_r = cur.get_val("SELECT inode FROM contents WHERE inode=parent_inode")
+    inode_r = get_inode(b"/", cur)
     
     path = list()
     while inode_p != inode_r:
@@ -398,3 +398,5 @@ def unused_name(cur, name, inode_p):
                           (buffer("%s-%d" % (name,i)), inode_p)):
         i += 1
     return "%s-%d" % (name,i)
+
+ROOT_INODE = 0

@@ -13,7 +13,7 @@ import fuse
 import threading
 import logging
 from s3ql.common import (decrease_refcount, get_inode, update_mtime, get_inodes,
-                         increase_refcount, my_cursor, update_atime)
+                         increase_refcount, MyCursor, update_atime)
 from cStringIO import StringIO
 import resource
 from time import time
@@ -183,7 +183,7 @@ class Server(fuse.Operations):
             log.debug("Creating new db connection...")
             self.local.conn = apsw.Connection(self.dbfile)
             self.local.conn.setbusytimeout(500)
-            cur = my_cursor(self.local.conn.cursor())
+            cur = MyCursor(self.local.conn.cursor())
             
             # For better performance (but risks db corruption if computer crashes)
             cur.execute("PRAGMA temp_store = 2")
@@ -192,17 +192,21 @@ class Server(fuse.Operations):
             return cur
 
         else:
-            return my_cursor(self.local.conn.cursor())
+            return MyCursor(self.local.conn.cursor())
 
-    def getattr(self, path):
+    def getattr(self, path, inode=None):
         """Handles FUSE getattr() requests
+        
+        We only support the `inode' parameter because fuse.py expects
+        this interface. 
         """
         
-        cur = self.get_cursor()
-        try:
-            inode = get_inode(path, cur)
-        except KeyError: # not found
-            raise(FUSEError(errno.ENOENT))
+        if inode is None:
+            cur = self.get_cursor()
+            try:
+                inode = get_inode(path, cur)
+            except KeyError: # not found
+                raise(FUSEError(errno.ENOENT))
 
         return self.getattr_ino(inode)
 
@@ -697,12 +701,13 @@ class Server(fuse.Operations):
             fh.write(buf)
 
         # Update file size if changed
-        # FIXME: Can we rely on FUSE to ensure that there isn't another
-        # thread that changes the length of this file at the same time?
+        # Fuse does not ensure that we do not get concurrent write requests,
+        # so we have to be careful not to undo a size extension made by
+        # a concurrent write.
         minsize = offset + len(buf)
         cur.execute("UPDATE inodes SET size=MAX(size,?), ctime=?, mtime=? WHERE id=?",
                     (minsize, time(), time(), inode))
-        if cur.changes == 0:
+        if cur.changes() == 0:
             # Still update mtime
             update_mtime(inode, cur)
         

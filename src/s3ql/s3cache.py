@@ -6,9 +6,9 @@
 #
 
 from contextlib import contextmanager
-import fs
-from multi_lock import MultiLock
-from ordered_dict import OrderedDict
+from s3ql import fs
+from s3ql.multi_lock import MultiLock
+from s3ql.ordered_dict import OrderedDict
 import errno
 import logging
 import os

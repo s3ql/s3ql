@@ -5,11 +5,15 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+# TODO: Make sure that no code relies on stat.S_IF* being mutually exclusive
+
 import stat
 import apsw
 import os
 from time import time
 from string import Template
+
+from s3ql.common import MyCursor, ROOT_INODE
 
 __all__ = [ "setup_bucket", "setup_db" ]
 
@@ -18,8 +22,21 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
     """
 
     conn=apsw.Connection(dbfile)
-    cursor=conn.cursor()
+    cursor=MyCursor(conn.cursor())
 
+        
+    # Create a list of valid inode types
+    types = {"S_IFDIR": stat.S_IFDIR, "S_IFREG": stat.S_IFREG,
+             "S_IFSOCK": stat.S_IFSOCK, "S_IFBLK": stat.S_IFBLK,
+             "S_IFCHR": stat.S_IFCHR, "S_IFIFO": stat.S_IFIFO,
+             "S_IFLNK": stat.S_IFLNK }
+    # Note that we cannot just use sum(types.itervalues()), because 
+    # e.g. S_IFDIR | S_IFREG == S_IFSOCK  
+    ifmt = 0
+    for i in types.itervalues():
+        ifmt |= i
+    types["S_IFMT"] = ifmt
+        
     # This command creates triggers that ensure referential integrity
     trigger_cmd = Template("""
     CREATE TRIGGER fki_${src_table}_${src_key}
@@ -47,34 +64,56 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
       END;
     """)
 
-
     # Filesystem parameters
     cursor.execute("""
     CREATE TABLE parameters (
-        label       TEXT,
+        label       TEXT NOT NULL,
         blocksize   INT NOT NULL,
         last_fsck   REAL NOT NULL,
         mountcnt    INT NOT NULL,
-        version     INT NOT NULL,
+        version     REAL NOT NULL,
         needs_fsck  BOOLEAN NOT NULL
     );
     INSERT INTO parameters(label,blocksize,last_fsck,mountcnt,needs_fsck,version)
         VALUES(?,?,?,?,?, ?)
-    """, (label, blocksize, time(), 0, False, 1))
+    """, (label, blocksize, time(), 0, False, 1.0))
 
     # Table of filesystem objects
     cursor.execute("""
     CREATE TABLE contents (
         name      BLOB(256) NOT NULL,
-        inode     INT NOT NULL REFERENCES inodes(id),
-        parent_inode INT NOT NULL REFERENCES inodes(id),
+        inode     INT NOT NULL REFERENCES inodes(id)
+                  CHECK (inode != 0),
+        parent_inode INT NOT NULL REFERENCES inodes(id)
+                  CHECK (inode != parent_inode),
         
         PRIMARY KEY (name, parent_inode)
     );
     CREATE INDEX ix_contents_parent_inode ON contents(parent_inode);
     CREATE INDEX ix_contents_inode ON contents(inode);
     """)
+    
+    # Make sure that parent inodes are directories
+    cursor.execute("""
+    CREATE TRIGGER contents_check_parent_inode_insert
+      BEFORE INSERT ON contents
+      FOR EACH ROW BEGIN
+          SELECT RAISE(ABORT, 'parent_inode does not refer to a directory')
+          WHERE NEW.parent_inode != 0 AND
+               (SELECT mode FROM inodes WHERE id = NEW.parent_inode) & {S_IFMT} != {S_IFDIR};
+      END;
 
+    CREATE TRIGGER contents_check_parent_inode_update
+      BEFORE UPDATE ON contents
+      FOR EACH ROW BEGIN
+          SELECT RAISE(ABORT, 'parent_inode does not refer to a directory')
+          WHERE NEW.parent_inode != 0 AND
+               (SELECT mode FROM inodes WHERE id = NEW.parent_inode) & {S_IFMT} != {S_IFDIR};
+      END;  
+    """.format(**types))
+
+
+        
     # Table with filesystem metadata
     # The number of links `refcount` to an inode can in theory
     # be determined from the `contents` table. However, managing
@@ -85,24 +124,37 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
         -- id has to specified *exactly* as follows to become
         -- an alias for the rowid
         id        INTEGER PRIMARY KEY,
-        uid       INT NOT NULL,
-        gid       INT NOT NULL,
-        mode      INT NOT NULL,
+        uid       INT NOT NULL CHECK(uid >= 0),
+        gid       INT NOT NULL CHECK(gid >= 0),
+        -- make sure that an entry has only one type. Note that 
+        -- S_IFDIR | S_IFREG == S_IFSOCK
+        mode      INT NOT NULL
+                  CHECK ( (mode & {S_IFMT}) IN ({S_IFDIR}, {S_IFREG}, {S_IFLNK},
+                                                {S_IFBLK}, {S_IFCHR}, {S_IFIFO}, {S_IFSOCK}) ),
         mtime     REAL NOT NULL,
         atime     REAL NOT NULL,
         ctime     REAL NOT NULL,
-        refcount  INT NOT NULL,
+        refcount  INT NOT NULL
+                  CHECK (refcount > 0),
 
         -- for symlinks only
-        target    BLOB,
+        target    BLOB(256)
+                  CHECK ( (mode & {S_IFLNK} == {S_IFLNK} AND target IS NOT NULL) OR
+                          (mode & {S_IFLNK} != {S_IFLNK} AND target IS NULL) ),
 
         -- for files only
-        size      INT CHECK (size >= 0),
+        size      INT 
+                  CHECK ( (mode & {S_IFREG} == {S_IFREG} AND size >= 0) OR
+                          (mode & {S_IFREG} != {S_IFREG} AND size IS NULL) ),
 
         -- device nodes
         rdev      INT
+                  CHECK ( ( (mode & {S_IFBLK} == {S_IFBLK} OR mode & {S_IFCHR} == {S_IFCHR})
+                               AND rdev >= 0) OR
+                          ( mode & {S_IFBLK} != {S_IFBLK} AND mode & {S_IFCHR} != {S_IFCHR}
+                            AND rdev IS NULL ))        
     );
-    """)
+    """.format(**types))
     cursor.execute(trigger_cmd.substitute({ "src_table": "contents",
                                             "src_key": "inode",
                                             "ref_table": "inodes",
@@ -142,19 +194,13 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
                                             "ref_table": "s3_objects",
                                             "ref_key": "id" }))
 
-
-
-
     # Insert root directory
     # Refcount = 3: parent (when mounted), ".", lost+found
-    cursor.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
-                   "VALUES (?,?,?,?,?,?,?)",
-                   (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
+    cursor.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount) "
+                   "VALUES (?,?,?,?,?,?,?,?)", 
+                   (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                     os.getuid(), os.getgid(), time(), time(), time(), 3))
-    root_inode = conn.last_insert_rowid()
-    cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   (buffer("/"), root_inode, root_inode))
 
     # Insert lost+found directory
     # refcount = 2: parent, "."
@@ -162,9 +208,9 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
                    "VALUES (?,?,?,?,?,?,?)",
                    (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
                     os.getuid(), os.getgid(), time(), time(), time(), 2))
-    inode = conn.last_insert_rowid()
+    inode = cursor.last_rowid()
     cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   (buffer("lost+found"), inode, root_inode))
+                   (buffer("lost+found"), inode, ROOT_INODE))
 
     # Done setting up metadata table
     conn.close()

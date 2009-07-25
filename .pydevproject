@@ -3,8 +3,9 @@
 
 <pydev_project>
 <pydev_property name="org.python.pydev.PYTHON_PROJECT_VERSION">python 2.6</pydev_property>
-<pydev_pathproperty name="org.python.pydev.PROJECT_SOURCE_PATH">
-<path>/s3ql</path>
-</pydev_pathproperty>
+
 <pydev_property name="org.python.pydev.PYTHON_PROJECT_INTERPRETER">Python 2.6</pydev_property>
+<pydev_pathproperty name="org.python.pydev.PROJECT_SOURCE_PATH">
+<path>/s3ql/src</path>
+</pydev_pathproperty>
 </pydev_project>

@@ -13,12 +13,11 @@ from optparse import OptionParser
 from getpass  import getpass
 from s3ql import fs, s3
 from s3ql.s3cache import S3Cache
-from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
+from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile, MyCursor
 import sys
 import os
 import stat
 import apsw
-import syslog
 import logging
 
 #
@@ -138,7 +137,7 @@ try:
 
     # Check that the fs itself is clean
     conn = apsw.Connection(dbfile)
-    cur = mycursor(conn.cursor())
+    cur = MyCursor(conn.cursor())
     if cur.get_val("SELECT needs_fsck FROM parameters"):
         print >> sys.stderr, "Filesystem damaged, run s3fsk!\n"
         sys.exit(1)
@@ -148,7 +147,7 @@ try:
     #
     cache =  S3Cache(bucket, cachedir, options.cachesize * 1024 * 1024,
                      cur.get_val("SELECT blocksize FROM parameters"))
-    server = fs.server(cache, dbfile)
+    server = fs.Server(cache, dbfile)
     server.main(mountpoint, **fuse_opts)
     cache.close(cur)
 
