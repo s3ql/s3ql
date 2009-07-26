@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 #
 #    Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
 #
@@ -41,8 +40,9 @@ class FUSEError(Exception):
     
     __slots__ = [ 'errno', 'fatal' ]
     
-    def __init__(self, errno, fatal=False):
-        self.errno = errno
+    def __init__(self, errno_, fatal=False):
+        super(FUSEError, self).__init__()
+        self.errno = errno_
         self.fatal = fatal
 
     def __str__(self):
@@ -121,25 +121,25 @@ class Server(fuse.Operations):
         # out the whole buffer to the logs.
         if op == "write":
             ap = [a[0],
-                  "<data, len=%ik>" % int(len(a[1]) / 1024)] + map(repr, a[2:])
+                  "<data, len=%ik>" % int(len(a[1]) / 1024)] + [ repr(x) for x in a[2:] ]
         elif op == "readdir":
-            ap = map(repr, a)
+            ap = [ repr(x) for x in a ]
             ap[1] = "<filler>"
         else:
-            ap = map(repr, a)
+            ap = [ repr(x) for x in a ]
 
         # Print request name and parameters
         log_fuse.debug("* %s(%s)", op, ", ".join(ap))
 
         try:
             return getattr(self, op)(*a)
-        except FUSEError, e:
-            if e.fatal:
+        except FUSEError as exc:
+            if exc.fatal:
                 self.mark_damaged()
             # Final error handling is done in fuse.py
             # OSError apparently has to be initialized with a tuple, otherwise
             # errno is not stored correctly
-            raise OSError(e.errno, "")
+            raise OSError(exc.errno, "")
         except:
             log_fuse.error("Unexpected internal filesystem error."
                            "Filesystem may be corrupted, run fsck.s3ql as soon as possible!" 
@@ -163,7 +163,7 @@ class Server(fuse.Operations):
         cur = self.get_cursor()
         rev = cur.get_val("SELECT version FROM parameters")
         if rev < 1:
-            raise RevisionError, (rev, 1)
+            raise RevisionError(rev, 1)
 
         # Update mount count
         cur.execute("UPDATE parameters SET mountcnt = mountcnt + 1")
@@ -172,7 +172,7 @@ class Server(fuse.Operations):
         self.blocksize = cur.get_val("SELECT blocksize FROM parameters")
 
 
-    def get_cursor(self, *a, **kw):
+    def get_cursor(self):
         """Returns a cursor from thread-local connection.
 
         The cursor is augmented with the convenience functions
@@ -229,7 +229,7 @@ class Server(fuse.Operations):
             
         # preferred blocksize for doing IO
         fstat["st_blksize"] = resource.getpagesize()
-
+        
         if stat.S_ISREG(fstat["st_mode"]):
             # determine number of blocks for files
             # The exact semantics are not clear. For now we just return 1,
@@ -261,33 +261,27 @@ class Server(fuse.Operations):
 
         if not self.noatime:
             update_atime(inode, cur)
-        return str(target)
+        return target
 
+    def opendir(self, path):
+        """Returns a numerical file handle."""
+        return get_inode(path, self.get_cursor())
 
-    def readdir(self, path, filler, offset, fh):
+    def readdir(self, path, filler, offset, inode):
         """Handles FUSE readdir() requests
         """
+        #pylint: disable-msg=W0221,W0613
+        # - Different arguments since we overwrote the readdir call in FuseAdaptor
+        # - We don't need path and offset
         cur = self.get_cursor()
-
-        if path == "/":
-            inode = get_inode(path, cur)
-            inode_p = inode
-        else:
-            (inode_p, inode) = get_inodes(path, cur)[-2:]
-
+        inode = get_inode(path, cur)
+        
         if not self.noatime:
             update_atime(inode, cur)
-
-        filler(".", self.getattr_ino(inode), 0)
-        filler("..", self.getattr_ino(inode_p), 0)
-
-        # Actual contents
-        res = cur.execute("SELECT name, inode FROM contents WHERE parent_inode=? "
-                          "AND inode != parent_inode", (inode,)) # Avoid to get / which is its own parent
-        for (name, inode) in res:
-            name = str(name)
+            
+        for (name, inode) in cur.execute("SELECT name, inode FROM contents WHERE parent_inode=?",
+                                         (inode,)):
             filler(name, self.getattr_ino(inode), 0)
-
 
     def getxattr(self, path, name, position=0):
         raise FUSEError(fuse.ENOTSUP)
@@ -315,7 +309,7 @@ class Server(fuse.Operations):
         cur.execute("SAVEPOINT 'Server.unlink'")
         try:
             cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                        (buffer(os.path.basename(path)), inode_p))
+                        (os.path.basename(path), inode_p))
     
             # No more links, remove datablocks
             if fstat["st_nlink"] == 1:
@@ -356,7 +350,11 @@ class Server(fuse.Operations):
         cur.execute("SAVEPOINT 'Server.rmdir'")
         try:
             cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                        (buffer(os.path.basename(path)), inode_p))
+                        ('.', inode))
+            cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
+                        ('..', inode))                        
+            cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
+                        (os.path.basename(path), inode_p))
             cur.execute("DELETE FROM inodes WHERE id=?", (inode,))
             decrease_refcount(inode_p, cur)
             update_mtime(inode_p, cur)
@@ -376,14 +374,13 @@ class Server(fuse.Operations):
         cur.execute("SAVEPOINT 'Server.symlink'")
         try:
             mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | 
-                     stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | 
-                     stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
+                    stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | 
+                    stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
             cur.execute("INSERT INTO inodes (mode,uid,gid,target,mtime,atime,ctime,refcount) "
-                                "VALUES(?, ?, ?, ?, ?, ?, ?, 1)",
-                                (mode, uid, gid, buffer(target),
-                                 time(), time(), time()))
+                        "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                        (mode, uid, gid, target, time(), time(), time(), 1))
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                                (buffer(os.path.basename(name)), self.local.conn.last_insert_rowid(), inode_p))
+                        (os.path.basename(name), self.local.conn.last_insert_rowid(), inode_p))
             update_mtime(inode_p, cur)
         except:
             cur.execute("ROLLBACK TO 'Server.symlink'")
@@ -395,17 +392,20 @@ class Server(fuse.Operations):
         """Handles FUSE rename() requests.
         """
 
-        cur = self.get_cursor()
+        cur = self.get_cursor() 
+        fstat = self.getattr(old)
         inode_p_old = get_inode(os.path.dirname(old), cur)
         inode_p_new = get_inode(os.path.dirname(new), cur)
         
-        if not inode_p_new:
-            log.warn("rename: path %s does not exist" % new)
-            raise FUSEError(errno.EINVAL)
-        
         cur.execute("UPDATE contents SET name=?, parent_inode=? WHERE name=? "
-                    "AND parent_inode=?", (buffer(os.path.basename(new)), inode_p_new,
-                                           buffer(os.path.basename(old)), inode_p_old))
+                    "AND parent_inode=?", (os.path.basename(new), inode_p_new,
+                                           os.path.basename(old), inode_p_old))
+        
+        # For directories we need to update .. as well
+        if stat.S_ISDIR(fstat['st_mode']):
+            cur.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
+                        (inode_p_new, '..', fstat['st_ino']))
+        
         update_mtime(inode_p_old, cur)
         update_mtime(inode_p_new, cur)
 
@@ -414,19 +414,13 @@ class Server(fuse.Operations):
         """
         cur = self.get_cursor()
 
-        # We do not want the getattr() overhead here
         fstat = self.getattr(target)
         inode_p = get_inode(os.path.dirname(source), cur)
-
-        # Do not allow directory hardlinks
-        if stat.S_ISDIR(fstat["st_mode"]):
-            log.info("Attempted to hardlink directory %s", target)
-            raise FUSEError(errno.EINVAL)
 
         cur.execute("SAVEPOINT 'Server.link'")
         try:
             cur.execute("INSERT INTO contents (name,inode,parent_inode) VALUES(?,?,?)",
-                     (buffer(os.path.basename(source)), fstat["st_ino"], inode_p))
+                     (os.path.basename(source), fstat["st_ino"], inode_p))
             increase_refcount(fstat["st_ino"], cur)
             update_mtime(inode_p, cur)
         except:
@@ -475,7 +469,7 @@ class Server(fuse.Operations):
                      "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
                      (time(), time(), time(), uid, gid, mode, dev, 1))
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                     (buffer(os.path.basename(path)), cur.last_rowid(), inode_p))
+                     (os.path.basename(path), cur.last_rowid(), inode_p))
             update_mtime(inode_p, cur)
         except:
             cur.execute("ROLLBACK TO 'Server.mknod'")
@@ -488,13 +482,12 @@ class Server(fuse.Operations):
         """Handles FUSE mkdir() requests.
         """
 
-        # Check mode
+        # FUSE does not pass type information, so we set S_IFDIR manually
+        # We still fail if a different type information is received.
         if (stat.S_IFMT(mode) != stat.S_IFDIR and
             stat.S_IFMT(mode) != 0):
             log.warn("mkdir: invalid mode")
             raise FUSEError(errno.EINVAL)
-
-        # Ensure correct mode
         mode = (mode & ~stat.S_IFMT(mode)) | stat.S_IFDIR
 
         cur = self.get_cursor()
@@ -502,13 +495,16 @@ class Server(fuse.Operations):
         (uid, gid) = fuse.fuse_get_context()[:2]
         cur.execute("SAVEPOINT 'Server.mkdir'")
         try:
-            # refcount is 2 because of "."
             cur.execute("INSERT INTO inodes (mtime,atime,ctime,uid,gid,mode,refcount) "
                      "VALUES(?, ?, ?, ?, ?, ?, ?)",
                      (time(), time(), time(), uid, gid, mode, 2))
             inode = cur.last_rowid()
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
-                (buffer(os.path.basename(path)), inode, inode_p))
+                (os.path.basename(path), inode, inode_p))
+            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
+                ('.', inode, inode))
+            cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
+                ('..', inode_p, inode))     
             increase_refcount(inode_p, cur)
             update_mtime(inode_p, cur)
         except:
@@ -517,47 +513,54 @@ class Server(fuse.Operations):
         finally:
             cur.execute("RELEASE 'Server.mkdir'")
 
-    def utimens(self, path, times):
+    def utimens(self, path, times=None):
         """Handles FUSE utime() requests.
         """
 
         cur = self.get_cursor()
-        (atime, mtime) = times
+        if times is None:
+            (atime, mtime) = time()
+        else:
+            (atime, mtime) = times
         inode = get_inode(path, cur)
         cur.execute("UPDATE inodes SET atime=?,mtime=?,ctime=? WHERE id=?",
                      (atime, mtime, time(), inode))
 
-    def statfs(self):
+    def statfs(self, path):
         """Handles FUSE statfs() requests.
         """
+        # path does not matter
+        #pylint: disable-msg=W0613
 
         cur = self.get_cursor()
-        stat = dict()
+        stat_ = dict()
 
         # Blocksize
-        stat["f_bsize"] = resource.getpagesize()
-        stat["f_frsize"] = stat.f_bsize
+        stat_["f_bsize"] = resource.getpagesize()
+        stat_["f_frsize"] = stat_['f_bsize']
 
-        # Get number of blocks & inodes blocks
+        # Get number of blocks & inodes 
         blocks = cur.get_val("SELECT COUNT(id) FROM s3_objects")
         inodes = cur.get_val("SELECT COUNT(id) FROM inodes")
 
         # Since S3 is unlimited, always return a half-full filesystem
-        stat["f_blocks"] = 2 * blocks
-        stat["f_bfree"] = blocks
-        stat["f_bavail"] = blocks
-        stat["f_files"] = 2 * inodes
-        stat["f_ffree"] = inodes
+        stat_["f_blocks"] = 2 * blocks
+        stat_["f_bfree"] = blocks
+        stat_["f_bavail"] = blocks
+        stat_["f_files"] = 2 * inodes
+        stat_["f_ffree"] = inodes
 
         return stat
 
 
-    def truncate(self, bpath, len):
+    def truncate(self, bpath, len_):
         """Handles FUSE truncate() requests.
         """
+        #pylint: disable-msg=W0221
+        # This is fine since we overwrote the readdir call in FuseAdaptor
 
         fh = self.open(bpath, os.O_WRONLY)
-        self.ftruncate(bpath, len, fh)
+        self.ftruncate(bpath, len_, fh)
         self.release(bpath, fh)
 
     def main(self, mountpoint, **kw):
@@ -581,17 +584,19 @@ class Server(fuse.Operations):
         inode of the file, so it is not possible to distinguish between
         different open() and `create()` calls for the same inode.
         """
-        
+        #pylint: disable-msg=W0613
+        # - flags is not used
         cur = self.get_cursor()
         return get_inode(path, cur)
 
-    def create(self, path, mode):
+    def create(self, path, mode, fi=None):
         """Creates file `path` with mode `mode`
         
         Returns a file descriptor that is equal to the
         inode of the file, so it is not possible to distinguish between
         different open() and create() calls for the same inode.
         """
+        assert fi is None
 
         # check mode
         if (stat.S_IFMT(mode) != stat.S_IFREG and
@@ -604,9 +609,9 @@ class Server(fuse.Operations):
 
         cur = self.get_cursor()
         (uid, gid) = fuse.fuse_get_context()[:2]
-        dir = os.path.dirname(path)
+        dirname = os.path.dirname(path)
         name = os.path.basename(path)
-        inode_p = get_inode(dir, cur)
+        inode_p = get_inode(dirname, cur)
         cur.execute("BEGIN TRANSACTION")
         try:
             cur.execute("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev,refcount,size) "
@@ -614,7 +619,7 @@ class Server(fuse.Operations):
                      (time(), time(), time(), uid, gid, mode, None, 1))
             inode = cur.last_rowid()
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                     (buffer(name), inode, inode_p))
+                     (name, inode, inode_p))
             update_mtime(inode_p, cur)
         except:
             cur.execute("ROLLBACK")
@@ -625,18 +630,20 @@ class Server(fuse.Operations):
         return inode
 
     def read(self, path, length, offset, inode):
+        #pylint: disable-msg=W0613
+        # - path is not used
         cur = self.get_cursor()
         buf = StringIO()
         while length > 0:
             if offset >= cur.get_val("SELECT size FROM inodes WHERE id=?", (inode,)):
                 break
-            tmp = self.read_direct(path, length, offset, inode)
+            tmp = self.read_direct(length, offset, inode)
             buf.write(tmp)
             length -= len(tmp)
             offset += len(tmp)
         return buf.getvalue()
 
-    def read_direct(self, path, length, offset, inode):
+    def read_direct(self, length, offset, inode):
         """Handles FUSE read() requests.
 
         May return less than `length` bytes.
@@ -672,15 +679,17 @@ class Server(fuse.Operations):
                 return buf + "\0" * (length - len(buf))
 
     def write(self, path, buf, offset, inode):
+        #pylint: disable-msg=W0613
+        # - path is not used
         total = len(buf)
         while len(buf) > 0:
-            written = self.write_direct(path, buf, offset, inode)
+            written = self.write_direct(buf, offset, inode)
             offset += written
             buf = buf[written:]
         return total
 
 
-    def write_direct(self, path, buf, offset, inode):
+    def write_direct(self, buf, offset, inode):
         """Handles FUSE write() requests.
 
         May write less bytes than given in `buf`.
@@ -713,30 +722,33 @@ class Server(fuse.Operations):
         
         return len(buf)
 
-    def ftruncate(self, path, len, inode):
+    def ftruncate(self, path, len_, inode):
         """Handles FUSE ftruncate() requests.
         """
+        # We don't need path
+        #pylint: disable-msg=W0613 
         cur = self.get_cursor()
 
         # Delete all truncated s3 objects
-        self.cache.remove(inode, cur, len)
+        self.cache.remove(inode, cur, len_)
 
         # Get last object before truncation
-        offset_i = self.blocksize * int((len - 1) / self.blocksize)
+        offset_i = self.blocksize * int((len_ - 1) / self.blocksize)
         with self.cache.get(inode, offset_i, cur, markdirty=True) as fh:
-            fh.truncate(len - offset_i)
+            fh.truncate(len_ - offset_i)
                 
         # Update file size
         cur.execute("UPDATE inodes SET size=?,mtime=?,ctime=? WHERE id=?",
-                     (len, time(), time(), inode))
+                     (len_, time(), time(), inode))
             
 
-    def fsync(self, fdatasync, inode):
+    def fsync(self, path, fdatasync, inode):
         """Handles FUSE fsync() requests.
         """
 
         # Metadata is always synced automatically, so we ignore
         # fdatasync
+        #pylint: disable-msg=W0613
         self.cache.flush(inode, self.get_cursor())
 
 
@@ -745,13 +757,14 @@ class Server(fuse.Operations):
     def flush(self, path, inode):
         """Handles FUSE flush() requests.
         """
-        return self.fsync(False, inode)
+        return self.fsync(path, False, inode)
 
 
-class RevisionError:
+class RevisionError(Exception):
     """Raised if the filesystem revision is too new for the program
     """
     def __init__(self, args):
+        super(RevisionError, self).__init__()
         self.rev_is = args[0]
         self.rev_should = args[1]
 

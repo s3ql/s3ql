@@ -1,9 +1,10 @@
-#!/usr/bin/env python
-#
-#    Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
-#
-#    This program can be distributed under the terms of the GNU LGPL.
-#
+"""
+Common functions for S3QL
+
+Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
+
+This program can be distributed under the terms of the GNU LGPL.
+"""
 
 
 import sys
@@ -28,16 +29,22 @@ class Filter(object):
     This filter accepts all messages with priority higher than
     a given value or coming from a configured list of loggers.    
     """
-    def __init__(self, acceptnames=[], acceptlevel=logging.DEBUG):
+    # pylint: disable-msg=R0903
+    def __init__(self, acceptnames=None, acceptlevel=logging.DEBUG):
         """Initializes a Filter object.
         
         Passes through all messages with priority higher than
         `acceptlevel` or coming from a logger with name in `acceptnames`. 
         """
+        if acceptnames is None:
+            acceptnames = list()
+            
         self.acceptlevel = acceptlevel
         self.acceptnames = acceptnames
         
     def filter(self, record):
+        '''Determine if the log message should be printed
+        '''
         if record.levelno > self.acceptlevel:
             return True
         
@@ -47,7 +54,7 @@ class Filter(object):
         
         return False
             
-def init_logging(fg, quiet=False, debug=[]):
+def init_logging(fg, quiet=False, debug=None):
     """Initializes logging system.
     
     If `fg` is set, logging messages are send to stdout. Otherwise logging
@@ -59,6 +66,9 @@ def init_logging(fg, quiet=False, debug=[]):
     `debug` can be set to a list of logger names from which debugging
     messages are to be printed.
     """            
+    if debug is None:
+        debug = list()
+        
     root_logger = logging.getLogger()
     log_filter = Filter()
     
@@ -92,6 +102,8 @@ class MyCursor(object):
         self.conn = cursor.getconnection()
 
     def execute(self, *a, **kw):
+        '''Execute the given SQL statement
+        '''
         return self.cursor.execute(*a, **kw)
 
     def get_val(self, *a, **kw):
@@ -179,8 +191,7 @@ def get_inodes(path, cur):
     """
     
     # Remove leading and trailing /
-    path = path.lstrip("/").rstrip("/")
-    
+    path = path.lstrip("/").rstrip("/") 
 
     inode = ROOT_INODE
     
@@ -193,7 +204,7 @@ def get_inodes(path, cur):
     for el in path.split(os.sep):
         try:
             inode = cur.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                                (buffer(el), inode))
+                                (el, inode))
         except StopIteration:
             raise KeyError('Path does not exist', path)
         
@@ -205,15 +216,18 @@ def get_path(name, inode_p, cur):
     """Returns the full path of `name` with parent inode `inode_p`.
     """
     
-    # Root inode
-    inode_r = get_inode(b"/", cur)
-    
-    path = list()
-    while inode_p != inode_r:
+    path = list() 
+    maxdepth = 255
+    while inode_p != ROOT_INODE:
+        # This can be ambigious if directories are hardlinked
         (name2, inode_p) = cur.get_row("SELECT name, parent_inode FROM contents "
-                                      "WHERE inode=?", (inode_p,)) # Not ambigious, since we don't allow directory hardlinks
-        name2 = str(name2)
+                                      "WHERE inode=? AND name != ? AND name != ?",
+                                       (inode_p, '.', '..')) 
         path.append(name2)
+        maxdepth -= 1
+        if maxdepth == 0:
+            raise RuntimeError('Failed to resolve name "%s" at inode %d to path',
+                               name, inode_p)
         
     path.append(name)
     path = path.reverse()
@@ -283,14 +297,15 @@ def get_credentials(key=None):
         
         if os.path.isfile(keyfile):
             mode = os.stat(keyfile).st_mode
-            file = open(keyfile, "r")
-            key = file.readline().rstrip()
+            kfile = open(keyfile, "r")
+            key = kfile.readline().rstrip()
 
             if mode & (stat.S_IRGRP | stat.S_IROTH):
-                sys.stderr.write("~/.awssecret has insecure permissions, reading password from terminal instead!\n")        
+                sys.stderr.write("~/.awssecret has insecure permissions, "
+                                 "reading password from terminal instead!\n")        
             else:    
-                pw = file.readline().rstrip()
-            file.close()    
+                pw = kfile.readline().rstrip()
+            kfile.close()    
             
         if not key:
             if sys.stdin.isatty():
@@ -336,7 +351,7 @@ def addfile(remote, local, inode_p, cursor, bucket):
     inode = cursor.last_rowid()
 
     cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   (buffer(remote), inode, inode_p))
+                   (remote, inode, inode_p))
 
     # Add s3 objects
     blocksize = cursor.get_val("SELECT blocksize FROM parameters")
@@ -390,13 +405,13 @@ def unused_name(cur, name, inode_p):
     """
     
     if not cur.get_row("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                           (buffer(name), inode_p)):
+                           (name, inode_p)):
         return name
 
-    i=0
+    i = 0
     while cur.get_row("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                          (buffer("%s-%d" % (name,i)), inode_p)):
+                          ("%s-%d" % (name,i), inode_p)):
         i += 1
-    return "%s-%d" % (name,i)
+    return "%s-%d" % (name, i)
 
 ROOT_INODE = 0

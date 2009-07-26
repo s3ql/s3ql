@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 #
 #    Copyright (C) 2008-2009  Nikolaus Rath <Nikolaus@rath.org>
 #
@@ -24,7 +23,6 @@ log = logging.getLogger("S3Cache")
 class CacheEntry(object):
     """An element in the s3 cache.
     
-
     Attributes:
     -----------
 
@@ -134,7 +132,7 @@ class S3Cache(object):
                 log.debug('creating new s3 object')
                 cur.execute("SAVEPOINT 'S3Cache.get'")
                 try:
-                    s3key = "%d_%d" % (inode, offset) # This is a unique new key
+                    s3key = "s3ql_data_%d_%d" % (inode, offset) # This is a unique new key
                     cur.execute("INSERT INTO s3_objects (id,refcount) VALUES(?,?)", (s3key,1))
                     cur.execute("INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?,?,?)",
                                 (inode, offset, s3key))
@@ -279,18 +277,20 @@ class S3Cache(object):
                 self.s3_lock.acquire(s3key)
             
             log.debug('Removing object %s from S3', s3key)
+            #pylint: disable-msg=W0704
+            # - the except doesn't do anything deliberately
             try:
                 el = self.keys.pop(s3key, None)
                 if el is not None: # In cache
-                    el.fh.close()
-                    os.unlink(self.cachedir + el.name)
+                    el.fh.close()   #pylint: disable-msg=E1103
+                    os.unlink(self.cachedir + el.name)  #pylint: disable-msg=E1103
                 
                 # Remove from s3
                 try:
                     # The object may not have been committed yet
                     self.bucket.delete_key(s3key)
-                except KeyError:
-                    pass
+                except KeyError: 
+                    pass 
             finally:
                 self.s3_lock.release(s3key)
                 

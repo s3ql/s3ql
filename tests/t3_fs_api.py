@@ -5,16 +5,16 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
-import tempfile
-import unittest
+from random import randrange
 from s3ql import mkfs, s3, fs, fsck
+from s3ql.common import MyCursor
 from s3ql.s3cache import S3Cache
-from s3ql.common import my_cursor
 import apsw
-import stat
 import os
 import resource
-from random import randrange
+import stat
+import tempfile
+import unittest
 
 class fs_api_tests(unittest.TestCase):
 
@@ -36,19 +36,14 @@ class fs_api_tests(unittest.TestCase):
 
     def tearDown(self):
         # May not have been called if a test failed
-        self.cache.close(my_cursor(apsw.Connection(self.dbfile.name).cursor()))
+        self.cache.close(MyCursor(apsw.Connection(self.dbfile.name).cursor()))
         self.dbfile.close()
         os.rmdir(self.cachedir)
 
     def fsck(self):
-        self.cache.close(my_cursor(apsw.Connection(self.dbfile.name).cursor()))
+        self.cache.close(MyCursor(apsw.Connection(self.dbfile.name).cursor()))
         conn = apsw.Connection(self.dbfile.name)
-        self.assertTrue(fsck.a_check_parameters(conn, checkonly=True))
-        self.assertTrue(fsck.b_check_cache(conn, self.cachedir, self.bucket, checkonly=True))
-        self.assertTrue(fsck.c_check_contents(conn, checkonly=True))
-        self.assertTrue(fsck.d_check_inodes(conn, checkonly=True))
-        self.assertTrue(fsck.e_check_s3(conn, self.bucket, checkonly=True))
-        self.assertTrue(fsck.f_check_keylist(conn, self.bucket, checkonly=True))
+        self.assertTrue(fsck.fsck(conn, self.cachedir, self.bucket, checkonly=True))
 
     @staticmethod
     def random_name(prefix=""):
@@ -111,7 +106,7 @@ class fs_api_tests(unittest.TestCase):
         name = os.path.join("/",  self.random_name())
         mtime_old = self.server.getattr("/")["st_mtime"]
         self.assert_entry_doesnt_exist(name)
-        self.server.mkdir(name, stat.S_IRUSR | stat.S_IXUSR)
+        self.server.mkdir(name, stat.S_IRUSR | stat.S_IXUSR | stat.S_IFDIR)
         self.assert_entry_exists(name)
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
         fstat = self.server.getattr(name)
@@ -122,7 +117,7 @@ class fs_api_tests(unittest.TestCase):
 
         sub = os.path.join(name, self.random_name())
         self.assert_entry_doesnt_exist(sub)
-        self.server.mkdir(sub, stat.S_IRUSR | stat.S_IXUSR)
+        self.server.mkdir(sub, stat.S_IRUSR | stat.S_IXUSR | stat.S_IFDIR)
         self.assert_entry_exists(sub)
 
         fstat = self.server.getattr(name)

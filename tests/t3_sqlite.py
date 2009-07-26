@@ -5,6 +5,10 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+# different naming conventions for tests
+#pylint: disable-msg=C0103
+       
+
 import tempfile
 import unittest
 from time import time
@@ -46,7 +50,7 @@ class sqlite_tests(unittest.TestCase):
                     (stat.S_IFREG, os.getuid(), os.getgid(), time(), time(), time(), 1))
         inode = cur.last_rowid()
         cur.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   (buffer("testfile"), inode, ROOT_INODE))
+                   ("testfile", inode, ROOT_INODE))
                            
         # Try to create a file with a file as parent
         cur.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
@@ -54,7 +58,7 @@ class sqlite_tests(unittest.TestCase):
                     (stat.S_IFREG, os.getuid(), os.getgid(), time(), time(), time(), 1))     
         inode2 = cur.last_rowid()             
         self.assertRaises(apsw.ConstraintError, cur.execute, "INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                    (buffer("testfile2"), inode, inode2))
+                    ("testfile2", inode, inode2))
         
                    
     def test_inodes_mode(self):
@@ -80,5 +84,4 @@ def suite():
 
 # Allow calling from command line
 if __name__ == "__main__":
-            unittest.main()
-       
+    unittest.main()

@@ -7,5 +7,6 @@
 <pydev_property name="org.python.pydev.PYTHON_PROJECT_INTERPRETER">Python 2.6</pydev_property>
 <pydev_pathproperty name="org.python.pydev.PROJECT_SOURCE_PATH">
 <path>/s3ql/src</path>
+<path>/s3ql/tests</path>
 </pydev_pathproperty>
 </pydev_project>
