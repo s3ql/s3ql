@@ -4,11 +4,7 @@
 #
 #    This program can be distributed under the terms of the GNU LGPL.
 #
-
-# different naming conventions for tests
-#pylint: disable-msg=C0103
        
-
 import tempfile
 import unittest
 from time import time
@@ -45,20 +41,21 @@ class sqlite_tests(unittest.TestCase):
         cur = self.cur
         
         # Create a file
-        cur.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
-                    "VALUES (?,?,?,?,?,?,?)",
-                    (stat.S_IFREG, os.getuid(), os.getgid(), time(), time(), time(), 1))
+        cur.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (stat.S_IFREG, os.getuid(), os.getgid(), time(), time(), time(), 1, 0))
         inode = cur.last_rowid()
         cur.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                    ("testfile", inode, ROOT_INODE))
                            
         # Try to create a file with a file as parent
-        cur.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
-                    "VALUES (?,?,?,?,?,?,?)",
+        cur.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                    "VALUES (?,?,?,?,?,?,?,0)",
                     (stat.S_IFREG, os.getuid(), os.getgid(), time(), time(), time(), 1))     
         inode2 = cur.last_rowid()             
-        self.assertRaises(apsw.ConstraintError, cur.execute, "INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                    ("testfile2", inode, inode2))
+        self.assertRaises(apsw.ConstraintError, cur.execute, 
+                          "INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+                          ("testfile2", inode, inode2))
         
                    
     def test_inodes_mode(self):

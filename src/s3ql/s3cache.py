@@ -14,6 +14,9 @@ import os
 import threading
 import time
 
+# Pylint has trouble to recognise the type of elements in the OrderedDict
+#pylint: disable-msg=E1103
+ 
 __all__ = [ "S3Cache" ]
 
 # standard logger for this module
@@ -111,14 +114,19 @@ class S3Cache(object):
          
         This is a context manager function, so the intended usage is
         
-        with s3cache.s3_object(inode, offset) as fh:
-            fh.write(...)
+        with s3cache.get(inode, offset, cur) as fh:
+            foo = fh.read(...)
             
         Note that offset has to be the starting offset. If caller is
         going to write into the fh, he has to set `markdirty` so that
         the changes are propagated back into S3.
         
         """
+        
+        # TODO: Instead of using `markdirty`, compare mtime of the file
+        # before and after the yield and determine if it has been changed.
+        
+        self.expire_cache(cur)
         
         # Get s3 key
         log.debug('Getting filehandle for inode %i, offset %i', inode, offset)
@@ -151,7 +159,6 @@ class S3Cache(object):
         try:
             if s3key not in self.keys:
                 log.debug('Object not cached, retrieving from s3')
-                self.expire_cache()
                 etag = cur.get_val("SELECT etag FROM s3_objects WHERE id=?", (s3key,))
                 el = CacheEntry(s3key, self._download_object(s3key, etag))
                 self.keys[s3key] = el
@@ -163,7 +170,9 @@ class S3Cache(object):
             # Now the fh is made available 
             if markdirty:
                 el.dirty = True
-                
+            
+            # Always start at the same position
+            el.fh.seek(0)
             yield el.fh
         finally:
             log.debug('Releasing object lock')
@@ -175,7 +184,8 @@ class S3Cache(object):
         
         Not synchronized. 
         """
-        
+
+        log.debug('Attempting to download object %s from S3', s3key)
         cachepath = self.cachedir + s3key
         meta = self.bucket.lookup_key(s3key)
 
@@ -190,6 +200,8 @@ class S3Cache(object):
                 time.sleep(waittime)
                 waited += waittime
                 waittime *= 1.5
+                log.info('Retrying to fetch object %s from S3 (%d sec to timeout.)..', s3key,
+                         self.timeout - waited)
                 meta = self.bucket.lookup_key(s3key)
 
             # If still not found
@@ -200,6 +212,7 @@ class S3Cache(object):
                 raise fs.FUSEError(errno.EIO, fatal=True)
             
         self.bucket.fetch_to_file(s3key, cachepath) 
+        log.debug('Object %s fetched successfully.', s3key)
         return open(cachepath, "r+b")        
         
                   
@@ -213,7 +226,7 @@ class S3Cache(object):
         Uses database cursor `cur`.
         """
         log.debug('Expiring cache')
-        while (len(self.keys)+1) * self.blocksize > self.maxsize and self.keys:
+        while len(self.keys) * self.blocksize > self.maxsize and self.keys:
 
             with self.global_lock:
                 el = self.keys.pop_last()
@@ -246,8 +259,9 @@ class S3Cache(object):
         while True:
             with self.global_lock:
                 try:
-                    (s3key, cur_off) = cur.get_row("SELECT s3key,offset FROM inode_s3key WHERE inode=? AND offset >= ?", 
-                                                   (inode, offset))
+                    (s3key, cur_off) = \
+                        cur.get_row("SELECT s3key,offset FROM inode_s3key WHERE inode=? "
+                                    "AND offset >= ?", (inode, offset))
                 except StopIteration:    # No keys left
                     break
                 
@@ -277,13 +291,11 @@ class S3Cache(object):
                 self.s3_lock.acquire(s3key)
             
             log.debug('Removing object %s from S3', s3key)
-            #pylint: disable-msg=W0704
-            # - the except doesn't do anything deliberately
             try:
                 el = self.keys.pop(s3key, None)
                 if el is not None: # In cache
-                    el.fh.close()   #pylint: disable-msg=E1103
-                    os.unlink(self.cachedir + el.name)  #pylint: disable-msg=E1103
+                    el.fh.close()  
+                    os.unlink(self.cachedir + el.name) 
                 
                 # Remove from s3
                 try:

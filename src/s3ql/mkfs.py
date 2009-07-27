@@ -4,8 +4,6 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
-# TODO: Make sure that no code relies on stat.S_IF* being mutually exclusive
-
 import stat
 import apsw
 import os
@@ -73,9 +71,8 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
                     CHECK (typeof(last_fsck) == 'real'),
         mountcnt    INT NOT NULL
                     CHECK (typeof(mountcnt) == 'integer'),
-        version     REAL NOT NULL,
-                -- the following check apparently confuses sqlite a lot
-                --    CHECK (typeof(version) == 'real'),
+        version     REAL NOT NULL
+                    CHECK (typeof(version) == 'real'),
         needs_fsck  BOOLEAN NOT NULL
                     CHECK (typeof(needs_fsck) == 'integer')
     );
@@ -144,22 +141,19 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
 
         -- for symlinks only
         target    TEXT(256)
-                  CHECK ( (mode & {S_IFLNK} == {S_IFLNK} AND typeof(target) == 'text') OR
-                          (mode & {S_IFLNK} != {S_IFLNK} AND target IS NULL) OR 1==1 ),
+                  CHECK ( (mode & {S_IFMT} == {S_IFLNK} AND typeof(target) == 'text') OR
+                          (mode & {S_IFMT} != {S_IFLNK} AND target IS NULL) ),
 
         -- for files only
-        size      INT,
-            -- the following check apparently confuses sqlite a lot
-            --      CHECK ( (mode & {S_IFREG} == {S_IFREG} AND typeof(size) == 'integer' AND size >= 0) OR
-            --              (mode & {S_IFREG} != {S_IFREG} AND size IS NULL) ),
+        size      INT
+                  CHECK ( (mode & {S_IFMT} == {S_IFREG} AND typeof(size) == 'integer' AND size >= 0) OR
+                          (mode & {S_IFMT} != {S_IFREG} AND size IS NULL) ),
 
         -- device nodes
         rdev      INT
-            -- the following check apparently confuses sqlite a lot
-            --      CHECK ( ( (mode & {S_IFBLK} == {S_IFBLK} OR mode & {S_IFCHR} == {S_IFCHR})
-            --                   AND typeof(rdev) == 'integer' AND rdev >= 0) OR
-            --              ( mode & {S_IFBLK} != {S_IFBLK} AND mode & {S_IFCHR} != {S_IFCHR}
-            --                AND rdev IS NULL ))    
+                  CHECK ( ( mode & {S_IFMT} IN ({S_IFBLK}, {S_IFCHR})
+                               AND typeof(rdev) == 'integer' AND rdev >= 0) OR
+                          ( mode & {S_IFMT} NOT IN ({S_IFBLK}, {S_IFCHR}) AND rdev IS NULL ) )    
              
     );
     """.format(**types))
@@ -238,5 +232,5 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
 def setup_bucket(bucket, dbfile):
     """Creates a bucket and uploads metadata.
     """
-    bucket.store_from_file(key='s3ql_metadata', file=dbfile)
-    bucket.store(key='s3ql_dirty', val="no")
+    bucket.store_from_file('s3ql_metadata', dbfile)
+    bucket['s3ql_dirty'] = "no"

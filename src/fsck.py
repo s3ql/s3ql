@@ -167,8 +167,14 @@ if not options.checkonly:
                    "mountcnt=?", (False, time.time(), 0))
 
     cursor.execute("VACUUM")
+    cursor = None
     conn.close()
-    # TODO: Backup old metadata
+    log.debug("Uploading database..")
+    if bucket.has_key("s3ql_metadata_bak_2"):
+        bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
+    if bucket.has_key("s3ql_metadata_bak_1"):
+        bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
+    bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
     bucket.store_from_file("s3ql_metadata", dbfile)
     bucket.store("s3ql_dirty", "no")
 

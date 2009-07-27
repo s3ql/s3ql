@@ -6,7 +6,7 @@
 #
 
 import threading
-from functools import partial
+from functools import partial 
 
 __all__ = [ "MultiLock" ]
 
@@ -18,9 +18,9 @@ class ContextManager(object):
     attributes (i.e., function objects) when initialized.
     '''
     
-    def __init__(self, enter, exit):
+    def __init__(self, enter, exit_):
         self.__enter__ = enter 
-        self.__exit__ = exit
+        self.__exit__ = exit_
         
             
 class MultiLock(object):

@@ -6,7 +6,7 @@
 #
 
 import threading
-import collections
+import collections 
 
 
 __all__ = [ "OrderedDict" ]
@@ -26,10 +26,10 @@ class OrderedDictElement(object):
     
     __slots__ = [ "next", "prev", "key", "value" ]
     
-    def __init__(self, key, value, next=None, prev=None):
+    def __init__(self, key, value, next_=None, prev=None):
         self.key = key
         self.value = value
-        self.next = next
+        self.next = next_
         self.prev = prev
     
 class HeadSentinel(object):
@@ -38,8 +38,8 @@ class HeadSentinel(object):
     
     __slots__ = [ 'next' ]
     
-    def __init__(self, next=None):
-        self.next = next
+    def __init__(self, next_=None):
+        self.next = next_
     
     def __str__(self):
         return '<head sentinel>'
@@ -89,7 +89,7 @@ class OrderedDict(collections.MutableMapping):
             self.data[key].value = value
         else:
             with self.lock:
-                el = OrderedDictElement(key, value, next=self.head.next, prev=self.head)
+                el = OrderedDictElement(key, value, next_=self.head.next, prev=self.head)
                 self.head.next.prev = el
                 self.head.next = el
                 self.data[key] = el

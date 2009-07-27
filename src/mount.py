@@ -73,7 +73,7 @@ if options.encrypt:
     if sys.stdin.isatty():
         options.encrypt = getpass("Enter encryption password: ")
         if not options.encrypt == getpass("Confirm encryption password: "):
-            print >>sys.stderr, "Passwords don't match."
+            sys.stderr.write("Passwords don't match.\n")
             sys.exit(1)
     else:
         options.encrypt = sys.stdin.readline().rstrip()
@@ -154,12 +154,14 @@ try:
 
     # Upload database
     cur.execute("VACUUM")
+    cur = None
+    conn.close()
     log.debug("Uploading database..")
     if bucket.has_key("s3ql_metadata_bak_2"):
-        bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3");
+        bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
     if bucket.has_key("s3ql_metadata_bak_1"):
-        bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2");
-    bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1");
+        bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
+    bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
     bucket.store_from_file("s3ql_metadata", dbfile)
     bucket.store("s3ql_dirty", "no")
 
@@ -170,5 +172,5 @@ finally:
         log.debug("Cleaning up...")
         os.unlink(dbfile)
         os.rmdir(cachedir)
-    except:
+    except BaseException:
         pass

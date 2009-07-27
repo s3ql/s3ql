@@ -17,6 +17,10 @@ from cStringIO import StringIO
 import resource
 from time import time
 
+# We have no control over the arguments, so we
+# disable warnings about unused arguments
+#pylint: disable-msg=W0613
+
 
 __all__ = [ "FUSEError", "Server", "RevisionError" ]
 
@@ -270,9 +274,11 @@ class Server(fuse.Operations):
     def readdir(self, path, filler, offset, inode):
         """Handles FUSE readdir() requests
         """
-        #pylint: disable-msg=W0221,W0613
-        # - Different arguments since we overwrote the readdir call in FuseAdaptor
-        # - We don't need path and offset
+
+        # We have different arguments from base class since we overwrote the
+        # readdir call in FuseAdaptor
+        #pylint: disable-msg=W0221
+                
         cur = self.get_cursor()
         inode = get_inode(path, cur)
         
@@ -454,9 +460,8 @@ class Server(fuse.Operations):
         """
 
         # We create only these types (and no hybrids)
-        modetype = stat.S_IFMT(mode)
-        if not (modetype == stat.S_IFCHR or modetype == stat.S_IFBLK or
-                modetype == stat.S_IFIFO):
+        if not (stat.S_ISCHR(mode) or stat.S_ISBLK(mode) or stat.S_ISFIFO(mode)
+                or stat.S_ISSOCK(mode) ):
             log("mknod: invalid mode")
             raise FUSEError(errno.EINVAL)
 
@@ -529,9 +534,6 @@ class Server(fuse.Operations):
     def statfs(self, path):
         """Handles FUSE statfs() requests.
         """
-        # path does not matter
-        #pylint: disable-msg=W0613
-
         cur = self.get_cursor()
         stat_ = dict()
 
@@ -556,9 +558,10 @@ class Server(fuse.Operations):
     def truncate(self, bpath, len_):
         """Handles FUSE truncate() requests.
         """
+        # We have different arguments from base class since we overwrote the
+        # truncate call in FuseAdaptor
         #pylint: disable-msg=W0221
-        # This is fine since we overwrote the readdir call in FuseAdaptor
-
+        
         fh = self.open(bpath, os.O_WRONLY)
         self.ftruncate(bpath, len_, fh)
         self.release(bpath, fh)
@@ -584,8 +587,7 @@ class Server(fuse.Operations):
         inode of the file, so it is not possible to distinguish between
         different open() and `create()` calls for the same inode.
         """
-        #pylint: disable-msg=W0613
-        # - flags is not used
+
         cur = self.get_cursor()
         return get_inode(path, cur)
 
@@ -598,13 +600,11 @@ class Server(fuse.Operations):
         """
         assert fi is None
 
-        # check mode
+        # Type has to be regular file or not specified at all
         if (stat.S_IFMT(mode) != stat.S_IFREG and
             stat.S_IFMT(mode) != 0):
             log.warn("create: invalid mode")
             raise FUSEError(errno.EINVAL)
-
-        # Ensure correct mode
         mode = (mode & ~stat.S_IFMT(mode)) | stat.S_IFREG
 
         cur = self.get_cursor()
@@ -630,8 +630,7 @@ class Server(fuse.Operations):
         return inode
 
     def read(self, path, length, offset, inode):
-        #pylint: disable-msg=W0613
-        # - path is not used
+
         cur = self.get_cursor()
         buf = StringIO()
         while length > 0:
@@ -679,8 +678,7 @@ class Server(fuse.Operations):
                 return buf + "\0" * (length - len(buf))
 
     def write(self, path, buf, offset, inode):
-        #pylint: disable-msg=W0613
-        # - path is not used
+
         total = len(buf)
         while len(buf) > 0:
             written = self.write_direct(buf, offset, inode)
@@ -725,8 +723,7 @@ class Server(fuse.Operations):
     def ftruncate(self, path, len_, inode):
         """Handles FUSE ftruncate() requests.
         """
-        # We don't need path
-        #pylint: disable-msg=W0613 
+
         cur = self.get_cursor()
 
         # Delete all truncated s3 objects
@@ -745,10 +742,8 @@ class Server(fuse.Operations):
     def fsync(self, path, fdatasync, inode):
         """Handles FUSE fsync() requests.
         """
-
         # Metadata is always synced automatically, so we ignore
         # fdatasync
-        #pylint: disable-msg=W0613
         self.cache.flush(inode, self.get_cursor())
 
 

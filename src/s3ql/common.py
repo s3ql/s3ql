@@ -3,7 +3,7 @@ Common functions for S3QL
 
 Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
 
-This program can be distributed under the terms of the GNU LGPL.
+This program can be distributed under the terms of the GNU LGPL. 
 """
 
 
@@ -29,7 +29,7 @@ class Filter(object):
     This filter accepts all messages with priority higher than
     a given value or coming from a configured list of loggers.    
     """
-    # pylint: disable-msg=R0903
+   
     def __init__(self, acceptnames=None, acceptlevel=logging.DEBUG):
         """Initializes a Filter object.
         

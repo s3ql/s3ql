@@ -108,8 +108,8 @@ class Checker(object):
         log.info('Inspecting filesystem parameters...')
         try:
             (label, blocksize, last_fsck, mountcnt, version, needs_fsck) \
-                = cur.get_row("SELECT label, blocksize, last_fsck, mountcnt, version, needs_fsck "
-                              "FROM parameters")
+                = cur.get_row("SELECT label, blocksize, last_fsck, mountcnt, "
+                              " version, needs_fsck FROM parameters")
         except StopIteration:
             (label, blocksize, last_fsck, mountcnt, version, needs_fsck) \
                 = (None, None, None, None, None, None)
@@ -120,7 +120,8 @@ class Checker(object):
              and isinstance(mountcnt, numbers.Integral)
              and isinstance(version, numbers.Real)
              and isinstance(needs_fsck, numbers.Integral)):
-            log.error("Cannot read filesystem parameters. This does not appear to be a valid S3QL filesystem.")
+            log.error("Cannot read filesystem parameters. " 
+                      "This does not appear to be a valid S3QL filesystem.")
             raise FatalFsckError()
     
         return True

@@ -1,9 +1,13 @@
-#!/usr/bin/env python
 #
 #    Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
 #
 #    This program can be distributed under the terms of the GNU LGPL.
 #
+
+# pylint has serios trouble with the boto object
+#pylint: disable-msg=E1103
+
+
 import hashlib
 from time import sleep
 from datetime import datetime
@@ -43,6 +47,7 @@ class Connection(object):
         `False`.
         """
         boto = self.get_boto()
+
 
         if recursive:
             bucket = boto.get_bucket(name)
@@ -242,10 +247,10 @@ class Bucket(object):
         return bkey.etag.rstrip('"').lstrip('"')
 
             
-    def fetch_to_file(self, key, file):
-        """Fetches data stored under `key` and writes them to `file`.
+    def fetch_to_file(self, key, file_):
+        """Fetches data stored under `key` and writes them to `file_`.
 
-        `file` has to be a file name. Returns the metadata in the
+        `file_` has to be a file name. Returns the metadata in the
         format used by `lookup_key`.
         """
  
@@ -253,13 +258,13 @@ class Bucket(object):
         if not bkey.exists():
             raise KeyError
 
-        bkey.get_contents_to_filename(file)
+        bkey.get_contents_to_filename(file_)
         metadata = self.boto_key_to_metadata(bkey)            
 
 
         return metadata
 
-    def store_from_file(self, key, file):
+    def store_from_file(self, key, file_):
         """Reads `file` and stores the data under `key`
 
         `file` has to be a file name. Returns the metadata in the
@@ -267,7 +272,7 @@ class Bucket(object):
         """
 
         bkey = self.get_boto().new_key(key)
-        bkey.set_contents_from_filename(file)
+        bkey.set_contents_from_filename(file_)
 
         return bkey.etag.rstrip('"').lstrip('"')
  
@@ -276,13 +281,13 @@ class Bucket(object):
         """Copies data stored under `src` to `dest`
         """
 
-        self.get_boto().copy_key(dest,self.name,src)
+        self.get_boto().copy_key(dest, self.name, src)
 
     @staticmethod
     def boto_key_to_metadata(bkey):
         """Extracts metadata from boto key object.
         """
-
+        #pylint: disable-msg=W0201
         meta = Metadata(bkey.metadata)
         meta.etag = bkey.etag.rstrip('"').lstrip('"')
         meta.key = bkey.name
@@ -296,7 +301,8 @@ class Bucket(object):
                 
             # Convert to UTC if timezone aware
             if meta.last_modified.utcoffset():
-                meta.last_modified = (meta.last_modified - meta.last_modified.utcoffset()).replace(tzinfo=None)
+                meta.last_modified = (meta.last_modified - meta.last_modified.utcoffset()) \
+                    .replace(tzinfo=None)
                                                  
         else:
             meta.last_modified = None
@@ -360,7 +366,7 @@ class LocalBucket(Bucket):
         if not force and not self.keystore.has_key(key):
             raise KeyError
 
-        def set():
+        def set_():
             sleep(self.prop_delay)
             log.debug("LocalBucket: Committing delete for %s", key)
             # Don't bother if some other thread already deleted it
@@ -369,7 +375,7 @@ class LocalBucket(Bucket):
             except KeyError:
                 pass
 
-        threading.Thread(target=set).start()
+        threading.Thread(target=set_).start()
 
     def fetch(self, key):
         log.debug("LocalBucket: Received fetch for %s", key)
@@ -391,48 +397,48 @@ class LocalBucket(Bucket):
         metadata.size = len(val)
         metadata.last_modified = datetime.utcnow()
         metadata.etag =  hashlib.md5(val).hexdigest()
-        def set():
+        def set_():
             sleep(self.prop_delay)
             log.debug("LocalBucket: Committing store for %s" % key)
             self.keystore[key] = (val, metadata)
-        t = threading.Thread(target=set)
+        t = threading.Thread(target=set_)
         t.start()
         self.in_transmit.remove(key)
         log.debug("LocalBucket: Returning from store for %s" % key)
         return metadata.etag
 
 
-    def fetch_to_file(self, key, file):
+    def fetch_to_file(self, key, file_):
         (data, metadata) = self.fetch(key)
-        file = open(file, "wb")
-        file.write(data)
-        file.close()
+        file_ = open(file_, "wb")
+        file_.write(data)
+        file_.close()
         return metadata
 
-    def store_from_file(self, key, file):
-        file = open(file, "rb")
-        value = file.read()
-        file.close()
+    def store_from_file(self, key, file_):
+        file_ = open(file_, "rb")
+        value = file_.read()
+        file_.close()
 
         return self.store(key, value)
 
     def copy(self, src, dest):
         """Copies data stored under `src` to `dest`
         """
-        log.debug("LocalBucket: Received copy from %s to %s" % (src,dest))
+        log.debug("LocalBucket: Received copy from %s to %s", src, dest)
         if dest in self.in_transmit or src in self.in_transmit:
             raise ConcurrencyError
         self.in_transmit.add(src)
         self.in_transmit.add(dest)
         sleep(self.tx_delay)
-        def set():
+        def set_():
             sleep(self.prop_delay)
-            log.debug("LocalBucket: Committing copy from %s to %s" % (src,dest))
+            log.debug("LocalBucket: Committing copy from %s to %s", src, dest)
             self.keystore[dest] = copy.deepcopy(self.keystore[src])
-        threading.Thread(target=set).start()
+        threading.Thread(target=set_).start()
         self.in_transmit.remove(dest)
         self.in_transmit.remove(src)
-        log.debug("LocalBucket: Returning from copy %s to %s" % (src,dest))
+        log.debug("LocalBucket: Returning from copy %s to %s", src, dest)
 
 
 class Metadata(dict):
@@ -444,9 +450,9 @@ class Metadata(dict):
 
     Note that the last-modified attribute is a datetime object.
     """
-
+    
     pass
-
+        
 
 class ConcurrencyError(Exception):
     """Raised if several threads try to access the same s3 object

@@ -16,6 +16,10 @@ import stat
 import tempfile
 import unittest
 
+# For debug messages:
+#from s3ql.common import init_logging
+#init_logging(True, False, debug=[''])
+
 class fs_api_tests(unittest.TestCase):
 
     def setUp(self):
@@ -31,6 +35,7 @@ class fs_api_tests(unittest.TestCase):
         mkfs.setup_bucket(self.bucket, self.dbfile.name)
 
         self.cache = S3Cache(self.bucket, self.cachedir, self.blocksize * 5, self.blocksize)
+        self.cache.timeout = 1
         self.server = fs.Server(self.cache, self.dbfile.name)
 
 
@@ -47,12 +52,12 @@ class fs_api_tests(unittest.TestCase):
 
     @staticmethod
     def random_name(prefix=""):
-        return "s3ql" + prefix + str(randrange(100,999,1))
+        return "s3ql" + prefix + str(randrange(100, 999, 1))
     
     @staticmethod   
-    def random_data(len):
+    def random_data(len_):
         with open("/dev/urandom", "rb") as fd:
-            return fd.read(len)
+            return fd.read(len_)
       
     def assert_entry_doesnt_exist(self, name):
         self.assertRaises(fs.FUSEError, self.server.getattr, name)
@@ -60,9 +65,9 @@ class fs_api_tests(unittest.TestCase):
         path = os.path.dirname(name)
         fh = self.server.opendir(path)
         entries = list()
-        def filler(name, fstat, off):
+        def cb_filler(name, fstat, off): 
             entries.append(name)
-        self.server.readdir(path, filler, 0, fh)
+        self.server.readdir(path, cb_filler, 0, fh)
         self.server.releasedir(path, fh)
             
         self.assertTrue(os.path.basename(name) not in entries)
@@ -73,9 +78,9 @@ class fs_api_tests(unittest.TestCase):
         path = os.path.dirname(name)
         fh = self.server.opendir(path)
         entries = list()
-        def filler(name, fstat, off):
+        def cb_filler(name, fstat, off): 
             entries.append(name)
-        self.server.readdir(path, filler, 0, fh)
+        self.server.readdir(path, cb_filler, 0, fh)
         self.server.releasedir(path, fh)
             
         self.assertTrue(os.path.basename(name) in entries)
@@ -87,7 +92,7 @@ class fs_api_tests(unittest.TestCase):
 
     def test_02_utimens(self):
         # We work on the root directory
-        path="/"
+        path = "/"
         fstat_old = self.server.getattr(path)
         atime_new = fstat_old["st_atime"] - 72
         mtime_new = fstat_old["st_mtime"] - 72
@@ -424,7 +429,7 @@ class fs_api_tests(unittest.TestCase):
         self.assertEquals(fstat2, self.server.getattr(filename_new2))
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
         
-    # Also check the addfile function from fsck.py here
+    # TODO: Test the addfile function from fsck.py here as well
 
 
 
