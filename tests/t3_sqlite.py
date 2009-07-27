@@ -15,7 +15,7 @@ import stat
 import os
 
 
-class sqlite_tests(unittest.TestCase):
+class sqlite_tests(unittest.TestCase): 
 
     def setUp(self):
         self.bucket = s3.LocalBucket()

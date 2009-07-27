@@ -20,7 +20,7 @@ __all__ = [ "decrease_refcount",  "get_cachedir", "init_logging",
            "get_credentials", "get_dbfile", "get_inode", "get_path",
            "increase_refcount", "unused_name", "addfile", "get_inodes",
            "MyCursor", "update_atime", "update_mtime", "update_ctime", 
-           "waitfor", "ROOT_INODE" ]
+           "waitfor", "ROOT_INODE", "writefile" ]
 
 class Filter(object):
     """
@@ -340,78 +340,75 @@ def waitfor(timeout, fn, *a, **kw):
         
     return False
     
-def addfile(remote, local, inode_p, cursor, bucket):
-    """Adds the specified local file to the fs in directory `inode_p`
+def writefile(src, dest, server):
+    """Copies the local file `src' into the fs as `dest`
+    
+    `dest` must not be opened yet by the server.
     """
 
-    cursor.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
-                   "VALUES (?,?,?,?,?,?,?)",
-                   (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
-                    os.getuid(), os.getgid(), time(), time(), time(), 1))
-    inode = cursor.last_rowid()
-
-    cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   (remote, inode, inode_p))
-
-    # Add s3 objects
-    blocksize = cursor.get_val("SELECT blocksize FROM parameters")
-
-    # Since the blocksize might be large, we work in chunks rather
-    # than in memory
+    try:
+        destfd = server.open(dest, None)
+    except KeyError:
+        mode = ( stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR )
+        destfd = server.create(dest, mode)
+        
+    srcfh =  open(src, "rb")
     chunksize = resource.getpagesize()
 
-    fh = open(local, "rb")
-    tmp = tempfile.NamedTemporaryFile()
-    cursize = 0
-    blockno = 0
-    buf = fh.read(chunksize)
-    while True:
-
-        # S3 Block completed or end of file
-        if cursize + len(buf) >= blocksize or len(buf) == 0:
-            tmp.write(buf[:blocksize-cursize])
-            buf = buf[blocksize-cursize:]
-            s3key = "%d_%d" % (inode, blockno * blocksize)
-            etag = bucket.store_from_file(s3key, tmp.name)
-            cursor.execute("INSERT INTO s3_objects (id, etag, last_modified, refcount) VALUES(?,?,?,?)", 
-                           (s3key, etag, time(), 1))
-            cursor.execute("INSERT INTO inode_s3key (inode,offset,s3key) "
-                           "VALUES (?,?,?)", (inode, blockno * blocksize, s3key))
-            
-            cursize = 0
-            blockno += 1
-            tmp.seek(0)
-            tmp.truncate(0)
-
-            # End of file
-            if len(buf) == 0:
-                break
-
-        # Write until we have a complete block
-        else:
-            tmp.write(buf)
-            cursize += len(buf)
-            buf = fh.read(chunksize)
-
-    tmp.close()
-    fh.close()
-
-        
-def unused_name(cur, name, inode_p):
-    """Returns an unused name for a file in the directory `inode_p_
-
-    If `name` does not already exist, it is returned. Otherwise
-    it is made unique by adding suffixes and then returned.
-    """
+    buf = srcfh.read(chunksize)
+    off = 0
+    while buf:
+        server.write(dest, buf, off, destfd)
+        off += len(buf)
+        buf = srcfh.read(chunksize)        
+  
+    srcfh.close()
     
-    if not cur.get_row("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                           (name, inode_p)):
-        return name
+    server.release(dest, destfd)
+    server.flush(dest, destfd)
 
+def unused_name(path, cursor):
+    '''Append suffix to path so that it does not exist
+    '''
+    
     i = 0
-    while cur.get_row("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                          ("%s-%d" % (name,i), inode_p)):
-        i += 1
-    return "%s-%d" % (name, i)
+    newpath = path
+    try:
+        while True:
+            get_inode(newpath, cursor)            
+            i += 1
+            newpath = '%s-%d' % (path, i)
+            
+    except KeyError:
+        pass
+    
+    return newpath
+        
+def addfile(src, dest, cursor, bucket):
+    """Copies the local file `src' into the fs as `dest`
 
+    If `dest` is already existing, numerical suffixes are appended
+    to the name to prevent existing files from being overwritten.
+    
+    This function is mainly used by fsck to add files to
+    lost+found.
+    
+    Returns the filename that has been written to.
+    """
+
+    # Instantiate the regular server
+    from s3ql import fs, s3cache
+    cachedir = tempfile.mkdtemp() + "/"
+    cache = s3cache.S3Cache(bucket, cachedir, 0)
+    server = fs.Server(cache, cursor.getconnection().filename)
+        
+    dest = unused_name(dest, cursor)
+    writefile(src, dest, server)
+    
+    cache.close(cursor)
+    os.rmdir(cachedir)    
+       
+    return dest
+
+# Define inode of root directory
 ROOT_INODE = 0

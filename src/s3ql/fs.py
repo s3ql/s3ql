@@ -619,7 +619,7 @@ class Server(fuse.Operations):
                      (time(), time(), time(), uid, gid, mode, None, 1))
             inode = cur.last_rowid()
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                     (name, inode, inode_p))
+                        (name, inode, inode_p))
             update_mtime(inode_p, cur)
         except:
             cur.execute("ROLLBACK")

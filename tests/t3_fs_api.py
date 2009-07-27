@@ -7,7 +7,7 @@
 
 from random import randrange
 from s3ql import mkfs, s3, fs, fsck
-from s3ql.common import MyCursor
+from s3ql.common import MyCursor, writefile
 from s3ql.s3cache import S3Cache
 import apsw
 import os
@@ -221,28 +221,21 @@ class fs_api_tests(unittest.TestCase):
         # Create file
         name = os.path.join("/",  self.random_name())
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+        bufsize = resource.getpagesize()
+        
         fh = self.server.create(name, mode)
         self.server.release(name, fh)
         self.server.flush(name, fh)
 
         # Write testfile
-        destfh = self.server.open(name, os.O_RDWR)
-        bufsize = resource.getpagesize()
-
-        srcfh = open(__file__, "rb")
-
-        buf = srcfh.read(bufsize)
-        off = 0
-        while len(buf) != 0:
-            self.assertEquals(self.server.write(name, buf, off, destfh), len(buf))
-            off += len(buf)
-            buf = srcfh.read(bufsize)
-
+        writefile(__file__, name, self.server)
+        
         # Read testfile
-        srcfh.seek(0)
+        srcfh = open(__file__, "rb")
+        destfh = self.server.open(name, os.O_RDWR)
         buf = srcfh.read(bufsize)
         off = 0
-        while len(buf) != 0:
+        while buf:
             self.assertTrue(buf == self.server.read(name, bufsize, off, destfh))
             off += len(buf)
             buf = srcfh.read(bufsize)
@@ -428,9 +421,6 @@ class fs_api_tests(unittest.TestCase):
         self.assertEquals(fstat, self.server.getattr(dirname_new))
         self.assertEquals(fstat2, self.server.getattr(filename_new2))
         self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
-        
-    # TODO: Test the addfile function from fsck.py here as well
-
 
 
 def suite():

@@ -13,7 +13,7 @@ import tempfile
 import numbers
 import logging
 
-from s3ql.common import (addfile, get_path, MyCursor, unused_name, ROOT_INODE)
+from s3ql.common import (addfile, get_path, MyCursor, ROOT_INODE, unused_name, get_inode)
 
 __all__ = [ "fsck" ]
 
@@ -303,10 +303,8 @@ class Checker(object):
         found_errors = False
     
         log.info('Checking inodes...')
+        inode_l = get_inode("/lost+found", c1)
         
-        inode_l = c1.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                             ("lost+found", ROOT_INODE))
-    
         for (inode, refcount) in c1.execute("SELECT id, refcount FROM inodes"):
              
             # No checks for root
@@ -318,7 +316,7 @@ class Checker(object):
             if refcount2 == 0:
                 found_errors = True
                 log.warn("Inode %d not referenced, adding to lost+found", inode)
-                name =  unused_name(c2, "inode-" + str(inode), inode_l)         
+                name =  unused_name("/lost+found/inode-%d" % inode, c2)         
                 c2.execute("INSERT INTO contents (name, inode, parent_inode) "
                            "VALUES (?,?,?)", (name, inode, inode_l))
                 c2.execute("UPDATE inodes SET refcount=? WHERE id=?",
@@ -394,8 +392,6 @@ class Checker(object):
         c2 = self.c2
         found_errors = False
     
-        inode_l = c1.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                            ("lost+found", ROOT_INODE))
         blocksize = c1.get_val("SELECT blocksize FROM parameters")
     
         # We use this table to keep track of the s3keys that we have
@@ -427,7 +423,7 @@ class Checker(object):
                 if not self.checkonly:
                     tmp = tempfile.NamedTemporaryFile()
                     self.bucket.fetch_to_file(s3key, tmp.name)
-                    addfile(unused_name(c1, s3key, inode_l), tmp, inode_l, c1, self.bucket)
+                    addfile(tmp.name, '/lost+found/%s' % s3key, c1, self.bucket)
                     del self.bucket[s3key]
                     tmp.close()
             
@@ -465,7 +461,7 @@ class Checker(object):
                     self.bucket.fetch_to_file(s3key, tmp.name)
     
                     # Save full object in lost+found
-                    addfile(unused_name(c1, s3key, inode_l), tmp, inode_l, c1, self.bucket)
+                    addfile(tmp, '/lost+found/%s' % s3key, c1, self.bucket)
     
                     # Truncate and write
                     tmp.seek(blocksize)

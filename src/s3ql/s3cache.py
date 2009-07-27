@@ -20,7 +20,7 @@ import time
 __all__ = [ "S3Cache" ]
 
 # standard logger for this module
-log = logging.getLogger("S3Cache")
+log = logging.getLogger("S3Cache") 
 
 
 class CacheEntry(object):
@@ -301,7 +301,7 @@ class S3Cache(object):
                 try:
                     # The object may not have been committed yet
                     self.bucket.delete_key(s3key)
-                except KeyError: 
+                except KeyError:  
                     pass 
             finally:
                 self.s3_lock.release(s3key)

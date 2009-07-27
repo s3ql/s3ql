@@ -17,7 +17,7 @@ import time
 import posixpath
 import unittest
 
-class fuse_tests(unittest.TestCase):
+class fuse_tests(unittest.TestCase): 
     def setUp(self):
         self.base = tempfile.mkdtemp()
 
@@ -25,18 +25,21 @@ class fuse_tests(unittest.TestCase):
         self.src = __file__
         fstat = os.stat(self.src)
         if fstat.st_size <= 1024: # 1 kb blocksize, see below
-            raise Exception, "test file %s should be bigger than 1 kb" % self.src
+            raise RuntimeError("test file %s should be bigger than 1 kb" % self.src)
 
-    def random_name(self):
-        return "s3ql" + str(randrange(100,999,1))
+    @staticmethod
+    def random_name():
+        return "s3ql" + str(randrange(100, 999, 1))
 
     def test_mount(self):
         """Operations on mounted filesystem
         """
-
+        # TODO: Can't we just run the filesystem handler in a
+        # separate thread? 
+              
         # Mount
         path = os.path.join(os.path.dirname(__file__), "..", "src/mount_local.py")
-        self.pid = os.spawnl(os.P_NOWAIT, path, "mount_local.py",
+        pid = os.spawnl(os.P_NOWAIT, path, "mount_local.py",
                              "--fg", "--fsck", "--nonempty", "--blocksize", "1",
                              "--quiet", "--txdelay", "0.2", "--propdelay",
                              "0.2", self.base)
@@ -61,7 +64,7 @@ class fuse_tests(unittest.TestCase):
             time.sleep(1)
             self.assertEquals(os.spawnlp(os.P_WAIT, "fusermount",
                                     "fusermount", "-u", self.base), 0)
-            (dummy, status) = os.waitpid(self.pid, 0)
+            (dummy, status) = os.waitpid(pid, 0)
 
             self.assertTrue(os.WIFEXITED(status))
             self.assertEquals(os.WEXITSTATUS(status), 0)
@@ -131,27 +134,27 @@ class fuse_tests(unittest.TestCase):
         os.unlink(name1)
 
     def t_readdir(self):
-        dir = self.base + "/" + self.random_name()
-        file = dir + "/" + self.random_name()
-        subdir = dir + "/" + self.random_name()
+        dir_ = self.base + "/" + self.random_name()
+        file_ = dir_ + "/" + self.random_name()
+        subdir = dir_ + "/" + self.random_name()
         subfile = subdir + "/" + self.random_name()
         src = self.src
 
-        os.mkdir(dir)
-        shutil.copyfile(src, file)
+        os.mkdir(dir_)
+        shutil.copyfile(src, file_)
         os.mkdir(subdir)
         shutil.copyfile(src, subfile)
 
-        listdir_is = os.listdir(dir)
+        listdir_is = os.listdir(dir_)
         listdir_is.sort()
-        listdir_should = [ basename(file), basename(subdir) ]
+        listdir_should = [ basename(file_), basename(subdir) ]
         listdir_should.sort()
         self.assertEquals(listdir_is, listdir_should)
 
-        os.unlink(file)
+        os.unlink(file_)
         os.unlink(subfile)
         os.rmdir(subdir)
-        os.rmdir(dir)
+        os.rmdir(dir_)
 
     def t_truncate(self):
         filename = self.base + "/" + self.random_name()
@@ -178,4 +181,4 @@ def suite():
 
 # Allow calling from command line
 if __name__ == "__main__":
-            unittest.main()
+    unittest.main()

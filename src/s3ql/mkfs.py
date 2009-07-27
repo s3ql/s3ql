@@ -111,7 +111,7 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
           WHERE NEW.parent_inode != 0 AND
                (SELECT mode FROM inodes WHERE id = NEW.parent_inode) & {S_IFMT} != {S_IFDIR};
       END;  
-    """.format(**types))
+    """.format(**types)) 
 
 
         

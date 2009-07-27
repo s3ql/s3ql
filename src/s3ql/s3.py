@@ -188,7 +188,7 @@ class Bucket(object):
         boto.delete_key(key)
 
 
-    def list_keys(self, prefix="", delim=""):
+    def list_keys(self):
         """List keys in bucket
 
         Returns an iterator over all keys in the bucket. The iterator
@@ -199,17 +199,9 @@ class Bucket(object):
         iterative context: ``for key in bucket`` is the same as ``for
         (key,metadata) in bucket.list_keys()`` (except that the former
         doesn't define the `metadata` variable).
-
-        If `prefix` is specified, return only keys starting with
-        `prefix`.
-
-        If `delim` is specified, keys that contain the same string
-        between the prefix and the first occurrence of the delimiter
-        are rolled up into a single key. This key may have no metadata
-        associated with it since it may not actually exist.
         """
 
-        for key in self.get_boto().list(prefix, delim):
+        for key in self.get_boto().list():
             yield (key.name, self.boto_key_to_metadata(key))
 
 
@@ -315,7 +307,6 @@ class Bucket(object):
 class LocalBucket(Bucket):
     """Represents a bucket stored in Amazon S3.
 
-
     This class doesn't actually connect but holds all data in memory.
     It is meant only for testing purposes. It emulates an artificial
     propagation delay and transmit time.
@@ -330,6 +321,8 @@ class LocalBucket(Bucket):
     """
 
     def __init__(self, name="local"):
+        # We deliberately do not call the superclass constructor
+        #pylint: disable-msg=W0231
         self.keystore = {}
         self.name = name
         self.in_transmit = set()

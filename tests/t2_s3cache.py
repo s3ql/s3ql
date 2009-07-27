@@ -13,7 +13,7 @@ import os
 import tempfile
 import unittest
 import stat
-from time import time
+from time import time 
 
 # For debug messages:
 #from s3ql.common import init_logging
