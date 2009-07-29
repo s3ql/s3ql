@@ -259,8 +259,7 @@ class Bucket(object):
     def store_from_file(self, key, file_):
         """Reads `file` and stores the data under `key`
 
-        `file` has to be a file name. Returns the metadata in the
-        format used by `lookup_key`.
+        `file` has to be a file name. Returns the etag.
         """
 
         bkey = self.get_boto().new_key(key)
@@ -392,7 +391,7 @@ class LocalBucket(Bucket):
         metadata.etag =  hashlib.md5(val).hexdigest()
         def set_():
             sleep(self.prop_delay)
-            log.debug("LocalBucket: Committing store for %s" % key)
+            log.debug("LocalBucket: Committing store for %s, etag %s", key, metadata.etag)
             self.keystore[key] = (val, metadata)
         t = threading.Thread(target=set_)
         t.start()

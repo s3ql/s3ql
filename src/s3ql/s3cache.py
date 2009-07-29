@@ -103,7 +103,7 @@ class S3Cache(object):
         self.blocksize = blocksize
         self.bucket = bucket
         self.s3_lock = MultiLock()
-        self.global_lock = threading.Lock()
+        self.global_lock = threading.RLock()
         self.timeout = 300 
 
     @contextmanager
@@ -126,9 +126,11 @@ class S3Cache(object):
         # TODO: Instead of using `markdirty`, compare mtime of the file
         # before and after the yield and determine if it has been changed.
         
-        self.expire_cache(cur)
+        self.expire(cur)
         
-        # Get s3 key
+        # FIXME: What kind of lock does SAVEPOINT create? IMMEDIATE/EXCLUSIVE/DEFERRED?
+                 
+        # Get s3 key    
         log.debug('Getting filehandle for inode %i, offset %i', inode, offset)
         with self.global_lock:
             try:
@@ -151,20 +153,22 @@ class S3Cache(object):
                     cur.execute("RELEASE 'S3Cache.get'")
                     
                 self.keys[s3key] = CacheEntry(s3key, open(self.cachedir + s3key, "w+b"))
-            
-            log.debug('Acquiring object lock')    
+
+            log.debug('Acquiring object lock')   
             self.s3_lock.acquire(s3key)
 
+       
         # Get s3 object
         try:
-            if s3key not in self.keys:
+            try:
+                el = self.keys[s3key]
+            except KeyError:
                 log.debug('Object not cached, retrieving from s3')
                 etag = cur.get_val("SELECT etag FROM s3_objects WHERE id=?", (s3key,))
                 el = CacheEntry(s3key, self._download_object(s3key, etag))
                 self.keys[s3key] = el
             else:
                 log.debug('Using cached object')
-                el = self.keys[s3key]
                 self.keys.to_head(s3key)
                        
             # Now the fh is made available 
@@ -193,8 +197,9 @@ class S3Cache(object):
         if meta.etag != etag:
             log.warn("Changes in %s have apparently not yet propagated. Waiting and retrying...\n"
                      "Try to increase the cache size to avoid this.", s3key)
+            log.debug('Stored etag: %s, Received etag: %s', etag, meta.etag)
             waited = 0
-            waittime = 0.01
+            waittime = 0.2
             while meta.etag != etag and \
                     waited < self.timeout:
                 time.sleep(waittime)
@@ -216,7 +221,7 @@ class S3Cache(object):
         return open(cachepath, "r+b")        
         
                   
-    def expire_cache(self, cur):
+    def expire(self, cur):
         """Performs cache expiry.
 
         If the cache is bigger than `self.cachesize`, the oldest
@@ -226,24 +231,42 @@ class S3Cache(object):
         Uses database cursor `cur`.
         """
         log.debug('Expiring cache')
-        while len(self.keys) * self.blocksize > self.maxsize and self.keys:
+        while len(self.keys) * self.blocksize > self.maxsize:
 
             with self.global_lock:
-                el = self.keys.pop_last()
-                self.s3_lock.acquire(el.name)
-           
+                # If we pop the object before having locked it, another thread 
+                # may download it - overwriting the existing file!
+                try:
+                    el = self.keys.get_last()
+                except IndexError:
+                    # Nothing left to expire
+                    break
+                
+                log.debug('Least recently used object is %s, obtaining object lock..', el.name)
+                self.s3_lock.acquire(el.name)  
+                
             try:
-                log.debug('Expiring s3 object %s', el.name)
+                try:
+                    del self.keys[el.name]
+                except KeyError:
+                    # Another thread already expired it, we need to try again
+                    continue
+                
                 el.fh.close()
                 if el.dirty:
+                    log.debug('Expiring dirty s3 object %s', el.name)
                     etag = self.bucket.store_from_file(el.name, self.cachedir + el.name)
                     cur.execute("UPDATE s3_objects SET etag=?, last_modified=? "
                                 "WHERE id=?", (etag, time.time(), el.name))
+                else:
+                    log.debug('Expiring unchanged s3 object %s', el.name)
+                    
                 os.unlink(self.cachedir + el.name)
 
             finally:
                 self.s3_lock.release(el.name)
-
+                
+        log.debug("Expiration end")
 
     def remove(self, inode, cur, offset=0):
         """Unlinks all s3 objects from the given inode.

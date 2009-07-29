@@ -5,15 +5,15 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
-from random import randrange
 from s3ql import mkfs, s3, s3cache, fs
-from s3ql.common import MyCursor
+from s3ql.common import MyCursor, EmbeddedException, ExceptionStoringThread
 import apsw
 import os
 import tempfile
 import unittest
 import stat
-from time import time 
+from time import time, sleep
+from contextlib import contextmanager
 
 # For debug messages:
 #from s3ql.common import init_logging
@@ -52,10 +52,6 @@ class s3cache_tests(unittest.TestCase):
         self.cache.close(self.cur)
         self.dbfile.close()
         os.rmdir(self.cachedir)
-
-    @staticmethod
-    def random_name(prefix=""):
-        return "s3ql" + prefix + str(randrange(100, 999, 1))
     
     @staticmethod   
     def random_data(len_):
@@ -103,14 +99,123 @@ class s3cache_tests(unittest.TestCase):
         cm = self.cache.get(inode, offset, self.cur)
         self.assertRaises(fs.FUSEError, cm.__enter__)
             
+    def test_02_locking_meta(self):
+        # Test our threading object
+        def works():
+            pass
+        
+        def fails():
+            raise RuntimeError()
+        
+        t1 = ExceptionStoringThread(target=works)
+        t2 = ExceptionStoringThread(target=fails)      
+        t1.start()
+        t2.start()  
+        
+        t1.join_and_raise()
+        self.assertRaises(EmbeddedException, t2.join_and_raise)
+        
+         
+    def test_03_access_locking(self):      
+        # Test concurrent writes 
+        flag = { 'writing': False }
+        offset = 102
+        
+        # Access the same file in two threads
+        def access():
+            # Get curser
+            cur = MyCursor(apsw.Connection(self.dbfile.name).cursor())
+            with self.cache.get(self.inode, offset, cur):
+                if flag['writing']:
+                    raise s3.ConcurrencyError
+                flag['writing'] = True
+                sleep(1)
+                flag['writing'] = False
+        
+        # This should work nicely
+        t1 = ExceptionStoringThread(target=access)
+        t2 = ExceptionStoringThread(target=access)      
+        t1.start()
+        t2.start()  
+        t1.join_and_raise()
+        t2.join_and_raise()
+        
+        # After we Monkeypatch the locking away, we except and exception
+        self.cache.s3_lock = DummyLock()
+        
+        t1 = ExceptionStoringThread(target=access)
+        t2 = ExceptionStoringThread(target=access)      
+        t1.start()
+        sleep(0.5)
+        t2.start()  
+        
+        t1.join_and_raise()
+        self.assertRaises(EmbeddedException, t2.join_and_raise)
+        self.assertTrue(isinstance(t2.exc, s3.ConcurrencyError))        
+   
+        
+    def test_03_expiry_locking(self):      
+        offset = 102
+        s3key = "s3ql_data_%d_%d" % (self.inode, offset)
+        
+        # Make sure the threads actually conflict
+        self.bucket.tx_delay = 1
+        
+        # Enfore cache expiration on each expire() call
+        self.cache.maxsize = 0
+        
+        # Access the same file in two threads
+        def access():            
+            conn = apsw.Connection(self.dbfile.name)
+            conn.setbusytimeout(5000)
+            cur = MyCursor(conn.cursor())
+            # Make sure the object is dirty
+            with self.cache.get(self.inode, offset, cur, markdirty=True) as fh:
+                fh.write(b'data')
+            self.cache.expire(cur)        
+        
+        # This should work nicely
+        t1 = ExceptionStoringThread(target=access)
+        t2 = ExceptionStoringThread(target=access)      
+        t1.start()
+        t2.start()  
+        t1.join_and_raise()
+        t2.join_and_raise()
+        
+        # Make sure the cache has actually been flushed
+        self.assertTrue(s3key in self.bucket.keys())
+        
+        # After we Monkeypatch the locking away, we except and exception
+        self.cache.s3_lock = DummyLock()
+        
+        t1 = ExceptionStoringThread(target=access)
+        t2 = ExceptionStoringThread(target=access)      
+        t1.start()
+        sleep(0.5)
+        t2.start()  
+        
+        t1.join_and_raise()
+        self.assertRaises(EmbeddedException, t2.join_and_raise)
+        self.assertTrue(isinstance(t2.exc, s3.ConcurrencyError))
+
+class DummyLock(object):
+    """Dummy MultiLock class doing nothing
+    
+    This class pretends to be a MultiLock, but it actually does not do 
+    anything at all.
+    """
+    
+    @contextmanager
+    def __call__(self, _):
+        yield
             
-    # TODO: Check that s3 object locking works when retrieving
+    def acquire(self, _):
+        pass
+        
+    def release(self, _):
+        pass
 
-    # TODO: Check that s3 object locking works when creating
-
-    # TODO: Check that s3 objects are committed after fsync
-
-
+        
 def suite():
     return unittest.makeSuite(s3cache_tests)
 

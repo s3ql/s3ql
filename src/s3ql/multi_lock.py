@@ -6,9 +6,12 @@
 #
 
 import threading
+import logging
 from functools import partial 
 
 __all__ = [ "MultiLock" ]
+
+log = logging.getLogger("MultiLock")
 
 class ContextManager(object):
     '''A very simple context manager class.
@@ -58,7 +61,6 @@ class MultiLock(object):
 
             # Mark it as used (local lock)
             self.locked_keys.add(key)
-        
 
     def release(self, key):
         """Releases lock on given s3key

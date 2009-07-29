@@ -12,15 +12,19 @@ import os
 import tempfile
 import resource
 import stat
+import traceback
+import threading
 import logging
 from time import time, sleep
 from getpass import getpass
+from contextlib import contextmanager
 
 __all__ = [ "decrease_refcount",  "get_cachedir", "init_logging",
            "get_credentials", "get_dbfile", "get_inode", "get_path",
            "increase_refcount", "unused_name", "addfile", "get_inodes",
            "MyCursor", "update_atime", "update_mtime", "update_ctime", 
-           "waitfor", "ROOT_INODE", "writefile" ]
+           "waitfor", "ROOT_INODE", "writefile", "ExceptionStoringThread",
+           "EmbeddedException" ]
 
 class Filter(object):
     """
@@ -74,11 +78,13 @@ def init_logging(fg, quiet=False, debug=None):
     
     if fg:
         handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter('%(asctime)s [%(name)s] %(message)s',
-                                               datefmt="%Y-%m-%d %H:%M:%S"))
+        handler.setFormatter(logging.Formatter('%(asctime)s,%(msecs)03d %(threadName)s: '
+                                               '[%(name)s] %(message)s',
+                                               datefmt="%H:%M:%S"))
     else:
         handler = logging.handlers.SysLogHandler("/dev/log")
-        handler.setFormatter(logging.Formatter('s3ql[%(process)d]: [%(name)s] %(message)s'))
+        handler.setFormatter(logging.Formatter('s3ql[%(process)d, %(threadName)s]: '
+                                               '[%(name)s] %(message)s'))
 
     handler.addFilter(log_filter)  # If we add the filter to the logger, it has no effect!
     root_logger.addHandler(handler)
@@ -101,10 +107,29 @@ class MyCursor(object):
         self.cursor = cursor
         self.conn = cursor.getconnection()
 
+    @contextmanager
+    def transaction(self, name):
+        '''Create savepoint, rollback on exceptions, commit on success
+        
+        This context manager creates a savepoint named `name` and returns
+        a cursor. If the managed block evaluates without exceptions, the
+        savepoint is committed at the end. Otherwise it is rolled back.         
+        '''
+        self.cursor.execute('SAVEPOINT ?', (name,))
+        try:
+            yield self
+        except:
+            self.cursor.execute('ROLLBACK TO ?', (name,))
+            raise
+        finally:
+            self.cursor.execute('RELEASE ?', (name,))
+
     def execute(self, *a, **kw):
         '''Execute the given SQL statement
         '''
+        
         return self.cursor.execute(*a, **kw)
+
 
     def get_val(self, *a, **kw):
         """Executes a select statement and returns first element of first row.
@@ -112,7 +137,7 @@ class MyCursor(object):
         If there is no result row, raises StopIteration.
         """
 
-        return self.execute(*a, **kw).next()[0]
+        return self.get_row(*a, **kw)[0]
 
     def get_list(self, *a, **kw):
         """Executes a select statement and returns result list.
@@ -126,7 +151,21 @@ class MyCursor(object):
         If there are no result rows, raises StopIteration.
         """
 
-        return self.execute(*a, **kw).next()
+        # It is ABSOLUTELY CRUCIAL that we retrieve all the rows.
+        # Otherwise the cursor is not destroyed and the database
+        # stays locked.
+        res = self.execute(*a, **kw)
+        row = res.next()
+        try:
+            res.next()
+        except StopIteration:
+            # Fine, we only wanted one row
+            pass
+        else:
+            # There are more results? That shouldn't be
+            raise RuntimeError('Query returned more than one result row')
+        
+        return row
      
     def last_rowid(self):
         """Returns last inserted rowid.
@@ -412,3 +451,54 @@ def addfile(src, dest, cursor, bucket):
 
 # Define inode of root directory
 ROOT_INODE = 0
+
+class ExceptionStoringThread(threading.Thread):
+    '''Catch all exceptions and store them
+    '''
+    
+    def __init__(self, target):
+        super(ExceptionStoringThread, self).__init__()
+        self.target = target
+        self.exc = None
+        self.tb = None
+        self.joined = False
+        
+    def run(self):
+        try:
+            self.target()
+        except BaseException as exc:
+            self.exc = exc
+            self.tb = sys.exc_info()[2] # This creates a circular reference chain
+    
+    def join_and_raise(self):
+        '''Wait for the thread to finish, raise any occured exceptions
+        '''
+        self.joined = True
+        self.join()
+        if self.exc is not None:
+            try:
+                raise EmbeddedException(self.exc, self.tb, self.name)
+            finally: 
+                # Here we break the chain
+                self.tb = None  
+                
+    def __del__(self):
+        if not self.joined:
+            raise RuntimeError("ExceptionStoringThread instance was destroyed "
+                               "without calling join_and_raise()!")                
+
+class EmbeddedException(Exception):
+    '''Encapsulates an exception that happened in a different thread
+    '''
+    
+    def __init__(self, exc, tb, threadname):
+        super(EmbeddedException, self).__init__()
+        self.exc = exc
+        self.tb = tb
+        self.threadname = threadname
+        
+    def __str__(self):
+        return ''.join(['caused by an exception in thread %s.\n' % self.threadname,
+                       'Original/inner traceback (most recent call last): \n' ] +
+                       traceback.format_tb(self.tb) +
+                       traceback.format_exception_only(type(self.exc), self.exc))
