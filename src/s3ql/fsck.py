@@ -13,7 +13,7 @@ import tempfile
 import numbers
 import logging
 
-from s3ql.common import (addfile, get_path, MyCursor, ROOT_INODE, unused_name, get_inode)
+from s3ql.common import (addfile, get_path, ROOT_INODE, unused_name, get_inode)
 
 __all__ = [ "fsck" ]
 
@@ -33,7 +33,7 @@ log = logging.getLogger("fsck")
 # for `checkonly` if they want to modify the cache directory or the S3 bucket.
 #
 
-def fsck(conn, cachedir, bucket, checkonly=False):
+def fsck(cur, cachedir, bucket, checkonly=False):
     """Checks a file system
     
     Returns `False` if any errors have been found. Throws `FatalFsckError` 
@@ -42,11 +42,10 @@ def fsck(conn, cachedir, bucket, checkonly=False):
 
     found_errors = False
     
-    cur = MyCursor(conn.cursor())
     try:
         cur.execute('SAVEPOINT fsck') 
         
-        checker = Checker(conn, cachedir, bucket, checkonly)
+        checker = Checker(cur, cachedir, bucket, checkonly)
         found_errors = not checker.checkall()
         
     finally:
@@ -76,10 +75,8 @@ class Checker(object):
                    cache (but the database is still changed)
     """
        
-    def __init__(self, conn, cachedir, bucket, checkonly):
-        self.c1 = MyCursor(conn.cursor())
-        self.c2 = MyCursor(conn.cursor())
-        self.c3 = MyCursor(conn.cursor())
+    def __init__(self, cm, cachedir, bucket, checkonly):
+        self.cm = cm
         self.checkonly = checkonly
         self.cachedir = cachedir
         self.bucket = bucket
@@ -91,7 +88,13 @@ class Checker(object):
         for fn in [ 
                    self.check_parameters,
                    self.check_cache,
-                   self.check_lof ]:
+                   self.check_lof,
+                   self.check_dirs,
+                   self.check_loops,
+                   self.check_inode_refcount,
+                   self.check_offsets,
+                   self.check_s3_refcounts,
+                   self.check_keylist ]:
             if not fn():
                 found_errors = True 
                 
@@ -103,7 +106,7 @@ class Checker(object):
     
         Returns `False` if any errors have been found.
         """
-        cur = self.c1
+        cur = self.cm
     
         log.info('Inspecting filesystem parameters...')
         try:
@@ -132,7 +135,7 @@ class Checker(object):
         Returns `False` if any cache files have been found
         """
     
-        cur = self.c1
+        cur = self.cm
         found_errors = False
     
         log.info("Checking cached objects...")
@@ -154,39 +157,39 @@ class Checker(object):
     
         Returns `False` if any errors have been found.
         """
-        c1 = self.c1              
+        cm = self.cm             
         found_errors = False
         
         log.info('Checking lost+found...')
         
         try:
-            inode_l = c1.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?", 
+            inode_l = cm.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?", 
                                  ("lost+found", ROOT_INODE))
     
         except StopIteration:
             found_errors = True
             log.warn("Recreating missing lost+found directory")
-            c1.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+            cm.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                        "VALUES (?,?,?,?,?,?,?)",
                        (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
                         os.getuid(), os.getgid(), time(), time(), time(), 2))
-            inode_l = c1.last_rowid()
-            c1.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+            inode_l = cm.last_rowid()
+            cm.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                        ("lost+found", inode_l, ROOT_INODE))
     
-        mode = c1.get_val('SELECT mode FROM inodes WHERE id=?', (inode_l,))
+        mode = cm.get_val('SELECT mode FROM inodes WHERE id=?', (inode_l,))
         if not stat.S_ISDIR(mode):
             found_errors = True
             log.warn('/lost+found is not a directory! Old entry will be saved as '
                      '/lost+found/inode-%s', inode_l)
             # We leave the old inode unassociated, so that it will be added
             # to lost+found later on.
-            c1.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+            cm.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                        "VALUES (?,?,?,?,?,?,?)",
                        (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
                         os.getuid(), os.getgid(), time(), time(), time(), 2))
-            inode_l = c1.last_rowid()
-            c1.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
+            inode_l = cm.last_rowid()
+            cm.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
                        (inode_l, "lost+found", ROOT_INODE))
             
         return not found_errors
@@ -197,14 +200,13 @@ class Checker(object):
         Returns `False` if any errors have been found.
         """
 
-        c1 = self.c1
-        c2 = self.c2
+        cm = self.cm
         found_errors = False
         
         log.info('Checking directories for . and .. entries...')
     
         for (name, inode, mode, parent_inode) in \
-            c1.execute('SELECT name, inode, mode, parent_inode FROM contents JOIN inodes '
+            cm.execute('SELECT name, inode, mode, parent_inode FROM contents JOIN inodes '
                        'ON id == inode'):
             
             if not stat.S_ISDIR(mode):
@@ -216,41 +218,41 @@ class Checker(object):
             
             # .
             try:
-                inode2 = c2.get_val('SELECT inode FROM contents WHERE name=? AND parent_inode=?',
+                inode2 = cm.get_val('SELECT inode FROM contents WHERE name=? AND parent_inode=?',
                                     ('.', inode))
             except StopIteration:   
                 found_errors = True
-                log.warn('Directory "%s", inode %d has no . entry', get_path(name, parent_inode, c2),
+                log.warn('Directory "%s", inode %d has no . entry', get_path(name, parent_inode, cm),
                          inode)
-                c2.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
+                cm.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                            ('.', inode, inode))
                 inode2 = inode
                 
             if inode2 != inode:
                 found_errors = True
-                log.warn('Directory "%s", inode %d has wrong . entry', get_path(name, parent_inode, c2),
+                log.warn('Directory "%s", inode %d has wrong . entry', get_path(name, parent_inode, cm),
                          inode)
-                c2.execute('UPDATE contents SET inode=? WHERE name=? AND inode_parent=?',
+                cm.execute('UPDATE contents SET inode=? WHERE name=? AND inode_parent=?',
                            (inode, '.', inode))
     
                 
             # ..
             try:
-                inode2 = c2.get_val('SELECT inode FROM contents WHERE name=? AND parent_inode=?',
+                inode2 = cm.get_val('SELECT inode FROM contents WHERE name=? AND parent_inode=?',
                                     ('..', inode))
             except StopIteration:   
                 found_errors = True
-                log.warn('Directory "%s", inode %d has no .. entry', get_path(name, parent_inode, c2),
+                log.warn('Directory "%s", inode %d has no .. entry', get_path(name, parent_inode, cm),
                          inode)
-                c2.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
+                cm.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                            ('..', parent_inode, inode))
                 inode2 = parent_inode
                 
             if inode2 != parent_inode:
                 found_errors = True
-                log.warn('Directory "%s", inode %d has wrong .. entry', get_path(name, parent_inode, c2),
+                log.warn('Directory "%s", inode %d has wrong .. entry', get_path(name, parent_inode, cm),
                          inode)
-                c2.execute('UPDATE contents SET inode=? WHERE name=? AND inode_parent=?',
+                cm.execute('UPDATE contents SET inode=? WHERE name=? AND inode_parent=?',
                            (parent_inode, '..', inode)) 
                 
         return not found_errors
@@ -262,32 +264,32 @@ class Checker(object):
         Returns `False` if any errors have been found.
         """
 
-        c1 = self.c1
+        cm = self.cm
         found_errors = False
         
         log.info('Checking directory reachability...')
             
-        c1.execute("CREATE TEMPORARY TABLE loopcheck AS SELECT * FROM contents")
+        cm.execute("CREATE TEMPORARY TABLE loopcheck AS SELECT * FROM contents")
         
         def delete_tree(inode_p):
             subdirs = list()
-            for (inode, mode) in c1.execute("SELECT inode, mode FROM contents JOIN inodes "
+            for (inode, mode, name) in cm.execute("SELECT inode, mode, name FROM contents JOIN inodes "
                                             "ON inode == id WHERE parent_inode=?",
                                             (inode_p,)):
-                if stat.S_ISDIR(mode):
+                if stat.S_ISDIR(mode) and not name in ('.', '..'):
                     subdirs.append(inode)
-            c1.execute("DELETE FROM loopcheck WHERE parent_inode=?", (inode_p,))
+            cm.execute("DELETE FROM loopcheck WHERE parent_inode=?", (inode_p,))
             for inode in subdirs:
                 delete_tree(inode)
                             
         delete_tree(ROOT_INODE)
         
-        if c1.get_val("SELECT COUNT(inode) FROM loopcheck") > 0:
+        if cm.get_val("SELECT COUNT(inode) FROM loopcheck") > 0:
             log.warn("Found unreachable filesystem entries!")
             found_errors = True
             log.warn("FIXME: This problem cannot be corrected automatically yet.")
             
-        c1.execute("DROP TABLE loopcheck")     
+        cm.execute("DROP TABLE loopcheck")     
             
         return not found_errors
     
@@ -298,35 +300,34 @@ class Checker(object):
         Returns `False` if any errors have been found.
         """
  
-        c1 = self.c1
-        c2 = self.c2
+        cm = self.cm
         found_errors = False
     
         log.info('Checking inodes...')
-        inode_l = get_inode("/lost+found", c1)
+        inode_l = get_inode("/lost+found", cm)
         
-        for (inode, refcount) in c1.execute("SELECT id, refcount FROM inodes"):
+        for (inode, refcount) in cm.execute("SELECT id, refcount FROM inodes"):
              
             # No checks for root
             if inode == ROOT_INODE:
                 continue
             
-            refcount2 = c2.get_val("SELECT COUNT(name) FROM contents WHERE inode=?", (inode,))
+            refcount2 = cm.get_val("SELECT COUNT(name) FROM contents WHERE inode=?", (inode,))
                 
             if refcount2 == 0:
                 found_errors = True
                 log.warn("Inode %d not referenced, adding to lost+found", inode)
-                name =  unused_name("/lost+found/inode-%d" % inode, c2)         
-                c2.execute("INSERT INTO contents (name, inode, parent_inode) "
+                name =  unused_name("/lost+found/inode-%d" % inode, cm)         
+                cm.execute("INSERT INTO contents (name, inode, parent_inode) "
                            "VALUES (?,?,?)", (name, inode, inode_l))
-                c2.execute("UPDATE inodes SET refcount=? WHERE id=?",
+                cm.execute("UPDATE inodes SET refcount=? WHERE id=?",
                            (1, inode))       
                   
             elif refcount != refcount2:
                 found_errors = True
                 log.warn("Inode %d has wrong reference count, setting from %d to %d",
                          inode, refcount, refcount2)
-                c2.execute("UPDATE inodes SET refcount=? WHERE id=?", (refcount2, inode))
+                cm.execute("UPDATE inodes SET refcount=? WHERE id=?", (refcount2, inode))
                                  
     
         return not found_errors
@@ -337,18 +338,17 @@ class Checker(object):
         Returns `False` if any errors have been found.
         """
  
-        c1 = self.c1
-        c2 = self.c2
+        cm = self.cm
         found_errors = False
         
-        blocksize = c1.get_val("SELECT blocksize FROM parameters")
+        blocksize = cm.get_val("SELECT blocksize FROM parameters")
         
-        for (inode, offset, s3key) in c1.execute("SELECT inode, offset, s3key FROM inode_s3key"):
+        for (inode, offset, s3key) in cm.execute("SELECT inode, offset, s3key FROM inode_s3key"):
             if not offset % blocksize == 0:
                 found_errors = True
                 log.warn("Object %s for inode %d does not start at blocksize boundary, deleting",
                          s3key, inode)
-                c2.execute("DELETE FROM s3_objects WHERE s3key=?", (s3key,))
+                cm.execute("DELETE FROM s3_objects WHERE s3key=?", (s3key,))
         
         return not found_errors  
         
@@ -358,19 +358,18 @@ class Checker(object):
         Returns `False` if any errors have been found.
         """
 
-        c1 = self.c1
-        c2 = self.c2
+        cm = self.cm
         found_errors = False
     
-        for (id_, refcount) in c1.execute("SELECT id, refcount FROM s3_objects"):
+        for (id_, refcount) in cm.execute("SELECT id, refcount FROM s3_objects"):
      
-            refcount2 = c2.get_val("SELECT COUNT(inode) FROM inode_s3key WHERE s3key=?",
+            refcount2 = cm.get_val("SELECT COUNT(inode) FROM inode_s3key WHERE s3key=?",
                                    (id_,))
             if refcount != refcount2:
                 log.warn("S3 object %s has invalid refcount, setting from %d to %d",
                          id_, refcount, refcount2)
                 found_errors = True
-                c2.execute("UPDATE s3_objects SET refcount=? WHERE id=?",
+                cm.execute("UPDATE s3_objects SET refcount=? WHERE id=?",
                            (refcount2, id_))
     
         return not found_errors
@@ -388,15 +387,14 @@ class Checker(object):
         Returns `False` if any errors have been found.
         """
      
-        c1 = self.c1
-        c2 = self.c2
+        cm = self.cm
         found_errors = False
     
-        blocksize = c1.get_val("SELECT blocksize FROM parameters")
+        blocksize = cm.get_val("SELECT blocksize FROM parameters")
     
         # We use this table to keep track of the s3keys that we have
         # seen
-        c1.execute("CREATE TEMP TABLE s3keys AS SELECT id FROM s3_objects")
+        cm.execute("CREATE TEMP TABLE s3keys AS SELECT id FROM s3_objects")
     
         for (s3key, meta) in self.bucket.list_keys():
     
@@ -406,8 +404,7 @@ class Checker(object):
     
             # Retrieve object information from database
             try:
-                (etag, size) = c1.get_row("SELECT etag,size FROM s3_objects WHERE id=?",
-                                          (s3key,))       
+                etag = cm.get_val("SELECT etag FROM s3_objects WHERE id=?", (s3key,))       
             
             # 
             # Handle object that exists only in S3
@@ -423,7 +420,7 @@ class Checker(object):
                 if not self.checkonly:
                     tmp = tempfile.NamedTemporaryFile()
                     self.bucket.fetch_to_file(s3key, tmp.name)
-                    addfile(tmp.name, '/lost+found/%s' % s3key, c1, self.bucket)
+                    addfile(tmp.name, '/lost+found/%s' % s3key, cm, self.bucket)
                     del self.bucket[s3key]
                     tmp.close()
             
@@ -431,21 +428,16 @@ class Checker(object):
                     
             else:
                 # Mark object as seen
-                c1.execute("DELETE FROM s3keys WHERE id=?", (s3key,))
+                cm.execute("DELETE FROM s3keys WHERE id=?", (s3key,))
     
             #
             # Check Metadata
             # 
-            if size != meta.size:
-                found_errors = True
-                log.warn("object %s has incorrect size in metadata, adjusting" % s3key)
-                c1.execute("UPDATE s3_objects SET size=? WHERE id=?",
-                           (meta.size, s3key))
     
             if etag != meta.etag:
                 found_errors = True
                 log.warn("object %s has incorrect etag in metadata, adjusting" % s3key)
-                c1.execute("UPDATE s3_objects SET etag=? WHERE id=?",
+                cm.execute("UPDATE s3_objects SET etag=? WHERE id=?",
                            (meta.etag, s3key))   
  
             #
@@ -461,23 +453,23 @@ class Checker(object):
                     self.bucket.fetch_to_file(s3key, tmp.name)
     
                     # Save full object in lost+found
-                    addfile(tmp, '/lost+found/%s' % s3key, c1, self.bucket)
+                    addfile(tmp, '/lost+found/%s' % s3key, cm, self.bucket)
     
                     # Truncate and write
                     tmp.seek(blocksize)
                     tmp.truncate()
                     etag_new = self.bucket.store_from_file(s3key, tmp.name)
                     tmp.close()
-                    c1.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
+                    cm.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
                                (etag_new, s3key))
                     
                     
         # Now handle objects that only exist in s3_objects
-        for (s3key,) in c1.execute("SELECT id FROM s3keys"):
+        for (s3key,) in cm.execute("SELECT id FROM s3keys"):
             found_errors = True
             log.warn("object %s only exists in table but not on s3, deleting", s3key)
-            c2.execute("DELETE FROM inode_s3key WHERE s3key=?", (s3key,))
-            c2.execute("DELETE FROM s3_objects WHERE id=?", (s3key,))
+            cm.execute("DELETE FROM inode_s3key WHERE s3key=?", (s3key,))
+            cm.execute("DELETE FROM s3_objects WHERE id=?", (s3key,))
                                    
         return not found_errors
 

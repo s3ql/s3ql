@@ -7,14 +7,17 @@
 
 from random import randrange
 from s3ql import mkfs, s3, fs, fsck
-from s3ql.common import MyCursor, writefile
+from s3ql.common import writefile
 from s3ql.s3cache import S3Cache
-import apsw
+from s3ql.cursor_manager import CursorManager
 import os
 import resource
 import stat
 import tempfile
 import unittest
+
+# TODO: Check that Locking and Thread local variables also
+# works for threads started at C level
 
 # For debug messages:
 #from s3ql.common import init_logging
@@ -31,24 +34,24 @@ class fs_api_tests(unittest.TestCase):
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
 
-        mkfs.setup_db(self.dbfile.name, self.blocksize)
-        mkfs.setup_bucket(self.bucket, self.dbfile.name)
+        self.cm = CursorManager(self.dbfile.name)
+        mkfs.setup_db(self.cm, self.blocksize)
 
-        self.cache = S3Cache(self.bucket, self.cachedir, self.blocksize * 5, self.blocksize)
+        self.cache = S3Cache(self.bucket, self.cachedir, self.blocksize * 5, 
+                             self.blocksize, self.cm)
         self.cache.timeout = 1
-        self.server = fs.Server(self.cache, self.dbfile.name)
+        self.server = fs.Server(self.cache, self.cm)
 
 
     def tearDown(self):
         # May not have been called if a test failed
-        self.cache.close(MyCursor(apsw.Connection(self.dbfile.name).cursor()))
+        self.cache.close()
         self.dbfile.close()
         os.rmdir(self.cachedir)
 
     def fsck(self):
-        self.cache.close(MyCursor(apsw.Connection(self.dbfile.name).cursor()))
-        conn = apsw.Connection(self.dbfile.name)
-        self.assertTrue(fsck.fsck(conn, self.cachedir, self.bucket, checkonly=True))
+        self.cache.close()
+        self.assertTrue(fsck.fsck(self.cm, self.cachedir, self.bucket, checkonly=True))
 
     @staticmethod
     def random_name(prefix=""):

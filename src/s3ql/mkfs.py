@@ -5,22 +5,17 @@
 #
 
 import stat
-import apsw
 import os
 from time import time
 
-from s3ql.common import MyCursor, ROOT_INODE
+from s3ql.common import ROOT_INODE
 
-__all__ = [ "setup_bucket", "setup_db" ]
+__all__ = [ "setup_db" ]
 
-def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
+def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
     """Creates the metadata tables
     """
-
-    conn = apsw.Connection(dbfile)
-    cursor = MyCursor(conn.cursor())
-
-        
+    
     # Create a list of valid inode types
     types = {"S_IFDIR": stat.S_IFDIR, "S_IFREG": stat.S_IFREG,
              "S_IFSOCK": stat.S_IFSOCK, "S_IFBLK": stat.S_IFBLK,
@@ -225,12 +220,3 @@ def setup_db(dbfile, blocksize, label="unnamed s3qlfs"):
     cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                    ("..", ROOT_INODE, inode))
         
-    # Done setting up metadata table
-    conn.close()
-
-
-def setup_bucket(bucket, dbfile):
-    """Creates a bucket and uploads metadata.
-    """
-    bucket.store_from_file('s3ql_metadata', dbfile)
-    bucket['s3ql_dirty'] = "no"

@@ -5,14 +5,12 @@
 #
 
 import os
-import apsw
 import errno
 import stat
 import fuse
-import threading
 import logging
 from s3ql.common import (decrease_refcount, get_inode, update_mtime, get_inodes,
-                         increase_refcount, MyCursor, update_atime)
+                         increase_refcount, update_atime)
 from cStringIO import StringIO
 import resource
 from time import time
@@ -81,43 +79,14 @@ class Server(fuse.Operations):
     Attributes:
     -----------
 
-    :local:       Thread-local storage, used for database connections
-    :dbfile:      Filename of metadata db
+    :cm:          Cursor Manager
     :cache:       Holds information about cached s3 objects
     :noatime:     True if entity access times shouldn't be updated.
 
     Note: `noatime` does not guarantee that access time will not be
     updated, but only prevents the update where it would adversely
-    influence performance.
-
-    Notes on database usage
-    -----------------------
-    
-    Database cursors should always be obtained from server.get_cursor(). 
-    This ensures that every thread uses a thread-local connection, so
-    that one can uniquely retrieve the last inserted rowid and the
-    number of rows affected by the last statement.
-    
-    Since sqlite does not support nested transactions, named 
-    savepoints have to be used instead. The name of the savepoint
-    should be the name of the class and the invoking method,
-    separated by a dot. This should make the name unique.
-    
-    Keep in mind that, in contrast to `BEGIN ... ROLLBACK`,
-    `SAVEPOINT name .. ROLLBACK TO name` does not cancel the
-    transaction. Hence the correct logic is:
-    
-    cursor.execute("SAVEPOINT 'classname.methodname'")
-    try:
-        # perform transaction statements
-    except:
-        cursor.execute("ROLLBACK TO 'classname.methodname'")
-        raise
-    finally:
-        cursor.execute("RELEASE 'classname.methodname'")
-    
+    influence performance.   
     """
-
 
     def __call__(self, op, *a):
 
@@ -145,6 +114,7 @@ class Server(fuse.Operations):
             # errno is not stored correctly
             raise OSError(exc.errno, "")
         except:
+            # TODO: Make sure we also catch inner exceptions
             log_fuse.error("Unexpected internal filesystem error."
                            "Filesystem may be corrupted, run fsck.s3ql as soon as possible!" 
                            "Please report this bug on http://code.google.com/p/s3ql/.",
@@ -153,50 +123,25 @@ class Server(fuse.Operations):
             raise OSError(errno.EIO)
 
 
-    def __init__(self, cache, dbfile, noatime=True):
+    def __init__(self, cache, cm, noatime=True):
         """Initializes S3QL fs.
         """
 
-        self.local = threading.local()
-        self.dbfile = dbfile
+        self.cm = cm
         self.noatime = noatime
         self.cache = cache
             
         # Check filesystem revision
         log.debug("Reading fs parameters...")
-        cur = self.get_cursor()
-        rev = cur.get_val("SELECT version FROM parameters")
+        rev = cm.get_val("SELECT version FROM parameters")
         if rev < 1:
             raise RevisionError(rev, 1)
 
         # Update mount count
-        cur.execute("UPDATE parameters SET mountcnt = mountcnt + 1")
+        cm.execute("UPDATE parameters SET mountcnt = mountcnt + 1")
 
         # Get blocksize
-        self.blocksize = cur.get_val("SELECT blocksize FROM parameters")
-
-
-    def get_cursor(self):
-        """Returns a cursor from thread-local connection.
-
-        The cursor is augmented with the convenience functions
-        get_row, get_val and get_list.
-        """
-
-        if not hasattr(self.local, "conn"):
-            log.debug("Creating new db connection...")
-            self.local.conn = apsw.Connection(self.dbfile)
-            self.local.conn.setbusytimeout(500)
-            cur = MyCursor(self.local.conn.cursor())
-            
-            # For better performance (but risks db corruption if computer crashes)
-            cur.execute("PRAGMA temp_store = 2")
-            cur.execute("PRAGMA synchronous = off")
-            
-            return cur
-
-        else:
-            return MyCursor(self.local.conn.cursor())
+        self.blocksize = cm.get_val("SELECT blocksize FROM parameters")
 
     def getattr(self, path, inode=None):
         """Handles FUSE getattr() requests
@@ -206,16 +151,14 @@ class Server(fuse.Operations):
         """
         
         if inode is None:
-            cur = self.get_cursor()
             try:
-                inode = get_inode(path, cur)
+                inode = get_inode(path, self.cm)
             except KeyError: # not found
                 raise(FUSEError(errno.ENOENT))
 
         return self.getattr_ino(inode)
 
     def getattr_ino(self, inode):
-        cur = self.get_cursor()
         fstat = dict()
         
         (fstat["st_mode"],
@@ -227,9 +170,9 @@ class Server(fuse.Operations):
          fstat["st_rdev"],
          fstat["st_atime"],
          fstat["st_mtime"],
-         fstat["st_ctime"]) = cur.get_row("SELECT mode, refcount, uid, gid, size, id, rdev, "
-                                          "atime, mtime, ctime FROM inodes WHERE id=? ",
-                                          (inode,))
+         fstat["st_ctime"]) = self.cm.get_row("SELECT mode, refcount, uid, gid, size, id, rdev, "
+                                              "atime, mtime, ctime FROM inodes WHERE id=? ",
+                                              (inode,))
             
         # preferred blocksize for doing IO
         fstat["st_blksize"] = resource.getpagesize()
@@ -258,18 +201,17 @@ class Server(fuse.Operations):
     def readlink(self, path):
         """Handles FUSE readlink() requests.
         """
-        cur = self.get_cursor()
 
-        inode = get_inode(path, cur)
-        target = cur.get_val("SELECT target FROM inodes WHERE id=?", (inode,))
+        inode = get_inode(path, self.cm)
+        target = self.cm.get_val("SELECT target FROM inodes WHERE id=?", (inode,))
 
         if not self.noatime:
-            update_atime(inode, cur)
+            update_atime(inode, self.cm)
         return target
 
     def opendir(self, path):
         """Returns a numerical file handle."""
-        return get_inode(path, self.get_cursor())
+        return get_inode(path, self.cm)
 
     def readdir(self, path, filler, offset, inode):
         """Handles FUSE readdir() requests
@@ -279,14 +221,13 @@ class Server(fuse.Operations):
         # readdir call in FuseAdaptor
         #pylint: disable-msg=W0221
                 
-        cur = self.get_cursor()
-        inode = get_inode(path, cur)
+        inode = get_inode(path, self.cm)
         
         if not self.noatime:
-            update_atime(inode, cur)
+            update_atime(inode, self.cm)
             
-        for (name, inode) in cur.execute("SELECT name, inode FROM contents WHERE parent_inode=?",
-                                         (inode,)):
+        for (name, inode) in self.cm.execute("SELECT name, inode FROM contents WHERE parent_inode=?",
+                                             (inode,)):
             filler(name, self.getattr_ino(inode), 0)
 
     def getxattr(self, path, name, position=0):
@@ -308,53 +249,44 @@ class Server(fuse.Operations):
         not being used.
         """
 
-        cur = self.get_cursor()
-        (inode_p, inode) = get_inodes(path, cur)[-2:]
+        (inode_p, inode) = get_inodes(path, self.cm)[-2:]
         fstat = self.getattr_ino(inode)
 
-        cur.execute("SAVEPOINT 'Server.unlink'")
-        try:
+        with self.cm.transaction() as cur:
             cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
                         (os.path.basename(path), inode_p))
     
             # No more links, remove datablocks
             if fstat["st_nlink"] == 1:
-                self.cache.remove(inode, cur)                
+                self.cache.remove(inode)                
                 cur.execute("DELETE FROM inodes WHERE id=?", (inode,))
             else:
                 # Also updates ctime
                 decrease_refcount(inode, cur)
     
             update_mtime(inode_p, cur)
-        except:
-            cur.execute("ROLLBACK TO 'Server.unlink'")
-            raise
-        finally:
-            cur.execute("RELEASE 'Server.unlink'")
+
 
     def mark_damaged(self):
         """Marks the filesystem as being damaged and needing fsck.
         """
 
-        cur = self.get_cursor()
-        cur.execute("UPDATE parameters SET needs_fsck=?", (True,))
+        self.cm.execute("UPDATE parameters SET needs_fsck=?", (True,))
 
 
     def rmdir(self, path):
         """Handles FUSE rmdir() requests.
         """
-        cur = self.get_cursor()
 
-        (inode_p, inode) = get_inodes(path, cur)[-2:]
+        (inode_p, inode) = get_inodes(path, self.cm)[-2:]
         
         # Check if directory is empty
-        if cur.get_val("SELECT refcount FROM inodes WHERE id=?", (inode,)) > 2: 
+        if self.cm.get_val("SELECT refcount FROM inodes WHERE id=?", (inode,)) > 2: 
             log.debug("Attempted to remove nonempty directory %s", path)
             raise FUSEError(errno.EINVAL)
 
         # Delete
-        cur.execute("SAVEPOINT 'Server.rmdir'")
-        try:
+        with self.cm.transaction() as cur:
             cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
                         ('.', inode))
             cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
@@ -364,21 +296,15 @@ class Server(fuse.Operations):
             cur.execute("DELETE FROM inodes WHERE id=?", (inode,))
             decrease_refcount(inode_p, cur)
             update_mtime(inode_p, cur)
-        except:
-            cur.execute("ROLLBACK TO 'Server.rmdir'")
-            raise
-        finally:
-            cur.execute("RELEASE 'Server.rmdir'")
+
 
     def symlink(self, name, target):
         """Handles FUSE symlink() requests.
         """
 
-        cur = self.get_cursor()
         (uid, gid) = fuse.fuse_get_context()[:2]
-        inode_p = get_inode(os.path.dirname(name), cur)
-        cur.execute("SAVEPOINT 'Server.symlink'")
-        try:
+        inode_p = get_inode(os.path.dirname(name), self.cm)
+        with self.cm.transaction() as cur:
             mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | 
                     stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | 
                     stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
@@ -386,19 +312,15 @@ class Server(fuse.Operations):
                         "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
                         (mode, uid, gid, target, time(), time(), time(), 1))
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                        (os.path.basename(name), self.local.conn.last_insert_rowid(), inode_p))
+                        (os.path.basename(name),cur.last_rowid(), inode_p))
             update_mtime(inode_p, cur)
-        except:
-            cur.execute("ROLLBACK TO 'Server.symlink'")
-            raise
-        finally:
-            cur.execute("RELEASE 'Server.symlink'")
+
 
     def rename(self, old, new):
         """Handles FUSE rename() requests.
         """
 
-        cur = self.get_cursor() 
+        cur = self.cm
         fstat = self.getattr(old)
         inode_p_old = get_inode(os.path.dirname(old), cur)
         inode_p_new = get_inode(os.path.dirname(new), cur)
@@ -418,22 +340,16 @@ class Server(fuse.Operations):
     def link(self, source, target):
         """Handles FUSE link() requests.
         """
-        cur = self.get_cursor()
 
         fstat = self.getattr(target)
-        inode_p = get_inode(os.path.dirname(source), cur)
+        inode_p = get_inode(os.path.dirname(source), self.cm)
 
-        cur.execute("SAVEPOINT 'Server.link'")
-        try:
+        with self.cm.transaction() as cur:
             cur.execute("INSERT INTO contents (name,inode,parent_inode) VALUES(?,?,?)",
                      (os.path.basename(source), fstat["st_ino"], inode_p))
             increase_refcount(fstat["st_ino"], cur)
             update_mtime(inode_p, cur)
-        except:
-            cur.execute("ROLLBACK TO 'Server.link'")
-            raise
-        finally:
-            cur.execute("RELEASE 'Server.link'")
+
 
     def chmod(self, path, mode):
         """Handles FUSE chmod() requests.
@@ -444,16 +360,17 @@ class Server(fuse.Operations):
             log.warn("chmod: attempted to change file mode")
             raise FUSEError(errno.EINVAL)
 
-        cur = self.get_cursor()
-        cur.execute("UPDATE inodes SET mode=?,ctime=? WHERE id=?", (mode, time(), fstat["st_ino"]))
+        self.cm.execute("UPDATE inodes SET mode=?,ctime=? WHERE id=?", 
+                        (mode, time(), fstat["st_ino"]))
 
     def chown(self, path, user, group):
         """Handles FUSE chown() requests.
         """
 
-        cur = self.get_cursor()
+        cur = self.cm
         inode = get_inode(path, cur)
-        cur.execute("UPDATE inodes SET uid=?, gid=?, ctime=? WHERE id=?", (user, group, time(), inode))
+        cur.execute("UPDATE inodes SET uid=?, gid=?, ctime=? WHERE id=?",
+                    (user, group, time(), inode))
 
     def mknod(self, path, mode, dev=None):
         """Handles FUSE mknod() requests.
@@ -465,22 +382,15 @@ class Server(fuse.Operations):
             log("mknod: invalid mode")
             raise FUSEError(errno.EINVAL)
 
-        cur = self.get_cursor()
         (uid, gid) = fuse.fuse_get_context()[:2]
-        inode_p = get_inode(os.path.dirname(path), cur)
-        cur.execute("SAVEPOINT 'Server.mknod'")
-        try:
+        inode_p = get_inode(os.path.dirname(path), self.cm)
+        with self.cm.transaction() as cur:
             cur.execute("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev,refcount,size) "
                      "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
                      (time(), time(), time(), uid, gid, mode, dev, 1))
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                      (os.path.basename(path), cur.last_rowid(), inode_p))
             update_mtime(inode_p, cur)
-        except:
-            cur.execute("ROLLBACK TO 'Server.mknod'")
-            raise
-        finally:
-            cur.execute("RELEASE 'Server.mknod'")
 
 
     def mkdir(self, path, mode):
@@ -495,11 +405,9 @@ class Server(fuse.Operations):
             raise FUSEError(errno.EINVAL)
         mode = (mode & ~stat.S_IFMT(mode)) | stat.S_IFDIR
 
-        cur = self.get_cursor()
-        inode_p = get_inode(os.path.dirname(path), cur)
+        inode_p = get_inode(os.path.dirname(path), self.cm)
         (uid, gid) = fuse.fuse_get_context()[:2]
-        cur.execute("SAVEPOINT 'Server.mkdir'")
-        try:
+        with self.cm.transaction() as cur:
             cur.execute("INSERT INTO inodes (mtime,atime,ctime,uid,gid,mode,refcount) "
                      "VALUES(?, ?, ?, ?, ?, ?, ?)",
                      (time(), time(), time(), uid, gid, mode, 2))
@@ -512,17 +420,13 @@ class Server(fuse.Operations):
                 ('..', inode_p, inode))     
             increase_refcount(inode_p, cur)
             update_mtime(inode_p, cur)
-        except:
-            cur.execute("ROLLBACK TO 'Server.mkdir'")
-            raise
-        finally:
-            cur.execute("RELEASE 'Server.mkdir'")
+
 
     def utimens(self, path, times=None):
         """Handles FUSE utime() requests.
         """
 
-        cur = self.get_cursor()
+        cur = self.cm
         if times is None:
             (atime, mtime) = time()
         else:
@@ -534,7 +438,7 @@ class Server(fuse.Operations):
     def statfs(self, path):
         """Handles FUSE statfs() requests.
         """
-        cur = self.get_cursor()
+        cur = self.cm
         stat_ = dict()
 
         # Blocksize
@@ -588,8 +492,7 @@ class Server(fuse.Operations):
         different open() and `create()` calls for the same inode.
         """
 
-        cur = self.get_cursor()
-        return get_inode(path, cur)
+        return get_inode(path, self.cm)
 
     def create(self, path, mode, fi=None):
         """Creates file `path` with mode `mode`
@@ -607,13 +510,11 @@ class Server(fuse.Operations):
             raise FUSEError(errno.EINVAL)
         mode = (mode & ~stat.S_IFMT(mode)) | stat.S_IFREG
 
-        cur = self.get_cursor()
         (uid, gid) = fuse.fuse_get_context()[:2]
         dirname = os.path.dirname(path)
         name = os.path.basename(path)
-        inode_p = get_inode(dirname, cur)
-        cur.execute("BEGIN TRANSACTION")
-        try:
+        inode_p = get_inode(dirname, self.cm)
+        with self.cm.transaction() as cur:
             cur.execute("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev,refcount,size) "
                      "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
                      (time(), time(), time(), uid, gid, mode, None, 1))
@@ -621,20 +522,14 @@ class Server(fuse.Operations):
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                         (name, inode, inode_p))
             update_mtime(inode_p, cur)
-        except:
-            cur.execute("ROLLBACK")
-            raise
-        else:
-            cur.execute("COMMIT")
 
         return inode
 
     def read(self, path, length, offset, inode):
 
-        cur = self.get_cursor()
         buf = StringIO()
         while length > 0:
-            if offset >= cur.get_val("SELECT size FROM inodes WHERE id=?", (inode,)):
+            if offset >= self.cm.get_val("SELECT size FROM inodes WHERE id=?", (inode,)):
                 break
             tmp = self.read_direct(length, offset, inode)
             buf.write(tmp)
@@ -647,7 +542,7 @@ class Server(fuse.Operations):
 
         May return less than `length` bytes.
         """
-        cur = self.get_cursor()
+        cur = self.cm
         
         # Calculate starting offset of next s3 object, we don't
         # read further than that
@@ -666,7 +561,7 @@ class Server(fuse.Operations):
 
         # Obtain required s3 object
         offset_i = self.blocksize * int(offset / self.blocksize)
-        with self.cache.get(inode, offset_i, cur) as fh:
+        with self.cache.get(inode, offset_i) as fh:
             fh.seek(offset - offset_i, os.SEEK_SET)
             buf = fh.read(length)
             
@@ -692,7 +587,7 @@ class Server(fuse.Operations):
 
         May write less bytes than given in `buf`.
         """
-        cur = self.get_cursor()
+        cur = self.cm
         
         offset_i = self.blocksize * int(offset / self.blocksize)
         
@@ -703,7 +598,7 @@ class Server(fuse.Operations):
             buf = buf[:maxwrite]
 
         # Obtain required s3 object
-        with self.cache.get(inode, offset_i, cur, markdirty=True) as fh:
+        with self.cache.get(inode, offset_i, markdirty=True) as fh:
             fh.seek(offset - offset_i, os.SEEK_SET)
             fh.write(buf)
 
@@ -724,14 +619,14 @@ class Server(fuse.Operations):
         """Handles FUSE ftruncate() requests.
         """
 
-        cur = self.get_cursor()
+        cur = self.cm
 
         # Delete all truncated s3 objects
-        self.cache.remove(inode, cur, len_)
+        self.cache.remove(inode, len_)
 
         # Get last object before truncation
         offset_i = self.blocksize * int((len_ - 1) / self.blocksize)
-        with self.cache.get(inode, offset_i, cur, markdirty=True) as fh:
+        with self.cache.get(inode, offset_i, markdirty=True) as fh:
             fh.truncate(len_ - offset_i)
                 
         # Update file size
@@ -744,7 +639,7 @@ class Server(fuse.Operations):
         """
         # Metadata is always synced automatically, so we ignore
         # fdatasync
-        self.cache.flush(inode, self.get_cursor())
+        self.cache.flush(inode)
 
 
     # Called for close() calls. Here we sync the data, so that we

@@ -19,7 +19,7 @@ import logging
 
 from s3ql import mkfs, s3
 from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
-
+from s3ql.cursor_manager import CursorManager
 
 #
 # Parse options
@@ -63,7 +63,7 @@ if options.encrypt:
     if sys.stdin.isatty():
         options.encrypt = getpass("Enter encryption password: ")
         if not options.encrypt == getpass("Confirm encryption password: "):
-            print >>sys.stderr, "Passwords don't match."
+            sys.stderr.write("Passwords don't match\n.")
             sys.exit(1)
     else:
         options.encrypt = sys.stdin.readline().rstrip()
@@ -106,14 +106,13 @@ if os.path.exists(dbfile) or \
             "Local metadata file already exists!\n" \
             "Use -f option to really remove the existing filesystem\n"
         sys.exit(1)
-mkfs.setup_db(dbfile, options.blocksize * 1024, options.label)
-
-
-#
-# Upload
-#
+        
 try:
-    bucket = conn.get_bucket(bucket)
-    mkfs.setup_bucket(bucket, dbfile)
+    mkfs.setup_db(CursorManager(dbfile), options.blocksize * 1024,
+                  options.label)
+
+    bucket.store_from_file('s3ql_metadata', dbfile)
+    bucket['s3ql_dirty'] = "no"
+
 finally:
     os.unlink(dbfile)

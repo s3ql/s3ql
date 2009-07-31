@@ -17,12 +17,11 @@ import threading
 import logging
 from time import time, sleep
 from getpass import getpass
-from contextlib import contextmanager
 
 __all__ = [ "decrease_refcount",  "get_cachedir", "init_logging",
            "get_credentials", "get_dbfile", "get_inode", "get_path",
            "increase_refcount", "unused_name", "addfile", "get_inodes",
-           "MyCursor", "update_atime", "update_mtime", "update_ctime", 
+           "update_atime", "update_mtime", "update_ctime", 
            "waitfor", "ROOT_INODE", "writefile", "ExceptionStoringThread",
            "EmbeddedException" ]
 
@@ -97,92 +96,7 @@ def init_logging(fg, quiet=False, debug=None):
         
     if debug:
         root_logger.setLevel(logging.DEBUG)
-        log_filter.acceptnames = debug
-    
-class MyCursor(object):
-    """Wraps an apsw cursor to add some convenience functions.
-    """
-
-    def __init__(self, cursor):
-        self.cursor = cursor
-        self.conn = cursor.getconnection()
-
-    @contextmanager
-    def transaction(self, name):
-        '''Create savepoint, rollback on exceptions, commit on success
-        
-        This context manager creates a savepoint named `name` and returns
-        a cursor. If the managed block evaluates without exceptions, the
-        savepoint is committed at the end. Otherwise it is rolled back.         
-        '''
-        self.cursor.execute('SAVEPOINT ?', (name,))
-        try:
-            yield self
-        except:
-            self.cursor.execute('ROLLBACK TO ?', (name,))
-            raise
-        finally:
-            self.cursor.execute('RELEASE ?', (name,))
-
-    def execute(self, *a, **kw):
-        '''Execute the given SQL statement
-        '''
-        
-        return self.cursor.execute(*a, **kw)
-
-
-    def get_val(self, *a, **kw):
-        """Executes a select statement and returns first element of first row.
-        
-        If there is no result row, raises StopIteration.
-        """
-
-        return self.get_row(*a, **kw)[0]
-
-    def get_list(self, *a, **kw):
-        """Executes a select statement and returns result list.
-        """
-
-        return list(self.execute(*a, **kw))
-
-    def get_row(self, *a, **kw):
-        """Executes a select statement and returns first row.
-        
-        If there are no result rows, raises StopIteration.
-        """
-
-        # It is ABSOLUTELY CRUCIAL that we retrieve all the rows.
-        # Otherwise the cursor is not destroyed and the database
-        # stays locked.
-        res = self.execute(*a, **kw)
-        row = res.next()
-        try:
-            res.next()
-        except StopIteration:
-            # Fine, we only wanted one row
-            pass
-        else:
-            # There are more results? That shouldn't be
-            raise RuntimeError('Query returned more than one result row')
-        
-        return row
-     
-    def last_rowid(self):
-        """Returns last inserted rowid.
-
-        Note that this returns the last rowid that has been inserted using
-        this *connection*, not cursor.
-        """
-        return self.conn.last_insert_rowid()
-    
-    def changes(self):
-        """Returns number of rows affected by last statement
-
-        Note that this returns the number of changed rows due to the last statement
-        executed in this connection*, not cursor.
-        """
-        return self.conn.changes()
-    
+        log_filter.acceptnames = debug 
 
 def update_atime(inode, cur):
     """Updates the atime of the specified object.

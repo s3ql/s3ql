@@ -9,7 +9,8 @@ import tempfile
 import unittest
 from time import time
 from s3ql import mkfs, s3
-from s3ql.common import MyCursor, ROOT_INODE
+from s3ql.common import ROOT_INODE
+from s3ql.cursor_manager import CursorManager
 import apsw
 import stat
 import os
@@ -26,10 +27,9 @@ class sqlite_tests(unittest.TestCase):
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
 
-        mkfs.setup_db(self.dbfile.name, self.blocksize)
-        mkfs.setup_bucket(self.bucket, self.dbfile.name)
+        self.cur = CursorManager(self.dbfile.name)
+        mkfs.setup_db(self.cur, self.blocksize)
         
-        self.cur = MyCursor(apsw.Connection(self.dbfile.name).cursor())
 
     def tearDown(self):
         self.dbfile.close()

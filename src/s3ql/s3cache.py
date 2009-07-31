@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from s3ql import fs
 from s3ql.multi_lock import MultiLock
 from s3ql.ordered_dict import OrderedDict
+from s3ql.cursor_manager import CursorManager
 import errno
 import logging
 import os
@@ -64,11 +65,7 @@ class S3Cache(object):
     and stores objects on S3 as necessary. Moreover, it provides
     methods to delete and create s3 objects, once again taking care
     of the necessary locking.
-    
-    Since the S3Cache methods are designed to be called from
-    different threads, they all take a database cursor as an argument.
-    The caller has to make sure that different threads use different
-    database connections.
+
     
     Locking Procedure
     -----------------
@@ -93,10 +90,14 @@ class S3Cache(object):
     :s3_lock:     MultiLock to synchronize access to individual s3 objects
     :global_lock: Global lock    
     :timeout:     Maximum time to wait for changes in S3 to propagate
+    :cm:          CursorManager instance, to manage access to the database
+                  from different threads
     """
     
-    def __init__(self, bucket, cachedir, cachesize, blocksize):
+    def __init__(self, bucket, cachedir, cachesize, blocksize, cm):
         log.debug('Initializing')
+        if not isinstance(cm, CursorManager):
+            raise TypeError()
         self.keys = OrderedDict()
         self.cachedir = cachedir
         self.maxsize = cachesize
@@ -104,14 +105,13 @@ class S3Cache(object):
         self.bucket = bucket
         self.s3_lock = MultiLock()
         self.global_lock = threading.RLock()
+        self.cm = cm
         self.timeout = 300 
 
     @contextmanager
-    def get(self, inode, offset, cur, markdirty=False):
+    def get(self, inode, offset, markdirty=False):
         """Get filehandle for s3 object backing `inode` at `offset`
         
-        Uses database cursor `cur`.
-         
         This is a context manager function, so the intended usage is
         
         with s3cache.get(inode, offset, cur) as fh:
@@ -126,7 +126,8 @@ class S3Cache(object):
         # TODO: Instead of using `markdirty`, compare mtime of the file
         # before and after the yield and determine if it has been changed.
         
-        self.expire(cur)
+        cur = self.cm
+        self.expire()
         
         # FIXME: What kind of lock does SAVEPOINT create? IMMEDIATE/EXCLUSIVE/DEFERRED?
                  
@@ -140,17 +141,11 @@ class S3Cache(object):
             except StopIteration:
                 # Create and add to cache
                 log.debug('creating new s3 object')
-                cur.execute("SAVEPOINT 'S3Cache.get'")
-                try:
+                with cur.transaction() as cur:
                     s3key = "s3ql_data_%d_%d" % (inode, offset) # This is a unique new key
                     cur.execute("INSERT INTO s3_objects (id,refcount) VALUES(?,?)", (s3key,1))
                     cur.execute("INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?,?,?)",
                                 (inode, offset, s3key))
-                except:
-                    cur.execute("ROLLBACK TO 'S3Cache.get'")
-                    raise
-                finally:
-                    cur.execute("RELEASE 'S3Cache.get'")
                     
                 self.keys[s3key] = CacheEntry(s3key, open(self.cachedir + s3key, "w+b"))
 
@@ -221,15 +216,14 @@ class S3Cache(object):
         return open(cachepath, "r+b")        
         
                   
-    def expire(self, cur):
+    def expire(self):
         """Performs cache expiry.
 
         If the cache is bigger than `self.cachesize`, the oldest
         entries are flushed until at least `self.blocksize`
         bytes are available (or there are no objects left to flush).
-        
-        Uses database cursor `cur`.
         """
+        cur = self.cm
         log.debug('Expiring cache')
         while len(self.keys) * self.blocksize > self.maxsize:
 
@@ -268,7 +262,7 @@ class S3Cache(object):
                 
         log.debug("Expiration end")
 
-    def remove(self, inode, cur, offset=0):
+    def remove(self, inode, offset=0):
         """Unlinks all s3 objects from the given inode.
         
         If `offset` is specified, unlinks only s3 objects starting at
@@ -278,20 +272,20 @@ class S3Cache(object):
         Uses database cursor `cur`.
         """        
         # Run through keys
+        cur = self.cm
         log.debug('Removing s3 objects for inode %i, starting at offset %i', inode, offset)
         while True:
             with self.global_lock:
                 try:
                     (s3key, cur_off) = \
                         cur.get_row("SELECT s3key,offset FROM inode_s3key WHERE inode=? "
-                                    "AND offset >= ?", (inode, offset))
+                                    "AND offset >= ? LIMIT 1", (inode, offset))
                 except StopIteration:    # No keys left
                     break
                 
                 # Remove from table
                 log.debug('Removing object %s from table', s3key)
-                cur.execute("SAVEPOINT 'S3Cache.remove'")
-                try:
+                with cur.transaction() as cur:
                     cur.execute("DELETE FROM inode_s3key WHERE inode=? AND offset=?", 
                                 (inode, cur_off))
                     refcount = cur.get_val("SELECT refcount FROM s3_objects WHERE id=?",
@@ -304,11 +298,6 @@ class S3Cache(object):
                                 (refcount, s3key))
                         # No need to do actually remove the object
                         continue
-                except:
-                    cur.execute("ROLLBACK TO 'S3Cache.remove'")
-                    raise
-                finally:
-                    cur.execute("RELEASE 'S3Cache.remove'")
                     
                 # Remove from AWS
                 self.s3_lock.acquire(s3key)
@@ -328,17 +317,15 @@ class S3Cache(object):
                     pass 
             finally:
                 self.s3_lock.release(s3key)
-                
-            
-
         
         
-    def flush(self, inode, cur):
+    def flush(self, inode):
         """Uploads all dirty data from `inode` to S3
         
-        No locking required. Uses database cursor `cur`.
+        No locking required. 
         """
         # Determine s3 objects from this inode
+        cur = self.cm
         log.debug('Flushing objects for inode %i', inode) 
         to_flush = [ self.keys[s3key] for (s3key,) 
                     in cur.execute("SELECT s3key FROM inode_s3key WHERE inode=?", (inode,))
@@ -366,11 +353,11 @@ class S3Cache(object):
                 raise
 
 
-    def close(self, cur):
+    def close(self):
         """Uploads all dirty data and cleans the cache.
-        
-        Uses database cursor `cur`.         
+             
         """       
+        cur = self.cm
         log.debug('Closing S3Cache') 
         with self.global_lock:
             while len(self.keys):

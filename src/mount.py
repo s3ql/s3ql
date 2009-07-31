@@ -13,11 +13,11 @@ from optparse import OptionParser
 from getpass  import getpass
 from s3ql import fs, s3
 from s3ql.s3cache import S3Cache
-from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile, MyCursor
+from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
+from s3ql.cursor_manager import CursorManager
 import sys
 import os
 import stat
-import apsw
 import logging
 
 #
@@ -136,26 +136,22 @@ try:
     bucket.fetch_to_file("s3ql_metadata", dbfile)
 
     # Check that the fs itself is clean
-    conn = apsw.Connection(dbfile)
-    cur = MyCursor(conn.cursor())
+    cur = CursorManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
     if cur.get_val("SELECT needs_fsck FROM parameters"):
-        print >> sys.stderr, "Filesystem damaged, run s3fsk!\n"
+        sys.stderr.write("Filesystem damaged, run s3fsk!\n")
         sys.exit(1)
 
     #
     # Start server
     #
     cache =  S3Cache(bucket, cachedir, options.cachesize * 1024 * 1024,
-                     cur.get_val("SELECT blocksize FROM parameters"))
-    server = fs.Server(cache, dbfile)
+                     cur.get_val("SELECT blocksize FROM parameters"), cur)
+    server = fs.Server(cache, cur)
     server.main(mountpoint, **fuse_opts)
     cache.close(cur)
 
-
     # Upload database
     cur.execute("VACUUM")
-    cur = None
-    conn.close()
     log.debug("Uploading database..")
     if bucket.has_key("s3ql_metadata_bak_2"):
         bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")

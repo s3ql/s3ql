@@ -6,8 +6,8 @@
 #
 
 from s3ql import mkfs, s3, s3cache, fs
-from s3ql.common import MyCursor, EmbeddedException, ExceptionStoringThread
-import apsw
+from s3ql.common import EmbeddedException, ExceptionStoringThread
+from s3ql.cursor_manager import CursorManager
 import os
 import tempfile
 import unittest
@@ -29,12 +29,10 @@ class s3cache_tests(unittest.TestCase):
         self.dbfile = tempfile.NamedTemporaryFile()
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
-        self.cachesize = int(1.5 * self.blocksize)
+        self.cachesize = int(1.5 * self.blocksize) 
 
-        mkfs.setup_db(self.dbfile.name, self.blocksize)
-        mkfs.setup_bucket(self.bucket, self.dbfile.name)
-
-        self.cur = MyCursor(apsw.Connection(self.dbfile.name).cursor())
+        self.cur = CursorManager(self.dbfile.name)
+        mkfs.setup_db(self.cur, self.blocksize)
         
         # Create an inode we can work with
         self.inode = 42
@@ -45,11 +43,11 @@ class s3cache_tests(unittest.TestCase):
                     os.getuid(), os.getgid(), time(), time(), time(), 1, 32))
         
         self.cache = s3cache.S3Cache(self.bucket, self.cachedir, self.cachesize,
-                                     self.blocksize)
+                                     self.blocksize, self.cur)
 
     def tearDown(self):
         # May not have been called if a test failed
-        self.cache.close(self.cur)
+        self.cache.close()
         self.dbfile.close()
         os.rmdir(self.cachedir)
     
@@ -67,7 +65,7 @@ class s3cache_tests(unittest.TestCase):
         s3key = "s3ql_data_%d_%d" % (inode, offset)
         
         # Write
-        with self.cache.get(inode, offset, self.cur, markdirty=True) as fh:
+        with self.cache.get(inode, offset, markdirty=True) as fh:
             fh.seek(0)
             fh.write(data)
         
@@ -75,12 +73,12 @@ class s3cache_tests(unittest.TestCase):
         self.assertTrue(s3key not in self.bucket.keys())
         
         # Read cached
-        with self.cache.get(inode, offset, self.cur) as fh:
+        with self.cache.get(inode, offset) as fh:
             fh.seek(0)
             self.assertEqual(data, fh.read(len(data)))
             
         # Flush
-        self.cache.flush(inode, self.cur)
+        self.cache.flush(inode)
         
         # Should be committed now
         self.assertTrue(s3key in self.bucket.keys())
@@ -88,15 +86,15 @@ class s3cache_tests(unittest.TestCase):
         # Even if we change in S3, we should get the cached data
         data2 = self.random_data(241)
         self.bucket[s3key] = data2
-        with self.cache.get(inode, offset, self.cur) as fh:
+        with self.cache.get(inode, offset) as fh:
             fh.seek(0)
             self.assertEqual(data, fh.read(len(data)))
             
         # This should not upload any data, so now we read the new key
         # and get an etag mismatch
-        self.cache.close(self.cur)
+        self.cache.close()
         self.cache.timeout = 1
-        cm = self.cache.get(inode, offset, self.cur)
+        cm = self.cache.get(inode, offset)
         self.assertRaises(fs.FUSEError, cm.__enter__)
             
     def test_02_locking_meta(self):
@@ -123,9 +121,7 @@ class s3cache_tests(unittest.TestCase):
         
         # Access the same file in two threads
         def access():
-            # Get curser
-            cur = MyCursor(apsw.Connection(self.dbfile.name).cursor())
-            with self.cache.get(self.inode, offset, cur):
+            with self.cache.get(self.inode, offset):
                 if flag['writing']:
                     raise s3.ConcurrencyError
                 flag['writing'] = True
@@ -166,13 +162,10 @@ class s3cache_tests(unittest.TestCase):
         
         # Access the same file in two threads
         def access():            
-            conn = apsw.Connection(self.dbfile.name)
-            conn.setbusytimeout(5000)
-            cur = MyCursor(conn.cursor())
             # Make sure the object is dirty
-            with self.cache.get(self.inode, offset, cur, markdirty=True) as fh:
+            with self.cache.get(self.inode, offset, markdirty=True) as fh:
                 fh.write(b'data')
-            self.cache.expire(cur)        
+            self.cache.expire()        
         
         # This should work nicely
         t1 = ExceptionStoringThread(target=access)
@@ -207,6 +200,8 @@ class DummyLock(object):
     
     @contextmanager
     def __call__(self, _):
+        # pylint: disable-msg=R0201
+        # Yeah, this could be a function.
         yield
             
     def acquire(self, _):

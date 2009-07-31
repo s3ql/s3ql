@@ -11,12 +11,12 @@ warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 
 from getpass  import getpass
 import os, sys
-import apsw
 import stat
 import time
 from optparse import OptionParser
 from datetime import datetime
 from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
+from s3ql.cursor_manager import CursorManager
 import logging
 
 from s3ql import s3, fsck
@@ -146,8 +146,7 @@ else:
     bucket.fetch_to_file("s3ql_metadata", dbfile)
 
 
-conn = apsw.Connection(dbfile)
-cursor = conn.cursor()
+cursor = CursorManager(dbfile)
 
 # Check filesystem revision
 (rev,) = cursor.execute("SELECT version FROM parameters").next()
@@ -167,8 +166,6 @@ if not options.checkonly:
                    "mountcnt=?", (False, time.time(), 0))
 
     cursor.execute("VACUUM")
-    cursor = None
-    conn.close()
     log.debug("Uploading database..")
     if bucket.has_key("s3ql_metadata_bak_2"):
         bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")

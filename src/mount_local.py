@@ -12,14 +12,14 @@ warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 from optparse import OptionParser
 from getpass  import getpass
 from time import sleep
-from s3ql.common import init_logging, MyCursor
+from s3ql.common import init_logging
+from s3ql.cursor_manager import CursorManager
 from s3ql import fs, s3, mkfs, fsck
 from s3ql.s3cache import S3Cache
 import sys
 import os
 import tempfile
-import apsw
-import logging
+import logging 
 
 #
 # Parse command line
@@ -75,7 +75,7 @@ if options.encrypt:
     if sys.stdin.isatty():
         options.encrypt = getpass("Enter encryption password: ")
         if not options.encrypt == getpass("Confirm encryption password: "):
-            print >>sys.stderr, "Passwords don't match."
+            sys.stderr.write("Passwords don't match.\n")
             sys.exit(1)
     else:
         options.encrypt = sys.stdin.readline().rstrip()
@@ -111,17 +111,18 @@ bucket.prop_delay = options.propdelay
 
 dbfile = tempfile.NamedTemporaryFile()
 cachedir = tempfile.mkdtemp() + "/"
-mkfs.setup_db(dbfile.name, options.blocksize * 1024)
-mkfs.setup_bucket(bucket, dbfile.name)
+cm = CursorManager(dbfile.name, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
+mkfs.setup_db(cm, options.blocksize * 1024)
 log.debug("Temporary database in " + dbfile.name)
 
 #
 # Start server
 #
-cache =  S3Cache(bucket, cachedir, options.blocksize * 5, options.blocksize)
-server = fs.Server(cache, dbfile.name)
+
+cache =  S3Cache(bucket, cachedir, options.blocksize * 5, options.blocksize, cm)
+server = fs.Server(cache, cm)
 server.main(mountpoint, **fuse_opts)
-cache.close(MyCursor(apsw.Connection(dbfile.name).cursor()))
+cache.close()
 
 # We have to make sure that all changes have been comitted by the
 # background threads
@@ -131,15 +132,11 @@ sleep(options.propdelay)
 # Do fsck
 #
 if options.fsck:
-    conn = apsw.Connection(dbfile.name)
-
-    if not fsck.fsck(conn, cachedir, bucket, checkonly=True):
+    if not fsck.fsck(cm, cachedir, bucket, checkonly=True):
         log.info("fsck found errors -- preserving database in %s", dbfile)
-        conn.close()
         os.rmdir(cachedir)
         sys.exit(1)
     else:
-        conn.close()
         dbfile.close()
         os.rmdir(cachedir)
         sys.exit(0)
