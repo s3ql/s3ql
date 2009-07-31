@@ -15,16 +15,6 @@ class fsck_tests(unittest.TestCase):
     def tearDown(self):
         pass
 
-    def test_something(self):
-        """Docstring is displayed
-        """
-        pass
-
-    def test_somethingElse(self):
-        """Docstring is displayed
-        """
-        pass
-
 
 # Somehow important according to pyunit documentation
 def suite():
@@ -33,4 +23,4 @@ def suite():
 
 # Allow calling from command line
 if __name__ == "__main__":
-            unittest.main()
+    unittest.main()

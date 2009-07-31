@@ -65,7 +65,7 @@ class s3cache_tests(unittest.TestCase):
         s3key = "s3ql_data_%d_%d" % (inode, offset)
         
         # Write
-        with self.cache.get(inode, offset, markdirty=True) as fh:
+        with self.cache.get(inode, offset) as fh:
             fh.seek(0)
             fh.write(data)
         
@@ -94,6 +94,7 @@ class s3cache_tests(unittest.TestCase):
         # and get an etag mismatch
         self.cache.close()
         self.cache.timeout = 1
+        self.cache.expect_mismatch = True
         cm = self.cache.get(inode, offset)
         self.assertRaises(fs.FUSEError, cm.__enter__)
             
@@ -163,7 +164,7 @@ class s3cache_tests(unittest.TestCase):
         # Access the same file in two threads
         def access():            
             # Make sure the object is dirty
-            with self.cache.get(self.inode, offset, markdirty=True) as fh:
+            with self.cache.get(self.inode, offset) as fh:
                 fh.write(b'data')
             self.cache.expire()        
         

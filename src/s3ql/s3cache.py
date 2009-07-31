@@ -24,24 +24,34 @@ __all__ = [ "S3Cache" ]
 log = logging.getLogger("S3Cache") 
 
 
-class CacheEntry(object):
+class CacheEntry(file):
     """An element in the s3 cache.
     
-    Attributes:
-    -----------
+    Additional Attributes:
+    ----------------------
 
-    :fh:        File handle to this object
-    :dirty:     Has the file been changed?
-    :name:      s3 key
+    :dirty:    Has the file been modified
+    :s3key:    s3 key
+    """    
     
-    """
-    __slots__ = [ "fh", "dirty", "name" ]
+    def __init__(self, s3key, filename, mode):
+        super(CacheEntry, self).__init__(filename, mode)
+        self.dirty = False
+        self.s3key = s3key
+        
+    def truncate(self, *a, **kw):
+        self.dirty = True
+        return super(CacheEntry, self).truncate(*a, **kw)
     
-    def __init__(self, name, fh, dirty=False):
-        self.fh = fh
-        self.name = name
-        self.dirty = dirty    
+    def write(self, *a, **kw):
+        self.dirty = True
+        return super(CacheEntry, self).write(*a, **kw)       
+ 
+    def writelines(self, *a, **kw):
+        self.dirty = True
+        return super(CacheEntry, self).writelines(*a, **kw)
     
+        
 class S3Cache(object):
     """Manages access to s3 objects
     
@@ -92,6 +102,11 @@ class S3Cache(object):
     :timeout:     Maximum time to wait for changes in S3 to propagate
     :cm:          CursorManager instance, to manage access to the database
                   from different threads
+                  
+    
+    The `expect_mismatch` attribute is only for unit testing instrumentation
+    and suppresses warnings if a mismatch between local and remote etag
+    is encountered.                  
     """
     
     def __init__(self, bucket, cachedir, cachesize, blocksize, cm):
@@ -107,9 +122,10 @@ class S3Cache(object):
         self.global_lock = threading.RLock()
         self.cm = cm
         self.timeout = 300 
+        self.expect_mismatch = False
 
     @contextmanager
-    def get(self, inode, offset, markdirty=False):
+    def get(self, inode, offset):
         """Get filehandle for s3 object backing `inode` at `offset`
         
         This is a context manager function, so the intended usage is
@@ -123,13 +139,8 @@ class S3Cache(object):
         
         """
         
-        # TODO: Instead of using `markdirty`, compare mtime of the file
-        # before and after the yield and determine if it has been changed.
-        
         cur = self.cm
         self.expire()
-        
-        # FIXME: What kind of lock does SAVEPOINT create? IMMEDIATE/EXCLUSIVE/DEFERRED?
                  
         # Get s3 key    
         log.debug('Getting filehandle for inode %i, offset %i', inode, offset)
@@ -147,7 +158,7 @@ class S3Cache(object):
                     cur.execute("INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?,?,?)",
                                 (inode, offset, s3key))
                     
-                self.keys[s3key] = CacheEntry(s3key, open(self.cachedir + s3key, "w+b"))
+                self.keys[s3key] = CacheEntry(s3key, self.cachedir + s3key, "w+b")
 
             log.debug('Acquiring object lock')   
             self.s3_lock.acquire(s3key)
@@ -160,28 +171,25 @@ class S3Cache(object):
             except KeyError:
                 log.debug('Object not cached, retrieving from s3')
                 etag = cur.get_val("SELECT etag FROM s3_objects WHERE id=?", (s3key,))
-                el = CacheEntry(s3key, self._download_object(s3key, etag))
+                el = CacheEntry(s3key, self._download_object(s3key, etag), 'r+b')
                 self.keys[s3key] = el
             else:
                 log.debug('Using cached object')
                 self.keys.to_head(s3key)
-                       
-            # Now the fh is made available 
-            if markdirty:
-                el.dirty = True
             
             # Always start at the same position
-            el.fh.seek(0)
-            yield el.fh
+            el.seek(0)
+            yield el
         finally:
             log.debug('Releasing object lock')
             self.s3_lock.release(s3key)
             
             
     def _download_object(self, s3key, etag):
-        """Downloads an s3 object from amazon into the cache.
+        """Download s3 object from amazon into the cache. Return path.
         
         Not synchronized. 
+
         """
 
         log.debug('Attempting to download object %s from S3', s3key)
@@ -190,8 +198,9 @@ class S3Cache(object):
 
         # Check etag
         if meta.etag != etag:
-            log.warn("Changes in %s have apparently not yet propagated. Waiting and retrying...\n"
-                     "Try to increase the cache size to avoid this.", s3key)
+            if not self.expect_mismatch:
+                log.warn("Changes in %s have apparently not yet propagated. Waiting and retrying...\n"
+                         "Try to increase the cache size to avoid this.", s3key)
             log.debug('Stored etag: %s, Received etag: %s', etag, meta.etag)
             waited = 0
             waittime = 0.2
@@ -206,14 +215,15 @@ class S3Cache(object):
 
             # If still not found
             if meta.etag != etag:
-                log.error("etag for %s doesn't match metadata!" 
-                          "Filesystem is probably corrupted (or S3 is having problems), "
-                          "run fsck.s3ql as soon as possible.", s3key)
+                if not self.expect_mismatch:
+                    log.error("etag for %s doesn't match metadata!" 
+                              "Filesystem is probably corrupted (or S3 is having problems), "
+                              "run fsck.s3ql as soon as possible.", s3key)
                 raise fs.FUSEError(errno.EIO, fatal=True)
             
         self.bucket.fetch_to_file(s3key, cachepath) 
         log.debug('Object %s fetched successfully.', s3key)
-        return open(cachepath, "r+b")        
+        return cachepath      
         
                   
     def expire(self):
@@ -237,28 +247,28 @@ class S3Cache(object):
                     break
                 
                 log.debug('Least recently used object is %s, obtaining object lock..', el.name)
-                self.s3_lock.acquire(el.name)  
+                self.s3_lock.acquire(el.s3key)  
                 
             try:
                 try:
-                    del self.keys[el.name]
+                    del self.keys[el.s3key]
                 except KeyError:
                     # Another thread already expired it, we need to try again
                     continue
                 
-                el.fh.close()
+                el.close()
                 if el.dirty:
-                    log.debug('Expiring dirty s3 object %s', el.name)
-                    etag = self.bucket.store_from_file(el.name, self.cachedir + el.name)
+                    log.debug('Expiring dirty s3 object %s', el.s3key)
+                    etag = self.bucket.store_from_file(el.s3key, el.name)
                     cur.execute("UPDATE s3_objects SET etag=?, last_modified=? "
-                                "WHERE id=?", (etag, time.time(), el.name))
+                                "WHERE id=?", (etag, time.time(), el.s3key))
                 else:
-                    log.debug('Expiring unchanged s3 object %s', el.name)
+                    log.debug('Expiring unchanged s3 object %s', el.s3key)
                     
-                os.unlink(self.cachedir + el.name)
+                os.unlink(el.name)
 
             finally:
-                self.s3_lock.release(el.name)
+                self.s3_lock.release(el.s3key)
                 
         log.debug("Expiration end")
 
@@ -271,6 +281,7 @@ class S3Cache(object):
         
         Uses database cursor `cur`.
         """        
+        
         # Run through keys
         cur = self.cm
         log.debug('Removing s3 objects for inode %i, starting at offset %i', inode, offset)
@@ -306,8 +317,8 @@ class S3Cache(object):
             try:
                 el = self.keys.pop(s3key, None)
                 if el is not None: # In cache
-                    el.fh.close()  
-                    os.unlink(self.cachedir + el.name) 
+                    el.close()  
+                    os.unlink(el.name) 
                 
                 # Remove from s3
                 try:
@@ -334,20 +345,20 @@ class S3Cache(object):
         # Flush if required
         for el in to_flush:
             if not el.dirty:
-                log.debug('Object %s is not dirty', el.name)
+                log.debug('Object %s is not dirty', el.s3key)
                 continue
             
-            log.debug('Flushing object %s', el.name)
+            log.debug('Flushing object %s', el.s3key)
             
             # We have to set this *before* uploading, otherwise we loose changes
             # during the upload
             el.dirty = False
                 
             try:
-                el.fh.flush()    
-                etag = self.bucket.store_from_file(el.name, self.cachedir + el.name)
+                el.flush()    
+                etag = self.bucket.store_from_file(el.s3key, el.name)
                 cur.execute("UPDATE s3_objects SET etag=?, last_modified=? WHERE id=?",
-                            (etag, time.time(), el.name))
+                            (etag, time.time(), el.s3key))
             except:
                 el.dirty = True
                 raise
@@ -364,13 +375,13 @@ class S3Cache(object):
                 el = self.keys.pop_last()
                 
                 if el.dirty:
-                    el.fh.flush()    
-                    etag = self.bucket.store_from_file(el.name, self.cachedir + el.name)
+                    el.flush()    
+                    etag = self.bucket.store_from_file(el.s3key, el.name)
                     cur.execute("UPDATE s3_objects SET etag=?, last_modified=? WHERE id=?",
-                                (etag, time.time(), el.name,))
+                                (etag, time.time(), el.s3key))
 
-                el.fh.close()
-                os.unlink(self.cachedir + el.name)
+                el.close()
+                os.unlink(el.name)
                 
     def __del__(self):
         if self.keys:

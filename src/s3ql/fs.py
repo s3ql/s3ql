@@ -114,7 +114,6 @@ class Server(fuse.Operations):
             # errno is not stored correctly
             raise OSError(exc.errno, "")
         except:
-            # TODO: Make sure we also catch inner exceptions
             log_fuse.error("Unexpected internal filesystem error."
                            "Filesystem may be corrupted, run fsck.s3ql as soon as possible!" 
                            "Please report this bug on http://code.google.com/p/s3ql/.",
@@ -598,7 +597,7 @@ class Server(fuse.Operations):
             buf = buf[:maxwrite]
 
         # Obtain required s3 object
-        with self.cache.get(inode, offset_i, markdirty=True) as fh:
+        with self.cache.get(inode, offset_i) as fh:
             fh.seek(offset - offset_i, os.SEEK_SET)
             fh.write(buf)
 
@@ -626,7 +625,7 @@ class Server(fuse.Operations):
 
         # Get last object before truncation
         offset_i = self.blocksize * int((len_ - 1) / self.blocksize)
-        with self.cache.get(inode, offset_i, markdirty=True) as fh:
+        with self.cache.get(inode, offset_i) as fh:
             fh.truncate(len_ - offset_i)
                 
         # Update file size
