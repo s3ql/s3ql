@@ -16,9 +16,6 @@ import stat
 import tempfile
 import unittest
 
-# TODO: Check that Locking and Thread local variables also
-# works for threads started at C level
-
 # For debug messages:
 #from s3ql.common import init_logging
 #init_logging(True, False, debug=[''])

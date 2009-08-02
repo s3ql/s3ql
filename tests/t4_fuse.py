@@ -40,8 +40,8 @@ class fuse_tests(unittest.TestCase):
         # Mount
         path = os.path.join(os.path.dirname(__file__), "..", "src/mount_local.py")
         pid = os.spawnl(os.P_NOWAIT, path, "mount_local.py",
-                             "--fg", "--fsck", "--nonempty", "--blocksize", "1",
-                             "--quiet", "--txdelay", "0.2", "--propdelay",
+                             "--fg", "--fsck", "--blocksize", "1",
+                             "--quiet", "--txdelay", "0.1", "--propdelay",
                              "0.2", self.base)
 
         # Normally the program daemonizes when the mount point is set

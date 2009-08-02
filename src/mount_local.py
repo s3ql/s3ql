@@ -5,6 +5,16 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+import sys
+if sys.version_info[0] < 2 or \
+    (sys.version_info[0] == 2 and sys.version_info[1] < 6):
+    sys.stderr.write('Python version too old, must be between 2.6.0 and 3.0!\n') 
+    sys.exit(1)
+if sys.version_info[0] > 2:
+    sys.stderr.write('Python version too new, must be between 2.6.0 and 3.0!\n')
+    sys.exit(1)
+    
+    
 # Python boto uses several deprecated modules
 import warnings
 warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
@@ -15,8 +25,7 @@ from time import sleep
 from s3ql.common import init_logging
 from s3ql.cursor_manager import CursorManager
 from s3ql import fs, s3, mkfs, fsck
-from s3ql.s3cache import S3Cache
-import sys
+from s3ql.s3cache import S3Cache 
 import os
 import tempfile
 import logging 
@@ -40,8 +49,6 @@ parser.add_option("--allow_others", action="store_true", default=False,
                   help="Allow others users to access the filesystem")
 parser.add_option("--allow_root", action="store_true", default=False,
                   help="Allow root to access the filesystem")
-parser.add_option("--nonempty", action="store_true", default=False,
-                  help="Allow mount if even mount point is not empty")
 parser.add_option("--fg", action="store_true", default=False,
                   help="Do not daemonize, stay in foreground")
 parser.add_option("--single", action="store_true", default=False,
@@ -85,12 +92,11 @@ if options.encrypt:
 # Pass on fuse options
 #
 fuse_opts = dict()
+fuse_opts["nonempty"] = True
 if options.allow_others:
     fuse_opts["allow_others"] = True
 if options.allow_root:
-    fuse_opts["allow_root"] = True
-if options.nonempty:
-    fuse_opts["nonempty"] = True
+    fuse_opts["allow_root"] = True 
 if options.single:
     fuse_opts["nothreads"] = True
 if options.fg:
@@ -119,7 +125,8 @@ log.debug("Temporary database in " + dbfile.name)
 # Start server
 #
 
-cache =  S3Cache(bucket, cachedir, options.blocksize * 5, options.blocksize, cm)
+cache =  S3Cache(bucket, cachedir, options.blocksize * 5, options.blocksize, cm,
+                 timeout=options.propdelay+1)
 server = fs.Server(cache, cm)
 server.main(mountpoint, **fuse_opts)
 cache.close()

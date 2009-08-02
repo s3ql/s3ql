@@ -5,17 +5,26 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+import sys
+if sys.version_info[0] < 2 or \
+    (sys.version_info[0] == 2 and sys.version_info[1] < 6):
+    sys.stderr.write('Python version too old, must be between 2.6.0 and 3.0!\n') 
+    sys.exit(1)
+if sys.version_info[0] > 2:
+    sys.stderr.write('Python version too new, must be between 2.6.0 and 3.0!\n')
+    sys.exit(1)
+    
+
 # Python boto uses several deprecated modules
 import warnings
 warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 
 from optparse import OptionParser
-from getpass  import getpass
+#from getpass  import getpass
 from s3ql import fs, s3
 from s3ql.s3cache import S3Cache
 from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
-from s3ql.cursor_manager import CursorManager
-import sys
+from s3ql.cursor_manager import CursorManager 
 import os
 import stat
 import logging
@@ -42,16 +51,17 @@ parser.add_option("--allow_others", action="store_true", default=False,
                   help="Allow others users to access the filesystem")
 parser.add_option("--allow_root", action="store_true", default=False,
                   help="Allow root to access the filesystem")
-parser.add_option("--encrypt", action="store_true", default=None,
-                  help="Mount an encrypted filesystem")
-parser.add_option("--nonempty", action="store_true", default=False,
-                  help="Allow mount if even mount point is not empty")
 parser.add_option("--fg", action="store_true", default=False,
                   help="Do not daemonize, stay in foreground")
 parser.add_option("--cachesize", type="int", default=50,
                   help="Cache size in MB (default: 50)")
 parser.add_option("--single", action="store_true", default=False,
                   help="Single threaded operation only")
+parser.add_option("-o", type='string', default=None,
+                  help="For compatibility with mount(8). Specifies mount options in "
+                       "the form key=val,key2=val2,etc. Valid keys are s3timeout, "
+                       "allow_others, allow_root, cachesize.")
+                       
 
 (options, pps) = parser.parse_args()
 
@@ -63,40 +73,62 @@ if not len(pps) == 2:
 bucketname = pps[0]
 mountpoint = pps[1]
 
-
 #
-# Read password(s)
+# Parse -o style mount options
 #
-(awskey, awspass) = get_credentials(options.awskey)
+if options.o is not None:
+    for pair in options.o.split(','):
+        try:
+            if '=' in pair:
+                (key, val) = pair.split('=')
+                if key == 's3timeout':
+                    options.s3timeout = int(val)
+                if key == 'cachesize':
+                    options.cachesize = int(val)
+                else:
+                    raise ValueError()
+            else:
+                key = pair
+                if key == 'allow_others':
+                    options.allow_others = True
+                if key == 'allow_root':
+                    options.allow_root = True
+                else:
+                    raise ValueError()
+        except ValueError:
+            parser.error('Unknown mount option: "%s"' % pair)
 
-if options.encrypt:
-    if sys.stdin.isatty():
-        options.encrypt = getpass("Enter encryption password: ")
-        if not options.encrypt == getpass("Confirm encryption password: "):
-            sys.stderr.write("Passwords don't match.\n")
-            sys.exit(1)
-    else:
-        options.encrypt = sys.stdin.readline().rstrip()
+# Use this once we have encryption support
+#if fs_is_encrypted
+#    if sys.stdin.isatty():
+#        options.encrypt = getpass("Enter encryption password: ")
+#    else:
+#        options.encrypt = sys.stdin.readline().rstrip()
 
 
 #
 # Pass on fuse options
 #
 fuse_opts = dict()
+fuse_opts["nonempty"] = True
 if options.allow_others:
     fuse_opts["allow_others"] = True
 if options.allow_root:
     fuse_opts["allow_root"] = True
-if options.nonempty:
-    fuse_opts["nonempty"] = True
 if options.single:
     fuse_opts["nothreads"] = True
 if options.fg:
     fuse_opts["foreground"] = True
 
+
 # Activate logging
 init_logging(options.fg, options.quiet, options.debug)
 log = logging.getLogger("frontend")
+
+#
+# Read password
+#
+(awskey, awspass) = get_credentials(options.awskey)
 
 #
 # Connect to S3
@@ -145,7 +177,8 @@ try:
     # Start server
     #
     cache =  S3Cache(bucket, cachedir, options.cachesize * 1024 * 1024,
-                     cur.get_val("SELECT blocksize FROM parameters"), cur)
+                     cur.get_val("SELECT blocksize FROM parameters"), cur,
+                     options.s3timeout)
     server = fs.Server(cache, cur)
     server.main(mountpoint, **fuse_opts)
     cache.close(cur)
@@ -168,5 +201,5 @@ finally:
         log.debug("Cleaning up...")
         os.unlink(dbfile)
         os.rmdir(cachedir)
-    except BaseException:
+    except:
         pass

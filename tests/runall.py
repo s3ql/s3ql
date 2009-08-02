@@ -5,17 +5,25 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+import sys
+if sys.version_info[0] < 2 or \
+    (sys.version_info[0] == 2 and sys.version_info[1] < 6):
+    sys.stderr.write('Python version too old, must be between 2.6.0 and 3.0!\n') 
+    sys.exit(1)
+if sys.version_info[0] > 2:
+    sys.stderr.write('Python version too new, must be between 2.6.0 and 3.0!\n')
+    sys.exit(1)
 
 # Python boto uses several deprecated modules
 import warnings
 warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 
-import unittest
 import os
-import sys
+import unittest
 from optparse import OptionParser
 from s3ql.common import init_logging
-
+import _awscred
+                              
 #
 # Parse commandline
 #
@@ -32,20 +40,26 @@ parser.add_option("--debug", action="append",
 
 # Init Logging
 init_logging(True, True, options.debug)
+    
+# Get credentials for remote tests.
+aws_credentials = _awscred.get()
 
 # Find and import all tests
-testdir = os.path.join(os.path.dirname(__file__), "tests")
-modules_to_test =  [ name[:-3] for name in os.listdir(testdir) if name.endswith(".py") ]
+testdir = os.path.dirname(__file__)
+modules_to_test =  [ name[:-3] for name in os.listdir(testdir) 
+                    if name.endswith(".py") and name.startswith('t')]
 modules_to_test.sort()
-self = __import__("__main__")
+self = sys.modules["__main__"]
 sys.path.insert(0, testdir)
 for name in modules_to_test:
     # Note that __import__ itself does not add the modules to the namespace
-    setattr(self, name, __import__(name))
+    module = __import__(name)
+    setattr(self, name, module)
 
 if not test_names:
     test_names = modules_to_test
-    
+        
 # Run tests
-result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromNames(test_names))
+runner = unittest.TextTestRunner(verbosity=2)
+result = runner.run(unittest.defaultTestLoader.loadTestsFromNames(test_names))
 sys.exit(not result.wasSuccessful())    

@@ -325,8 +325,8 @@ class LocalBucket(Bucket):
         self.keystore = {}
         self.name = name
         self.in_transmit = set()
-        self.tx_delay = 2
-        self.prop_delay = 4
+        self.tx_delay = 0
+        self.prop_delay = 0
 
 
     def lookup_key(self, key):

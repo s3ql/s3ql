@@ -12,9 +12,10 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-
 #@PydevCodeAnalysisIgnore
- 
+
+#pylint: disable-msg=W0212,W0232,W0401,W0611,W0612,W0613,W0614,W0621,R0201,R0913
+
 from __future__ import division
 
 from ctypes import *
@@ -207,16 +208,6 @@ def set_st_attrs(st, attrs):
         elif hasattr(st, key):
             setattr(st, key, val)
 
-def _operation_wrapper(func, *args, **kwargs):
-    """Decorator for the methods of class FUSE"""
-    try:
-        return func(*args, **kwargs) or 0
-    except OSError, e:
-        return -(e.errno or EFAULT)
-    except:
-        print_exc()
-        return -EFAULT
-
 _libfuse = CDLL(find_library("fuse"))
 
 
@@ -256,18 +247,29 @@ class FUSE(object):
         fuse_ops = fuse_operations()
         for name, prototype in fuse_operations._fields_:
             if prototype != c_voidp and getattr(operations, name, None):
-                op = partial(_operation_wrapper, getattr(self, name))
+                op = partial(self._wrapper_, getattr(self, name))
                 setattr(fuse_ops, name, prototype(op))
         _libfuse.fuse_main_real(len(args), argv, pointer(fuse_ops),
             sizeof(fuse_ops), None)
         del self.operations     # Invoke the destructor
-        
+    
+    def _wrapper_(self, func, *args, **kwargs):
+        """Decorator for the methods that follow"""
+        try:
+            return func(*args, **kwargs) or 0
+        except OSError, e:
+            return -(e.errno or EFAULT)
+        except:
+            print_exc()
+            return -EFAULT
+    
     def getattr(self, path, buf):
         return self.fgetattr(path, buf, None)
     
     def readlink(self, path, buf, bufsize):
         ret = self.operations('readlink', path)
-        memmove(buf, create_string_buffer(ret), bufsize)
+        strbuf = create_string_buffer(ret[:bufsize - 1])
+        memmove(buf, strbuf, len(strbuf))
         return 0
     
     def mknod(self, path, mode, dev):
@@ -380,7 +382,8 @@ class FUSE(object):
                     set_st_attrs(st, attrs)
                 else:
                     st = None
-            filler(buf, name, st, offset)
+            if filler(buf, name, st, offset) != 0:
+                break
         return 0
     
     def releasedir(self, path, fip):
@@ -477,7 +480,11 @@ class Operations:
     def getattr(self, path, fh=None):
         """Returns a dictionary with keys identical to the stat C structure
            of stat(2).
-           st_atime, st_mtime and st_ctime should be floats."""
+           st_atime, st_mtime and st_ctime should be floats.
+           NOTE: There is an incombatibility between Linux and Mac OS X concerning
+           st_nlink of directories. Mac OS X counts all files inside the directory,
+           while Linux counts only the subdirectories."""
+        
         if path != '/':
             raise OSError(ENOENT, '')
         return dict(st_mode=(S_IFDIR | 0755), st_nlink=2)

@@ -6,14 +6,22 @@ Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL. 
 """
 
-import threading
 import logging
 from contextlib import contextmanager
 import apsw
+import thread
+import time
 
 __all__ = [ "CursorManager" ]
 
 log = logging.getLogger("CursorManager") 
+
+class Dummy(object):
+    '''An empty class with the only purpose of holding attributes
+    '''
+    
+    pass
+
     
 class CursorManager(object):
     """Manage access to database cursors.
@@ -31,9 +39,28 @@ class CursorManager(object):
     like `get_val', `get_row` or `changes`. Note that all these 
     calls allocate a new cursor in order to avoid aborting 
     a result set from a previous call.
+    
+    Note that threading.local() does not work when the threads are
+    not started by threading.Thread() but some C library (like fuse).
+    For that reason we use a hash on the thread ID instead. The
+    thread id is not globally unique to a thread, but only unique
+    among other currently running threads. This is not a problem
+    because we can freely pass around Connections between threads,
+    we just want to make sure that a connection is only used by
+    one thread at a time.
+    
+    TODO: It seems that _threading_local.local() does work. Maybe 
+    we should use that instead? cf. http://bugs.python.org/issue6627
+    
+    Attributes:
+    -----------
+    
+    :retrytime:    In case the database is locked by another thread,
+                   we wait for the lock to be released for at most
+                   `retrytime` milliseconds. 
     """
 
-    def __init__(self, dbfile, initsql=None):
+    def __init__(self, dbfile, initsql=None, retrytime=500):
         '''Initialize object.
         
         If `initsql` is specified, it is executed as an SQL command
@@ -42,7 +69,11 @@ class CursorManager(object):
         '''
         self.dbfile = dbfile
         self.initsql = initsql
-        self.local = threading.local()
+        self.retrytime = retrytime
+        self.conn = dict() # Indexed by thread id
+        
+        # Enable shared cache mode 
+        apsw.enablesharedcache(True)
         
     @contextmanager
     def transaction(self):
@@ -67,22 +98,45 @@ class CursorManager(object):
     def _get_conn(self):
         '''Return thread-local connection object
         '''
-        if not hasattr(self.local, "conn"):
+        
+        try:
+            conn = self.conn[thread.get_ident()]
+        except KeyError:
             log.debug("Creating new db connection...")
-            self.local.conn = apsw.Connection(self.dbfile)
-            self.local.conn.setbusytimeout(1000)
-
+            conn = apsw.Connection(self.dbfile)
+            conn.setbusytimeout(self.retrytime)   
             if self.initsql:
-                self.local.conn.cursor().execute(self.initsql)
+                conn.cursor().execute(self.initsql)
+                   
+            self.conn[thread.get_ident()] = conn
                 
-        return self.local.conn   
+        return conn
     
-         
     def execute(self, *a, **kw):
-        '''Execute the given SQL statement
+        '''Execute an SQL statement
         '''
         
-        return self._get_conn().cursor().execute(*a, **kw)
+        return self._execute_with(self._get_conn().cursor(), *a, **kw)
+         
+    def _execute_with(self, cur, *a, **kw):
+        '''Execute the given SQL statement with a specified cursor
+        
+        Note that in shared cache mode we may get an SQLITE_LOCKED 
+        error, which is not handled by the busy handler. Therefore
+        we have to emulate this behaviour.
+        '''
+        
+        waited = 0
+        step = 10 # milliseconds
+        while True:
+            try:
+                return cur.execute(*a, **kw)
+            except apsw.LockedError:
+                if waited > self.retrytime:
+                    raise # We don't wait any longer
+                time.sleep(step / 1000)
+                waited += step
+                step *= 2
 
 
     def get_val(self, *a, **kw):
@@ -95,9 +149,11 @@ class CursorManager(object):
 
     def get_list(self, *a, **kw):
         """Executes a select statement and returns result list.
+        
         """
 
-        return list(self.execute(*a, **kw))
+        return list(self.execute(*a, **kw))    
+
 
     def get_row(self, *a, **kw):
         """Executes a select statement and returns first row.
@@ -110,7 +166,7 @@ class CursorManager(object):
         # Otherwise the cursor is not destroyed and the database
         # stays locked.
         cur = self._get_conn().cursor()
-        res = cur.execute(*a, **kw)
+        res = self._execute_with(cur, *a, **kw)
         row = res.next()
         try:
             res.next()

@@ -106,10 +106,10 @@ class S3Cache(object):
     
     The `expect_mismatch` attribute is only for unit testing instrumentation
     and suppresses warnings if a mismatch between local and remote etag
-    is encountered.                  
+    is encountered.                   
     """
     
-    def __init__(self, bucket, cachedir, cachesize, blocksize, cm):
+    def __init__(self, bucket, cachedir, cachesize, blocksize, cm, timeout=60):
         log.debug('Initializing')
         if not isinstance(cm, CursorManager):
             raise TypeError()
@@ -121,7 +121,7 @@ class S3Cache(object):
         self.s3_lock = MultiLock()
         self.global_lock = threading.RLock()
         self.cm = cm
-        self.timeout = 300 
+        self.timeout = timeout 
         self.expect_mismatch = False
 
     @contextmanager

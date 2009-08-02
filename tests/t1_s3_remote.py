@@ -7,14 +7,22 @@
 
 import unittest
 import s3ql.s3
-from s3ql.common import get_credentials
 from random   import randrange
 from time import sleep
+import sys
+import _awscred
 
+# Allow invocation without runall.py
+main = sys.modules['__main__']
+if not hasattr(main, 'aws_credentials'):
+    main.aws_credentials = _awscred.get()
+
+@unittest.skipUnless(main.aws_credentials, 'remote tests disabled')
 class s3_tests_remote(unittest.TestCase):
 
-    def random_name(self, prefix=""):
-        return "s3ql_" + prefix + str(randrange(100,999,1))
+    @staticmethod
+    def random_name(prefix=""):
+        return "s3ql_" + prefix + str(randrange(100, 999, 1))
 
     def test_01_fetch_store(self):
         key = self.random_name("key1_")
@@ -79,7 +87,7 @@ class s3_tests_remote(unittest.TestCase):
         self.assertEquals(self.bucket[key2], value)
     
     def setUp(self):
-        (awskey, awspass) = get_credentials()
+        (awskey, awspass) = sys.modules['__main__'].aws_credentials
         self.conn = s3ql.s3.Connection(awskey, awspass)
         
         self.bucketname = self.random_name()
@@ -89,7 +97,7 @@ class s3_tests_remote(unittest.TestCase):
             tries -= 1
             
         if tries == 0:
-            raise Exception, "Failed to find an unused bucket name."
+            raise RuntimeError("Failed to find an unused bucket name.")
         
         self.bucket = self.conn.get_bucket(self.bucketname)
         
@@ -104,6 +112,7 @@ class s3_tests_remote(unittest.TestCase):
 # Somehow important according to pyunit documentation
 def suite():
     return unittest.makeSuite(s3_tests_remote)
+
 
 # Allow calling from command line
 if __name__ == "__main__":

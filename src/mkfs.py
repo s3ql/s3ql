@@ -5,15 +5,23 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+import sys
+if sys.version_info[0] < 2 or \
+    (sys.version_info[0] == 2 and sys.version_info[1] < 6):
+    sys.stderr.write('Python version too old, must be between 2.6.0 and 3.0!\n') 
+    sys.exit(1)
+if sys.version_info[0] > 2:
+    sys.stderr.write('Python version too new, must be between 2.6.0 and 3.0!\n')
+    sys.exit(1)
+    
 
 # Python boto uses several deprecated modules
 import warnings
 warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 
-import sys
 import os
 from getpass import getpass
-import shutil
+import shutil 
 from optparse import OptionParser
 import logging
 
