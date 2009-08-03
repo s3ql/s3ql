@@ -128,10 +128,10 @@ log.debug("Temporary database in " + dbfile.name)
 cache =  S3Cache(bucket, cachedir, options.blocksize * 5, options.blocksize, cm,
                  timeout=options.propdelay+1)
 server = fs.Server(cache, cm)
-server.main(mountpoint, **fuse_opts)
+ret = server.main(mountpoint, **fuse_opts)
 cache.close()
 
-# We have to make sure that all changes have been comitted by the
+# We have to make sure that all changes have been committed by the
 # background threads
 sleep(options.propdelay)
 
@@ -143,11 +143,12 @@ if options.fsck:
         log.info("fsck found errors -- preserving database in %s", dbfile)
         os.rmdir(cachedir)
         sys.exit(1)
-    else:
-        dbfile.close()
-        os.rmdir(cachedir)
-        sys.exit(0)
+
+dbfile.close()
+os.rmdir(cachedir)
+if not ret:
+    log.warn('Some errors occured while handling requests. '
+             'Please examine the logs for more information.')
+    sys.exit(1)
 else:
-    dbfile.close()
-    os.rmdir(cachedir)
     sys.exit(0)

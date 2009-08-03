@@ -87,7 +87,7 @@ class s3_tests_remote(unittest.TestCase):
         self.assertEquals(self.bucket[key2], value)
     
     def setUp(self):
-        (awskey, awspass) = sys.modules['__main__'].aws_credentials
+        (awskey, awspass) = main.aws_credentials
         self.conn = s3ql.s3.Connection(awskey, awspass)
         
         self.bucketname = self.random_name()

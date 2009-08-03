@@ -75,15 +75,21 @@ def init_logging(fg, quiet=False, debug=None):
     root_logger = logging.getLogger()
     log_filter = Filter()
     
-    if fg:
+    if fg and debug:
         handler = logging.StreamHandler()
         handler.setFormatter(logging.Formatter('%(asctime)s,%(msecs)03d %(threadName)s: '
                                                '[%(name)s] %(message)s',
                                                datefmt="%H:%M:%S"))
-    else:
+    elif fg and not debug:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter('[%(name)s] %(message)s'))   
+    elif not fg and debug:
         handler = logging.handlers.SysLogHandler("/dev/log")
         handler.setFormatter(logging.Formatter('s3ql[%(process)d, %(threadName)s]: '
-                                               '[%(name)s] %(message)s'))
+                                               '[%(name)s] %(message)s'))          
+    else:
+        handler = logging.handlers.SysLogHandler("/dev/log")
+        handler.setFormatter(logging.Formatter('s3ql[%(process)d]: [%(name)s] %(message)s'))
 
     handler.addFilter(log_filter)  # If we add the filter to the logger, it has no effect!
     root_logger.addHandler(handler)
@@ -352,13 +358,14 @@ def addfile(src, dest, cursor, bucket):
     # Instantiate the regular server
     from s3ql import fs, s3cache
     cachedir = tempfile.mkdtemp() + "/"
-    cache = s3cache.S3Cache(bucket, cachedir, 0)
-    server = fs.Server(cache, cursor.getconnection().filename)
+    cache = s3cache.S3Cache(bucket, cachedir, 0, cursor.get_val('SELECT blocksize FROM parameters'),
+                            cursor)
+    server = fs.Server(cache, cursor)
         
     dest = unused_name(dest, cursor)
     writefile(src, dest, server)
     
-    cache.close(cursor)
+    cache.close()
     os.rmdir(cachedir)    
        
     return dest

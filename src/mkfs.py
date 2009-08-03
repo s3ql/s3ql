@@ -41,7 +41,7 @@ parser.add_option("--awskey", type="string",
                   help="Amazon Webservices access key to use. The password is "
                   "read from stdin. If this option is not specified, both access key "
                   "and password are read from ~/.awssecret (separated by newlines).")
-parser.add_option("-L", type="string", help="Filesystem label",
+parser.add_option("-L", type="string", default='', help="Filesystem label",
                   dest="label")
 parser.add_option("--blocksize", type="int", default=10240,
                   help="Maximum size of s3 objects in KB (default: %default)")
@@ -119,6 +119,7 @@ try:
     mkfs.setup_db(CursorManager(dbfile), options.blocksize * 1024,
                   options.label)
 
+    bucket = conn.get_bucket(bucket)
     bucket.store_from_file('s3ql_metadata', dbfile)
     bucket['s3ql_dirty'] = "no"
 

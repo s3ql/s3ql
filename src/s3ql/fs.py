@@ -82,12 +82,17 @@ class Server(fuse.Operations):
     :cm:          Cursor Manager
     :cache:       Holds information about cached s3 objects
     :noatime:     True if entity access times shouldn't be updated.
+    :in_fuse_loop: Is the FUSE main loop running?
+    :encountered_errors: Is set to true if a request handler raises an exception
 
     Note: `noatime` does not guarantee that access time will not be
     updated, but only prevents the update where it would adversely
     influence performance.   
     """
 
+    # TODO: We need to store all times as UTC and convert them
+    # to the local timezone on demand
+    
     def __call__(self, op, *a):
 
         # write() is handled specially, because we don't want to dump
@@ -114,11 +119,12 @@ class Server(fuse.Operations):
             # errno is not stored correctly
             raise OSError(exc.errno, "")
         except:
-            log_fuse.error("Unexpected internal filesystem error."
-                           "Filesystem may be corrupted, run fsck.s3ql as soon as possible!" 
-                           "Please report this bug on http://code.google.com/p/s3ql/.",
-                           exc_info=True)
+            log.error("Unexpected internal filesystem error.\n"
+                      "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n" 
+                      "Please report this bug on http://code.google.com/p/s3ql/.",
+                      exc_info=True)
             self.mark_damaged()
+            self.encountered_errors = True
             raise OSError(errno.EIO)
 
 
@@ -129,6 +135,8 @@ class Server(fuse.Operations):
         self.cm = cm
         self.noatime = noatime
         self.cache = cache
+        self.encountered_errors = False
+        self.in_fuse_loop = False
             
         # Check filesystem revision
         log.debug("Reading fs parameters...")
@@ -301,7 +309,7 @@ class Server(fuse.Operations):
         """Handles FUSE symlink() requests.
         """
 
-        (uid, gid) = fuse.fuse_get_context()[:2]
+        (uid, gid) = self.get_uid_pid()
         inode_p = get_inode(os.path.dirname(name), self.cm)
         with self.cm.transaction() as cur:
             mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | 
@@ -381,7 +389,7 @@ class Server(fuse.Operations):
             log("mknod: invalid mode")
             raise FUSEError(errno.EINVAL)
 
-        (uid, gid) = fuse.fuse_get_context()[:2]
+        (uid, gid) = self.get_uid_pid()
         inode_p = get_inode(os.path.dirname(path), self.cm)
         with self.cm.transaction() as cur:
             cur.execute("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev,refcount,size) "
@@ -405,7 +413,7 @@ class Server(fuse.Operations):
         mode = (mode & ~stat.S_IFMT(mode)) | stat.S_IFDIR
 
         inode_p = get_inode(os.path.dirname(path), self.cm)
-        (uid, gid) = fuse.fuse_get_context()[:2]
+        (uid, gid) = self.get_uid_pid()
         with self.cm.transaction() as cur:
             cur.execute("INSERT INTO inodes (mtime,atime,ctime,uid,gid,mode,refcount) "
                      "VALUES(?, ?, ?, ?, ?, ?, ?)",
@@ -471,6 +479,10 @@ class Server(fuse.Operations):
 
     def main(self, mountpoint, **kw):
         """Starts the main loop handling FUSE requests.
+        
+        Returns False if any errors occured in the main loop.
+        Note that we cannot throw an exception, because the request handler
+        are called from within C code.
         """
 
         # Start main event loop
@@ -479,9 +491,15 @@ class Server(fuse.Operations):
         kw["use_ino"] = True
         kw["kernel_cache"] = True
         kw["fsname"] = "s3ql"
-        FuseAdaptor(self, mountpoint, **kw)
+        self.encountered_errors = False
+        self.in_fuse_loop = True
+        try:
+            FuseAdaptor(self, mountpoint, **kw)
+        finally:
+            self.in_fuse_loop = False
         log.debug("Main event loop terminated.")
 
+        return not self.encountered_errors
 
     def open(self, path, flags):
         """Opens file `path`.
@@ -493,6 +511,18 @@ class Server(fuse.Operations):
 
         return get_inode(path, self.cm)
 
+    def get_uid_pid(self):
+        '''If running in FUSE loop, return uid and pid of requesting process.
+        
+        Otherwise return (0,0).
+        '''
+        
+        if self.in_fuse_loop:
+            return fuse.fuse_get_context()[:2]
+        else: 
+            return (0, 0)
+        
+        
     def create(self, path, mode, fi=None):
         """Creates file `path` with mode `mode`
         
@@ -509,7 +539,7 @@ class Server(fuse.Operations):
             raise FUSEError(errno.EINVAL)
         mode = (mode & ~stat.S_IFMT(mode)) | stat.S_IFREG
 
-        (uid, gid) = fuse.fuse_get_context()[:2]
+        (uid, gid) = self.get_uid_pid()
         dirname = os.path.dirname(path)
         name = os.path.basename(path)
         inode_p = get_inode(dirname, self.cm)

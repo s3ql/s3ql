@@ -45,6 +45,8 @@ parser.add_option("--debug", action="append",
                   help="Activate debugging output from specified facility. Valid facility names "
                         "are: fs, fs.fuse, s3, frontend. "
                         "This option can be specified multiple times.")
+parser.add_option("--quiet", action="store_true", default=False,
+                  help="Be really quiet")
 parser.add_option("--s3timeout", type="int", default=50,
                   help="Maximum time to wait for propagation in S3 (default: %default)")
 parser.add_option("--allow_others", action="store_true", default=False,
@@ -53,8 +55,8 @@ parser.add_option("--allow_root", action="store_true", default=False,
                   help="Allow root to access the filesystem")
 parser.add_option("--fg", action="store_true", default=False,
                   help="Do not daemonize, stay in foreground")
-parser.add_option("--cachesize", type="int", default=50,
-                  help="Cache size in MB (default: 50)")
+parser.add_option("--cachesize", type="int", default=51200,
+                  help="Cache size in kb (default: 51200 (50 MB))")
 parser.add_option("--single", action="store_true", default=False,
                   help="Single threaded operation only")
 parser.add_option("-o", type='string', default=None,
@@ -133,7 +135,7 @@ log = logging.getLogger("frontend")
 #
 # Connect to S3
 #
-conn = s3.Connection(awskey, awspass, options.encrypt)
+conn = s3.Connection(awskey, awspass)
 bucket = conn.get_bucket(bucketname)
 
 cachedir = get_cachedir(bucketname)
@@ -176,12 +178,12 @@ try:
     #
     # Start server
     #
-    cache =  S3Cache(bucket, cachedir, options.cachesize * 1024 * 1024,
+    cache =  S3Cache(bucket, cachedir, options.cachesize * 1024,
                      cur.get_val("SELECT blocksize FROM parameters"), cur,
                      options.s3timeout)
     server = fs.Server(cache, cur)
-    server.main(mountpoint, **fuse_opts)
-    cache.close(cur)
+    ret = server.main(mountpoint, **fuse_opts)
+    cache.close()
 
     # Upload database
     cur.execute("VACUUM")
@@ -203,3 +205,10 @@ finally:
         os.rmdir(cachedir)
     except:
         pass
+
+if not ret:
+    log.warn('Some errors occured while handling requests. '
+             'Please examine the logs for more information.')
+    sys.exit(1)
+else:
+    sys.exit(0)

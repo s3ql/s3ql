@@ -13,7 +13,7 @@ import tempfile
 import numbers
 import logging
 
-from s3ql.common import (addfile, get_path, ROOT_INODE, unused_name, get_inode)
+from s3ql.common import (writefile, get_path, ROOT_INODE, unused_name, get_inode)
 
 __all__ = [ "fsck" ]
 
@@ -392,6 +392,14 @@ class Checker(object):
     
         blocksize = cm.get_val("SELECT blocksize FROM parameters")
     
+        # Create a server process in case we want to write files
+        from s3ql import fs, s3cache
+        cachedir = tempfile.mkdtemp() + "/"
+        cache = s3cache.S3Cache(self.bucket, cachedir, 0, 
+                                cm.get_val('SELECT blocksize FROM parameters'), cm)
+        server = fs.Server(cache, cm)
+    
+    
         # We use this table to keep track of the s3keys that we have
         # seen
         cm.execute("CREATE TEMP TABLE s3keys AS SELECT id FROM s3_objects")
@@ -411,7 +419,7 @@ class Checker(object):
             # 
             except StopIteration:
                 found_errors = True
-                log.warn("object %s not in referenced in table, adding to lost+found",
+                log.warn("object %s not referenced in s3 objects table, adding to lost+found",
                          s3key)
                 
                 # We don't directly add it, because this may introduce s3 key 
@@ -420,7 +428,8 @@ class Checker(object):
                 if not self.checkonly:
                     tmp = tempfile.NamedTemporaryFile()
                     self.bucket.fetch_to_file(s3key, tmp.name)
-                    addfile(tmp.name, '/lost+found/%s' % s3key, cm, self.bucket)
+                    dest = unused_name('/lost+found/%s' % s3key, cm)
+                    writefile(tmp.name, dest, server)
                     del self.bucket[s3key]
                     tmp.close()
             
@@ -453,7 +462,8 @@ class Checker(object):
                     self.bucket.fetch_to_file(s3key, tmp.name)
     
                     # Save full object in lost+found
-                    addfile(tmp, '/lost+found/%s' % s3key, cm, self.bucket)
+                    dest = unused_name('/lost+found/%s' % s3key, cm)
+                    writefile(tmp.name, dest, server)
     
                     # Truncate and write
                     tmp.seek(blocksize)
@@ -470,6 +480,9 @@ class Checker(object):
             log.warn("object %s only exists in table but not on s3, deleting", s3key)
             cm.execute("DELETE FROM inode_s3key WHERE s3key=?", (s3key,))
             cm.execute("DELETE FROM s3_objects WHERE id=?", (s3key,))
+            
+        cache.close()
+        os.rmdir(cachedir)  
                                    
         return not found_errors
 

@@ -154,7 +154,7 @@ class S3Cache(object):
                 log.debug('creating new s3 object')
                 with cur.transaction() as cur:
                     s3key = "s3ql_data_%d_%d" % (inode, offset) # This is a unique new key
-                    cur.execute("INSERT INTO s3_objects (id,refcount) VALUES(?,?)", (s3key,1))
+                    cur.execute("INSERT INTO s3_objects (id, refcount) VALUES(?,?)", (s3key,1))
                     cur.execute("INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?,?,?)",
                                 (inode, offset, s3key))
                     

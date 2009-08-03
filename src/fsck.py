@@ -19,7 +19,6 @@ if sys.version_info[0] > 2:
 import warnings
 warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 
-from getpass  import getpass
 import os
 import stat 
 import time
@@ -42,8 +41,6 @@ parser = OptionParser(
 parser.add_option("--awskey", type="string",
                   help="Amazon Webservices access key to use. If not "
                   "specified, tries to read ~/.awssecret.")
-parser.add_option("--encrypt", action="store_true", default=None,
-                  help="Checks an encrypted filesystem")
 parser.add_option("--checkonly", action="store_true", default=None,
                   help="Only check, do not fix errors.")
 parser.add_option("--force", action="store_true", default=None,
@@ -52,6 +49,8 @@ parser.add_option("--debug", action="append",
                   help="Activate debugging output from specified facility. Valid facility names "
                         "are: fsck, s3, frontend. "
                         "This option can be specified multiple times.")
+parser.add_option("--quiet", action="store_true", default=False,
+                  help="Be really quiet")
 
 
 (options, pps) = parser.parse_args()
@@ -63,28 +62,17 @@ dbfile = get_dbfile(bucketname)
 cachedir = get_cachedir(bucketname)
 
 # Activate logging
-init_logging(True, False, options.debug)
+init_logging(True, options.quiet, options.debug)
 log = logging.getLogger("frontend")
-
-
-#
-# Read password(s)
-#
-(awskey, awspass) = get_credentials(options.awskey)
-if options.encrypt:
-    if sys.stdin.isatty():
-        options.encrypt = getpass("Enter encryption password: ")
-    else:
-        options.encrypt = sys.stdin.readline().rstrip()
-
 
 
 #
 # Open bucket
 #
-conn = s3.Connection(awskey, awspass, options.encrypt)
+(awskey, awspass) = get_credentials(options.awskey)
+conn = s3.Connection(awskey, awspass)
 if not conn.bucket_exists(bucketname):
-    print >> sys.stderr, "Bucket does not exists."
+    print >> sys.stderr, "Bucket does not exist."
     sys.exit(1)
 bucket = conn.get_bucket(bucketname)
 
@@ -125,9 +113,11 @@ if not os.path.exists(cachedir):
 #
 if os.path.exists(dbfile):
     # Compare against online metadata
-    local = datetime.fromtimestamp(os.stat(dbfile).st_mtime)
+    local = datetime.utcfromtimestamp(os.stat(dbfile).st_mtime)
     remote = bucket.lookup_key("s3ql_metadata").last_modified
 
+    log.debug('Local metadata timestamp: %s', local)
+    log.debug('Remote metadata timestamp: %s', remote)
     if remote > local:
         # remote metadata is newer
         if not options.force:
@@ -166,7 +156,7 @@ if rev < 1:
 
 
 # Now we can check
-fsck.fsck(conn, cachedir, bucket, options.checkonly)
+fsck.fsck(cursor, cachedir, bucket, options.checkonly)
 
 
 if not options.checkonly:

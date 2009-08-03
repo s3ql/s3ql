@@ -34,21 +34,15 @@ class fuse_tests(unittest.TestCase):
     def test_mount(self):
         """Operations on mounted filesystem
         """
-        # TODO: Can't we just run the filesystem handler in a
-        # separate thread? 
+
               
         # Mount
-        path = os.path.join(os.path.dirname(__file__), "..", "src/mount_local.py")
-        pid = os.spawnl(os.P_NOWAIT, path, "mount_local.py",
+        path = os.path.join(os.path.dirname(__file__), "..", "mount.s3ql_local")
+        pid = os.spawnl(os.P_NOWAIT, path, "mount.s3ql_local",
                              "--fg", "--fsck", "--blocksize", "1",
-                             "--quiet", "--txdelay", "0.1", "--propdelay",
-                             "0.2", self.base)
+                             "--quiet", self.base)
 
-        # Normally the program daemonizes when the mount point is set
-        # up. But since we need the exit status, we cannot daemonize
-        # and need to wait some time for the mountpoint to come up
-        # (mostly due to the simulated delays)
-
+        # Wait for mountpoint to come up
         self.assertTrue(waitfor(10, posixpath.ismount, self.base))
 
         # Run Subtests
@@ -70,7 +64,6 @@ class fuse_tests(unittest.TestCase):
             self.assertEquals(os.WEXITSTATUS(status), 0)
             self.assertFalse(posixpath.ismount(self.base))
             os.rmdir(self.base)
-
 
 
     def t_mkdir(self):
