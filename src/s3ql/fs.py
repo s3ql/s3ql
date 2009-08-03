@@ -128,7 +128,7 @@ class Server(fuse.Operations):
             raise OSError(errno.EIO)
 
 
-    def __init__(self, cache, cm, noatime=True):
+    def __init__(self, cache, cm, noatime=False):
         """Initializes S3QL fs.
         """
 

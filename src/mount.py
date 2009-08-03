@@ -55,6 +55,8 @@ parser.add_option("--allow_root", action="store_true", default=False,
                   help="Allow root to access the filesystem")
 parser.add_option("--fg", action="store_true", default=False,
                   help="Do not daemonize, stay in foreground")
+parser.add_option("--noatime", action="store_true", default=False,
+                  help="Do not update file and directory access time. May improve performance.")
 parser.add_option("--cachesize", type="int", default=51200,
                   help="Cache size in kb (default: 51200 (50 MB))")
 parser.add_option("--single", action="store_true", default=False,
@@ -62,7 +64,7 @@ parser.add_option("--single", action="store_true", default=False,
 parser.add_option("-o", type='string', default=None,
                   help="For compatibility with mount(8). Specifies mount options in "
                        "the form key=val,key2=val2,etc. Valid keys are s3timeout, "
-                       "allow_others, allow_root, cachesize.")
+                       "allow_others, allow_root, cachesize, noatime.")
                        
 
 (options, pps) = parser.parse_args()
@@ -95,6 +97,8 @@ if options.o is not None:
                     options.allow_others = True
                 if key == 'allow_root':
                     options.allow_root = True
+                if key == 'noatime':
+                    options.noatime = True                    
                 else:
                     raise ValueError()
         except ValueError:
@@ -181,7 +185,7 @@ try:
     cache =  S3Cache(bucket, cachedir, options.cachesize * 1024,
                      cur.get_val("SELECT blocksize FROM parameters"), cur,
                      options.s3timeout)
-    server = fs.Server(cache, cur)
+    server = fs.Server(cache, cur, options.noatime)
     ret = server.main(mountpoint, **fuse_opts)
     cache.close()
 

@@ -53,6 +53,8 @@ parser.add_option("--fg", action="store_true", default=False,
                   help="Do not daemonize, stay in foreground")
 parser.add_option("--single", action="store_true", default=False,
                   help="Single threaded operation only")
+parser.add_option("--noatime", action="store_true", default=False,
+                  help="Do not update file and directory access time. May improve performance.")
 parser.add_option("--encrypt", action="store_true", default=None,
                   help="Create an AES encrypted filesystem")
 parser.add_option("--blocksize", type="int", default=1,
@@ -127,7 +129,7 @@ log.debug("Temporary database in " + dbfile.name)
 
 cache =  S3Cache(bucket, cachedir, options.blocksize * 5, options.blocksize, cm,
                  timeout=options.propdelay+1)
-server = fs.Server(cache, cm)
+server = fs.Server(cache, cm, options.noatime)
 ret = server.main(mountpoint, **fuse_opts)
 cache.close()
 
