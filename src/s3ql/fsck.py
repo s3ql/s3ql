@@ -176,6 +176,8 @@ class Checker(object):
             inode_l = cm.last_rowid()
             cm.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                        ("lost+found", inode_l, ROOT_INODE))
+            
+            # . and .. will be added by the next checker
     
         mode = cm.get_val('SELECT mode FROM inodes WHERE id=?', (inode_l,))
         if not stat.S_ISDIR(mode):

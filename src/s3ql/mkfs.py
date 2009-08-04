@@ -107,9 +107,8 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
                (SELECT mode FROM inodes WHERE id = NEW.parent_inode) & {S_IFMT} != {S_IFDIR};
       END;  
     """.format(**types)) 
+    
 
-
-        
     # Table with filesystem metadata
     # The number of links `refcount` to an inode can in theory
     # be determined from the `contents` table. However, managing
@@ -153,13 +152,26 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
     );
     """.format(**types))
     cursor.execute(trigger_cmd.format(**{ "src_table": "contents",
-                                            "src_key": "inode",
-                                            "ref_table": "inodes",
-                                            "ref_key": "id" }))
+                                         "src_key": "inode",
+                                         "ref_table": "inodes",
+                                         "ref_key": "id" }))
     cursor.execute(trigger_cmd.format(**{ "src_table": "contents",
-                                            "src_key": "parent_inode",
-                                            "ref_table": "inodes",
-                                            "ref_key": "id" }))
+                                         "src_key": "parent_inode",
+                                         "ref_table": "inodes",
+                                         "ref_key": "id" }))
+    
+    # Make sure that we cannot change a directory into something
+    # else as long as it has entries
+    cursor.execute("""  
+    CREATE TRIGGER inodes_check_parent_inode_update
+      BEFORE UPDATE ON inodes
+      FOR EACH ROW BEGIN
+          SELECT RAISE(ABORT, 'cannot change directory with entries into something else')
+          WHERE NEW.mode & {S_IFMT} != {S_IFDIR} AND
+               (SELECT name FROM contents WHERE parent_inode = NEW.id LIMIT 1) IS NOT NULL;
+      END;        
+    """.format(**types)) 
+    
     
     # Maps file data chunks to S3 objects
     # Refcount is included for performance reasons
@@ -194,6 +206,31 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
                                             "ref_table": "s3_objects",
                                             "ref_key": "id" }))
 
+    # Make sure that inodes refer to files
+    cursor.execute("""
+    CREATE TRIGGER inodes_1
+      BEFORE INSERT ON inode_s3key
+      FOR EACH ROW BEGIN
+          SELECT RAISE(ABORT, 'inode does not refer to a file')
+          WHERE (SELECT mode FROM inodes WHERE id = NEW.inode) & {S_IFMT} != {S_IFREG};
+      END;
+
+    CREATE TRIGGER inodes_2
+      BEFORE UPDATE ON inode_s3key
+      FOR EACH ROW BEGIN
+          SELECT RAISE(ABORT, 'inode does not refer to a file')
+          WHERE (SELECT mode FROM inodes WHERE id = NEW.inode) & {S_IFMT} != {S_IFREG};
+      END;  
+      
+    CREATE TRIGGER inodes_3
+      BEFORE UPDATE ON inodes
+      FOR EACH ROW BEGIN
+          SELECT RAISE(ABORT, 'cannot change file with s3 objects into something else')
+          WHERE NEW.mode & {S_IFMT} != {S_IFREG} AND
+               (SELECT inode FROM inode_s3key WHERE inode = NEW.id LIMIT 1) IS NOT NULL;
+      END;    
+    """.format(**types)) 
+    
     # Insert root directory
     # Refcount = 4: ".", "..", "lost+found", "lost+found/.."
     cursor.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount) "

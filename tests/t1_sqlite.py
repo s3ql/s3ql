@@ -57,6 +57,11 @@ class sqlite_tests(unittest.TestCase):
                           "INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                           ("testfile2", inode, inode2))
         
+        # Try to change the type of an inode
+        self.assertRaises(apsw.ConstraintError, cur.execute, 
+                          "UPDATE inodes SET mode=? WHERE id=?",
+                          (stat.S_IFREG, ROOT_INODE))        
+        
                    
     def test_inodes_mode(self):
         """Check that inodes can only have one type.
@@ -73,7 +78,45 @@ class sqlite_tests(unittest.TestCase):
                           "VALUES (?,?,?,?,?,?,?)",
                           (stat.S_IFCHR | stat.S_IFIFO, 
                            os.getuid(), os.getgid(), time(), time(), time(), 1))
-       
+        
+        
+    def test_inode_s3key(self):
+        """Check that inodes with s3 objects must be regular files.
+        
+        """
+        cur = self.cur
+        s3key = 'foo'
+        
+        # Create an s3 object
+        cur.execute('INSERT INTO s3_objects (id, refcount) VALUES(?, ?)',
+                    (s3key, 1))
+                    
+        # Create a file
+        cur.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (stat.S_IFREG, os.getuid(), os.getgid(), time(), time(), time(), 1, 0))
+        inode = cur.last_rowid()
+        
+        # Insert  the datablock
+        cur.execute('INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?, ?, ?)',
+                    (inode, 0, s3key))
+        
+        # Try to change the file type
+        self.assertRaises(apsw.ConstraintError, cur.execute, 
+                          "UPDATE inodes SET mode=?, size=? WHERE id=?",
+                          (stat.S_IFIFO, None, inode))  
+        
+        # Remove the link, then it should work
+        cur.execute('DELETE FROM inode_s3key WHERE inode=?', (inode,))
+        cur.execute("UPDATE inodes SET mode=?, size=? WHERE id=?",
+                    (stat.S_IFIFO, None, inode)) 
+        
+        # Try to insert a link to a directory
+        self.assertRaises(apsw.ConstraintError,
+                          cur.execute,
+                          "INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?, ?, ?)",
+                          (ROOT_INODE, 0, s3key))
+              
               
 # Somehow important according to pyunit documentation
 def suite():
