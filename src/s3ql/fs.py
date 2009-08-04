@@ -13,7 +13,8 @@ from s3ql.common import (decrease_refcount, get_inode, update_mtime, get_inodes,
                          increase_refcount, update_atime)
 from cStringIO import StringIO
 import resource
-from time import time
+import time
+
 
 # We have no control over the arguments, so we
 # disable warnings about unused arguments
@@ -71,8 +72,6 @@ class FuseAdaptor(fuse.FUSE):
         return self.operations('ftruncate', path, length, fi.contents.fh)
 
 
-
-
 class Server(fuse.Operations):
     """FUSE filesystem that stores its data on Amazon S3
 
@@ -90,8 +89,6 @@ class Server(fuse.Operations):
     influence performance.   
     """
 
-    # TODO: We need to store all times as UTC and convert them
-    # to the local timezone on demand
     
     def __call__(self, op, *a):
 
@@ -180,7 +177,11 @@ class Server(fuse.Operations):
          fstat["st_ctime"]) = self.cm.get_row("SELECT mode, refcount, uid, gid, size, id, rdev, "
                                               "atime, mtime, ctime FROM inodes WHERE id=? ",
                                               (inode,))
-            
+        # Convert to local time
+        fstat['st_mtime'] += time.timezone
+        fstat['st_atime'] += time.timezone
+        fstat['st_ctime'] += time.timezone
+        
         # preferred blocksize for doing IO
         fstat["st_blksize"] = resource.getpagesize()
         
@@ -315,9 +316,10 @@ class Server(fuse.Operations):
             mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | 
                     stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | 
                     stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
+            timestamp = time.time() - time.timezone
             cur.execute("INSERT INTO inodes (mode,uid,gid,target,mtime,atime,ctime,refcount) "
                         "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-                        (mode, uid, gid, target, time(), time(), time(), 1))
+                        (mode, uid, gid, target, timestamp, timestamp, timestamp, 1))
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                         (os.path.basename(name),cur.last_rowid(), inode_p))
             update_mtime(inode_p, cur)
@@ -368,7 +370,7 @@ class Server(fuse.Operations):
             raise FUSEError(errno.EINVAL)
 
         self.cm.execute("UPDATE inodes SET mode=?,ctime=? WHERE id=?", 
-                        (mode, time(), fstat["st_ino"]))
+                        (mode, time.time() - time.timezone, fstat["st_ino"]))
 
     def chown(self, path, user, group):
         """Handles FUSE chown() requests.
@@ -377,7 +379,7 @@ class Server(fuse.Operations):
         cur = self.cm
         inode = get_inode(path, cur)
         cur.execute("UPDATE inodes SET uid=?, gid=?, ctime=? WHERE id=?",
-                    (user, group, time(), inode))
+                    (user, group, time.time() - time.timezone, inode))
 
     def mknod(self, path, mode, dev=None):
         """Handles FUSE mknod() requests.
@@ -392,9 +394,10 @@ class Server(fuse.Operations):
         (uid, gid) = self.get_uid_pid()
         inode_p = get_inode(os.path.dirname(path), self.cm)
         with self.cm.transaction() as cur:
+            timestamp = time.time() - time.timezone
             cur.execute("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev,refcount,size) "
                      "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
-                     (time(), time(), time(), uid, gid, mode, dev, 1))
+                     (timestamp, timestamp, timestamp, uid, gid, mode, dev, 1))
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                      (os.path.basename(path), cur.last_rowid(), inode_p))
             update_mtime(inode_p, cur)
@@ -415,9 +418,10 @@ class Server(fuse.Operations):
         inode_p = get_inode(os.path.dirname(path), self.cm)
         (uid, gid) = self.get_uid_pid()
         with self.cm.transaction() as cur:
+            timestamp = time.time() - time.timezone
             cur.execute("INSERT INTO inodes (mtime,atime,ctime,uid,gid,mode,refcount) "
                      "VALUES(?, ?, ?, ?, ?, ?, ?)",
-                     (time(), time(), time(), uid, gid, mode, 2))
+                     (timestamp, timestamp, timestamp, uid, gid, mode, 2))
             inode = cur.last_rowid()
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
                 (os.path.basename(path), inode, inode_p))
@@ -435,12 +439,13 @@ class Server(fuse.Operations):
 
         cur = self.cm
         if times is None:
-            (atime, mtime) = time()
+            (atime, mtime) = time.time()
         else:
             (atime, mtime) = times
         inode = get_inode(path, cur)
         cur.execute("UPDATE inodes SET atime=?,mtime=?,ctime=? WHERE id=?",
-                     (atime, mtime, time(), inode))
+                     (atime - time.timezone, mtime - time.timezone, 
+                      time.time() - time.timezone, inode))
 
     def statfs(self, path):
         """Handles FUSE statfs() requests.
@@ -544,9 +549,10 @@ class Server(fuse.Operations):
         name = os.path.basename(path)
         inode_p = get_inode(dirname, self.cm)
         with self.cm.transaction() as cur:
+            timestamp = time.time() - time.timezone
             cur.execute("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev,refcount,size) "
                      "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
-                     (time(), time(), time(), uid, gid, mode, None, 1))
+                     (timestamp, timestamp, timestamp, uid, gid, mode, None, 1))
             inode = cur.last_rowid()
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                         (name, inode, inode_p))
@@ -636,8 +642,9 @@ class Server(fuse.Operations):
         # so we have to be careful not to undo a size extension made by
         # a concurrent write.
         minsize = offset + len(buf)
+        timestamp = time.time() - time.timezone
         cur.execute("UPDATE inodes SET size=MAX(size,?), ctime=?, mtime=? WHERE id=?",
-                    (minsize, time(), time(), inode))
+                    (minsize, timestamp, timestamp, inode))
         if cur.changes() == 0:
             # Still update mtime
             update_mtime(inode, cur)
@@ -659,8 +666,9 @@ class Server(fuse.Operations):
             fh.truncate(len_ - offset_i)
                 
         # Update file size
+        timestamp = time.time() - time.timezone
         cur.execute("UPDATE inodes SET size=?,mtime=?,ctime=? WHERE id=?",
-                     (len_, time(), time(), inode))
+                     (len_, timestamp, timestamp, inode))
             
 
     def fsync(self, path, fdatasync, inode):

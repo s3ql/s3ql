@@ -232,7 +232,7 @@ class Checker(object):
                 found_errors = True
                 log.warn('Directory "%s", inode %d has wrong . entry', get_path(name, parent_inode, cm),
                          inode)
-                cm.execute('UPDATE contents SET inode=? WHERE name=? AND inode_parent=?',
+                cm.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
                            (inode, '.', inode))
     
                 
@@ -252,7 +252,7 @@ class Checker(object):
                 found_errors = True
                 log.warn('Directory "%s", inode %d has wrong .. entry', get_path(name, parent_inode, cm),
                          inode)
-                cm.execute('UPDATE contents SET inode=? WHERE name=? AND inode_parent=?',
+                cm.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
                            (parent_inode, '..', inode)) 
                 
         return not found_errors

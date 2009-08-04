@@ -15,7 +15,8 @@ import stat
 import traceback
 import threading
 import logging
-from time import time, sleep
+import time
+from time import sleep
 from getpass import getpass
 
 __all__ = [ "decrease_refcount",  "get_cachedir", "init_logging",
@@ -109,14 +110,16 @@ def update_atime(inode, cur):
 
     The objects atime will be set to the current time.
     """
-    cur.execute("UPDATE inodes SET atime=? WHERE id=?", (time(), inode))
+    cur.execute("UPDATE inodes SET atime=? WHERE id=?", 
+                (time.time() - time.timezone, inode))
 
 def update_ctime(inode, cur):
     """Updates the ctime of the specified object.
 
     The objects ctime will be set to the current time.
     """
-    cur.execute("UPDATE inodes SET ctime=? WHERE id=?", (time(), inode))
+    cur.execute("UPDATE inodes SET ctime=? WHERE id=?", 
+                (time.time() - time.timezone, inode))
 
 
 def update_mtime(inode, cur):
@@ -124,7 +127,8 @@ def update_mtime(inode, cur):
 
     The objects mtime will be set to the current time.
     """
-    cur.execute("UPDATE inodes SET mtime=? WHERE id=?", (time(), inode))
+    cur.execute("UPDATE inodes SET mtime=? WHERE id=?",
+                (time.time() - time.timezone, inode))
 
 def update_mtime_parent(path, cur):
     """Updates the mtime of the parent of the specified object.
@@ -175,7 +179,8 @@ def get_path(name, inode_p, cur):
     """Returns the full path of `name` with parent inode `inode_p`.
     """
     
-    path = list() 
+    path = [ '/' ] 
+    
     maxdepth = 255
     while inode_p != ROOT_INODE:
         # This can be ambigious if directories are hardlinked
@@ -189,9 +194,9 @@ def get_path(name, inode_p, cur):
                                name, inode_p)
         
     path.append(name)
-    path = path.reverse()
+    path.reverse()
     
-    return "/" + os.path.join(*path)
+    return os.path.join(*path)
     
     
 def decrease_refcount(inode, cur):
@@ -200,7 +205,7 @@ def decrease_refcount(inode, cur):
     Also updates ctime.
     """
     cur.execute("UPDATE inodes SET refcount=refcount-1,ctime=? WHERE id=?",
-             (time(), inode))
+             (time.time() - time.timezone, inode))
 
 def increase_refcount(inode, cur):
     """Increase reference count for inode by 1.
@@ -208,7 +213,7 @@ def increase_refcount(inode, cur):
     Also updates ctime.
     """
     cur.execute("UPDATE inodes SET refcount=refcount+1, ctime=? WHERE id=?",
-             (time(), inode))
+             (time.time() - time.timezone, inode))
 
 
 def get_cachedir(bucketname):
