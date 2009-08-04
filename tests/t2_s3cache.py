@@ -42,8 +42,7 @@ class s3cache_tests(unittest.TestCase):
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                     os.getuid(), os.getgid(), time(), time(), time(), 1, 32))
         
-        self.cache = s3cache.S3Cache(self.bucket, self.cachedir, self.cachesize,
-                                     self.blocksize, self.cur)
+        self.cache = s3cache.S3Cache(self.bucket, self.cachedir, self.cachesize, self.cur)
 
     def tearDown(self):
         # May not have been called if a test failed
@@ -166,6 +165,8 @@ class s3cache_tests(unittest.TestCase):
             # Make sure the object is dirty
             with self.cache.get(self.inode, offset) as fh:
                 fh.write(b'data')
+            with self.cache.get(self.inode, offset+42) as fh:
+                fh.write(b'data')    
             self.cache.expire()        
         
         # This should work nicely

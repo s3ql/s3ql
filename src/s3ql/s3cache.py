@@ -95,8 +95,8 @@ class S3Cache(object):
     :keys:        OrderedDict of keys that are currently in cache
     :bucket:      Bucket object to access AWS
     :maxsize:     Maximum size to which the cache can grow
+    :size:        Current size of the cache
     :cachedir:    Where to put the cache files
-    :blocksize:   Filesystem blocksize, used to calculate current cache size
     :s3_lock:     MultiLock to synchronize access to individual s3 objects
     :global_lock: Global lock    
     :timeout:     Maximum time to wait for changes in S3 to propagate
@@ -109,14 +109,14 @@ class S3Cache(object):
     is encountered.                   
     """
     
-    def __init__(self, bucket, cachedir, cachesize, blocksize, cm, timeout=60):
+    def __init__(self, bucket, cachedir, cachesize, cm, timeout=60):
         log.debug('Initializing')
         if not isinstance(cm, CursorManager):
             raise TypeError()
         self.keys = OrderedDict()
         self.cachedir = cachedir
         self.maxsize = cachesize
-        self.blocksize = blocksize
+        self.size = 0
         self.bucket = bucket
         self.s3_lock = MultiLock()
         self.global_lock = threading.RLock()
@@ -140,7 +140,6 @@ class S3Cache(object):
         """
         
         cur = self.cm
-        self.expire()
                  
         # Get s3 key    
         log.debug('Getting filehandle for inode %i, offset %i', inode, offset)
@@ -154,7 +153,8 @@ class S3Cache(object):
                 log.debug('creating new s3 object')
                 with cur.transaction() as cur:
                     s3key = "s3ql_data_%d_%d" % (inode, offset) # This is a unique new key
-                    cur.execute("INSERT INTO s3_objects (id, refcount) VALUES(?,?)", (s3key,1))
+                    cur.execute("INSERT INTO s3_objects (id, refcount) VALUES(?, ?)",
+                                 (s3key, 1))
                     cur.execute("INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?,?,?)",
                                 (inode, offset, s3key))
                     
@@ -173,16 +173,33 @@ class S3Cache(object):
                 etag = cur.get_val("SELECT etag FROM s3_objects WHERE id=?", (s3key,))
                 el = CacheEntry(s3key, self._download_object(s3key, etag), 'r+b')
                 self.keys[s3key] = el
+                
+                # Update cache size
+                el.seek(0, 2)
+                oldsize = el.tell()
+                self.size += oldsize
+                
             else:
                 log.debug('Using cached object')
                 self.keys.to_head(s3key)
             
-            # Always start at the same position
-            el.seek(0)
-            yield el
+                el.seek(0, 2)
+                oldsize = el.tell()
+                
+            
+            try:
+                yield el
+            finally:
+                # Update cachesize
+                el.seek(0, 2)
+                newsize = el.tell()
+                self.size = self.size - oldsize + newsize 
+            
         finally:
             log.debug('Releasing object lock')
             self.s3_lock.release(s3key)
+            
+            self.expire()
             
             
     def _download_object(self, s3key, etag):
@@ -235,7 +252,8 @@ class S3Cache(object):
         """
         cur = self.cm
         log.debug('Expiring cache')
-        while len(self.keys) * self.blocksize > self.maxsize:
+        
+        while self.size > self.maxsize:
 
             with self.global_lock:
                 # If we pop the object before having locked it, another thread 
@@ -243,10 +261,17 @@ class S3Cache(object):
                 try:
                     el = self.keys.get_last()
                 except IndexError:
-                    # Nothing left to expire
+                    # Nothing left to expire, this may happen despite the check
+                    # below due to race conditions
                     break
                 
-                log.debug('Least recently used object is %s, obtaining object lock..', el.name)
+                # We want to leave at least one object in the cache, otherwise
+                # we may end up storing & fetching the same object several times
+                # just for one read() or write() call
+                if len(self.keys) == 1:
+                    break
+                 
+                log.debug('Least recently used object is %s, obtaining object lock..', el.s3key)
                 self.s3_lock.acquire(el.s3key)  
                 
             try:
@@ -255,16 +280,22 @@ class S3Cache(object):
                 except KeyError:
                     # Another thread already expired it, we need to try again
                     continue
-                
+
+                el.seek(0, 2)
+                size = el.tell()
                 el.close()
+                
                 if el.dirty:
                     log.debug('Expiring dirty s3 object %s', el.s3key)
                     etag = self.bucket.store_from_file(el.s3key, el.name)
-                    cur.execute("UPDATE s3_objects SET etag=?, last_modified=? "
-                                "WHERE id=?", (etag, time.time(), el.s3key))
+                    cur.execute("UPDATE s3_objects SET etag=? WHERE id=?",
+                                (etag, el.s3key))
                 else:
                     log.debug('Expiring unchanged s3 object %s', el.s3key)
                     
+                # Update cachesize
+                self.size -= size
+                
                 os.unlink(el.name)
 
             finally:
@@ -357,8 +388,8 @@ class S3Cache(object):
             try:
                 el.flush()    
                 etag = self.bucket.store_from_file(el.s3key, el.name)
-                cur.execute("UPDATE s3_objects SET etag=?, last_modified=? WHERE id=?",
-                            (etag, time.time(), el.s3key))
+                cur.execute("UPDATE s3_objects SET etag=? WHERE id=?",
+                            (etag, el.s3key))
             except:
                 el.dirty = True
                 raise
@@ -377,8 +408,8 @@ class S3Cache(object):
                 if el.dirty:
                     el.flush()    
                     etag = self.bucket.store_from_file(el.s3key, el.name)
-                    cur.execute("UPDATE s3_objects SET etag=?, last_modified=? WHERE id=?",
-                                (etag, time.time(), el.s3key))
+                    cur.execute("UPDATE s3_objects SET etag=? WHERE id=?",
+                                (etag, el.s3key))
 
                 el.close()
                 os.unlink(el.name)

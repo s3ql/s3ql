@@ -65,6 +65,8 @@ cachedir = get_cachedir(bucketname)
 init_logging(True, options.quiet, options.debug)
 log = logging.getLogger("frontend")
 
+# Set if we need to reupload the metadata
+commit_required = False
 
 #
 # Open bucket
@@ -135,13 +137,18 @@ perform the check with the newer metadata stored on S3. This
 may also result in dataloss.
 """
             sys.exit(1)
+        elif options.checkonly:
+            log.warn('Cannot overwrite local metadata in checkonly mode, exiting.')
+            sys.exit(1)
         else:
-            print "Remote metadata is never than cache - continuing anyway."
+            log.info("Remote metadata is never than cache - continuing anyway.")
 
-    # Continue with local metadata from here
+    # Continue with local metadata from here, make sure that we upload it at the end
+    commit_required = True
 
 else:
     # Download remote metadata
+    log.info('Downloading metadata..')
     os.mknod(dbfile, 0600 | stat.S_IFREG)
     bucket.fetch_to_file("s3ql_metadata", dbfile)
 
@@ -156,10 +163,14 @@ if rev < 1:
 
 
 # Now we can check
-fsck.fsck(cursor, cachedir, bucket, options.checkonly)
+commit_required = commit_required or (not fsck.fsck(cursor, cachedir, bucket, options.checkonly))
 
+needed_check = cursor.get_val("SELECT needs_fsck FROM parameters")
+if needed_check:
+    cursor.execute('UPDATE parameters SET needs_fsck=?', (False,))
+    commit_required = True
 
-if not options.checkonly:
+if commit_required and not options.checkonly:
     # Commit metadata and mark fs as clean, both internally and as object
     log.info("Committing data to S3...")
     cursor.execute("UPDATE parameters SET needs_fsck=?, last_fsck=?, "
@@ -173,7 +184,8 @@ if not options.checkonly:
         bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
     bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
     bucket.store_from_file("s3ql_metadata", dbfile)
+    
     bucket.store("s3ql_dirty", "no")
-
-    os.unlink(dbfile)
-    os.rmdir(cachedir)
+    
+os.unlink(dbfile)
+os.rmdir(cachedir)

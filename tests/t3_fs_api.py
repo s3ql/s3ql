@@ -34,8 +34,7 @@ class fs_api_tests(unittest.TestCase):
         self.cm = CursorManager(self.dbfile.name)
         mkfs.setup_db(self.cm, self.blocksize)
 
-        self.cache = S3Cache(self.bucket, self.cachedir, self.blocksize * 5, 
-                             self.blocksize, self.cm)
+        self.cache = S3Cache(self.bucket, self.cachedir, self.blocksize * 5, self.cm)
         self.cache.timeout = 1
         self.server = fs.Server(self.cache, self.cm)
 

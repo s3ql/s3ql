@@ -6,7 +6,7 @@
 
 import stat
 import os
-from time import time
+import time
 
 from s3ql.common import ROOT_INODE
 
@@ -73,7 +73,7 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
     );
     INSERT INTO parameters(label,blocksize,last_fsck,mountcnt,needs_fsck,version)
         VALUES(?,?,?,?,?, ?)
-    """, (label, blocksize, time(), 0, False, 1.0))
+    """, (label, blocksize, time.time() - time.timezone, 0, False, 1.0))
 
     # Table of filesystem objects
     cursor.execute("""
@@ -178,12 +178,12 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
     cursor.execute("""
     CREATE TABLE s3_objects (
         id        TEXT PRIMARY KEY,
-        last_modified REAL 
-                  CHECK ( typeof(last_modified) IN ('real', 'null')),
-        etag      TEXT
-                  CHECK ( typeof(etag) IN ('text', 'null')),
         refcount  INT NOT NULL
-                  CHECK ( typeof(refcount) == 'integer' )
+                  CHECK ( typeof(refcount) == 'integer' ),
+                  
+        -- etag is only updated when the object is committed
+        etag      TEXT
+                  CHECK ( typeof(etag) IN ('text', 'null') )
     );
     """); #pylint: disable-msg=W0104
     
@@ -233,11 +233,12 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
     
     # Insert root directory
     # Refcount = 4: ".", "..", "lost+found", "lost+found/.."
+    timestamp = time.time() - time.timezone
     cursor.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount) "
                    "VALUES (?,?,?,?,?,?,?,?)", 
                    (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
-                    os.getuid(), os.getgid(), time(), time(), time(), 4))
+                    os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 4))
     cursor.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                    (".", ROOT_INODE, ROOT_INODE))
     cursor.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
@@ -248,7 +249,7 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
     cursor.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                    "VALUES (?,?,?,?,?,?,?)",
                    (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                    os.getuid(), os.getgid(), time(), time(), time(), 2))
+                    os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 2))
     inode = cursor.last_rowid()
     cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                    ("lost+found", inode, ROOT_INODE))

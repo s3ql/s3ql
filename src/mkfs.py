@@ -86,12 +86,12 @@ log = logging.getLogger("frontend")
 conn = s3.Connection(awskey, awspass, options.encrypt)
 if conn.bucket_exists(bucket):
     if options.force:
-        print "Removing existing bucket..."
+        log.info("Removing existing bucket...")
         conn.delete_bucket(bucket, True)
     else:
-        print >> sys.stderr, \
-            "Bucket already exists!\n" \
-            "Use -f option to remove the existing bucket.\n"
+        log.warn(
+            "Bucket already exists!\n" 
+            "Use -f option to remove the existing bucket.\n")
         sys.exit(1)
 
 
@@ -108,17 +108,19 @@ if os.path.exists(dbfile) or \
             os.unlink(dbfile)
         if os.path.exists(cachedir):
             shutil.rmtree(cachedir)
-        print "Removed existing metadata."
+        log.info("Removed existing metadata.")
     else:
-        print >> sys.stderr, \
-            "Local metadata file already exists!\n" \
-            "Use -f option to really remove the existing filesystem\n"
+        log.warn(
+            "Local metadata file already exists!\n" 
+            "Use -f option to really remove the existing filesystem.")
         sys.exit(1)
         
 try:
+    log.info('Creating metadata tables...')
     mkfs.setup_db(CursorManager(dbfile), options.blocksize * 1024,
                   options.label)
 
+    log.info('Uploading database...')
     bucket = conn.get_bucket(bucket)
     bucket.store_from_file('s3ql_metadata', dbfile)
     bucket['s3ql_dirty'] = "no"

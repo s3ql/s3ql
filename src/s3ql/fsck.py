@@ -145,8 +145,8 @@ class Checker(object):
             log.warn("Committing (potentially changed) cache for %s", s3key)
             if not self.checkonly:
                 etag = self.bucket.store_from_file(s3key, self.cachedir + s3key)
-                cur.execute("UPDATE s3_objects SET etag=?, last_modified=? WHERE id=?",
-                            (etag, time(), s3key))
+                cur.execute("UPDATE s3_objects SET etag=? WHERE id=?",
+                            (etag, s3key))
                 os.unlink(self.cachedir + s3key)
     
         return not found_errors
@@ -397,8 +397,7 @@ class Checker(object):
         # Create a server process in case we want to write files
         from s3ql import fs, s3cache
         cachedir = tempfile.mkdtemp() + "/"
-        cache = s3cache.S3Cache(self.bucket, cachedir, 0, 
-                                cm.get_val('SELECT blocksize FROM parameters'), cm)
+        cache = s3cache.S3Cache(self.bucket, cachedir, 0, cm)
         server = fs.Server(cache, cm)
     
     

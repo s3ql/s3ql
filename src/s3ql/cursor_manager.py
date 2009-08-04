@@ -11,6 +11,7 @@ from contextlib import contextmanager
 import apsw
 import thread
 import time
+from random import randrange
 
 __all__ = [ "CursorManager" ]
 
@@ -60,7 +61,7 @@ class CursorManager(object):
                    `retrytime` milliseconds. 
     """
 
-    def __init__(self, dbfile, initsql=None, retrytime=500):
+    def __init__(self, dbfile, initsql=None, retrytime=1000):
         '''Initialize object.
         
         If `initsql` is specified, it is executed as an SQL command
@@ -127,16 +128,16 @@ class CursorManager(object):
         '''
         
         waited = 0
-        step = 10 # milliseconds
         while True:
             try:
                 return cur.execute(*a, **kw)
             except apsw.LockedError:
                 if waited > self.retrytime:
                     raise # We don't wait any longer
+                log.warn('Waiting for database lock for %d ms so far...', waited) 
+                step = randrange(10, 100, 1)
                 time.sleep(step / 1000)
                 waited += step
-                step *= 2
 
 
     def get_val(self, *a, **kw):

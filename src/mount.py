@@ -58,7 +58,9 @@ parser.add_option("--fg", action="store_true", default=False,
 parser.add_option("--noatime", action="store_true", default=False,
                   help="Do not update file and directory access time. May improve performance.")
 parser.add_option("--cachesize", type="int", default=51200,
-                  help="Cache size in kb (default: 51200 (50 MB))")
+                  help="Cache size in kb (default: 51200 (50 MB)). Should be at least 10 times "
+                  "the blocksize of the filesystem, otherwise an object may be retrieved and "
+                  "written several times during a single write() or read() operation." )
 parser.add_option("--single", action="store_true", default=False,
                   help="Single threaded operation only")
 parser.add_option("-o", type='string', default=None,
@@ -153,7 +155,7 @@ if bucket["s3ql_dirty"] != "no":
     print >> sys.stderr, \
         "Metadata is dirty! Either some changes have not yet propagated\n" \
         "through S3 or the filesystem has not been umounted cleanly. In\n" \
-        "the later case you should run s3fsck on the system where the\n" \
+        "the later case you should run fsck.s3ql on the system where the\n" \
         "filesystem has been mounted most recently!\n"
     sys.exit(1)
 
@@ -168,7 +170,9 @@ if os.path.exists(cachedir) or os.path.exists(dbfile):
 
 # Init cache + get metadata
 try:
-    log.debug("Downloading metadata...")
+    if options.fg:
+        log.info("Downloading metadata...")
+
     os.mknod(dbfile, 0600 | stat.S_IFREG)
     os.mkdir(cachedir, 0700)
     bucket.fetch_to_file("s3ql_metadata", dbfile)
@@ -182,10 +186,11 @@ try:
     #
     # Start server
     #
-    cache =  S3Cache(bucket, cachedir, options.cachesize * 1024,
-                     cur.get_val("SELECT blocksize FROM parameters"), cur,
-                     options.s3timeout)
+    bucket.store("s3ql_dirty", "yes")
+    cache =  S3Cache(bucket, cachedir, options.cachesize * 1024, cur, options.s3timeout)
     server = fs.Server(cache, cur, options.noatime)
+    if options.fg:
+        log.info('Mounting filesystem..')
     ret = server.main(mountpoint, **fuse_opts)
     cache.close()
 

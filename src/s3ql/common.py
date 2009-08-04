@@ -363,8 +363,7 @@ def addfile(src, dest, cursor, bucket):
     # Instantiate the regular server
     from s3ql import fs, s3cache
     cachedir = tempfile.mkdtemp() + "/"
-    cache = s3cache.S3Cache(bucket, cachedir, 0, cursor.get_val('SELECT blocksize FROM parameters'),
-                            cursor)
+    cache = s3cache.S3Cache(bucket, cachedir, 0, cursor)
     server = fs.Server(cache, cursor)
         
     dest = unused_name(dest, cursor)

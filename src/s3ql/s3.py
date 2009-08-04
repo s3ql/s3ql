@@ -52,6 +52,7 @@ class Connection(object):
         if recursive:
             bucket = boto.get_bucket(name)
             for s3key in bucket.list():
+                log.debug('Deleting key %s', s3key)
                 bucket.delete_key(s3key)
 
         boto.delete_bucket(name)

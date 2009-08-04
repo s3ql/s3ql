@@ -59,6 +59,10 @@ parser.add_option("--encrypt", action="store_true", default=None,
                   help="Create an AES encrypted filesystem")
 parser.add_option("--blocksize", type="int", default=1,
                   help="Maximum size of s3 objects in KB (default: %default)")
+parser.add_option("--cachesize", type="int", default=10,
+                  help="Cache size in kb (default: %default). Should be at least 10 times "
+                  "the blocksize of the filesystem, otherwise an object may be retrieved and "
+                  "written several times during a single write() or read() operation." )
 parser.add_option("--fsck", action="store_true", default=False,
                   help="Runs fsck after the filesystem is unmounted.")
 parser.add_option("--txdelay", type="float", default=0.0,
@@ -127,7 +131,7 @@ log.debug("Temporary database in " + dbfile.name)
 # Start server
 #
 
-cache =  S3Cache(bucket, cachedir, options.blocksize * 5, options.blocksize, cm,
+cache =  S3Cache(bucket, cachedir, options.cachesize, cm,
                  timeout=options.propdelay+1)
 server = fs.Server(cache, cm, options.noatime)
 ret = server.main(mountpoint, **fuse_opts)
