@@ -6,7 +6,7 @@ Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL. 
 """
 
-
+from __future__ import unicode_literals
 import sys
 import os
 import tempfile
@@ -153,8 +153,11 @@ def get_inodes(path, cur):
     does not exist.
     """
     
+    if not isinstance(path, bytes):
+        raise TypeError('path must be of type bytes')
+    
     # Remove leading and trailing /
-    path = path.lstrip("/").rstrip("/") 
+    path = path.lstrip(b"/").rstrip(b"/") 
 
     inode = ROOT_INODE
     
@@ -164,7 +167,7 @@ def get_inodes(path, cur):
     
     # Traverse
     visited = [inode]
-    for el in path.split(os.sep):
+    for el in path.split(b'/'):
         try:
             inode = cur.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
                                 (el, inode))
@@ -179,7 +182,10 @@ def get_path(name, inode_p, cur):
     """Returns the full path of `name` with parent inode `inode_p`.
     """
     
-    path = [ '/' ] 
+    if not isinstance(name, bytes):
+        raise TypeError('name must be of type bytes')
+    
+    path = [ b'/' ] 
     
     maxdepth = 255
     while inode_p != ROOT_INODE:
@@ -335,13 +341,17 @@ def unused_name(path, cursor):
     '''Append suffix to path so that it does not exist
     '''
     
+    if not isinstance(path, bytes):
+        raise TypeError('path must be of type bytes')
+    
     i = 0
     newpath = path
+    path = path + b'-'
     try:
         while True:
             get_inode(newpath, cursor)            
             i += 1
-            newpath = '%s-%d' % (path, i)
+            newpath = path + bytes(i)
             
     except KeyError:
         pass

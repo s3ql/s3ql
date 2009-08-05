@@ -4,6 +4,7 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+from __future__ import unicode_literals
 import os
 import errno
 import stat
@@ -296,9 +297,9 @@ class Server(fuse.Operations):
         # Delete
         with self.cm.transaction() as cur:
             cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                        ('.', inode))
+                        (b'.', inode))
             cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                        ('..', inode))                        
+                        (b'..', inode))                        
             cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
                         (os.path.basename(path), inode_p))
             cur.execute("DELETE FROM inodes WHERE id=?", (inode,))
@@ -426,9 +427,9 @@ class Server(fuse.Operations):
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
                 (os.path.basename(path), inode, inode_p))
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
-                ('.', inode, inode))
+                (b'.', inode, inode))
             cur.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
-                ('..', inode_p, inode))     
+                (b'..', inode_p, inode))     
             increase_refcount(inode_p, cur)
             update_mtime(inode_p, cur)
 
@@ -468,7 +469,7 @@ class Server(fuse.Operations):
         stat_["f_files"] = 2 * inodes
         stat_["f_ffree"] = inodes
 
-        return stat
+        return stat_
 
 
     def truncate(self, bpath, len_):
@@ -492,10 +493,10 @@ class Server(fuse.Operations):
 
         # Start main event loop
         log.debug("Starting main event loop...")
-        kw["default_permissions"] = True
-        kw["use_ino"] = True
-        kw["kernel_cache"] = True
-        kw["fsname"] = "s3ql"
+        kw[b"default_permissions"] = True
+        kw[b"use_ino"] = True
+        kw[b"kernel_cache"] = True
+        kw[b"fsname"] = "s3ql"
         self.encountered_errors = False
         self.in_fuse_loop = True
         try:
@@ -605,7 +606,7 @@ class Server(fuse.Operations):
             else:
                 # If we can't read enough, we have a hole as well
                 # (since we already adjusted the length to be within the file size)
-                return buf + "\0" * (length - len(buf))
+                return buf + b"\0" * (length - len(buf))
 
     def write(self, path, buf, offset, inode):
 

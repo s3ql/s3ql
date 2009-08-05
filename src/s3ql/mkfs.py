@@ -4,6 +4,7 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+from __future__ import unicode_literals
 import stat
 import os
 import time
@@ -78,8 +79,8 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
     # Table of filesystem objects
     cursor.execute("""
     CREATE TABLE contents (
-        name      TEXT(256) NOT NULL
-                  CHECK( typeof(name) == 'text' AND name NOT LIKE '%/%' ),
+        name      BLOB(256) NOT NULL
+                  CHECK( typeof(name) == 'blob' AND name NOT LIKE '%/%' ),
         inode     INT NOT NULL REFERENCES inodes(id),
         parent_inode INT NOT NULL REFERENCES inodes(id),
         
@@ -134,8 +135,8 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
                   CHECK ( typeof(refcount) == 'integer' AND refcount > 0),
 
         -- for symlinks only
-        target    TEXT(256)
-                  CHECK ( (mode & {S_IFMT} == {S_IFLNK} AND typeof(target) == 'text') OR
+        target    BLOB(256)
+                  CHECK ( (mode & {S_IFMT} == {S_IFLNK} AND typeof(target) == 'blob') OR
                           (mode & {S_IFMT} != {S_IFLNK} AND target IS NULL) ),
 
         -- for files only
@@ -149,7 +150,7 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
                                AND typeof(rdev) == 'integer' AND rdev >= 0) OR
                           ( mode & {S_IFMT} NOT IN ({S_IFBLK}, {S_IFCHR}) AND rdev IS NULL ) )    
              
-    );
+    )
     """.format(**types))
     cursor.execute(trigger_cmd.format(**{ "src_table": "contents",
                                          "src_key": "inode",
@@ -169,7 +170,7 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
           SELECT RAISE(ABORT, 'cannot change directory with entries into something else')
           WHERE NEW.mode & {S_IFMT} != {S_IFDIR} AND
                (SELECT name FROM contents WHERE parent_inode = NEW.id LIMIT 1) IS NOT NULL;
-      END;        
+      END;      
     """.format(**types)) 
     
     
@@ -183,8 +184,8 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
                   
         -- etag is only updated when the object is committed
         etag      TEXT
-                  CHECK ( typeof(etag) IN ('text', 'null') )
-    );
+                  CHECK ( typeof(etag) IN ('blob', 'null') )
+    )
     """); #pylint: disable-msg=W0104
     
     # Maps file data chunks to S3 objects
@@ -195,7 +196,7 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
         s3key     TEXT NOT NULL REFERENCES s3_objects(id),
  
         PRIMARY KEY (inode, offset)
-    );
+    )
     """); #pylint: disable-msg=W0104
     cursor.execute(trigger_cmd.format(**{ "src_table": "inode_s3key",
                                             "src_key": "inode",
@@ -240,9 +241,9 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                     os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 4))
     cursor.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                   (".", ROOT_INODE, ROOT_INODE))
+                   (b".", ROOT_INODE, ROOT_INODE))
     cursor.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                   ("..", ROOT_INODE, ROOT_INODE))            
+                   (b"..", ROOT_INODE, ROOT_INODE))            
 
     # Insert lost+found directory
     # refcount = 2: /, "."
@@ -252,9 +253,9 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
                     os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 2))
     inode = cursor.last_rowid()
     cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   ("lost+found", inode, ROOT_INODE))
+                   (b"lost+found", inode, ROOT_INODE))
     cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   (".", inode, inode))
+                   (b".", inode, inode))
     cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   ("..", ROOT_INODE, inode))
+                   (b"..", ROOT_INODE, inode))
         

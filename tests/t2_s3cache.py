@@ -5,6 +5,7 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+from __future__ import unicode_literals
 from s3ql import mkfs, s3, s3cache, fs
 from s3ql.common import EmbeddedException, ExceptionStoringThread
 from s3ql.cursor_manager import CursorManager

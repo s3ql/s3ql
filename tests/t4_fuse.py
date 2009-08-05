@@ -5,6 +5,7 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+from __future__ import unicode_literals
 import shutil
 import os
 import stat

@@ -8,6 +8,7 @@
 #pylint: disable-msg=E1103
 
 
+from __future__ import unicode_literals
 import hashlib
 from time import sleep
 from datetime import datetime

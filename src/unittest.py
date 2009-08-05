@@ -51,6 +51,7 @@ SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
 #pylint: disable-msg=W0212,W0232,W0401,W0611,W0612,W0613,W0614,W0621,R0201,R0913,E0213,E1101
 #pylint: disable-msg=W0141,W0201,W0703,W0622,C0301,C0302,C0321,C0324,R0904,R0912,R0914,R0915
 
+from __future__ import unicode_literals
 import difflib
 import functools
 import os

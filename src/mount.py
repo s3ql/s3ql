@@ -5,22 +5,9 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+from __future__ import unicode_literals
 import sys
-if sys.version_info[0] < 2 or \
-    (sys.version_info[0] == 2 and sys.version_info[1] < 6):
-    sys.stderr.write('Python version too old, must be between 2.6.0 and 3.0!\n') 
-    sys.exit(1)
-if sys.version_info[0] > 2:
-    sys.stderr.write('Python version too new, must be between 2.6.0 and 3.0!\n')
-    sys.exit(1)
-    
-
-# Python boto uses several deprecated modules
-import warnings
-warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
-
 from optparse import OptionParser
-#from getpass  import getpass
 from s3ql import fs, s3
 from s3ql.s3cache import S3Cache
 from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
@@ -118,15 +105,15 @@ if options.o is not None:
 # Pass on fuse options
 #
 fuse_opts = dict()
-fuse_opts["nonempty"] = True
+fuse_opts[b"nonempty"] = True
 if options.allow_others:
-    fuse_opts["allow_others"] = True
+    fuse_opts[b"allow_others"] = True
 if options.allow_root:
-    fuse_opts["allow_root"] = True
+    fuse_opts[b"allow_root"] = True
 if options.single:
-    fuse_opts["nothreads"] = True
+    fuse_opts[b"nothreads"] = True
 if options.fg:
-    fuse_opts["foreground"] = True
+    fuse_opts[b"foreground"] = True
 
 
 # Activate logging
@@ -173,8 +160,8 @@ try:
     if options.fg:
         log.info("Downloading metadata...")
 
-    os.mknod(dbfile, 0600 | stat.S_IFREG)
-    os.mkdir(cachedir, 0700)
+    os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
+    os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
     bucket.fetch_to_file("s3ql_metadata", dbfile)
 
     # Check that the fs itself is clean

@@ -5,6 +5,7 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+from __future__ import unicode_literals
 import unittest
 import s3ql.s3
 from random   import randrange

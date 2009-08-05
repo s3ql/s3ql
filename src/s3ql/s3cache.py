@@ -4,6 +4,7 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+from __future__ import unicode_literals
 from contextlib import contextmanager
 from s3ql import fs
 from s3ql.multi_lock import MultiLock

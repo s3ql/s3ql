@@ -5,6 +5,7 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+from __future__ import unicode_literals
 from random import randrange
 from s3ql import mkfs, s3, fs, fsck
 from s3ql.common import writefile
@@ -50,8 +51,8 @@ class fs_api_tests(unittest.TestCase):
         self.assertTrue(fsck.fsck(self.cm, self.cachedir, self.bucket, checkonly=True))
 
     @staticmethod
-    def random_name(prefix=""):
-        return "s3ql" + prefix + str(randrange(100, 999, 1))
+    def random_name(prefix=b""):
+        return b"s3ql" + prefix + bytes(randrange(100, 999, 1))
     
     @staticmethod   
     def random_data(len_):
@@ -85,13 +86,13 @@ class fs_api_tests(unittest.TestCase):
         self.assertTrue(os.path.basename(name) in entries)
                          
     def test_01_getattr_root(self):
-        fstat = self.server.getattr("/")
+        fstat = self.server.getattr(b"/")
         self.assertTrue(stat.S_ISDIR(fstat["st_mode"]))
         self.fsck()
 
     def test_02_utimens(self):
         # We work on the root directory
-        path = "/"
+        path = b"/"
         fstat_old = self.server.getattr(path)
         atime_new = fstat_old["st_atime"] - 72
         mtime_new = fstat_old["st_mtime"] - 72
@@ -105,17 +106,17 @@ class fs_api_tests(unittest.TestCase):
         self.fsck()
 
     def test_03_mkdir_rmdir(self):
-        linkcnt = self.server.getattr("/")["st_nlink"]
+        linkcnt = self.server.getattr(b"/")["st_nlink"]
 
-        name = os.path.join("/",  self.random_name())
-        mtime_old = self.server.getattr("/")["st_mtime"]
+        name = os.path.join(b"/",  self.random_name())
+        mtime_old = self.server.getattr(b"/")["st_mtime"]
         self.assert_entry_doesnt_exist(name)
         self.server.mkdir(name, stat.S_IRUSR | stat.S_IXUSR | stat.S_IFDIR)
         self.assert_entry_exists(name)
-        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
+        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
         fstat = self.server.getattr(name)
 
-        self.assertEquals(self.server.getattr("/")["st_nlink"], linkcnt+1)
+        self.assertEquals(self.server.getattr(b"/")["st_nlink"], linkcnt+1)
         self.assertTrue(stat.S_ISDIR(fstat["st_mode"]))
         self.assertEquals(fstat["st_nlink"], 2)
 
@@ -130,29 +131,29 @@ class fs_api_tests(unittest.TestCase):
         self.assertTrue(stat.S_ISDIR(fstat2["st_mode"]))
         self.assertEquals(fstat["st_nlink"], 3)
         self.assertEquals(fstat2["st_nlink"], 2)
-        self.assertTrue(self.server.getattr("/")["st_nlink"] == linkcnt+1)
+        self.assertTrue(self.server.getattr(b"/")["st_nlink"] == linkcnt+1)
 
         self.assertRaises(fs.FUSEError, self.server.rmdir, name)
         self.server.rmdir(sub)
         self.assert_entry_doesnt_exist(sub)
         self.assertEquals(self.server.getattr(name)["st_nlink"], 2)
 
-        mtime_old = self.server.getattr("/")["st_mtime"]
+        mtime_old = self.server.getattr(b"/")["st_mtime"]
         self.server.rmdir(name)
-        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
+        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
         self.assert_entry_doesnt_exist(name)
-        self.assertTrue(self.server.getattr("/")["st_nlink"] == linkcnt)
+        self.assertTrue(self.server.getattr(b"/")["st_nlink"] == linkcnt)
 
         self.fsck()
 
     def test_04_symlink(self):
-        name = os.path.join("/",  self.random_name())
-        target = "../../wherever/this/is"
+        name = os.path.join(b"/",  self.random_name())
+        target = b"../../wherever/this/is"
         self.assert_entry_doesnt_exist(name)
-        mtime_old = self.server.getattr("/")["st_mtime"]
+        mtime_old = self.server.getattr(b"/")["st_mtime"]
         self.server.symlink(name, target)
         self.assert_entry_exists(name)
-        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
+        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
         fstat = self.server.getattr(name)
 
         self.assertTrue(stat.S_ISLNK(fstat["st_mode"]))
@@ -160,19 +161,19 @@ class fs_api_tests(unittest.TestCase):
 
         self.assertEquals(self.server.readlink(name), target)
 
-        mtime_old = self.server.getattr("/")["st_mtime"]
+        mtime_old = self.server.getattr(b"/")["st_mtime"]
         self.server.unlink(name)
         self.assert_entry_doesnt_exist(name)
-        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
+        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
 
         self.fsck()
 
     def test_05_create_unlink(self):
-        name = os.path.join("/",  self.random_name())
+        name = os.path.join(b"/",  self.random_name())
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
 
         self.assert_entry_doesnt_exist(name)
-        mtime_old = self.server.getattr("/")["st_mtime"]
+        mtime_old = self.server.getattr(b"/")["st_mtime"]
         fh = self.server.create(name, mode)
         self.assert_entry_exists(name)
         self.server.release(name, fh)
@@ -180,19 +181,19 @@ class fs_api_tests(unittest.TestCase):
 
         self.assertEquals(self.server.getattr(name)["st_mode"], mode | stat.S_IFREG)
         self.assertEquals(self.server.getattr(name)["st_nlink"], 1)
-        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
+        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
 
-        mtime_old = self.server.getattr("/")["st_mtime"]
+        mtime_old = self.server.getattr(b"/")["st_mtime"]
         self.server.unlink(name)
         self.assert_entry_doesnt_exist(name)
-        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
+        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
 
         self.fsck()
 
 
     def test_06_chmod_chown(self):
         # Create file
-        name = os.path.join("/",  self.random_name())
+        name = os.path.join(b"/",  self.random_name())
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
         fh = self.server.create(name, mode)
         self.server.release(name, fh)
@@ -218,7 +219,7 @@ class fs_api_tests(unittest.TestCase):
 
     def test_07_open_write_read(self):
         # Create file
-        name = os.path.join("/",  self.random_name())
+        name = os.path.join(b"/",  self.random_name())
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
         bufsize = resource.getpagesize()
         
@@ -247,19 +248,19 @@ class fs_api_tests(unittest.TestCase):
 
     def test_08_link(self):
         # Create file
-        target = os.path.join("/",  self.random_name("target"))
+        target = os.path.join(b"/",  self.random_name(b"target"))
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
         fh = self.server.create(target, mode)
         self.server.release(target, fh)
         self.server.flush(target, fh)
 
 
-        name = os.path.join("/",  self.random_name())
+        name = os.path.join(b"/",  self.random_name())
         self.assert_entry_doesnt_exist(name)
-        mtime_old = self.server.getattr("/")["st_mtime"]
+        mtime_old = self.server.getattr(b"/")["st_mtime"]
         self.server.link(name, target)
         self.assert_entry_exists(target)
-        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
+        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
         fstat = self.server.getattr(name)
 
         self.assertEquals(fstat, self.server.getattr(target))
@@ -276,7 +277,7 @@ class fs_api_tests(unittest.TestCase):
   
     def test_09_write_read_cmplx(self):
         # Create file with holes
-        name = os.path.join("/",  self.random_name())
+        name = os.path.join(b"/",  self.random_name())
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
         off = int(5.9 * self.blocksize)
         datalen = int(0.2 * self.blocksize)
@@ -289,14 +290,14 @@ class fs_api_tests(unittest.TestCase):
         off2 = int(0.5 * self.blocksize)
         self.assertEquals(self.server.read(name, len(data)+off2, off, fh), data)
         self.assertEquals(self.server.read(name, len(data)+off2, off-off2, fh), 
-                          "\0" * off2 + data)
+                          b"\0" * off2 + data)
         self.assertEquals(self.server.read(name, 182, off+len(data), fh), "")
 
         # Write at another position
         off = int(1.9 * self.blocksize)
         self.server.write(name, data, off, fh)
         self.assertEquals(self.server.getattr(name)["st_size"], filelen)
-        self.assertEquals(self.server.read(name, len(data)+off2, off, fh), data + "\0" * off2)
+        self.assertEquals(self.server.read(name, len(data)+off2, off, fh), data + b"\0" * off2)
 
         self.server.release(name, fh)
         self.server.flush(name, fh)
@@ -305,7 +306,7 @@ class fs_api_tests(unittest.TestCase):
         
     def test_11_truncate_within(self):
         # Create file with holes
-        name = os.path.join("/",  self.random_name())
+        name = os.path.join(b"/",  self.random_name())
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
         off = int(5.5 * self.blocksize)
         datalen = int(0.3 * self.blocksize)
@@ -321,9 +322,9 @@ class fs_api_tests(unittest.TestCase):
         self.server.ftruncate(name, filelen+ext, fh)
         self.assertEquals(self.server.getattr(name)["st_size"], filelen+ext)
         self.assertEquals(self.server.read(name, len(data)+2*ext, off, fh),
-                          data + "\0" * ext)
+                          data + b"\0" * ext)
         self.assertEquals(self.server.read(name, 2*ext, off+len(data), fh),
-                          "\0" * ext)
+                          b"\0" * ext)
         
         # Truncate it
         self.server.ftruncate(name, filelen-ext, fh)
@@ -335,7 +336,7 @@ class fs_api_tests(unittest.TestCase):
         self.server.ftruncate(name, filelen, fh)
         self.assertEquals(self.server. getattr(name)["st_size"], filelen)
         self.assertEquals(self.server.read(name, len(data)+2 * ext, off, fh),
-                          data[0:-ext] + "\0" * ext)
+                          data[0:-ext] + b"\0" * ext)
 
         self.server.release(name, fh)
         self.server.flush(name, fh)
@@ -343,7 +344,7 @@ class fs_api_tests(unittest.TestCase):
         
     def test_12_truncate_across(self):
         # Create file with holes
-        name = os.path.join("/",  self.random_name())
+        name = os.path.join(b"/",  self.random_name())
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
         off = int(5.5 * self.blocksize)
         datalen = int(0.3 * self.blocksize)
@@ -359,9 +360,9 @@ class fs_api_tests(unittest.TestCase):
         self.server.ftruncate(name, filelen+ext, fh)
         self.assertEquals(self.server.getattr(name)["st_size"], filelen+ext)
         self.assertEquals(self.server.read(name, len(data)+2*ext, off, fh),
-                          data + "\0" * ext)
+                          data + b"\0" * ext)
         self.assertEquals(self.server.read(name, 2*ext, off+len(data), fh),
-                          "\0" * ext)
+                          b"\0" * ext)
         
         # Truncate it
         ext = int(0.1 * self.blocksize)
@@ -374,17 +375,17 @@ class fs_api_tests(unittest.TestCase):
         self.server.ftruncate(name, filelen, fh)
         self.assertEquals(self.server. getattr(name)["st_size"], filelen)
         self.assertTrue(self.server.read(name, len(data)+2 * ext, off, fh) ==
-                          data[0:-ext] + "\0" * ext)
+                          data[0:-ext] + b"\0" * ext)
         
         self.server.release(name, fh)
         self.server.flush(name, fh)
         self.fsck()
                 
     def test_10_rename(self):
-        dirname_old = os.path.join("/", self.random_name("olddir"))
-        dirname_new = os.path.join("/", self.random_name("newdir"))
-        filename_old = os.path.join(dirname_old, self.random_name("oldfile"))
-        filename_new = self.random_name("newfile")
+        dirname_old = os.path.join(b"/", self.random_name(b"olddir"))
+        dirname_new = os.path.join(b"/", self.random_name(b"newdir"))
+        filename_old = os.path.join(dirname_old, self.random_name(b"oldfile"))
+        filename_new = self.random_name(b"newfile")
         filename_new1 = os.path.join(dirname_old, filename_new)
         filename_new2 = os.path.join(dirname_new, filename_new)
         
@@ -409,7 +410,7 @@ class fs_api_tests(unittest.TestCase):
         # Rename directory
         fstat2 = self.server.getattr(filename_new1)
         fstat = self.server.getattr(dirname_old)
-        mtime_old = self.server.getattr("/")["st_mtime"]
+        mtime_old = self.server.getattr(b"/")["st_mtime"]
         self.server.rename(dirname_old, dirname_new)
         self.assert_entry_doesnt_exist(dirname_old)
         self.assert_entry_exists(dirname_new)
@@ -419,7 +420,7 @@ class fs_api_tests(unittest.TestCase):
         
         self.assertEquals(fstat, self.server.getattr(dirname_new))
         self.assertEquals(fstat2, self.server.getattr(filename_new2))
-        self.assertTrue(self.server.getattr("/")["st_mtime"] > mtime_old)
+        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
 
 
 def suite():

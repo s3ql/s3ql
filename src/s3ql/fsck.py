@@ -5,6 +5,7 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+from __future__ import unicode_literals
 import os
 import types
 import stat
@@ -164,7 +165,7 @@ class Checker(object):
         
         try:
             inode_l = cm.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?", 
-                                 ("lost+found", ROOT_INODE))
+                                 (b"lost+found", ROOT_INODE))
     
         except StopIteration:
             found_errors = True
@@ -175,7 +176,7 @@ class Checker(object):
                         os.getuid(), os.getgid(), time(), time(), time(), 2))
             inode_l = cm.last_rowid()
             cm.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                       ("lost+found", inode_l, ROOT_INODE))
+                       (b"lost+found", inode_l, ROOT_INODE))
             
             # . and .. will be added by the next checker
     
@@ -192,7 +193,7 @@ class Checker(object):
                         os.getuid(), os.getgid(), time(), time(), time(), 2))
             inode_l = cm.last_rowid()
             cm.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
-                       (inode_l, "lost+found", ROOT_INODE))
+                       (inode_l, b"lost+found", ROOT_INODE))
             
         return not found_errors
     
@@ -221,13 +222,13 @@ class Checker(object):
             # .
             try:
                 inode2 = cm.get_val('SELECT inode FROM contents WHERE name=? AND parent_inode=?',
-                                    ('.', inode))
+                                    (b'.', inode))
             except StopIteration:   
                 found_errors = True
                 log.warn('Directory "%s", inode %d has no . entry', get_path(name, parent_inode, cm),
                          inode)
                 cm.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
-                           ('.', inode, inode))
+                           (b'.', inode, inode))
                 inode2 = inode
                 
             if inode2 != inode:
@@ -235,19 +236,19 @@ class Checker(object):
                 log.warn('Directory "%s", inode %d has wrong . entry', get_path(name, parent_inode, cm),
                          inode)
                 cm.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
-                           (inode, '.', inode))
+                           (inode, b'.', inode))
     
                 
             # ..
             try:
                 inode2 = cm.get_val('SELECT inode FROM contents WHERE name=? AND parent_inode=?',
-                                    ('..', inode))
+                                    (b'..', inode))
             except StopIteration:   
                 found_errors = True
                 log.warn('Directory "%s", inode %d has no .. entry', get_path(name, parent_inode, cm),
                          inode)
                 cm.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
-                           ('..', parent_inode, inode))
+                           (b'..', parent_inode, inode))
                 inode2 = parent_inode
                 
             if inode2 != parent_inode:
@@ -255,7 +256,7 @@ class Checker(object):
                 log.warn('Directory "%s", inode %d has wrong .. entry', get_path(name, parent_inode, cm),
                          inode)
                 cm.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
-                           (parent_inode, '..', inode)) 
+                           (parent_inode, b'..', inode)) 
                 
         return not found_errors
                 
@@ -278,7 +279,7 @@ class Checker(object):
             for (inode, mode, name) in cm.execute("SELECT inode, mode, name FROM contents JOIN inodes "
                                             "ON inode == id WHERE parent_inode=?",
                                             (inode_p,)):
-                if stat.S_ISDIR(mode) and not name in ('.', '..'):
+                if stat.S_ISDIR(mode) and not name in (b'.', b'..'):
                     subdirs.append(inode)
             cm.execute("DELETE FROM loopcheck WHERE parent_inode=?", (inode_p,))
             for inode in subdirs:
@@ -289,7 +290,7 @@ class Checker(object):
         if cm.get_val("SELECT COUNT(inode) FROM loopcheck") > 0:
             log.warn("Found unreachable filesystem entries!")
             found_errors = True
-            log.warn("FIXME: This problem cannot be corrected automatically yet.")
+            log.warn("This problem cannot be corrected automatically yet.")
             
         cm.execute("DROP TABLE loopcheck")     
             
@@ -306,7 +307,7 @@ class Checker(object):
         found_errors = False
     
         log.info('Checking inodes...')
-        inode_l = get_inode("/lost+found", cm)
+        inode_l = get_inode(b"/lost+found", cm)
         
         for (inode, refcount) in cm.execute("SELECT id, refcount FROM inodes"):
              
@@ -319,7 +320,7 @@ class Checker(object):
             if refcount2 == 0:
                 found_errors = True
                 log.warn("Inode %d not referenced, adding to lost+found", inode)
-                name =  unused_name("/lost+found/inode-%d" % inode, cm)         
+                name =  unused_name(b"/lost+found/inode-%d" % inode, cm)         
                 cm.execute("INSERT INTO contents (name, inode, parent_inode) "
                            "VALUES (?,?,?)", (name, inode, inode_l))
                 cm.execute("UPDATE inodes SET refcount=? WHERE id=?",

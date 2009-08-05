@@ -5,6 +5,7 @@
 #    This program can be distributed under the terms of the GNU LGPL.
 #
 
+from __future__ import unicode_literals
 import unittest
 from s3ql import mkfs, s3, fs, fsck
 from s3ql.s3cache import S3Cache
@@ -67,20 +68,20 @@ class fsck_tests(unittest.TestCase):
         
         # Create a new directory without . and ..
         self.cm.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
-                        ('testdir', inode, ROOT_INODE))
+                        (b'testdir', inode, ROOT_INODE))
         
         self.assertFalse(self.checker.check_dirs())
         self.assertTrue(self.checker.check_dirs())
         
         # and another with wrong entries
         self.cm.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
-                        (ROOT_INODE, '.', inode))
+                        (ROOT_INODE, b'.', inode))
         self.assertFalse(self.checker.check_dirs())
         self.assertTrue(self.checker.check_dirs())
         
         
         self.cm.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
-                        (inode, '..', inode))
+                        (inode, b'..', inode))
         
         self.assertFalse(self.checker.check_dirs())
         self.assertTrue(self.checker.check_dirs())
@@ -89,7 +90,7 @@ class fsck_tests(unittest.TestCase):
         
         # Make lost+found a file
         inode = self.cm.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?", 
-                                ("lost+found", ROOT_INODE))
+                                (b"lost+found", ROOT_INODE))
         self.cm.execute('DELETE FROM contents WHERE parent_inode=?', (inode,))
         self.cm.execute('UPDATE inodes SET mode=?, size=? WHERE id=?',
                         (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR, 0, inode))
@@ -100,7 +101,7 @@ class fsck_tests(unittest.TestCase):
     def test_lof2(self):    
         # Remove lost+found
         self.cm.execute('DELETE FROM contents WHERE name=? and parent_inode=?',
-                        ('lost+found', ROOT_INODE))
+                        (b'lost+found', ROOT_INODE))
          
         self.assertFalse(self.checker.check_lof())
         self.assertTrue(self.checker.check_lof())

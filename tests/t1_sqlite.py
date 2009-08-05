@@ -4,7 +4,8 @@
 #
 #    This program can be distributed under the terms of the GNU LGPL.
 #
-       
+
+from __future__ import unicode_literals    
 import tempfile
 import unittest
 from time import time
@@ -39,14 +40,19 @@ class sqlite_tests(unittest.TestCase):
         """Check that parent_inode can only be a directory
         """
         cur = self.cur
-        
+
+        # Try to insert a fishy name
+        self.assertRaises(apsw.ConstraintError, cur.execute, 
+                          "INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+                          (b"foo/bar", ROOT_INODE, ROOT_INODE))
+                
         # Create a file
         cur.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
                     "VALUES (?,?,?,?,?,?,?,?)",
                     (stat.S_IFREG, os.getuid(), os.getgid(), time(), time(), time(), 1, 0))
         inode = cur.last_rowid()
         cur.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   ("testfile", inode, ROOT_INODE))
+                   (b"testfile", inode, ROOT_INODE))
                            
         # Try to create a file with a file as parent
         cur.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
@@ -55,7 +61,7 @@ class sqlite_tests(unittest.TestCase):
         inode2 = cur.last_rowid()             
         self.assertRaises(apsw.ConstraintError, cur.execute, 
                           "INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                          ("testfile2", inode, inode2))
+                          (b"testfile2", inode, inode2))
         
         # Try to change the type of an inode
         self.assertRaises(apsw.ConstraintError, cur.execute, 
