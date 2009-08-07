@@ -715,9 +715,9 @@ class Server(fuse.Operations):
         timestamp = time.time() - time.timezone
         cur.execute("UPDATE inodes SET size=MAX(size,?), ctime=?, mtime=? WHERE id=?",
                     (minsize, timestamp, timestamp, inode))
-        if cur.changes() == 0:
-            # Still update mtime
-            update_mtime(inode, cur)
+         
+        # Still update mtime
+        update_mtime(inode, cur)
         
         return len(buf)
 
