@@ -18,30 +18,6 @@ __all__ = [ "CursorManager" ]
 
 log = logging.getLogger("CursorManager") 
 
-# TODO: When stresstesting on EC2, the fs crashes with this error:
-#[fs] Unexpected internal filesystem error.
-#Filesystem may be corrupted, run fsck.s3ql as soon as possible!
-#Please report this bug on http://code.google.com/p/s3ql/.
-#Traceback (most recent call last):
-#  File "/root/s3ql/src/s3ql/fs.py", line 110, in __call__
-#    return getattr(self, op)(*a)
-#  File "/root/s3ql/src/s3ql/fs.py", line 687, in flush
-#    return self.fsync(path, False, inode)
-#  File "/root/s3ql/src/s3ql/fs.py", line 679, in fsync
-#    self.cache.flush(inode)
-#  File "/root/s3ql/src/s3ql/s3cache.py", line 392, in flush
-#    (etag, el.s3key))
-#  File "/root/s3ql/src/s3ql/cursor_manager.py", line 120, in execute
-#    return self._execute_with(self._get_conn().cursor(), *a, **kw)
-#  File "/root/s3ql/src/s3ql/cursor_manager.py", line 133, in _execute_with
-#    return cur.execute(*a, **kw)
-#  File "src/cursor.c", line 245, in resetcursor
-#CantOpenError: CantOpenError: unable to open database file
-
-# Maybe we have opened too many database connections? (because
-# old connections do not get destroyed with the owning thread)
-
-
 class Dummy(object):
     '''An empty class with the only purpose of holding attributes
     '''
@@ -135,7 +111,7 @@ class CursorManager(object):
         try:
             conn = self.conn[thread.get_ident()]
         except KeyError:
-            log.debug("Creating new db connection...")
+            log.debug("Creating new db connection (active conns: %d)...", len(self.conn))
             conn = apsw.Connection(self.dbfile)
             conn.setbusytimeout(self.retrytime)   
             if self.initsql:
@@ -145,13 +121,32 @@ class CursorManager(object):
                 
         return conn
     
-         
-    def execute(self, statement, bindings=None):
-        '''Execute the given SQL statement
+    def query(self, *a, **kw):
+        '''Execute the given SQL statement. Return ResultSet.
         
         Transforms buffer() to bytes() and vice versa.
         '''
+        
+        return ResultSet(self._execute(*a, **kw))
+         
+         
+    def execute(self, *a, **kw):
+        '''Execute the given SQL statement. Return number of affected rows.
+
+        '''
     
+        self._execute(*a, **kw).close()
+        return self.changes()
+
+                   
+    def _execute(self, statement, bindings=None):         
+        '''Execute the given SQL statement
+        
+        Note that in shared cache mode we may get an SQLITE_LOCKED 
+        error, which is not handled by the busy handler. Therefore
+        we have to emulate this behaviour.
+        '''
+                
         # Convert bytes to buffer
         if isinstance(bindings, dict):
             newbindings = dict()
@@ -165,28 +160,15 @@ class CursorManager(object):
                            for val in bindings ] 
         else:
             newbindings = bindings
-     
-        if bindings is not None:
-            cur = self._execute(statement, newbindings)
-        else:
-            cur = self._execute(statement)
-               
-        # Convert buffer to bytes
-        return ResultSet(cur)
-
-                   
-    def _execute(self, *a, **kw):         
-        '''Execute the given SQL statement
-        
-        Note that in shared cache mode we may get an SQLITE_LOCKED 
-        error, which is not handled by the busy handler. Therefore
-        we have to emulate this behaviour.
-        '''
-                  
+            
+            
         waited = 0
         while True:
             try:
-                return self._get_conn().cursor().execute(*a, **kw)
+                if bindings is not None:
+                    return self._get_conn().cursor().execute(statement, newbindings)
+                else:
+                    return self._get_conn().cursor().execute(statement)
             except apsw.LockedError:
                 if waited > self.retrytime:
                     raise # We don't wait any longer
@@ -219,10 +201,10 @@ class CursorManager(object):
         If there are no result rows, raises StopIteration.
         """
 
-        cur = self.execute(*a, **kw)
-        row = cur.next()
+        res = self.query(*a, **kw)
+        row = res.next()
         try:
-            cur.next()
+            res.next()
         except StopIteration:
             # Fine, we only wanted one row
             pass

@@ -12,9 +12,8 @@ import fuse
 import logging
 from s3ql.common import (decrease_refcount, get_inode, update_mtime, get_inodes,
                          increase_refcount, update_atime)
-from cStringIO import StringIO
-import resource
 import time
+from cStringIO import StringIO
 
 
 # We have no control over the arguments, so we
@@ -184,17 +183,12 @@ class Server(fuse.Operations):
         fstat['st_ctime'] += time.timezone
         
         # preferred blocksize for doing IO
-        fstat["st_blksize"] = resource.getpagesize()
+        fstat["st_blksize"] = self.blocksize
         
         if stat.S_ISREG(fstat["st_mode"]):
-            # determine number of blocks for files
-            # The exact semantics are not clear. For now we just return 1,
-            # since the file occupies exactly as much space as it is large.
-            fstat["st_blocks"] = 1
-            
-            # We could also count the number of s3 objects:
-            #fstat["st_blocks"] = cur.get_val("SELECT COUNT(s3key) FROM inode_s3key "
-            #                                 "WHERE inode=?", (inode,))
+            # This is the number of 512 blocks allocated for the file
+            fstat["st_blocks"] = int( fstat['st_size'] / 512 )
+                                 
         else:
             # For special nodes, return arbitrary values
             fstat["st_size"] = 512
@@ -235,7 +229,7 @@ class Server(fuse.Operations):
         if not self.noatime:
             update_atime(inode, self.cm)
             
-        for (name, inode) in self.cm.execute("SELECT name, inode FROM contents WHERE parent_inode=?",
+        for (name, inode) in self.cm.query("SELECT name, inode FROM contents WHERE parent_inode=?",
                                              (inode,)):
             filler(name, self.getattr_ino(inode), 0)
 
@@ -331,21 +325,85 @@ class Server(fuse.Operations):
         """
 
         cur = self.cm
-        fstat = self.getattr(old)
+        inode = get_inode(old, cur)
+        fstat = self.getattr_ino(inode)
         inode_p_old = get_inode(os.path.dirname(old), cur)
         inode_p_new = get_inode(os.path.dirname(new), cur)
         
-        cur.execute("UPDATE contents SET name=?, parent_inode=? WHERE name=? "
-                    "AND parent_inode=?", (os.path.basename(new), inode_p_new,
-                                           os.path.basename(old), inode_p_old))
+        try:
+            inode_repl = get_inode(new, self.cm)
+        except KeyError:
+            # Target does not exist
+            cur.execute("UPDATE contents SET name=?, parent_inode=? WHERE name=? "
+                        "AND parent_inode=?", (os.path.basename(new), inode_p_new,
+                                               os.path.basename(old), inode_p_old))
+            
+            if stat.S_ISDIR(fstat['st_mode']):
+                cur.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
+                            (inode_p_new, b'..', inode))
         
-        # For directories we need to update .. as well
-        if stat.S_ISDIR(fstat['st_mode']):
-            cur.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
-                        (inode_p_new, '..', fstat['st_ino']))
+            update_mtime(inode_p_old, cur)
+            update_mtime(inode_p_new, cur)
+            return
+            
+        else:
+            # Target exists, overwrite
+            fstat_repl = self.getattr_ino(inode_repl)
+            
+            # Both directories
+            if stat.S_ISDIR(fstat_repl['st_mode']) and stat.S_ISDIR(fstat['st_mode']):
+                if fstat_repl['st_nlink'] > 2: 
+                    log.debug("Attempted to overwrite nonempty directory %s", new)
+                    raise FUSEError(errno.EINVAL)
+                
+                with cur.transaction() as cur:
+                    # Replace target
+                    cur.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
+                                (inode, os.path.basename(new), inode_p_new))
+                    cur.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
+                                (inode_p_new, b'..', inode))
+                    
+                    # Delete old name
+                    cur.execute('DELETE FROM contents WHERE name=? AND parent_inode=?',
+                                (os.path.basename(old), inode_p_old))
+                    decrease_refcount(inode_p_old, cur)
+                    
+                    # Delete overwritten directory
+                    cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
+                                (b'.', inode_repl))
+                    cur.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
+                                (b'..', inode_repl))
+                    cur.execute("DELETE FROM inodes WHERE id=?", (inode_repl,))
+                    
+                    update_mtime(inode_p_old, cur)
+                    update_mtime(inode_p_new, cur)
+                    
+                return
+                        
+            # Only one is a directory
+            elif stat.S_ISDIR(fstat['st_mode']) or stat.S_ISDIR(fstat_repl['st_mode']):
+                log.debug('Cannot rename file to directory (or vice versa).')
+                raise FUSEError(errno.EINVAL) 
+            
+            # Both files
+            else:
+                with cur.transaction() as cur:
+                    cur.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
+                                (inode, os.path.basename(new), inode_p_new))
+                    cur.execute('DELETE FROM contents WHERE name=? AND parent_inode=?',
+                                (os.path.basename(old), inode_p_old))
+            
+                    # No more links, remove datablocks
+                    if fstat_repl["st_nlink"] == 1:
+                        self.cache.remove(inode_repl)                
+                        cur.execute("DELETE FROM inodes WHERE id=?", (inode_repl,))
+                    else:
+                        # Also updates ctime
+                        decrease_refcount(inode_repl, cur)
         
-        update_mtime(inode_p_old, cur)
-        update_mtime(inode_p_new, cur)
+                update_mtime(inode_p_old, cur)
+                update_mtime(inode_p_new, cur)
+                return
 
     def link(self, source, target):
         """Handles FUSE link() requests.
@@ -454,20 +512,31 @@ class Server(fuse.Operations):
         cur = self.cm
         stat_ = dict()
 
-        # Blocksize
-        stat_["f_bsize"] = resource.getpagesize()
-        stat_["f_frsize"] = stat_['f_bsize']
-
         # Get number of blocks & inodes 
         blocks = cur.get_val("SELECT COUNT(id) FROM s3_objects")
         inodes = cur.get_val("SELECT COUNT(id) FROM inodes")
-
-        # Since S3 is unlimited, always return a half-full filesystem
+        size = cur.get_val('SELECT COUNT(size) FROM s3_objects')
+        
+        # file system block size, for now we use the average
+        # blocksize since f_frsize is ignored
+        stat_["f_bsize"] = int( self.blocksize / blocks ) if blocks != 0 else self.blocksize
+        
+        # fragment size, we set this to the avg blocksize rather than
+        # 1 so that one can determine the number of blocks in the fs
+        # using stat.
+        # TODO: This does not work, stat reports f_bsize as f_frsize.
+        stat_['f_frsize'] = int( size / blocks ) if blocks != 0 else 1
+        
+        
+        # size of fs in f_frsize units 
+        # (since S3 is unlimited, always return a half-full filesystem)
         stat_["f_blocks"] = 2 * blocks
         stat_["f_bfree"] = blocks
-        stat_["f_bavail"] = blocks
+        stat_["f_bavail"] = blocks # free for non-root
+        
         stat_["f_files"] = 2 * inodes
         stat_["f_ffree"] = inodes
+        stat_["f_favail"] = inodes # free for non-root
 
         return stat_
 
@@ -662,9 +731,10 @@ class Server(fuse.Operations):
         self.cache.remove(inode, len_)
 
         # Get last object before truncation
-        offset_i = self.blocksize * int((len_ - 1) / self.blocksize)
-        with self.cache.get(inode, offset_i) as fh:
-            fh.truncate(len_ - offset_i)
+        if len_ != 0:
+            offset_i = self.blocksize * int((len_ - 1) / self.blocksize)
+            with self.cache.get(inode, offset_i) as fh:
+                fh.truncate(len_ - offset_i)
                 
         # Update file size
         timestamp = time.time() - time.timezone

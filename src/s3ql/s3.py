@@ -204,7 +204,7 @@ class Bucket(object):
         """
 
         for key in self.get_boto().list():
-            yield (key.name, self.boto_key_to_metadata(key))
+            yield (unicode(key.name), self.boto_key_to_metadata(key))
 
 
     def fetch(self, key):
@@ -238,7 +238,7 @@ class Bucket(object):
         bkey = self.get_boto().new_key(key)
         bkey.set_contents_from_string(val)
 
-        return bkey.etag.rstrip('"').lstrip('"')
+        return bkey.etag.rstrip('"').lstrip('"').encode('us-ascii')
 
             
     def fetch_to_file(self, key, file_):
@@ -267,7 +267,7 @@ class Bucket(object):
         bkey = self.get_boto().new_key(key)
         bkey.set_contents_from_filename(file_)
 
-        return bkey.etag.rstrip('"').lstrip('"')
+        return bkey.etag.rstrip('"').lstrip('"').encode('us-ascii')
  
 
     def copy(self, src, dest):
@@ -282,7 +282,7 @@ class Bucket(object):
         """
         #pylint: disable-msg=W0201
         meta = Metadata(bkey.metadata)
-        meta.etag = bkey.etag.rstrip('"').lstrip('"')
+        meta.etag = bkey.etag.rstrip('"').lstrip('"').encode('us-ascii')
         meta.key = bkey.name
         
         if bkey.last_modified is not None:

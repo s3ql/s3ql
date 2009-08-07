@@ -52,7 +52,7 @@ class fs_api_tests(unittest.TestCase):
 
     @staticmethod
     def random_name(prefix=b""):
-        return b"s3ql" + prefix + bytes(randrange(100, 999, 1))
+        return prefix + b"s3ql_" + bytes(randrange(100, 999, 1))
     
     @staticmethod   
     def random_data(len_):
@@ -380,7 +380,24 @@ class fs_api_tests(unittest.TestCase):
         self.server.release(name, fh)
         self.server.flush(name, fh)
         self.fsck()
-                
+        
+        
+    def test_12_truncate_simple(self):
+        name = os.path.join(b"/",  self.random_name())
+        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+        datalen = int(0.3 * self.blocksize)
+        data = self.random_data(datalen)
+    
+        fh = self.server.create(name, mode)
+        self.server.write(name, data, 0, fh)
+        self.server.release(name, fh)
+        
+        fh = self.server.open(name, os.O_RDWR)
+        self.server.ftruncate(name, 0, fh)
+        self.server.release(name, fh)
+        
+
+
     def test_10_rename(self):
         dirname_old = os.path.join(b"/", self.random_name(b"olddir"))
         dirname_new = os.path.join(b"/", self.random_name(b"newdir"))
@@ -421,6 +438,39 @@ class fs_api_tests(unittest.TestCase):
         self.assertEquals(fstat, self.server.getattr(dirname_new))
         self.assertEquals(fstat2, self.server.getattr(filename_new2))
         self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
+
+    def test_10_overwrite(self):
+        filename1 = b"/file1"
+        filename2 = b"/file2"
+        
+        # Create two files
+        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR )
+        fh = self.server.create(filename1, mode)
+        data1 = self.random_data(512)
+        self.server.write(filename1, data1, 0, fh)
+        self.server.flush(filename1, fh)
+        self.server.release(filename1, fh)
+
+        fh = self.server.create(filename2, mode)
+        data2 = self.random_data(512)
+        self.server.write(filename2, data2, 0, fh)
+        self.server.flush(filename2, fh)
+        self.server.release(filename2, fh)
+        
+        # Rename file, overwrite existing one
+        fstat = self.server.getattr(filename1)
+        mtime_old = self.server.getattr(b'/')["st_mtime"]
+        self.server.rename(filename1, filename2)
+        self.assert_entry_doesnt_exist(filename1)
+        self.assert_entry_exists(filename2)
+        self.assertEquals(fstat, self.server.getattr(filename2))
+        self.assertTrue(self.server.getattr(b'/')["st_mtime"] > mtime_old)
+        
+        fh = self.server.open(filename2, os.O_RDONLY)
+        self.assertEquals(data1, self.server.read(filename2, len(data2), 0, fh))
+        self.server.flush(filename2, fh)
+        self.server.release(filename2, fh)
+        
 
 
 def suite():

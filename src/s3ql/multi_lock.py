@@ -8,23 +8,11 @@
 from __future__ import unicode_literals
 import threading
 import logging
-from functools import partial 
+from contextlib import contextmanager
 
 __all__ = [ "MultiLock" ]
 
 log = logging.getLogger("MultiLock")
-
-class ContextManager(object):
-    '''A very simple context manager class.
-    
-    This class does not provide any methods. Instances set 
-    the `__enter__` and `__exit__` methods as true instance 
-    attributes (i.e., function objects) when initialized.
-    '''
-    
-    def __init__(self, enter, exit_):
-        self.__enter__ = enter 
-        self.__exit__ = exit_
         
             
 class MultiLock(object):
@@ -48,9 +36,13 @@ class MultiLock(object):
         self.cond = threading.Condition()
          
       
+    @contextmanager
     def __call__(self, key):
-        return ContextManager(partial(self.acquire, key),
-                              partial(self.release, key))      
+        self.acquire(key)
+        try:
+            yield
+        finally:
+            self.release(key)
             
     def acquire(self, key):
         # Lock set of lockedkeys (global lock)

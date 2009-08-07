@@ -209,7 +209,7 @@ class Checker(object):
         log.info('Checking directories for . and .. entries...')
     
         for (name, inode, mode, parent_inode) in \
-            cm.execute('SELECT name, inode, mode, parent_inode FROM contents JOIN inodes '
+            cm.query('SELECT name, inode, mode, parent_inode FROM contents JOIN inodes '
                        'ON id == inode'):
             
             if not stat.S_ISDIR(mode):
@@ -276,7 +276,7 @@ class Checker(object):
         
         def delete_tree(inode_p):
             subdirs = list()
-            for (inode, mode, name) in cm.execute("SELECT inode, mode, name FROM contents JOIN inodes "
+            for (inode, mode, name) in cm.query("SELECT inode, mode, name FROM contents JOIN inodes "
                                             "ON inode == id WHERE parent_inode=?",
                                             (inode_p,)):
                 if stat.S_ISDIR(mode) and not name in (b'.', b'..'):
@@ -309,7 +309,7 @@ class Checker(object):
         log.info('Checking inodes...')
         inode_l = get_inode(b"/lost+found", cm)
         
-        for (inode, refcount) in cm.execute("SELECT id, refcount FROM inodes"):
+        for (inode, refcount) in cm.query("SELECT id, refcount FROM inodes"):
              
             # No checks for root
             if inode == ROOT_INODE:
@@ -346,7 +346,7 @@ class Checker(object):
         
         blocksize = cm.get_val("SELECT blocksize FROM parameters")
         
-        for (inode, offset, s3key) in cm.execute("SELECT inode, offset, s3key FROM inode_s3key"):
+        for (inode, offset, s3key) in cm.query("SELECT inode, offset, s3key FROM inode_s3key"):
             if not offset % blocksize == 0:
                 found_errors = True
                 log.warn("Object %s for inode %d does not start at blocksize boundary, deleting",
@@ -364,7 +364,7 @@ class Checker(object):
         cm = self.cm
         found_errors = False
     
-        for (id_, refcount) in cm.execute("SELECT id, refcount FROM s3_objects"):
+        for (id_, refcount) in cm.query("SELECT id, refcount FROM s3_objects"):
      
             refcount2 = cm.get_val("SELECT COUNT(inode) FROM inode_s3key WHERE s3key=?",
                                    (id_,))
@@ -430,7 +430,7 @@ class Checker(object):
                 if not self.checkonly:
                     tmp = tempfile.NamedTemporaryFile()
                     self.bucket.fetch_to_file(s3key, tmp.name)
-                    dest = unused_name('/lost+found/%s' % s3key, cm)
+                    dest = unused_name(b'/lost+found/%s' % s3key, cm)
                     writefile(tmp.name, dest, server)
                     del self.bucket[s3key]
                     tmp.close()
@@ -464,7 +464,7 @@ class Checker(object):
                     self.bucket.fetch_to_file(s3key, tmp.name)
     
                     # Save full object in lost+found
-                    dest = unused_name('/lost+found/%s' % s3key, cm)
+                    dest = unused_name(b'/lost+found/%s' % s3key, cm)
                     writefile(tmp.name, dest, server)
     
                     # Truncate and write
@@ -477,7 +477,7 @@ class Checker(object):
                     
                     
         # Now handle objects that only exist in s3_objects
-        for (s3key,) in cm.execute("SELECT id FROM s3keys"):
+        for (s3key,) in cm.query("SELECT id FROM s3keys"):
             found_errors = True
             log.warn("object %s only exists in table but not on s3, deleting", s3key)
             cm.execute("DELETE FROM inode_s3key WHERE s3key=?", (s3key,))

@@ -143,14 +143,14 @@ else:
 cursor = CursorManager(dbfile)
 
 # Check filesystem revision
-(rev,) = cursor.execute("SELECT version FROM parameters").next()
+rev = cursor.get_val("SELECT version FROM parameters")
 if rev < 1:
     print >> sys.stderr, "This version of S3QL is too old for the filesystem!\n"
     sys.exit(1)
 
 
-# Now we can check
-commit_required = commit_required or (not fsck.fsck(cursor, cachedir, bucket, options.checkonly))
+# Now we can check, mind short circuit evaluation here
+commit_required = (not fsck.fsck(cursor, cachedir, bucket, options.checkonly)) or commit_required 
 
 needed_check = cursor.get_val("SELECT needs_fsck FROM parameters")
 if needed_check:

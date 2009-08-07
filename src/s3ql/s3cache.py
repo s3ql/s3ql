@@ -289,8 +289,8 @@ class S3Cache(object):
                 if el.dirty:
                     log.debug('Expiring dirty s3 object %s', el.s3key)
                     etag = self.bucket.store_from_file(el.s3key, el.name)
-                    cur.execute("UPDATE s3_objects SET etag=? WHERE id=?",
-                                (etag, el.s3key))
+                    cur.execute("UPDATE s3_objects SET etag=?, size=? WHERE id=?",
+                                (etag, size, el.s3key))
                 else:
                     log.debug('Expiring unchanged s3 object %s', el.s3key)
                     
@@ -349,6 +349,8 @@ class S3Cache(object):
             try:
                 el = self.keys.pop(s3key, None)
                 if el is not None: # In cache
+                    el.seek(0, 2)
+                    self.size -= el.tell()
                     el.close()  
                     os.unlink(el.name) 
                 
@@ -371,30 +373,25 @@ class S3Cache(object):
         cur = self.cm
         log.debug('Flushing objects for inode %i', inode) 
         to_flush = [ self.keys[s3key] for (s3key,) 
-                    in cur.execute("SELECT s3key FROM inode_s3key WHERE inode=?", (inode,))
+                    in cur.query("SELECT s3key FROM inode_s3key WHERE inode=?", (inode,))
                     if s3key in self.keys ]
-        
+               
         # Flush if required
         for el in to_flush:
             if not el.dirty:
                 log.debug('Object %s is not dirty', el.s3key)
                 continue
-            
+        
             log.debug('Flushing object %s', el.s3key)
             
-            # We have to set this *before* uploading, otherwise we loose changes
-            # during the upload
-            el.dirty = False
-                
-            try:
+            with self.s3_lock(el.s3key):
                 el.flush()    
+                el.seek(0, 2)
                 etag = self.bucket.store_from_file(el.s3key, el.name)
-                cur.execute("UPDATE s3_objects SET etag=? WHERE id=?",
-                            (etag, el.s3key))
-            except:
-                el.dirty = True
-                raise
-
+                cur.execute("UPDATE s3_objects SET etag=?, size=? WHERE id=?",
+                            (etag, el.tell(), el.s3key))
+                el.dirty = False
+                
 
     def close(self):
         """Uploads all dirty data and cleans the cache.
@@ -408,9 +405,10 @@ class S3Cache(object):
                 
                 if el.dirty:
                     el.flush()    
+                    el.seek(0, 2)
                     etag = self.bucket.store_from_file(el.s3key, el.name)
-                    cur.execute("UPDATE s3_objects SET etag=? WHERE id=?",
-                                (etag, el.s3key))
+                    cur.execute("UPDATE s3_objects SET etag=?, size=? WHERE id=?",
+                                (etag, el.tell(), el.s3key))
 
                 el.close()
                 os.unlink(el.name)

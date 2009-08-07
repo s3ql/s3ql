@@ -182,9 +182,11 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
         refcount  INT NOT NULL
                   CHECK ( typeof(refcount) == 'integer' ),
                   
-        -- etag is only updated when the object is committed
+        -- etag and size is only updated when the object is committed
         etag      TEXT
-                  CHECK ( typeof(etag) IN ('blob', 'null') )
+                  CHECK ( typeof(etag) IN ('blob', 'null') ),
+        size      INT
+                  CHECK ( typeof(size) IN ('integer', 'null') )
     )
     """); #pylint: disable-msg=W0104
     
