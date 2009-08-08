@@ -44,7 +44,7 @@ class Filter(object):
             acceptnames = list()
             
         self.acceptlevel = acceptlevel
-        self.acceptnames = acceptnames
+        self.acceptnames = [ n.lower() for n in acceptnames ]
         
     def filter(self, record):
         '''Determine if the log message should be printed
@@ -52,8 +52,9 @@ class Filter(object):
         if record.levelno > self.acceptlevel:
             return True
         
-        for name in self.acceptnames:
-            if record.name.startswith(name):
+        name = record.name.lower()
+        for accept in self.acceptnames:
+            if name.startswith(accept):
                 return True
         
         return False
@@ -105,47 +106,47 @@ def init_logging(fg, quiet=False, debug=None):
         root_logger.setLevel(logging.DEBUG)
         log_filter.acceptnames = debug 
 
-def update_atime(inode, cur):
+def update_atime(inode, conn):
     """Updates the atime of the specified object.
 
     The objects atime will be set to the current time.
     """
-    cur.execute("UPDATE inodes SET atime=? WHERE id=?", 
+    conn.execute("UPDATE inodes SET atime=? WHERE id=?", 
                 (time.time() - time.timezone, inode))
 
-def update_ctime(inode, cur):
+def update_ctime(inode, conn):
     """Updates the ctime of the specified object.
 
     The objects ctime will be set to the current time.
     """
-    cur.execute("UPDATE inodes SET ctime=? WHERE id=?", 
+    conn.execute("UPDATE inodes SET ctime=? WHERE id=?", 
                 (time.time() - time.timezone, inode))
 
 
-def update_mtime(inode, cur):
+def update_mtime(inode, conn):
     """Updates the mtime of the specified object.
 
     The objects mtime will be set to the current time.
     """
-    cur.execute("UPDATE inodes SET mtime=? WHERE id=?",
+    conn.execute("UPDATE inodes SET mtime=? WHERE id=?",
                 (time.time() - time.timezone, inode))
 
-def update_mtime_parent(path, cur):
+def update_mtime_parent(path, conn):
     """Updates the mtime of the parent of the specified object.
 
     The mtime will be set to the current time.
     """
-    inode = get_inode(os.path.dirname(path), cur)
-    update_mtime(inode, cur)
+    inode = get_inode(os.path.dirname(path), conn)
+    update_mtime(inode, conn)
 
-def get_inode(path, cur):
+def get_inode(path, conn):
     """Returns inode of object at `path`.
     
     Raises `KeyError` if the path does not exist.
     """
-    return get_inodes(path, cur)[-1]
+    return get_inodes(path, conn)[-1]
     
-def get_inodes(path, cur):
+def get_inodes(path, conn):
     """Returns the inodes of the elements in `path`.
     
     The first inode of the resulting list will always be the inode
@@ -169,7 +170,7 @@ def get_inodes(path, cur):
     visited = [inode]
     for el in path.split(b'/'):
         try:
-            inode = cur.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
+            inode = conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
                                 (el, inode))
         except StopIteration:
             raise KeyError('Path does not exist', path)
@@ -178,7 +179,7 @@ def get_inodes(path, cur):
 
     return visited
     
-def get_path(name, inode_p, cur):
+def get_path(name, inode_p, conn):
     """Returns the full path of `name` with parent inode `inode_p`.
     """
     
@@ -190,7 +191,7 @@ def get_path(name, inode_p, cur):
     maxdepth = 255
     while inode_p != ROOT_INODE:
         # This can be ambigious if directories are hardlinked
-        (name2, inode_p) = cur.get_row("SELECT name, parent_inode FROM contents "
+        (name2, inode_p) = conn.get_row("SELECT name, parent_inode FROM contents "
                                       "WHERE inode=? AND name != ? AND name != ?",
                                        (inode_p, '.', '..')) 
         path.append(name2)
@@ -205,20 +206,20 @@ def get_path(name, inode_p, cur):
     return os.path.join(*path)
     
     
-def decrease_refcount(inode, cur):
+def decrease_refcount(inode, conn):
     """Decrease reference count for inode by 1.
 
     Also updates ctime.
     """
-    cur.execute("UPDATE inodes SET refcount=refcount-1,ctime=? WHERE id=?",
+    conn.execute("UPDATE inodes SET refcount=refcount-1,ctime=? WHERE id=?",
              (time.time() - time.timezone, inode))
 
-def increase_refcount(inode, cur):
+def increase_refcount(inode, conn):
     """Increase reference count for inode by 1.
 
     Also updates ctime.
     """
-    cur.execute("UPDATE inodes SET refcount=refcount+1, ctime=? WHERE id=?",
+    conn.execute("UPDATE inodes SET refcount=refcount+1, ctime=? WHERE id=?",
              (time.time() - time.timezone, inode))
 
 
@@ -337,7 +338,7 @@ def writefile(src, dest, server):
     server.release(dest, destfd)
     server.flush(dest, destfd)
 
-def unused_name(path, cursor):
+def unused_name(path, conn):
     '''Append suffix to path so that it does not exist
     '''
     
@@ -349,7 +350,7 @@ def unused_name(path, cursor):
     path = path + b'-'
     try:
         while True:
-            get_inode(newpath, cursor)            
+            get_inode(newpath, conn)            
             i += 1
             newpath = path + bytes(i)
             
@@ -358,7 +359,7 @@ def unused_name(path, cursor):
     
     return newpath
         
-def addfile(src, dest, cursor, bucket):
+def addfile(src, dest, dbcm, bucket):
     """Copies the local file `src' into the fs as `dest`
 
     If `dest` is already existing, numerical suffixes are appended
@@ -373,10 +374,11 @@ def addfile(src, dest, cursor, bucket):
     # Instantiate the regular server
     from s3ql import fs, s3cache
     cachedir = tempfile.mkdtemp() + "/"
-    cache = s3cache.S3Cache(bucket, cachedir, 0, cursor)
-    server = fs.Server(cache, cursor)
+    cache = s3cache.S3Cache(bucket, cachedir, 0, dbcm)
+    server = fs.Server(cache, dbcm)
         
-    dest = unused_name(dest, cursor)
+    with dbcm() as conn:
+        dest = unused_name(dest, conn)
     writefile(src, dest, server)
     
     cache.close()

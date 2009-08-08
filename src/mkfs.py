@@ -15,7 +15,8 @@ import logging
 
 from s3ql import mkfs, s3
 from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
-from s3ql.cursor_manager import CursorManager
+from s3ql.database import WrappedConnection
+import apsw
 
 #
 # Parse options
@@ -105,8 +106,8 @@ if os.path.exists(dbfile) or \
         
 try:
     log.info('Creating metadata tables...')
-    mkfs.setup_db(CursorManager(dbfile), options.blocksize * 1024,
-                  options.label)
+    mkfs.setup_db(WrappedConnection(apsw.Connection(dbfile), retrytime=0),
+                  options.blocksize * 1024, options.label)
 
     log.info('Uploading database...')
     bucket = conn.get_bucket(bucket)

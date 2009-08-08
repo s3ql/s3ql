@@ -10,7 +10,7 @@ from random import randrange
 from s3ql import mkfs, s3, fs, fsck
 from s3ql.common import writefile
 from s3ql.s3cache import S3Cache
-from s3ql.cursor_manager import CursorManager
+from s3ql.database import ConnectionManager
 import os
 import resource
 import stat
@@ -32,12 +32,13 @@ class fs_api_tests(unittest.TestCase):
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
 
-        self.cm = CursorManager(self.dbfile.name)
-        mkfs.setup_db(self.cm, self.blocksize)
+        self.dbcm = ConnectionManager(self.dbfile.name)
+        with self.dbcm() as conn:
+            mkfs.setup_db(conn, self.blocksize)
 
-        self.cache = S3Cache(self.bucket, self.cachedir, self.blocksize * 5, self.cm)
+        self.cache = S3Cache(self.bucket, self.cachedir, self.blocksize * 5, self.dbcm)
         self.cache.timeout = 1
-        self.server = fs.Server(self.cache, self.cm)
+        self.server = fs.Server(self.cache, self.dbcm)
 
 
     def tearDown(self):
@@ -48,7 +49,8 @@ class fs_api_tests(unittest.TestCase):
 
     def fsck(self):
         self.cache.close()
-        self.assertTrue(fsck.fsck(self.cm, self.cachedir, self.bucket, checkonly=True))
+        with self.dbcm() as conn:
+            self.assertTrue(fsck.fsck(conn, self.cachedir, self.bucket, checkonly=True))
 
     @staticmethod
     def random_name(prefix=b""):

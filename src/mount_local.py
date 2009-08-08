@@ -11,7 +11,7 @@ from optparse import OptionParser
 from getpass  import getpass
 from time import sleep
 from s3ql.common import init_logging
-from s3ql.cursor_manager import CursorManager
+from s3ql.database import ConnectionManager
 from s3ql import fs, s3, mkfs, fsck
 from s3ql.s3cache import S3Cache 
 import os
@@ -111,17 +111,18 @@ bucket.prop_delay = options.propdelay
 
 dbfile = tempfile.NamedTemporaryFile()
 cachedir = tempfile.mkdtemp() + "/"
-cm = CursorManager(dbfile.name, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
-mkfs.setup_db(cm, options.blocksize * 1024)
+dbcm = ConnectionManager(dbfile.name, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
+with dbcm() as conn:
+    mkfs.setup_db(conn, options.blocksize * 1024)
 log.debug("Temporary database in " + dbfile.name)
 
 #
 # Start server
 #
 
-cache =  S3Cache(bucket, cachedir, options.cachesize, cm,
+cache =  S3Cache(bucket, cachedir, options.cachesize, dbcm,
                  timeout=options.propdelay+1)
-server = fs.Server(cache, cm, options.noatime)
+server = fs.Server(cache, dbcm, options.noatime)
 ret = server.main(mountpoint, **fuse_opts)
 cache.close()
 
@@ -133,10 +134,11 @@ sleep(options.propdelay)
 # Do fsck
 #
 if options.fsck:
-    if not fsck.fsck(cm, cachedir, bucket, checkonly=True):
-        log.info("fsck found errors -- preserving database in %s", dbfile)
-        os.rmdir(cachedir)
-        sys.exit(1)
+    with dbcm() as conn:
+        if not fsck.fsck(conn, cachedir, bucket, checkonly=True):
+            log.info("fsck found errors -- preserving database in %s", dbfile)
+            os.rmdir(cachedir)
+            sys.exit(1)
 
 dbfile.close()
 os.rmdir(cachedir)

@@ -11,7 +11,7 @@ from optparse import OptionParser
 from s3ql import fs, s3
 from s3ql.s3cache import S3Cache
 from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
-from s3ql.cursor_manager import CursorManager 
+from s3ql.database import ConnectionManager 
 import os
 import stat
 import logging
@@ -165,8 +165,8 @@ try:
     bucket.fetch_to_file("s3ql_metadata", dbfile)
 
     # Check that the fs itself is clean
-    cur = CursorManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
-    if cur.get_val("SELECT needs_fsck FROM parameters"):
+    dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
+    if dbcm.get_val("SELECT needs_fsck FROM parameters"):
         sys.stderr.write("Filesystem damaged, run s3fsk!\n")
         sys.exit(1)
 
@@ -174,15 +174,15 @@ try:
     # Start server
     #
     bucket.store("s3ql_dirty", "yes")
-    cache =  S3Cache(bucket, cachedir, options.cachesize * 1024, cur, options.s3timeout)
-    server = fs.Server(cache, cur, options.noatime)
+    cache =  S3Cache(bucket, cachedir, options.cachesize * 1024, dbcm, options.s3timeout)
+    server = fs.Server(cache, dbcm, options.noatime)
     if options.fg:
         log.info('Mounting filesystem..')
     ret = server.main(mountpoint, **fuse_opts)
     cache.close()
 
     # Upload database
-    cur.execute("VACUUM")
+    dbcm.execute("VACUUM")
     log.debug("Uploading database..")
     if bucket.has_key("s3ql_metadata_bak_2"):
         bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")

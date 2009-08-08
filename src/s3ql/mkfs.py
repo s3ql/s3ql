@@ -13,7 +13,7 @@ from s3ql.common import ROOT_INODE
 
 __all__ = [ "setup_db" ]
 
-def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
+def setup_db(conn, blocksize, label="unnamed s3qlfs"):
     """Creates the metadata tables
     """
     
@@ -57,7 +57,7 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
     """
 
     # Filesystem parameters
-    cursor.execute("""
+    conn.execute("""
     CREATE TABLE parameters (
         label       TEXT NOT NULL
                     CHECK (typeof(label) == 'text'),
@@ -77,7 +77,7 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
     """, (label, blocksize, time.time() - time.timezone, 0, False, 1.0))
 
     # Table of filesystem objects
-    cursor.execute("""
+    conn.execute("""
     CREATE TABLE contents (
         name      BLOB(256) NOT NULL
                   CHECK( typeof(name) == 'blob' AND name NOT LIKE '%/%' ),
@@ -91,7 +91,7 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
     """)
     
     # Make sure that parent inodes are directories
-    cursor.execute("""
+    conn.execute("""
     CREATE TRIGGER contents_check_parent_inode_insert
       BEFORE INSERT ON contents
       FOR EACH ROW BEGIN
@@ -115,7 +115,7 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
     # be determined from the `contents` table. However, managing
     # this separately should be significantly faster (the information
     # is required for every getattr!)
-    cursor.execute("""
+    conn.execute("""
     CREATE TABLE inodes (
         -- id has to specified *exactly* as follows to become
         -- an alias for the rowid
@@ -152,18 +152,18 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
              
     )
     """.format(**types))
-    cursor.execute(trigger_cmd.format(**{ "src_table": "contents",
+    conn.execute(trigger_cmd.format(**{ "src_table": "contents",
                                          "src_key": "inode",
                                          "ref_table": "inodes",
                                          "ref_key": "id" }))
-    cursor.execute(trigger_cmd.format(**{ "src_table": "contents",
+    conn.execute(trigger_cmd.format(**{ "src_table": "contents",
                                          "src_key": "parent_inode",
                                          "ref_table": "inodes",
                                          "ref_key": "id" }))
     
     # Make sure that we cannot change a directory into something
     # else as long as it has entries
-    cursor.execute("""  
+    conn.execute("""  
     CREATE TRIGGER inodes_check_parent_inode_update
       BEFORE UPDATE ON inodes
       FOR EACH ROW BEGIN
@@ -176,7 +176,7 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
     
     # Maps file data chunks to S3 objects
     # Refcount is included for performance reasons
-    cursor.execute("""
+    conn.execute("""
     CREATE TABLE s3_objects (
         id        TEXT PRIMARY KEY,
         refcount  INT NOT NULL
@@ -191,7 +191,7 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
     """); #pylint: disable-msg=W0104
     
     # Maps file data chunks to S3 objects
-    cursor.execute("""
+    conn.execute("""
     CREATE TABLE inode_s3key (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
         offset    INT NOT NULL CHECK (typeof(offset) == 'integer' AND offset >= 0),
@@ -200,17 +200,17 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
         PRIMARY KEY (inode, offset)
     )
     """); #pylint: disable-msg=W0104
-    cursor.execute(trigger_cmd.format(**{ "src_table": "inode_s3key",
+    conn.execute(trigger_cmd.format(**{ "src_table": "inode_s3key",
                                             "src_key": "inode",
                                             "ref_table": "inodes",
                                             "ref_key": "id" }))
-    cursor.execute(trigger_cmd.format(**{ "src_table": "inode_s3key",
+    conn.execute(trigger_cmd.format(**{ "src_table": "inode_s3key",
                                             "src_key": "s3key",
                                             "ref_table": "s3_objects",
                                             "ref_key": "id" }))
 
     # Make sure that inodes refer to files
-    cursor.execute("""
+    conn.execute("""
     CREATE TRIGGER inodes_1
       BEFORE INSERT ON inode_s3key
       FOR EACH ROW BEGIN
@@ -237,27 +237,27 @@ def setup_db(cursor, blocksize, label="unnamed s3qlfs"):
     # Insert root directory
     # Refcount = 4: ".", "..", "lost+found", "lost+found/.."
     timestamp = time.time() - time.timezone
-    cursor.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount) "
+    conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount) "
                    "VALUES (?,?,?,?,?,?,?,?)", 
                    (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                     os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 4))
-    cursor.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
+    conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                    (b".", ROOT_INODE, ROOT_INODE))
-    cursor.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
+    conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                    (b"..", ROOT_INODE, ROOT_INODE))            
 
     # Insert lost+found directory
     # refcount = 2: /, "."
-    cursor.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+    conn.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                    "VALUES (?,?,?,?,?,?,?)",
                    (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
                     os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 2))
-    inode = cursor.last_rowid()
-    cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+    inode = conn.last_rowid()
+    conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                    (b"lost+found", inode, ROOT_INODE))
-    cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+    conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                    (b".", inode, inode))
-    cursor.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+    conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                    (b"..", ROOT_INODE, inode))
         

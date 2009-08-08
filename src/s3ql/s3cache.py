@@ -9,7 +9,6 @@ from contextlib import contextmanager
 from s3ql import fs
 from s3ql.multi_lock import MultiLock
 from s3ql.ordered_dict import OrderedDict
-from s3ql.cursor_manager import CursorManager
 import errno
 import logging
 import os
@@ -101,7 +100,7 @@ class S3Cache(object):
     :s3_lock:     MultiLock to synchronize access to individual s3 objects
     :global_lock: Global lock    
     :timeout:     Maximum time to wait for changes in S3 to propagate
-    :cm:          CursorManager instance, to manage access to the database
+    :dbcm:        ConnectionManager instance, to manage access to the database
                   from different threads
                   
     
@@ -110,10 +109,8 @@ class S3Cache(object):
     is encountered.                   
     """
     
-    def __init__(self, bucket, cachedir, cachesize, cm, timeout=60):
+    def __init__(self, bucket, cachedir, cachesize, dbcm, timeout=60):
         log.debug('Initializing')
-        if not isinstance(cm, CursorManager):
-            raise TypeError()
         self.keys = OrderedDict()
         self.cachedir = cachedir
         self.maxsize = cachesize
@@ -121,7 +118,7 @@ class S3Cache(object):
         self.bucket = bucket
         self.s3_lock = MultiLock()
         self.global_lock = threading.RLock()
-        self.cm = cm
+        self.dbcm = dbcm
         self.timeout = timeout 
         self.expect_mismatch = False
 
@@ -139,27 +136,26 @@ class S3Cache(object):
         the changes are propagated back into S3.
         
         """
-        
-        cur = self.cm
                  
         # Get s3 key    
         log.debug('Getting filehandle for inode %i, offset %i', inode, offset)
         with self.global_lock:
-            try:
-                s3key = cur.get_val("SELECT s3key FROM inode_s3key WHERE inode=? AND offset=?", 
-                                    (inode, offset))
-                log.debug('s3key is %s', s3key)
-            except StopIteration:
-                # Create and add to cache
-                log.debug('creating new s3 object')
-                with cur.transaction() as cur:
-                    s3key = "s3ql_data_%d_%d" % (inode, offset) # This is a unique new key
-                    cur.execute("INSERT INTO s3_objects (id, refcount) VALUES(?, ?)",
-                                 (s3key, 1))
-                    cur.execute("INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?,?,?)",
-                                (inode, offset, s3key))
-                    
-                self.keys[s3key] = CacheEntry(s3key, self.cachedir + s3key, "w+b")
+            with self.dbcm() as conn:
+                try:
+                    s3key = conn.get_val("SELECT s3key FROM inode_s3key WHERE inode=? AND offset=?", 
+                                        (inode, offset))
+                    log.debug('s3key is %s', s3key)
+                except StopIteration:
+                    # Create and add to cache
+                    log.debug('creating new s3 object')
+                    with conn.transaction():
+                        s3key = "s3ql_data_%d_%d" % (inode, offset) # This is a unique new key
+                        conn.execute("INSERT INTO s3_objects (id, refcount) VALUES(?, ?)",
+                                     (s3key, 1))
+                        conn.execute("INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?,?,?)",
+                                    (inode, offset, s3key))
+                        
+                    self.keys[s3key] = CacheEntry(s3key, self.cachedir + s3key, "w+b")
 
             log.debug('Acquiring object lock')   
             self.s3_lock.acquire(s3key)
@@ -171,7 +167,7 @@ class S3Cache(object):
                 el = self.keys[s3key]
             except KeyError:
                 log.debug('Object not cached, retrieving from s3')
-                etag = cur.get_val("SELECT etag FROM s3_objects WHERE id=?", (s3key,))
+                etag = self.dbcm.get_val("SELECT etag FROM s3_objects WHERE id=?", (s3key,))
                 el = CacheEntry(s3key, self._download_object(s3key, etag), 'r+b')
                 self.keys[s3key] = el
                 
@@ -251,7 +247,6 @@ class S3Cache(object):
         entries are flushed until at least `self.blocksize`
         bytes are available (or there are no objects left to flush).
         """
-        cur = self.cm
         log.debug('Expiring cache')
         
         while self.size > self.maxsize:
@@ -289,8 +284,8 @@ class S3Cache(object):
                 if el.dirty:
                     log.debug('Expiring dirty s3 object %s', el.s3key)
                     etag = self.bucket.store_from_file(el.s3key, el.name)
-                    cur.execute("UPDATE s3_objects SET etag=?, size=? WHERE id=?",
-                                (etag, size, el.s3key))
+                    self.dbcm.execute("UPDATE s3_objects SET etag=?, size=? WHERE id=?",
+                                      (etag, size, el.s3key))
                 else:
                     log.debug('Expiring unchanged s3 object %s', el.s3key)
                     
@@ -310,37 +305,35 @@ class S3Cache(object):
         If `offset` is specified, unlinks only s3 objects starting at
         positions >= `offset`. If no other inodes reference the s3 objects,
         they are completely removed.
-        
-        Uses database cursor `cur`.
         """        
         
         # Run through keys
-        cur = self.cm
         log.debug('Removing s3 objects for inode %i, starting at offset %i', inode, offset)
         while True:
             with self.global_lock:
-                try:
-                    (s3key, cur_off) = \
-                        cur.get_row("SELECT s3key,offset FROM inode_s3key WHERE inode=? "
-                                    "AND offset >= ? LIMIT 1", (inode, offset))
-                except StopIteration:    # No keys left
-                    break
-                
-                # Remove from table
-                log.debug('Removing object %s from table', s3key)
-                with cur.transaction() as cur:
-                    cur.execute("DELETE FROM inode_s3key WHERE inode=? AND offset=?", 
-                                (inode, cur_off))
-                    refcount = cur.get_val("SELECT refcount FROM s3_objects WHERE id=?",
-                                           (s3key,))
-                    refcount -= 1
-                    if refcount == 0:
-                        cur.execute("DELETE FROM s3_objects WHERE id=?", (s3key,))
-                    else:
-                        cur.execute("UPDATE s3_objects SET refcount=? WHERE id=?",
-                                (refcount, s3key))
-                        # No need to do actually remove the object
-                        continue
+                with self.dbcm() as conn:
+                    try:
+                        (s3key, cur_off) = \
+                            conn.get_row("SELECT s3key,offset FROM inode_s3key WHERE inode=? "
+                                        "AND offset >= ? LIMIT 1", (inode, offset))
+                    except StopIteration:    # No keys left
+                        break
+                    
+                    # Remove from table
+                    log.debug('Removing object %s from table', s3key)
+                    with conn.transaction():
+                        conn.execute("DELETE FROM inode_s3key WHERE inode=? AND offset=?", 
+                                    (inode, cur_off))
+                        refcount = conn.get_val("SELECT refcount FROM s3_objects WHERE id=?",
+                                               (s3key,))
+                        refcount -= 1
+                        if refcount == 0:
+                            conn.execute("DELETE FROM s3_objects WHERE id=?", (s3key,))
+                        else:
+                            conn.execute("UPDATE s3_objects SET refcount=? WHERE id=?",
+                                    (refcount, s3key))
+                            # No need to do actually remove the object
+                            continue
                     
                 # Remove from AWS
                 self.s3_lock.acquire(s3key)
@@ -370,11 +363,11 @@ class S3Cache(object):
         No locking required. 
         """
         # Determine s3 objects from this inode
-        cur = self.cm
         log.debug('Flushing objects for inode %i', inode) 
-        to_flush = [ self.keys[s3key] for (s3key,) 
-                    in cur.query("SELECT s3key FROM inode_s3key WHERE inode=?", (inode,))
-                    if s3key in self.keys ]
+        with self.dbcm() as conn:
+            to_flush = [ self.keys[s3key] for (s3key,) 
+                        in conn.query("SELECT s3key FROM inode_s3key WHERE inode=?", (inode,))
+                        if s3key in self.keys ]
                
         # Flush if required
         for el in to_flush:
@@ -388,7 +381,7 @@ class S3Cache(object):
                 el.flush()    
                 el.seek(0, 2)
                 etag = self.bucket.store_from_file(el.s3key, el.name)
-                cur.execute("UPDATE s3_objects SET etag=?, size=? WHERE id=?",
+                self.dbcm.execute("UPDATE s3_objects SET etag=?, size=? WHERE id=?",
                             (etag, el.tell(), el.s3key))
                 el.dirty = False
                 
@@ -397,7 +390,7 @@ class S3Cache(object):
         """Uploads all dirty data and cleans the cache.
              
         """       
-        cur = self.cm
+
         log.debug('Closing S3Cache') 
         with self.global_lock:
             while len(self.keys):
@@ -407,7 +400,7 @@ class S3Cache(object):
                     el.flush()    
                     el.seek(0, 2)
                     etag = self.bucket.store_from_file(el.s3key, el.name)
-                    cur.execute("UPDATE s3_objects SET etag=?, size=? WHERE id=?",
+                    self.dbcm.execute("UPDATE s3_objects SET etag=?, size=? WHERE id=?",
                                 (etag, el.tell(), el.s3key))
 
                 el.close()

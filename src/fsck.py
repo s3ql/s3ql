@@ -12,10 +12,11 @@ import time
 from optparse import OptionParser
 from datetime import datetime
 from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
-from s3ql.cursor_manager import CursorManager
+from s3ql.database import WrappedConnection
 import logging
 from s3ql import s3, fsck
 import sys
+import apsw
 
 # 
 # Parse Command line
@@ -140,30 +141,30 @@ else:
     bucket.fetch_to_file("s3ql_metadata", dbfile)
 
 
-cursor = CursorManager(dbfile)
+conn = WrappedConnection(apsw.Connection(dbfile), retrytime=0)
 
 # Check filesystem revision
-rev = cursor.get_val("SELECT version FROM parameters")
+rev = conn.get_val("SELECT version FROM parameters")
 if rev < 1:
     print >> sys.stderr, "This version of S3QL is too old for the filesystem!\n"
     sys.exit(1)
 
 
 # Now we can check, mind short circuit evaluation here
-commit_required = (not fsck.fsck(cursor, cachedir, bucket, options.checkonly)) or commit_required 
+commit_required = (not fsck.fsck(conn, cachedir, bucket, options.checkonly)) or commit_required 
 
-needed_check = cursor.get_val("SELECT needs_fsck FROM parameters")
+needed_check = conn.get_val("SELECT needs_fsck FROM parameters")
 if needed_check:
-    cursor.execute('UPDATE parameters SET needs_fsck=?', (False,))
+    conn.execute('UPDATE parameters SET needs_fsck=?', (False,))
     commit_required = True
 
 if commit_required and not options.checkonly:
     # Commit metadata and mark fs as clean, both internally and as object
     log.info("Committing data to S3...")
-    cursor.execute("UPDATE parameters SET needs_fsck=?, last_fsck=?, "
+    conn.execute("UPDATE parameters SET needs_fsck=?, last_fsck=?, "
                    "mountcnt=?", (False, time.time(), 0))
 
-    cursor.execute("VACUUM")
+    conn.execute("VACUUM")
     log.debug("Uploading database..")
     if bucket.has_key("s3ql_metadata_bak_2"):
         bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")

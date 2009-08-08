@@ -8,7 +8,7 @@
 from __future__ import unicode_literals
 from s3ql import mkfs, s3, s3cache, fs
 from s3ql.common import EmbeddedException, ExceptionStoringThread
-from s3ql.cursor_manager import CursorManager
+from s3ql.database import ConnectionManager
 import os
 import tempfile
 import unittest
@@ -32,18 +32,19 @@ class s3cache_tests(unittest.TestCase):
         self.blocksize = 1024
         self.cachesize = int(1.5 * self.blocksize) 
 
-        self.cur = CursorManager(self.dbfile.name)
-        mkfs.setup_db(self.cur, self.blocksize)
+        self.dbcm = ConnectionManager(self.dbfile.name)
+        with self.dbcm() as conn:
+            mkfs.setup_db(conn, self.blocksize)
         
         # Create an inode we can work with
         self.inode = 42
-        self.cur.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount, size) "
+        self.dbcm.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount, size) "
                    "VALUES (?,?,?,?,?,?,?,?,?)", 
                    (self.inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                     os.getuid(), os.getgid(), time(), time(), time(), 1, 32))
         
-        self.cache = s3cache.S3Cache(self.bucket, self.cachedir, self.cachesize, self.cur)
+        self.cache = s3cache.S3Cache(self.bucket, self.cachedir, self.cachesize, self.dbcm)
 
     def tearDown(self):
         # May not have been called if a test failed
