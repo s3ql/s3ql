@@ -16,8 +16,6 @@ import tempfile
 import apsw
 import time
 
-# TODO: Find a way to suppress the fsck log warnings
-# when we expect errors
 class fsck_tests(unittest.TestCase):
 
     def setUp(self):
@@ -32,6 +30,7 @@ class fsck_tests(unittest.TestCase):
         self.conn = WrappedConnection(apsw.Connection(self.dbfile.name), retrytime=0)
         mkfs.setup_db(self.conn, self.blocksize)
         self.checker = fsck.Checker(self.conn, self.cachedir, self.bucket, checkonly=False)
+        self.checker.expect_errors = True
         
     def tearDown(self):
         self.dbfile.close()

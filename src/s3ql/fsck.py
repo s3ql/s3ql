@@ -74,13 +74,16 @@ class Checker(object):
     
     :checkonly:    If specified, no changes will be made to S3 or the local 
                    cache (but the database is still changed)
+    :expect_errors: Used for testing. If set, no messages will be logged if errors
+                   are found.
     """
        
     def __init__(self, conn, cachedir, bucket, checkonly):
         self.conn = conn
         self.checkonly = checkonly
-        self.cachedir = cachedir
+        self.cachedir = cachedir 
         self.bucket = bucket
+        self.expect_errors = False
         
     def checkall(self):
          
@@ -124,7 +127,8 @@ class Checker(object):
              and isinstance(mountcnt, numbers.Integral)
              and isinstance(version, numbers.Real)
              and isinstance(needs_fsck, numbers.Integral)):
-            log.error("Cannot read filesystem parameters. " 
+            if not self.expect_errors:
+                log.error("Cannot read filesystem parameters. " 
                       "This does not appear to be a valid S3QL filesystem.")
             raise FatalFsckError()
     
@@ -143,7 +147,8 @@ class Checker(object):
         
         for s3key in os.listdir(self.cachedir):
             found_errors = True
-            log.warn("Committing (potentially changed) cache for %s", s3key)
+            if not self.expect_errors:
+                log.warn("Committing (potentially changed) cache for %s", s3key)
             if not self.checkonly:
                 etag = self.bucket.store_from_file(s3key, self.cachedir + s3key)
                 conn.execute("UPDATE s3_objects SET etag=? WHERE id=?",
@@ -169,7 +174,8 @@ class Checker(object):
     
         except StopIteration:
             found_errors = True
-            log.warn("Recreating missing lost+found directory")
+            if not self.expect_errors:
+                log.warn("Recreating missing lost+found directory")
             conn.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                        "VALUES (?,?,?,?,?,?,?)",
                        (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
@@ -183,7 +189,8 @@ class Checker(object):
         mode = conn.get_val('SELECT mode FROM inodes WHERE id=?', (inode_l,))
         if not stat.S_ISDIR(mode):
             found_errors = True
-            log.warn('/lost+found is not a directory! Old entry will be saved as '
+            if not self.expect_errors:
+                log.warn('/lost+found is not a directory! Old entry will be saved as '
                      '/lost+found/inode-%s', inode_l)
             # We leave the old inode unassociated, so that it will be added
             # to lost+found later on.
@@ -225,15 +232,17 @@ class Checker(object):
                                     (b'.', inode))
             except StopIteration:   
                 found_errors = True
-                log.warn('Directory "%s", inode %d has no . entry', 
-                         get_path(name, parent_inode, conn), inode)
+                if not self.expect_errors:
+                    log.warn('Directory "%s", inode %d has no . entry', 
+                             get_path(name, parent_inode, conn), inode)
                 conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                              (b'.', inode, inode))
                 inode2 = inode
                 
             if inode2 != inode:
                 found_errors = True
-                log.warn('Directory "%s", inode %d has wrong . entry',
+                if not self.expect_errors:
+                    log.warn('Directory "%s", inode %d has wrong . entry',
                          get_path(name, parent_inode, conn), inode)
                 conn.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
                              (inode, b'.', inode))
@@ -245,16 +254,18 @@ class Checker(object):
                                       (b'..', inode))
             except StopIteration:   
                 found_errors = True
-                log.warn('Directory "%s", inode %d has no .. entry',
-                         get_path(name, parent_inode, conn), inode)
+                if not self.expect_errors:
+                    log.warn('Directory "%s", inode %d has no .. entry',
+                             get_path(name, parent_inode, conn), inode)
                 conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                              (b'..', parent_inode, inode))
                 inode2 = parent_inode
                 
             if inode2 != parent_inode:
                 found_errors = True
-                log.warn('Directory "%s", inode %d has wrong .. entry', 
-                         get_path(name, parent_inode, conn), inode)
+                if not self.expect_errors:
+                    log.warn('Directory "%s", inode %d has wrong .. entry', 
+                             get_path(name, parent_inode, conn), inode)
                 conn.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
                              (parent_inode, b'..', inode)) 
                 
@@ -288,9 +299,10 @@ class Checker(object):
         delete_tree(ROOT_INODE)
         
         if conn.get_val("SELECT COUNT(inode) FROM loopcheck") > 0:
-            log.warn("Found unreachable filesystem entries!")
             found_errors = True
-            log.warn("This problem cannot be corrected automatically yet.")
+            if not self.expect_errors:
+                log.warn("Found unreachable filesystem entries!")
+                log.warn("This problem cannot be corrected automatically yet.")
             
         conn.execute("DROP TABLE loopcheck")     
             
@@ -319,7 +331,8 @@ class Checker(object):
                 
             if refcount2 == 0:
                 found_errors = True
-                log.warn("Inode %d not referenced, adding to lost+found", inode)
+                if not self.expect_errors:
+                    log.warn("Inode %d not referenced, adding to lost+found", inode)
                 name =  unused_name(b"/lost+found/inode-%d" % inode, conn)         
                 conn.execute("INSERT INTO contents (name, inode, parent_inode) "
                            "VALUES (?,?,?)", (name, inode, inode_l))
@@ -328,8 +341,9 @@ class Checker(object):
                   
             elif refcount != refcount2:
                 found_errors = True
-                log.warn("Inode %d has wrong reference count, setting from %d to %d",
-                         inode, refcount, refcount2)
+                if not self.expect_errors:
+                    log.warn("Inode %d has wrong reference count, setting from %d to %d",
+                             inode, refcount, refcount2)
                 conn.execute("UPDATE inodes SET refcount=? WHERE id=?", (refcount2, inode))
                                  
     
@@ -349,8 +363,9 @@ class Checker(object):
         for (inode, offset, s3key) in conn.query("SELECT inode, offset, s3key FROM inode_s3key"):
             if not offset % blocksize == 0:
                 found_errors = True
-                log.warn("Object %s for inode %d does not start at blocksize boundary, deleting",
-                         s3key, inode)
+                if not self.expect_errors:
+                    log.warn("Object %s for inode %d does not start at blocksize boundary, deleting",
+                             s3key, inode)
                 conn.execute("DELETE FROM s3_objects WHERE s3key=?", (s3key,))
         
         return not found_errors  
@@ -369,8 +384,9 @@ class Checker(object):
             refcount2 = conn.get_val("SELECT COUNT(inode) FROM inode_s3key WHERE s3key=?",
                                    (id_,))
             if refcount != refcount2:
-                log.warn("S3 object %s has invalid refcount, setting from %d to %d",
-                         id_, refcount, refcount2)
+                if not self.expect_errors:
+                    log.warn("S3 object %s has invalid refcount, setting from %d to %d",
+                             id_, refcount, refcount2)
                 found_errors = True
                 conn.execute("UPDATE s3_objects SET refcount=? WHERE id=?",
                            (refcount2, id_))
@@ -426,15 +442,16 @@ class Checker(object):
     
             # Retrieve object information from database
             try:
-                etag = conn.get_val("SELECT etag FROM s3_objects WHERE id=?", (s3key,))       
+                (etag, size) = conn.get_row("SELECT etag, size FROM s3_objects WHERE id=?", (s3key,))
             
             # 
             # Handle object that exists only in S3
             # 
             except StopIteration:
                 found_errors = True
-                log.warn("object %s not referenced in s3 objects table, adding to lost+found",
-                         s3key)
+                if not self.expect_errors:
+                    log.warn("object %s not referenced in s3 objects table, adding to lost+found",
+                             s3key)
                 
                 # We don't directly add it, because this may introduce s3 key 
                 # clashes and does not work if the object is larger than the
@@ -459,18 +476,27 @@ class Checker(object):
     
             if etag != meta.etag:
                 found_errors = True
-                log.warn("object %s has incorrect etag in metadata, adjusting" % s3key)
+                if not self.expect_errors:
+                    log.warn("object %s has incorrect etag in metadata, adjusting" % s3key)
                 conn.execute("UPDATE s3_objects SET etag=? WHERE id=?",
-                           (meta.etag, s3key))   
+                           (meta.etag, s3key))  
+                
+            if size != meta.size:
+                found_errors = True
+                if not self.expect_errors:
+                    log.warn("object %s has incorrect size in metadata, adjusting" % s3key)
+                conn.execute("UPDATE s3_objects SET size=? WHERE id=?",
+                           (meta.size, s3key)) 
  
             #
             # Size
             #
             if meta.size > blocksize:
                 found_errors = True
-                log.warn("object %s is larger than blocksize (%d > %d), "
-                         "truncating (original object in lost+found)",
-                         s3key, meta.size, blocksize)
+                if not self.expect_errors:
+                    log.warn("object %s is larger than blocksize (%d > %d), "
+                             "truncating (original object in lost+found)",
+                             s3key, meta.size, blocksize)
                 if not self.checkonly:
                     tmp = tempfile.NamedTemporaryFile()
                     self.bucket.fetch_to_file(s3key, tmp.name)
@@ -484,14 +510,15 @@ class Checker(object):
                     tmp.truncate()
                     etag_new = self.bucket.store_from_file(s3key, tmp.name)
                     tmp.close()
-                    conn.execute("UPDATE s3_objects SET etag=? WHERE s3key=?",
-                               (etag_new, s3key))
+                    conn.execute("UPDATE s3_objects SET etag=?, size=? WHERE s3key=?",
+                               (etag_new, blocksize, s3key))
                     
                     
         # Now handle objects that only exist in s3_objects
         for (s3key,) in conn.query("SELECT id FROM s3keys"):
             found_errors = True
-            log.warn("object %s only exists in table but not on s3, deleting", s3key)
+            if not self.expect_errors:
+                log.warn("object %s only exists in table but not on s3, deleting", s3key)
             conn.execute("DELETE FROM inode_s3key WHERE s3key=?", (s3key,))
             conn.execute("DELETE FROM s3_objects WHERE id=?", (s3key,))
             
