@@ -173,7 +173,8 @@ if commit_required and not options.checkonly:
     bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
     bucket.store_from_file("s3ql_metadata", dbfile)
     
-    bucket.store("s3ql_dirty", "no")
+bucket.store("s3ql_dirty", "no")
+bucket['s3ql_bgcommit'] = 'no'
     
 os.unlink(dbfile)
 os.rmdir(cachedir)

@@ -43,12 +43,14 @@ class fs_api_tests(unittest.TestCase):
 
     def tearDown(self):
         # May not have been called if a test failed
-        self.cache.close()
+        if self.cache:
+            self.cache.close()
         self.dbfile.close()
         os.rmdir(self.cachedir)
 
     def fsck(self):
         self.cache.close()
+        self.cache = None
         with self.dbcm() as conn:
             self.assertTrue(fsck.fsck(conn, self.cachedir, self.bucket, checkonly=True))
 

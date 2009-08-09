@@ -50,10 +50,14 @@ parser.add_option("--cachesize", type="int", default=51200,
                   "written several times during a single write() or read() operation." )
 parser.add_option("--single", action="store_true", default=False,
                   help="Single threaded operation only")
+parser.add_option("--bgcommit", action="store_true", default=False,
+                  help="Activate background commit mode. In this mode all datatransfer to S3 "
+                  'is done in a separate background thread. The cache may exceed the ' 
+                  'cachesize without bounds and is not flushed even when the fs is unmounted.')
 parser.add_option("-o", type='string', default=None,
                   help="For compatibility with mount(8). Specifies mount options in "
                        "the form key=val,key2=val2,etc. Valid keys are s3timeout, "
-                       "allow_others, allow_root, cachesize, noatime.")
+                       "allow_others, allow_root, cachesize, noatime, bgcommit.")
                        
 
 (options, pps) = parser.parse_args()
@@ -87,7 +91,9 @@ if options.o is not None:
                 if key == 'allow_root':
                     options.allow_root = True
                 if key == 'noatime':
-                    options.noatime = True                    
+                    options.noatime = True
+                if key == 'bgcommit':
+                    options.bgcommit = True                    
                 else:
                     raise ValueError()
         except ValueError:
@@ -141,45 +147,61 @@ log.debug("Checking consistency...")
 if bucket["s3ql_dirty"] != "no":
     print >> sys.stderr, \
         "Metadata is dirty! Either some changes have not yet propagated\n" \
-        "through S3 or the filesystem has not been umounted cleanly. In\n" \
-        "the later case you should run fsck.s3ql on the system where the\n" \
-        "filesystem has been mounted most recently!\n"
+        "through S3 or the file system has not been unmounted cleanly. In\n" \
+        "the later case you should run fsck on the system where the\n" \
+        "file system has been mounted most recently!\n"
     sys.exit(1)
 
 # Init cache
-if os.path.exists(cachedir) or os.path.exists(dbfile):
+if (os.path.exists(cachedir) and bucket['s3ql_bgcommit'] != 'yes') or os.path.exists(dbfile):
     print >> sys.stderr, \
         "Local cache files already exists! Either you are trying to\n" \
-        "to mount a filesystem that is already mounted, or the filesystem\n" \
-        "has not been umounted cleanly. In the later case you should run\n" \
-        "s3fsck.\n"
+        "to mount a file system that is already mounted, or the filesystem\n" \
+        "has not been unmounted cleanly. In the later case you should run\n" \
+        "fsck.\n"
     sys.exit(1)
 
+if bucket['s3ql_bgcommit'] == 'yes' and not os.path.exists(cachedir):
+    sys.stderr.write(
+        'File system has been mounted in background commit mode, but no\n'
+        'local cache exists. In background commit mode, the file system\n'
+        'can only be mounted on one computer with the same cache directory.\n' 
+        'To disable the background commit flag, run mount the file system\n'
+        'without background commit on the system where it was mounted most recently.\n')
+    sys.exit(1)
+    
 # Init cache + get metadata
 try:
     if options.fg:
         log.info("Downloading metadata...")
 
     os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
-    os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+    if not os.path.exists(cachedir):
+        os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
     bucket.fetch_to_file("s3ql_metadata", dbfile)
 
     # Check that the fs itself is clean
     dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
     if dbcm.get_val("SELECT needs_fsck FROM parameters"):
-        sys.stderr.write("Filesystem damaged, run s3fsk!\n")
+        sys.stderr.write("File system damaged, run fsck!\n")
         sys.exit(1)
 
     #
     # Start server
     #
     bucket.store("s3ql_dirty", "yes")
-    cache =  S3Cache(bucket, cachedir, options.cachesize * 1024, dbcm, options.s3timeout)
+    if options.bgcommit:
+        bucket['s3ql_bgcommit'] = 'yes'
+        
+    cache =  S3Cache(bucket, cachedir, options.cachesize * 1024, dbcm, 
+                     options.s3timeout, options.bgcommit)
     server = fs.Server(cache, dbcm, options.noatime)
     if options.fg:
         log.info('Mounting filesystem..')
     ret = server.main(mountpoint, **fuse_opts)
     cache.close()
+    if not options.bgcommit:
+        bucket['s3ql_bgcommit'] = 'no'
 
     # Upload database
     dbcm.execute("VACUUM")
@@ -190,6 +212,7 @@ try:
         bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
     bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
     bucket.store_from_file("s3ql_metadata", dbfile)
+ 
     bucket.store("s3ql_dirty", "no")
 
 # Remove database
@@ -198,7 +221,8 @@ finally:
     try:
         log.debug("Cleaning up...")
         os.unlink(dbfile)
-        os.rmdir(cachedir)
+        if not options.bgcommit:
+            os.rmdir(cachedir)
     except:
         pass
 
