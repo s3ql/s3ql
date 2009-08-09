@@ -393,6 +393,24 @@ class Checker(object):
     
         return not found_errors
     
+    @staticmethod
+    def fabricate_dbcm(conn):
+        '''Modify a connection to look like a ConnectionManager.
+        
+        Actually, the object will always return the same connection
+        and must only be used in single threaded applications.
+        '''
+        
+        @contextmanager
+        def __call__():
+            yield conn
+        def transaction():
+            with conn.transaction():
+                yield conn 
+                
+        conn.__call__ = __call__
+        conn.transaction = transaction   
+        
     
     def check_keylist(self):
         """Check the list of S3 objects.
@@ -413,16 +431,9 @@ class Checker(object):
         
         # We are running single threaded, so we can just fabricate
         # a ConnectionManager
-        @contextmanager
-        def __call__():
-            yield conn
-        def transaction():
-            with conn.transaction():
-                yield conn 
+        self.fabricate_dbcm(conn)
         dbcm = conn
-        conn.__call__ = __call__
-        conn.transaction = transaction
-        
+   
         # Create a server process in case we want to write files
         from s3ql import fs, s3cache
         cachedir = tempfile.mkdtemp() + "/"
