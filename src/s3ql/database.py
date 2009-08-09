@@ -14,7 +14,7 @@ import time
 import thread
 from random import randrange
 
-__all__ = [ "ConnectionManager", 'WrappedConnection' ]
+__all__ = [ "ConnectionManager", 'WrappedConnection', 'NoUniqueValueError' ]
 
 log = logging.getLogger("ConnectionManager") 
 
@@ -292,7 +292,7 @@ class WrappedConnection(object):
             # Fine, we only wanted one row
             pass
         else:
-            raise RuntimeError('Query returned more than one result row')
+            raise NoUniqueValueError()
         
         return row
      
@@ -308,7 +308,16 @@ class WrappedConnection(object):
         """
         return self.conn.changes()        
 
-            
+
+class NoUniqueValueError(Exception):       
+    '''Raised if get_val or get_row was called with a query 
+    that generated more than one result row.
+    '''
+    
+    def __str__(self):
+        return 'Query generated more than 1 result row'
+    
+         
 class ResultSet(object):
     '''Iterator over the result of an SQL query
     
