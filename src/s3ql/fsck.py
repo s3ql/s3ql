@@ -7,14 +7,16 @@
 
 from __future__ import unicode_literals
 import os
+from os.path import basename
 import types
 import stat
 from time import time
 import tempfile
 import numbers
 import logging
+from s3ql.database import NoUniqueValueError
 from contextlib import contextmanager
-
+from s3ql import fs, s3cache
 from s3ql.common import (writefile, get_path, ROOT_INODE, unused_name, get_inode)
 
 __all__ = [ "fsck" ]
@@ -50,9 +52,9 @@ def fsck(conn, cachedir, bucket, checkonly=False):
         found_errors = not checker.checkall()
         
     finally:
+        checker.close()
         if checkonly:
             # Roll back all the changes
-            checker = None # Destroy active cursors
             conn.execute('ROLLBACK TO SAVEPOINT fsck')
             
         conn.execute('RELEASE SAVEPOINT fsck')
@@ -85,12 +87,34 @@ class Checker(object):
         self.bucket = bucket
         self.expect_errors = False
         
-    def checkall(self):
-         
+        # Make sure we actually have a filesystem
+        self.detect_fs()
+        
+        self.blocksize = conn.get_val("SELECT blocksize FROM parameters")
+        
+        # Create a server process in case we want to write files
+        # We are running single threaded, so we can just fabricate
+        # a ConnectionManager
+        self.fabricate_dbcm(conn)
+        
+        self.cachedir2 = tempfile.mkdtemp() + "/"
+        self.cache = s3cache.S3Cache(bucket, self.cachedir2, 0, conn)
+        self.server = fs.Server(self.cache, conn)
+               
+    def close(self):
+        self.cache.close()
+        os.rmdir(self.cachedir2) 
+        self.cache = None
+        
+    def __del__(self):
+        if self.cache is not None:
+            raise RuntimeError('Checker instance was destroyed without calling close()!')
+        
+           
+    def checkall(self):      
         found_errors = False
         
-        for fn in [ 
-                   self.check_parameters,
+        for fn in [  
                    self.check_cache,
                    self.check_lof,
                    self.check_dirs,
@@ -105,22 +129,20 @@ class Checker(object):
         return not found_errors
     
         
-    def check_parameters(self):
-        """Check that file system parameters are set
+    def detect_fs(self):
+        """Check that we have a valid filesystem
     
-        Returns `False` if any errors have been found.
+        Raises FatalFsckError() if no fs can be found.
         """
-        conn = self.conn
-    
-        log.info('Inspecting filesystem parameters...')
+        log.info('Looking for valid filesystem...')
         try:
             (label, blocksize, last_fsck, mountcnt, version, needs_fsck) \
-                = conn.get_row("SELECT label, blocksize, last_fsck, mountcnt, "
-                              " version, needs_fsck FROM parameters")
-        except StopIteration:
+                = self.conn.get_row("SELECT label, blocksize, last_fsck, mountcnt, "
+                                    " version, needs_fsck FROM parameters")
+        except (StopIteration, NoUniqueValueError):
             (label, blocksize, last_fsck, mountcnt, version, needs_fsck) \
                 = (None, None, None, None, None, None)
-            
+        
         if not (isinstance(label, types.StringTypes)
              and isinstance(blocksize, numbers.Integral)
              and isinstance(last_fsck, numbers.Real)
@@ -129,10 +151,9 @@ class Checker(object):
              and isinstance(needs_fsck, numbers.Integral)):
             if not self.expect_errors:
                 log.error("Cannot read filesystem parameters. " 
-                      "This does not appear to be a valid S3QL filesystem.")
+                          "This does not appear to be a valid S3QL filesystem.")
             raise FatalFsckError()
-    
-        return True
+
        
     def check_cache(self):
         """Commit any uncommitted cache files
@@ -333,9 +354,9 @@ class Checker(object):
                     log.warn("Inode %d not referenced, adding to lost+found", inode)
                 name =  unused_name(b"/lost+found/inode-%d" % inode, conn)         
                 conn.execute("INSERT INTO contents (name, inode, parent_inode) "
-                           "VALUES (?,?,?)", (name, inode, inode_l))
+                             "VALUES (?,?,?)", (basename(name), inode, inode_l))
                 conn.execute("UPDATE inodes SET refcount=? WHERE id=?",
-                           (1, inode))       
+                             (1, inode))       
                   
             elif refcount != refcount2:
                 found_errors = True
@@ -358,13 +379,24 @@ class Checker(object):
         
         blocksize = conn.get_val("SELECT blocksize FROM parameters")
         
+        to_remove = list()
         for (inode, offset, s3key) in conn.query("SELECT inode, offset, s3key FROM inode_s3key"):
             if not offset % blocksize == 0:
                 found_errors = True
                 if not self.expect_errors:
-                    log.warn("Object %s for inode %d does not start at blocksize boundary, deleting",
-                             s3key, inode)
-                conn.execute("DELETE FROM s3_objects WHERE s3key=?", (s3key,))
+                    log.warn("Object %s for inode %d does not start at block size boundary, "
+                             'saving in lost+found.', s3key, inode)
+                # We cannot correct this right now, because it would modify the
+                # running query
+                to_remove.append((inode, offset, s3key))
+                
+        # Now fix the problems
+        for (inode, offset, s3key) in to_remove:
+            conn.execute('DELETE FROM inode_s3key WHERE inode=? AND offset=?', 
+                         (inode, offset))
+                         
+            # Object will be saved to lost+found later
+            conn.execute("DELETE FROM s3_objects WHERE id=?", (s3key,))
         
         return not found_errors  
         
@@ -386,10 +418,14 @@ class Checker(object):
                     log.warn("S3 object %s has invalid refcount, setting from %d to %d",
                              id_, refcount, refcount2)
                 found_errors = True
-                conn.execute("UPDATE s3_objects SET refcount=? WHERE id=?",
-                           (refcount2, id_))
-    
-        return not found_errors
+                if refcount2 != 0:
+                    conn.execute("UPDATE s3_objects SET refcount=? WHERE id=?",
+                                 (refcount2, id_))
+                else:
+                    # Orphaned object will be picked up by check_keylist
+                    conn.execute('DELETE FROM s3_objects WHERE id=?', (id_,))
+                    
+        return not found_errors     
     
     @staticmethod
     def fabricate_dbcm(conn):
@@ -399,53 +435,37 @@ class Checker(object):
         and must only be used in single threaded applications.
         '''
         
-        @contextmanager
-        def __call__():
-            yield conn
-        def transaction():
-            with conn.transaction():
-                yield conn 
-                
-        conn.__call__ = __call__
-        conn.transaction = transaction   
-        
+        class dummy(conn.__class__):
+            # We don't need __init__
+            #pylint: disable-msg=W0232
+            @contextmanager
+            def __call__(self):
+                yield self
+                      
+        conn.__class__ = dummy
+       
     
     def check_keylist(self):
         """Check the list of S3 objects.
     
         Checks that:
-        - no s3 object is larger than the blocksize
         - all s3 objects are referred in the s3 table
         - all objects in the s3 table exist
-        - etags match (update metadata in case of conflict)
+        and calls check_metadata for each object
     
         Returns `False` if any errors have been found.
         """
      
         conn = self.conn
         found_errors = False
-    
-        blocksize = conn.get_val("SELECT blocksize FROM parameters")
-        
-        # We are running single threaded, so we can just fabricate
-        # a ConnectionManager
-        self.fabricate_dbcm(conn)
-        dbcm = conn
-   
-        # Create a server process in case we want to write files
-        from s3ql import fs, s3cache
-        cachedir = tempfile.mkdtemp() + "/"
-        cache = s3cache.S3Cache(self.bucket, cachedir, 0, dbcm)
-        server = fs.Server(cache, dbcm)
-    
-    
+     
         # We use this table to keep track of the s3keys that we have
         # seen
         conn.execute("CREATE TEMP TABLE s3keys AS SELECT id FROM s3_objects")
     
         for (s3key, meta) in self.bucket.list_keys():
     
-            # We only bother with our own objects
+            # We only bother with data objects
             if not s3key.startswith("s3ql_data_"):
                 continue
     
@@ -453,9 +473,7 @@ class Checker(object):
             try:
                 (etag, size) = conn.get_row("SELECT etag, size FROM s3_objects WHERE id=?", (s3key,))
             
-            # 
             # Handle object that exists only in S3
-            # 
             except StopIteration:
                 found_errors = True
                 if not self.expect_errors:
@@ -464,63 +482,22 @@ class Checker(object):
                 
                 # We don't directly add it, because this may introduce s3 key 
                 # clashes and does not work if the object is larger than the
-                # blocksize
+                # block size
                 if not self.checkonly:
                     tmp = tempfile.NamedTemporaryFile()
                     self.bucket.fetch_to_file(s3key, tmp.name)
-                    dest = unused_name(b'/lost+found/%s' % s3key, conn)
-                    writefile(tmp.name, dest, server)
+                    dest = unused_name(b'/lost+found/%s' % s3key.encode(), conn)
+                    writefile(tmp.name, dest, self.server)
                     del self.bucket[s3key]
                     tmp.close()
             
                 continue             
                     
-            else:
-                # Mark object as seen
-                conn.execute("DELETE FROM s3keys WHERE id=?", (s3key,))
-    
-            #
-            # Check Metadata
-            # 
-    
-            if etag != meta.etag:
+   
+            # Mark object as seen, check its metadata
+            conn.execute("DELETE FROM s3keys WHERE id=?", (s3key,))
+            if not self.check_metadata(meta, etag, size): 
                 found_errors = True
-                if not self.expect_errors:
-                    log.warn("object %s has incorrect etag in metadata, adjusting" % s3key)
-                conn.execute("UPDATE s3_objects SET etag=? WHERE id=?",
-                           (meta.etag, s3key))  
-                
-            if size != meta.size:
-                found_errors = True
-                if not self.expect_errors:
-                    log.warn("object %s has incorrect size in metadata, adjusting" % s3key)
-                conn.execute("UPDATE s3_objects SET size=? WHERE id=?",
-                           (meta.size, s3key)) 
- 
-            #
-            # Size
-            #
-            if meta.size > blocksize:
-                found_errors = True
-                if not self.expect_errors:
-                    log.warn("object %s is larger than blocksize (%d > %d), "
-                             "truncating (original object in lost+found)",
-                             s3key, meta.size, blocksize)
-                if not self.checkonly:
-                    tmp = tempfile.NamedTemporaryFile()
-                    self.bucket.fetch_to_file(s3key, tmp.name)
-    
-                    # Save full object in lost+found
-                    dest = unused_name(b'/lost+found/%s' % s3key, conn)
-                    writefile(tmp.name, dest, server)
-    
-                    # Truncate and write
-                    tmp.seek(blocksize)
-                    tmp.truncate()
-                    etag_new = self.bucket.store_from_file(s3key, tmp.name)
-                    tmp.close()
-                    conn.execute("UPDATE s3_objects SET etag=?, size=? WHERE s3key=?",
-                               (etag_new, blocksize, s3key))
                     
                     
         # Now handle objects that only exist in s3_objects
@@ -530,10 +507,69 @@ class Checker(object):
                 log.warn("object %s only exists in table but not on s3, deleting", s3key)
             conn.execute("DELETE FROM inode_s3key WHERE s3key=?", (s3key,))
             conn.execute("DELETE FROM s3_objects WHERE id=?", (s3key,))
-            
-        cache.close()
-        os.rmdir(cachedir)  
-                                   
+                    
+        conn.execute('DROP TABLE s3keys')
+                        
         return not found_errors
 
+    def check_metadata(self, meta, etag, size):
+        """Check the metadata of a given object against the given values
+    
+        Checks that:
+        - no s3 object is larger than the blocksize
+        - etags match (update metadata in case of conflict)
+    
+        Returns `False` if any errors have been found.
+        """
+     
+        conn = self.conn
+        found_errors = False
+        s3key = meta.key
+
+        #
+        # Etag
+        # 
+        if etag != meta.etag:
+            found_errors = True
+            if not self.expect_errors:
+                log.warn("object %s has incorrect etag in metadata, adjusting" % s3key)
+            conn.execute("UPDATE s3_objects SET etag=? WHERE id=?",
+                       (meta.etag, s3key))  
+        
+        # 
+        # Size agreement
+        #    
+        if size != meta.size:
+            found_errors = True
+            if not self.expect_errors:
+                log.warn("object %s has incorrect size in metadata, adjusting" % s3key)
+            conn.execute("UPDATE s3_objects SET size=? WHERE id=?",
+                       (meta.size, s3key)) 
+ 
+        #
+        # Size <= block size
+        #
+        if meta.size > self.blocksize:
+            found_errors = True
+            if not self.expect_errors:
+                log.warn("object %s is larger than blocksize (%d > %d), "
+                         "truncating (original object in lost+found)",
+                         s3key, meta.size, self.blocksize)
+            if not self.checkonly:
+                tmp = tempfile.NamedTemporaryFile()
+                self.bucket.fetch_to_file(s3key, tmp.name)
+
+                # Save full object in lost+found
+                dest = unused_name(b'/lost+found/%s' % s3key, conn)
+                writefile(tmp.name, dest, self.server)
+
+                # Truncate and write
+                tmp.seek(self.blocksize)
+                tmp.truncate()
+                etag_new = self.bucket.store_from_file(s3key, tmp.name)
+                tmp.close()
+                conn.execute("UPDATE s3_objects SET etag=?, size=? WHERE s3key=?",
+                           (etag_new, self.blocksize, s3key))            
+                                   
+        return not found_errors
 
