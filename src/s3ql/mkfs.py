@@ -249,11 +249,10 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
 
     # Insert lost+found directory
     # refcount = 2: /, "."
-    conn.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
-                   "VALUES (?,?,?,?,?,?,?)",
-                   (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                    os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 2))
-    inode = conn.last_rowid()
+    inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                       "VALUES (?,?,?,?,?,?,?)",
+                       (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
+                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 2))
     conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                    (b"lost+found", inode, ROOT_INODE))
     conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",

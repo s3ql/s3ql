@@ -176,11 +176,10 @@ class Checker(object):
             found_errors = True
             if not self.expect_errors:
                 log.warn("Recreating missing lost+found directory")
-            conn.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
-                       "VALUES (?,?,?,?,?,?,?)",
-                       (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                        os.getuid(), os.getgid(), time(), time(), time(), 2))
-            inode_l = conn.last_rowid()
+            inode_l = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                                 "VALUES (?,?,?,?,?,?,?)",
+                                 (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
+                                  os.getuid(), os.getgid(), time(), time(), time(), 2))
             conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                        (b"lost+found", inode_l, ROOT_INODE))
             
@@ -194,11 +193,10 @@ class Checker(object):
                      '/lost+found/inode-%s', inode_l)
             # We leave the old inode unassociated, so that it will be added
             # to lost+found later on.
-            conn.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
-                       "VALUES (?,?,?,?,?,?,?)",
-                       (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                        os.getuid(), os.getgid(), time(), time(), time(), 2))
-            inode_l = conn.last_rowid()
+            inode_l = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                                 "VALUES (?,?,?,?,?,?,?)",
+                                 (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
+                                  os.getuid(), os.getgid(), time(), time(), time(), 2))
             conn.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
                        (inode_l, b"lost+found", ROOT_INODE))
             

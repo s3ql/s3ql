@@ -47,18 +47,16 @@ class sqlite_tests(unittest.TestCase):
                           (b"foo/bar", ROOT_INODE, ROOT_INODE))
                 
         # Create a file
-        conn.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
-                    "VALUES (?,?,?,?,?,?,?,?)",
-                    (stat.S_IFREG, os.getuid(), os.getgid(), time(), time(), time(), 1, 0))
-        inode = conn.last_rowid()
+        inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                           "VALUES (?,?,?,?,?,?,?,?)",
+                           (stat.S_IFREG, os.getuid(), os.getgid(), time(), time(), time(), 1, 0))
         conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                    (b"testfile", inode, ROOT_INODE))
                            
         # Try to create a file with a file as parent
-        conn.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
-                    "VALUES (?,?,?,?,?,?,?,0)",
-                    (stat.S_IFREG, os.getuid(), os.getgid(), time(), time(), time(), 1))     
-        inode2 = conn.last_rowid()             
+        inode2 = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                            "VALUES (?,?,?,?,?,?,?,0)",
+                            (stat.S_IFREG, os.getuid(), os.getgid(), time(), time(), time(), 1))                 
         self.assertRaises(apsw.ConstraintError, conn.execute, 
                           "INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                           (b"testfile2", inode, inode2))
@@ -98,10 +96,9 @@ class sqlite_tests(unittest.TestCase):
                     (s3key, 1))
                     
         # Create a file
-        conn.execute("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
-                    "VALUES (?,?,?,?,?,?,?,?)",
-                    (stat.S_IFREG, os.getuid(), os.getgid(), time(), time(), time(), 1, 0))
-        inode = conn.last_rowid()
+        inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                           "VALUES (?,?,?,?,?,?,?,?)",
+                           (stat.S_IFREG, os.getuid(), os.getgid(), time(), time(), time(), 1, 0))
         
         # Insert  the datablock
         conn.execute('INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?, ?, ?)',

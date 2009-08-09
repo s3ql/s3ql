@@ -467,11 +467,11 @@ class Server(fuse.Operations):
             inode_p = get_inode(os.path.dirname(path), conn)
             with conn.transaction():
                 timestamp = time.time() - time.timezone
-                conn.execute("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev,refcount,size) "
-                         "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
-                         (timestamp, timestamp, timestamp, uid, gid, mode, dev, 1))
+                inode = conn.rowid('INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev, '
+                                   'refcount,size) VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)',
+                                   (timestamp, timestamp, timestamp, uid, gid, mode, dev, 1))
                 conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                         (os.path.basename(path), conn.last_rowid(), inode_p))
+                         (os.path.basename(path), inode, inode_p))
                 update_mtime(inode_p, conn)
 
 
