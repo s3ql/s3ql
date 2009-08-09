@@ -79,7 +79,7 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
     # Table of filesystem objects
     conn.execute("""
     CREATE TABLE contents (
-        name      BLOB(256) NOT NULL
+        name      BLOB(256) NOT NULL CONSTRAINT name_type
                   CHECK( typeof(name) == 'blob' AND name NOT LIKE '%/%' ),
         inode     INT NOT NULL REFERENCES inodes(id),
         parent_inode INT NOT NULL REFERENCES inodes(id),
@@ -120,32 +120,37 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
         -- id has to specified *exactly* as follows to become
         -- an alias for the rowid
         id        INTEGER PRIMARY KEY,
-        uid       INT NOT NULL CHECK( typeof(uid) == 'integer' AND uid >= 0),
-        gid       INT NOT NULL CHECK( typeof(gid) == 'integer' AND gid >= 0),
+        uid       INT NOT NULL CONSTRAINT uid_type
+                  CHECK( typeof(uid) == 'integer' AND uid >= 0),
+        gid       INT NOT NULL CONSTRAINT gid_type
+                  CHECK( typeof(gid) == 'integer' AND gid >= 0),
         -- make sure that an entry has only one type. Note that 
         -- S_IFDIR | S_IFREG == S_IFSOCK
         mode      INT NOT NULL CONSTRAINT mode_type
                   CHECK ( typeof(mode) == 'integer' AND
                           (mode & {S_IFMT}) IN ({S_IFDIR}, {S_IFREG}, {S_IFLNK},
                                                 {S_IFBLK}, {S_IFCHR}, {S_IFIFO}, {S_IFSOCK}) ),
-        mtime     REAL NOT NULL CHECK( typeof(mtime) == 'real' AND mtime >= 0 ),
-        atime     REAL NOT NULL CHECK( typeof(atime) == 'real' AND atime >= 0 ),
-        ctime     REAL NOT NULL CHECK( typeof(ctime) == 'real' AND ctime >= 0 ),
+        mtime     REAL NOT NULL CONSTRAINT mtime_type
+                  CHECK( typeof(mtime) == 'real' AND mtime >= 0 ),
+        atime     REAL NOT NULL CONSTRAINT atime_type
+                  CHECK( typeof(atime) == 'real' AND atime >= 0 ),
+        ctime     REAL NOT NULL CONSTRAINT ctime_type
+                  CHECK( typeof(ctime) == 'real' AND ctime >= 0 ),
         refcount  INT NOT NULL CONSTRAINT refcount_type
                   CHECK ( typeof(refcount) == 'integer' AND refcount > 0),
 
         -- for symlinks only
-        target    BLOB(256)
+        target    BLOB(256) CONSTRAINT target_type
                   CHECK ( (mode & {S_IFMT} == {S_IFLNK} AND typeof(target) == 'blob') OR
                           (mode & {S_IFMT} != {S_IFLNK} AND target IS NULL) ),
 
         -- for files only
-        size      INT
+        size      INT CONSTRAINT size_type
                   CHECK ( (mode & {S_IFMT} == {S_IFREG} AND typeof(size) == 'integer' AND size >= 0) OR
                           (mode & {S_IFMT} != {S_IFREG} AND size IS NULL) ),
 
         -- device nodes
-        rdev      INT
+        rdev      INT CONSTRAINT rdev_type
                   CHECK ( ( mode & {S_IFMT} IN ({S_IFBLK}, {S_IFCHR})
                                AND typeof(rdev) == 'integer' AND rdev >= 0) OR
                           ( mode & {S_IFMT} NOT IN ({S_IFBLK}, {S_IFCHR}) AND rdev IS NULL ) )    
@@ -179,14 +184,15 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
     conn.execute("""
     CREATE TABLE s3_objects (
         id        TEXT PRIMARY KEY,
-        refcount  INT NOT NULL
-                  CHECK ( typeof(refcount) == 'integer' ),
+        refcount  INT NOT NULL CONSTRAINT refcount_type
+                  CHECK ( typeof(refcount) == 'integer' AND refcount > 0),
                   
         -- etag and size is only updated when the object is committed
-        etag      TEXT
+        etag      TEXT CONSTRAINT etag_type
                   CHECK ( typeof(etag) IN ('blob', 'null') ),
-        size      INT
-                  CHECK ( typeof(size) IN ('integer', 'null') )
+        size      INT CONSTRAINT size_type
+                  CHECK ( (typeof(size) == 'integer' AND size >= 0) 
+                          OR typeof(size) == 'null'  )
     )
     """)
     
