@@ -46,6 +46,7 @@ class ConnectionManager(object):
     :dbfile:       Filename of the database
     :initsql:      SQL commands that are executed whenever a new
                    connection is created.
+
     """
 
     def __init__(self, dbfile, initsql=None, retrytime=1000):
@@ -61,8 +62,8 @@ class ConnectionManager(object):
         self.pool = list()
         self.provided = dict()
         
-        # Enable shared cache mode 
-        apsw.enablesharedcache(True)
+        # http://code.google.com/p/apsw/issues/detail?id=59
+        apsw.enablesharedcache(False)
              
     @contextmanager    
     def __call__(self):
@@ -244,6 +245,7 @@ class WrappedConnection(object):
             
             
         waited = 0
+        step = 1
         while True:
             try:
                 if bindings is not None:
@@ -252,12 +254,10 @@ class WrappedConnection(object):
                     return self.conn.cursor().execute(statement)
             except apsw.LockedError:
                 if waited > self.retrytime:
-                    raise # We don't wait any longer
-                if waited > self.retrytime/3:
-                    log.warn('Waited for database lock for %d ms so far...', waited) 
-                step = randrange(10, 100, 1)
+                    raise # We don't wait any longer 
                 time.sleep(step / 1000)
                 waited += step
+                step = randrange(step+1, 2*(step+1), 1)
             
             
     def get_val(self, *a, **kw):
