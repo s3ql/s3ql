@@ -33,13 +33,14 @@ class fsck_tests(unittest.TestCase):
         self.checker.expect_errors = True
         
     def tearDown(self):
+        self.checker.close()
         self.dbfile.close()
         os.rmdir(self.cachedir)        
         
 
-    def test_parameters(self):
+    def test_detect(self):
         self.conn.execute('DELETE FROM parameters')
-        self.assertRaises(fsck.FatalFsckError, self.checker.check_parameters)
+        self.assertRaises(fsck.FatalFsckError, self.checker.detect_fs)
         
     def test_cache(self):
         fh = open(self.cachedir + 'testkey', 'wb')
@@ -99,6 +100,119 @@ class fsck_tests(unittest.TestCase):
         self.assertFalse(self.checker.check_lof())
         self.assertTrue(self.checker.check_lof())
         
+    def test_inode_refcount(self):
+        conn = self.conn
+        
+        # Create an orphaned inode
+        conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                           "VALUES (?,?,?,?,?,?,?,?)", 
+                           (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
+                            0, 0, time.time(), time.time(), time.time(), 2, 0))
+        
+        self.assertFalse(self.checker.check_inode_refcount())
+        self.assertTrue(self.checker.check_inode_refcount())
+                
+        # Create an inode with wrong refcount
+        inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                           "VALUES (?,?,?,?,?,?,?,?)", 
+                           (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
+                            0, 0, time.time(), time.time(), time.time(), 1,0))
+        conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
+                     (b'name1', inode, ROOT_INODE))
+        conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
+                     (b'name2', inode, ROOT_INODE))
+        
+        
+    def test_keylist(self):
+        '''
+        '''
+        # Create an object that only exists in s3
+        self.bucket['s3ql_data_foobrasl'] = 'Testdata' 
+        self.assertFalse(self.checker.check_keylist())
+        self.assertTrue(self.checker.check_keylist())
+        
+        # Create an object that does not exist in S3
+        self.conn.execute('INSERT INTO s3_objects (id, refcount) VALUES(?, ?)', 
+                          ('s3ql_data_foobuu', 1))
+        self.assertFalse(self.checker.check_keylist())
+        self.assertTrue(self.checker.check_keylist())
+        
+    
+    def test_metadata(self):
+        '''
+        '''
+        # Create an object with wrong size
+        s3key = 's3ql_data_jummi_jip'
+        data = 'oh oeu 3p, joum39 udoeu'
+        
+        etag = self.bucket.store(s3key, data)
+        self.conn.execute('INSERT INTO s3_objects (id, etag, size, refcount) VALUES(?, ?, ?, ?)',
+                           (s3key, etag, len(data) + 42, 1))
+        
+        self.assertFalse(self.checker.check_keylist())
+        self.assertTrue(self.checker.check_keylist())
+        
+        # And another with wrong etag
+        self.conn.execute('UPDATE s3_objects SET etag=? WHERE id=?',
+                           (b'wrong etag', s3key))
+        self.assertFalse(self.checker.check_keylist())
+        self.assertTrue(self.checker.check_keylist())
+        
+        
+    def test_loops(self):
+        '''
+        '''
+        # TODO: Implement test_loops
+        pass
+    
+    def test_offsets(self):
+        '''
+        '''
+        conn = self.conn     
+        inode = 42
+        s3key = 's3ql_data_jup_42'
+        
+        conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                     "VALUES (?,?,?,?,?,?,?,?,?)", 
+                     (inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
+                      os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 0)) 
+        conn.execute('INSERT INTO s3_objects (id, refcount) VALUES(?, ?)',
+                   (s3key, 2))
+        
+        conn.execute('INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?, ?, ?)',
+                     (inode, self.blocksize+1, s3key))
+       
+        self.assertFalse(self.checker.check_offsets())
+        self.assertTrue(self.checker.check_offsets())
+    
+            
+    def test_s3_refcounts(self):
+        '''
+        '''
+        conn = self.conn
+        s3key = 's3ql_data_jup_42'
+        
+        inode = 42
+        conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                     "VALUES (?,?,?,?,?,?,?,?,?)", 
+                     (inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
+                      os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1,0))
+        
+        conn.execute('INSERT INTO s3_objects (id, refcount) VALUES(?, ?)',
+                   (s3key, 2))
+        conn.execute('INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?, ?, ?)',
+                     (inode, 1, s3key))
+        conn.execute('INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?, ?, ?)',
+                     (inode, 2, s3key))
+        self.assertTrue(self.checker.check_s3_refcounts())
+        
+        conn.execute('INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?, ?, ?)',
+                     (inode, 3, s3key))        
+        self.assertFalse(self.checker.check_s3_refcounts())
+        self.assertTrue(self.checker.check_s3_refcounts())
+
+    
+    
 
 # Somehow important according to pyunit documentation
 def suite():

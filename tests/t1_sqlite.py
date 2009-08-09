@@ -56,7 +56,7 @@ class sqlite_tests(unittest.TestCase):
         # Try to create a file with a file as parent
         inode2 = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
                             "VALUES (?,?,?,?,?,?,?,0)",
-                            (stat.S_IFREG, os.getuid(), os.getgid(), time(), time(), time(), 1))                 
+                            (stat.S_IFREG, os.getuid(), os.getgid(), time(), time(), time(), 1))
         self.assertRaises(apsw.ConstraintError, conn.execute, 
                           "INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                           (b"testfile2", inode, inode2))

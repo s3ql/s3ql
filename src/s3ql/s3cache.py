@@ -214,7 +214,7 @@ class S3Cache(object):
             log.debug('Releasing object lock')
             self.s3_lock.release(s3key)
             
-            self.expire()
+        self.expire()
       
     def _recover_cache(self):
         '''Read cache directory and register contents 
@@ -279,7 +279,7 @@ class S3Cache(object):
         
         If the cache is bigger than `self.cachesize`, the oldest
         entries are flushed until at least `self.blocksize`
-        bytes are available (or there is only one objects left to flush).
+        bytes are available (or there is only one object left to flush).
         '''
         
         if self.bgcommit:
@@ -356,7 +356,7 @@ class S3Cache(object):
             el.close()
             
             if el.dirty:
-                log.debug('Commiting dirty s3 object %s...', el.s3key)
+                log.debug('Committing dirty s3 object %s...', el.s3key)
                 etag = self.bucket.store_from_file(el.s3key, el.name)
                 self.dbcm.execute("UPDATE s3_objects SET etag=?, size=? WHERE id=?",
                                   (etag, size, el.s3key))
