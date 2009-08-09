@@ -280,28 +280,23 @@ class Bucket(object):
     def boto_key_to_metadata(bkey):
         """Extracts metadata from boto key object.
         """
-        #pylint: disable-msg=W0201
-        meta = Metadata(bkey.metadata)
-        meta.etag = bkey.etag.rstrip('"').lstrip('"').encode('us-ascii')
-        meta.key = bkey.name
-        
-        if bkey.last_modified is not None:
-            # The format depends on how the data has been retrieved (fetch or list)
-            try:
-                meta.last_modified = datetime.strptime(bkey.last_modified, "%a, %d %b %Y %H:%M:%S %Z")
-            except ValueError:
-                meta.last_modified = isodate.parse_datetime(bkey.last_modified)
-                
-            # Convert to UTC if timezone aware
-            if meta.last_modified.utcoffset():
-                meta.last_modified = (meta.last_modified - meta.last_modified.utcoffset()) \
-                    .replace(tzinfo=None)
-                                                 
-        else:
-            meta.last_modified = None
-        meta.size = int(bkey.size)
-
-        return meta
+   
+        # The format depends on how the data has been retrieved (fetch or list)
+        try:
+            last_modified = datetime.strptime(bkey.last_modified, "%a, %d %b %Y %H:%M:%S %Z")
+        except ValueError:
+            last_modified = isodate.parse_datetime(bkey.last_modified)
+            
+        # Convert to UTC if timezone aware
+        if last_modified.utcoffset():
+            last_modified = (last_modified - last_modified.utcoffset()).replace(tzinfo=None)
+                                                
+            
+        return Metadata(usertags=bkey.metadata,
+                        etag=bkey.etag.rstrip('"').lstrip('"').encode('us-ascii'),
+                        key=bkey.name,
+                        last_modified=last_modified,
+                        size=int(bkey.size))
 
 
 
@@ -386,11 +381,10 @@ class LocalBucket(Bucket):
             raise ConcurrencyError
         self.in_transmit.add(key)
         sleep(self.tx_delay)
-        metadata = Metadata()
-        metadata.key = key
-        metadata.size = len(val)
-        metadata.last_modified = datetime.utcnow()
-        metadata.etag =  hashlib.md5(val).hexdigest()
+        metadata = Metadata(key = key,
+                            size = len(val),
+                            last_modified = datetime.utcnow(),
+                            etag =  hashlib.md5(val).hexdigest())
         def set_():
             sleep(self.prop_delay)
             log.debug("LocalBucket: Committing store for %s, etag %s", key, metadata.etag)
@@ -445,7 +439,18 @@ class Metadata(dict):
     Note that the last-modified attribute is a datetime object.
     """
     
-    pass
+    __slots__ = [ 'etag', 'key', 'last_modified', 'size' ]
+    
+    def __init__(self, etag, key, last_modified, size, usertags=None):
+        if usertags is not None:
+            super(Metadata, self).__init__(usertags)
+        else: 
+            super(Metadata, self).__init__()
+        self.etag = etag
+        self.key = key
+        self.last_modified = last_modified
+        self.size = size
+        
         
 
 class ConcurrencyError(Exception):
