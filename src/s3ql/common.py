@@ -131,14 +131,6 @@ def update_mtime(inode, conn):
     conn.execute("UPDATE inodes SET mtime=? WHERE id=?",
                 (time.time() - time.timezone, inode))
 
-def update_mtime_parent(path, conn):
-    """Updates the mtime of the parent of the specified object.
-
-    The mtime will be set to the current time.
-    """
-    inode = get_inode(os.path.dirname(path), conn)
-    update_mtime(inode, conn)
-
 def get_inode(path, conn):
     """Returns inode of object at `path`.
     
