@@ -188,7 +188,7 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
         size      INT
                   CHECK ( typeof(size) IN ('integer', 'null') )
     )
-    """); #pylint: disable-msg=W0104
+    """)
     
     # Maps file data chunks to S3 objects
     conn.execute("""
@@ -199,7 +199,7 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
  
         PRIMARY KEY (inode, offset)
     )
-    """); #pylint: disable-msg=W0104
+    """)
     conn.execute(trigger_cmd.format(**{ "src_table": "inode_s3key",
                                             "src_key": "inode",
                                             "ref_table": "inodes",
