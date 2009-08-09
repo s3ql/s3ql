@@ -14,16 +14,18 @@ from time import sleep
 from datetime import datetime
 import isodate
 from boto.s3.connection import S3Connection
+from contextlib import contextmanager
 import boto.exception as bex
-import threading
 import copy
 from s3ql.common import (waitfor) 
 import logging
+import threading
 
 __all__ = [ "Connection", "ConcurrencyError", "Bucket", "LocalBucket", "Metadata" ]
 
 log = logging.getLogger("s3")
  
+
 class Connection(object):
     """Represents a connection to Amazon S3
 
@@ -36,10 +38,29 @@ class Connection(object):
         self.awskey = awskey
         self.awspass = awspass
         self.encrypt = encrypt
+        self.pool = list()
+        self.conn_cnt = 0
 
-        self.tlocal = threading.local()
-
-        self.tlocal.boto = S3Connection(awskey, awspass)
+    def _pop_conn(self):
+        '''Return S3 connection from the pool
+        '''
+        
+        try:
+            conn = self.pool.pop()
+        except IndexError:
+            # Need to create a new connection
+            log.debug("Creating new boto connection (active conns: %d)...", 
+                      self.conn_cnt)
+            conn = S3Connection(self.awskey, self.awspass)
+            self.conn_cnt += 1
+                   
+        return conn
+    
+    def _push_conn(self, conn):
+        '''Put the s3 connection back into the pool
+        '''
+        
+        self.pool.append(conn)
 
     def delete_bucket(self, name, recursive=False):
         """Deletes a bucket from S3.
@@ -47,32 +68,31 @@ class Connection(object):
         Fails if there are objects in the bucket and `recursive` is
         `False`.
         """
-        boto = self.get_boto()
+        with self.get_boto() as boto:
+            if recursive:
+                bucket = boto.get_bucket(name)
+                for s3key in bucket.list():
+                    log.debug('Deleting key %s', s3key)
+                    bucket.delete_key(s3key)
+    
+            boto.delete_bucket(name)
 
-
-        if recursive:
-            bucket = boto.get_bucket(name)
-            for s3key in bucket.list():
-                log.debug('Deleting key %s', s3key)
-                bucket.delete_key(s3key)
-
-        boto.delete_bucket(name)
-
+    @contextmanager
     def get_boto(self):
-        """Returns boto s3 connection local to current thread.
+        """Return boto s3 connection for exclusive use
         """
 
-        if not hasattr(self.tlocal, "boto"):
-            self.tlocal.boto = S3Connection(self.awskey, self.awspass)
-
-        return self.tlocal.boto
-
+        conn = self._pop_conn()
+        try: 
+            yield conn
+        finally:
+            self._push_conn(conn)
 
     def create_bucket(self, name):
         """Creates an S3 bucket
         """
-        boto = self.get_boto()
-        boto.create_bucket(name)
+        with self.get_boto() as boto:
+            boto.create_bucket(name)
 
 
     def get_bucket(self, name):
@@ -91,16 +111,16 @@ class Connection(object):
     def bucket_exists(self, name):
         """Checks if the bucket `name` exists.
         """
-        boto = self.get_boto()
-        try:
-            boto.get_bucket(name)
-        except bex.S3ResponseError, e:
-            if e.status == 404:
-                return False
+        with self.get_boto() as boto:
+            try:
+                boto.get_bucket(name)
+            except bex.S3ResponseError, e:
+                if e.status == 404:
+                    return False
+                else:
+                    raise
             else:
-                raise
-        else:
-            return True
+                return True
 
 
 
@@ -112,27 +132,46 @@ class Bucket(object):
 
     The class behaves more or less like a dict. It raises the
     same exceptions, can be iterated over and indexed into.
-
     """
 
     def __init__(self, conn, name):
         self.name = name
         self.conn = conn
+        self.pool = list()
+        self.conn_cnt = 0
 
-        self.tlocal = threading.local()
-        self.tlocal.bucket = conn.get_boto().get_bucket(name)
-
-
+    def _pop_conn(self):
+        '''Return S3 connection from the pool
+        '''
+        
+        try:
+            conn = self.pool.pop()
+        except IndexError:
+            # Need to create a new connection
+            log.debug("Creating new boto connection (active conns: %d)...", 
+                      self.conn_cnt)
+            conn = S3Connection(self.conn.awskey, self.conn.awspass).get_bucket(self.name)
+            self.conn_cnt += 1
+                   
+        return conn
+    
+    def _push_conn(self, conn):
+        '''Put the s3 connection back into the pool
+        '''
+        
+        self.pool.append(conn)
+  
+    @contextmanager
     def get_boto(self):
-        """Returns boto bucket object for current thread.
+        """Return boto s3 connection for exclusive use
         """
 
-        if not hasattr(self.tlocal, "boto"):
-            self.tlocal.boto = self.conn.get_boto().get_bucket(self.name)
-
-        return self.tlocal.boto
-
-
+        conn = self._pop_conn()
+        try: 
+            yield conn
+        finally:
+            self._push_conn(conn)
+            
     def __str__(self):
         return "<bucket: %s>" % self.name
 
@@ -169,7 +208,8 @@ class Bucket(object):
         `Metadata` instance is returned.
         """
  
-        bkey = self.get_boto().get_key(key)
+        with self.get_boto() as boto:
+            bkey = boto.get_key(key)
 
         if bkey:
             return self.boto_key_to_metadata(bkey)
@@ -184,10 +224,11 @@ class Bucket(object):
 
         """
  
-        boto = self.get_boto()
-        if not force and not boto.get_key(key):
-            raise KeyError
-        boto.delete_key(key)
+        with self.get_boto() as boto:
+            if not force and not boto.get_key(key):
+                raise KeyError
+            
+            boto.delete_key(key)
 
 
     def list_keys(self):
@@ -203,8 +244,9 @@ class Bucket(object):
         doesn't define the `metadata` variable).
         """
 
-        for key in self.get_boto().list():
-            yield (unicode(key.name), self.boto_key_to_metadata(key))
+        with self.get_boto() as boto:
+            for key in boto.list():
+                yield (unicode(key.name), self.boto_key_to_metadata(key))
 
 
     def fetch(self, key):
@@ -215,11 +257,14 @@ class Bucket(object):
         for ``bucket.fetch(key)[0]``.
         """
  
-        bkey = self.get_boto().get_key(key)
-        if not bkey:
-            raise KeyError
+        with self.get_boto() as boto:
+            bkey = boto.get_key(key)
+            
+            if not bkey:
+                raise KeyError
 
-        val = bkey.get_contents_as_string()
+            val = bkey.get_contents_as_string()
+            
         metadata = self.boto_key_to_metadata(bkey)            
   
         return (val, metadata)
@@ -235,8 +280,9 @@ class Bucket(object):
         val)``.
         """
  
-        bkey = self.get_boto().new_key(key)
-        bkey.set_contents_from_string(val)
+        with self.get_boto() as boto:
+            bkey = boto.new_key(key)
+            bkey.set_contents_from_string(val)
 
         return bkey.etag.rstrip('"').lstrip('"').encode('us-ascii')
 
@@ -248,11 +294,12 @@ class Bucket(object):
         format used by `lookup_key`.
         """
  
-        bkey = self.get_boto().get_key(key)
-        if not bkey.exists():
-            raise KeyError
+        with self.get_boto() as boto:
+            bkey = boto.get_key(key)
+            if not bkey.exists():
+                raise KeyError
 
-        bkey.get_contents_to_filename(file_)
+            bkey.get_contents_to_filename(file_)
         metadata = self.boto_key_to_metadata(bkey)            
 
 
@@ -264,8 +311,9 @@ class Bucket(object):
         `file` has to be a file name. Returns the etag.
         """
 
-        bkey = self.get_boto().new_key(key)
-        bkey.set_contents_from_filename(file_)
+        with self.get_boto() as boto:
+            bkey = boto.new_key(key)
+            bkey.set_contents_from_filename(file_)
 
         return bkey.etag.rstrip('"').lstrip('"').encode('us-ascii')
  
@@ -274,7 +322,8 @@ class Bucket(object):
         """Copies data stored under `src` to `dest`
         """
 
-        self.get_boto().copy_key(dest, self.name, src)
+        with self.get_boto() as boto:
+            boto.copy_key(dest, self.name, src)
 
     @staticmethod
     def boto_key_to_metadata(bkey):

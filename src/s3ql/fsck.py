@@ -491,7 +491,7 @@ class Checker(object):
                     del self.bucket[s3key]
                     tmp.close()
             
-                continue             
+                continue
                     
    
             # Mark object as seen, check its metadata

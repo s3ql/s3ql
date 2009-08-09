@@ -16,7 +16,7 @@ from random import randrange
 
 __all__ = [ "ConnectionManager", 'WrappedConnection', 'NoUniqueValueError' ]
 
-log = logging.getLogger("ConnectionManager") 
+log = logging.getLogger("database") 
 
    
 class ConnectionManager(object):
@@ -123,7 +123,7 @@ class ConnectionManager(object):
             conn = self.pool.pop()
         except IndexError:
             # Need to create a new connection
-            log.debug("Creating new db connection (active conns: %d)...", len(self.pool))
+            log.debug("Creating new db connection (active conns: %d)...", len(self.provided))
             conn = apsw.Connection(self.dbfile)
             conn.setbusytimeout(self.retrytime)   
             if self.initsql:
