@@ -39,9 +39,10 @@ parser.add_option("-f", action="store_true", default=False,
 parser.add_option("--encrypt", action="store_true", default=None,
                   help="Create an AES encrypted filesystem")
 parser.add_option("--debug", action="append", 
-                  help="Activate debugging output from specified facility. Valid facility names "
-                        "are: mkfs, s3, frontend. "
-                        "This option can be specified multiple times.")
+                  help="Activate debugging output from specified facility."
+                      "This option can be specified multiple times.")
+parser.add_option("--quiet", action="store_true", default=False,
+                  help="Be really quiet")
 
 
 (options, pps) = parser.parse_args()
@@ -66,7 +67,7 @@ if options.encrypt:
         options.encrypt = sys.stdin.readline().rstrip()
 
 # Activate logging
-init_logging(True, False, options.debug)
+init_logging(True, options.quiet, options.debug)
 log = logging.getLogger("frontend")
 
 #
@@ -112,6 +113,7 @@ try:
     log.info('Uploading database...')
     bucket = conn.get_bucket(bucket)
     bucket.store_from_file('s3ql_metadata', dbfile)
+    bucket['s3ql_bgcommit'] = 'no'
     bucket['s3ql_dirty'] = "no"
 
 finally:

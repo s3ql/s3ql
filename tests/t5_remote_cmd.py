@@ -53,12 +53,13 @@ class RemoteCmdTests(unittest.TestCase):
     def test_mount(self):
      
         cmd = os.path.join(os.path.dirname(__file__), "..", "mkfs.s3ql")
-        ret = os.spawnl(os.P_WAIT, cmd, "mkfs.s3ql", "--blocksize", "1", self.bucketname)       
+        ret = os.spawnl(os.P_WAIT, cmd, "mkfs.s3ql", "--blocksize", "1",
+                        '--quiet', self.bucketname)       
         self.assertTrue(ret == 0)
 
         cmd = os.path.join(os.path.dirname(__file__), "..", "mount.s3ql")
         pid = os.spawnl(os.P_NOWAIT, cmd, "mount.s3ql", "--cachesize", "1",
-                        self.bucketname, self.base)       
+                        '--quiet', self.bucketname, self.base)       
                
         # Wait for mountpoint to come up
         self.assertTrue(waitfor(10, posixpath.ismount, self.base))
