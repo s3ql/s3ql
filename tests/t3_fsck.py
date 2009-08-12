@@ -27,7 +27,8 @@ class fsck_tests(unittest.TestCase):
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
 
-        self.conn = WrappedConnection(apsw.Connection(self.dbfile.name), retrytime=0)
+        self.conn = WrappedConnection(apsw.Connection(self.dbfile.name).cursor(),
+                                      retrytime=0)
         mkfs.setup_db(self.conn, self.blocksize)
         self.checker = fsck.Checker(self.conn, self.cachedir, self.bucket, checkonly=False)
         self.checker.expect_errors = True
