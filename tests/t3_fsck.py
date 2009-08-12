@@ -116,11 +116,14 @@ class fsck_tests(unittest.TestCase):
         inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
                            "VALUES (?,?,?,?,?,?,?,?)", 
                            (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
-                            0, 0, time.time(), time.time(), time.time(), 1,0))
+                            0, 0, time.time(), time.time(), time.time(), 1, 0))
         conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
                      (b'name1', inode, ROOT_INODE))
         conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
                      (b'name2', inode, ROOT_INODE))
+        
+        self.assertFalse(self.checker.check_inode_refcount())
+        self.assertTrue(self.checker.check_inode_refcount())
         
         
     def test_keylist(self):

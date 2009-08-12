@@ -141,7 +141,7 @@ else:
     bucket.fetch_to_file("s3ql_metadata", dbfile)
 
 
-conn = WrappedConnection(apsw.Connection(dbfile), retrytime=0)
+conn = WrappedConnection(apsw.Connection(dbfile).cursor(), retrytime=0)
 
 # Check filesystem revision
 rev = conn.get_val("SELECT version FROM parameters")
