@@ -120,6 +120,22 @@ class S3Cache(object):
     periodically performs cache expiration. This means that the cache can grow without
     bounds and uncommitted changes may reside in the cache even after
     the file system has been unmounted. 
+    
+    
+    Cache Management
+    ----------------
+    
+    Note that every s3 object in the cache occupies a file
+    descriptor. The maximum number of objects in the cache is
+    therefore hardcoded to 300 (so that we do not run out of
+    file descriptors). If the block size of the filesystem is
+    small, and the cache size is large, it can therefore happen
+    that the cache is expired before it reaches maximum size.
+    
+    Note that this maximum is enforced even in background commit
+    mode, i.e. if 300 objects are in cache, a writer to a new
+    object has to wait until one of the objects has been
+    expired and committed to S3.
     """
     
     def __init__(self, bucket, cachedir, cachesize, dbcm, timeout=60, bgcommit=False):
@@ -156,7 +172,7 @@ class S3Cache(object):
         """
                  
         # Get s3 key    
-        log.debug('Getting filehandle for inode %i, offset %i', inode, offset)
+        log.debug('Getting file handle for inode %i, offset %i', inode, offset)
         with self.global_lock:
             with self.dbcm() as conn:
                 try:
@@ -250,7 +266,7 @@ class S3Cache(object):
             if not self.expect_mismatch:
                 log.warn("Changes in %s have apparently not yet propagated. Waiting and retrying...\n"
                          "Try to increase the cache size to avoid this.", s3key)
-            log.debug('Stored etag: %s, Received etag: %s', etag, meta.etag)
+            log.debug('Stored etag: %s, Received etag: %s', repr(etag), repr(meta.etag))
             waited = 0
             waittime = 0.2
             while meta.etag != etag and \
@@ -275,39 +291,41 @@ class S3Cache(object):
         return cachepath      
         
     def expire(self):
-        '''Perform cache expiry unless in background commit mode
+        '''Perform cache expiry 
         
-        If the cache is bigger than `self.cachesize`, the oldest
-        entries are flushed until at least `self.blocksize`
-        bytes are available (or there is only one object left to flush).
+        In background commit mode, the cache is only flushed if there
+        are more than 300 open files.
+        
+        Otherwise, the cache is flushed until it its size is
+        below self.maxsize or there is only one object left to flush.
         '''
         
         if self.bgcommit:
-            log.debug('Skipping cache expiration since bgcommit is enabled.')
-            return
-          
-        log.debug('Expiring cache')
-        
-        # We want to leave at least one object in the cache, otherwise
-        # we may end up storing & fetching the same object several times
-        # just for one read() or write() call
-        while self.size > self.maxsize and len(self.keys) > 1:
-            self._expire_entry()
+            # Only commit to limit number of open fds
+            while len(self.keys) > 300:
+                self._expire_entry()
+        else:       
+            log.debug('Expiring cache')
             
-        log.debug("Expiration end")
+            # We want to leave at least one object in the cache, otherwise
+            # we may end up storing & fetching the same object several times
+            # just for one read() or write() call
+            while (self.size > self.maxsize or len(self.keys) > 300) and len(self.keys) > 1:
+                self._expire_entry()
+                
+            log.debug("Expiration end")
           
     def _commit(self):
         '''Run commit thread.
         
-        In an infinite loop, we sleep 5 seconds and expire the cache
-        if necessary. 
+        Sleep for a while; Expire the cache if necessary; continue forever. 
         '''           
         
         # Pylint ignore since we deliberately override the main logger
         log = logging.getLogger("S3Cache.Committer") #pylint: disable-msg=W0621
         log.debug('Started.')
         while True:
-            while self.size > self.maxsize and len(self.keys) > 1:
+            while (self.size > self.maxsize or len(self.keys) > 300) and len(self.keys) > 1:
                 if self.shutdown.is_set():
                     log.debug('Received shutdown signal, exiting.')
                     return
@@ -317,7 +335,7 @@ class S3Cache(object):
                 
             # Wait for 5 seconds or until shutdown is set
             log.debug('Nothing more to expire. Sleeping...')
-            self.shutdown.wait(5)
+            self.shutdown.wait(10)
             
             if self.shutdown.is_set():
                 log.debug('Received shutdown signal, exiting.')
@@ -374,7 +392,7 @@ class S3Cache(object):
         
 
     def remove(self, inode, offset=0):
-        """Unlinks all s3 objects from the given inode.
+        """Unlink s3 objects of given inode.
         
         If `offset` is specified, unlinks only s3 objects starting at
         positions >= `offset`. If no other inodes reference the s3 objects,
@@ -432,7 +450,7 @@ class S3Cache(object):
         
         
     def flush(self, inode):
-        """Uploads all dirty data from `inode` to S3 unless in background commit mode
+        """Upload dirty data for `inode`  unless in bgcommit mode
         
         No locking required. 
         """
