@@ -20,8 +20,7 @@ if apsw_ver < (3, 6, 14):
     
     
 sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
-# TODO: Change to 3.6.17 as soon as it's released
-if sqlite_ver < (3, 6, 16):    
+if sqlite_ver < (3, 6, 17):    
     sys.stderr.write('SQLite version too old, must be 3.6.17 or newer!\n')
     sys.exit(1)
 
