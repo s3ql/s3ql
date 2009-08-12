@@ -292,7 +292,7 @@ class fs_api_tests(unittest.TestCase):
         self.assertEquals(self.server.getattr(name)["st_size"], filelen)
 
         off2 = int(0.5 * self.blocksize)
-        self.assertEquals(self.server.read(name, len(data)+off2, off, fh), data)
+        self.assertTrue(self.server.read(name, len(data)+off2, off, fh) == data)
         self.assertEquals(self.server.read(name, len(data)+off2, off-off2, fh), 
                           b"\0" * off2 + data)
         self.assertEquals(self.server.read(name, 182, off+len(data), fh), "")
@@ -475,6 +475,13 @@ class fs_api_tests(unittest.TestCase):
         self.server.flush(filename2, fh)
         self.server.release(filename2, fh)
         
+        # TODO: Test overwriting of directory
+       
+    # TODO: Test mknod
+    
+    # TODO: Test statfs
+    
+    # TODO: Test bgcommit thread  
 
 
 def suite():

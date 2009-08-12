@@ -14,6 +14,7 @@ from s3ql.common import (decrease_refcount, get_inode, update_mtime, get_inodes,
                          increase_refcount, update_atime)
 import time
 from cStringIO import StringIO
+import threading
 
 
 # We have no control over the arguments, so we
@@ -53,7 +54,8 @@ class FUSEError(Exception):
 
 
 class FuseAdaptor(fuse.FUSE):
-    """Overwrite some functions
+    """Overwrite the calling conventions for some fuse.Operations
+    methods.
     """
 
     def readdir(self, path, buf, filler, offset, fi):
@@ -82,11 +84,25 @@ class Server(fuse.Operations):
     :cache:       Holds information about cached s3 objects
     :noatime:     True if entity access times shouldn't be updated.
     :in_fuse_loop: Is the FUSE main loop running?
-    :encountered_errors: Is set to true if a request handler raises an exception
+    :encountered_errors: Is set to true if a request handler raised an exception
+    :size_cmtime_cache: Caches size, ctime and mtime for currently open files
+    :writelock:  Lock for synchronizing updates to size_cmtime_cache
 
     Note: `noatime` does not guarantee that access time will not be
     updated, but only prevents the update where it would adversely
     influence performance.   
+    
+    Notes
+    -----
+    
+    Normally, we would just update the ctime, mtime and size of a file
+    in the _write() method. However, it turns out that this SQL query
+    is responsible for 90% of the CPU time when copying large files. This
+    is especially grave, because FUSE currently only calls write with
+    4k buffers. For that reason we omit updating these attributes
+    and store them in the size_cmtime_cache dict instead. This dict
+    is has to be taken into account by all other methods that read
+    or write the attributes and is flushed when the file is closed.
     """
 
     
@@ -134,6 +150,8 @@ class Server(fuse.Operations):
         self.cache = cache
         self.encountered_errors = False
         self.in_fuse_loop = False
+        self.size_cmtime_cache = dict()
+        self.writelock = threading.Lock()
             
         # Check filesystem revision
         log.debug("Reading fs parameters...")
@@ -152,10 +170,6 @@ class Server(fuse.Operations):
         
         We only support the `inode' parameter because fuse.py expects
         this interface. 
-        
-         Similar to stat().  The 'st_dev' and 'st_blksize' fields are
-        ignored.     The 'st_ino' field is ignored except if the 'use_ino'
-        mount option is given.
         """
         
         if inode is None: # should always be the case if called internally
@@ -182,6 +196,15 @@ class Server(fuse.Operations):
          fstat["st_ctime"]) = self.dbcm.get_row("SELECT mode, refcount, uid, gid, size, id, rdev, "
                                                 "atime, mtime, ctime FROM inodes WHERE id=? ",
                                                 (inode,))
+         
+        # Take into account uncommitted changes
+        try:
+            st = self.size_cmtime_cache[inode]
+        except KeyError:
+            pass
+        else:
+            (fstat['st_size'], fstat['st_ctime'], fstat['st_mtime']) = st
+        
         # Convert to local time
         fstat['st_mtime'] += time.timezone
         fstat['st_atime'] += time.timezone
@@ -213,8 +236,8 @@ class Server(fuse.Operations):
     
             if not self.noatime:
                 update_atime(inode, conn)
-        return target
-
+        return target                           
+            
     def opendir(self, path):
         """Returns a numerical file handle."""
         
@@ -255,7 +278,8 @@ class Server(fuse.Operations):
         """Handles FUSE unlink() requests.
 
         Implementation depends on the ``hard_remove`` FUSE option
-        not being used.
+        not being used, otherwise we would have to keep track
+        of open file handles to unlinked files.
         """
 
         with self.dbcm() as conn:
@@ -510,6 +534,7 @@ class Server(fuse.Operations):
         """
 
         
+        timestamp = time.time() - time.timezone
         if times is None:
             (atime, mtime) = time.time()
         else:
@@ -519,7 +544,15 @@ class Server(fuse.Operations):
             inode = get_inode(path, conn)
             conn.execute("UPDATE inodes SET atime=?,mtime=?,ctime=? WHERE id=?",
                          (atime - time.timezone, mtime - time.timezone, 
-                          time.time() - time.timezone, inode))
+                          timestamp, inode))
+            
+        with self.writelock:
+            try:
+                st = self.size_cmtime_cache[inode]
+            except KeyError:
+                pass
+            else:
+                self.size_cmtime_cache[inode] = (st[0], timestamp, mtime - time.timezone)
 
     def statfs(self, path):
         """Handles FUSE statfs() requests.
@@ -643,40 +676,42 @@ class Server(fuse.Operations):
         return inode
 
     def read(self, path, length, offset, inode):
+        '''Handles fuse read() requests.
+        '''
 
         buf = StringIO()
-        size = self.dbcm.get_val("SELECT size FROM inodes WHERE id=?", (inode,))
+        
+        # Make sure that we don't read beyond the file size. This
+        # should not happen unless direct_io is activated, but it's
+        # cheap and nice for testing.
+        size = self.getattr_ino(inode)['st_size']
+        length = min(size - offset, length)
+        
         while length > 0:
-            if offset >= size:
-                break
-            tmp = self.read_direct(length, offset, inode)
+            tmp = self._read(length, offset, inode)
             buf.write(tmp)
             length -= len(tmp)
             offset += len(tmp)
+            
         return buf.getvalue()
 
-    def read_direct(self, length, offset, inode):
-        """Handles FUSE read() requests.
+    def _read(self, length, offset, inode):
+        """Reads at the specified position until the end of the block
 
-        May return less than `length` bytes.
+        This method may return less than `length` bytes if a blocksize
+        boundary is encountered. It may also read beyond the end of
+        the file, filling the buffer with additional null bytes.
         """
-        
         
         # Calculate starting offset of next s3 object, we don't
         # read further than that
         offset_f = self.blocksize * (int(offset / self.blocksize) + 1)
         if offset + length > offset_f:
             length = offset_f - offset
-
-        
-        with self.dbcm() as conn:
-            # Additionally, we don't read beyond the end of the file
-            size = conn.get_val("SELECT size FROM inodes WHERE id=?", (inode,))
-            if offset + length > size:
-                length = size - offset
                 
-            # Update access time
-            if not self.noatime:
+        # Update access time
+        if not self.noatime:
+            with self.dbcm() as conn:
                 update_atime(inode, conn)
 
         # Obtain required s3 object
@@ -688,24 +723,27 @@ class Server(fuse.Operations):
             if len(buf) == length:
                 return buf
             else:
-                # If we can't read enough, we have a hole as well
-                # (since we already adjusted the length to be within the file size)
+                # If we can't read enough, add nullbytes
                 return buf + b"\0" * (length - len(buf))
 
     def write(self, path, buf, offset, inode):
+        """Handles FUSE write() requests.
+     
+        """
 
         total = len(buf)
         while len(buf) > 0:
-            written = self.write_direct(buf, offset, inode)
+            written = self._write(buf, offset, inode)
             offset += written
             buf = buf[written:]
         return total
 
 
-    def write_direct(self, buf, offset, inode):
-        """Handles FUSE write() requests.
+    def _write(self, buf, offset, inode):
+        """Write as much as we can.
 
-        May write less bytes than given in `buf`.
+        May write less bytes than given in `buf`, returns
+        the number of bytes written.
         """
         
         offset_i = self.blocksize * int(offset / self.blocksize)
@@ -722,19 +760,24 @@ class Server(fuse.Operations):
             fh.write(buf)
 
         # Update file size if changed
-        # Fuse does not ensure that we do not get conconnrent write requests,
+        # Fuse does not ensure that we do not get concurrent write requests,
         # so we have to be careful not to undo a size extension made by
         # a concurrent write.
         minsize = offset + len(buf)
         timestamp = time.time() - time.timezone
         
-        with self.dbcm() as conn:
-            conn.execute("UPDATE inodes SET size=MAX(size,?), ctime=?, mtime=? WHERE id=?",
-                     (minsize, timestamp, timestamp, inode))
-         
-            # Still update mtime
-            update_mtime(inode, conn)
-        
+        with self.writelock:
+            try:
+                st = self.size_cmtime_cache[inode]
+            except KeyError:
+                st = (self.dbcm.get_val('SELECT size FROM inodes WHERE id=?', (inode,)),
+                      timestamp)
+                
+            if minsize > st[0]:
+                self.size_cmtime_cache[inode] = (minsize, timestamp, timestamp)
+            else:
+                self.size_cmtime_cache[inode] = (st[0], st[1], timestamp)
+      
         return len(buf)
 
     def ftruncate(self, path, len_, inode):
@@ -754,6 +797,9 @@ class Server(fuse.Operations):
         timestamp = time.time() - time.timezone
         self.dbcm.execute("UPDATE inodes SET size=?,mtime=?,ctime=? WHERE id=?",
                           (len_, timestamp, timestamp, inode))
+        
+
+        self.size_cmtime_cache[inode] = (len_, timestamp, timestamp)
             
 
     def fsync(self, path, fdatasync, inode):
@@ -764,6 +810,18 @@ class Server(fuse.Operations):
         self.cache.flush(inode)
 
 
+    def release(self, path, inode):    
+        with self.writelock:
+            try:
+                st = self.size_cmtime_cache.pop(inode)
+            except KeyError:
+                pass
+            else:
+                self.dbcm.execute('UPDATE inodes SET size=?, ctime=?, mtime=? WHERE id=?',
+                                  (st[0], st[1], st[2], inode))
+                                        
+
+    
     # Called for close() calls. Here we sync the data, so that we
     # can still return write errors.
     def flush(self, path, inode):
