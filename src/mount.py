@@ -16,10 +16,6 @@ import os
 import stat
 import logging
 #import cProfile
-import psyco
-
-psyco.full()
-
 
 #
 # Parse command line
