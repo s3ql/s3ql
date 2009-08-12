@@ -15,6 +15,11 @@ from s3ql.database import ConnectionManager
 import os
 import stat
 import logging
+#import cProfile
+import psyco
+
+psyco.full()
+
 
 #
 # Parse command line
@@ -98,13 +103,6 @@ if options.o is not None:
                     raise ValueError()
         except ValueError:
             parser.error('Unknown mount option: "%s"' % pair)
-
-# Use this once we have encryption support
-#if fs_is_encrypted
-#    if sys.stdin.isatty():
-#        options.encrypt = getpass("Enter encryption password: ")
-#    else:
-#        options.encrypt = sys.stdin.readline().rstrip()
 
 
 #
@@ -198,7 +196,16 @@ try:
     server = fs.Server(cache, dbcm, options.noatime)
     if options.fg:
         log.info('Mounting filesystem..')
+    
+    # Uncomment this and import cProfile to activate profiling.
+    # Note that profiling only works in single threaded mode.
+    #retcache = list()
+    #def doit():
+    #    retcache.append(server.main(mountpoint, **fuse_opts))
+    #cProfile.run('doit()', 'profile_psyco.dat')
+    #ret = retcache[0]   
     ret = server.main(mountpoint, **fuse_opts)
+
     cache.close()
     if not options.bgcommit:
         bucket['s3ql_bgcommit'] = 'no'
