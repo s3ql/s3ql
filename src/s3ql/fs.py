@@ -556,8 +556,6 @@ class Server(fuse.Operations):
 
     def statfs(self, path):
         """Handles FUSE statfs() requests.
-        
-        The 'f_frsize', 'f_favail', 'f_fsid' and 'f_flag' fields are ignored.
         """
         
         stat_ = dict()
@@ -566,11 +564,14 @@ class Server(fuse.Operations):
         with self.dbcm() as conn: 
             blocks = conn.get_val("SELECT COUNT(id) FROM s3_objects")
             inodes = conn.get_val("SELECT COUNT(id) FROM inodes")
-            size = conn.get_val('SELECT COUNT(size) FROM s3_objects')
+            size = conn.get_val('SELECT SUM(size) FROM s3_objects')
         
-        # file system block size, for now we use the average
-        # blocksize since f_frsize is ignored
-        stat_["f_bsize"] = int( size / blocks ) if blocks != 0 else self.blocksize     
+        # file system block size,
+        # It would be more appropriate to switch f_bsize and f_frsize,
+        # but since df and stat ignore f_frsize, this way we can
+        # export more information  
+        stat_["f_bsize"] = int( size / blocks ) if blocks != 0 else self.blocksize
+        stat_['f_frsize'] = self.blocksize     
         
         # size of fs in f_frsize units 
         # (since S3 is unlimited, always return a half-full filesystem)
