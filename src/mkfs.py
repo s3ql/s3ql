@@ -65,6 +65,8 @@ if options.encrypt:
             sys.exit(1)
     else:
         options.encrypt = sys.stdin.readline().rstrip()
+    sys.stderr.write('Encryption is not yet supported.')
+    sys.exit(1)
 
 # Activate logging
 init_logging(True, options.quiet, options.debug)
@@ -73,7 +75,7 @@ log = logging.getLogger("frontend")
 #
 # Setup bucket
 #
-conn = s3.Connection(awskey, awspass, options.encrypt)
+conn = s3.Connection(awskey, awspass)
 if conn.bucket_exists(bucket):
     if options.force:
         log.info("Removing existing bucket...")

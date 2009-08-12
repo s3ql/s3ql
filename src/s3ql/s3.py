@@ -34,10 +34,9 @@ class Connection(object):
     separate s3 connection for each thread.
     """
 
-    def __init__(self, awskey, awspass, encrypt=None):
+    def __init__(self, awskey, awspass):
         self.awskey = awskey
         self.awspass = awspass
-        self.encrypt = encrypt
         self.pool = list()
         self.conn_cnt = 0
 
