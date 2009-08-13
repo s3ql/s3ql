@@ -8,7 +8,7 @@
 from __future__ import unicode_literals
 from random import randrange
 from s3ql import mkfs, s3, fs, fsck
-from s3ql.common import writefile
+from s3ql.common import writefile, get_path
 from s3ql.s3cache import S3Cache
 from s3ql.database import ConnectionManager
 import os
@@ -578,6 +578,18 @@ class fs_api_tests(unittest.TestCase):
     def test_13_statfs(self):
         self.assertTrue(isinstance(self.server.statfs(b'/'), dict))
 
+        
+    def test_path(self):
+        mode = stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP
+        self.server.mkdir(b'/dir1', mode)
+        self.server.mkdir(b'/dir2', mode)
+        self.server.mkdir(b'/dir1/dir2', mode)
+        self.server.mkdir(b'/dir1/dir2/foobar', mode)
+        self.server.mkdir(b'/dir1/d4', mode)
+        
+        inode_p = self.server.getattr(b'/dir1/dir2')['st_ino']
+        with self.dbcm() as conn:
+            self.assertEquals(b'/dir1/dir2/foobar', get_path(b'foobar', inode_p, conn))
 
 
 def suite():

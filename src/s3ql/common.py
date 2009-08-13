@@ -9,7 +9,6 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import unicode_literals
 import sys
 import os
-import tempfile
 import resource
 import stat
 import traceback
@@ -21,7 +20,7 @@ from getpass import getpass
 
 __all__ = [ "decrease_refcount",  "get_cachedir", "init_logging",
            "get_credentials", "get_dbfile", "get_inode", "get_path",
-           "increase_refcount", "unused_name", "addfile", "get_inodes",
+           "increase_refcount", "unused_name", "get_inodes",
            "update_atime", "update_mtime", "update_ctime", 
            "waitfor", "ROOT_INODE", "writefile", "ExceptionStoringThread",
            "EmbeddedException" ]
@@ -178,24 +177,24 @@ def get_path(name, inode_p, conn):
     if not isinstance(name, bytes):
         raise TypeError('name must be of type bytes')
     
-    path = [ b'/' ] 
+    path = [ name ] 
     
     maxdepth = 255
     while inode_p != ROOT_INODE:
         # This can be ambigious if directories are hardlinked
         (name2, inode_p) = conn.get_row("SELECT name, parent_inode FROM contents "
                                       "WHERE inode=? AND name != ? AND name != ?",
-                                       (inode_p, '.', '..')) 
+                                       (inode_p, b'.', b'..')) 
         path.append(name2)
         maxdepth -= 1
         if maxdepth == 0:
             raise RuntimeError('Failed to resolve name "%s" at inode %d to path',
                                name, inode_p)
         
-    path.append(name)
+    path.append(b'')
     path.reverse()
     
-    return os.path.join(*path)
+    return b'/'.join(path)
     
     
 def decrease_refcount(inode, conn):
@@ -351,32 +350,6 @@ def unused_name(path, conn):
     
     return newpath
         
-def addfile(src, dest, dbcm, bucket):
-    """Copies the local file `src' into the fs as `dest`
-
-    If `dest` is already existing, numerical suffixes are appended
-    to the name to prevent existing files from being overwritten.
-    
-    This function is mainly used by fsck to add files to
-    lost+found.
-    
-    Returns the filename that has been written to.
-    """
-
-    # Instantiate the regular server
-    from s3ql import fs, s3cache
-    cachedir = tempfile.mkdtemp() + "/"
-    cache = s3cache.S3Cache(bucket, cachedir, 0, dbcm)
-    server = fs.Server(cache, dbcm)
-        
-    with dbcm() as conn:
-        dest = unused_name(dest, conn)
-    writefile(src, dest, server)
-    
-    cache.close()
-    os.rmdir(cachedir)    
-       
-    return dest
 
 # Define inode of root directory
 ROOT_INODE = 0
