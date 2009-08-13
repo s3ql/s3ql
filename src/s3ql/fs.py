@@ -494,7 +494,7 @@ class Server(fuse.Operations):
             with conn.transaction():
                 timestamp = time.time() - time.timezone
                 inode = conn.rowid('INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev, '
-                                   'refcount,size) VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)',
+                                   'refcount) VALUES(?, ?, ?, ?, ?, ?, ?, ?)',
                                    (timestamp, timestamp, timestamp, uid, gid, mode, dev, 1))
                 conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                          (os.path.basename(path), inode, inode_p))

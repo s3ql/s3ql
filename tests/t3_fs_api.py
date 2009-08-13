@@ -523,11 +523,61 @@ class fs_api_tests(unittest.TestCase):
         self.server.flush(filename2, fh)
         self.server.release(filename2, fh)
        
-    # TODO: Test mknod
+    def test_05_mknod_unlink(self):
+        name = os.path.join(b"/",  self.random_name())
+        
+        mode = ( stat.S_IFSOCK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+        self.assert_entry_doesnt_exist(name)
+        mtime_old = self.server.getattr(b"/")["st_mtime"]
+        self.server.mknod(name, mode)
+        self.assert_entry_exists(name)
+
+        self.assertEquals(self.server.getattr(name)["st_mode"], mode)
+        self.assertEquals(self.server.getattr(name)["st_nlink"], 1)
+        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
+
+        mtime_old = self.server.getattr(b"/")["st_mtime"]
+        self.server.unlink(name)
+        self.assert_entry_doesnt_exist(name)
+        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
+        
+        mode = ( stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+        self.assert_entry_doesnt_exist(name)
+        mtime_old = self.server.getattr(b"/")["st_mtime"]
+        self.server.mknod(name, mode)
+        self.assert_entry_exists(name)
+
+        self.assertEquals(self.server.getattr(name)["st_mode"], mode)
+        self.assertEquals(self.server.getattr(name)["st_nlink"], 1)
+        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
+
+        mtime_old = self.server.getattr(b"/")["st_mtime"]
+        self.server.unlink(name)
+        self.assert_entry_doesnt_exist(name)
+        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
+        
+        mode = ( stat.S_IFCHR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+        dev = 42
+        self.assert_entry_doesnt_exist(name)
+        mtime_old = self.server.getattr(b"/")["st_mtime"]
+        self.server.mknod(name, mode, dev)
+        self.assert_entry_exists(name)
+
+        self.assertEquals(self.server.getattr(name)["st_mode"], mode)
+        self.assertEquals(self.server.getattr(name)["st_nlink"], 1)
+        self.assertEquals(self.server.getattr(name)["st_rdev"], dev)
+        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
+
+        mtime_old = self.server.getattr(b"/")["st_mtime"]
+        self.server.unlink(name)
+        self.assert_entry_doesnt_exist(name)
+        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
+
+        self.fsck()
     
-    # TODO: Test statfs
-    
-    # TODO: Test bgcommit thread  
+    def test_13_statfs(self):
+        self.assertTrue(isinstance(self.server.statfs(b'/'), dict))
+
 
 
 def suite():
