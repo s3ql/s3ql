@@ -251,7 +251,19 @@ class s3cache_tests(unittest.TestCase):
         
         self.assertFalse(os.path.exists(self.cachedir + s3key))
         self.assertTrue(self.bucket[s3key] == data)
-            
+                  
+    
+    def test_04_bgcommit(self):
+        commit_thread = ExceptionStoringThread(target=self.cache._commit)
+        commit_thread.start()
+        
+        self.cache.shutdown.set()
+        
+        commit_thread.join_and_raise()
+        
+        # Prevent close warning 
+        self.cache.shutdown.clear()
+        
     
 class DummyLock(object):
     """Dummy MultiLock class doing nothing
@@ -263,7 +275,7 @@ class DummyLock(object):
     @contextmanager
     def __call__(self, _):
         # pylint: disable-msg=R0201
-        # Yeah, this could be a function.
+        # Yeah, this could be a function / static method.
         yield
             
     def acquire(self, _):
