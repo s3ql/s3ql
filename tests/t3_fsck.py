@@ -166,8 +166,35 @@ class fsck_tests(unittest.TestCase):
     def test_loops(self):
         '''
         '''
-        # TODO: Implement test_loops
-        pass
+        
+        conn = self.conn
+        
+        # Create some directory inodes  
+        inodes = [ conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                              "VALUES (?,?,?,?,?,?,?)", 
+                              (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR,
+                               0, 0, time.time(), time.time(), time.time(), 3)) 
+                   for dummy in range(3) ]
+        
+        inodes.append(inodes[0])
+        last = inodes[0]
+        for inode in inodes[1:]:
+            conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
+                         (bytes(inode), inode, last))
+            conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
+                         (b'.', inode, inode))
+            conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
+                         (b'..', last, inode))
+            last = inode
+
+            
+        self.assertTrue(self.checker.check_inode_refcount())
+        
+        self.assertFalse(self.checker.check_loops())
+        
+        # We can't correct this yet
+        #self.assertTrue(self.checker.check_loops())
+
     
     def test_offsets(self):
         '''
