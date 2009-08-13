@@ -458,11 +458,17 @@ class Checker(object):
      
         conn = self.conn
         found_errors = False
+        
+        def warn(*a, **kw):
+            if not self.expect_errors:
+                log.warn(*a, **kw)
      
         # We use this table to keep track of the s3keys that we have
         # seen
         conn.execute("CREATE TEMP TABLE s3keys AS SELECT id FROM s3_objects")
     
+        only_in_s3 = list()
+        too_big = list()
         for (s3key, meta) in self.bucket.list_keys():
     
             # We only bother with data objects
@@ -475,92 +481,55 @@ class Checker(object):
             
             # Handle object that exists only in S3
             except StopIteration:
-                found_errors = True
-                if not self.expect_errors:
-                    log.warn("object %s not referenced in s3 objects table, adding to lost+found",
-                             s3key)
-                
-                # We don't directly add it, because this may introduce s3 key 
-                # clashes and does not work if the object is larger than the
-                # block size
-                if not self.checkonly:
-                    tmp = tempfile.NamedTemporaryFile()
-                    self.bucket.fetch_to_file(s3key, tmp.name)
-                    dest = unused_name(b'/lost+found/%s' % s3key.encode(), conn)
-                    writefile(tmp.name, dest, self.server)
-                    del self.bucket[s3key]
-                    tmp.close()
-            
+                found_errors = True 
+                warn("object %s not referenced in s3 objects table, adding to lost+found",
+                      s3key)
+                only_in_s3.append(s3key)
                 continue
                     
    
-            # Mark object as seen, check its metadata
+            # Mark object as seen
             conn.execute("DELETE FROM s3keys WHERE id=?", (s3key,))
-            if not self.check_metadata(meta, etag, size): 
+            
+            # Check Etag
+            if etag != meta.etag:
                 found_errors = True
-                    
-                    
+                warn("object %s has incorrect etag in metadata, adjusting" % s3key)
+                conn.execute("UPDATE s3_objects SET etag=? WHERE id=?",
+                             (meta.etag, s3key))  
+            
+            # Size agreement
+            if size != meta.size:
+                found_errors = True
+                warn("object %s has incorrect size in metadata, adjusting" % s3key)
+                conn.execute("UPDATE s3_objects SET size=? WHERE id=?",
+                             (meta.size, s3key)) 
+     
+            # Size <= block size
+            if meta.size > self.blocksize:
+                found_errors = True
+                warn("object %s is larger than blocksize (%d > %d), "
+                     "truncating (original object in lost+found)",
+                     s3key, meta.size, self.blocksize)
+                too_big.append(s3key)
+         
         # Now handle objects that only exist in s3_objects
         for (s3key,) in conn.query("SELECT id FROM s3keys"):
             found_errors = True
-            if not self.expect_errors:
-                log.warn("object %s only exists in table but not on s3, deleting", s3key)
+            warn("object %s only exists in table but not on s3, deleting", s3key)
             conn.execute("DELETE FROM inode_s3key WHERE s3key=?", (s3key,))
             conn.execute("DELETE FROM s3_objects WHERE id=?", (s3key,))
-                    
-        conn.execute('DROP TABLE s3keys')
-                        
-        return not found_errors
-
-    def check_metadata(self, meta, etag, size):
-        """Check the metadata of a given object against the given values
-    
-        Checks that:
-        - no s3 object is larger than the blocksize
-        - etags match (update metadata in case of conflict)
-    
-        Returns `False` if any errors have been found.
-        """
-     
-        conn = self.conn
-        found_errors = False
-        s3key = meta.key
-
-        #
-        # Etag
-        # 
-        if etag != meta.etag:
-            found_errors = True
-            if not self.expect_errors:
-                log.warn("object %s has incorrect etag in metadata, adjusting" % s3key)
-            conn.execute("UPDATE s3_objects SET etag=? WHERE id=?",
-                       (meta.etag, s3key))  
-        
-        # 
-        # Size agreement
-        #    
-        if size != meta.size:
-            found_errors = True
-            if not self.expect_errors:
-                log.warn("object %s has incorrect size in metadata, adjusting" % s3key)
-            conn.execute("UPDATE s3_objects SET size=? WHERE id=?",
-                       (meta.size, s3key)) 
- 
-        #
-        # Size <= block size
-        #
-        if meta.size > self.blocksize:
-            found_errors = True
-            if not self.expect_errors:
-                log.warn("object %s is larger than blocksize (%d > %d), "
-                         "truncating (original object in lost+found)",
-                         s3key, meta.size, self.blocksize)
-            if not self.checkonly:
+            
+        # Correct accumulated errors            
+        if not self.checkonly:
+            # Split too big objects
+            for s3key in too_big:
+                warn("Uploading %s", s3key)
                 tmp = tempfile.NamedTemporaryFile()
                 self.bucket.fetch_to_file(s3key, tmp.name)
 
                 # Save full object in lost+found
-                dest = unused_name(b'/lost+found/%s' % s3key, conn)
+                dest = unused_name(b'/lost+found/%s' % s3key.encode(), conn)
                 writefile(tmp.name, dest, self.server)
 
                 # Truncate and write
@@ -568,8 +537,22 @@ class Checker(object):
                 tmp.truncate()
                 etag_new = self.bucket.store_from_file(s3key, tmp.name)
                 tmp.close()
-                conn.execute("UPDATE s3_objects SET etag=?, size=? WHERE s3key=?",
-                           (etag_new, self.blocksize, s3key))            
-                                   
+                conn.execute("UPDATE s3_objects SET etag=?, size=? WHERE id=?",
+                           (etag_new, self.blocksize, s3key))  
+                
+            #  Handle objects only in S3
+            for s3key in only_in_s3:
+                warn("Uploading %s", s3key)
+                # We don't directly add it, because this may introduce s3 key 
+                # clashes and does not work if the object is larger than the
+                # block size
+                tmp = tempfile.NamedTemporaryFile()
+                self.bucket.fetch_to_file(s3key, tmp.name)
+                dest = unused_name(b'/lost+found/%s' % s3key.encode(), conn)
+                writefile(tmp.name, dest, self.server)
+                del self.bucket[s3key]
+                tmp.close()    
+                                 
+        conn.execute('DROP TABLE s3keys')
+                        
         return not found_errors
-

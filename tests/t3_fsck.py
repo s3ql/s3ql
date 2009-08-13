@@ -141,6 +141,10 @@ class fsck_tests(unittest.TestCase):
         self.assertFalse(self.checker.check_keylist())
         self.assertTrue(self.checker.check_keylist())
         
+    @staticmethod   
+    def random_data(len_):
+        with open("/dev/urandom", "rb") as fd:
+            return fd.read(len_)  
     
     def test_metadata(self):
         '''
@@ -161,6 +165,15 @@ class fsck_tests(unittest.TestCase):
                            (b'wrong etag', s3key))
         self.assertFalse(self.checker.check_keylist())
         self.assertTrue(self.checker.check_keylist())
+        
+        # Create an object with size > blocksize
+        size = 2 * self.blocksize
+        etag = self.bucket.store(s3key, self.random_data(size))
+        self.conn.execute('UPDATE s3_objects SET etag=?, size=? WHERE id=?',
+                          (etag, size, s3key))
+        self.assertFalse(self.checker.check_keylist())
+        self.assertTrue(self.checker.check_keylist())
+    
         
         
     def test_loops(self):
