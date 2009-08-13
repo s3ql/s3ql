@@ -258,6 +258,9 @@ class WrappedConnection(object):
         we have to emulate this behavior.
         '''
                 
+        # There really aren't too many branches in this method
+        #pylint: disable-msg=R0912
+        
         # Convert bytes to buffer
         if isinstance(bindings, dict):
             newbindings = dict()

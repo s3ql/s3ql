@@ -443,7 +443,7 @@ class fs_api_tests(unittest.TestCase):
         self.assertEquals(fstat2, self.server.getattr(filename_new2))
         self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
 
-    def test_10_overwrite(self):
+    def test_10_overwrite_file(self):
         filename1 = b"/file1"
         filename2 = b"/file2"
         
@@ -475,7 +475,53 @@ class fs_api_tests(unittest.TestCase):
         self.server.flush(filename2, fh)
         self.server.release(filename2, fh)
         
-        # TODO: Test overwriting of directory
+    def test_10_overwrite_dir(self):
+        dirname1 = b"/directory1"
+        dirname2 = b"/directory2"
+        
+        filename = b'foobrup'
+        filename1 = dirname1 + b'/' + filename
+        filename2 = dirname2 + b'/' + filename
+
+        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR )
+        self.server.mkdir(dirname1, mode)
+        self.server.mkdir(dirname2, mode)
+        
+        fh = self.server.create(filename1, mode)
+        data1 = self.random_data(512)
+        self.server.write(filename1, data1, 0, fh)
+        self.server.flush(filename1, fh)
+        self.server.release(filename1, fh)
+        
+        fh = self.server.create(filename2, mode)
+        data2 = self.random_data(512)
+        self.server.write(filename2, data2, 0, fh)
+        self.server.flush(filename2, fh)
+        self.server.release(filename2, fh)   
+        
+        # Attempt to overwrite, should fail
+        self.assertRaises(fs.FUSEError, self.server.rename, dirname1,
+                          dirname2)
+        
+        # Delete file in target
+        self.server.unlink(filename2)
+        self.assert_entry_doesnt_exist(filename2)
+        
+        # Now we should be able to rename 
+        fstat = self.server.getattr(dirname1)
+        mtime_old = self.server.getattr(b'/')["st_mtime"]
+        self.server.rename(dirname1, dirname2)
+        self.assertEquals(fstat, self.server.getattr(dirname2))
+        self.assert_entry_doesnt_exist(dirname1)
+        self.assert_entry_exists(filename2)
+
+
+        self.assertTrue(self.server.getattr(b'/')["st_mtime"] > mtime_old)
+        
+        fh = self.server.open(filename2, os.O_RDONLY)
+        self.assertEquals(data1, self.server.read(filename2, len(data2), 0, fh))
+        self.server.flush(filename2, fh)
+        self.server.release(filename2, fh)
        
     # TODO: Test mknod
     

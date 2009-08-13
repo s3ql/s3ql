@@ -316,7 +316,8 @@ class Server(fuse.Operations):
             (inode_p, inode) = get_inodes(path, conn)[-2:]
             
             # Check if directory is empty
-            if conn.get_val("SELECT refcount FROM inodes WHERE id=?", (inode,)) > 2: 
+            if conn.get_val("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
+                            (inode,)) > 2: 
                 log.debug("Attempted to remove nonempty directory %s", path)
                 raise FUSEError(errno.EINVAL)
     
@@ -387,11 +388,12 @@ class Server(fuse.Operations):
                 
                 # Both directories
                 if stat.S_ISDIR(fstat_repl['st_mode']) and stat.S_ISDIR(fstat['st_mode']):
-                    if fstat_repl['st_nlink'] > 2: 
-                        log.debug("Attempted to overwrite nonempty directory %s", new)
-                        raise FUSEError(errno.EINVAL)
-                    
                     with conn.transaction():
+                        if conn.get_val("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
+                                        (inode_repl,)) > 2: 
+                            log.debug("Attempted to overwrite nonempty directory %s", new)
+                            raise FUSEError(errno.EINVAL)
+                    
                         # Replace target
                         conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
                                     (inode, os.path.basename(new), inode_p_new))
