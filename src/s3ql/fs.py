@@ -567,6 +567,9 @@ class Server(fuse.Operations):
             blocks = conn.get_val("SELECT COUNT(id) FROM s3_objects")
             inodes = conn.get_val("SELECT COUNT(id) FROM inodes")
             size = conn.get_val('SELECT SUM(size) FROM s3_objects')
+            
+        if size is None: 
+            size = 0
         
         # file system block size,
         # It would be more appropriate to switch f_bsize and f_frsize,
