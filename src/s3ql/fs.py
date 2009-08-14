@@ -576,14 +576,17 @@ class Server(fuse.Operations):
         stat_['f_frsize'] = self.blocksize     
         
         # size of fs in f_frsize units 
-        # (since S3 is unlimited, always return a half-full filesystem)
-        stat_["f_blocks"] = 2 * blocks
-        stat_["f_bfree"] = blocks
-        stat_["f_bavail"] = blocks # free for non-root
+        # (since S3 is unlimited, always return a half-full filesystem,
+        # but at least 50 GB)
+        total_blocks = max(2*blocks, 50 * 1024**3 / stat_['f_bsize'])
+        stat_["f_blocks"] = total_blocks
+        stat_["f_bfree"] = total_blocks - blocks
+        stat_["f_bavail"] = total_blocks - blocks # free for non-root
         
-        stat_["f_files"] = 2 * inodes
-        stat_["f_ffree"] = inodes
-        stat_["f_favail"] = inodes # free for non-root
+        total_inodes = max(2 * inodes, 50000)
+        stat_["f_files"] = total_inodes
+        stat_["f_ffree"] = total_inodes - inodes
+        stat_["f_favail"] = total_inodes - inodes # free for non-root
 
         return stat_
 
