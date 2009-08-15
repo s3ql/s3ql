@@ -28,7 +28,21 @@ parser = OptionParser(
 
 parser.add_option("--awskey", type="string",
                   help="Amazon Webservices access key to use. If not "
-                  "specified, tries to read ~/.awssecret.")
+                  "specified, tries to read ~/.awssecret or the file given by --credfile.")
+parser.add_option("--debuglog", type="string",
+                  help="Write debugging information in specified file. You will need to "
+                        'use --debug as well in order to get any output.')
+parser.add_option("--credfile", type="string", default=os.environ["HOME"].rstrip("/") + "/.awssecret",
+                  help='Try to read AWS access key and key id from this file. '
+                  'The file must be readable only be the owner and should contain '
+                  'the key id and the secret key separated by a newline. '
+                  'Default: ~/.awssecret')
+parser.add_option("--cachedir", type="string", default=os.environ["HOME"].rstrip("/") + "/.s3ql",
+                  help="Specifies the directory for cache files. Different S3QL file systems "
+                  '(i.e. located in different S3 buckets) can share a cache location, even if ' 
+                  'they are mounted at the same time. '
+                  'You should try to always use the same location here, so that S3QL can detect '
+                  'and, as far as possible, recover from unclean unmounts. Default is ~/.s3ql.')
 parser.add_option("--checkonly", action="store_true", default=None,
                   help="Only check, do not fix errors.")
 parser.add_option("--force-remote", action="store_true", default=False,
@@ -50,11 +64,11 @@ parser.add_option("--quiet", action="store_true", default=False,
 if not len(pps) == 1:
     parser.error("bucketname not specificed")
 bucketname = pps[0]
-dbfile = get_dbfile(bucketname)
-cachedir = get_cachedir(bucketname)
+dbfile = get_dbfile(bucketname, options.cachedir)
+cachedir = get_cachedir(bucketname, options.cachedir)
 
 # Activate logging
-init_logging(True, options.quiet, options.debug)
+init_logging(True, options.quiet, options.debug, options.debuglog)
 log = logging.getLogger("frontend")
 
 # Set if we need to reupload the metadata
@@ -63,7 +77,7 @@ commit_required = False
 #
 # Open bucket
 #
-(awskey, awspass) = get_credentials(options.awskey)
+(awskey, awspass) = get_credentials(options.credfile, options.awskey)
 conn = s3.Connection(awskey, awspass)
 if not conn.bucket_exists(bucketname):
     print >> sys.stderr, "Bucket does not exist."

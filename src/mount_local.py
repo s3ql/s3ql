@@ -26,6 +26,10 @@ parser = OptionParser(
     description="Emulates S3QL filesystem using in-memory storage"
     "instead of actually connecting to S3. Only for testing purposes.")
 
+
+parser.add_option("--debuglog", type="string",
+                  help="Write debugging information in specified file. You will need to "
+                        'use --debug as well in order to get any output.')
 parser.add_option("--debug", action="append", 
                   help="Activate debugging output from specified facility. Valid facility names "
                         "are: fs, fs.fuse, s3, fsck, mkfs, frontend. "
@@ -81,7 +85,7 @@ if options.fg:
 
 
 # Activate logging
-init_logging(options.fg, options.quiet, options.debug)
+init_logging(True, options.quiet, options.debug, options.debuglog)
 log = logging.getLogger("frontend")
 
 #

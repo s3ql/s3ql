@@ -29,8 +29,8 @@ class Filter(object):
     """
     For use with the logging module as a message filter.
     
-    This filter accepts all messages with priority higher than
-    a given value or coming from a configured list of loggers.    
+    This filter accepts all messages which have the specified priority 
+    and come from a configured list of loggers.    
     """
    
     def __init__(self, acceptnames=None, acceptlevel=logging.DEBUG):
@@ -48,8 +48,8 @@ class Filter(object):
     def filter(self, record):
         '''Determine if the log message should be printed
         '''
-        if record.levelno > self.acceptlevel:
-            return True
+        if record.levelno != self.acceptlevel:
+            return False
         
         name = record.name.lower()
         for accept in self.acceptnames:
@@ -58,52 +58,57 @@ class Filter(object):
         
         return False
             
-def init_logging(fg, quiet=False, debug=None):
+def init_logging(fg, quiet=False, debug=None, debugfile=None):
     """Initializes logging system.
     
     If `fg` is set, logging messages are send to stdout. Otherwise logging
     is done via unix syslog.
     
     If `quiet` is set, only messages with priority larger than
-    logging.WARN are printed.
+    logging.WARN are printed. Otherwise the minimum priority is
+    logging.INFO.
     
     `debug` can be set to a list of logger names from which debugging
-    messages are to be printed.
+    messages are to be printed. If debugfile is not none, it specifies
+    a file into which the debugging messages are written.
     """            
     if debug is None:
         debug = list()
         
     root_logger = logging.getLogger()
-    log_filter = Filter()
     
-    if fg and debug:
+    # Standard handler
+    if fg: 
         handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter('%(asctime)s,%(msecs)03d %(threadName)s: '
-                                               '[%(name)s] %(message)s',
-                                               datefmt="%H:%M:%S"))
-    elif fg and not debug:
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter('[%(name)s] %(message)s'))   
-    elif not fg and debug:
-        handler = logging.handlers.SysLogHandler("/dev/log")
-        handler.setFormatter(logging.Formatter('s3ql[%(process)d, %(threadName)s]: '
-                                               '[%(name)s] %(message)s'))          
+        handler.setFormatter(logging.Formatter('[%(name)s] %(message)s'))           
     else:
         handler = logging.handlers.SysLogHandler("/dev/log")
-        handler.setFormatter(logging.Formatter('s3ql[%(process)d]: [%(name)s] %(message)s'))
-
-    handler.addFilter(log_filter)  # If we add the filter to the logger, it has no effect!
-    root_logger.addHandler(handler)
-
-    # Default
-    root_logger.setLevel(logging.INFO)
+        handler.setFormatter(logging.Formatter('s3ql[%(process)d]: [%(name)s] %(message)s'))  
     
     if quiet:
         root_logger.setLevel(logging.WARN)
+        handler.setLevel(logging.WARN)
+    else:
+        root_logger.setLevel(logging.INFO)
+        handler.setLevel(logging.INFO)
         
+    root_logger.addHandler(handler)
+
+
+    # Debugging handler
     if debug:
+        if debugfile is None:
+            debug_handler = logging.StreamHandler()
+        else:
+            debug_handler = logging.handlers.WatchedFileHandler(debugfile)
+            
+        debug_handler.setFormatter(logging.Formatter('%(asctime)s,%(msecs)03d %(threadName)s: '
+                                                     '[%(name)s] %(message)s',
+                                                     datefmt="%H:%M:%S")) 
+        debug_handler.addFilter(Filter(acceptnames=debug, acceptlevel=logging.DEBUG))
+        root_logger.addHandler(debug_handler) 
         root_logger.setLevel(logging.DEBUG)
-        log_filter.acceptnames = debug 
+   
 
 def update_atime(inode, conn):
     """Updates the atime of the specified object.
@@ -214,11 +219,9 @@ def increase_refcount(inode, conn):
              (time.time() - time.timezone, inode))
 
 
-def get_cachedir(bucketname):
+def get_cachedir(bucketname, path):
     """get directory to put cache files in.
     """
-
-    path = os.environ["HOME"].rstrip("/") + "/.s3ql"
 
     if not os.path.exists(path):
         os.mkdir(path)
@@ -226,11 +229,9 @@ def get_cachedir(bucketname):
     return path + ("/%s-cache/" % bucketname)
 
 
-def get_dbfile(bucketname):
+def get_dbfile(bucketname, path):
     """get filename for metadata db.
     """
-
-    path = os.environ["HOME"].rstrip("/") + "/.s3ql"
 
     if not os.path.exists(path):
         os.mkdir(path)
@@ -238,7 +239,7 @@ def get_dbfile(bucketname):
     return path + ("/%s.db" % bucketname)
 
 
-def get_credentials(key=None):
+def get_credentials(keyfile, key=None):
     """Get AWS credentials.
 
     If `key` has been specified, use this as access key and
@@ -247,7 +248,6 @@ def get_credentials(key=None):
     """
     
     pw = None
-    keyfile = os.path.join(os.environ["HOME"], ".awssecret")
     
     if key:
         if sys.stdin.isatty():
