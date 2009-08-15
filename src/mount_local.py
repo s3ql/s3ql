@@ -41,10 +41,8 @@ parser.add_option("--fg", action="store_true", default=False,
                   help="Do not daemonize, stay in foreground")
 parser.add_option("--single", action="store_true", default=False,
                   help="Single threaded operation only")
-parser.add_option("--noatime", action="store_true", default=False,
-                  help="Do not update file and directory access time. May improve performance.")
-parser.add_option("--encrypt", action="store_true", default=None,
-                  help="Create an AES encrypted filesystem")
+parser.add_option("--atime", action="store_true", default=False,
+                  help="Update file and directory access time. Will decrease performance.")
 parser.add_option("--blocksize", type="int", default=1,
                   help="Maximum size of s3 objects in KB (default: %default)")
 parser.add_option("--cachesize", type="int", default=10,
@@ -67,20 +65,6 @@ parser.add_option("--propdelay", type="float", default=0.0,
 if not len(pps) == 1:
     parser.error("Wrong number of parameters")
 mountpoint = pps[0]
-
-
-#
-# Read password(s)
-#
-if options.encrypt:
-    if sys.stdin.isatty():
-        options.encrypt = getpass("Enter encryption password: ")
-        if not options.encrypt == getpass("Confirm encryption password: "):
-            sys.stderr.write("Passwords don't match.\n")
-            sys.exit(1)
-    else:
-        options.encrypt = sys.stdin.readline().rstrip()
-
 
 #
 # Pass on fuse options
@@ -122,7 +106,7 @@ log.debug("Temporary database in " + dbfile.name)
 
 cache =  S3Cache(bucket, cachedir, options.cachesize, dbcm,
                  timeout=options.propdelay+1)
-server = fs.Server(cache, dbcm, options.noatime)
+server = fs.Server(cache, dbcm, not options.atime)
 ret = server.main(mountpoint, **fuse_opts)
 cache.close()
 

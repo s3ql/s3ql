@@ -43,8 +43,8 @@ parser.add_option("--allow_root", action="store_true", default=False,
                   help="Allow root to access the filesystem")
 parser.add_option("--fg", action="store_true", default=False,
                   help="Do not daemonize, stay in foreground")
-parser.add_option("--noatime", action="store_true", default=False,
-                  help="Do not update file and directory access time. May improve performance.")
+parser.add_option("--atime", action="store_true", default=False,
+                  help="Update file and directory access time. Will decrease performance.")
 parser.add_option("--cachesize", type="int", default=51200,
                   help="Cache size in kb (default: 51200 (50 MB)). Should be at least 10 times "
                   "the blocksize of the filesystem, otherwise an object may be retrieved and "
@@ -58,7 +58,7 @@ parser.add_option("--bgcommit", action="store_true", default=False,
 parser.add_option("-o", type='string', default=None,
                   help="For compatibility with mount(8). Specifies mount options in "
                        "the form key=val,key2=val2,etc. Valid keys are s3timeout, "
-                       "allow_others, allow_root, cachesize, noatime, bgcommit.")
+                       "allow_others, allow_root, cachesize, atime, bgcommit.")
                        
 
 (options, pps) = parser.parse_args()
@@ -91,8 +91,8 @@ if options.o is not None:
                     options.allow_others = True
                 if key == 'allow_root':
                     options.allow_root = True
-                if key == 'noatime':
-                    options.noatime = True
+                if key == 'atime':
+                    options.atime = True
                 if key == 'bgcommit':
                     options.bgcommit = True                    
                 else:
@@ -189,7 +189,7 @@ try:
         
     cache =  S3Cache(bucket, cachedir, options.cachesize * 1024, dbcm, 
                      options.s3timeout, options.bgcommit)
-    server = fs.Server(cache, dbcm, options.noatime)
+    server = fs.Server(cache, dbcm, not options.atime)
     if options.fg:
         log.info('Mounting filesystem..')
     
