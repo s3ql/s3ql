@@ -16,6 +16,10 @@ import tempfile
 import apsw
 import time
 
+# For debug messages:
+#from s3ql.common import init_logging
+#init_logging(True, False, debug=['fsck'])
+
 class fsck_tests(unittest.TestCase):
 
     def setUp(self):
@@ -136,7 +140,7 @@ class fsck_tests(unittest.TestCase):
         self.assertTrue(self.checker.check_keylist())
         
         # Create an object that does not exist in S3
-        self.conn.execute('INSERT INTO s3_objects (id, refcount) VALUES(?, ?)', 
+        self.conn.execute('INSERT INTO s3_objects (key, refcount) VALUES(?, ?)', 
                           ('s3ql_data_foobuu', 1))
         self.assertFalse(self.checker.check_keylist())
         self.assertTrue(self.checker.check_keylist())
@@ -154,14 +158,14 @@ class fsck_tests(unittest.TestCase):
         data = 'oh oeu 3p, joum39 udoeu'
         
         etag = self.bucket.store(s3key, data)
-        self.conn.execute('INSERT INTO s3_objects (id, etag, size, refcount) VALUES(?, ?, ?, ?)',
+        self.conn.execute('INSERT INTO s3_objects (key, etag, size, refcount) VALUES(?, ?, ?, ?)',
                            (s3key, etag, len(data) + 42, 1))
         
         self.assertFalse(self.checker.check_keylist())
         self.assertTrue(self.checker.check_keylist())
         
         # And another with wrong etag
-        self.conn.execute('UPDATE s3_objects SET etag=? WHERE id=?',
+        self.conn.execute('UPDATE s3_objects SET etag=? WHERE key=?',
                            (b'wrong etag', s3key))
         self.assertFalse(self.checker.check_keylist())
         self.assertTrue(self.checker.check_keylist())
@@ -169,7 +173,7 @@ class fsck_tests(unittest.TestCase):
         # Create an object with size > blocksize
         size = 2 * self.blocksize
         etag = self.bucket.store(s3key, self.random_data(size))
-        self.conn.execute('UPDATE s3_objects SET etag=?, size=? WHERE id=?',
+        self.conn.execute('UPDATE s3_objects SET etag=?, size=? WHERE key=?',
                           (etag, size, s3key))
         self.assertFalse(self.checker.check_keylist())
         self.assertTrue(self.checker.check_keylist())
@@ -207,27 +211,6 @@ class fsck_tests(unittest.TestCase):
         
         # We can't correct this yet
         #self.assertTrue(self.checker.check_loops())
-
-    
-    def test_offsets(self):
-        '''
-        '''
-        conn = self.conn     
-        inode = 42
-        s3key = 's3ql_data_jup_42'
-        
-        conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount,size) "
-                     "VALUES (?,?,?,?,?,?,?,?,?)", 
-                     (inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
-                      os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 0)) 
-        conn.execute('INSERT INTO s3_objects (id, refcount) VALUES(?, ?)',
-                   (s3key, 2))
-        
-        conn.execute('INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?, ?, ?)',
-                     (inode, self.blocksize+1, s3key))
-       
-        self.assertFalse(self.checker.check_offsets())
-        self.assertTrue(self.checker.check_offsets())
     
             
     def test_s3_refcounts(self):
@@ -242,15 +225,15 @@ class fsck_tests(unittest.TestCase):
                      (inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                       os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1,0))
         
-        conn.execute('INSERT INTO s3_objects (id, refcount) VALUES(?, ?)',
+        conn.execute('INSERT INTO s3_objects (key, refcount) VALUES(?, ?)',
                    (s3key, 2))
-        conn.execute('INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?, ?, ?)',
+        conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
                      (inode, 1, s3key))
-        conn.execute('INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?, ?, ?)',
+        conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
                      (inode, 2, s3key))
         self.assertTrue(self.checker.check_s3_refcounts())
         
-        conn.execute('INSERT INTO inode_s3key (inode, offset, s3key) VALUES(?, ?, ?)',
+        conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
                      (inode, 3, s3key))        
         self.assertFalse(self.checker.check_s3_refcounts())
         self.assertTrue(self.checker.check_s3_refcounts())

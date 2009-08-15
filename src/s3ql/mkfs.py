@@ -183,7 +183,7 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
     # Refcount is included for performance reasons
     conn.execute("""
     CREATE TABLE s3_objects (
-        id        TEXT PRIMARY KEY,
+        key       TEXT PRIMARY KEY,
         refcount  INT NOT NULL CONSTRAINT refcount_type
                   CHECK ( typeof(refcount) == 'integer' AND refcount > 0),
                   
@@ -198,34 +198,34 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
     
     # Maps file data chunks to S3 objects
     conn.execute("""
-    CREATE TABLE inode_s3key (
+    CREATE TABLE blocks (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
-        offset    INT NOT NULL CHECK (typeof(offset) == 'integer' AND offset >= 0),
-        s3key     TEXT NOT NULL REFERENCES s3_objects(id),
+        blockno    INT NOT NULL CHECK (typeof(blockno) == 'integer' AND blockno >= 0),
+        s3key     TEXT NOT NULL REFERENCES s3_objects(key),
  
-        PRIMARY KEY (inode, offset)
+        PRIMARY KEY (inode, blockno)
     )
     """)
-    conn.execute(trigger_cmd.format(**{ "src_table": "inode_s3key",
-                                            "src_key": "inode",
-                                            "ref_table": "inodes",
-                                            "ref_key": "id" }))
-    conn.execute(trigger_cmd.format(**{ "src_table": "inode_s3key",
-                                            "src_key": "s3key",
-                                            "ref_table": "s3_objects",
-                                            "ref_key": "id" }))
+    conn.execute(trigger_cmd.format(**{ "src_table": "blocks",
+                                       "src_key": "inode",
+                                       "ref_table": "inodes",
+                                       "ref_key": "id" }))
+    conn.execute(trigger_cmd.format(**{ "src_table": "blocks",
+                                       "src_key": "s3key",
+                                       "ref_table": "s3_objects",
+                                       "ref_key": "key" }))
 
     # Make sure that inodes refer to files
     conn.execute("""
     CREATE TRIGGER inodes_1
-      BEFORE INSERT ON inode_s3key
+      BEFORE INSERT ON blocks
       FOR EACH ROW BEGIN
           SELECT RAISE(ABORT, 'inode does not refer to a file')
           WHERE (SELECT mode FROM inodes WHERE id = NEW.inode) & {S_IFMT} != {S_IFREG};
       END;
 
     CREATE TRIGGER inodes_2
-      BEFORE UPDATE ON inode_s3key
+      BEFORE UPDATE ON blocks
       FOR EACH ROW BEGIN
           SELECT RAISE(ABORT, 'inode does not refer to a file')
           WHERE (SELECT mode FROM inodes WHERE id = NEW.inode) & {S_IFMT} != {S_IFREG};
@@ -236,7 +236,7 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
       FOR EACH ROW BEGIN
           SELECT RAISE(ABORT, 'cannot change file with s3 objects into something else')
           WHERE NEW.mode & {S_IFMT} != {S_IFREG} AND
-               (SELECT inode FROM inode_s3key WHERE inode = NEW.id LIMIT 1) IS NOT NULL;
+               (SELECT inode FROM blocks WHERE inode = NEW.id LIMIT 1) IS NOT NULL;
       END;    
     """.format(**types)) 
     

@@ -564,7 +564,7 @@ class Server(fuse.Operations):
 
         # Get number of blocks & inodes
         with self.dbcm() as conn: 
-            blocks = conn.get_val("SELECT COUNT(id) FROM s3_objects")
+            blocks = conn.get_val("SELECT COUNT(key) FROM s3_objects")
             inodes = conn.get_val("SELECT COUNT(id) FROM inodes")
             size = conn.get_val('SELECT SUM(size) FROM s3_objects')
             
@@ -711,22 +711,22 @@ class Server(fuse.Operations):
         boundary is encountered. It may also read beyond the end of
         the file, filling the buffer with additional null bytes.
         """
-        
-        # Calculate starting offset of next s3 object, we don't
-        # read further than that
-        offset_f = self.blocksize * (int(offset / self.blocksize) + 1)
-        if offset + length > offset_f:
-            length = offset_f - offset
                 
         # Update access time
         if not self.noatime:
             with self.dbcm() as conn:
                 update_atime(inode, conn)
 
-        # Obtain required s3 object
-        offset_i = self.blocksize * int(offset / self.blocksize)
-        with self.cache.get(inode, offset_i) as fh:
-            fh.seek(offset - offset_i, os.SEEK_SET)
+        # Calculate required block
+        blockno = offset // self.blocksize
+        offset_rel = offset - blockno * self.blocksize
+        
+        # Don't try to read into the next block
+        if offset_rel + length > self.blocksize:
+            length = self.blocksize - offset_rel
+         
+        with self.cache.get(inode, blockno) as fh:
+            fh.seek(offset_rel)
             buf = fh.read(length)
             
             if len(buf) == length:
@@ -755,17 +755,16 @@ class Server(fuse.Operations):
         the number of bytes written.
         """
         
-        offset_i = self.blocksize * int(offset / self.blocksize)
+        # Calculate required block
+        blockno = offset // self.blocksize
+        offset_rel = offset - blockno * self.blocksize
         
-        # We write at most one block
-        offset_f = offset_i + self.blocksize
-        maxwrite = offset_f - offset
-        if len(buf) > maxwrite:
-            buf = buf[:maxwrite]
+        # Don't try to write into the next block
+        if offset_rel + len(buf) > self.blocksize:
+            buf = buf[:self.blocksize - offset_rel]
 
-        # Obtain required s3 object
-        with self.cache.get(inode, offset_i) as fh:
-            fh.seek(offset - offset_i, os.SEEK_SET)
+        with self.cache.get(inode, blockno) as fh:
+            fh.seek(offset_rel)
             fh.write(buf)
 
         # Update file size if changed
@@ -794,13 +793,13 @@ class Server(fuse.Operations):
         """
 
         # Delete all truncated s3 objects
-        self.cache.remove(inode, len_)
+        blockno = len_ // self.blocksize
+        self.cache.remove(inode, blockno + 1)
 
         # Get last object before truncation
-        if len_ != 0:
-            offset_i = self.blocksize * int((len_ - 1) / self.blocksize)
-            with self.cache.get(inode, offset_i) as fh:
-                fh.truncate(len_ - offset_i)
+        if len != 0:
+            with self.cache.get(inode, blockno) as fh:
+                fh.truncate(len_ - self.blocksize * blockno)
                 
         # Update file size
         timestamp = time.time() - time.timezone
@@ -829,14 +828,13 @@ class Server(fuse.Operations):
                 self.dbcm.execute('UPDATE inodes SET size=?, ctime=?, mtime=? WHERE id=?',
                                   (st[0], st[1], st[2], inode))
                                         
-
     
-    # Called for close() calls. Here we sync the data, so that we
-    # can still return write errors.
+    # Called for close() calls. 
     def flush(self, path, inode):
         """Handles FUSE flush() requests.
         """
-        return self.fsync(path, False, inode)
+        pass
+      
 
 
 class RevisionError(Exception):

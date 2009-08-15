@@ -62,14 +62,14 @@ class s3cache_tests(unittest.TestCase):
       
     def test_01_create_read(self):
         inode = self.inode
-        offset = 11
+        blockno = 11
         data = self.random_data(self.blocksize)
         
         # This needs to be kept in sync with S3Cache
-        s3key = "s3ql_data_%d_%d" % (inode, offset)
+        s3key = "s3ql_data_%d_%d" % (inode, blockno)
         
         # Write
-        with self.cache.get(inode, offset) as fh:
+        with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
             fh.write(data)
         
@@ -77,7 +77,7 @@ class s3cache_tests(unittest.TestCase):
         self.assertTrue(s3key not in self.bucket.keys())
         
         # Read cached
-        with self.cache.get(inode, offset) as fh:
+        with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
             self.assertEqual(data, fh.read(len(data)))
             
@@ -90,7 +90,7 @@ class s3cache_tests(unittest.TestCase):
         # Even if we change in S3, we should get the cached data
         data2 = self.random_data(241)
         self.bucket[s3key] = data2
-        with self.cache.get(inode, offset) as fh:
+        with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
             self.assertEqual(data, fh.read(len(data)))
             
@@ -99,7 +99,7 @@ class s3cache_tests(unittest.TestCase):
         self.cache._expire_entry() 
         self.cache.timeout = 1
         self.cache.expect_mismatch = True
-        cm = self.cache.get(inode, offset)
+        cm = self.cache.get(inode, blockno)
         self.assertRaises(fs.FUSEError, cm.__enter__)
             
     def test_02_locking_meta(self):
@@ -122,11 +122,11 @@ class s3cache_tests(unittest.TestCase):
     def test_03_access_locking(self):      
         # Test concurrent writes 
         flag = { 'writing': False }
-        offset = 102
+        blockno = 102
         
         # Access the same file in two threads
         def access():
-            with self.cache.get(self.inode, offset):
+            with self.cache.get(self.inode, blockno):
                 if flag['writing']:
                     raise s3.ConcurrencyError
                 flag['writing'] = True
@@ -156,8 +156,8 @@ class s3cache_tests(unittest.TestCase):
    
         
     def test_03_expiry_locking(self):      
-        offset = 102
-        s3key = "s3ql_data_%d_%d" % (self.inode, offset)
+        blockno = 102
+        s3key = "s3ql_data_%d_%d" % (self.inode, blockno)
         
         # Make sure the threads actually conflict
         self.bucket.tx_delay = 1
@@ -168,9 +168,9 @@ class s3cache_tests(unittest.TestCase):
         # Access the same file in two threads
         def access():            
             # Make sure the object is dirty
-            with self.cache.get(self.inode, offset) as fh:
+            with self.cache.get(self.inode, blockno) as fh:
                 fh.write(b'data')
-            with self.cache.get(self.inode, offset+42) as fh:
+            with self.cache.get(self.inode, blockno+42) as fh:
                 fh.write(b'data')    
             self.cache.expire()        
         
@@ -220,11 +220,11 @@ class s3cache_tests(unittest.TestCase):
         '''Check that old cache files are correctly recovered
         '''
         
-        offset = 102
-        s3key = "s3ql_data_%d_%d" % (self.inode, offset)
+        blockno = 102
+        s3key = "s3ql_data_%d_%d" % (self.inode, blockno)
      
         # Register the object
-        with self.cache.get(self.inode, offset) as fh: 
+        with self.cache.get(self.inode, blockno) as fh: 
             fh.write('Obsolete data')
                 
         # Expire it
@@ -241,7 +241,7 @@ class s3cache_tests(unittest.TestCase):
         self.cache._recover_cache() 
         
         # Now we should be able to read the data from the cache
-        with self.cache.get(self.inode, offset) as fh: 
+        with self.cache.get(self.inode, blockno) as fh: 
             fh.seek(0, 0)
             self.assertEquals(fh.read(len(data)), data)
             fh.write('') # To mark the entry as dirty

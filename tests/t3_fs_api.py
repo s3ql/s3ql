@@ -6,6 +6,7 @@
 #
 
 from __future__ import unicode_literals
+from __future__ import division
 from random import randrange
 from s3ql import mkfs, s3, fs, fsck
 from s3ql.common import writefile, get_path
@@ -16,6 +17,7 @@ import resource
 import stat
 import tempfile
 import unittest
+
 
 # For debug messages:
 #from s3ql.common import init_logging
@@ -228,9 +230,9 @@ class fs_api_tests(unittest.TestCase):
         bufsize = resource.getpagesize()
         
         fh = self.server.create(name, mode)
-        self.server.release(name, fh)
         self.server.flush(name, fh)
-
+        self.server.release(name, fh)
+        
         # Write testfile
         writefile(__file__, name, self.server)
         
@@ -243,9 +245,9 @@ class fs_api_tests(unittest.TestCase):
             self.assertTrue(buf == self.server.read(name, bufsize, off, destfh))
             off += len(buf)
             buf = srcfh.read(bufsize)
-        self.server.release(name, fh)
         self.server.flush(name, fh)
-
+        self.server.release(name, fh)
+       
         srcfh.close()
         self.fsck()
 
@@ -257,7 +259,6 @@ class fs_api_tests(unittest.TestCase):
         fh = self.server.create(target, mode)
         self.server.release(target, fh)
         self.server.flush(target, fh)
-
 
         name = os.path.join(b"/",  self.random_name())
         self.assert_entry_doesnt_exist(name)
@@ -303,9 +304,9 @@ class fs_api_tests(unittest.TestCase):
         self.assertEquals(self.server.getattr(name)["st_size"], filelen)
         self.assertEquals(self.server.read(name, len(data)+off2, off, fh), data + b"\0" * off2)
 
-        self.server.release(name, fh)
         self.server.flush(name, fh)
-
+        self.server.release(name, fh)
+        
         self.fsck()
         
     def test_11_truncate_within(self):
@@ -325,9 +326,9 @@ class fs_api_tests(unittest.TestCase):
         ext = int(0.15 * self.blocksize)
         self.server.ftruncate(name, filelen+ext, fh)
         self.assertEquals(self.server.getattr(name)["st_size"], filelen+ext)
-        self.assertEquals(self.server.read(name, len(data)+2*ext, off, fh),
+        self.assertTrue(self.server.read(name, len(data)+2*ext, off, fh) ==
                           data + b"\0" * ext)
-        self.assertEquals(self.server.read(name, 2*ext, off+len(data), fh),
+        self.assertTrue(self.server.read(name, 2*ext, off+len(data), fh) ==
                           b"\0" * ext)
         
         # Truncate it
@@ -342,8 +343,9 @@ class fs_api_tests(unittest.TestCase):
         self.assertEquals(self.server.read(name, len(data)+2 * ext, off, fh),
                           data[0:-ext] + b"\0" * ext)
 
-        self.server.release(name, fh)
         self.server.flush(name, fh)
+        self.server.release(name, fh)
+        
         self.fsck()
         
     def test_12_truncate_across(self):
@@ -381,8 +383,8 @@ class fs_api_tests(unittest.TestCase):
         self.assertTrue(self.server.read(name, len(data)+2 * ext, off, fh) ==
                           data[0:-ext] + b"\0" * ext)
         
-        self.server.release(name, fh)
         self.server.flush(name, fh)
+        self.server.release(name, fh)
         self.fsck()
         
         
@@ -398,9 +400,9 @@ class fs_api_tests(unittest.TestCase):
         
         fh = self.server.open(name, os.O_RDWR)
         self.server.ftruncate(name, 0, fh)
+        self.server.flush(name, fh)
         self.server.release(name, fh)
         
-
 
     def test_10_rename(self):
         dirname_old = os.path.join(b"/", self.random_name(b"olddir"))
@@ -590,6 +592,29 @@ class fs_api_tests(unittest.TestCase):
         inode_p = self.server.getattr(b'/dir1/dir2')['st_ino']
         with self.dbcm() as conn:
             self.assertEquals(b'/dir1/dir2/foobar', get_path(b'foobar', inode_p, conn))
+            
+    def test_14_fsync(self):    
+        blocks = 3
+            
+        # Create file
+        name = os.path.join(b"/",  self.random_name())
+        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+        
+        fh = self.server.create(name, mode)
+        
+        for i in range(blocks):
+            self.server.write(name, b'data', i * self.blocksize, fh)
+        
+        self.assertEqual(len(list(self.bucket.list_keys())), 0)
+        
+        self.server.fsync(name, True, fh) 
+        
+        self.assertEqual(len(list(self.bucket.list_keys())), blocks)
+        
+        self.server.flush(name, fh)
+        self.server.release(name, fh)
+       
+        self.fsck()
 
 
 def suite():

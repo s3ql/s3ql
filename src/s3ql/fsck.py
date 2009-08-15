@@ -120,7 +120,6 @@ class Checker(object):
                    self.check_dirs,
                    self.check_loops,
                    self.check_inode_refcount,
-                   self.check_offsets,
                    self.check_s3_refcounts,
                    self.check_keylist ]:
             if not fn():
@@ -172,7 +171,7 @@ class Checker(object):
                 log.warn("Committing (potentially changed) cache for %s", s3key)
             if not self.checkonly:
                 etag = self.bucket.store_from_file(s3key, self.cachedir + s3key)
-                conn.execute("UPDATE s3_objects SET etag=? WHERE id=?",
+                conn.execute("UPDATE s3_objects SET etag=? WHERE key=?",
                             (etag, s3key))
                 os.unlink(self.cachedir + s3key)
     
@@ -368,37 +367,6 @@ class Checker(object):
     
         return not found_errors
     
-    def check_offsets(self):
-        """Check that s3 offsets are blocksize apart  
-    
-        Returns `False` if any errors have been found.
-        """
- 
-        conn = self.conn
-        found_errors = False
-        
-        blocksize = conn.get_val("SELECT blocksize FROM parameters")
-        
-        to_remove = list()
-        for (inode, offset, s3key) in conn.query("SELECT inode, offset, s3key FROM inode_s3key"):
-            if not offset % blocksize == 0:
-                found_errors = True
-                if not self.expect_errors:
-                    log.warn("Object %s for inode %d does not start at block size boundary, "
-                             'saving in lost+found.', s3key, inode)
-                # We cannot correct this right now, because it would modify the
-                # running query
-                to_remove.append((inode, offset, s3key))
-                
-        # Now fix the problems
-        for (inode, offset, s3key) in to_remove:
-            conn.execute('DELETE FROM inode_s3key WHERE inode=? AND offset=?', 
-                         (inode, offset))
-                         
-            # Object will be saved to lost+found later
-            conn.execute("DELETE FROM s3_objects WHERE id=?", (s3key,))
-        
-        return not found_errors  
         
     def check_s3_refcounts(self):
         """Check s3 object reference counts
@@ -409,21 +377,21 @@ class Checker(object):
         conn = self.conn
         found_errors = False
     
-        for (id_, refcount) in conn.query("SELECT id, refcount FROM s3_objects"):
+        for (key, refcount) in conn.query("SELECT key, refcount FROM s3_objects"):
      
-            refcount2 = conn.get_val("SELECT COUNT(inode) FROM inode_s3key WHERE s3key=?",
-                                   (id_,))
+            refcount2 = conn.get_val("SELECT COUNT(inode) FROM blocks WHERE s3key=?",
+                                   (key,))
             if refcount != refcount2:
                 if not self.expect_errors:
                     log.warn("S3 object %s has invalid refcount, setting from %d to %d",
-                             id_, refcount, refcount2)
+                             key, refcount, refcount2)
                 found_errors = True
                 if refcount2 != 0:
-                    conn.execute("UPDATE s3_objects SET refcount=? WHERE id=?",
-                                 (refcount2, id_))
+                    conn.execute("UPDATE s3_objects SET refcount=? WHERE key=?",
+                                 (refcount2, key))
                 else:
                     # Orphaned object will be picked up by check_keylist
-                    conn.execute('DELETE FROM s3_objects WHERE id=?', (id_,))
+                    conn.execute('DELETE FROM s3_objects WHERE key=?', (key,))
                     
         return not found_errors     
     
@@ -465,7 +433,7 @@ class Checker(object):
      
         # We use this table to keep track of the s3keys that we have
         # seen
-        conn.execute("CREATE TEMP TABLE s3keys AS SELECT id FROM s3_objects")
+        conn.execute("CREATE TEMP TABLE s3keys AS SELECT key FROM s3_objects")
     
         only_in_s3 = list()
         too_big = list()
@@ -477,7 +445,7 @@ class Checker(object):
     
             # Retrieve object information from database
             try:
-                (etag, size) = conn.get_row("SELECT etag, size FROM s3_objects WHERE id=?", (s3key,))
+                (etag, size) = conn.get_row("SELECT etag, size FROM s3_objects WHERE key=?", (s3key,))
             
             # Handle object that exists only in S3
             except StopIteration:
@@ -489,20 +457,20 @@ class Checker(object):
                     
    
             # Mark object as seen
-            conn.execute("DELETE FROM s3keys WHERE id=?", (s3key,))
+            conn.execute("DELETE FROM s3keys WHERE key=?", (s3key,))
             
             # Check Etag
             if etag != meta.etag:
                 found_errors = True
                 warn("object %s has incorrect etag in metadata, adjusting" % s3key)
-                conn.execute("UPDATE s3_objects SET etag=? WHERE id=?",
+                conn.execute("UPDATE s3_objects SET etag=? WHERE key=?",
                              (meta.etag, s3key))  
             
             # Size agreement
             if size != meta.size:
                 found_errors = True
                 warn("object %s has incorrect size in metadata, adjusting" % s3key)
-                conn.execute("UPDATE s3_objects SET size=? WHERE id=?",
+                conn.execute("UPDATE s3_objects SET size=? WHERE key=?",
                              (meta.size, s3key)) 
      
             # Size <= block size
@@ -514,11 +482,11 @@ class Checker(object):
                 too_big.append(s3key)
          
         # Now handle objects that only exist in s3_objects
-        for (s3key,) in conn.query("SELECT id FROM s3keys"):
+        for (s3key,) in conn.query("SELECT key FROM s3keys"):
             found_errors = True
             warn("object %s only exists in table but not on s3, deleting", s3key)
-            conn.execute("DELETE FROM inode_s3key WHERE s3key=?", (s3key,))
-            conn.execute("DELETE FROM s3_objects WHERE id=?", (s3key,))
+            conn.execute("DELETE FROM blocks WHERE s3key=?", (s3key,))
+            conn.execute("DELETE FROM s3_objects WHERE key=?", (s3key,))
             
         # Correct accumulated errors            
         if not self.checkonly:
@@ -537,7 +505,7 @@ class Checker(object):
                 tmp.truncate()
                 etag_new = self.bucket.store_from_file(s3key, tmp.name)
                 tmp.close()
-                conn.execute("UPDATE s3_objects SET etag=?, size=? WHERE id=?",
+                conn.execute("UPDATE s3_objects SET etag=?, size=? WHERE key=?",
                            (etag_new, self.blocksize, s3key))  
                 
             #  Handle objects only in S3

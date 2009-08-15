@@ -326,8 +326,10 @@ def writefile(src, dest, server):
   
     srcfh.close()
     
-    server.release(dest, destfd)
+    server.fsync(dest, True, destfd)
     server.flush(dest, destfd)
+    server.release(dest, destfd)
+    
 
 def unused_name(path, conn):
     '''Append suffix to path so that it does not exist

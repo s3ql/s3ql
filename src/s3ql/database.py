@@ -278,7 +278,7 @@ class WrappedConnection(object):
             
         waited = 0
         step = 1
-        log.debug(statement)
+        #log.debug(statement)
         while True:
             curtime = time.time()
             try:
