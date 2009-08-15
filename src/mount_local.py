@@ -8,7 +8,6 @@
 from __future__ import unicode_literals
 import sys
 from optparse import OptionParser
-from getpass  import getpass
 from time import sleep
 from s3ql.common import init_logging
 from s3ql.database import ConnectionManager

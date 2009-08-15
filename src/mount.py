@@ -164,6 +164,13 @@ if bucket['s3ql_bgcommit'] == 'yes' and not os.path.exists(cachedir):
         'without background commit on the system where it was mounted most recently.\n')
     sys.exit(1)
     
+if (bucket.lookup_key("s3ql_metadata").last_modified 
+    < bucket.lookup_key("s3ql_dirty").last_modified):
+    sys.stderr.write(
+        'Metadata from most recent mount has not yet propagated '
+        'through Amazon S3. Please try again later.\n')
+    sys.exit(1)
+    
 # Init cache + get metadata
 try:
     if options.fg:
@@ -214,9 +221,10 @@ try:
     if bucket.has_key("s3ql_metadata_bak_1"):
         bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
     bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
-    bucket.store_from_file("s3ql_metadata", dbfile)
- 
+    
     bucket.store("s3ql_dirty", "no")
+    bucket.store_from_file("s3ql_metadata", dbfile)
+    
 
 # Remove database
 finally:

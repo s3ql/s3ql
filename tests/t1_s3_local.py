@@ -17,8 +17,9 @@ class s3_tests_local(unittest.TestCase):
     def setUp(self):
         self.bucket = s3ql.s3.LocalBucket()
 
-    def random_name(self, prefix=""):
-        return "s3ql_" + prefix + str(randrange(100,999,1))
+    @staticmethod
+    def random_name(prefix=""):
+        return "s3ql_" + prefix + str(randrange(100, 999, 1))
 
     def test_01_store_fetch_lookup_delete_key(self):
         self.bucket.tx_delay = 0
@@ -183,4 +184,4 @@ def suite():
 
 # Allow calling from command line
 if __name__ == "__main__":
-            unittest.main()
+    unittest.main()

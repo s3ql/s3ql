@@ -31,8 +31,12 @@ parser.add_option("--awskey", type="string",
                   "specified, tries to read ~/.awssecret.")
 parser.add_option("--checkonly", action="store_true", default=None,
                   help="Only check, do not fix errors.")
-parser.add_option("--force", action="store_true", default=None,
-                  help="Force checking even if current metadata is not available")
+parser.add_option("--force-remote", action="store_true", default=False,
+                  help="Force checking even if local metadata is not available.")
+parser.add_option("--force-old", action="store_true", default=False,
+                  help="Force checking even if metadata is outdated.")
+parser.add_option("--force-local", action="store_true", default=False,
+                  help="Force checking even if local metadata is outdated.")
 parser.add_option("--debug", action="append", 
                   help="Activate debugging output from specified facility. Valid facility names "
                         "are: fsck, s3, frontend. "
@@ -67,14 +71,13 @@ if not conn.bucket_exists(bucketname):
 bucket = conn.get_bucket(bucketname)
 
 
-
 #
 # Check if fs is dirty and we lack metadata
 #
 if bucket["s3ql_dirty"] == "yes" and \
         (not os.path.exists(cachedir) or
          not os.path.exists(dbfile)):
-    if not options.force:
+    if not options.force_remote:
         print >> sys.stderr, """
 Filesystem is marked dirty, but there is no cached metadata available.
 You should run fsck.s3ql on the system and user id where the
@@ -84,14 +87,30 @@ This message can also appear if changes from the last mount have not
 had sufficient time to propagate in S3. In this case this message
 should disappear when retrying later.
 
-Use --force if you want to force a check on this machine. This
+Use --force-remote if you want to force a check on this machine. This
 may result in dataloss.
 """
         sys.exit(1)
     else:
         print "Dirty filesystem and no local metadata - continuing anyway."
 
+if (bucket.lookup_key("s3ql_metadata").last_modified 
+    < bucket.lookup_key("s3ql_dirty").last_modified):
+    if not options.force_old:
+        sys.stderr.write('''
+Metadata from most recent mount has not yet propagated through Amazon S3.
+Please try again later.
 
+Use --force-old if you want to check the file system with  the (outdated)
+metadata that is available right now. This will result in data loss.
+''')
+        sys.exit(1)
+    else:
+        print 'Metadata has not yet propagated through Amazon S3.'
+        print 'Continuing with outdated metadata...'
+        commit_required = True
+    
+    
 #
 # Init cache
 #
@@ -110,14 +129,14 @@ if os.path.exists(dbfile):
     log.debug('Remote metadata timestamp: %s', remote)
     if remote > local:
         # remote metadata is newer
-        if not options.force:
+        if not options.force_local:
             print >> sys.stderr, """
 The metadata stored with the filesystem is never than the
 locally cached data. Probably the filesystem has been mounted
 and changed on a different system. You should run fsck.s3ql
 on that system.
 
-Use --force if you want to force a check on this machine using the
+Use --force-local if you want to force a check on this machine using the
 cached data. This will result in dataloss.
 
 You can also remove the local cache before calling fsck.s3ql to
@@ -153,16 +172,14 @@ if rev < 1:
 # Now we can check, mind short circuit evaluation here
 commit_required = (not fsck.fsck(conn, cachedir, bucket, options.checkonly)) or commit_required 
 
-needed_check = conn.get_val("SELECT needs_fsck FROM parameters")
-if needed_check:
-    conn.execute('UPDATE parameters SET needs_fsck=?', (False,))
+if conn.get_val("SELECT needs_fsck FROM parameters"):
     commit_required = True
 
 if commit_required and not options.checkonly:
     # Commit metadata and mark fs as clean, both internally and as object
     log.info("Committing data to S3...")
     conn.execute("UPDATE parameters SET needs_fsck=?, last_fsck=?, "
-                   "mountcnt=?", (False, time.time(), 0))
+                 "mountcnt=?", (False, time.time() - time.timezone, 0))
 
     conn.execute("VACUUM")
     log.debug("Uploading database..")
@@ -171,10 +188,12 @@ if commit_required and not options.checkonly:
     if bucket.has_key("s3ql_metadata_bak_1"):
         bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
     bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
+    
+    bucket.store("s3ql_dirty", "no")
+    bucket['s3ql_bgcommit'] = 'no'
     bucket.store_from_file("s3ql_metadata", dbfile)
     
-bucket.store("s3ql_dirty", "no")
-bucket['s3ql_bgcommit'] = 'no'
+
     
 os.unlink(dbfile)
 os.rmdir(cachedir)
