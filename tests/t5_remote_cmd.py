@@ -65,7 +65,7 @@ class RemoteCmdTests(unittest.TestCase):
         self.assertTrue(waitfor(10, posixpath.ismount, self.base))
 
         # Umount
-        time.sleep(1)
+        time.sleep(2)
         
         self.assertEquals(os.spawnlp(os.P_WAIT, "fusermount",
                                      "fusermount", "-u", self.base), 0)
