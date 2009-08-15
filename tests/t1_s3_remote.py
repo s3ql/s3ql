@@ -30,7 +30,7 @@ class s3_tests_remote(unittest.TestCase):
         value1 = self.random_name("value1_")
         value2 = self.random_name("value2_")
         
-        self.assertEquals(self.bucket.lookup_key(key), None)
+        self.assertRaises(KeyError, self.bucket.lookup_key, key)
         self.assertRaises(KeyError, self.bucket.delete_key, key)
         self.assertRaises(KeyError, self.bucket.fetch, key)
 
@@ -54,7 +54,7 @@ class s3_tests_remote(unittest.TestCase):
         self.bucket.delete_key(key)
         sleep(self.delay)
         self.assertFalse(self.bucket.has_key(key))
-        self.assertEquals(self.bucket.lookup_key(key), None)
+        self.assertRaises(KeyError, self.bucket.lookup_key, key)
         self.assertRaises(KeyError, self.bucket.delete_key, key)
         self.assertRaises(KeyError, self.bucket.fetch, key)
 
@@ -77,8 +77,8 @@ class s3_tests_remote(unittest.TestCase):
         key1 = self.random_name("key_1")
         key2 = self.random_name("key_2")
         value = self.random_name("value_")
-        self.assertEquals(self.bucket.lookup_key(key1), None)
-        self.assertEquals(self.bucket.lookup_key(key2), None)
+        self.assertRaises(KeyError, self.bucket.lookup_key, key1)
+        self.assertRaises(KeyError, self.bucket.lookup_key, key2)
 
         self.bucket.store(key1, value)
         sleep(self.delay)

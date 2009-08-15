@@ -257,35 +257,41 @@ class S3Cache(object):
 
         log.debug('Attempting to download object %s from S3', s3key)
         cachepath = self.cachedir + s3key
-        meta = self.bucket.lookup_key(s3key)
-
-        # Check etag
-        if meta.etag != etag:
-            if not self.expect_mismatch:
-                log.warn("Changes in %s have apparently not yet propagated. Waiting and retrying...\n"
-                         "Try to increase the cache size to avoid this.", s3key)
-            log.debug('Stored etag: %s, Received etag: %s', repr(etag), repr(meta.etag))
-            waited = 0
-            waittime = 0.2
-            while meta.etag != etag and \
-                    waited < self.timeout:
-                time.sleep(waittime)
-                waited += waittime
-                waittime *= 1.5
-                log.info('Retrying to fetch object %s from S3 (%d sec to timeout.)..', s3key,
-                         self.timeout - waited)
+        
+        waited = 0
+        waittime = 0.2
+        while waited < self.timeout:
+            try:
                 meta = self.bucket.lookup_key(s3key)
-
-            # If still not found
-            if meta.etag != etag:
+            except KeyError:
                 if not self.expect_mismatch:
-                    log.error("etag for %s doesn't match metadata!" 
-                              "Filesystem is probably corrupted (or S3 is having problems), "
-                              "run fsck.s3ql as soon as possible.", s3key)
-                raise fs.FUSEError(errno.EIO, fatal=True)
+                    log.warn("Changes in s3 object %s have not yet propagated. Waiting and retrying...\n"
+                             "Try to increase the cache size to avoid this.", s3key)
+                log.debug('Key does not exist in S3: %s, waiting...', s3key)
+            else:
+                if meta.etag == etag:
+                    break # Object is ready to be fetched
+                
+                if not self.expect_mismatch:
+                    log.warn("Changes in s3 object %s have not yet propagated. Waiting and retrying...\n"
+                             "Try to increase the cache size to avoid this.", s3key)
+                log.debug('Stored etag: %s, Received etag: %s', repr(etag), repr(meta.etag))
+                
+            time.sleep(waittime)
+            waited += waittime
+            waittime *= 1.5
+
+        # If still not found
+        if waited >= self.timeout:
+            if not self.expect_mismatch:
+                log.error("Timeout when waiting for propagation of %s!" 
+                          "Filesystem is probably corrupted (or S3 is having problems), "
+                          "run fsck.s3ql as soon as possible.", s3key)
+            raise fs.FUSEError(errno.EIO, fatal=True)
             
         self.bucket.fetch_to_file(s3key, cachepath) 
         log.debug('Object %s fetched successfully.', s3key)
+        
         return cachepath      
         
     def expire(self):

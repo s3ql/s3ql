@@ -190,7 +190,12 @@ class Bucket(object):
         return self.has_key(key)
 
     def has_key(self, key):
-        return self.lookup_key(key) is not None
+        try:
+            self.lookup_key(key)
+        except KeyError:
+            return False
+        else:
+            return True
 
     def iteritems(self):
         for key in self.keys():
@@ -203,17 +208,17 @@ class Bucket(object):
     def lookup_key(self, key):
         """Return metadata for given key.
 
-        If the key does not exist, `None` is returned. Otherwise a
+        If the key does not exist, KeyError is raised. Otherwise a
         `Metadata` instance is returned.
         """
  
         with self.get_boto() as boto:
             bkey = boto.get_key(key)
 
-        if bkey:
+        if bkey is not None:
             return self.boto_key_to_metadata(bkey)
         else:
-            return None
+            raise KeyError('Key does not exist: %s' % key)
   
     def delete_key(self, key, force=False):
         """Deletes the specified key
@@ -381,8 +386,8 @@ class LocalBucket(Bucket):
         self.in_transmit.add(key)
         sleep(self.tx_delay)
         self.in_transmit.remove(key)
-        if not self.keystore.has_key(key):
-            return None
+        if key not in self.keystore:
+            raise KeyError('Key does not exist: %s' % key)
         else:
             return self.keystore[key][1]
 
