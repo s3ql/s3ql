@@ -157,12 +157,18 @@ class S3Cache(object):
         # Reconstruct cache
         self._recover_cache()
              
-        if bgcommit:
+        self.commit_thread = None
+            
+    def init(self):
+        '''Start background commit thread if required
+        '''
+        
+        if self.bgcommit:
             # Start commit thread
             self.commit_thread = ExceptionStoringThread(target=self._commit)
             self.commit_thread.start()
+                
         
-            
     @contextmanager
     def get(self, inode, blockno):
         """Get file handle for s3 object backing `inode` at block `blockno`

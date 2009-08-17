@@ -127,14 +127,7 @@ if options.single:
     fuse_opts[b"nothreads"] = True
 if options.fg:
     fuse_opts[b"foreground"] = True
-
-
-# Work around bgcommit bug
-if options.bgcommit and not options.fg:
-    sys.stderr.write('--bgcommit works only in foreground (--fg) mode.\n')
-    sys.exit(1)
-    
-    
+      
 # Activate logging
 if options.debug is not None and options.debuglog is None and not options.fg:
     sys.stderr.write('Warning! Debugging output will be lost. '
@@ -216,8 +209,8 @@ try:
     if options.bgcommit:
         bucket['s3ql_bgcommit'] = 'yes'
         
-    cache =  S3Cache(bucket, cachedir, options.cachesize * 1024, dbcm, 
-                     options.s3timeout, options.bgcommit)
+    cache = S3Cache(bucket, cachedir, options.cachesize * 1024, dbcm, 
+                    options.s3timeout, options.bgcommit)
     server = fs.Server(cache, dbcm, not options.atime)
     if options.fg:
         log.info('Mounting filesystem..')

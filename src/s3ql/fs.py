@@ -141,6 +141,12 @@ class Server(object):
         # Get blocksize
         self.blocksize = dbcm.get_val("SELECT blocksize FROM parameters")
 
+    def init(self):
+        '''Called when fuse has been initialized
+        '''
+        self.cache.init()
+        
+        
     def getattr(self, path):
         """Handles FUSE getattr() requests
         

@@ -16,7 +16,6 @@
 # disable warnings about unused arguments
 #pylint: disable-msg=W0613
 
-#pylin t: disable-msg=W0212,W0232,W0401,W0611,W0612,W0613,W0614,W0621,R0201,R0913
 
 from __future__ import division
 from ctypes import (c_long, Structure, c_int32, c_byte, c_char_p, c_int, c_int64, c_longlong,
@@ -147,6 +146,18 @@ class fuse_file_info(Structure):
         ('fh', c_uint64),
         ('lock_owner', c_uint64)]
 
+class fuse_conn_info(Structure):
+    _fields_ = [
+                ('proto_major', c_uint),
+                ('proto_minor', c_uint),
+                ('async_read', c_uint),
+                ('max_write', c_uint),
+                ('max_readahead', c_uint),
+                ('capable', c_uint),
+                ('want', c_uint),
+                ('reserved', c_uint * 25)
+                ]
+    
 class fuse_context(Structure):
     _fields_ = [
         ('fuse', c_voidp),
@@ -189,7 +200,7 @@ class fuse_operations(Structure):
             c_char_p, POINTER(c_stat), c_off_t), c_off_t, POINTER(fuse_file_info))),
         ('releasedir', CFUNCTYPE(c_int, c_char_p, POINTER(fuse_file_info))),
         ('fsyncdir', CFUNCTYPE(c_int, c_char_p, c_int, POINTER(fuse_file_info))),
-        ('init', c_voidp),      # Use __init__
+        ('init', CFUNCTYPE(c_voidp, POINTER(fuse_conn_info))), 
         ('destroy', c_voidp),   # Use __del__
         ('access', CFUNCTYPE(c_int, c_char_p, c_int)),
         ('create', CFUNCTYPE(c_int, c_char_p, c_mode_t, POINTER(fuse_file_info))),
@@ -365,6 +376,9 @@ class FUSE(object):
     def access(self, path, amode):
         return self.operations('access', path, amode)
     
+    def init(self, conninfo):
+        return self.operations('init')
+        
     def create(self, path, mode, fip):
         fi = fip.contents
         if self.raw_fi:
