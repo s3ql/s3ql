@@ -320,15 +320,15 @@ def writefile(src, dest, server):
     buf = srcfh.read(chunksize)
     off = 0
     while buf:
-        server.write(dest, buf, off, destfd)
+        server.write(buf, off, destfd)
         off += len(buf)
         buf = srcfh.read(chunksize)        
   
     srcfh.close()
     
-    server.fsync(dest, True, destfd)
-    server.flush(dest, destfd)
-    server.release(dest, destfd)
+    server.fsync(True, destfd)
+    server.flush(destfd)
+    server.release(destfd)
     
 
 def unused_name(path, conn):

@@ -17,9 +17,7 @@ from cStringIO import StringIO
 import threading
 
 
-# We have no control over the arguments, so we
-# disable warnings about unused arguments
-#pylint: disable-msg=W0613
+
 
 
 __all__ = [ "FUSEError", "Server", "RevisionError" ]
@@ -52,29 +50,8 @@ class FUSEError(Exception):
     def __str__(self):
         return str(self.errno)
 
-
-class FuseAdaptor(fuse.FUSE):
-    """Overwrite the calling conventions for some fuse.Operations
-    methods.
-    """
-
-    def readdir(self, path, buf, filler, offset, fi):
-        def pyfiller(name, attrs, off):
-            if attrs:
-                st = fuse.c_stat()
-                fuse.set_st_attrs(st, attrs)
-            else:
-                st = None
-            filler(buf, name, st, off)
-
-        self.operations("readdir", path, pyfiller, offset, fi.contents.fh)
-        return 0
-
-    def ftruncate(self, path, length, fi):
-        return self.operations('ftruncate', path, length, fi.contents.fh)
-
-
-class Server(fuse.Operations):
+    
+class Server(object):
     """FUSE filesystem that stores its data on Amazon S3
 
     Attributes:
@@ -111,11 +88,10 @@ class Server(fuse.Operations):
         # write() is handled specially, because we don't want to dump
         # out the whole buffer to the logs.
         if op == "write":
-            ap = [a[0],
-                  "<data, len=%ik>" % int(len(a[1]) / 1024)] + [ repr(x) for x in a[2:] ]
+            ap = ["<data, len=%ik>" % int(len(a[0]) / 1024)] + [ repr(x) for x in a[1:] ]
         elif op == "readdir":
             ap = [ repr(x) for x in a ]
-            ap[1] = "<filler>"
+            ap[0] = "<filler>"
         else:
             ap = [ repr(x) for x in a ]
 
@@ -165,23 +141,20 @@ class Server(fuse.Operations):
         # Get blocksize
         self.blocksize = dbcm.get_val("SELECT blocksize FROM parameters")
 
-    def getattr(self, path, inode=None):
+    def getattr(self, path):
         """Handles FUSE getattr() requests
         
-        We only support the `inode' parameter because fuse.py expects
-        this interface. 
         """
         
-        if inode is None: # should always be the case if called internally
-            with self.dbcm() as conn:
-                try:
-                    inode = get_inode(path, conn)
-                except KeyError: # not found
-                    raise(FUSEError(errno.ENOENT))
+        with self.dbcm() as conn:
+            try:
+                inode = get_inode(path, conn)
+            except KeyError: # not found
+                raise(FUSEError(errno.ENOENT))
 
-        return self.getattr_ino(inode)
+        return self.fgetattr(inode)
 
-    def getattr_ino(self, inode):
+    def fgetattr(self, inode):
         fstat = dict()
         
         (fstat["st_mode"],
@@ -244,33 +217,35 @@ class Server(fuse.Operations):
         with self.dbcm() as conn:
             return get_inode(path, conn)
 
-    def readdir(self, path, filler, offset, inode):
+    def readdir(self, filler, offset, inode):
         """Handles FUSE readdir() requests
         """
+        # We don't support offset (yet)
+        #pylint: disable-msg=W0613
 
-        # We have different arguments from base class since we overwrote the
-        # readdir call in FuseAdaptor
-        #pylint: disable-msg=W0221
-                
-        with self.dbcm() as conn:
-            inode = get_inode(path, conn)
-            
+        with self.dbcm() as conn:        
             if not self.noatime:
                 update_atime(inode, conn)
                 
             for (name, inode) in conn.query("SELECT name, inode FROM contents WHERE parent_inode=?",
                                             (inode,)):
-                filler(name, self.getattr_ino(inode), 0)
+                filler(name, self.fgetattr(inode), 0)
 
     def getxattr(self, path, name, position=0):
+        # Yes, could be a function
+        #pylint: disable-msg=R0201
         raise FUSEError(fuse.ENOTSUP)
 
 
     def removexattr(self, path, name):
+        # Yes, could be a function
+        #pylint: disable-msg=R0201
         raise FUSEError(fuse.ENOTSUP)
 
 
     def setxattr(self, path, name, value, options, position=0):
+        # Yes, could be a function
+        #pylint: disable-msg=R0201
         raise FUSEError(fuse.ENOTSUP)
 
 
@@ -284,7 +259,7 @@ class Server(fuse.Operations):
 
         with self.dbcm() as conn:
             (inode_p, inode) = get_inodes(path, conn)[-2:]
-            fstat = self.getattr_ino(inode)
+            fstat = self.fgetattr(inode)
 
             with conn.transaction():
                 conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
@@ -362,7 +337,7 @@ class Server(fuse.Operations):
         with self.dbcm() as conn:
     
             inode = get_inode(old, conn)
-            fstat = self.getattr_ino(inode)
+            fstat = self.fgetattr(inode)
             inode_p_old = get_inode(os.path.dirname(old), conn)
             inode_p_new = get_inode(os.path.dirname(new), conn)
             
@@ -384,7 +359,7 @@ class Server(fuse.Operations):
                 
             else:
                 # Target exists, overwrite
-                fstat_repl = self.getattr_ino(inode_repl)
+                fstat_repl = self.fgetattr(inode_repl)
                 
                 # Both directories
                 if stat.S_ISDIR(fstat_repl['st_mode']) and stat.S_ISDIR(fstat['st_mode']):
@@ -559,7 +534,9 @@ class Server(fuse.Operations):
     def statfs(self, path):
         """Handles FUSE statfs() requests.
         """
-        
+        # Result is independent of path
+        #pylint: disable-msg=W0613
+
         stat_ = dict()
 
         # Get number of blocks & inodes
@@ -601,9 +578,12 @@ class Server(fuse.Operations):
         # truncate call in FuseAdaptor
         #pylint: disable-msg=W0221
         
+        # TODO: We should only call release() if this is really
+        # the last open fd to this file.
         fh = self.open(bpath, os.O_WRONLY)
-        self.ftruncate(bpath, len_, fh)
-        self.release(bpath, fh)
+        self.ftruncate(len_, fh)
+        self.flush(fh)
+        self.release(fh)
 
     def main(self, mountpoint, **kw):
         """Starts the main loop handling FUSE requests.
@@ -622,7 +602,7 @@ class Server(fuse.Operations):
         self.encountered_errors = False
         self.in_fuse_loop = True
         try:
-            FuseAdaptor(self, mountpoint, **kw)
+            fuse.FUSE(self, mountpoint, **kw)
         finally:
             self.in_fuse_loop = False
         log.debug("Main event loop terminated.")
@@ -636,6 +616,8 @@ class Server(fuse.Operations):
         inode of the file, so it is not possible to distinguish between
         different open() and `create()` calls for the same inode.
         """
+        # We don't use open flags for anything
+        #pylint: disable-msg=W0613
         
         with self.dbcm() as conn:
             return get_inode(path, conn)
@@ -684,16 +666,15 @@ class Server(fuse.Operations):
 
         return inode
 
-    def read(self, path, length, offset, inode):
+    def read(self, length, offset, inode):
         '''Handles fuse read() requests.
         '''
-
         buf = StringIO()
         
         # Make sure that we don't read beyond the file size. This
         # should not happen unless direct_io is activated, but it's
         # cheap and nice for testing.
-        size = self.getattr_ino(inode)['st_size']
+        size = self.fgetattr(inode)['st_size']
         length = min(size - offset, length)
         
         while length > 0:
@@ -735,7 +716,7 @@ class Server(fuse.Operations):
                 # If we can't read enough, add nullbytes
                 return buf + b"\0" * (length - len(buf))
 
-    def write(self, path, buf, offset, inode):
+    def write(self, buf, offset, inode):
         """Handles FUSE write() requests.
      
         """
@@ -788,7 +769,7 @@ class Server(fuse.Operations):
       
         return len(buf)
 
-    def ftruncate(self, path, len_, inode):
+    def ftruncate(self, len_, inode):
         """Handles FUSE ftruncate() requests.
         """
 
@@ -810,15 +791,18 @@ class Server(fuse.Operations):
         self.size_cmtime_cache[inode] = (len_, timestamp, timestamp)
             
 
-    def fsync(self, path, fdatasync, inode):
+    def fsync(self, fdatasync, inode):
         """Handles FUSE fsync() requests.
         """
         # Metadata is always synced automatically, so we ignore
         # fdatasync
+        #pylint: disable-msg=W0613
         self.cache.flush(inode)
 
+    def releasedir(self, inode):
+        pass
 
-    def release(self, path, inode):    
+    def release(self, inode):    
         with self.writelock:
             try:
                 st = self.size_cmtime_cache.pop(inode)
@@ -830,12 +814,19 @@ class Server(fuse.Operations):
                                         
     
     # Called for close() calls. 
-    def flush(self, path, inode):
+    def flush(self, inode):
         """Handles FUSE flush() requests.
         """
         pass
       
-
+    def bmap(self, path, blocksize, idx):
+        # Yes, could be a function
+        #pylint: disable-msg=R0201
+        raise FUSEError(fuse.ENOTSUP)
+    
+    def fsyncdir(self, datasync, fip):
+        pass
+        
 
 class RevisionError(Exception):
     """Raised if the filesystem revision is too new for the program

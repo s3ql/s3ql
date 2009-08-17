@@ -73,8 +73,8 @@ class fs_api_tests(unittest.TestCase):
         entries = list()
         def cb_filler(name, fstat, off): 
             entries.append(name)
-        self.server.readdir(path, cb_filler, 0, fh)
-        self.server.releasedir(path, fh)
+        self.server.readdir(cb_filler, 0, fh)
+        self.server.releasedir(fh)
             
         self.assertTrue(os.path.basename(name) not in entries)
         
@@ -86,8 +86,8 @@ class fs_api_tests(unittest.TestCase):
         entries = list()
         def cb_filler(name, fstat, off): 
             entries.append(name)
-        self.server.readdir(path, cb_filler, 0, fh)
-        self.server.releasedir(path, fh)
+        self.server.readdir(cb_filler, 0, fh)
+        self.server.releasedir(fh)
             
         self.assertTrue(os.path.basename(name) in entries)
                          
@@ -182,8 +182,8 @@ class fs_api_tests(unittest.TestCase):
         mtime_old = self.server.getattr(b"/")["st_mtime"]
         fh = self.server.create(name, mode)
         self.assert_entry_exists(name)
-        self.server.release(name, fh)
-        self.server.flush(name, fh)
+        self.server.release(fh)
+        self.server.flush(fh)
 
         self.assertEquals(self.server.getattr(name)["st_mode"], mode | stat.S_IFREG)
         self.assertEquals(self.server.getattr(name)["st_nlink"], 1)
@@ -202,8 +202,8 @@ class fs_api_tests(unittest.TestCase):
         name = os.path.join(b"/",  self.random_name())
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
         fh = self.server.create(name, mode)
-        self.server.release(name, fh)
-        self.server.flush(name, fh)
+        self.server.release(fh)
+        self.server.flush(fh)
 
         mode_new = ( stat.S_IFREG |
                      stat.S_IROTH | stat.S_IWOTH | stat.S_IXGRP | stat.S_IRGRP )
@@ -230,8 +230,8 @@ class fs_api_tests(unittest.TestCase):
         bufsize = resource.getpagesize()
         
         fh = self.server.create(name, mode)
-        self.server.flush(name, fh)
-        self.server.release(name, fh)
+        self.server.flush(fh)
+        self.server.release(fh)
         
         # Write testfile
         writefile(__file__, name, self.server)
@@ -242,11 +242,11 @@ class fs_api_tests(unittest.TestCase):
         buf = srcfh.read(bufsize)
         off = 0
         while buf:
-            self.assertTrue(buf == self.server.read(name, bufsize, off, destfh))
+            self.assertTrue(buf == self.server.read(bufsize, off, destfh))
             off += len(buf)
             buf = srcfh.read(bufsize)
-        self.server.flush(name, fh)
-        self.server.release(name, fh)
+        self.server.flush(fh)
+        self.server.release(fh)
        
         srcfh.close()
         self.fsck()
@@ -257,8 +257,8 @@ class fs_api_tests(unittest.TestCase):
         target = os.path.join(b"/",  self.random_name(b"target"))
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
         fh = self.server.create(target, mode)
-        self.server.release(target, fh)
-        self.server.flush(target, fh)
+        self.server.release(fh)
+        self.server.flush(fh)
 
         name = os.path.join(b"/",  self.random_name())
         self.assert_entry_doesnt_exist(name)
@@ -288,24 +288,24 @@ class fs_api_tests(unittest.TestCase):
         datalen = int(0.2 * self.blocksize)
         data = self.random_data(datalen)
         fh = self.server.create(name, mode)
-        self.server.write(name, data, off, fh)
+        self.server.write(data, off, fh)
         filelen = datalen + off
         self.assertEquals(self.server.getattr(name)["st_size"], filelen)
 
         off2 = int(0.5 * self.blocksize)
-        self.assertTrue(self.server.read(name, len(data)+off2, off, fh) == data)
-        self.assertEquals(self.server.read(name, len(data)+off2, off-off2, fh), 
+        self.assertTrue(self.server.read(len(data)+off2, off, fh) == data)
+        self.assertEquals(self.server.read(len(data)+off2, off-off2, fh), 
                           b"\0" * off2 + data)
-        self.assertEquals(self.server.read(name, 182, off+len(data), fh), "")
+        self.assertEquals(self.server.read(182, off+len(data), fh), "")
 
         # Write at another position
         off = int(1.9 * self.blocksize)
-        self.server.write(name, data, off, fh)
+        self.server.write(data, off, fh)
         self.assertEquals(self.server.getattr(name)["st_size"], filelen)
-        self.assertEquals(self.server.read(name, len(data)+off2, off, fh), data + b"\0" * off2)
+        self.assertEquals(self.server.read(len(data)+off2, off, fh), data + b"\0" * off2)
 
-        self.server.flush(name, fh)
-        self.server.release(name, fh)
+        self.server.flush(fh)
+        self.server.release(fh)
         
         self.fsck()
         
@@ -318,33 +318,33 @@ class fs_api_tests(unittest.TestCase):
         data = self.random_data(datalen)
     
         fh = self.server.create(name, mode)
-        self.server.write(name, data, off, fh)
+        self.server.write(data, off, fh)
         filelen = datalen + off
         self.assertEquals(self.server.getattr(name)["st_size"], filelen)
 
         # Extend within same block
         ext = int(0.15 * self.blocksize)
-        self.server.ftruncate(name, filelen+ext, fh)
+        self.server.ftruncate(filelen+ext, fh)
         self.assertEquals(self.server.getattr(name)["st_size"], filelen+ext)
-        self.assertTrue(self.server.read(name, len(data)+2*ext, off, fh) ==
+        self.assertTrue(self.server.read(len(data)+2*ext, off, fh) ==
                           data + b"\0" * ext)
-        self.assertTrue(self.server.read(name, 2*ext, off+len(data), fh) ==
+        self.assertTrue(self.server.read(2*ext, off+len(data), fh) ==
                           b"\0" * ext)
         
         # Truncate it
-        self.server.ftruncate(name, filelen-ext, fh)
+        self.server.ftruncate(filelen-ext, fh)
         self.assertEquals(self.server.getattr(name)["st_size"], filelen-ext)
-        self.assertEquals(self.server.read(name, len(data)+2 * ext, off, fh), 
+        self.assertEquals(self.server.read(len(data)+2 * ext, off, fh), 
                           data[0:-ext])
         
         # And back to original size, data should have been lost
-        self.server.ftruncate(name, filelen, fh)
+        self.server.ftruncate(filelen, fh)
         self.assertEquals(self.server. getattr(name)["st_size"], filelen)
-        self.assertEquals(self.server.read(name, len(data)+2 * ext, off, fh),
+        self.assertEquals(self.server.read(len(data)+2 * ext, off, fh),
                           data[0:-ext] + b"\0" * ext)
 
-        self.server.flush(name, fh)
-        self.server.release(name, fh)
+        self.server.flush(fh)
+        self.server.release(fh)
         
         self.fsck()
         
@@ -357,34 +357,34 @@ class fs_api_tests(unittest.TestCase):
         data = self.random_data(datalen)
     
         fh = self.server.create(name, mode)
-        self.server.write(name, data, off, fh)
+        self.server.write(data, off, fh)
         filelen = datalen + off
         self.assertEquals(self.server.getattr(name)["st_size"], filelen)
 
         # Extend within same block
         ext = int(0.5 * self.blocksize)
-        self.server.ftruncate(name, filelen+ext, fh)
+        self.server.ftruncate(filelen+ext, fh)
         self.assertEquals(self.server.getattr(name)["st_size"], filelen+ext)
-        self.assertEquals(self.server.read(name, len(data)+2*ext, off, fh),
+        self.assertEquals(self.server.read(len(data)+2*ext, off, fh),
                           data + b"\0" * ext)
-        self.assertEquals(self.server.read(name, 2*ext, off+len(data), fh),
+        self.assertEquals(self.server.read(2*ext, off+len(data), fh),
                           b"\0" * ext)
         
         # Truncate it
         ext = int(0.1 * self.blocksize)
-        self.server.ftruncate(name, filelen-ext, fh)
+        self.server.ftruncate(filelen-ext, fh)
         self.assertEquals(self.server.getattr(name)["st_size"], filelen-ext)
-        self.assertEquals(self.server.read(name, len(data)+2 * ext, off, fh), 
+        self.assertEquals(self.server.read(len(data)+2 * ext, off, fh), 
                           data[0:-ext])
         
         # And back to original size, data should have been lost
-        self.server.ftruncate(name, filelen, fh)
+        self.server.ftruncate(filelen, fh)
         self.assertEquals(self.server. getattr(name)["st_size"], filelen)
-        self.assertTrue(self.server.read(name, len(data)+2 * ext, off, fh) ==
+        self.assertTrue(self.server.read(len(data)+2 * ext, off, fh) ==
                           data[0:-ext] + b"\0" * ext)
         
-        self.server.flush(name, fh)
-        self.server.release(name, fh)
+        self.server.flush(fh)
+        self.server.release(fh)
         self.fsck()
         
         
@@ -395,13 +395,13 @@ class fs_api_tests(unittest.TestCase):
         data = self.random_data(datalen)
     
         fh = self.server.create(name, mode)
-        self.server.write(name, data, 0, fh)
-        self.server.release(name, fh)
+        self.server.write(data, 0, fh)
+        self.server.release(fh)
         
         fh = self.server.open(name, os.O_RDWR)
-        self.server.ftruncate(name, 0, fh)
-        self.server.flush(name, fh)
-        self.server.release(name, fh)
+        self.server.ftruncate(0, fh)
+        self.server.flush(fh)
+        self.server.release(fh)
         
 
     def test_10_rename(self):
@@ -417,9 +417,9 @@ class fs_api_tests(unittest.TestCase):
         self.server.mkdir(dirname_old, mode)
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR )
         fh = self.server.create(filename_old, mode)
-        self.server.write(dirname_old, "Some random contents", 0, fh)
-        self.server.release(filename_old, fh)
-        self.server.flush(filename_old, fh)
+        self.server.write("Some random contents", 0, fh)
+        self.server.release(fh)
+        self.server.flush(fh)
         
         # Rename file
         fstat = self.server.getattr(filename_old)
@@ -453,15 +453,15 @@ class fs_api_tests(unittest.TestCase):
         mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR )
         fh = self.server.create(filename1, mode)
         data1 = self.random_data(512)
-        self.server.write(filename1, data1, 0, fh)
-        self.server.flush(filename1, fh)
-        self.server.release(filename1, fh)
+        self.server.write(data1, 0, fh)
+        self.server.flush(fh)
+        self.server.release(fh)
 
         fh = self.server.create(filename2, mode)
         data2 = self.random_data(512)
-        self.server.write(filename2, data2, 0, fh)
-        self.server.flush(filename2, fh)
-        self.server.release(filename2, fh)
+        self.server.write(data2, 0, fh)
+        self.server.flush(fh)
+        self.server.release(fh)
         
         # Rename file, overwrite existing one
         fstat = self.server.getattr(filename1)
@@ -473,9 +473,9 @@ class fs_api_tests(unittest.TestCase):
         self.assertTrue(self.server.getattr(b'/')["st_mtime"] > mtime_old)
         
         fh = self.server.open(filename2, os.O_RDONLY)
-        self.assertEquals(data1, self.server.read(filename2, len(data2), 0, fh))
-        self.server.flush(filename2, fh)
-        self.server.release(filename2, fh)
+        self.assertEquals(data1, self.server.read(len(data2), 0, fh))
+        self.server.flush(fh)
+        self.server.release(fh)
         
     def test_10_overwrite_dir(self):
         dirname1 = b"/directory1"
@@ -491,15 +491,15 @@ class fs_api_tests(unittest.TestCase):
         
         fh = self.server.create(filename1, mode)
         data1 = self.random_data(512)
-        self.server.write(filename1, data1, 0, fh)
-        self.server.flush(filename1, fh)
-        self.server.release(filename1, fh)
+        self.server.write(data1, 0, fh)
+        self.server.flush(fh)
+        self.server.release(fh)
         
         fh = self.server.create(filename2, mode)
         data2 = self.random_data(512)
-        self.server.write(filename2, data2, 0, fh)
-        self.server.flush(filename2, fh)
-        self.server.release(filename2, fh)   
+        self.server.write(data2, 0, fh)
+        self.server.flush(fh)
+        self.server.release(fh)   
         
         # Attempt to overwrite, should fail
         self.assertRaises(fs.FUSEError, self.server.rename, dirname1,
@@ -521,9 +521,9 @@ class fs_api_tests(unittest.TestCase):
         self.assertTrue(self.server.getattr(b'/')["st_mtime"] > mtime_old)
         
         fh = self.server.open(filename2, os.O_RDONLY)
-        self.assertEquals(data1, self.server.read(filename2, len(data2), 0, fh))
-        self.server.flush(filename2, fh)
-        self.server.release(filename2, fh)
+        self.assertEquals(data1, self.server.read(len(data2), 0, fh))
+        self.server.flush(fh)
+        self.server.release(fh)
        
     def test_05_mknod_unlink(self):
         name = os.path.join(b"/",  self.random_name())
@@ -603,16 +603,16 @@ class fs_api_tests(unittest.TestCase):
         fh = self.server.create(name, mode)
         
         for i in range(blocks):
-            self.server.write(name, b'data', i * self.blocksize, fh)
+            self.server.write(b'data', i * self.blocksize, fh)
         
         self.assertEqual(len(list(self.bucket.list_keys())), 0)
         
-        self.server.fsync(name, True, fh) 
+        self.server.fsync(True, fh) 
         
         self.assertEqual(len(list(self.bucket.list_keys())), blocks)
         
-        self.server.flush(name, fh)
-        self.server.release(name, fh)
+        self.server.flush(fh)
+        self.server.release(fh)
        
         self.fsck()
 
