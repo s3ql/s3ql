@@ -41,7 +41,7 @@ parser.add_option("--cachedir", type="string", default=os.environ["HOME"].rstrip
                   '(i.e. located in different S3 buckets) can share a cache location, even if ' 
                   'they are mounted at the same time. '
                   'You should try to always use the same location here, so that S3QL can detect '
-                  'and, as far as possible, recover from unclean unmounts. Default is ~/.s3ql.')
+                  'and, as far as possible, recover from unclean umounts. Default is ~/.s3ql.')
 parser.add_option("--debug", action="append", 
                   help="Activate debugging output from specified facility. Valid facility names "
                         "are: fs, fs.fuse, s3, frontend. "
@@ -129,8 +129,17 @@ if options.fg:
     fuse_opts[b"foreground"] = True
 
 
+# Work around bgcommit bug
+if options.bgcommit and not options.fg:
+    sys.stderr.write('--bgcommit works only in foreground (--fg) mode.\n')
+    sys.exit(1)
+    
+    
 # Activate logging
-init_logging(True, options.quiet, options.debug, options.debuglog)
+if options.debug is not None and options.debuglog is None and not options.fg:
+    sys.stderr.write('Warning! Debugging output will be lost. '
+                     'You should use either --fg or --debuglog.\n')
+init_logging(options.fg, options.quiet, options.debug, options.debuglog)
 log = logging.getLogger("frontend")
 
 #

@@ -85,7 +85,10 @@ if options.fg:
 
 
 # Activate logging
-init_logging(True, options.quiet, options.debug, options.debuglog)
+if options.debug is not None and options.debuglog is None and not options.fg:
+    sys.stderr.write('Warning! Debugging output will be lost. '
+                     'You should use either --fg or --debuglog.\n')
+init_logging(options.fg, options.quiet, options.debug, options.debuglog)
 log = logging.getLogger("frontend")
 
 #
