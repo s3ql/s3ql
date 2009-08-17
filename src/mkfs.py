@@ -127,9 +127,12 @@ try:
 
     log.info('Uploading database...')
     bucket = conn.get_bucket(bucket)
-    bucket.store_from_file('s3ql_metadata', dbfile)
-    bucket['s3ql_bgcommit'] = 'no'
+    
     bucket['s3ql_dirty'] = "no"
+    bucket['s3ql_bgcommit'] = 'no'
+    bucket.store_from_file('s3ql_metadata', dbfile)
+    
+    
 
 finally:
     os.unlink(dbfile)
