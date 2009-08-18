@@ -88,7 +88,8 @@ if options.fg:
 if options.debug is not None and options.debuglog is None and not options.fg:
     sys.stderr.write('Warning! Debugging output will be lost. '
                      'You should use either --fg or --debuglog.\n')
-init_logging(options.fg, options.quiet, options.debug, options.debuglog)
+# Foreground logging until we daemonize
+init_logging(True, options.quiet, options.debug, options.debuglog)
 log = logging.getLogger("frontend")
 
 #
@@ -113,6 +114,10 @@ log.debug("Temporary database in " + dbfile.name)
 cache =  S3Cache(bucket, cachedir, options.cachesize, dbcm,
                  timeout=options.propdelay+1)
 server = fs.Server(cache, dbcm, not options.atime)
+
+# Switch to background if necessary
+init_logging(options.fg, options.quiet, options.debug, options.debuglog)
+
 ret = server.main(mountpoint, **fuse_opts)
 cache.close()
 
@@ -126,7 +131,7 @@ sleep(options.propdelay)
 if options.fsck:
     with dbcm() as conn:
         if not fsck.fsck(conn, cachedir, bucket, checkonly=True):
-            log.info("fsck found errors -- preserving database in %s", dbfile)
+            log.warn("fsck found errors -- preserving database in %s", dbfile)
             os.rmdir(cachedir)
             sys.exit(1)
 

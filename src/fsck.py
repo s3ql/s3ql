@@ -80,7 +80,7 @@ commit_required = False
 (awskey, awspass) = get_credentials(options.credfile, options.awskey)
 conn = s3.Connection(awskey, awspass)
 if not conn.bucket_exists(bucketname):
-    print >> sys.stderr, "Bucket does not exist."
+    log.error("Bucket does not exist.")
     sys.exit(1)
 bucket = conn.get_bucket(bucketname)
 
@@ -92,7 +92,7 @@ if bucket["s3ql_dirty"] == "yes" and \
         (not os.path.exists(cachedir) or
          not os.path.exists(dbfile)):
     if not options.force_remote:
-        print >> sys.stderr, """
+        log.error("""
 Filesystem is marked dirty, but there is no cached metadata available.
 You should run fsck.s3ql on the system and user id where the
 filesystem has been mounted most recently.
@@ -103,15 +103,15 @@ should disappear when retrying later.
 
 Use --force-remote if you want to force a check on this machine. This
 may result in dataloss.
-"""
+""")
         sys.exit(1)
     else:
-        print "Dirty filesystem and no local metadata - continuing anyway."
+        log.warn("Dirty filesystem and no local metadata - continuing anyway.")
 
 if (bucket.lookup_key("s3ql_metadata").last_modified 
     < bucket.lookup_key("s3ql_dirty").last_modified):
     if not options.force_old:
-        sys.stderr.write('''
+        log.error('''
 Metadata from most recent mount has not yet propagated through Amazon S3.
 Please try again later.
 
@@ -120,8 +120,8 @@ metadata that is available right now. This will result in data loss.
 ''')
         sys.exit(1)
     else:
-        print 'Metadata has not yet propagated through Amazon S3.'
-        print 'Continuing with outdated metadata...'
+        log.warn('Metadata has not yet propagated through Amazon S3.'
+                 'Continuing with outdated metadata...')
         commit_required = True
     
     
@@ -144,7 +144,7 @@ if os.path.exists(dbfile):
     if remote > local:
         # remote metadata is newer
         if not options.force_local:
-            print >> sys.stderr, """
+            log.error("""
 The metadata stored with the filesystem is never than the
 locally cached data. Probably the filesystem has been mounted
 and changed on a different system. You should run fsck.s3ql
@@ -156,13 +156,13 @@ cached data. This will result in dataloss.
 You can also remove the local cache before calling fsck.s3ql to
 perform the check with the newer metadata stored on S3. This
 may also result in dataloss.
-"""
+""")
             sys.exit(1)
         elif options.checkonly:
             log.warn('Cannot overwrite local metadata in checkonly mode, exiting.')
             sys.exit(1)
         else:
-            log.info("Remote metadata is never than cache - continuing anyway.")
+            log.warn("Remote metadata is never than cache - continuing anyway.")
 
     # Continue with local metadata from here, make sure that we upload it at the end
     commit_required = True
@@ -179,7 +179,7 @@ conn = WrappedConnection(apsw.Connection(dbfile).cursor(), retrytime=0)
 # Check filesystem revision
 rev = conn.get_val("SELECT version FROM parameters")
 if rev < 1:
-    print >> sys.stderr, "This version of S3QL is too old for the filesystem!\n"
+    log.error("This version of S3QL is too old for the filesystem!")
     sys.exit(1)
 
 

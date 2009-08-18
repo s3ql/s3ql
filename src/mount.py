@@ -132,7 +132,8 @@ if options.fg:
 if options.debug is not None and options.debuglog is None and not options.fg:
     sys.stderr.write('Warning! Debugging output will be lost. '
                      'You should use either --fg or --debuglog.\n')
-init_logging(options.fg, options.quiet, options.debug, options.debuglog)
+# Still in foreground mode
+init_logging(True, options.quiet, options.debug, options.debuglog)
 log = logging.getLogger("frontend")
 
 #
@@ -146,6 +147,7 @@ log = logging.getLogger("frontend")
 conn = s3.Connection(awskey, awspass)
 bucket = conn.get_bucket(bucketname)
 
+options.cachedir = options.cachedir.rstrip('/')
 dbfile = get_dbfile(bucketname, options.cachedir)
 cachedir = get_cachedir(bucketname, options.cachedir)
 
@@ -154,24 +156,24 @@ cachedir = get_cachedir(bucketname, options.cachedir)
 #
 log.debug("Checking consistency...")
 if bucket["s3ql_dirty"] != "no":
-    print >> sys.stderr, \
-        "Metadata is dirty! Either some changes have not yet propagated\n" \
-        "through S3 or the file system has not been unmounted cleanly. In\n" \
-        "the later case you should run fsck on the system where the\n" \
-        "file system has been mounted most recently!\n"
+    log.error(
+        "Metadata is dirty! Either some changes have not yet propagated\n" 
+        "through S3 or the file system has not been unmounted cleanly. In\n" 
+        "the later case you should run fsck on the system where the\n" 
+        "file system has been mounted most recently!\n")
     sys.exit(1)
 
 # Init cache
 if (os.path.exists(cachedir) and bucket['s3ql_bgcommit'] != 'yes') or os.path.exists(dbfile):
-    print >> sys.stderr, \
-        "Local cache files already exists! Either you are trying to\n" \
-        "to mount a file system that is already mounted, or the filesystem\n" \
-        "has not been unmounted cleanly. In the later case you should run\n" \
-        "fsck.\n"
+    log.error(
+        "Local cache files already exists! Either you are trying to\n" 
+        "to mount a file system that is already mounted, or the filesystem\n" 
+        "has not been unmounted cleanly. In the later case you should run\n" 
+        "fsck.\n")
     sys.exit(1)
 
 if bucket['s3ql_bgcommit'] == 'yes' and not os.path.exists(cachedir):
-    sys.stderr.write(
+    log.error(
         'File system has been mounted in background commit mode, but no\n'
         'local cache exists. In background commit mode, the file system\n'
         'can only be mounted on one computer with the same cache directory.\n' 
@@ -181,15 +183,14 @@ if bucket['s3ql_bgcommit'] == 'yes' and not os.path.exists(cachedir):
     
 if (bucket.lookup_key("s3ql_metadata").last_modified 
     < bucket.lookup_key("s3ql_dirty").last_modified):
-    sys.stderr.write(
+    log.error(
         'Metadata from most recent mount has not yet propagated '
         'through Amazon S3. Please try again later.\n')
     sys.exit(1)
     
 # Init cache + get metadata
 try:
-    if options.fg:
-        log.info("Downloading metadata...")
+    log.info("Downloading metadata...")
 
     os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
     if not os.path.exists(cachedir):
@@ -211,9 +212,12 @@ try:
         
     cache = S3Cache(bucket, cachedir, options.cachesize * 1024, dbcm, 
                     options.s3timeout, options.bgcommit)
+    
     server = fs.Server(cache, dbcm, not options.atime)
-    if options.fg:
-        log.info('Mounting filesystem..')
+    log.info('Mounting filesystem..')
+    
+    # Switch to background if necessary
+    init_logging(options.fg, options.quiet, options.debug, options.debuglog)
     
     # Uncomment this and import cProfile to activate profiling.
     # Note that profiling only works in single threaded mode.
@@ -224,13 +228,18 @@ try:
     #ret = retcache[0]   
     ret = server.main(mountpoint, **fuse_opts)
 
+    if not options.bgcommit:
+        log.info("Filesystem unmounted, committing cache...")
+    else: 
+        log.info("Filesystem unmounted, keeping cache (background commit mode)...")
     cache.close()
+    
     if not options.bgcommit:
         bucket['s3ql_bgcommit'] = 'no'
 
     # Upload database
+    log.info("Uploading database..")
     dbcm.execute("VACUUM")
-    log.debug("Uploading database..")
     if bucket.has_key("s3ql_metadata_bak_2"):
         bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
     if bucket.has_key("s3ql_metadata_bak_1"):
