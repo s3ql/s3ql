@@ -57,8 +57,9 @@ class fuse_tests(unittest.TestCase):
         finally:
             # Umount
             time.sleep(1)
-            self.assertEquals(os.spawnlp(os.P_WAIT, "fusermount",
-                                    "fusermount", "-u", self.base), 0)
+            path = os.path.join(os.path.dirname(__file__), "..", "umount.s3ql")
+            self.assertEquals(os.spawnl(os.P_WAIT, path, "umount.s3ql",
+                                     self.base), 0)
             (dummy, status) = os.waitpid(pid, 0)
 
             self.assertTrue(os.WIFEXITED(status))
