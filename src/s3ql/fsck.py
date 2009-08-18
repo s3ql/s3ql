@@ -17,7 +17,8 @@ import logging
 from s3ql.database import NoUniqueValueError
 from contextlib import contextmanager
 from s3ql import fs, s3cache
-from s3ql.common import (writefile, get_path, ROOT_INODE, unused_name, get_inode)
+from s3ql.common import (writefile, get_path, ROOT_INODE, CTRL_INODE,
+                         unused_name, get_inode)
 
 __all__ = [ "fsck" ]
 
@@ -341,8 +342,8 @@ class Checker(object):
         
         for (inode, refcount) in conn.query("SELECT id, refcount FROM inodes"):
              
-            # No checks for root
-            if inode == ROOT_INODE:
+            # No checks for root and contral
+            if inode in (ROOT_INODE, CTRL_INODE):
                 continue
             
             refcount2 = conn.get_val("SELECT COUNT(name) FROM contents WHERE inode=?", (inode,))

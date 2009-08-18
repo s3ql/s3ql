@@ -11,13 +11,10 @@ import stat
 import fuse
 import logging
 from s3ql.common import (decrease_refcount, get_inode, update_mtime, get_inodes,
-                         increase_refcount, update_atime)
+                         increase_refcount, update_atime, CTRL_NAME, CTRL_INODE)
 import time
 from cStringIO import StringIO
 import threading
-
-
-
 
 
 __all__ = [ "FUSEError", "Server", "RevisionError" ]
@@ -152,13 +149,21 @@ class Server(object):
         
         """
         
+        if os.path.basename(path) == CTRL_NAME:
+            fstat = self.fgetattr(CTRL_INODE)
+            # Make sure the control file is only writable by the user
+            # who mounted the file system
+            fstat["st_uid"] = os.getuid()
+            fstat["st_gid"] = os.getgid()
+            return fstat
+        
         with self.dbcm() as conn:
             try:
                 inode = get_inode(path, conn)
             except KeyError: # not found
                 raise(FUSEError(errno.ENOENT))
 
-        return self.fgetattr(inode)
+            return self.fgetattr(inode)
 
     def fgetattr(self, inode):
         fstat = dict()
@@ -238,8 +243,21 @@ class Server(object):
                 filler(name, self.fgetattr(inode), 0)
 
     def getxattr(self, path, name, position=0):
-        # Yes, could be a function
-        #pylint: disable-msg=R0201
+        # We do not use all options
+        #pylint: disable-msg=W0613
+
+        # Handle S3QL commands
+        if os.path.basename(path) == CTRL_NAME:
+            if name == 's3ql_errors?':
+                if self.encountered_errors:
+                    return 'errors encountered'
+                else:
+                    return 'no errors'
+            elif name == 's3ql_pid?':
+                return bytes(os.getpid())
+            
+            return FUSEError(errno.EINVAL)
+        
         raise FUSEError(fuse.ENOTSUP)
 
 
@@ -250,8 +268,23 @@ class Server(object):
 
 
     def setxattr(self, path, name, value, options, position=0):
-        # Yes, could be a function
-        #pylint: disable-msg=R0201
+        # We do not use all options
+        #pylint: disable-msg=W0613
+        
+        # Handle S3QL commands
+        if os.path.basename(path) == CTRL_NAME:
+            if name == 's3ql_flushcache!':
+                # Force all entries out of the cache
+                bak = self.cache.maxsize
+                try:
+                    self.cache.maxsize = 0
+                    self.cache.expire()
+                finally:
+                    self.cache.maxsize = bak
+                return
+            
+            return FUSEError(errno.EINVAL)
+        
         raise FUSEError(fuse.ENOTSUP)
 
 
@@ -318,7 +351,11 @@ class Server(object):
     def symlink(self, name, target):
         """Handles FUSE symlink() requests.
         """
-
+        
+        if os.path.basename(target) == CTRL_NAME: 
+            log.error('Attempted to symlink s3ql control file at %s', target)
+            return FUSEError(errno.EACCES)
+        
         (uid, gid) = self.get_uid_pid()
         
         with self.dbcm() as conn:
@@ -339,6 +376,10 @@ class Server(object):
     def rename(self, old, new):
         """Handles FUSE rename() requests.
         """
+        
+        if os.path.basename(new) == CTRL_NAME: 
+            log.error('Attempted to rename to s3ql control file at %s', new)
+            return FUSEError(errno.EACCES)
 
         with self.dbcm() as conn:
     
@@ -426,6 +467,14 @@ class Server(object):
     def link(self, source, target):
         """Handles FUSE link() requests.
         """
+        
+        if os.path.basename(target) == CTRL_NAME: 
+            log.error('Attempted to create s3ql control file at %s', target)
+            return FUSEError(errno.EACCES)
+        
+        if os.path.basename(source) == CTRL_NAME: 
+            log.error('Attempted to link s3ql control file at %s', source)
+            return FUSEError(errno.EACCES)
 
         with self.dbcm() as conn:
             fstat = self.getattr(target)
@@ -463,6 +512,10 @@ class Server(object):
         """Handles FUSE mknod() requests.
         """
 
+        if os.path.basename(path) == CTRL_NAME: 
+            log.error('Attempted to mknod s3ql control file at %s', path)
+            return FUSEError(errno.EACCES)
+        
         # We create only these types (and no hybrids)
         if not (stat.S_ISCHR(mode) or stat.S_ISBLK(mode) or stat.S_ISFIFO(mode)
                 or stat.S_ISSOCK(mode) ):
@@ -486,6 +539,10 @@ class Server(object):
         """Handles FUSE mkdir() requests.
         """
 
+        if os.path.basename(path) == CTRL_NAME: 
+            log.error('Attempted to mkdir s3ql control file at %s', path)
+            return FUSEError(errno.EACCES)
+        
         # FUSE does not pass type information, so we set S_IFDIR manually
         # We still fail if a different type information is received.
         if (stat.S_IFMT(mode) != stat.S_IFDIR and
@@ -595,7 +652,7 @@ class Server(object):
         """Starts the main loop handling FUSE requests.
         
         Returns False if any errors occonned in the main loop.
-        Note that we cannot throw an exception, because the request handler
+        Note that we cannot throw an exception, because the request handlers
         are called from within C code.
         """
 
@@ -648,6 +705,10 @@ class Server(object):
         different open() and create() calls for the same inode.
         """
         assert fi is None
+        
+        if os.path.basename(path) == CTRL_NAME:
+            log.error('Attempted to create s3ql control file at %s', path)
+            return FUSEError(errno.EACCES)
 
         # Type has to be regular file or not specified at all
         if (stat.S_IFMT(mode) != stat.S_IFREG and

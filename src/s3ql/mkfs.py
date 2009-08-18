@@ -9,7 +9,7 @@ import stat
 import os
 import time
 
-from s3ql.common import ROOT_INODE
+from s3ql.common import ROOT_INODE, CTRL_INODE 
 
 __all__ = [ "setup_db" ]
 
@@ -251,8 +251,15 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
     conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                    (b".", ROOT_INODE, ROOT_INODE))
     conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                   (b"..", ROOT_INODE, ROOT_INODE))            
-
+                   (b"..", ROOT_INODE, ROOT_INODE))     
+    
+    
+    # Insert control inode, the actual values don't matter that much 
+    conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount) "
+                   "VALUES (?,?,?,?,?,?,?,?)", 
+                   (CTRL_INODE, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
+                    0, 0, timestamp, timestamp, timestamp, 42))
+    
     # Insert lost+found directory
     # refcount = 2: /, "."
     inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "

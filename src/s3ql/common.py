@@ -23,7 +23,7 @@ __all__ = [ "decrease_refcount",  "get_cachedir", "init_logging",
            "increase_refcount", "unused_name", "get_inodes",
            "update_atime", "update_mtime", "update_ctime", 
            "waitfor", "ROOT_INODE", "writefile", "ExceptionStoringThread",
-           "EmbeddedException" ]
+           "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE' ]
 
 class Filter(object):
     """
@@ -76,6 +76,11 @@ def init_logging(fg, quiet=False, debug=None, debugfile=None):
         debug = list()
         
     root_logger = logging.getLogger()
+    
+    # Remove existing handlers. We have to copy the list
+    # since it is going to change during iteration
+    for hdlr in [ x for x in root_logger.handlers ]: 
+        root_logger.removeHandler(hdlr)
     
     # Standard handler
     if fg: 
@@ -218,7 +223,6 @@ def increase_refcount(inode, conn):
     conn.execute("UPDATE inodes SET refcount=refcount+1, ctime=? WHERE id=?",
              (time.time() - time.timezone, inode))
 
-
 def get_cachedir(bucketname, path):
     """get directory to put cache files in.
     """
@@ -355,6 +359,10 @@ def unused_name(path, conn):
 
 # Define inode of root directory
 ROOT_INODE = 0
+
+# Name and inode of the special s3ql control file
+CTRL_NAME = '.__s3ql__ctrl__'
+CTRL_INODE = 1
 
 class ExceptionStoringThread(threading.Thread):
     '''Catch all exceptions and store them
