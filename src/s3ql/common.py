@@ -14,6 +14,7 @@ import stat
 import traceback
 import threading
 import logging
+import logging.handlers
 import time
 from time import sleep
 from getpass import getpass
@@ -87,7 +88,7 @@ def init_logging(fg, quiet=False, debug=None, debugfile=None):
         handler = logging.StreamHandler()
         handler.setFormatter(logging.Formatter('[%(name)s] %(message)s'))           
     else:
-        handler = logging.handlers.SysLogHandler("/dev/log")
+        handler = logging.handlers.SysLogHandler(b"/dev/log")
         handler.setFormatter(logging.Formatter('s3ql[%(process)d]: [%(name)s] %(message)s'))  
     
     if quiet:

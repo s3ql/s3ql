@@ -621,7 +621,11 @@ class Server(object):
         # size of fs in f_frsize units 
         # (since S3 is unlimited, always return a half-full filesystem,
         # but at least 50 GB)
-        total_blocks = max(2*blocks, 50 * 1024**3 / stat_['f_bsize'])
+        if stat_['f_bsize'] != 0:
+            total_blocks = max(2*blocks, 50 * 1024**3 / stat_['f_bsize'])
+        else:
+            total_blocks = 2*blocks
+            
         stat_["f_blocks"] = total_blocks
         stat_["f_bfree"] = total_blocks - blocks
         stat_["f_bavail"] = total_blocks - blocks # free for non-root
