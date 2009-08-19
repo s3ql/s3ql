@@ -313,6 +313,7 @@ class S3Cache(object):
         if self.bgcommit:
             # Only commit to limit number of open fds
             while len(self.keys) > 300:
+                log.debug('More than 300 keys in cache, expiring entry..')
                 self._expire_entry()
         else:       
             log.debug('Expiring cache')

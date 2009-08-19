@@ -209,9 +209,7 @@ class fuse_operations(Structure):
             POINTER(fuse_file_info))),
         ('lock', CFUNCTYPE(c_int, c_char_p, POINTER(fuse_file_info), c_int, c_voidp)),
         ('utimens', CFUNCTYPE(c_int, c_char_p, POINTER(c_utimbuf))),
-        ('bmap', CFUNCTYPE(c_int, c_char_p, c_size_t, POINTER(c_ulonglong))),
-        ('flag_nullpath_ok', c_uint, 1),
-        ('flag_reserved', c_uint, 31)]
+        ('bmap', CFUNCTYPE(c_int, c_char_p, c_size_t, POINTER(c_ulonglong)))]
 
 
 def time_of_timespec(ts):
@@ -263,7 +261,6 @@ class FUSE(object):
         argv = (c_char_p * len(args))(*args)
         
         fuse_ops = fuse_operations()
-        fuse_ops.flag_nullpath_ok = True
         for field in fuse_operations._fields_: #pylint: disable-msg=W0212
             name, prototype = field[:2]
             if hasattr(prototype, 'restype') and getattr(operations, name, None):
