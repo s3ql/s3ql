@@ -103,23 +103,11 @@ class S3Cache(object):
     :timeout:     Maximum time to wait for changes in S3 to propagate
     :dbcm:        ConnectionManager instance, to manage access to the database
                   from different threads
-    :bgcommit:    Enable background commit mode
-    :commit_thread: Background committer thread
-    :shutdown:    Flag for committer thread to shut down
                   
     
     The `expect_mismatch` attribute is only for unit testing instrumentation
     and suppresses warnings if a mismatch between local and remote etag
     is encountered.                   
-    
-    Background Commit Mode
-    ----------------------
-    
-    In background commit mode, expire(), close() and flush() do not actually 
-    commit any data to S3. Instead, __init__() starts a background thread that
-    periodically performs cache expiration. This means that the cache can grow without
-    bounds and uncommitted changes may reside in the cache even after
-    the file system has been unmounted. 
     
     
     Cache Management
@@ -131,14 +119,9 @@ class S3Cache(object):
     file descriptors). If the block size of the filesystem is
     small, and the cache size is large, it can therefore happen
     that the cache is expired before it reaches maximum size.
-    
-    Note that this maximum is enforced even in background commit
-    mode, i.e. if 300 objects are in cache, a writer to a new
-    object has to wait until one of the objects has been
-    expired and committed to S3.
     """
     
-    def __init__(self, bucket, cachedir, cachesize, dbcm, timeout=60, bgcommit=False):
+    def __init__(self, bucket, cachedir, cachesize, dbcm, timeout=60):
         log.debug('Initializing')
         self.keys = OrderedDict()
         self.cachedir = cachedir
@@ -149,25 +132,8 @@ class S3Cache(object):
         self.global_lock = threading.RLock()
         self.dbcm = dbcm
         self.timeout = timeout 
-        self.expect_mismatch = False
-        self.bgcommit = bgcommit
-        self.shutdown = threading.Event()
-        self.shutdown.clear()
-        
-        # Reconstruct cache
-        self._recover_cache()
-             
-        self.commit_thread = None
-            
-    def init(self):
-        '''Start background commit thread if required
-        '''
-        
-        if self.bgcommit:
-            # Start commit thread
-            self.commit_thread = ExceptionStoringThread(target=self._commit)
-            self.commit_thread.start()
-                
+        self.expect_mismatch = False          
+
         
     @contextmanager
     def get(self, inode, blockno):
@@ -176,13 +142,13 @@ class S3Cache(object):
         """
                  
         # Get s3 key    
-        log.debug('Getting file handle for inode %i, block %i', inode, blockno)
+        #log.debug('Getting file handle for inode %i, block %i', inode, blockno)
         with self.global_lock:
             with self.dbcm() as conn:
                 try:
                     s3key = conn.get_val("SELECT s3key FROM blocks WHERE inode=? AND blockno=?", 
                                         (inode, blockno))
-                    log.debug('s3key is %s', s3key)
+                    #log.debug('s3key is %s', s3key)
                 except StopIteration:
                     # Create and add to cache
                     log.debug('creating new s3 object')
@@ -195,7 +161,7 @@ class S3Cache(object):
                         
                     self.keys[s3key] = CacheEntry(s3key, self.cachedir + s3key, "w+b")
 
-            log.debug('Acquiring object lock')   
+            #log.debug('Acquiring object lock')   
             self.s3_lock.acquire(s3key)
 
        
@@ -204,7 +170,7 @@ class S3Cache(object):
             try:
                 el = self.keys[s3key]
             except KeyError:
-                log.debug('Object not cached, retrieving from s3')
+                log.debug('Object %s not cached, retrieving from s3', s3key)
                 etag = self.dbcm.get_val("SELECT etag FROM s3_objects WHERE key=?", (s3key,))
                 el = CacheEntry(s3key, self._download_object(s3key, etag), 'r+b')
                 self.keys[s3key] = el
@@ -215,7 +181,7 @@ class S3Cache(object):
                 self.size += oldsize
                 
             else:
-                log.debug('Using cached object')
+                #log.debug('Using cached object')
                 self.keys.to_head(s3key)
             
                 el.seek(0, 2)
@@ -231,29 +197,10 @@ class S3Cache(object):
                 self.size = self.size - oldsize + newsize 
             
         finally:
-            log.debug('Releasing object lock')
+            #log.debug('Releasing object lock')
             self.s3_lock.release(s3key)
             
-        self.expire()
-      
-    def _recover_cache(self):
-        '''Read cache directory and register contents 
-        
-        Not synchronized. Must be called before other threads are running.
-        '''
-        
-        log.debug('Recovering cache files...')
-        for s3key in os.listdir(self.cachedir):
-            assert isinstance(s3key, unicode)
-            log.debug('Recovering %s', s3key)
-            el = CacheEntry(s3key, self.cachedir + s3key, "r+b")
-            el.dirty = True
-            self.keys[s3key] = el
-            
-            el.seek(0, 2)
-            self.size += el.tell()
-              
-        log.debug('Cache recovery complete.')      
+        self.expire()    
             
     def _download_object(self, s3key, etag):
         """Download s3 object from amazon into the cache. Return path.
@@ -303,105 +250,76 @@ class S3Cache(object):
     def expire(self):
         '''Perform cache expiry 
         
-        In background commit mode, the cache is only flushed if there
-        are more than 300 open files.
-        
-        Otherwise, the cache is flushed until it its size is
-        below self.maxsize or there is only one object left to flush.
+        Removes entries until there are at most 300 open files
+        and the cache size is below self.maxsize or the number
+        of cache entries is below the number of active threads.
+         
+        We want to leave at least as many object in the cache as
+        there are active threads, otherwise 
+        we may end up storing & fetching the same object several times
+        just for one read() or write() call.
+        Note that active_count() unfortunately also includes possible
+        ExpireEntryThreads, but this should have no negative effects
+        (since at worst we will expire to little at this run)
         '''
         
-        if self.bgcommit:
-            # Only commit to limit number of open fds
-            while len(self.keys) > 300:
-                log.debug('More than 300 keys in cache, expiring entry..')
-                self._expire_entry()
-        else:       
-            log.debug('Expiring cache')
-            
-            # We want to leave at least one object in the cache, otherwise
-            # we may end up storing & fetching the same object several times
-            # just for one read() or write() call
-            while (self.size > self.maxsize or len(self.keys) > 300) and len(self.keys) > 1:
-                self._expire_entry()
-                
-            log.debug("Expiration end")
-          
-    def _commit(self):
-        '''Run commit thread.
+        log.debug('Expiring cache')
         
-        Sleep for a while; Expire the cache if necessary; continue forever. 
-        '''           
-        
-        # Pylint ignore since we deliberately override the main logger
-        log = logging.getLogger("S3Cache.Committer") #pylint: disable-msg=W0621
-        log.debug('Started.')
-        while True:
-            while (self.size > self.maxsize or len(self.keys) > 300) and len(self.keys) > 1:
-                if self.shutdown.is_set():
-                    log.debug('Received shutdown signal, exiting.')
-                    return
-                
-                log.debug('Expiring entry..')
-                self._expire_entry()
-                
-            # Wait for 5 seconds or until shutdown is set
-            log.debug('Nothing more to expire. Sleeping...')
-            self.shutdown.wait(10)
+        while (self.size > self.maxsize or len(self.keys) > 300) and \
+              len(self.keys) > threading.active_count():
+            self._expire_parallel()
             
-            if self.shutdown.is_set():
-                log.debug('Received shutdown signal, exiting.')
-                return
-            
+        log.debug("Expiration end")
     
             
-    def _expire_entry(self):
-        """Remove the oldest entry from the cache.
+    def _expire_parallel(self):
+        """Remove oldest entries from the cache.
+        
+        Expires the oldest entries to free at least 1 MB. Expiration is
+        done for all the keys at the same time using different threads.
+        However, at most 25 threads are started and we will at least
+        as many objects in the cache as there are active threads when
+        this function is called (see description of expire() for more info).
+        
+        The 1 MB is based on the following calculation:
+         - Uploading objects takes at least 0.15 seconds due to
+           network latency
+         - When uploading large objects, maximum throughput is about
+           6 MB/sec.
+         - Hence the minimum object size for maximum throughput is 
+           6 MB/s * 0.15 s ~ 1 MB
+         - If the object to be transferred is smaller than that, we have
+           to upload several objects at the same time, so that the total
+           amount of transferred data is 1 MB.
         """
          
-        log.debug('Trying to expire oldest cache entry..') 
+        log.debug('_expire parallel started') 
         
-        with self.global_lock:
-            # If we pop the object before having locked it, another thread 
-            # may download it - overwriting the existing file!
-            try:
-                el = self.keys.get_last()
-            except IndexError:
-                log.debug('No objects in cache. Returning.')
-                return
-            
-            log.debug('Least recently used object is %s, obtaining object lock..', el.s3key)
-            self.s3_lock.acquire(el.s3key)  
-            
-        try:
-            try:
-                del self.keys[el.s3key]
-            except KeyError:
-                # Another thread already expired it, we need to try again
-                log.debug('Object has already been expired in another thread, returning.')
-                return
-
-            el.seek(0, 2)
-            size = el.tell()
-            el.close()
-            
-            if el.dirty:
-                log.debug('Committing dirty s3 object %s...', el.s3key)
-                etag = self.bucket.store_from_file(el.s3key, el.name)
-                self.dbcm.execute("UPDATE s3_objects SET etag=?, size=? WHERE key=?",
-                                  (etag, size, el.s3key))
-   
-            log.debug('Removing s3 object %s from cache..', el.s3key)
-                
-            # Update cachesize
-            self.size -= size
-            
-            os.unlink(el.name)
-
-        finally:
-            self.s3_lock.release(el.s3key)
-                
+        # We don't want to include the threads that we start ourself
+        threadcnt = threading.active_count()
         
-
+        threads = list()
+        freed_size = 0
+        while ( freed_size < 1024*1024
+                and len(self.keys) > threadcnt
+                and len(threads) < 25 ):
+            t = ExpireEntryThread(self)
+            t.start()
+            t.size_ready.wait()
+            freed_size += t.size
+            threads.append(t)
+            
+        self.size -= freed_size
+        
+        log.debug('Started expiry threads for %d objects, totaling %d kb.',
+                  len(threads), freed_size/1024)
+        log.debug('Waiting for expiry threads...')
+        for t in threads:
+            t.join_and_raise()
+            
+        log.debug('_expire_parallel finished')
+        
+        
     def remove(self, inode, blockno=0):
         """Unlink s3 objects of given inode.
         
@@ -442,6 +360,7 @@ class S3Cache(object):
                 self.s3_lock.acquire(s3key)
             
             log.debug('Removing object %s from S3', s3key)
+            # TODO: We should just mark it dirty in the cache with size 0
             try:
                 el = self.keys.pop(s3key, None)
                 if el is not None: # In cache
@@ -461,14 +380,9 @@ class S3Cache(object):
         
         
     def flush(self, inode):
-        """Upload dirty data for `inode`  unless in bgcommit mode
+        """Upload dirty data for `inode`.
         
-        No locking required. 
         """
-        
-        if self.bgcommit:
-            log.debug('Skipping flush for inode %d since in bgcommit mode', inode)
-            return
         
         # Determine s3 objects from this inode
         log.debug('Flushing objects for inode %i', inode) 
@@ -483,7 +397,7 @@ class S3Cache(object):
                 log.debug('Object %s is not dirty', el.s3key)
                 continue
         
-            log.debug('Flushing object %s', el.s3key)
+            log.info('Flushing object %s', el.s3key)
             
             with self.s3_lock(el.s3key):
                 el.flush()    
@@ -498,43 +412,85 @@ class S3Cache(object):
     def close(self):
         """Uploads all dirty data and cleans the cache.
              
-        If background commit is activated, the committing thread is 
-        stopped and all committed data is cleaned from the cache. 
-        Uncommitted data remains in the cache.
         """       
 
         log.debug('Closing S3Cache') 
-        
-        if self.shutdown.is_set():
-            raise RuntimeError("close was called more than once!")
-        
-        self.shutdown.set()
-        if self.bgcommit:
-            log.debug('Waiting for background thread to exit..')
-            self.commit_thread.join_and_raise()
-            log.debug('Background thread has exited.')
             
         with self.global_lock:
             while len(self.keys):
                 el = self.keys.pop_last()
                 
                 
-                if not el.dirty:
-                    el.close()
-                    os.unlink(el.name)
-                elif self.bgcommit:
-                    el.close()
-                else:
+                if el.dirty:
                     el.flush()    
                     el.seek(0, 2)
                     etag = self.bucket.store_from_file(el.s3key, el.name)
                     self.dbcm.execute("UPDATE s3_objects SET etag=?, size=? WHERE key=?",
                                 (etag, el.tell(), el.s3key))
 
-                    el.close()
-                    os.unlink(el.name)
-
+                el.close()
+                os.unlink(el.name)
+ 
                 
     def __del__(self):
         if self.keys:
             raise RuntimeError("s3ql.s3Cache instance was destroyed without calling close()!")
+        
+class ExpireEntryThread(ExceptionStoringThread):
+    '''Expire a cache entry. Store the space that is going
+    to be freed in self.size, then signal on self.size_ready.
+    '''
+    
+    def __init__(self, s3cache):
+        super(ExpireEntryThread, self).__init__(target=self.expire)
+        self.size = None
+        self.size_ready = threading.Event()
+        self.s3cache = s3cache 
+        
+    def expire(self):
+        '''Expire oldest cache entry.
+        
+        '''
+        s3cache = self.s3cache
+        log.debug('Expiration thread started.')
+        
+        with s3cache.global_lock:
+            # If we pop the object before having locked it, another thread 
+            # may download it - overwriting the existing file!
+            try:
+                el = s3cache.keys.get_last()
+            except IndexError:
+                log.debug('No objects in cache. Returning.')
+                return
+            
+            log.debug('Least recently used object is %s, obtaining object lock..', el.s3key)
+            s3cache.s3_lock.acquire(el.s3key)  
+            
+        try:
+            try:
+                del s3cache.keys[el.s3key]
+            except KeyError:
+                # Another thread already expired it, we need to try again
+                log.debug('Object has already been expired in another thread, returning.')
+                return
+
+            el.seek(0, 2)
+            self.size = el.tell()
+            log.debug('Signaling S3Cache that size is ready to be read.')
+            self.size_ready.set()
+            el.close()
+            
+            if el.dirty:
+                log.info('Committing dirty s3 object %s...', el.s3key)
+                etag = s3cache.bucket.store_from_file(el.s3key, el.name)
+                s3cache.dbcm.execute("UPDATE s3_objects SET etag=?, size=? WHERE key=?",
+                                  (etag, self.size, el.s3key))
+   
+            log.debug('Removing s3 object %s from cache..', el.s3key)
+                
+            os.unlink(el.name)
+        finally:
+            s3cache.s3_lock.release(el.s3key)
+        
+        log.debug('Expiration thread finished.')
+        

@@ -64,14 +64,10 @@ parser.add_option("--cachesize", type="int", default=51200,
                   "written several times during a single write() or read() operation." )
 parser.add_option("--single", action="store_true", default=False,
                   help="Single threaded operation only")
-parser.add_option("--bgcommit", action="store_true", default=False,
-                  help="Activate background commit mode. In this mode all datatransfer to S3 "
-                  'is done in a separate background thread. The cache may exceed the ' 
-                  'cachesize without bounds and is not flushed even when the fs is unmounted.')
 parser.add_option("-o", type='string', default=None,
                   help="For compatibility with mount(8). Specifies mount options in "
                        "the form key=val,key2=val2,etc. Valid keys are s3timeout, "
-                       "allow_others, allow_root, cachesize, atime, bgcommit.")
+                       "allow_others, allow_root, cachesize, atime")
                        
 
 (options, pps) = parser.parse_args()
@@ -105,9 +101,7 @@ if options.o is not None:
                 if key == 'allow_root':
                     options.allow_root = True
                 if key == 'atime':
-                    options.atime = True
-                if key == 'bgcommit':
-                    options.bgcommit = True                    
+                    options.atime = True              
                 else:
                     raise ValueError()
         except ValueError:
@@ -164,21 +158,12 @@ if bucket["s3ql_dirty"] != "no":
     sys.exit(1)
 
 # Init cache
-if (os.path.exists(cachedir) and bucket['s3ql_bgcommit'] != 'yes') or os.path.exists(dbfile):
+if os.path.exists(cachedir) or os.path.exists(dbfile):
     log.error(
         "Local cache files already exists! Either you are trying to\n" 
         "to mount a file system that is already mounted, or the filesystem\n" 
         "has not been unmounted cleanly. In the later case you should run\n" 
         "fsck.\n")
-    sys.exit(1)
-
-if bucket['s3ql_bgcommit'] == 'yes' and not os.path.exists(cachedir):
-    log.error(
-        'File system has been mounted in background commit mode, but no\n'
-        'local cache exists. In background commit mode, the file system\n'
-        'can only be mounted on one computer with the same cache directory.\n' 
-        'To disable the background commit flag, run mount the file system\n'
-        'without background commit on the system where it was mounted most recently.\n')
     sys.exit(1)
     
 if (bucket.lookup_key("s3ql_metadata").last_modified 
@@ -207,11 +192,9 @@ try:
     # Start server
     #
     bucket.store("s3ql_dirty", "yes")
-    if options.bgcommit:
-        bucket['s3ql_bgcommit'] = 'yes'
         
     cache = S3Cache(bucket, cachedir, options.cachesize * 1024, dbcm, 
-                    options.s3timeout, options.bgcommit)
+                    options.s3timeout)
     
     server = fs.Server(cache, dbcm, not options.atime)
     log.info('Mounting filesystem..')
@@ -224,18 +207,13 @@ try:
     #retcache = list()
     #def doit():
     #    retcache.append(server.main(mountpoint, **fuse_opts))
-    #cProfile.run('doit()', 'profile_psyco.dat')
+    #cProfile.run('doit()', '/home/nikratio/profile_psyco.dat')
     #ret = retcache[0]   
     ret = server.main(mountpoint, **fuse_opts)
 
-    if not options.bgcommit:
-        log.info("Filesystem unmounted, committing cache...")
-    else: 
-        log.info("Filesystem unmounted, keeping cache (background commit mode)...")
+
+    log.info("Filesystem unmounted, committing cache...")
     cache.close()
-    
-    if not options.bgcommit:
-        bucket['s3ql_bgcommit'] = 'no'
 
     # Upload database
     log.info("Uploading database..")
@@ -256,8 +234,7 @@ finally:
     try:
         log.debug("Cleaning up...")
         os.unlink(dbfile)
-        if not options.bgcommit:
-            os.rmdir(cachedir)
+        os.rmdir(cachedir)
     except:
         pass
 

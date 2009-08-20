@@ -94,9 +94,11 @@ class s3cache_tests(unittest.TestCase):
             fh.seek(0)
             self.assertEqual(data, fh.read(len(data)))
             
+        # Now we remove this element from the cache
+        s3cache.ExpireEntryThread(self.cache).expire()
+            
         # This should not upload any data, so now we read the new key
         # and get an etag mismatch
-        self.cache._expire_entry() 
         self.cache.timeout = 1
         self.cache.expect_mismatch = True
         cm = self.cache.get(inode, blockno)
@@ -169,10 +171,9 @@ class s3cache_tests(unittest.TestCase):
         def access():            
             # Make sure the object is dirty
             with self.cache.get(self.inode, blockno) as fh:
-                fh.write(b'data')
-            with self.cache.get(self.inode, blockno+42) as fh:
-                fh.write(b'data')    
-            self.cache.expire()        
+                fh.write(b'data')  
+            # Force expiration of entry
+            s3cache.ExpireEntryThread(self.cache).expire()
         
         # This should work nicely
         t1 = ExceptionStoringThread(target=access)
@@ -201,7 +202,10 @@ class s3cache_tests(unittest.TestCase):
     def test_expiry(self):
         '''Check if we do not expire more or less than necessary
         '''
-        datalen = 512
+        
+        # expire will try to free at least 1 MB, so we make each
+        # object 1 MB big
+        datalen = 1024*1024
         no = 4
         self.cache.maxsize =  no * datalen
         
@@ -212,57 +216,10 @@ class s3cache_tests(unittest.TestCase):
         self.assertEquals(len(self.cache.keys), no)
         
         self.cache.maxsize = (no-1) * datalen
+        
         self.cache.expire()
         
         self.assertEquals(len(self.cache.keys), no-1)
-        
-    def test_recovery(self):
-        '''Check that old cache files are correctly recovered
-        '''
-        
-        blockno = 102
-        s3key = "s3ql_data_%d_%d" % (self.inode, blockno)
-     
-        # Register the object
-        with self.cache.get(self.inode, blockno) as fh: 
-            fh.write('Obsolete data')
-                
-        # Expire it
-        self.cache._expire_entry()
-        self.assertEqual(len(self.cache.keys), 0)
-        
-        # Add to cache directory
-        fh = open(self.cachedir + s3key, 'wb')
-        data = 'Updated data'
-        fh.write(data)
-        fh.close()
-    
-        # Recover cache
-        self.cache._recover_cache() 
-        
-        # Now we should be able to read the data from the cache
-        with self.cache.get(self.inode, blockno) as fh: 
-            fh.seek(0, 0)
-            self.assertEquals(fh.read(len(data)), data)
-            fh.write('') # To mark the entry as dirty
-            
-        self.cache.close()
-        self.cache = None
-        
-        self.assertFalse(os.path.exists(self.cachedir + s3key))
-        self.assertTrue(self.bucket[s3key] == data)
-                  
-    
-    def test_04_bgcommit(self):
-        commit_thread = ExceptionStoringThread(target=self.cache._commit)
-        commit_thread.start()
-        
-        self.cache.shutdown.set()
-        
-        commit_thread.join_and_raise()
-        
-        # Prevent close warning 
-        self.cache.shutdown.clear()
         
     
 class DummyLock(object):

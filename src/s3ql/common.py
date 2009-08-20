@@ -14,7 +14,6 @@ import stat
 import traceback
 import threading
 import logging
-import logging.handlers
 import time
 from time import sleep
 from getpass import getpass
@@ -369,9 +368,10 @@ class ExceptionStoringThread(threading.Thread):
     '''Catch all exceptions and store them
     '''
     
-    def __init__(self, target):
+    def __init__(self, target = None):
         super(ExceptionStoringThread, self).__init__()
-        self.target = target
+        if target is not None:
+            self.target = target
         self.exc = None
         self.tb = None
         self.joined = False

@@ -129,13 +129,13 @@ with open('/proc/%d/cmdline' % pid, 'r') as fh:
     cmdline = fh.readline()
 
 # Unmount
-log.debug('Calling fusermount')
+log.info('Unmounting...')
 if subprocess.call(umount_cmd) != 0:
     sys.exit(1)
 
 
 # Wait for daemon
-log.debug('Waiting for daemon to disappear')
+log.info('Uploading metadata...')
 step = 0.5
 while True:
     try:

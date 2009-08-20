@@ -139,10 +139,13 @@ class Server(object):
         self.blocksize = dbcm.get_val("SELECT blocksize FROM parameters")
 
     def init(self):
-        '''Called when fuse has been initialized
-        '''
-        self.cache.init()
+        '''Called when fuse has been initialized and the main loop is about to start.
         
+        This function has to be used to start any background threads which
+        would otherwise get killed if they are started before fuse has
+        daemonized.
+        '''
+        pass        
         
     def getattr(self, path):
         """Handles FUSE getattr() requests
