@@ -15,7 +15,7 @@ from s3ql.common import (decrease_refcount, get_inode, update_mtime, get_inodes,
 import time
 from cStringIO import StringIO
 import threading
-
+import psyco
 
 __all__ = [ "FUSEError", "Server", "RevisionError" ]
 
@@ -644,9 +644,6 @@ class Server(object):
     def truncate(self, bpath, len_):
         """Handles FUSE truncate() requests.
         """
-        # We have different arguments from base class since we overwrote the
-        # truncate call in FuseAdaptor
-        #pylint: disable-msg=W0221
         
         # TODO: We should only call release() if this is really
         # the last open fd to this file.
@@ -668,6 +665,7 @@ class Server(object):
         kw[b"default_permissions"] = True
         kw[b"use_ino"] = True
         kw[b"kernel_cache"] = True
+        #kw[b"direct_io"] = True
         kw[b"fsname"] = "s3ql"
         self.encountered_errors = False
         self.in_fuse_loop = True
@@ -915,3 +913,5 @@ class RevisionError(Exception):
             "revisions up %d" % (self.rev_is, self.rev_should)
 
 
+psyco.bind(Server.write)
+psyco.bind(Server._write)

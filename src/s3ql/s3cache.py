@@ -15,6 +15,7 @@ import logging
 import os
 import threading
 import time
+import psyco
 
 # Pylint has trouble to recognise the type of elements in the OrderedDict
 #pylint: disable-msg=E1103
@@ -23,6 +24,7 @@ __all__ = [ "S3Cache" ]
 
 # standard logger for this module
 log = logging.getLogger("S3Cache") 
+
 
 
 class CacheEntry(file):
@@ -140,7 +142,8 @@ class S3Cache(object):
         """Get file handle for s3 object backing `inode` at block `blockno`
         
         """
-                 
+        # Debug logging commented out, this function is called too often.
+        
         # Get s3 key    
         #log.debug('Getting file handle for inode %i, block %i', inode, blockno)
         with self.global_lock:
@@ -264,22 +267,22 @@ class S3Cache(object):
         '''
         
         log.debug('Expiring cache')
-        
+
+        minkeep = threading.active_count()
         while (self.size > self.maxsize or len(self.keys) > 300) and \
-              len(self.keys) > threading.active_count():
-            self._expire_parallel()
+              len(self.keys) > minkeep:
+            self._expire_parallel(minkeep)
             
         log.debug("Expiration end")
     
             
-    def _expire_parallel(self):
+    def _expire_parallel(self, minkeep):
         """Remove oldest entries from the cache.
         
         Expires the oldest entries to free at least 1 MB. Expiration is
         done for all the keys at the same time using different threads.
-        However, at most 25 threads are started and we will at least
-        as many objects in the cache as there are active threads when
-        this function is called (see description of expire() for more info).
+        However, at most 25 threads are started and we will leave at least
+        `minkeep` objects in the cache.
         
         The 1 MB is based on the following calculation:
          - Uploading objects takes at least 0.15 seconds due to
@@ -295,13 +298,10 @@ class S3Cache(object):
          
         log.debug('_expire parallel started') 
         
-        # We don't want to include the threads that we start ourself
-        threadcnt = threading.active_count()
-        
         threads = list()
         freed_size = 0
         while ( freed_size < 1024*1024
-                and len(self.keys) > threadcnt
+                and len(self.keys) > minkeep
                 and len(threads) < 25 ):
             t = ExpireEntryThread(self)
             t.start()
@@ -360,7 +360,9 @@ class S3Cache(object):
                 self.s3_lock.acquire(s3key)
             
             log.debug('Removing object %s from S3', s3key)
-            # TODO: We should just mark it dirty in the cache with size 0
+            # TODO: We should not call out to S3 here but instead mark the
+            # objects for deletion by a cache expiry thread (which will do
+            # it in parallel)
             try:
                 el = self.keys.pop(s3key, None)
                 if el is not None: # In cache
@@ -383,6 +385,10 @@ class S3Cache(object):
         """Upload dirty data for `inode`.
         
         """
+        
+        # It is really unlikely that one inode will several small
+        # blocks (the file would have to be terribly fragmented),
+        # therefore there is no need to upload in parallel.
         
         # Determine s3 objects from this inode
         log.debug('Flushing objects for inode %i', inode) 
@@ -411,25 +417,12 @@ class S3Cache(object):
 
     def close(self):
         """Uploads all dirty data and cleans the cache.
-             
+        
         """       
-
         log.debug('Closing S3Cache') 
             
-        with self.global_lock:
-            while len(self.keys):
-                el = self.keys.pop_last()
-                
-                
-                if el.dirty:
-                    el.flush()    
-                    el.seek(0, 2)
-                    etag = self.bucket.store_from_file(el.s3key, el.name)
-                    self.dbcm.execute("UPDATE s3_objects SET etag=?, size=? WHERE key=?",
-                                (etag, el.tell(), el.s3key))
-
-                el.close()
-                os.unlink(el.name)
+        while len(self.keys) > 0:
+            self._expire_parallel(minkeep=0)
  
                 
     def __del__(self):
@@ -494,3 +487,7 @@ class ExpireEntryThread(ExceptionStoringThread):
         
         log.debug('Expiration thread finished.')
         
+
+# Optimize logger calls
+psyco.bind(logging.getLogger)        
+psyco.bind(logging.Logger.debug)        
