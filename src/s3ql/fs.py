@@ -93,7 +93,7 @@ class Server(object):
             ap = [ repr(x) for x in a ]
 
         # Print request name and parameters
-        log_fuse.debug("* %s(%s)", op, ", ".join(ap))
+        #log_fuse.debug("* %s(%s)", op, ", ".join(ap))
 
         try:
             return getattr(self, op)(*a)
@@ -309,7 +309,7 @@ class Server(object):
         
                 # No more links, remove datablocks
                 if fstat["st_nlink"] == 1:
-                    self.cache.remove(inode)                
+                    self.cache.remove(inode)
                     conn.execute("DELETE FROM inodes WHERE id=?", (inode,))
                 else:
                     # Also updates ctime
@@ -913,5 +913,4 @@ class RevisionError(Exception):
             "revisions up %d" % (self.rev_is, self.rev_should)
 
 
-psyco.bind(Server.write)
-psyco.bind(Server._write)
+psyco.bind(Server)

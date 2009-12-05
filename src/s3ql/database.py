@@ -76,7 +76,7 @@ class ConnectionManager(object):
         
         This context manager acquires a connection from the pool and
         returns a WrappedConnection instance. If this function is
-        called again in the managed block, it will
+        called again by the same thread in the managed block, it will
         always return the same WrappedConnection instance. 
         '''
         
@@ -110,7 +110,7 @@ class ConnectionManager(object):
         Otherwise it is rolled back.        
         
         If this function is
-        called again in the managed block, it will
+        called again in the same thread inside the managed block, it will
         always return the same WrappedConnection instance, but still
         start a new, inner transaction. 
         '''
@@ -182,7 +182,7 @@ class WrappedConnection(object):
     in the database. If you want to store TEXT, you need to
     supply unicode objects instead. (This functionality is
     only needed under Python 2.x, under Python 3.x the apsw
-    module already behaves like this).
+    module already behaves in the correct way).
     
     Attributes
     ----------
@@ -212,10 +212,16 @@ class WrappedConnection(object):
         This context manager creates a savepoint. If the managed block evaluates
         without exceptions, the savepoint is committed at the end.
         Otherwise it is rolled back.         
+        
+        If there is no enclosing transaction, a BEGIN IMMEDIATE transaction 
+        is started before the saveblock.
         '''
         self.savepoint_cnt += 1
         name = 's3ql-%d' % self.savepoint_cnt
 
+        if self.savepoint_cnt == 1:
+            self._execute(self.cur, 'BEGIN IMMEDIATE')
+            
         self._execute(self.cur, "SAVEPOINT '%s'" % name)
         try:
             yield 
@@ -225,6 +231,10 @@ class WrappedConnection(object):
         finally:
             self._execute(self.cur, "RELEASE '%s'" % name)
             self.savepoint_cnt -= 1
+            
+            if self.savepoint_cnt == 0:
+                self._execute(self.cur, 'COMMIT')
+
              
              
     def query(self, *a, **kw):

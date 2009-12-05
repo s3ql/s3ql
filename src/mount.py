@@ -15,7 +15,7 @@ from s3ql.database import ConnectionManager
 import os
 import stat
 import logging
-import cProfile
+#import cProfile
 
 
 #
@@ -205,12 +205,12 @@ try:
     
     # Uncomment this and import cProfile to activate profiling.
     # Note that profiling only works in single threaded mode.
-    retcache = list()
-    def doit():
-        retcache.append(server.main(mountpoint, **fuse_opts))
-    cProfile.run('doit()', '/home/nikratio/profile_psyco.dat')
-    ret = retcache[0]   
-    #ret = server.main(mountpoint, **fuse_opts)
+    #retcache = list()
+    #def doit():
+    #    retcache.append(server.main(mountpoint, **fuse_opts))
+    #cProfile.run('doit()', '/home/nikratio/profile_psyco.dat')
+    #ret = retcache[0]   
+    ret = server.main(mountpoint, **fuse_opts)
 
 
     log.info("Filesystem unmounted, committing cache...")

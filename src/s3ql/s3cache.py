@@ -85,7 +85,7 @@ class S3Cache(object):
     
     Whenever locking is required, first a global lock is acquired. Under
     the global lock, the required s3 key is looked up (or created) in the
-    sqlite database. With the s3 key known, a key-specific lock is
+    SQLite database. With the s3 key known, a key-specific lock is
     acquired and then the global lock released. 
     
     
@@ -105,22 +105,12 @@ class S3Cache(object):
     :timeout:     Maximum time to wait for changes in S3 to propagate
     :dbcm:        ConnectionManager instance, to manage access to the database
                   from different threads
+    :expiry_lock: Serializes calls to expire()
                   
     
     The `expect_mismatch` attribute is only for unit testing instrumentation
     and suppresses warnings if a mismatch between local and remote etag
     is encountered.                   
-    
-    
-    Cache Management
-    ----------------
-    
-    Note that every s3 object in the cache occupies a file
-    descriptor. The maximum number of objects in the cache is
-    therefore hardcoded to 300 (so that we do not run out of
-    file descriptors). If the block size of the filesystem is
-    small, and the cache size is large, it can therefore happen
-    that the cache is expired before it reaches maximum size.
     """
     
     def __init__(self, bucket, cachedir, cachesize, dbcm, timeout=60):
@@ -131,10 +121,11 @@ class S3Cache(object):
         self.size = 0
         self.bucket = bucket
         self.s3_lock = MultiLock()
-        self.global_lock = threading.RLock()
+        self.global_lock = threading.Lock()
         self.dbcm = dbcm
         self.timeout = timeout 
-        self.expect_mismatch = False          
+        self.expect_mismatch = False  
+        self.expiry_lock = threading.Lock()        
 
         
     @contextmanager
@@ -190,7 +181,6 @@ class S3Cache(object):
                 el.seek(0, 2)
                 oldsize = el.tell()
                 
-            
             try:
                 yield el
             finally:
@@ -206,9 +196,9 @@ class S3Cache(object):
         self.expire()    
             
     def _download_object(self, s3key, etag):
-        """Download s3 object from amazon into the cache. Return path.
+        """Download s3 object into the cache. Return path.
         
-        Not synchronized. 
+        s3_lock must be acquired before this method is called. 
         """
 
         log.debug('Attempting to download object %s from S3', s3key)
@@ -251,38 +241,29 @@ class S3Cache(object):
         return cachepath      
         
     def expire(self):
-        '''Perform cache expiry 
+        '''Expire cache. 
         
-        Removes entries until there are at most 300 open files
-        and the cache size is below self.maxsize or the number
-        of cache entries is below the number of active threads.
-         
-        We want to leave at least as many object in the cache as
-        there are active threads, otherwise 
-        we may end up storing & fetching the same object several times
-        just for one read() or write() call.
-        Note that active_count() unfortunately also includes possible
-        ExpireEntryThreads, but this should have no negative effects
-        (since at worst we will expire to little at this run)
+        Removes entries until the cache size is below self.maxsize.
+        Serializes concurrent calls by different threads.
         '''
         
         log.debug('Expiring cache')
 
-        minkeep = threading.active_count()
-        while (self.size > self.maxsize or len(self.keys) > 300) and \
-              len(self.keys) > minkeep:
-            self._expire_parallel(minkeep)
+        while self.size > self.maxsize:
+            with self.expiry_lock:
+                # Other threads may have expired enough objects already
+                if self.size > self.maxsize:
+                    self._expire_parallel()
             
         log.debug("Expiration end")
     
             
-    def _expire_parallel(self, minkeep):
+    def _expire_parallel(self):
         """Remove oldest entries from the cache.
         
         Expires the oldest entries to free at least 1 MB. Expiration is
         done for all the keys at the same time using different threads.
-        However, at most 25 threads are started and we will leave at least
-        `minkeep` objects in the cache.
+        However, at most 25 threads are started.
         
         The 1 MB is based on the following calculation:
          - Uploading objects takes at least 0.15 seconds due to
@@ -300,9 +281,7 @@ class S3Cache(object):
         
         threads = list()
         freed_size = 0
-        while ( freed_size < 1024*1024
-                and len(self.keys) > minkeep
-                and len(threads) < 25 ):
+        while freed_size < 1024*1024 and len(threads) < 25 and len(self.keys) > 0:
             t = ExpireEntryThread(self)
             t.start()
             t.size_ready.wait()
@@ -321,65 +300,41 @@ class S3Cache(object):
         
         
     def remove(self, inode, blockno=0):
-        """Unlink s3 objects of given inode.
+        """Unlink blocks of given inode.
         
         If `blockno` is specified, unlinks only s3 objects for blocks
         >= `blockno`. If no other blocks reference the s3 objects,
         they are completely removed.
+        
+        As long as no s3 objects need to be removed, blocks are processed
+        sequentially. If an s3 object needs to be removed, a new thread
+        continues to process the remaining blocks in parallel.
         """        
-        
-        # Run through keys
-        log.debug('Removing s3 objects for inode %i, starting at block %i', inode, blockno)
-        while True:
-            with self.global_lock:
-                with self.dbcm() as conn:
-                    try:
-                        (s3key, cur_off) = \
-                            conn.get_row("SELECT s3key,blockno FROM blocks WHERE inode=? "
-                                        "AND blockno >= ? LIMIT 1", (inode, blockno))
-                    except StopIteration:    # No keys left
-                        break
-                    
-                    # Remove from table
-                    log.debug('Removing object %s from table', s3key)
-                    with conn.transaction():
-                        conn.execute("DELETE FROM blocks WHERE inode=? AND blockno=?", 
-                                    (inode, cur_off))
-                        refcount = conn.get_val("SELECT refcount FROM s3_objects WHERE key=?",
-                                               (s3key,))
-                        refcount -= 1
-                        if refcount == 0:
-                            conn.execute("DELETE FROM s3_objects WHERE key=?", (s3key,))
-                        else:
-                            conn.execute("UPDATE s3_objects SET refcount=? WHERE key=?",
-                                    (refcount, s3key))
-                            # No need to do actually remove the object
-                            continue
-                    
-                # Remove from AWS
-                self.s3_lock.acquire(s3key)
-            
-            log.debug('Removing object %s from S3', s3key)
-            # TODO: We should not call out to S3 here but instead mark the
-            # objects for deletion by a cache expiry thread (which will do
-            # it in parallel)
-            try:
-                el = self.keys.pop(s3key, None)
-                if el is not None: # In cache
-                    el.seek(0, 2)
-                    self.size -= el.tell()
-                    el.close()  
-                    os.unlink(el.name) 
+
+        with self.dbcm() as dbconn:
+            threads = list()
+            blocks_remaining = True
+            while blocks_remaining:
                 
-                # Remove from s3
-                try:
-                    # The object may not have been committed yet
-                    self.bucket.delete_key(s3key)
-                except KeyError:  
-                    pass 
-            finally:
-                self.s3_lock.release(s3key)
-        
+                # If there are more than 25 threads, we wait for the
+                # first one to finish
+                if len(threads) > 25:
+                    threads.pop(0).join_and_raise()
+                    
+                # Start a removal thread
+                t = UnlinkBlocksThread(self, dbconn, inode, blockno)
+                threads.append(t)            
+                t.start()
+                
+                # Wait until the thread has determined if there are blocks
+                # left and copy that information for the while loop.
+                t.ready.wait()
+                blocks_remaining = t.blocks_remaining
+            
+        log.debug('Waiting for removal threads...')
+        for t in threads:
+            t.join_and_raise()
+                    
         
     def flush(self, inode):
         """Upload dirty data for `inode`.
@@ -422,12 +377,13 @@ class S3Cache(object):
         log.debug('Closing S3Cache') 
             
         while len(self.keys) > 0:
-            self._expire_parallel(minkeep=0)
+            self._expire_parallel()
  
                 
     def __del__(self):
         if self.keys:
             raise RuntimeError("s3ql.s3Cache instance was destroyed without calling close()!")
+        
         
 class ExpireEntryThread(ExceptionStoringThread):
     '''Expire a cache entry. Store the space that is going
@@ -487,7 +443,93 @@ class ExpireEntryThread(ExceptionStoringThread):
         
         log.debug('Expiration thread finished.')
         
+class UnlinkBlocksThread(ExceptionStoringThread):
+    '''Removes blocks of given inode 
+    
+    Removes all blocks >= `blockno`. If a block is the last one
+    that referred to an s3 object, the thread sets `blocks_remaining`
+    to indicate that there are blocks left to unlink and proceeds
+    with removing the s3 object from AWS.
+    
+    self.ready is used to signal when self.blocks_remaining has
+    been set.
+    
+    The database connection `dbconn` can be reused as soon as
+    self.ready is set. In this class, it's usage is also protected
+    by s3cache.global_lock.
+    '''
+    
+    def __init__(self, s3cache, dbconn, inode, blockno):
+        super(UnlinkBlocksThread, self).__init__(target=self.remove)
+        self.ready = threading.Event() # Signals when blocks_remaining has been set
+        self.s3cache = s3cache
+        self.blocks_remaining = False
+        self.inode = inode
+        self.blockno = blockno         
+        self.dbconn = dbconn
+        
+    def remove(self):
+        cache = self.s3cache
+        conn = self.dbconn
+        inode = self.inode
+        blockno = self.blockno
 
+        try:
+            log.debug('Unlinking blocks >= %d from inode %i', blockno, inode)
+            with cache.global_lock:
+                with conn.transaction():
+                    refcount = 1 # To start loop
+                    while refcount > 0:
+                        try:
+                            (s3key, cur_off) = \
+                                conn.get_row("SELECT s3key,blockno FROM blocks WHERE inode=? "
+                                            "AND blockno >= ? LIMIT 1", (inode, blockno))
+                        except StopIteration:    # No keys left
+                            self.blocks_remaining = False
+                            return
+                        
+                        # Remove from table
+                        log.debug('Removing object %s from table', s3key)
+                        conn.execute("DELETE FROM blocks WHERE inode=? AND blockno=?", 
+                                     (inode, cur_off))
+                        refcount = conn.get_val("SELECT refcount FROM s3_objects WHERE key=?",
+                                                (s3key,))
+                        
+                        refcount -= 1
+                        if refcount > 0: # We don't need to remove the s3 object
+                            conn.execute("UPDATE s3_objects SET refcount=? WHERE key=?",
+                                        (refcount, s3key))
+                            
+                    # Need to delete s3 object
+                    self.blocks_remaining = True
+                    self.ready.set()
+                     
+                    conn.execute("DELETE FROM s3_objects WHERE key=?", (s3key,))
+                    cache.s3_lock.acquire(s3key) # In case another thread wants to recreate this key
+                    
+            try:
+                log.debug('Removing object %s', s3key)
+                el = cache.keys.pop(s3key, None)
+                if el is not None: # in cache
+                    el.seek(0, 2)
+                    cache.size -= el.tell()
+                    el.close()  
+                    os.unlink(el.name) 
+                
+                # Remove from s3
+                try:
+                    # The object may not have been committed yet
+                    cache.bucket.delete_key(s3key)
+                except KeyError:  
+                    pass 
+            finally:
+                cache.s3_lock.release(s3key)
+        finally:
+            # Make sure this is set at the end to prevent deadlocks
+            self.ready.set()
+
+
+                
 # Optimize logger calls
 psyco.bind(logging.getLogger)        
 psyco.bind(logging.Logger.debug)        
