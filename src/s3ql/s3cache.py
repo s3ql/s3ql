@@ -26,6 +26,13 @@ __all__ = [ "S3Cache" ]
 log = logging.getLogger("S3Cache") 
 
 
+# This is an additional limit on the cache, in addition
+# to the cache size. It prevents that we run out of
+# file descriptors, or simply eat up too much memory
+# for cache elements, if the users creates thousands
+# of 10-byte files.
+MAX_CACHE_ENTRIES = 982
+
 
 class CacheEntry(file):
     """An element in the s3 cache.
@@ -249,10 +256,12 @@ class S3Cache(object):
         
         log.debug('Expiring cache')
 
-        while self.size > self.maxsize:
+        while (self.size > self.maxsize or
+               len(self.keys) > MAX_CACHE_ENTRIES):
             with self.expiry_lock:
                 # Other threads may have expired enough objects already
-                if self.size > self.maxsize:
+                if (self.size > self.maxsize or
+                    len(self.keys) > MAX_CACHE_ENTRIES):
                     self._expire_parallel()
             
         log.debug("Expiration end")
