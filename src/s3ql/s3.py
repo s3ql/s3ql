@@ -67,14 +67,22 @@ class Connection(object):
         Fails if there are objects in the bucket and `recursive` is
         `False`.
         """
+        
+        if recursive:
+            self.empty_bucket(name)
+            
         with self.get_boto() as boto:
-            if recursive:
-                bucket = boto.get_bucket(name)
-                for s3key in bucket.list():
-                    log.debug('Deleting key %s', s3key)
-                    bucket.delete_key(s3key)
-    
             boto.delete_bucket(name)
+            
+    def empty_bucket(self, name):
+        """Deletes all objects in a bucket
+        """
+        with self.get_boto() as boto:
+            bucket = boto.get_bucket(name)
+            for s3key in bucket.list():
+                log.debug('Deleting key %s', s3key)
+                bucket.delete_key(s3key)
+
 
     @contextmanager
     def get_boto(self):
@@ -88,24 +96,32 @@ class Connection(object):
             self._push_conn(conn)
 
     def create_bucket(self, name):
-        """Creates an S3 bucket
+        """Create and return an S3 bucket
         """
         with self.get_boto() as boto:
             boto.create_bucket(name)
-
-
-    def get_bucket(self, name):
-        """Returns a bucket instance for the bucket `name`
-
-        If the bucket doesn't exist, it is created first.
-        """
-        if not self.bucket_exists(name):
-            self.create_bucket(name)
             
             # S3 needs some time before we can fetch the bucket
             waitfor(10, self.bucket_exists, name)
-
+            
         return Bucket(self, name)
+
+    def get_bucket(self, name, create=False):
+        """Returns a bucket instance for the bucket `name`
+        
+        If `create` is True, the bucket is created if it does not exist.
+        """
+        
+        with self.get_boto() as boto:
+            try:
+                boto.get_bucket(name)
+            except bex.S3ResponseError as e:
+                if create and e.status == 404:
+                    return self.create_bucket(name)
+                else:
+                    raise
+            else:
+                return Bucket(self, name)
 
     def bucket_exists(self, name):
         """Checks if the bucket `name` exists.
@@ -113,7 +129,7 @@ class Connection(object):
         with self.get_boto() as boto:
             try:
                 boto.get_bucket(name)
-            except bex.S3ResponseError, e:
+            except bex.S3ResponseError as e:
                 if e.status == 404:
                     return False
                 else:

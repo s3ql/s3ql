@@ -92,13 +92,13 @@ conn = s3.Connection(awskey, awspass)
 if conn.bucket_exists(bucket):
     if options.force:
         log.info("Removing existing bucket...")
-        conn.delete_bucket(bucket, True)
+        conn.empty_bucket(bucket, True)
     else:
         log.warn(
             "Bucket already exists!\n" 
             "Use -f option to remove the existing bucket.\n")
         sys.exit(1)
-
+    
 
 #
 # Setup database
@@ -106,8 +106,8 @@ if conn.bucket_exists(bucket):
 dbfile = get_dbfile(bucket, options.cachedir)
 cachedir = get_cachedir(bucket, options.cachedir)
 
-if os.path.exists(dbfile) or \
-        os.path.exists(cachedir):
+if (os.path.exists(dbfile) or 
+    os.path.exists(cachedir)):
     if options.force:
         if os.path.exists(dbfile):
             os.unlink(dbfile)
@@ -126,7 +126,7 @@ try:
                   options.blocksize * 1024, options.label)
 
     log.info('Uploading database...')
-    bucket = conn.get_bucket(bucket)
+    bucket = conn.get_bucket(bucket, create=True)
     
     bucket['s3ql_dirty'] = "no"
     bucket.store_from_file('s3ql_metadata', dbfile)
