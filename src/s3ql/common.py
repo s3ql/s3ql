@@ -358,11 +358,11 @@ def unused_name(path, conn):
         
 
 # Define inode of root directory
-ROOT_INODE = 0
+ROOT_INODE = 1
 
 # Name and inode of the special s3ql control file
 CTRL_NAME = '.__s3ql__ctrl__'
-CTRL_INODE = 1
+CTRL_INODE = 2
 
 class ExceptionStoringThread(threading.Thread):
     '''Catch all exceptions and store them
