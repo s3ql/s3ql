@@ -81,6 +81,10 @@ if not len(pps) == 2:
 bucketname = pps[0]
 mountpoint = pps[1]
 
+if not os.path.exists(mountpoint):
+    sys.stderr.write('Mountpoint does not exist.\n')
+    sys.exit(1)
+
 #
 # Parse -o style mount options
 #
@@ -196,25 +200,25 @@ try:
         
     cache = S3Cache(bucket, cachedir, options.cachesize * 1024, dbcm, 
                     options.s3timeout)
+    try:
+        server = fs.Server(cache, dbcm, not options.atime)
+        log.info('Mounting filesystem..')
+        
+        # Switch to background if necessary
+        init_logging(options.fg, options.quiet, options.debug, options.debuglog)
+        
+        # Uncomment this and import cProfile to activate profiling.
+        # Note that profiling only works in single threaded mode.
+        #retcache = list()
+        #def doit():
+        #    retcache.append(server.main(mountpoint, **fuse_opts))
+        #cProfile.run('doit()', '/home/nikratio/profile_psyco.dat')
+        #ret = retcache[0]   
+        server.main(mountpoint, **fuse_opts)
     
-    server = fs.Server(cache, dbcm, not options.atime)
-    log.info('Mounting filesystem..')
-    
-    # Switch to background if necessary
-    init_logging(options.fg, options.quiet, options.debug, options.debuglog)
-    
-    # Uncomment this and import cProfile to activate profiling.
-    # Note that profiling only works in single threaded mode.
-    #retcache = list()
-    #def doit():
-    #    retcache.append(server.main(mountpoint, **fuse_opts))
-    #cProfile.run('doit()', '/home/nikratio/profile_psyco.dat')
-    #ret = retcache[0]   
-    ret = server.main(mountpoint, **fuse_opts)
-
-
-    log.info("Filesystem unmounted, committing cache...")
-    cache.close()
+        log.info("Filesystem unmounted, committing cache...")
+    finally:
+        cache.close()
 
     # Upload database
     log.info("Uploading database..")
@@ -239,7 +243,7 @@ finally:
     except:
         pass
 
-if not ret:
+if server.encountered_errors:
     log.warn('Some errors occured while handling requests. '
              'Please examine the logs for more information.')
     sys.exit(1)

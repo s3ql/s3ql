@@ -69,6 +69,10 @@ if not len(pps) == 1:
     parser.error("Wrong number of parameters")
 mountpoint = pps[0]
 
+if not os.path.exists(mountpoint):
+    sys.stderr.write('Mountpoint does not exist.\n')
+    sys.exit(1)
+    
 #
 # Pass on fuse options
 #
@@ -88,6 +92,7 @@ if options.fg:
 if options.debug is not None and options.debuglog is None and not options.fg:
     sys.stderr.write('Warning! Debugging output will be lost. '
                      'You should use either --fg or --debuglog.\n')
+    
 # Foreground logging until we daemonize
 init_logging(True, options.quiet, options.debug, options.debuglog)
 log = logging.getLogger("frontend")
@@ -102,42 +107,46 @@ bucket.prop_delay = options.propdelay
 
 dbfile = tempfile.NamedTemporaryFile()
 cachedir = tempfile.mkdtemp() + "/"
-dbcm = ConnectionManager(dbfile.name, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
-with dbcm() as conn:
-    mkfs.setup_db(conn, options.blocksize * 1024)
-log.debug("Temporary database in " + dbfile.name)
-
-#
-# Start server
-#
-
-cache =  S3Cache(bucket, cachedir, options.cachesize, dbcm,
-                 timeout=options.propdelay+1)
-server = fs.Server(cache, dbcm, not options.atime)
-
-# Switch to background if necessary
-init_logging(options.fg, options.quiet, options.debug, options.debuglog)
-
-ret = server.main(mountpoint, **fuse_opts)
-cache.close()
-
-# We have to make sure that all changes have been committed by the
-# background threads
-sleep(options.propdelay)
-
-#
-# Do fsck
-#
-if options.fsck:
+try:
+    dbcm = ConnectionManager(dbfile.name, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
     with dbcm() as conn:
-        if not fsck.fsck(conn, cachedir, bucket, checkonly=True):
-            log.warn("fsck found errors -- preserving database in %s", dbfile)
-            os.rmdir(cachedir)
-            sys.exit(1)
-
-dbfile.close()
-os.rmdir(cachedir)
-if not ret:
+        mkfs.setup_db(conn, options.blocksize * 1024)
+    log.debug("Temporary database in " + dbfile.name)
+    
+    #
+    # Start server
+    #
+    
+    cache =  S3Cache(bucket, cachedir, options.cachesize, dbcm,
+                     timeout=options.propdelay+1)
+    try:
+        server = fs.Server(cache, dbcm, not options.atime)
+        
+        # Switch to background if necessary
+        init_logging(options.fg, options.quiet, options.debug, options.debuglog)
+        
+        server.main(mountpoint, **fuse_opts)
+    finally:
+        cache.close()
+    
+    # We have to make sure that all changes have been committed by the
+    # background threads
+    sleep(options.propdelay)
+    
+    #
+    # Do fsck
+    #
+    if options.fsck:
+        with dbcm() as conn:
+            if not fsck.fsck(conn, cachedir, bucket, checkonly=True):
+                log.warn("fsck found errors -- preserving database in %s", dbfile)
+                os.rmdir(cachedir)
+                sys.exit(1)
+finally:
+    dbfile.close()
+    os.rmdir(cachedir)
+    
+if server.encountered_errors:
     log.warn('Some errors occured while handling requests. '
              'Please examine the logs for more information.')
     sys.exit(1)

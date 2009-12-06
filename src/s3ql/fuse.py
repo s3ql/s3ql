@@ -239,13 +239,23 @@ class FUSE(object):
        under normal use. Its methods are called by fuse.
        Assumes API version 2.6 or later."""
     
-    def __init__(self, operations, mountpoint, raw_fi=False, **kwargs):
+    def __init__(self, operations, raw_fi = False):
         """Setting raw_fi to True will cause FUSE to pass the fuse_file_info
            class as is to Operations, instead of just the fh field.
            This gives you access to direct_io, keep_cache, etc."""
         
         self.operations = operations
         self.raw_fi = raw_fi
+        
+        self.fuse_ops = fuse_operations()
+        for field in fuse_operations._fields_: #pylint: disable-msg=W0212
+            name, prototype = field[:2]
+            if hasattr(prototype, 'restype') and getattr(operations, name, None):
+                op = partial(self._wrapper_, getattr(self, name))
+                setattr(self.fuse_ops, name, prototype(op))
+        
+    def mount_and_serve(self, mountpoint, **kwargs):
+        
         args = ['fuse']
         if kwargs.pop('foreground', False):
             args.append('-f')
@@ -253,22 +263,18 @@ class FUSE(object):
             args.append('-d')
         if kwargs.pop('nothreads', False):
             args.append('-s')
-        kwargs.setdefault('fsname', operations.__class__.__name__)
+        kwargs.setdefault('fsname', self.operations.__class__.__name__)
+        
         args.append('-o')
         args.append(','.join(key if val == True else '%s=%s' % (key, val)
             for key, val in kwargs.items()))
+        
         args.append(mountpoint)
         argv = (c_char_p * len(args))(*args)
-        
-        fuse_ops = fuse_operations()
-        for field in fuse_operations._fields_: #pylint: disable-msg=W0212
-            name, prototype = field[:2]
-            if hasattr(prototype, 'restype') and getattr(operations, name, None):
-                op = partial(self._wrapper_, getattr(self, name))
-                setattr(fuse_ops, name, prototype(op))
-        _libfuse.fuse_main_real(len(args), argv, pointer(fuse_ops),
-            sizeof(fuse_ops), None)
-        del self.operations     # Invoke the destructor
+
+        if _libfuse.fuse_main_real(len(args), argv, pointer(self.fuse_ops),
+                                       sizeof(self.fuse_ops), None) != 0:
+            raise RuntimeError("calling fuse_main_real() failed.")
 
     @staticmethod
     def _wrapper_(func, *args, **kwargs):

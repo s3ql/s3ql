@@ -668,14 +668,13 @@ class Server(object):
         #kw[b"direct_io"] = True
         kw[b"fsname"] = "s3ql"
         self.encountered_errors = False
+        handler = fuse.FUSE(self)
         self.in_fuse_loop = True
         try:
-            fuse.FUSE(self, mountpoint, **kw)
+            handler.mount_and_serve(mountpoint, **kw)
         finally:
             self.in_fuse_loop = False
         log.debug("Main event loop terminated.")
-
-        return not self.encountered_errors
 
     def open(self, path, flags):
         """Opens file `path`.
