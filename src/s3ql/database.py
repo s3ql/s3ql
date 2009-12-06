@@ -219,6 +219,12 @@ class WrappedConnection(object):
         self.savepoint_cnt += 1
         name = 's3ql-%d' % self.savepoint_cnt
 
+        # NOTE: If you ever add a version of this function that starts a DEFERRED transaction
+        # instead, you have to make sure that the two different kinds of transactions
+        # cannot be nested. Once a DEFERRED (== read only) transaction is started, the thread
+        # holds a SHARED lock and must not try to obtain a RESERVED lock or deadlocks
+        # will occur. In other words, once the caller has asked for a DEFERRED transaction,
+        # any further attempts to set SAVEPOINTS have to produce errors.        
         if self.savepoint_cnt == 1:
             self._execute(self.cur, 'BEGIN IMMEDIATE')
             
