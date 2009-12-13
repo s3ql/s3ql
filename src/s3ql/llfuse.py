@@ -1,114 +1,60 @@
-# Copyright (c) 2009 Giorgos Verigakis <verigak@gmail.com>
-# 
-# Permission to use, copy, modify, and distribute this software for any
-# purpose with or without fee is hereby granted, provided that the above
-# copyright notice and this permission notice appear in all copies.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+'''
+Interface between the C and Python API. The actual file system
+is implemented as an `Operations` instance whose methods will
+be called by the `Server` instance within the `mount_and_serve`
+loop.
+'''
 
-# We have no control over the arguments, so we
-# disable warnings about unused arguments
-#pylint: disable-msg=W0613
+# We do want to use the global statement
+#pylint: disable-msg=W0603
+
+# The global variables are only initialized in init()
+# and not at module level
+#pylint: disable-msg=W0601
+
+# Since we are using ctype Structures, we often have to
+# access attributes that are not defined in __init__
+# (since they are defined in _fields_ instead)
+#pylint: disable-msg=W0201    
 
 
 from __future__ import division
-from ctypes import (c_long, Structure, c_int32, c_byte, c_char_p, c_int, c_int64, 
-                    c_size_t, c_uint16, c_ulong, c_ulonglong, c_uint, c_short, 
-                    CDLL, CFUNCTYPE, POINTER, RTLD_GLOBAL, c_voidp, c_uint64, 
+from unix_types import (c_flock_t, c_stat_t, c_mode_t, c_dev_t, c_off_t,
+                        c_iovec_t, c_statfs_t)
+from ctypes import (c_long, Structure,  c_byte, c_char_p, c_int,  
+                    c_size_t,  c_ulong,  c_uint, string_at,
+                    CDLL, CFUNCTYPE, POINTER, c_voidp, c_uint64, 
                      sizeof, create_string_buffer, c_double, byref, addressof)
 from ctypes.util import find_library
-from platform import machine, system
+from functools import partial
+import logging
+import errno
+
+__all__ = [ 'init', 'main', 'FUSEError' ]
+
+libfuse = CDLL(find_library("fuse"))
+
+# Check FUSE version
+libfuse.fuse_version.restype = c_int
+fuse_version = libfuse.fuse_version()
+fuse_major_version = fuse_version // 10
+fuse_minor_version = fuse_version - fuse_major_version * 10
+
+if fuse_major_version != 2:
+    raise StandardError("Incompatible FUSE library installed. Reported major "
+                        "version: %d, required major version: 2" % fuse_major_version)
+
+log = logging.getLogger("fuse") 
 
 
-c_blkcnt_t = c_int64
-c_blksize_t = c_long
-c_fsblkcnt_t = c_ulong
-c_fsfilcnt_t = c_ulong
-c_gid_t = c_uint
-c_ino_t = c_ulong
-c_off_t = c_int64
-c_time_t = c_long
-c_uid_t = c_uint
+#
+# Define FUSE C data types
+#
 
-
-class c_timespec(Structure):
-    _fields_ = [('tv_sec', c_time_t), ('tv_nsec', c_long)]
-
-
-_system = system()
-
-if _system == 'Darwin':
-    c_dev_t = c_int32
-    c_mode_t = c_uint16
-    c_nlink_t = c_uint16
-    
-    class c_stat(Structure):
-        _fields_ = [
-            ('st_dev', c_dev_t),
-            ('st_ino', c_ino_t),
-            ('st_mode', c_mode_t),
-            ('st_nlink', c_nlink_t),
-            ('st_uid', c_uid_t),
-            ('st_gid', c_gid_t),
-            ('st_rdev', c_dev_t),
-            ('st_atimespec', c_timespec),
-            ('st_mtimespec', c_timespec),
-            ('st_ctimespec', c_timespec),
-            ('st_size', c_off_t),
-            ('st_blocks', c_blkcnt_t),
-            ('st_blksize', c_blksize_t),
-        ]
-elif _system == 'Linux':
-    c_dev_t = c_ulonglong
-    c_mode_t = c_uint
-    c_nlink_t = c_ulong
-    
-    if machine() == 'x86_64':
-        class c_stat(Structure):
-            _fields_ = [
-                ('st_dev', c_dev_t),
-                ('st_ino', c_ino_t),
-                ('st_nlink', c_nlink_t),
-                ('st_mode', c_mode_t),
-                ('st_uid', c_uid_t),
-                ('st_gid', c_gid_t),
-                ('__pad0', c_int),
-                ('st_rdev', c_dev_t),
-                ('st_size', c_off_t),
-                ('st_blksize', c_blksize_t),
-                ('st_blocks', c_blkcnt_t),
-                ('st_atimespec', c_timespec),
-                ('st_mtimespec', c_timespec),
-                ('st_ctimespec', c_timespec),
-            ]
-    else:
-        class c_stat(Structure):
-            _fields_ = [
-                ('st_dev', c_dev_t),
-                ('__pad1', c_short),
-                ('st_ino', c_ino_t),
-                ('st_mode', c_mode_t),
-                ('st_nlink', c_nlink_t),
-                ('st_uid', c_uid_t),
-                ('st_gid', c_gid_t),
-                ('st_rdev', c_dev_t),
-                ('__pad2', c_short),
-                ('st_size', c_off_t),
-                ('st_blksize', c_blksize_t),
-                ('st_blocks', c_blkcnt_t),
-                ('st_atimespec', c_timespec),
-                ('st_mtimespec', c_timespec),
-                ('st_ctimespec', c_timespec)
-            ]
-
-
-class fuse_file_info(Structure):
+c_fuse_ino_t = c_ulong
+c_fuse_req_t = c_voidp
+      
+class c_fuse_file_info_t(Structure):
     _fields_ = [
         ('flags', c_int),
         ('fh_old', c_ulong),
@@ -122,188 +68,350 @@ class fuse_file_info(Structure):
     ]
     
 
-fuse_ino_t = c_ulong
-fuse_req_t = c_voidp
-
-class fuse_entry_param(Structure):
+class c_fuse_entry_param_t(Structure):
     _fields_ = [
-        ('ino', fuse_ino_t),
+        ('ino', c_fuse_ino_t),
         ('generation', c_ulong),
-        ('attr', c_stat),
+        ('attr', c_stat_t),
         ('attr_timeout', c_double),
         ('entry_timeout', c_double)
     ]
 
-init_t = CFUNCTYPE(c_voidp, c_voidp, c_voidp)
-destroy_t = CFUNCTYPE(c_voidp, c_voidp)
-lookup_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, c_char_p)
-forget_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, c_ulong)
-getattr_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, POINTER(fuse_file_info))
-setattr_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, c_stat, c_int, POINTER(fuse_file_info))
-readlink_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t)
-mknod_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, c_char_p, c_mode_t, c_dev_t)
-mkdir_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, c_char_p, c_mode_t)
-unlink_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, c_char_p)
-rmdir_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, c_char_p)
-symlink_t = CFUNCTYPE(c_voidp, fuse_req_t, c_char_p, fuse_ino_t, c_char_p)
-rename_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, c_char_p, fuse_ino_t, c_char_p)
-link_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, fuse_ino_t, c_char_p)
-open_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, POINTER(fuse_file_info))
-read_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, c_size_t, c_off_t, POINTER(fuse_file_info))
-write_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, POINTER(c_byte), c_size_t, c_off_t, POINTER(fuse_file_info))
-flush_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, POINTER(fuse_file_info))
-release_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, POINTER(fuse_file_info))
-fsync_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, c_int, POINTER(fuse_file_info))
-opendir_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, POINTER(fuse_file_info))
-readdir_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, c_size_t, c_long, POINTER(fuse_file_info))
-releasedir_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, POINTER(fuse_file_info))
-fsyncdir_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t, c_int, POINTER(fuse_file_info))
-statfs_t = CFUNCTYPE(c_voidp, fuse_req_t, fuse_ino_t)
-
-class fuse_lowlevel_ops(Structure):
+class c_fuse_args_t(Structure):
     _fields_ = [
-        ('init', init_t),
-        ('destroy', destroy_t),
-        ('lookup', lookup_t),
-        ('forget', forget_t),
-        ('getattr', getattr_t),
-        ('setattr', setattr_t),
-        ('readlink', readlink_t),
-        ('mknod', mknod_t),
-        ('mkdir', mkdir_t),
-        ('unlink', unlink_t),
-        ('rmdir', rmdir_t),
-        ('symlink', symlink_t),
-        ('rename', rename_t),
-        ('link', link_t),
-        ('open', open_t),
-        ('read', read_t),
-        ('write', write_t),
-        ('flush', flush_t),
-        ('release', release_t),
-        ('fsync', fsync_t),
-        ('opendir', opendir_t),
-        ('readdir', readdir_t),
-        ('releasedir', releasedir_t),
-        ('fsyncdir', fsyncdir_t),
-        ('statfs', statfs_t)
-    ]
+                ('argc', c_int),
+                ('argv', POINTER(c_char_p)),
+                ('allocated', c_int)
+                ]
+
+class c_fuse_lowlevel_ops_t(Structure):
+    _fields_ = [
+                ('init', CFUNCTYPE(c_voidp, c_voidp, c_voidp)),
+                ('destroy', CFUNCTYPE(c_voidp, c_voidp)),
+                ('lookup', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_char_p)),
+                ('forget', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_ulong)),
+                ('getattr', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, 
+                                      POINTER(c_fuse_file_info_t))),
+                ('setattr', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_stat_t, c_int,
+                                      POINTER(c_fuse_file_info_t))),
+                ('readlink', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t)),
+                ('mknod', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_char_p, 
+                                    c_mode_t, c_dev_t)),
+                ('mkdir', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_char_p, c_mode_t)),
+                ('unlink', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_char_p)),
+                ('rmdir', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_char_p)),
+                ('symlink', CFUNCTYPE(c_voidp, c_fuse_req_t, c_char_p, c_fuse_ino_t, c_char_p)),
+                ('rename', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_char_p, c_fuse_ino_t,
+                                     c_char_p)),
+                ('link', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_fuse_ino_t, c_char_p)),
+                ('open', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, 
+                                   POINTER(c_fuse_file_info_t))),
+                ('read', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_size_t, c_off_t, 
+                                   POINTER(c_fuse_file_info_t))),
+                ('write', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, POINTER(c_byte), c_size_t, 
+                                    c_off_t,
+                                    POINTER(c_fuse_file_info_t))),
+                ('flush', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, 
+                                    POINTER(c_fuse_file_info_t))),
+                ('release', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, 
+                                      POINTER(c_fuse_file_info_t))),
+                ('fsync', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_int, 
+                                    POINTER(c_fuse_file_info_t))),
+                ('opendir', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, 
+                                      POINTER(c_fuse_file_info_t))),
+                ('readdir', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_size_t, c_long, 
+                                      POINTER(c_fuse_file_info_t))),
+                ('releasedir', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, 
+                                         POINTER(c_fuse_file_info_t))),
+                ('fsyncdir', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_int, 
+                                      POINTER(c_fuse_file_info_t))),
+                ('statfs', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t)),
+                ('setxattr', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_char_p, c_char_p, 
+                                       c_size_t, c_int)),
+                ('getxattr', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_char_p, c_size_t)),
+                ('listxattr', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_size_t)),
+                ('removexattr', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_char_p)),
+                ('access', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_int)),
+                ('create', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_char_p, c_mode_t, 
+                                     POINTER(c_fuse_file_info_t))),
+                ('bmap', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_size_t, c_uint64)),
+                ('ioctl', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, c_int, c_voidp, 
+                                    POINTER(c_fuse_file_info_t), c_uint, c_voidp, c_size_t, c_size_t)),
+                ('getlk', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, POINTER(c_fuse_file_info_t), 
+                                     POINTER(c_flock_t))),
+                ('setlk', CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, POINTER(c_fuse_file_info_t), 
+                                     POINTER(c_flock_t), c_int)),
+                ('poll',
+                  # Since we do not support these functions anyway, we just claim that
+                  # the last argument is a void pointer (so we don't have to define the
+                  # actual structures)
+                  #CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, POINTER(c_fuse_file_info_t), 
+                  #          POINTER(fuse_pollhandle))
+                  CFUNCTYPE(c_voidp, c_fuse_req_t, c_fuse_ino_t, POINTER(c_fuse_file_info_t), c_voidp))
+                ]
+
+#
+# Define Exceptions
+#
+
+class DiscardedRequest(Exception):
+    '''
+    Raised if the FUSE request that we wanted to send a reply to
+    has been interrupted and the reply discarded.
+    '''
+    
+    pass
+
+class FUSEError(Exception):
+    """Exception representing FUSE Errors to be returned to the kernel.
+
+    This exception can store only an errno. It is meant to return error codes to
+    the kernel, which can only be done in this limited form.
+    """
+    
+    __slots__ = [ 'errno' ]
+    
+    def __init__(self, errno_):
+        super(FUSEError, self).__init__()
+        self.errno = errno_
+
+    def __str__(self):
+        return errno.errorcode[self.errno]
 
 
-def fuse_op(func):
-    def wrapper(self, req, *args):
-        print func.__name__, args
+#
+# Define FUSE function prototypes
+#
+
+def check_reply_result(result, func, req, *args):
+    '''Check result of a call to a fuse_reply_* foreign function
+    
+    If `result` is 0, it is assumed that the call succeeded and the
+    function does nothing.
+    
+    If result is `-errno.ENOENT`, this means that the request has
+    been discarded and `DiscardedRequest` is raised.
+    
+    In all other cases, an error is logged and the function
+    tries to call `fuse_reply_err` instead. If that is the
+    function that actually failed, `fuse_reply_none` is called
+    as a last-resort. Any errors in these last two calls are ignored.
+    '''
+    # The args argument is unused, but we have no control over that
+    #pylint: disable-msg=W0613
+    
+    if result == 0:
+        return None
+    
+    elif result == -errno.ENOENT:
+        raise DiscardedRequest()
+    
+    elif result > 0:
+        log.error('Foreign function %s returned unexpected value %d'
+                  % (func.__name__, result))    
+    elif result < 0:
+        log.error('Foreign function %s returned error %s'
+                  % (func.__name__, errno.errorcode[-result]))
+    
+    # Record that something went wrong
+    global encountered_errors
+    encountered_errors = True
+    
+    # Try to return an error instead
+    if func.__name__ == 'fuse_reply_none':
+        # there is really nothing we can do
+        pass
+    elif func.__name__ == 'fuse_reply_err':
+        libfuse.fuse_reply_none(req)
+    else:
+        libfuse.fuse_reply_err(req, errno.EFAULT)
+    
+   
+libfuse.fuse_reply_err.argtypes = [ c_fuse_req_t, c_int ]
+libfuse.fuse_reply_err.restype = c_int
+libfuse.fuse_reply_err.errcheck = check_reply_result
+
+libfuse.fuse_reply_none.argtypes = [ c_fuse_req_t ]
+libfuse.fuse_reply_none.restype = c_int
+libfuse.fuse_reply_none.errcheck = check_reply_result
+
+libfuse.fuse_reply_entry.argtypes = [ c_fuse_req_t, POINTER(c_fuse_entry_param_t) ]
+libfuse.fuse_reply_entry.restype = c_int
+libfuse.fuse_reply_entry.errcheck = check_reply_result
+
+libfuse.fuse_reply_create.argtypes = [ c_fuse_req_t, POINTER(c_fuse_entry_param_t),
+                                      POINTER(c_fuse_file_info_t) ]
+libfuse.fuse_reply_create.restype = c_int
+libfuse.fuse_reply_create.errcheck = check_reply_result
+
+libfuse.fuse_reply_attr.argtypes = [ c_fuse_req_t, POINTER(c_stat_t), c_double ]
+libfuse.fuse_reply_attr.restype = c_int
+libfuse.fuse_reply_attr.errcheck = check_reply_result
+
+libfuse.fuse_reply_readlink.argtypes = [ c_fuse_req_t, c_char_p ]
+libfuse.fuse_reply_readlink.restype = c_int
+libfuse.fuse_reply_readlink.errcheck = check_reply_result
+
+libfuse.fuse_reply_open.argtypes = [ c_fuse_req_t, POINTER(c_fuse_file_info_t) ]
+libfuse.fuse_reply_open.restype = c_int
+libfuse.fuse_reply_open.errcheck = check_reply_result
+
+libfuse.fuse_reply_write.argtypes = [ c_fuse_req_t, c_size_t ]
+libfuse.fuse_reply_write.restype = c_int
+libfuse.fuse_reply_write.errcheck = check_reply_result
+
+libfuse.fuse_reply_buf.argtypes = [ c_fuse_req_t, c_char_p, c_size_t ]
+libfuse.fuse_reply_buf.restype = c_int
+libfuse.fuse_reply_buf.errcheck = check_reply_result
+
+libfuse.fuse_reply_iov.argtypes = [ c_fuse_req_t, POINTER(c_iovec_t), c_int ]
+libfuse.fuse_reply_iov.restype = c_int
+libfuse.fuse_reply_iov.errcheck = check_reply_result
+
+libfuse.fuse_reply_statfs.argtypes = [ c_fuse_req_t, POINTER(c_statfs_t) ]
+libfuse.fuse_reply_statfs.restype = c_int
+libfuse.fuse_reply_statfs.errcheck = check_reply_result
+
+libfuse.fuse_reply_xattr.argtypes = [ c_fuse_req_t, c_size_t ]
+libfuse.fuse_reply_xattr.restype = c_int
+libfuse.fuse_reply_xattr.errcheck = check_reply_result
+
+libfuse.fuse_reply_lock.argtypes = [ c_fuse_req_t, POINTER(c_flock_t) ]
+libfuse.fuse_reply_lock.restype = c_int
+libfuse.fuse_reply_lock.errcheck = check_reply_result
+
+libfuse.fuse_reply_bmap.argtypes = [ c_fuse_req_t, c_uint64 ]
+libfuse.fuse_reply_bmap.restype = c_int
+libfuse.fuse_reply_bmap.errcheck = check_reply_result
+
+
+#
+# Define public functions
+#
+def init(operations_):
+    '''Initialize FUSE file system.
+    '''
+    
+    global operations
+    global encountered_errors
+    global fuse_ops
+    
+    operations = operations_
+    encountered_errors = False
+    
+    def op_wrapper(func, req, *args):
+        '''Catch all exceptions and call fuse_reply_err instead
+        '''
         try:
-            func(self, req, *args)
-        except OSError, e:
-            self.libfuse.fuse_reply_err(req, e.message)
-    return wrapper
+            func(req, *args)
+        except FUSEError as e:
+            libfuse.fuse_reply_err(req, -e.errno)
+        except:
+            global encountered_errors
+            encountered_errors = True
+            log.exception('FUSE handler generated exception.')
+            
+            # We may already have send a reply, but there is
+            # nothing else we can do.
+            libfuse.fuse_reply_err(req, -errno.EFAULT)
+        return None
+
+    
+    fuse_ops = c_fuse_lowlevel_ops_t()
+
+    # Access to protected member _fields_ is alright
+    #pylint: disable-msg=W0212    
+    module = globals()
+    for name, prototype in c_fuse_lowlevel_ops_t._fields_:
+        name = "fuse_" + name
+        if hasattr(operations, name):
+            method = partial(op_wrapper, module[name])
+            setattr(fuse_ops, name, prototype(method))
+            
+def main(mountpoint, args):
+    '''Mount file system and start event loop
+    
+    `args` has to be a list of strings, whose format is not
+    entirely clear.  
+    '''
+                   
+    # Init fuse_args struct
+    fuse_args = c_fuse_args_t()
+    fuse_args.allocated = 0
+    fuse_args.argc = len(args)
+    fuse_args.argv = (c_char_p * len(args))(*args)
+    
+    
+    channel = libfuse.fuse_mount(mountpoint, args)
+    try:
+        session = libfuse.fuse_lowlevel_new(args, byref(fuse_ops), sizeof(fuse_ops), None)
+        if session is None:
+            raise RuntimeError("fuse_lowlevel_new() failed")
+        try:
+            if libfuse.fuse_set_signal_handlers(session) == -1:
+                raise RuntimeError("fuse_set_signal_handlers() failed")
+            try:
+                libfuse.fuse_session_add_chan(session, channel)
+                try:
+                    if libfuse.fuse_session_loop_mt(session) != 0:
+                        raise RuntimeError("fuse_session_loop() failed")
+                finally:
+                    libfuse.fuse_session_remove_chan(channel)
+            finally:
+                libfuse.fuse_remove_signal_handlers(session)
+                
+        finally:
+            libfuse.fuse_session_destroy(session)
+    finally:
+        libfuse.fuse_unmount(mountpoint, channel)
 
 
-class LLFUSE:
-    def __init__(self, operations, mountpoint='/mnt'):
-        if _system == 'Darwin':
-            libiconv = CDLL(find_library("iconv"), RTLD_GLOBAL)
-        self.libfuse = CDLL(find_library("fuse"))
-        
-        self.operations = operations
-        
-        fuse_ops = fuse_lowlevel_ops()
-        for name, prototype in fuse_lowlevel_ops._fields_:
-            method = getattr(self, name, None)
-            if method:
-                setattr(fuse_ops, name, prototype(method))
-        
-        argv = None
-        ch = self.libfuse.fuse_mount(mountpoint, argv)
-        se = self.libfuse.fuse_lowlevel_new(argv, byref(fuse_ops), sizeof(fuse_ops), None)
-        self.libfuse.fuse_set_signal_handlers(se)
-        self.libfuse.fuse_session_add_chan(se, ch)
-        err = self.libfuse.fuse_session_loop(se)
-        self.libfuse.fuse_remove_signal_handlers(se)
-        self.libfuse.fuse_session_remove_chan(ch)
-        self.libfuse.fuse_session_destroy(se)
-        self.libfuse.fuse_unmount(mountpoint, ch)
+#
+# Define internal FUSE request handlers
+#   
     
-    @fuse_op
-    def getattr(self, req, ino, fi):
-        ret = self.operations.getattr(ino)
-        attr = c_stat(**ret)
-        attr.st_ino = ino
-        self.libfuse.fuse_reply_attr(req, byref(attr), c_double(1))
+               
+def fuse_lookup(req, parent, name):
+    '''Look up a directory entry by name and get its attributes
     
-    @fuse_op
-    def lookup(self, req, parent, name):
-        ret = self.operations.lookup(parent, name)
-        attr = ret.pop('attr')
-        e = fuse_entry_param(**ret)
-        e.attr.st_ino = e.ino
-        for key, val in attr.items():
-            setattr(e.attr, key, val)
-        self.libfuse.fuse_reply_entry(req, byref(e))
+    The corresponding `Operations` method must return an instance
+    of `c_fuse_entry_param_t`.
+    '''
     
-    @fuse_op
-    def open(self, req, ino, fi):
-        fi.contents.fh = self.operations.open(ino, fi.contents.flags)
-        self.libfuse.fuse_reply_open(req, fi)
+    entry = operations.lookup(parent.value, string_at(name))
+    libfuse.fuse_reply_entry(req, byref(entry))
     
-    @fuse_op
-    def read(self, req, ino, size, off, fi):
-        ret = self.operations.read(ino, size, off, fi.contents.fh)
-        return self.libfuse.fuse_reply_buf(req, ret, len(ret))
-    
-    @fuse_op
-    def readdir(self, req, ino, size, off, fi):
-        libfuse = self.libfuse
-        ret = self.operations.readdir(ino)
-        bufsize = sum(libfuse.fuse_add_direntry(req, None, 0, name, None, 0) for name, ino in ret)
-        buf = create_string_buffer(bufsize)
-        next = 0
-        for name, ino in ret:
-            addr = addressof(buf) + next
-            dirsize = libfuse.fuse_add_direntry(req, None, 0, name, None, 0)
-            next += dirsize
-            attr = c_stat(st_ino=ino)
-            libfuse.fuse_add_direntry(req, addr, dirsize, name, byref(attr), next)
-        if off < bufsize:
-            libfuse.fuse_reply_buf(req, addressof(buf) + off, min(bufsize - off, size))
-        else:
-            libfuse.fuse_reply_buf(req, None, 0)
+def fuse_getattr(req, ino, fi):
+    '''
+    '''
+    ret = operations.getattr(ino)
+    attr = c_stat_t(**ret)
+    attr.st_ino = ino
+    libfuse.fuse_reply_attr(req, byref(attr), c_double(1))
 
 
-from errno import EACCES, ENOENT
-from os import O_RDONLY
-from stat import S_IFDIR, S_IFREG
+def fuse_open(req, ino, fi):
+    fi.contents.fh = operations.open(ino, fi.contents.flags)
+    libfuse.fuse_reply_open(req, fi)
 
-class LLOperations(object):
-    def getattr(self, ino):
-        if ino == 1:
-            return dict(st_mode=(S_IFDIR | 0755), st_nlink=2)
-        elif ino == 2:
-            return dict(st_mode=(S_IFREG | 0444), st_nlink=1, st_size=len('Hello world!\n'))
-        else:
-            raise OSError(ENOENT)
-        
-    def lookup(self, parent, name):
-        if parent != 1 or name != 'hello':
-            raise OSError(ENOENT)
-        
-        attr = dict(st_mode=(S_IFREG | 0444), st_nlink=1, st_size=len('Hello world!\n'))
-        return dict(ino=2, attr_timeout=1, entry_timeout=1, attr=attr)
-    
-    def open(self, ino, flags):
-        if flags & 3 != O_RDONLY:
-            raise OSError(EACCES)
-        return 0
-    
-    def read(self, ino, size, off, fh):
-        return 'Hello world!\n'[off : off + size]
-    
-    def readdir(self, ino):
-        if ino != 1:
-            raise OSError(ENOENT)
-        return [('.', 1), ('..', 1), ('hello', 2)]
+def fuse_read(req, ino, size, off, fi):
+    ret = operations.read(ino, size, off, fi.contents.fh)
+    return libfuse.fuse_reply_buf(req, ret, len(ret))
+
+def fuse_readdir(req, ino, size, off, fi):
+    ret = operations.readdir(ino)
+    bufsize = sum(libfuse.fuse_add_direntry(req, None, 0, name, None, 0) for name, ino in ret)
+    buf = create_string_buffer(bufsize)
+    next = 0
+    for name, ino in ret:
+        addr = addressof(buf) + next
+        dirsize = libfuse.fuse_add_direntry(req, None, 0, name, None, 0)
+        next += dirsize
+        attr = c_stat_t(st_ino=ino)
+        libfuse.fuse_add_direntry(req, addr, dirsize, name, byref(attr), next)
+    if off < bufsize:
+        libfuse.fuse_reply_buf(req, addressof(buf) + off, min(bufsize - off, size))
+    else:
+        libfuse.fuse_reply_buf(req, None, 0)
 
 
-if __name__ == "__main__":        
-    fuse = LLFUSE(LLOperations())
