@@ -8,5 +8,7 @@
 <pydev_pathproperty name="org.python.pydev.PROJECT_SOURCE_PATH">
 <path>/s3ql-head/src</path>
 <path>/s3ql-head/tests</path>
+<path>/s3ql-head/externals/pygccxml/pygccxml</path>
+<path>/s3ql-head/externals/pyplusplus/pyplusplus</path>
 </pydev_pathproperty>
 </pydev_project>
