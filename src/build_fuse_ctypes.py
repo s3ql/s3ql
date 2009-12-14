@@ -1,16 +1,25 @@
-from pygccxml import utils
 import os.path
+import sys
+import subprocess
 from pygccxml import parser
 from pygccxml import declarations
 from pyplusplus.module_builder import ctypes_module_builder_t
 
-basedir = os.path.basename(__file__)
+pkgconf = subprocess.Popen(['pkg-config', 'fuse', '--cflags'], stdout=subprocess.PIPE)
+(stdout, stderr) = pkgconf.communicate() # stderr will be None
+if pkgconf.returncode != 0:
+    sys.stderr.write('Failed to execute pkg-config. Exit code: %d.\n' 
+                     % pkgconf.returncode)
+    sys.exit(1)
+cflags = stdout.lstrip().rstrip()
+       
+basedir = os.path.dirname(__file__)
 
-header_file = os.path.join(basedir, 'myheader.h')
+header_file = os.path.join(basedir, 'fuse_ctypes.h')
 symbols_file = '/usr/lib/libfuse.so'
-shared_library_file = '/usr/lib/libfuse.so'
+shared_library_file = 'libfuse.so'
 
-gccxml_cfg = parser.gccxml_configuration_t(cflags='-D_FILE_OFFSET_BITS=64 -I/usr/include/fuse')
+gccxml_cfg = parser.gccxml_configuration_t(cflags=cflags)
 
 mb = ctypes_module_builder_t( [header_file], symbols_file, gccxml_cfg )
 
