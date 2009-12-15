@@ -491,21 +491,17 @@ class Checker(object):
             
         # Correct accumulated errors            
         if not self.checkonly:
-            # Split too big objects
+            # Split objects that are too big
             for s3key in too_big:
                 warn("Uploading %s", s3key)
-                tmp = tempfile.NamedTemporaryFile()
-                self.bucket.fetch_to_file(s3key, tmp.name)
-
-                # Save full object in lost+found
-                dest = unused_name(b'/lost+found/%s' % s3key.encode(), conn)
-                writefile(tmp.name, dest, self.server)
-
-                # Truncate and write
+                tmp = self.object_to_file(s3key)
+                
+                # Truncate
                 tmp.seek(self.blocksize)
                 tmp.truncate()
                 etag_new = self.bucket.store_from_file(s3key, tmp.name)
                 tmp.close()
+
                 conn.execute("UPDATE s3_objects SET etag=?, size=? WHERE key=?",
                            (etag_new, self.blocksize, s3key))  
                 
@@ -515,13 +511,25 @@ class Checker(object):
                 # We don't directly add it, because this may introduce s3 key 
                 # clashes and does not work if the object is larger than the
                 # block size
-                tmp = tempfile.NamedTemporaryFile()
-                self.bucket.fetch_to_file(s3key, tmp.name)
-                dest = unused_name(b'/lost+found/%s' % s3key.encode(), conn)
-                writefile(tmp.name, dest, self.server)
+                self.object_to_file(s3key)
                 del self.bucket[s3key]
-                tmp.close()    
                                  
         conn.execute('DROP TABLE s3keys')
                         
         return not found_errors
+    
+    def object_to_file(self, s3key):
+        '''Retrieve object from s3 and store as file under lost-found
+        
+        Returns a filehandle of a temporary file holding the s3 object.
+        The file is deleted on close.  
+        '''
+    
+        tmp = tempfile.NamedTemporaryFile()
+        self.bucket.fetch_to_file(s3key, tmp.name)
+    
+        # Save full object in lost+found
+        dest = unused_name(b'/lost+found/%s' % s3key.encode(), self.conn)
+        writefile(tmp.name, dest, self.server)
+    
+        return tmp

@@ -1,8 +1,9 @@
-#
-#    Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
-#
-#    This program can be distributed under the terms of the GNU LGPL.
-#
+'''
+
+    Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
+
+    This program can be distributed under the terms of the GNU LGPL.
+'''
 
 from __future__ import unicode_literals
 import os
@@ -24,7 +25,6 @@ log = logging.getLogger("fs")
 
 # Logger for low-level fuse
 log_fuse = logging.getLogger("fuse")
-
 
 class FUSEError(Exception):
     """Exception representing FUSE Errors to be returned to the kernel.
@@ -231,11 +231,9 @@ class Server(object):
         with self.dbcm() as conn:
             return get_inode(path, conn)
 
-    def readdir(self, filler, offset, inode):
+    def readdir(self, filler, _unused_offset, inode):
         """Handles FUSE readdir() requests
         """
-        # We don't support offset (yet)
-        #pylint: disable-msg=W0613
 
         with self.dbcm() as conn:        
             if not self.noatime:
@@ -245,10 +243,7 @@ class Server(object):
                                             (inode,)):
                 filler(name, self.fgetattr(inode), 0)
 
-    def getxattr(self, path, name, position=0):
-        # We do not use all options
-        #pylint: disable-msg=W0613
-
+    def getxattr(self, path, name, _unused_position=0):
         # Handle S3QL commands
         if os.path.basename(path) == CTRL_NAME:
             if name == 's3ql_errors?':
@@ -270,9 +265,7 @@ class Server(object):
         raise FUSEError(fuse.ENOTSUP)
 
 
-    def setxattr(self, path, name, value, options, position=0):
-        # We do not use all options
-        #pylint: disable-msg=W0613
+    def setxattr(self, path, name, _unused_value, _unused_options, _unused_position=0):
         
         # Handle S3QL commands
         if os.path.basename(path) == CTRL_NAME:
@@ -597,7 +590,7 @@ class Server(object):
             else:
                 self.size_cmtime_cache[inode] = (st[0], timestamp, mtime - time.timezone)
 
-    def statfs(self, path):
+    def statfs(self, _unused_path):
         """Handles FUSE statfs() requests.
         """
         # Result is independent of path
@@ -676,16 +669,13 @@ class Server(object):
             self.in_fuse_loop = False
         log.debug("Main event loop terminated.")
 
-    def open(self, path, flags):
+    def open(self, path, _unused_flags):
         """Opens file `path`.
         
         `flags` is ignored. Returns a file descriptor that is equal to the
         inode of the file, so it is not possible to distinguish between
         different open() and `create()` calls for the same inode.
-        """
-        # We don't use open flags for anything
-        #pylint: disable-msg=W0613
-        
+        """        
         with self.dbcm() as conn:
             return get_inode(path, conn)
 
@@ -862,12 +852,11 @@ class Server(object):
         self.size_cmtime_cache[inode] = (len_, timestamp, timestamp)
             
 
-    def fsync(self, fdatasync, inode):
+    def fsync(self, _unused_fdatasync, inode):
         """Handles FUSE fsync() requests.
         """
         # Metadata is always synced automatically, so we ignore
         # fdatasync
-        #pylint: disable-msg=W0613
         self.cache.flush(inode)
 
     def releasedir(self, inode):

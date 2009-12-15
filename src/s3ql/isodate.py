@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+#pylint: disable-all
+#@PydevCodeAnalysisIgnore
 
 """
 isodate.py
@@ -53,7 +55,6 @@ All copyrightable changes by Andrew Dalke are released into the public domain.
 No copyright protection is asserted.
 """
 
-#@PydevCodeAnalysisIgnore
 
 import time, re
 from types import IntType, FloatType

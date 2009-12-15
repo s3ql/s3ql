@@ -229,6 +229,8 @@ class WrappedConnection(object):
             self._execute(self.cur, 'BEGIN IMMEDIATE')
             
         self._execute(self.cur, "SAVEPOINT '%s'" % name)
+        # pylint bug
+        #pylint: disable-msg=C0321
         try:
             yield 
         except:
