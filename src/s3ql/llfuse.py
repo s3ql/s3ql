@@ -28,10 +28,7 @@ import errno
 
 __all__ = [ 'init', 'main', 'FUSEError' ]
 
-libfuse = CDLL(find_library("fuse"))
-
 log = logging.getLogger("fuse") 
-
 
 
 #
