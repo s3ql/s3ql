@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <projectDescription>
-	<name>s3ql</name>
+	<name>s3ql-head</name>
 	<comment></comment>
 	<projects>
+		<project>pygccxml</project>
+		<project>pyplusplus</project>
 	</projects>
 	<buildSpec>
 		<buildCommand>
