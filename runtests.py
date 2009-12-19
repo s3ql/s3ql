@@ -9,6 +9,27 @@ from __future__ import unicode_literals
 import sys
 import os
 
+# Enforce correct Python version
+if sys.version_info[0] < 2 or \
+    (sys.version_info[0] == 2 and sys.version_info[1] < 6):
+    raise StandardError('Python version too old, must be between 2.6.0 and 3.0!\n')    
+if sys.version_info[0] > 2:
+    raise StandardError('Python version too new, must be between 2.6.0 and 3.0!\n')
+
+# Enforce correct APSW version
+import apsw
+tmp = apsw.apswversion()
+tmp = tmp[:tmp.index('-')]
+apsw_ver = tuple([ int(x) for x in tmp.split('.') ])
+if apsw_ver < (3, 6, 14):    
+    raise StandardError('APSW version too old, must be 3.6.14 or newer!\n')
+    
+# Enforce correct SQLite version    
+sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
+if sqlite_ver < (3, 6, 17):    
+    raise StandardError('SQLite version too old, must be 3.6.17 or newer!\n')
+
+
 # Add current sources and tests to PYTHONPATH
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
 sys.path = [os.path.join(basedir, 'src'),
