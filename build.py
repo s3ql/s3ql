@@ -3,6 +3,7 @@
 import os.path
 import re
 import sys
+import tempfile
 import subprocess
 
 # Import pygccxml
@@ -74,8 +75,27 @@ for dep in ctypes_decls_dependencies.find_out_dependencies(include_symbols):
     dep.include()
             
 mb.build_code_creator(shared_library_path)
-mb.write_module(os.path.join(basedir, 'src', 's3ql', 'fuse_ctypes.py'))
+code_path = os.path.join(basedir, 'src', 's3ql')
+mb.write_module(os.path.join(code_path, 'fuse_ctypes.py'))
 
-os.unlink(os.path.join(basedir, 'src', 's3ql', 'exposed_decl.pypp.txt'))
+# Superfluous output file
+os.unlink(os.path.join(code_path, 'exposed_decl.pypp.txt'))
+
+# Add comments
+for file in ['fuse_ctypes.py', 'ctypes_utils.py']:
+    tmp = tempfile.TemporaryFile()
+    code = open(os.path.join(code_path, file), "r+")
+    for line in code:
+        tmp.write(line)
+    tmp.seek(0)
+    code.seek(0)
+    code.truncate()
+    code.write(tmp.readline())
+    code.write('#pylint: disable-all\n')
+    code.write('#@PydevCodeAnalysisIgnore\n')
+    for line in tmp:
+        code.write(line)
+    code.close()
+    tmp.close()    
 
 print 'Code generation complete.'          
