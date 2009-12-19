@@ -1,3 +1,0 @@
-Since distutils does not support to install the Python
-scripts in src/ under different names, we link them
-here under the names that we want to use for installation.

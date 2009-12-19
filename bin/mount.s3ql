@@ -1,7 +1,14 @@
-#!/bin/sh
+#!/usr/bin/env python
 
-BASEDIR=`dirname "$0"`
+import sys
+import os.path
 
-export PYTHONPATH="$BASEDIR/src:$PYTHONPATH"
-
-exec $BASEDIR/src/mount.py "$@"
+# We are running from the S3QL source directory, make sure
+# that we use modules from this directory
+basedir = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), '..'))
+if (os.path.exists(os.path.join(basedir, 'setup.py')) and
+    os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
+    sys.path = [os.path.join(basedir, 'src')] + sys.path
+    
+import s3ql.cli.mount
+s3ql.cli.mount.main()

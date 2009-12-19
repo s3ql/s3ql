@@ -20,7 +20,7 @@ print 'Using cflags: %s' % cflags
 proc = subprocess.Popen(['/sbin/ldconfig', '-p'], stdout=subprocess.PIPE)
 shared_library_path = None
 for line in proc.stdout:
-    res = re.match('^\\s*libfuse\\.so \\(libc6\\) => (.+)$', line)
+    res = re.match('^\\s*libfuse\\.so\\.[0-9]+ \\(libc6\\) => (.+)$', line)
     if res is not None:
         shared_library_path = res.group(1)
         # Slurp rest of output
