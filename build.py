@@ -1,7 +1,14 @@
+#!/usr/bin/env python
+
 import os.path
 import re
 import sys
 import subprocess
+
+# Import pygccxml
+basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
+sys.path.insert(0, os.path.join(basedir, 'src', 'pygccxml.zip'))
+
 from pygccxml import parser
 from pygccxml import declarations
 from pyplusplus.module_builder import ctypes_module_builder_t, ctypes_decls_dependencies
@@ -39,8 +46,6 @@ if shared_library_path is None:
     
 print 'Found fuse library in %s' % shared_library_path
     
-       
-basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
 header_file = os.path.join(basedir, 'src/fuse_ctypes.h')
 gccxml_cfg = parser.gccxml_configuration_t(cflags=cflags)
 
