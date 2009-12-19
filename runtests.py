@@ -8,6 +8,12 @@
 from __future__ import unicode_literals
 import sys
 import os
+
+# Add current sources and tests to PYTHONPATH
+basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
+sys.path = [os.path.join(basedir, 'src'),
+            os.path.join(basedir, 'tests')] + sys.path
+         
 import unittest
 from optparse import OptionParser
 from s3ql.common import init_logging
@@ -34,7 +40,7 @@ init_logging(True, True, options.debug)
 aws_credentials = _awscred.get()
 
 # Find and import all tests
-testdir = os.path.dirname(__file__)
+testdir = os.path.join(basedir, 'tests')
 modules_to_test =  [ name[:-3] for name in os.listdir(testdir) 
                     if name.endswith(".py") and name.startswith('t')]
 modules_to_test.sort()

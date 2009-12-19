@@ -40,9 +40,8 @@ if shared_library_path is None:
 print 'Found fuse library in %s' % shared_library_path
     
        
-basedir = os.path.dirname(__file__)
-
-header_file = os.path.join(basedir, 'fuse_ctypes.h')
+basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
+header_file = os.path.join(basedir, 'src/fuse_ctypes.h')
 gccxml_cfg = parser.gccxml_configuration_t(cflags=cflags)
 
 mb = ctypes_module_builder_t( [header_file], shared_library_path, gccxml_config=gccxml_cfg )
@@ -70,8 +69,8 @@ for dep in ctypes_decls_dependencies.find_out_dependencies(include_symbols):
     dep.include()
             
 mb.build_code_creator(shared_library_path)
-mb.write_module(os.path.join(basedir, 's3ql', 'fuse_ctypes.py'))
+mb.write_module(os.path.join(basedir, 'src', 's3ql', 'fuse_ctypes.py'))
 
-os.unlink(os.path.join(basedir, 's3ql', 'exposed_decl.pypp.txt'))
+os.unlink(os.path.join(basedir, 'src', 's3ql', 'exposed_decl.pypp.txt'))
 
 print 'Code generation complete.'          

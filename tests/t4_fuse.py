@@ -38,7 +38,7 @@ class fuse_tests(unittest.TestCase):
 
               
         # Mount
-        path = os.path.join(os.path.dirname(__file__), "..", "mount.s3ql_local")
+        path = os.path.join(os.path.dirname(__file__), "..", "bin", "mount.s3ql_local")
         pid = os.spawnl(os.P_NOWAIT, path, "mount.s3ql_local",
                              "--fg", "--fsck", "--blocksize", "1",
                              "--quiet", self.base)
