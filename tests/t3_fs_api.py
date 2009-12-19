@@ -71,7 +71,7 @@ class fs_api_tests(unittest.TestCase):
         path = os.path.dirname(name)
         fh = self.server.opendir(path)
         entries = list()
-        def cb_filler(name, fstat, off): 
+        def cb_filler(name, _unused_fstat, _unused_off): 
             entries.append(name)
         self.server.readdir(cb_filler, 0, fh)
         self.server.releasedir(fh)
@@ -84,7 +84,7 @@ class fs_api_tests(unittest.TestCase):
         path = os.path.dirname(name)
         fh = self.server.opendir(path)
         entries = list()
-        def cb_filler(name, fstat, off): 
+        def cb_filler(name, _unused_fstat, _unused_off): 
             entries.append(name)
         self.server.readdir(cb_filler, 0, fh)
         self.server.releasedir(fh)

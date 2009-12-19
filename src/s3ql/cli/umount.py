@@ -18,7 +18,9 @@ import posixpath
 import subprocess
 import time
 
-
+# This is a very big method with lots of branches, variables
+# and statements
+#pylint: disable-msg=R0912,R0914,R0915
 def main():
     #
     # Parse command line

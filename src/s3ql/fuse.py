@@ -12,9 +12,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-# We have no control over the arguments, so we
-# disable warnings about unused arguments
-#pylint: disable-msg=W0613
+#@PydevCodeAnalysisIgnore
 
 
 from __future__ import division

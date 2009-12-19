@@ -102,6 +102,9 @@ class s3cache_tests(unittest.TestCase):
         self.cache.timeout = 1
         self.cache.expect_mismatch = True
         cm = self.cache.get(inode, blockno)
+        
+        # Pylint doesn't recognize that cm is a context manager
+        #pylint: disable-msg=E1101
         self.assertRaises(fs.FUSEError, cm.__enter__)
             
     def test_02_locking_meta(self):
@@ -230,7 +233,7 @@ class DummyLock(object):
     """
     
     @contextmanager
-    def __call__(self, _):
+    def __call__(self, _unused_):
         # pylint: disable-msg=R0201
         # Yeah, this could be a function / static method.
         yield

@@ -18,6 +18,9 @@ import logging
 #import cProfile
 
 
+# This is a very big method with lots of branches, variables
+# and statements
+#pylint: disable-msg=R0912,R0914,R0915
 def main():
     #
     # Parse command line
@@ -33,7 +36,8 @@ def main():
     parser.add_option("--debuglog", type="string",
                       help="Write debugging information in specified file. You will need to "
                             'use --debug as well in order to get any output.')
-    parser.add_option("--credfile", type="string", default=os.environ["HOME"].rstrip("/") + "/.awssecret",
+    parser.add_option("--credfile", type="string", default=os.environ["HOME"].rstrip("/")
+                       + "/.awssecret",
                       help='Try to read AWS access key and key id from this file. '
                       'The file must be readable only be the owner and should contain '
                       'the key id and the secret key separated by a newline. '
