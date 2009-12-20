@@ -50,16 +50,22 @@ def main():
                       'and, as far as possible, recover from unclean umounts. Default is ~/.s3ql.')
     parser.add_option("--debug", action="append", 
                       help="Activate debugging output from specified facility. Valid facility names "
-                            "are: fs, fs.fuse, s3, frontend. "
+                            "are: fs, fuse, s3, frontend. "
                             "This option can be specified multiple times.")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
     parser.add_option("--s3timeout", type="int", default=50,
                       help="Maximum time to wait for propagation in S3 (default: %default)")
-    parser.add_option("--allow_others", action="store_true", default=False,
-                      help="Allow others users to access the filesystem")
+    parser.add_option("--allow_others", action="store_true", default=False, help=
+                      "Allow other users to access the filesystem as well and enforce unix permissions. "
+                      "(if neither this option nor --allow_others is specified, only the mounting user "
+                      "can access the file system, and has full access to every file, independent of "
+                      "individual permissions.")
     parser.add_option("--allow_root", action="store_true", default=False,
-                      help="Allow root to access the filesystem")
+                      help="Allow root to access the filesystem as well and enforce unix permissions. "
+                      "(if neither this option nor --allow_others is specified, only the mounting user "
+                      "can access the file system, and has full access to every file, independent of "
+                      "individual permissions.")
     parser.add_option("--fg", action="store_true", default=False,
                       help="Do not daemonize, stay in foreground")
     parser.add_option("--atime", action="store_true", default=False,

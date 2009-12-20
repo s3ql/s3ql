@@ -22,6 +22,7 @@ from ctypes import (c_long, Structure, c_int32, c_byte, c_char_p, c_int, c_int64
                     pointer, sizeof, memset, create_string_buffer, memmove, string_at)
 from ctypes.util import find_library
 from errno import EFAULT
+import errno
 from functools import partial
 from platform import machine, system
 from traceback import print_exc
@@ -375,7 +376,10 @@ class FUSE(object):
         return self.operations('fsyncdir', datasync, fip.contents.fh)
         
     def access(self, path, amode):
-        return self.operations('access', path, amode)
+        if self.operations('access', path, amode):
+            return 0
+        else:
+            return -errno.EPERM
     
     def init(self, conninfo):
         return self.operations('init')

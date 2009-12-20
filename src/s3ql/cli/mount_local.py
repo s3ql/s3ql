@@ -36,14 +36,20 @@ def main():
                             'use --debug as well in order to get any output.')
     parser.add_option("--debug", action="append", 
                       help="Activate debugging output from specified facility. Valid facility names "
-                            "are: fs, fs.fuse, s3, fsck, mkfs, frontend. "
+                            "are: fs, fuse, s3, fsck, mkfs, frontend. "
                             "This option can be specified multiple times.")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
-    parser.add_option("--allow_others", action="store_true", default=False,
-                      help="Allow others users to access the filesystem")
+    parser.add_option("--allow_others", action="store_true", default=False, help=
+                      "Allow other users to access the filesystem as well and enforce unix permissions. "
+                      "(if neither this option nor --allow_others is specified, only the mounting user "
+                      "can access the file system, and has full access to every file, independent of "
+                      "individual permissions.")
     parser.add_option("--allow_root", action="store_true", default=False,
-                      help="Allow root to access the filesystem")
+                      help="Allow root to access the filesystem as well and enforce unix permissions. "
+                      "(if neither this option nor --allow_others is specified, only the mounting user "
+                      "can access the file system, and has full access to every file, independent of "
+                      "individual permissions.")
     parser.add_option("--fg", action="store_true", default=False,
                       help="Do not daemonize, stay in foreground")
     parser.add_option("--single", action="store_true", default=False,

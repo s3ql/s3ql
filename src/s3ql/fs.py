@@ -93,7 +93,7 @@ class Server(object):
             ap = [ repr(x) for x in a ]
 
         # Print request name and parameters
-        #log_fuse.debug("* %s(%s)", op, ", ".join(ap))
+        log_fuse.debug("* %s(%s)", op, ", ".join(ap))
 
         try:
             return getattr(self, op)(*a)
@@ -655,10 +655,14 @@ class Server(object):
 
         # Start main event loop
         log.debug("Starting main event loop...")
-        kw[b"default_permissions"] = True
+        
+        # If the file system may be accessed by other users, enforce
+        # unix permission checking.
+        if b"allow_others" in kw or b"allow_root" in kw:
+            kw[b"default_permissions"] = True
+            
         kw[b"use_ino"] = True
         kw[b"kernel_cache"] = True
-        #kw[b"direct_io"] = True
         kw[b"fsname"] = "s3ql"
         self.encountered_errors = False
         handler = fuse.FUSE(self)
@@ -689,10 +693,21 @@ class Server(object):
             return fuse.fuse_get_context()[:2]
         else: 
             return (0, 0)
+     
+    def access(self, _unused_path, _unused_mode):
+        '''Check if calling user has `mode` rights on `path`.
         
+        This method always returns true, since it should only be called
+        when permission checking is disabled (if permission checking is
+        enabled, the `default_permissions` FUSE option should be set).
+        '''
+        # Yeah, could be a function
+        #pylint: disable-msg=R0201 
+        
+        return True
         
     def create(self, path, mode, fi=None):
-        """Creates file `path` with mode `mode`
+        """Create file `path` with mode `mode`
         
         Returns a file descriptor that is equal to the
         inode of the file, so it is not possible to distinguish between
