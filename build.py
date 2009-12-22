@@ -58,15 +58,23 @@ has_varargs = lambda f: f.arguments \
 mb.calldefs( has_varargs ).exclude()
  
 # Define names to generate
-include_symbols = [
-                   mb.global_ns.class_('fuse_lowlevel_ops'),
-                   mb.global_ns.calldef('fuse_add_direntry'),
-                   mb.global_ns.calldef('fuse_req_ctx'),
-                   mb.global_ns.calldef('fuse_lowlevel_new')
-                   ] 
+include_functions = [ 'fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
+                     'fuse_set_signal_handlers', 'fuse_session_add_chan',
+                     'fuse_session_loop_mt', 'fuse_session_remove_chan',
+                     'fuse_remove_signal_handlers', 'fuse_session_destroy',
+                     'fuse_unmount', 'fuse_req_ctx' ]
+include_structs = [ 'fuse_lowlevel_ops' ]
+include_symbols = [  mb.global_ns.calldef(x) for x in include_functions ] 
+include_symbols += [  mb.global_ns.class_(x) for x in include_structs ]
+
 # If we want to match several objects, we have to explicitly
 # convert the result wrapper object into a list
 include_symbols += list(mb.global_ns.calldefs(lambda f: f.name.startswith('fuse_reply_'))) 
+
+# This function is only defined for FUSE 2.8 and above
+include_symbols += list(mb.global_ns.calldefs(lambda f: f.name == 'fuse_req_getgroups'))
+
+
                    
 mb.global_ns.exclude()
 for incl in include_symbols:
