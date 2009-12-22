@@ -11,7 +11,6 @@ from random import randrange
 from s3ql.common import waitfor
 from s3ql import s3
 import tempfile
-import time
 import posixpath
 import unittest
 import _awscred
