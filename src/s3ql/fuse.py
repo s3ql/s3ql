@@ -26,7 +26,7 @@ import errno
 from functools import partial
 from platform import machine, system
 from traceback import print_exc
-
+import time
 
 
 class c_timespec(Structure):
@@ -249,7 +249,9 @@ class FUSE(object):
         self.fuse_ops = fuse_operations()
         for field in fuse_operations._fields_: #pylint: disable-msg=W0212
             name, prototype = field[:2]
-            if hasattr(prototype, 'restype') and getattr(operations, name, None):
+            # chmod, chown and utimens are are mapped to setattr
+            if hasattr(prototype, 'restype') and (getattr(operations, name, None) or
+                                                  name in ('chmod', 'chown', 'utimens')):
                 op = partial(self._wrapper_, getattr(self, name))
                 setattr(self.fuse_ops, name, prototype(op))
         
@@ -314,16 +316,18 @@ class FUSE(object):
         return self.operations('link', target, source)
     
     def chmod(self, path, mode):
-        return self.operations('chmod', path, mode)
+        return self.operations('setattr', path, { 'st_mode': mode })
     
     def chown(self, path, uid, gid):
-        if uid == c_uid_t(-1).value:
-            uid = -1
+        attr = dict()
         
-        if gid == c_gid_t(-1).value:
-            gid = -1
+        if gid != c_gid_t(-1).value:
+            attr['st_gid'] = gid
+        
+        if uid != c_uid_t(-1).value:
+            attr['st_uid'] = uid
             
-        return self.operations('chown', path, uid, gid)
+        return self.operations('setattr', path, attr)
     
     def truncate(self, path, length):
         return self.operations('truncate', path, length)
@@ -417,13 +421,15 @@ class FUSE(object):
         return self.operations('lock', path, fh, cmd, lock)
     
     def utimens(self, path, buf):
+        attr = dict()
         if buf:
-            atime = time_of_timespec(buf.contents.actime)
-            mtime = time_of_timespec(buf.contents.modtime)
-            times = (atime, mtime)
+            attr['st_atime'] = time_of_timespec(buf.contents.actime)
+            attr['st_mtime'] = time_of_timespec(buf.contents.modtime)
         else:
-            times = None
-        return self.operations('utimens', path, times)
+            attr['st_atime'] = time.time()
+            attr['st_mtime'] = time.time()
+
+        return self.operations('setattr', path, attr)
     
     def bmap(self, path, blocksize, idx):
         return self.operations('bmap', path, blocksize, idx)

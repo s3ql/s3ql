@@ -483,33 +483,57 @@ class Server(object):
                 update_mtime(inode_p, conn)
 
 
-    def chmod(self, path, mode):
-        """Handles FUSE chmod() requests.
-        """
-
-        fstat = self.getattr(path)
-        if stat.S_IFMT(mode) != stat.S_IFMT(fstat["st_mode"]):
-            log.warn("chmod: attempted to change file mode")
-            raise FUSEError(errno.EINVAL)
-
-        self.dbcm.execute("UPDATE inodes SET mode=?,ctime=? WHERE id=?", 
-                        (mode, time.time() - time.timezone, fstat["st_ino"]))
-
-    def chown(self, path, uid, gid):
-        """Handles FUSE chown() requests.
+    def setattr(self, path, attr):
+        """Handles FUSE setattr() requests.
         """
 
         with self.dbcm() as conn:
             inode = get_inode(path, conn)
-            if uid != -1 and gid != -1:
-                conn.execute("UPDATE inodes SET uid=?, gid=?, ctime=? WHERE id=?",
-                             (uid, gid, time.time() - time.timezone, inode))
-            elif uid != -1:
+            timestamp = time.time() - time.timezone
+            
+            if 'st_mode' in attr:
+                mode = attr.pop('st_mode')
+                fstat = self.fgetattr(inode)
+            
+                if stat.S_IFMT(mode) != stat.S_IFMT(fstat["st_mode"]):
+                    log.warn("setattr: attempted to change file mode")
+                    raise FUSEError(errno.EINVAL)
+
+                conn.execute("UPDATE inodes SET mode=?,ctime=? WHERE id=?", 
+                             (mode, timestamp, inode))
+
+            if 'st_uid' in attr:
+                uid = attr.pop('st_uid')
                 conn.execute("UPDATE inodes SET uid=?, ctime=? WHERE id=?",
-                             (uid, time.time() - time.timezone, inode))
-            elif gid != -1:
+                             (uid, timestamp, inode))
+                
+            if 'st_gid' in attr:
+                gid = attr.pop('st_gid')
                 conn.execute("UPDATE inodes SET gid=?, ctime=? WHERE id=?",
-                             (gid, time.time() - time.timezone, inode))
+                             (gid, timestamp, inode))
+
+            if 'st_atime' in attr:
+                atime = attr.pop('st_atime')
+                conn.execute("UPDATE inodes SET atime=?,ctime=? WHERE id=?",
+                             (atime - time.timezone, timestamp, inode))
+
+            if 'st_mtime' in attr:
+                mtime = attr.pop('st_mtime')
+                conn.execute("UPDATE inodes SET mtime=?,ctime=? WHERE id=?",
+                             (mtime - time.timezone, timestamp, inode))
+            
+                with self.writelock:
+                    try:
+                        st = self.size_cmtime_cache[inode]
+                    except KeyError:
+                        pass
+                    else:
+                        self.size_cmtime_cache[inode] = (st[0], timestamp, mtime - time.timezone)
+
+                
+            if len(attr) > 0:
+                log.warn("setattr: attempted to change immutable attribute(s): %s" % repr(attr))
+                raise FUSEError(errno.EINVAL)
             
 
     def mknod(self, path, mode, dev=None):
@@ -572,31 +596,6 @@ class Server(object):
                 increase_refcount(inode_p, conn)
                 update_mtime(inode_p, conn)
 
-
-    def utimens(self, path, times=None):
-        """Handles FUSE utime() requests.
-        """
-
-        
-        timestamp = time.time() - time.timezone
-        if times is None:
-            (atime, mtime) = time.time()
-        else:
-            (atime, mtime) = times
-            
-        with self.dbcm() as conn:
-            inode = get_inode(path, conn)
-            conn.execute("UPDATE inodes SET atime=?,mtime=?,ctime=? WHERE id=?",
-                         (atime - time.timezone, mtime - time.timezone, 
-                          timestamp, inode))
-            
-        with self.writelock:
-            try:
-                st = self.size_cmtime_cache[inode]
-            except KeyError:
-                pass
-            else:
-                self.size_cmtime_cache[inode] = (st[0], timestamp, mtime - time.timezone)
 
     def statfs(self, _unused_path):
         """Handles FUSE statfs() requests.

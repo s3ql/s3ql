@@ -102,7 +102,7 @@ class fs_api_tests(unittest.TestCase):
         fstat_old = self.server.getattr(path)
         atime_new = fstat_old["st_atime"] - 72
         mtime_new = fstat_old["st_mtime"] - 72
-        self.server.utimens(path, (atime_new, mtime_new))
+        self.server.setattr(path, { 'st_atime': atime_new, 'st_mtime': mtime_new })
         fstat_new = self.server.getattr(path)
 
         self.assertEquals(fstat_new["st_mtime"], mtime_new)
@@ -208,14 +208,14 @@ class fs_api_tests(unittest.TestCase):
         mode_new = ( stat.S_IFREG |
                      stat.S_IROTH | stat.S_IWOTH | stat.S_IXGRP | stat.S_IRGRP )
         ctime_old = self.server.getattr(name)["st_ctime"]
-        self.server.chmod(name, mode_new)
+        self.server.setattr(name, { 'st_mode': mode_new})
         self.assertEquals(self.server.getattr(name)["st_mode"], mode_new | stat.S_IFREG)
         self.assertTrue(self.server.getattr(name)["st_ctime"] > ctime_old)
 
         uid_new = 1231
         gid_new = 3213
         ctime_old = self.server.getattr(name)["st_ctime"]
-        self.server.chown(name, uid_new, gid_new)
+        self.server.setattr(name, { 'st_uid': uid_new, 'st_gid': gid_new} )
         self.assertEquals(self.server.getattr(name)["st_uid"], uid_new)
         self.assertEquals(self.server.getattr(name)["st_gid"], gid_new)
         self.assertTrue(self.server.getattr(name)["st_ctime"] > ctime_old)
