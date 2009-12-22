@@ -317,6 +317,12 @@ class FUSE(object):
         return self.operations('chmod', path, mode)
     
     def chown(self, path, uid, gid):
+        if uid == c_uid_t(-1).value:
+            uid = -1
+        
+        if gid == c_gid_t(-1).value:
+            gid = -1
+            
         return self.operations('chown', path, uid, gid)
     
     def truncate(self, path, length):

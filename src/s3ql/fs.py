@@ -495,14 +495,22 @@ class Server(object):
         self.dbcm.execute("UPDATE inodes SET mode=?,ctime=? WHERE id=?", 
                         (mode, time.time() - time.timezone, fstat["st_ino"]))
 
-    def chown(self, path, user, group):
+    def chown(self, path, uid, gid):
         """Handles FUSE chown() requests.
         """
 
         with self.dbcm() as conn:
             inode = get_inode(path, conn)
-            conn.execute("UPDATE inodes SET uid=?, gid=?, ctime=? WHERE id=?",
-                         (user, group, time.time() - time.timezone, inode))
+            if uid != -1 and gid != -1:
+                conn.execute("UPDATE inodes SET uid=?, gid=?, ctime=? WHERE id=?",
+                             (uid, gid, time.time() - time.timezone, inode))
+            elif uid != -1:
+                conn.execute("UPDATE inodes SET uid=?, ctime=? WHERE id=?",
+                             (uid, time.time() - time.timezone, inode))
+            elif gid != -1:
+                conn.execute("UPDATE inodes SET gid=?, ctime=? WHERE id=?",
+                             (gid, time.time() - time.timezone, inode))
+            
 
     def mknod(self, path, mode, dev=None):
         """Handles FUSE mknod() requests.

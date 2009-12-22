@@ -54,10 +54,11 @@ class fuse_tests(unittest.TestCase):
             self.t_readdir()
             self.t_symlink()
             self.t_truncate()
+            self.t_chown()
         finally:
             # Umount
             time.sleep(1)
-            path = os.path.join(os.path.dirname(__file__), "..", "umount.s3ql")
+            path = os.path.join(os.path.dirname(__file__), "..", "bin", "umount.s3ql")
             self.assertEquals(os.spawnl(os.P_WAIT, path, "umount.s3ql",
                                      self.base), 0)
             (dummy, status) = os.waitpid(pid, 0)
@@ -104,6 +105,29 @@ class fuse_tests(unittest.TestCase):
         self.assertTrue(basename(filename) in os.listdir(self.base))
         self.assertTrue(filecmp.cmp(src, filename, False))
         os.unlink(filename)
+        self.assertRaises(OSError, os.stat, filename)
+        self.assertTrue(basename(filename) not in os.listdir(self.base))
+
+    def t_chown(self):
+        filename = self.base + "/" + self.random_name()
+        os.mkdir(filename)
+        fstat = os.lstat(filename)
+        uid = fstat.st_uid
+        gid = fstat.st_gid
+        
+        uid_new = uid+1
+        os.chown(filename, uid_new, -1)
+        fstat = os.lstat(filename)      
+        self.assertEquals(fstat.st_uid, uid_new)
+        self.assertEquals(fstat.st_gid, gid)
+
+        gid_new = gid+1
+        os.chown(filename, -1, gid_new)
+        fstat = os.lstat(filename)      
+        self.assertEquals(fstat.st_uid, uid_new)
+        self.assertEquals(fstat.st_gid, gid_new)
+
+        os.rmdir(filename)
         self.assertRaises(OSError, os.stat, filename)
         self.assertTrue(basename(filename) not in os.listdir(self.base))
 

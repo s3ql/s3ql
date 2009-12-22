@@ -8,10 +8,8 @@
 <pydev_pathproperty name="org.python.pydev.PROJECT_SOURCE_PATH">
 <path>/s3ql-head/src</path>
 <path>/s3ql-head/tests</path>
+<path>/s3ql-head/src/pygccxml.zip</path>
 </pydev_pathproperty>
 
-<pydev_pathproperty name="org.python.pydev.PROJECT_EXTERNAL_SOURCE_PATH">
-<path>/home/nikratio/lib/EclipseWorkspace/pygccxml</path>
-<path>/home/nikratio/lib/EclipseWorkspace/pyplusplus</path>
-</pydev_pathproperty>
+
 </pydev_project>
