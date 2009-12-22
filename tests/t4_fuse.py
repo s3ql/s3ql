@@ -14,9 +14,9 @@ from random   import randrange
 from s3ql.common import waitfor
 import filecmp
 import tempfile
-import time
 import posixpath
 import unittest
+import subprocess
 
 class fuse_tests(unittest.TestCase): 
     def setUp(self):
@@ -39,9 +39,8 @@ class fuse_tests(unittest.TestCase):
               
         # Mount
         path = os.path.join(os.path.dirname(__file__), "..", "bin", "mount.s3ql_local")
-        pid = os.spawnl(os.P_NOWAIT, path, "mount.s3ql_local",
-                             "--fg", "--fsck", "--blocksize", "1",
-                             "--quiet", self.base)
+        child = subprocess.Popen([path, "--fg", "--fsck", "--blocksize", "1",
+                                  "--quiet", self.base])
 
         # Wait for mountpoint to come up
         self.assertTrue(waitfor(10, posixpath.ismount, self.base))
@@ -55,16 +54,17 @@ class fuse_tests(unittest.TestCase):
             self.t_symlink()
             self.t_truncate()
             self.t_chown()
+            
         finally:
-            # Umount
-            time.sleep(1)
-            path = os.path.join(os.path.dirname(__file__), "..", "bin", "umount.s3ql")
-            self.assertEquals(os.spawnl(os.P_WAIT, path, "umount.s3ql",
-                                     self.base), 0)
-            (dummy, status) = os.waitpid(pid, 0)
-
-            self.assertTrue(os.WIFEXITED(status))
-            self.assertEquals(os.WEXITSTATUS(status), 0)
+            
+            # Umount. We try several times because the mountpoint
+            # is, for some reason, often still busy for a while
+            self.assertTrue(waitfor(10, lambda : subprocess.call(['fuser', self.base]) == 1))
+            path = os.path.join(os.path.dirname(__file__), "..", "bin", "umount.s3ql")            
+            self.assertEquals(subprocess.call([path, '--quiet', self.base]), 0)
+            
+            # Now wait for server process
+            self.assertEquals(child.wait(), 0)
             self.assertFalse(posixpath.ismount(self.base))
             os.rmdir(self.base)
 

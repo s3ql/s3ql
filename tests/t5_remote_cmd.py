@@ -16,6 +16,7 @@ import posixpath
 import unittest
 import _awscred
 import sys
+import subprocess
 
 # Allow invocation without runall.py
 main = sys.modules['__main__']
@@ -51,37 +52,31 @@ class RemoteCmdTests(unittest.TestCase):
 
     
     def test_mount(self):
-     
-        cmd = os.path.join(os.path.dirname(__file__), "..", "mkfs.s3ql")
-        ret = os.spawnl(os.P_WAIT, cmd, "mkfs.s3ql", "--blocksize", "1",
-                        '--quiet', self.bucketname)       
-        self.assertTrue(ret == 0)
+        cmd =  os.path.join(os.path.dirname(__file__), "..", "bin", "mkfs.s3ql")
+        self.assertEquals(subprocess.call([cmd, "--blocksize", "1", '--quiet', self.bucketname]),
+                          0)       
 
-        cmd = os.path.join(os.path.dirname(__file__), "..", "mount.s3ql")
-        pid = os.spawnl(os.P_NOWAIT, cmd, "mount.s3ql", "--cachesize", "1",
-                        '--quiet', self.bucketname, self.base)       
+        cmd = os.path.join(os.path.dirname(__file__), "..", "bin", "mount.s3ql")
+        child = subprocess.Popen([cmd, "--cachesize", "1", '--quiet', self.bucketname, self.base])       
                
         # Wait for mountpoint to come up
         self.assertTrue(waitfor(10, posixpath.ismount, self.base))
 
-        # Umount
-        time.sleep(2)
-       
-        cmd = os.path.join(os.path.dirname(__file__), "..", "umount.s3ql")
-        self.assertEquals(os.spawnl(os.P_WAIT, cmd,
-                                    "umount.s3ql", self.base), 0)
- 
-        (dummy, status) = os.waitpid(pid, 0)
-
-        self.assertTrue(os.WIFEXITED(status))
-        self.assertEquals(os.WEXITSTATUS(status), 0)
+        # Umount. We try several times because the mountpoint
+        # is, for some reason, often still busy for a while
+        self.assertTrue(waitfor(10, lambda : subprocess.call(['fuser', self.base]) == 1))
+        path = os.path.join(os.path.dirname(__file__), "..", "bin", "umount.s3ql")            
+        self.assertEquals(subprocess.call([path, '--quiet', self.base]), 0)
+        
+        # Now wait for server process
+        self.assertEquals(child.wait(), 0)
         self.assertFalse(posixpath.ismount(self.base))
+            
         os.rmdir(self.base)
         
-        cmd = os.path.join(os.path.dirname(__file__), "..", "fsck.s3ql")
-        ret = os.spawnl(os.P_WAIT, cmd, "fsck.s3ql", "--quiet", self.bucketname)       
-        self.assertTrue(ret == 0) 
-        
+        cmd = os.path.join(os.path.dirname(__file__), "..", "bin", "fsck.s3ql")
+        self.assertEquals(subprocess.call([cmd, "--quiet", self.bucketname]),
+                          0)       
 
 
 # Somehow important according to pyunit documentation
