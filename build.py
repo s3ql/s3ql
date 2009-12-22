@@ -58,34 +58,44 @@ has_varargs = lambda f: f.arguments \
 mb.calldefs( has_varargs ).exclude()
  
 # Define names to generate
-include_functions = [ 'fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
-                     'fuse_set_signal_handlers', 'fuse_session_add_chan',
-                     'fuse_session_loop_mt', 'fuse_session_remove_chan',
-                     'fuse_remove_signal_handlers', 'fuse_session_destroy',
-                     'fuse_unmount', 'fuse_req_ctx' ]
-include_structs = [ 'fuse_lowlevel_ops' ]
-include_symbols = [  mb.global_ns.calldef(x) for x in include_functions ] 
-include_symbols += [  mb.global_ns.class_(x) for x in include_structs ]
+include_prefixes = [ 'fuse_reply_' ]
+include_symbols = [ 'fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
+                   'fuse_set_signal_handlers', 'fuse_session_add_chan',
+                   'fuse_session_loop_mt', 'fuse_session_remove_chan',
+                   'fuse_remove_signal_handlers', 'fuse_session_destroy',
+                   'fuse_unmount', 'fuse_req_ctx', 'fuse_lowlevel_ops' ]
+
 
 # If we want to match several objects, we have to explicitly
 # convert the result wrapper object into a list
-include_symbols += list(mb.global_ns.calldefs(lambda f: f.name.startswith('fuse_reply_'))) 
+include = list()
+for prefix in include_prefixes:
+    include += list(mb.global_ns.decls(lambda f: f.name.startswith(prefix))) 
 
-# This function is only defined for FUSE 2.8 and above
-include_symbols += list(mb.global_ns.calldefs(lambda f: f.name == 'fuse_req_getgroups'))
-
-
-                   
+include += [  mb.global_ns.decl(x) for x in include_symbols ]
+               
 mb.global_ns.exclude()
-for incl in include_symbols:
+for incl in include:
     incl.include()
-for dep in ctypes_decls_dependencies.find_out_dependencies(include_symbols):
+for dep in ctypes_decls_dependencies.find_out_dependencies(include):
     dep.include()
             
 mb.build_code_creator(shared_library_path)
 code_path = os.path.join(basedir, 'src', 's3ql')
 mb.write_module(os.path.join(code_path, 'fuse_ctypes.py'))
 
+# Add variables
+# This is horribly monkeypatched. We should really find a way
+# to have py++ export the declarations. 
+include_vars_prefixes = [ 'fuse_set_attr_' ]
+fh = open(os.path.join(code_path, 'fuse_ctypes.py'), 'a')
+fh.write('\n')
+for prefix in include_vars_prefixes:
+    for var in mb.global_ns.decls(lambda f: f.name.startswith(prefix)):
+        fh.write('{0} = {1}\n'.format(var.name, repr(var._value)))
+fh.close()        
+        
+        
 # Superfluous output file
 os.unlink(os.path.join(code_path, 'exposed_decl.pypp.txt'))
 
