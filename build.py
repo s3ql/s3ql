@@ -79,7 +79,42 @@ for incl in include:
     incl.include()
 for dep in ctypes_decls_dependencies.find_out_dependencies(include):
     dep.include()
-            
+     
+# Monkeypatch into py++ so that it generates POINTER(c_char)
+# instead of c_char_p (since c_char_p is assumed to be \0
+# terminated and autoconverted to a Python string.
+from pygccxml import declarations   
+from pyplusplus.code_creators import ctypes_formatter
+class my_type_converter_t(ctypes_formatter.type_converter_t):
+    
+    def visit_pointer( self ):
+        no_ptr = declarations.remove_const( declarations.remove_pointer( self.user_type ) )
+        #if declarations.is_same( declarations.char_t(), no_ptr ):
+        #    return "ctypes.c_char_p"
+        if declarations.is_same( declarations.wchar_t(), no_ptr ):
+            return "ctypes.c_wchar_p"
+        elif declarations.is_same( declarations.void_t(), no_ptr ):
+            return "ctypes.c_void_p"
+        else:
+            base_visitor = my_type_converter_t( self.user_type.base, self.decl_formatter )
+            internal_type_str = declarations.apply_visitor( base_visitor, base_visitor.user_type )
+            return "ctypes.POINTER( %s )" % internal_type_str
+        
+    def visit_reference( self ):
+        no_ref = declarations.remove_const( declarations.remove_reference( self.user_type ) )
+        #if declarations.is_same( declarations.char_t(), no_ref ):
+        #    return "ctypes.c_char_p"
+        if declarations.is_same( declarations.wchar_t(), no_ref ):
+            return "ctypes.c_wchar_p"
+        elif declarations.is_same( declarations.void_t(), no_ref ):
+            return "ctypes.c_void_p"
+        else:
+            base_visitor = my_type_converter_t( self.user_type.base, self.decl_formatter )
+            internal_type_str = declarations.apply_visitor( base_visitor, base_visitor.user_type )
+            return "ctypes.POINTER( %s )" % internal_type_str    
+        
+ctypes_formatter.type_converter_t = my_type_converter_t
+               
 mb.build_code_creator(shared_library_path)
 code_path = os.path.join(basedir, 'src', 's3ql')
 mb.write_module(os.path.join(code_path, 'fuse_ctypes.py'))
@@ -87,12 +122,12 @@ mb.write_module(os.path.join(code_path, 'fuse_ctypes.py'))
 # Add variables
 # This is horribly monkeypatched. We should really find a way
 # to have py++ export the declarations. 
-include_vars_prefixes = [ 'fuse_set_attr_' ]
+include_vars_prefixes = [ 'D_' ]
 fh = open(os.path.join(code_path, 'fuse_ctypes.py'), 'a')
 fh.write('\n')
 for prefix in include_vars_prefixes:
     for var in mb.global_ns.decls(lambda f: f.name.startswith(prefix)):
-        fh.write('{0} = {1}\n'.format(var.name, repr(var._value)))
+        fh.write('{0} = {1}\n'.format(var.name[2:], var._value))
 fh.close()        
         
         

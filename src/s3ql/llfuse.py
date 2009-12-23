@@ -43,14 +43,15 @@ The return value and any raised exceptions of `handle_exc` are ignored.
 from __future__ import division
 from __future__ import unicode_literals
 import fuse_ctypes as libfuse
-from ctypes import (c_char_p, sizeof, create_string_buffer, addressof)
+from ctypes import (c_char_p, sizeof, create_string_buffer, addressof, string_at)
 from functools import partial
 import logging
 import errno
 
 # Public API
-__all__ = [ 'init', 'main', 'FUSEError' ]
+__all__ = [ 'init', 'main', 'FUSEError', 'ENOATTR' ]
 
+ENOATTR = libfuse.ENOATTR
 
 log = logging.getLogger("fuse") 
 
@@ -229,17 +230,13 @@ def dict_to_entry(attr):
     '''Convert dict to fuse_entry_param'''
         
     entry = libfuse.fuse_entry_param()
-    entry.attr = libfuse.stat()
     
     entry.ino = attr['st_ino']
     entry.generation = attr.pop('generation')
     entry.entry_timeout = attr.pop('entry_timeout')
     entry.attr_timeout = attr.pop('attr_timeout')
     
-    # Raises exception if there are keys in attr that
-    # can't be stored in struct stat.
-    for (key, val) in attr.iteritems():
-        setattr(entry.attr, key, val)
+    entry.attr = dict_to_stat(attr)
         
     return entry
     
@@ -247,7 +244,7 @@ def dict_to_entry(attr):
 def fuse_lookup(req, parent_inode, name):
     '''Look up a directory entry by name and get its attributes'''
     
-    attr = operations.lookup(parent_inode, name)
+    attr = operations.lookup(parent_inode, string_at(name))
     entry = dict_to_entry(attr)
     
     try:
@@ -304,7 +301,7 @@ def fuse_access(req, ino, mask):
 def fuse_create(req, ino_parent, name, mode, fi):
     '''Create and open a file'''
     
-    (fh, attr) = operations.create(ino_parent, name, mode)
+    (fh, attr) = operations.create(ino_parent, string_at(name), mode)
     fi.fh = fh
     entry = dict_to_entry(attr)
     
@@ -350,7 +347,7 @@ def fuse_getxattr(req, ino, name, size):
     '''Get an extended attribute.
     '''
     
-    val = operations.getxattr(ino, name)
+    val = operations.getxattr(ino, string_at(name))
     if not isinstance(val, bytes):
         raise TypeError("getxattr return value must be of type bytes")
     
@@ -368,7 +365,7 @@ def fuse_getxattr(req, ino, name, size):
 def fuse_link(req, ino, new_parent_ino, new_name):
     '''Create a hard link'''
     
-    attr = operations.link(ino, new_parent_ino, new_name)
+    attr = operations.link(ino, new_parent_ino, string_at(new_name))
     entry = dict_to_entry(attr)
     
     try:
@@ -406,7 +403,7 @@ def fuse_listxattr(req, inode, size):
 def fuse_mkdir(req, inode_parent, name, mode):
     '''Create directory'''
     
-    attr = operations.mkdir(inode_parent, name, mode)
+    attr = operations.mkdir(inode_parent, string_at(name), mode)
     entry = dict_to_entry(attr)
     
     try:
@@ -417,7 +414,7 @@ def fuse_mkdir(req, inode_parent, name, mode):
 def fuse_mknod(req, inode_parent, name, mode, rdev):
     '''Create (possibly special) file'''
     
-    attr = operations.mknod(inode_parent, name, mode, rdev)
+    attr = operations.mknod(inode_parent, string_at(name), mode, rdev)
     entry = dict_to_entry(attr)
     
     try:
@@ -522,28 +519,49 @@ def dict_to_stat(attr):
     '''Convert dict to struct stat'''
     
     stat = libfuse.stat()
-    for (key, val) in attr.iteritems():
-        if key in  ('st_atime', 'st_mtime', 'st_ctime'):
-            key = key[:-1]
-            val = number_to_timespec(val)
-               
-        setattr(stat, key, val)
     
+    # Determine correct way to store times
+    if hasattr(stat, 'st_atim'): # Linux
+        get_timespec_key = lambda key: key[:-1]
+    elif hasattr(stat, 'st_atimespec'): # FreeBSD
+        get_timespec_key = lambda key: key + 'spec'
+    else: 
+        get_timespec_key = False
+        
+    # Raises exception if there are any unknown keys
+    for (key, val) in attr.iteritems():      
+        if get_timespec_key and key in  ('st_atime', 'st_mtime', 'st_ctime'):
+            key = get_timespec_key(key)
+            spec = libfuse.timespec()
+            spec.tv_sec = int(val)
+            spec.tv_nsec = int((val - int(val)) * 10**9)
+            val = spec      
+        setattr(stat, key, val)
+   
     return stat   
 
-def number_to_timespec(val):
-    '''Convert Python number to struct timespec'''
     
-    spec = libfuse.timespec()
-    spec.tv_sec = int(val)
-    spec.tv_nsec = int((val - int(val)) * 10**9)
-    
-    return spec
-    
-def timespec_to_number(spec):
-    '''Convert struct timespec to number'''
+def stat_to_dict(stat):
+    '''Convert ``struct stat`` to dict'''
         
-    return spec.tv_sec + spec.tv_nsec / 10**9
+    attr = dict()
+    # Yes, protected member
+    #pylint: disable-msg=W0212
+    for field in type(stat)._fields_:
+        if field.startswith('__'):
+            continue
+        
+        if field in ('st_atim', 'st_mtim', 'st_ctim'):
+            key = field + 'e' 
+            attr[key] = getattr(stat, field).tv_sec + getattr(stat, field).tv_nsec / 10**9  
+        elif field in ('st_atimespec', 'st_mtimespec', 'st_ctimespec'):
+            key = field[:-4]
+            attr[key] = getattr(stat, field).tv_sec + getattr(stat, field).tv_nsec / 10**9     
+        else:
+            attr[field] = getattr(stat, field)
+            
+    return attr
+                
                 
 def fuse_release(req, inode, fi):
     '''Release open file'''
@@ -561,47 +579,125 @@ def fuse_releasedir(req, inode, fi):
 def fuse_removexattr(req, inode, name):
     '''Remove extended attribute'''
     
-    operations.removexattr(inode, name)
+    operations.removexattr(inode, string_at(name))
     libfuse.fuse_reply_none(req)
     
 def fuse_rename(req, parent_inode_old, name_old, parent_inode_new, name_new):
     '''Rename a directory entry'''
     
-    operations.rename(parent_inode_old, name_old, parent_inode_new, name_new)
+    operations.rename(parent_inode_old, string_at(name_old), parent_inode_new,
+                      string_at(name_new))
     libfuse.fuse_reply_none(req)
     
 def fuse_rmdir(req, inode_parent, name):
     '''Remove a directory'''
     
-    operations.rmdir(inode_parent, name)
+    operations.rmdir(inode_parent, string_at(name))
     libfuse.fuse_reply_none(req)
     
 def fuse_setattr(req, inode, stat, to_set, fi):
     '''Change directory entry attributes'''
     
+    # Make sure we know all the flags
+    if (to_set & ~(libfuse.FUSE_SET_ATTR_ATIME | libfuse.FUSE_SET_ATTR_GID |
+                   libfuse.FUSE_SET_ATTR_MODE | libfuse.FUSE_SET_ATTR_MTIME |
+                   libfuse.FUSE_SET_ATTR_SIZE | libfuse.FUSE_SET_ATTR_SIZE |
+                   libfuse.FUSE_SET_ATTR_UID)) != 0:
+        raise ValueError('unknown flag')
+    
+    attr_all = stat_to_dict(stat)
     attr = dict()
     
-    if (to_set & libfuse.fuse_set_attr_mtime) != 0:
-        attr['st_mtime'] = timespec_to_number(stat.st_mtime)
+    if (to_set & libfuse.FUSE_SET_ATTR_MTIME) != 0:
+        attr['st_mtime'] = attr_all['st_mtime']
         
-    if (to_set & libfuse.fuse_set_attr_atime) != 0:
-        attr['st_atime'] = timespec_to_number(stat.st_atime)
+    if (to_set & libfuse.FUSE_SET_ATTR_ATIME) != 0:
+        attr['st_atime'] = attr_all['st_atime']
         
-    if (to_set & libfuse.fuse_set_attr_mode) != 0:
+    if (to_set & libfuse.FUSE_SET_ATTR_MODE) != 0:
         attr['st_mode'] = stat.st_mode
         
-    if (to_set & libfuse.fuse_set_attr_uid) != 0:
+    if (to_set & libfuse.FUSE_SET_ATTR_UID) != 0:
         attr['st_uid'] = stat.st_uid
         
-    if (to_set & libfuse.fuse_set_attr_gid) != 0:
+    if (to_set & libfuse.FUSE_SET_ATTR_GID) != 0:
         attr['st_gid'] = stat.st_gid            
     
-    if (to_set & libfuse.fuse_set_attr_size) != 0:
+    if (to_set & libfuse.FUSE_SET_ATTR_SIZE) != 0:
         attr['st_size'] = stat.st_size
     
+
+        
     operations.setattr(inode, attr)
     libfuse.fuse_reply_none(req)   
             
+def fuse_setxattr(req, inode, name, val, size, flags):
+    '''Set an extended attribute'''
+        
+    # Make sure we know all the flags
+    if (flags & ~(libfuse.XATTR_CREATE | libfuse.XATTR_REPLACE)) != 0:
+        raise ValueError('unknown flag')
+    
+    if (flags & libfuse.XATTR_CREATE) != 0:
+        try:
+            operations.getxattr(inode, string_at(name))
+        except FUSEError as e:
+            if e.errno == ENOATTR:
+                pass
+            raise
+        else:
+            raise FUSEError(errno.EEXIST)
+    elif (flags & libfuse.XATTR_REPLACE) != 0:
+        # Exception can be passed on if the attribute does not exist
+        operations.getxattr(inode, string_at(name))
+    
+    operations.setxattr(inode, string_at(name), string_at(val, size))
+    
+    libfuse.fuse_reply_none(req)    
+    
+def fuse_statfs(req, inode):
+    '''Return filesystem statistics'''
+    
+    attr = operations.statfs()
+    statfs = libfuse.statvfs()
+    
+    for (key, val) in attr:
+        setattr(statfs, key, val)
+        
+    try:
+        libfuse.fuse_reply_statfs(req, statfs)
+    except DiscardedRequest:
+        pass
+
+def fuse_symlink(req, target, parent_inode, name):
+    '''Create a symbolic link'''
+    
+    attr = operations.symlink(parent_inode, string_at(name), string_at(target))
+    entry = dict_to_entry(attr)
+    
+    try:
+        libfuse.fuse_reply_entry(req, entry)
+    except DiscardedRequest:
+        pass
+      
+      
+def fuse_unlink(req, parent_inode, name):
+    '''Delete a file'''
+    
+    operations.unlink(parent_inode, string_at(name))
+    libfuse.fuse_reply_none(req)
+    
+def fuse_write(req, inode, buf, size, off, fi):
+    '''Write into an open file handle'''
+    
+    written = operations.write(fi.fh, off, string_at(buf, size))
+    
+    try:
+        libfuse.fuse_reply_write(req, written)
+    except DiscardedRequest:
+        pass
+    
+    
 class Operations(object):
     '''
     This is a dummy class that just documents the possible methods that
@@ -729,6 +825,14 @@ class Operations(object):
         
         raise FUSEError(errno.ENOSYS)
     
+    def getxattr(self, inode, name):
+        '''Return extended attribute value
+        
+        If the attribute does not exist, raises `FUSEError(ENOATTR)`
+        '''
+        
+        raise FUSEError(errno.ENOSYS)
+ 
     def access(self, inode, uid, gid, mode, get_sup_gids):
         '''Check if `uid` has `mode` rights in `inode`. 
         
@@ -814,7 +918,7 @@ class Operations(object):
         '''Change directory entry attributes
         
         `attr` must be a dict with keys corresponding to the attributes of 
-        ``struct stat``. `attr` may also set a new value for ``st_size`` which
+        ``struct stat``. `attr` may also include a new value for ``st_size`` which
         means that the file should be truncated or extended.
         '''
         
@@ -838,7 +942,12 @@ class Operations(object):
         raise FUSEError(errno.ENOSYS)
     
     def symlink(self, inode_parent, name, target):
-        '''Create a symbolic link'''
+        '''Create a symbolic link
+        
+           
+        Returns a dict with the attributes of the newly created directory
+        entry. The keys are the same as for `lookup`.
+        '''
         
         raise FUSEError(errno.ENOSYS)
     
@@ -848,6 +957,11 @@ class Operations(object):
         raise FUSEError(errno.ENOSYS)
     
     def write(self, fh, off, data):
-        '''Write data into an open file'''
+        '''Write data into an open file
+        
+        Returns the number of bytes written.
+        Unless the file was opened in ``direct_io`` mode, this is always equal to
+        `len(data)`. 
+        '''
         
         raise FUSEError(errno.ENOSYS)
