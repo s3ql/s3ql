@@ -27,6 +27,25 @@ class Operations(object):
         
         pass
     
+    def init(self):
+        '''Initialize operations
+        
+        This function has to be called before any request has been received,
+        but after the mountpoint has been set up and the process has
+        daemonized.
+        '''
+        
+        pass
+    
+    def destroy(self):
+        '''Clean up operations.
+        
+        This method has to be called after the last request has been
+        received, when the file system is about to be unmounted.
+        '''
+        
+        pass
+    
     def check_args(self, fuse_args):
         '''Review FUSE arguments
         
@@ -305,3 +324,4 @@ class Operations(object):
         '''
         
         raise FUSEError(errno.ENOSYS)
+    

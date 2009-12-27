@@ -35,21 +35,21 @@ The return value and any raised exceptions of `handle_exc` are ignored.
 
 from __future__ import division
 from __future__ import unicode_literals
-import fuse_ctypes as libfuse
+import ctypes_api as libfuse
 from ctypes import (c_char_p, sizeof, create_string_buffer, addressof, string_at,
-                    POINTER, c_char, cast, pointer, c_void_p, CFUNCTYPE )
+                    POINTER, c_char, cast)
 from functools import partial
 import logging
 import errno
 import sys
 
 # Public API
-__all__ = [ 'init', 'main', 'FUSEError' ]
+__all__ = [ 'Server', 'FUSEError', 'ENOATTR', 'ENOTSUP' ]
 
 # These should really be befined in the errno module, but
 # unfortunately they are missing
-errno.ENOATTR = libfuse.ENOATTR
-errno.ENOTSUP = libfuse.ENOTSUP
+ENOATTR = libfuse.ENOATTR
+ENOTSUP = libfuse.ENOTSUP
 
 log = logging.getLogger("fuse") 
 
@@ -137,23 +137,6 @@ for fname in reply_functions:
     # Name isn't stored by ctypes
     getattr(libfuse, fname).name = fname
  
-
-# This wrapper makes sure that there is only one instance
-# of the _interface class and that it is destroyed 
-# after the main loop exits.
-def main(operations, mountpoint, args, single=False, foreground=False):
-    '''Mount FUSE file system and run main loop.
-       
-    `operations_` has to be an instance of the `Operations` class (or another
-    class defining the same methods).
-       
-    `args` has to be a list of strings. Valid options are listed in struct fuse_opt fuse_mount_opts[]
-    (mount.c:68) and struct fuse_opt fuse_ll_opts[] (fuse_lowlevel_c:1526)
-    '''
-    
-    _interface(operations, mountpoint, args, single, foreground)
-    
-    return
     
 def dict_to_entry(attr):
     '''Convert dict to fuse_entry_param'''
@@ -216,14 +199,11 @@ def stat_to_dict(stat):
             
     return attr
             
-class _interface(object):
+class Server(object):
     '''
     This class must be treated as a singleton, because every instance
     modifies the state of the same FUSE C library.
-    
     '''
-    
-    __slots__ = [ 'operations', 'fuse_ops' ]
         
     def op_wrapper(self, func, req, *args):
         '''Catch all exceptions and call fuse_reply_err instead'''
@@ -249,8 +229,8 @@ class _interface(object):
                 libfuse.fuse_reply_err(req, errno.EIO)
     
     
-    def __init__(self, operations, mountpoint, args, foreground=False, single=False):
-        '''Initialize FUSE file system and run main loop
+    def __init__(self, operations, mountpoint, args):
+        '''Initialize and mount FUSE file system
                 
         `operations_` has to be an instance of the `Operations` class (or another
         class defining the same methods).
@@ -266,17 +246,18 @@ class _interface(object):
         #pylint: disable-msg=R0912,R0915,R0914
         
         log.debug('Initializing llfuse')
-    
-        self.operations = operations
-        fuse_ops = libfuse.fuse_lowlevel_ops()
-    
-        for (name, prototype) in libfuse.fuse_lowlevel_ops._fields_:
-            method = partial(self.op_wrapper, getattr(self, 'fuse_' + name))
-            setattr(fuse_ops, name, prototype(method))
         
         # Give operations instance a chance to check and change
         # the FUSE options
         operations.check_args(args)
+    
+        self.operations = operations
+        self.mountpoint = mountpoint
+        fuse_ops = libfuse.fuse_lowlevel_ops()
+        
+        # We need to keep a refence to the prototypes, since they are used
+        # from C code
+        self.fuse_ops = fuse_ops
         
         # Construct commandline
         args1 = [ sys.argv[0] ]
@@ -290,6 +271,12 @@ class _interface(object):
         fuse_args.argc = len(args1)
         fuse_args.argv = (POINTER(c_char) * len(args1))(*[cast(c_char_p(x), POINTER(c_char)) 
                                                           for x in args1])
+        
+        # Init fuse_ops
+        for (name, prototype) in libfuse.fuse_lowlevel_ops._fields_:
+            if hasattr(self, 'fuse_' + name):
+                method = partial(self.op_wrapper, getattr(self, 'fuse_' + name))
+                setattr(fuse_ops, name, prototype(method))
         
         log.debug('Calling fuse_mount')
         channel = libfuse.fuse_mount(mountpoint, fuse_args)
@@ -307,29 +294,65 @@ class _interface(object):
                 try:
                     log.debug('Calling fuse_session_add_chan')
                     libfuse.fuse_session_add_chan(session, channel)
-                    try:
-                        if single:
-                            log.debug('Calling fuse_session_loop')
-                            if libfuse.fuse_session_loop(session) != 0:
-                                raise RuntimeError("fuse_session_loop() failed")
-                        else:
-                            log.debug('Calling fuse_session_loop_mt')
-                            if libfuse.fuse_session_loop_mt(session) != 0:
-                                raise RuntimeError("fuse_session_loop_mt() failed")
-                    finally:
-                        log.debug('Calling fuse_session_remove_chan')
-                        libfuse.fuse_session_remove_chan(channel)
-                finally:
+                    self.session = session
+                    self.channel = channel
+                    return
+    
+                except:
                     log.debug('Calling fuse_remove_signal_handlers')
                     libfuse.fuse_remove_signal_handlers(session)
+                    raise
                     
-            finally:
+            except:
                 log.debug('Calling fuse_session_destroy')
                 libfuse.fuse_session_destroy(session)
-        finally:
+                raise
+        except:
             log.debug('Calling fuse_unmount')
             libfuse.fuse_unmount(mountpoint, channel)
-          
+            raise
+   
+    def main(self, foreground=False, single=False):
+        '''Daemonize and run FUSE main loop
+        
+        Automatically calls `close' after the main loop has terminated. If
+        the file system should be mounted again, a new `Server` instance has
+        to be used.
+        '''
+        
+        if not hasattr(self, 'session'):
+            raise RuntimeError('Every LLFUSE instance can be used only once.')
+        
+        try:
+            if single:
+                log.debug('Calling fuse_session_loop')
+                if libfuse.fuse_session_loop(self.session) != 0:
+                    raise RuntimeError("fuse_session_loop() failed")
+            else:
+                log.debug('Calling fuse_session_loop_mt')
+                if libfuse.fuse_session_loop_mt(self.session) != 0:
+                    raise RuntimeError("fuse_session_loop_mt() failed")
+        finally:
+            self.close()
+            
+    def close(self):
+        '''Unmount file system and clean up
+        '''
+        
+        log.debug('Calling fuse_session_remove_chan')
+        libfuse.fuse_session_remove_chan(self.channel)
+        log.debug('Calling fuse_remove_signal_handlers')
+        libfuse.fuse_remove_signal_handlers(self.session) 
+        log.debug('Calling fuse_session_destroy')
+        libfuse.fuse_session_destroy(self.session)
+        log.debug('Calling fuse_unmount')
+        libfuse.fuse_unmount(self.mountpoint, self.channel)
+        
+        del self.operations
+        del self.fuse_ops
+        del self.session
+        del self.channel
+        
                        
     def fuse_lookup(self, req, parent_inode, name):
         '''Look up a directory entry by name and get its attributes'''
@@ -344,7 +367,14 @@ class _interface(object):
             libfuse.fuse_reply_entry(req, entry)
         except DiscardedRequest:
             pass
+    
+    def fuse_init(self, userdata_p, conn_info_p):
+        '''Initialize Operations'''
+        self.operations.init()
         
+    def fuse_destroy(self, userdata_p):
+        '''Cleanup Operations'''
+        self.operations.destroy()
         
     def fuse_getattr(self, req, ino, _unused):
         '''Get attributes for `ino`'''
@@ -368,7 +398,7 @@ class _interface(object):
         log.debug('Handling access(%d, %o)', ino, mask)
         
         # Get UID
-        ctx = libfuse.fuse_req_ctx(req)
+        ctx = libfuse.fuse_req_ctx(req).contents
         
         # Define a function that returns a list of the GIDs
         def get_gids():
@@ -403,7 +433,7 @@ class _interface(object):
         
         log.debug('Handling create(%d, %s, %o)', ino_parent, string_at(name), mode)
         (fh, attr) = self.operations.create(ino_parent, string_at(name), mode, 
-                                       libfuse.fuse_req_ctx(req))
+                                       libfuse.fuse_req_ctx(req).contents)
         fi.contents.fh = fh
         entry = dict_to_entry(attr)
         
@@ -522,7 +552,7 @@ class _interface(object):
         
         log.debug('Handling mkdir(%d, %s, %o)', inode_parent, string_at(name), mode)
         attr = self.operations.mkdir(inode_parent, string_at(name), mode,
-                                libfuse.fuse_req_ctx(req))
+                                libfuse.fuse_req_ctx(req).contents)
         entry = dict_to_entry(attr)
         
         log.debug('Calling fuse_reply_entry')
@@ -537,7 +567,7 @@ class _interface(object):
         log.debug('Handling mknod(%d, %s, %o, %d)', inode_parent, string_at(name),
                   mode, rdev)
         attr = self.operations.mknod(inode_parent, string_at(name), mode, rdev,
-                                libfuse.fuse_req_ctx(req))
+                                libfuse.fuse_req_ctx(req).contents)
         entry = dict_to_entry(attr)
         
         log.debug('Calling fuse_reply_entry')
@@ -643,8 +673,8 @@ class _interface(object):
         addr_off = 0
         for (name, stat) in entries:
             next_ += 1
-            addr_off += libfuse.fuse_add_direntry(req, addressof(buf) + addr_off, bufsize, 
-                                                  name, stat, next_)
+            addr_off += libfuse.fuse_add_direntry(req, cast(addressof(buf) + addr_off, POINTER(c_char)),
+                                                  bufsize, name, stat, next_)
         
         # Return buffer
         log.debug('Calling fuse_reply_buf')
@@ -743,7 +773,7 @@ class _interface(object):
             try:
                 self.operations.getxattr(inode, string_at(name))
             except FUSEError as e:
-                if e.errno == errno.ENOATTR:
+                if e.errno == ENOATTR:
                     pass
                 raise
             else:
@@ -778,7 +808,7 @@ class _interface(object):
         
         log.debug('Handling symlink(%d, %r, %r)', parent_inode, string_at(name), string_at(target))
         attr = self.operations.symlink(parent_inode, string_at(name), string_at(target),
-                                  libfuse.fuse_req_ctx(req))
+                                  libfuse.fuse_req_ctx(req).contents)
         entry = dict_to_entry(attr)
         
         log.debug('Calling fuse_reply_entry')
