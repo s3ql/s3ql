@@ -11,7 +11,7 @@ from optparse import OptionParser
 from time import sleep
 from s3ql.common import init_logging
 from s3ql.database import ConnectionManager
-from s3ql import fs, s3, mkfs, fsck
+from s3ql import fs, s3, mkfs, fsck, llfuse
 from s3ql.s3cache import S3Cache 
 import os
 import tempfile
@@ -82,21 +82,6 @@ def main():
     if not os.path.exists(mountpoint):
         sys.stderr.write('Mountpoint does not exist.\n')
         sys.exit(1)
-        
-    #
-    # Pass on fuse options
-    #
-    fuse_opts = dict()
-    fuse_opts[b"nonempty"] = True
-    if options.allow_others:
-        fuse_opts[b"allow_others"] = True
-    if options.allow_root:
-        fuse_opts[b"allow_root"] = True 
-    if options.single:
-        fuse_opts[b"nothreads"] = True
-    if options.fg:
-        fuse_opts[b"foreground"] = True
-    
     
     # Activate logging
     if options.debug is not None and options.debuglog is None and not options.fg:
@@ -130,12 +115,24 @@ def main():
         cache =  S3Cache(bucket, cachedir, options.cachesize, dbcm,
                          timeout=options.propdelay+1)
         try:
-            server = fs.Server(cache, dbcm, not options.atime)
+            fuse_opts = [ b"nonempty", b'fsname=s3ql_local', b'debug' ]
+            #              b'large_read', b'big_writes' ]
+            if options.allow_others:
+                fuse_opts.append(b'allow_others')
+            if options.allow_root:
+                fuse_opts.append(b'allow_root')
+            if options.allow_others or options.allow_root:
+                fuse_opts.append(b'default_permissions')
+                
+            operations = fs.Operations(cache, dbcm, not options.atime)
+            llfuse.init(operations)
             
             # Switch to background if necessary
             init_logging(options.fg, options.quiet, options.debug, options.debuglog)
             
-            server.main(mountpoint, **fuse_opts)
+            llfuse.main(mountpoint, fuse_opts, single=options.single, 
+                        foreground=options.fg)
+            
         finally:
             cache.close()
         
@@ -156,7 +153,7 @@ def main():
         dbfile.close()
         os.rmdir(cachedir)
         
-    if server.encountered_errors:
+    if operations.encountered_errors:
         log.warn('Some errors occured while handling requests. '
                  'Please examine the logs for more information.')
         sys.exit(1)
