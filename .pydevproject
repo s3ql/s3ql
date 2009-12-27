@@ -9,6 +9,7 @@
 <path>/s3ql-head/src</path>
 <path>/s3ql-head/tests</path>
 <path>/s3ql-head/src/pygccxml.zip</path>
+<path>/s3ql-head/src/ctypeslib.zip</path>
 </pydev_pathproperty>
 
 

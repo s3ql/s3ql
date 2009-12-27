@@ -7,6 +7,7 @@
 #include <fuse_lowlevel.h>
 
 #include <attr/xattr.h>
+#include <errno.h>
 
 /* Make #define's visible to GCCXML */
 const int D_FUSE_SET_ATTR_MODE = FUSE_SET_ATTR_MODE;
@@ -18,3 +19,4 @@ const int D_FUSE_SET_ATTR_MTIME = FUSE_SET_ATTR_MTIME;
 const int D_XATTR_CREATE = XATTR_CREATE;
 const int D_XATTR_REPLACE = XATTR_REPLACE;
 const int D_ENOATTR = ENOATTR;
+const int D_ENOTSUP = ENOTSUP;
