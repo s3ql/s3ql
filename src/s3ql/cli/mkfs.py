@@ -126,7 +126,7 @@ def main():
             
     try:
         log.info('Creating metadata tables...')
-        mkfs.setup_db(WrappedConnection(apsw.Connection(dbfile).cursor(), retrytime=0),
+        mkfs.setup_db(WrappedConnection(apsw.Connection(dbfile), retrytime=0),
                       options.blocksize * 1024, options.label)
     
         log.info('Uploading database...')

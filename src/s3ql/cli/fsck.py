@@ -179,7 +179,7 @@ def main():
         bucket.fetch_to_file("s3ql_metadata", dbfile)
     
     
-    conn = WrappedConnection(apsw.Connection(dbfile).cursor(), retrytime=0)
+    conn = WrappedConnection(apsw.Connection(dbfile), retrytime=0)
     
     # Check filesystem revision
     rev = conn.get_val("SELECT version FROM parameters")
@@ -188,8 +188,10 @@ def main():
         sys.exit(1)
     
     
-    # Now we can check, mind short circuit evaluation here
-    commit_required = (not fsck.fsck(conn, cachedir, bucket, options.checkonly)) or commit_required 
+    # Now we can check
+    fsck.fsck(conn, cachedir, bucket, options.checkonly)
+    if fsck.found_errors:
+        commit_required = True
     
     if conn.get_val("SELECT needs_fsck FROM parameters"):
         commit_required = True

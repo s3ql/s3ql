@@ -30,7 +30,7 @@ class sqlite_tests(unittest.TestCase):
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
 
-        self.conn = WrappedConnection(apsw.Connection(self.dbfile.name).cursor(),
+        self.conn = WrappedConnection(apsw.Connection(self.dbfile.name),
                                       retrytime=0)
         mkfs.setup_db(self.conn, self.blocksize)
         

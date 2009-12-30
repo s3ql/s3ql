@@ -36,12 +36,6 @@ class ConnectionManager(object):
     Therefore we maintain a pool of connections that are
     shared between all threads.
     
-    Instead of storing the connections directly in the pool, we
-    actually store a cursor from each connection. That way we
-    don't always have to allocate a new cursor whenever we
-    allocate the connection. The connection itself can always
-    be retrieved from the cursor using getconnection(). 
-    
     Attributes:
     -----------
     
@@ -133,16 +127,13 @@ class ConnectionManager(object):
                       len(self.provided))
             conn = apsw.Connection(self.dbfile)
             conn.setbusytimeout(self.retrytime)
-            # We store a cursor instead
-            conn = conn.cursor()
             if self.initsql:
-                conn.execute(self.initsql)
+                conn.cursor().execute(self.initsql)
                    
         return conn
     
     def _push_conn(self, conn):
-        '''Put the a database connection back into the pool
-        '''
+        '''Put a database connection back into the pool'''
         
         self.pool.append(conn)
         
@@ -200,9 +191,9 @@ class WrappedConnection(object):
                 cache does not overflow.
     '''
     
-    def __init__(self, cur, retrytime):
-        self.conn = cur.getconnection()
-        self.cur = cur
+    def __init__(self, conn, retrytime):
+        self.conn = conn
+        self.cur = conn.cursor()
         self.retrytime = retrytime
         self.savepoint_cnt = 0
         
@@ -244,15 +235,13 @@ class WrappedConnection(object):
             if self.savepoint_cnt == 0:
                 self._execute(self.cur, 'COMMIT')
 
-             
-    
-    # FIXME: This should be rewritten as a context manager,
-    # so that we can make sure that the cursor is
-    # destroyed as soon as it's no longer needed.     
     def query(self, *a, **kw):
         '''Execute the given SQL statement. Return ResultSet.
         
-        Transforms buffer() to bytes() and vice versa.
+        Transforms buffer() to bytes() and vice versa. If the
+        caller may not retrieve all rows of the result, it
+        should delete the `ResultSet` object has soon as 
+        possible to terminate the SQL statement.
         '''
         
         return ResultSet(self._execute(self.conn.cursor(), *a, **kw))
@@ -265,9 +254,7 @@ class WrappedConnection(object):
         return self.changes()
 
     def rowid(self, *a, **kw):
-        """Execute SQL statement and return last inserted rowid.
-        
-        """
+        """Execute SQL statement and return last inserted rowid"""
         
         self._execute(self.cur, *a, **kw)
         return self.conn.last_insert_rowid()
@@ -321,27 +308,24 @@ class WrappedConnection(object):
             
             
     def get_val(self, *a, **kw):
-        """Executes a select statement and returns first element of first row.
+        """Execute select statement and return first element of first row.
         
-        If there is no result row, raises KeyError. If there is more
-        than one row, raises NoUniqueValueError.
+        If there is no result row, raises `KeyError`. If there is more
+        than one row, raises `NoUniqueValueError`.
         """
 
         return self.get_row(*a, **kw)[0]
 
     def get_list(self, *a, **kw):
-        """Executes a select statement and returns result list.
-        
-        """
+        """Execute select statement and returns result list"""
 
         return list(self.query(*a, **kw))    
 
-
     def get_row(self, *a, **kw):
-        """Executes a select statement and returns first row.
+        """Execute select statement and return first row.
         
-        If there are no result rows, raises KeyError. If there is more
-        than one result row, raises RuntimeError.
+        If there are no result rows, raises `KeyError`. If there is more
+        than one result row, raises `NoUniqueValueError`.
         """
 
         res = ResultSet(self._execute(self.cur, *a, **kw))
@@ -355,20 +339,20 @@ class WrappedConnection(object):
             # Fine, we only wanted one row
             pass
         else:
+            # Finish the active SQL statement
+            del res
             raise NoUniqueValueError()
         
         return row
      
     def last_rowid(self):
-        """Return rowid most recently inserted in the current thread.
+        """Return rowid most recently inserted in the current thread"""
         
-        """
         return self.conn.last_insert_rowid()
     
     def changes(self):
-        """Return number of rows affected by most recent sql statement in current thread.
-
-        """
+        """Return number of rows affected by most recent sql statement in current thread"""
+        
         return self.conn.changes()        
 
 
@@ -384,10 +368,7 @@ class NoUniqueValueError(Exception):
 class ResultSet(object):
     '''Iterator over the result of an SQL query
     
-    This class automatically converts back from buffer() to bytes(). When
-    all results have been retrieved, the connection is returned back to 
-    the pool.
-    ''' 
+    This class automatically converts back from buffer() to bytes()''' 
     
     def __init__(self, cur):
         self.cur = cur
@@ -399,4 +380,9 @@ class ResultSet(object):
         return [ ( col if not isinstance(col, buffer) else bytes(col) ) 
                   for col in self.cur.next() ]
 
+    def __del__(self):
+        # Finish of statement
+        # TODO: Can we abort the SQL statement cleanly instead?
+        for dummy in self.cur:
+            pass
         
