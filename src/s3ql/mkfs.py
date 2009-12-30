@@ -121,8 +121,12 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
     conn.execute("""
     CREATE TABLE inodes (
         -- id has to specified *exactly* as follows to become
-        -- an alias for the rowid
-        id        INTEGER PRIMARY KEY,
+        -- an alias for the rowid.
+        -- inode_t may be restricted to 32 bits, so we need to constrain the
+        -- rowid. Also, as long as we don't store a separate generation no,
+        -- we can't reuse old rowids. Therefore we will run out of inodes after
+        -- 49 days if we insert 1000 rows per second. 
+        id        INTEGER PRIMARY KEY CHECK (id < 4294967296),
         uid       INT NOT NULL CONSTRAINT uid_type
                   CHECK( typeof(uid) == 'integer' AND uid >= 0),
         gid       INT NOT NULL CONSTRAINT gid_type
@@ -246,7 +250,7 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
     # Insert root directory
     # Refcount = 4: ".", "..", "lost+found", "lost+found/.."
     timestamp = time.time() - time.timezone
-    conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount) "
+    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
                    "VALUES (?,?,?,?,?,?,?,?)", 
                    (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
@@ -258,7 +262,7 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
     
     
     # Insert control inode, the actual values don't matter that much 
-    conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount) "
+    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
                    "VALUES (?,?,?,?,?,?,?,?)", 
                    (CTRL_INODE, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
                     0, 0, timestamp, timestamp, timestamp, 42))

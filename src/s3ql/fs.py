@@ -18,7 +18,7 @@ from s3ql.common import (decrease_refcount, get_path, update_mtime,
 import time
 from cStringIO import StringIO
 import threading
-#import psyco
+import psyco
 
 __all__ = [ "Server", "RevisionError" ]
 
@@ -146,8 +146,8 @@ class Operations(llfuse.Operations):
          fstat["st_rdev"],
          fstat["st_atime"],
          fstat["st_mtime"],
-         fstat["st_ctime"]) = self.dbcm.get_row("SELECT mode, refcount, uid, gid, size, id, rdev, "
-                                                "atime, mtime, ctime FROM inodes WHERE id=? ",
+         fstat["st_ctime"]) = self.dbcm.get_row("SELECT mode, refcount, uid, gid, size, id, "
+                                                "rdev, atime, mtime, ctime FROM inodes WHERE id=? ",
                                                 (inode,))
          
         # Take into account uncommitted changes
@@ -172,13 +172,14 @@ class Operations(llfuse.Operations):
             fstat["st_size"] = 512
             fstat["st_blocks"] = 1
             
-        # Timeout
+        # Timeout, can effectively be infinite since attribute changes
+        # are only triggered by the kernel's own requests
         fstat['attr_timeout'] = 3600
         fstat['entry_timeout'] = 3600
-        
-        # TODO: Add generation no to db
-        fstat['generation'] = 1
 
+        # Our inodes are already unique
+        fstat['generation'] = 1
+        
         return fstat
 
     def readlink(self, inode):
@@ -200,24 +201,19 @@ class Operations(llfuse.Operations):
 
     def readdir(self, fh, off):
         
-        if off > 0:
-            return
-        
         inode = fh
         with self.dbcm() as conn:        
             if not self.noatime:
                 update_atime(inode, conn)
                 
-            # FIXME: Add suppoprt for `off`
-            for (name, inode) in conn.query("SELECT name, inode FROM contents WHERE parent_inode=?",
-                                            (inode,)):
+            # The ResultSet is automatically deleted
+            # when yield raises GeneratorExit.
+            for (name, inode) in conn.query("SELECT name, inode FROM contents WHERE parent_inode=? "
+                                            "LIMIT -1 OFFSET ?", (inode, off)):
                 fstat = self.getattr(inode)
                 del fstat['attr_timeout']
-                
-                # FIXME: Are we in trouble if iteration stops before
-                # the query is exhausted?
-                yield (name, fstat)
 
+                yield (name, fstat)
 
     def getxattr(self, inode, name):
         # Handle S3QL commands
@@ -813,5 +809,4 @@ class RevisionError(Exception):
         return "Filesystem has revision %d, filesystem tools can only handle " \
             "revisions up %d" % (self.rev_is, self.rev_should)
 
-
-#psyco.bind(Operations)
+psyco.bind(Operations)
