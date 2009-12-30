@@ -1,14 +1,17 @@
-#!/usr/bin/env python
-#
-#    Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
-#
-#    This program can be distributed under the terms of the GNU LGPL.
-#
+'''
+$Id$
 
-from __future__ import unicode_literals
-from s3ql import mkfs, s3, s3cache, fs
+Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
+
+This program can be distributed under the terms of the GNU LGPL.
+'''
+
+from __future__ import unicode_literals, division, print_function 
+
+from s3ql import mkfs, s3, s3cache
 from s3ql.common import EmbeddedException, ExceptionStoringThread
 from s3ql.database import ConnectionManager
+from llfuse import FUSEError
 import os
 import tempfile
 import unittest
@@ -50,8 +53,7 @@ class s3cache_tests(unittest.TestCase):
         self.cache = s3cache.S3Cache(self.bucket, self.cachedir, self.cachesize, self.dbcm)
 
     def tearDown(self):
-        if self.cache is not None:
-            self.cache.close()
+        self.cache.clear()
         self.dbfile.close()
         os.rmdir(self.cachedir)
     
@@ -105,7 +107,7 @@ class s3cache_tests(unittest.TestCase):
         
         # Pylint doesn't recognize that cm is a context manager
         #pylint: disable-msg=E1101
-        self.assertRaises(fs.FUSEError, cm.__enter__)
+        self.assertRaises(FUSEError, cm.__enter__)
             
     def test_02_locking_meta(self):
         # Test our threading object

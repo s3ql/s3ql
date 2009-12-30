@@ -1,12 +1,13 @@
-"""
-database.py
+'''
+$Id$
 
-Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
+Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 
-This program can be distributed under the terms of the GNU LGPL. 
-"""
+This program can be distributed under the terms of the GNU LGPL.
+'''
 
-from __future__ import unicode_literals
+from __future__ import unicode_literals, division, print_function
+
 import logging
 from contextlib import contextmanager
 import apsw
@@ -199,9 +200,9 @@ class WrappedConnection(object):
                 cache does not overflow.
     '''
     
-    def __init__(self, conn, retrytime):
-        self.conn = conn.getconnection()
-        self.cur = conn
+    def __init__(self, cur, retrytime):
+        self.conn = cur.getconnection()
+        self.cur = cur
         self.retrytime = retrytime
         self.savepoint_cnt = 0
         
@@ -244,7 +245,10 @@ class WrappedConnection(object):
                 self._execute(self.cur, 'COMMIT')
 
              
-             
+    
+    # FIXME: This should be rewritten as a context manager,
+    # so that we can make sure that the cursor is
+    # destroyed as soon as it's no longer needed.     
     def query(self, *a, **kw):
         '''Execute the given SQL statement. Return ResultSet.
         
@@ -319,7 +323,7 @@ class WrappedConnection(object):
     def get_val(self, *a, **kw):
         """Executes a select statement and returns first element of first row.
         
-        If there is no result row, raises StopIteration. If there is more
+        If there is no result row, raises KeyError. If there is more
         than one row, raises NoUniqueValueError.
         """
 
@@ -336,12 +340,15 @@ class WrappedConnection(object):
     def get_row(self, *a, **kw):
         """Executes a select statement and returns first row.
         
-        If there are no result rows, raises StopIteration. If there is more
+        If there are no result rows, raises KeyError. If there is more
         than one result row, raises RuntimeError.
         """
 
         res = ResultSet(self._execute(self.cur, *a, **kw))
-        row = res.next()
+        try:
+            row = res.next()
+        except StopIteration:
+            raise KeyError('Query returned empty result set')
         try:
             res.next()
         except StopIteration:

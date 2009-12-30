@@ -1,11 +1,13 @@
-#!/usr/bin/env python
-#
-#    Copyright (C) 2008-2009  Nikolaus Rath <Nikolaus@rath.org>
-#
-#    This program can be distributed under the terms of the GNU LGPL.
-#
+'''
+$Id$
 
-from __future__ import unicode_literals
+Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
+
+This program can be distributed under the terms of the GNU LGPL.
+'''
+
+from __future__ import unicode_literals, division, print_function
+
 import threading
 import logging
 from contextlib import contextmanager
@@ -45,6 +47,8 @@ class MultiLock(object):
             self.release(key)
             
     def acquire(self, key):
+        '''Acquire lock for given key'''
+        
         # Lock set of lockedkeys (global lock)
         with self.cond:
             
@@ -56,8 +60,7 @@ class MultiLock(object):
             self.locked_keys.add(key)
 
     def release(self, key):
-        """Releases lock on given s3key
-        """
+        """Release lock on given key"""
 
         # Lock set of locked keys (global lock)
         with self.cond:

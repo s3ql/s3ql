@@ -1,8 +1,14 @@
 '''
-Interface between the C and Python API. The actual file system
+$Id$
+
+Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
+
+This program can be distributed under the terms of the GNU LGPL.
+
+
+This module defines the interface between the FUSE C and Python API. The actual file system
 is implemented as an `Operations` instance whose methods will
-be called by the `Server` instance within the `mount_and_serve`
-loop.
+be called by the fuse library.
 
 Note that all "string-like" quantities (e.g. file names, extended attribute names & values) are
 represented as bytes, since POSIX doesn't require any of them to be valid unicode strings.
@@ -32,9 +38,11 @@ The return value and any raised exceptions of `handle_exc` are ignored.
 # (since they are defined in _fields_ instead)
 #pylint: disable-msg=W0212
 
+# We need globals
+#pylint: disable-msg=W0603
 
-from __future__ import division
-from __future__ import unicode_literals
+from __future__ import unicode_literals, division, print_function
+
 import ctypes_api as libfuse
 from ctypes import (c_char_p, sizeof, create_string_buffer, addressof, string_at,
                     POINTER, c_char, cast)
@@ -43,8 +51,7 @@ import logging
 import errno
 import sys
 
-# Public API
-__all__ = [ 'Server', 'FUSEError', 'ENOATTR', 'ENOTSUP' ]
+__all__ = [ 'FUSEError', 'ENOATTR', 'ENOTSUP', 'init', 'main', 'close' ]
 
 # These should really be befined in the errno module, but
 # unfortunately they are missing
@@ -53,11 +60,13 @@ ENOTSUP = libfuse.ENOTSUP
 
 log = logging.getLogger("fuse") 
 
-
-#
-# Exceptions
-#
-
+# Init globals
+operations = None
+fuse_ops = None
+mountpoint = None
+session = None
+channel = None
+    
 class DiscardedRequest(Exception):
     '''Request was interrupted and reply discarded.
     
@@ -90,9 +99,6 @@ class FUSEError(Exception):
         return errno.errorcode.get(self.errno, str(self.errno))
 
 
-#
-# Define FUSE reply function error checkers
-#
 
 def check_reply_result(result, func, *args):
     '''Check result of a call to a fuse_reply_* foreign function
@@ -166,7 +172,9 @@ def dict_to_stat(attr):
         get_timespec_key = False
         
     # Raises exception if there are any unknown keys
-    for (key, val) in attr.iteritems():      
+    for (key, val) in attr.iteritems():  
+        if val is None: # do not set undefined items
+            continue    
         if get_timespec_key and key in  ('st_atime', 'st_mtime', 'st_ctime'):
             key = get_timespec_key(key)
             spec = libfuse.timespec()
@@ -182,657 +190,693 @@ def stat_to_dict(stat):
     '''Convert ``struct stat`` to dict'''
         
     attr = dict()
-    # Yes, protected member
-    #pylint: disable-msg=W0212
-    for field in type(stat)._fields_:
-        if field.startswith('__'):
+    for (name, dummy) in libfuse.stat._fields_:
+        if name.startswith('__'):
             continue
         
-        if field in ('st_atim', 'st_mtim', 'st_ctim'):
-            key = field + 'e' 
-            attr[key] = getattr(stat, field).tv_sec + getattr(stat, field).tv_nsec / 10**9  
-        elif field in ('st_atimespec', 'st_mtimespec', 'st_ctimespec'):
-            key = field[:-4]
-            attr[key] = getattr(stat, field).tv_sec + getattr(stat, field).tv_nsec / 10**9     
+        if name in ('st_atim', 'st_mtim', 'st_ctim'):
+            key = name + 'e' 
+            attr[key] = getattr(stat, name).tv_sec + getattr(stat, name).tv_nsec / 10**9  
+        elif name in ('st_atimespec', 'st_mtimespec', 'st_ctimespec'):
+            key = name[:-4]
+            attr[key] = getattr(stat, name).tv_sec + getattr(stat, name).tv_nsec / 10**9     
         else:
-            attr[field] = getattr(stat, field)
+            attr[name] = getattr(stat, name)
             
     return attr
             
-class Server(object):
-    '''
-    This class must be treated as a singleton, because every instance
-    modifies the state of the same FUSE C library.
-    '''
         
-    def op_wrapper(self, func, req, *args):
-        '''Catch all exceptions and call fuse_reply_err instead'''
-            
-        try:
-            func(req, *args)
-        except FUSEError as e:
-            log.debug('op_wrapper caught FUSEError, calling fuse_reply_err(%s)', 
-                      errno.errorcode.get(e.errno, str(e.errno)))
-            libfuse.fuse_reply_err(req, e.errno)
-        except Exception as exc:
-            log.exception('FUSE handler raised exception.')
-            
-            # Report error to filesystem
-            if hasattr(self.operations, 'handle_exc'):
-                try:
-                    self.operations.handle_exc(exc)
-                except:
-                    pass
-                
-            # Send error reply, unless the error occured when replying
-            if not isinstance(exc, ReplyError):
-                libfuse.fuse_reply_err(req, errno.EIO)
-    
-    
-    def __init__(self, operations, mountpoint, args):
-        '''Initialize and mount FUSE file system
-                
-        `operations_` has to be an instance of the `Operations` class (or another
-        class defining the same methods).
+def op_wrapper(func, req, *args):
+    '''Catch all exceptions and call fuse_reply_err instead'''
         
-        `args` has to be a list of strings. Valid options are listed in struct fuse_opt fuse_mount_opts[]
-        (mount.c:68) and struct fuse_opt fuse_ll_opts[] (fuse_lowlevel_c:1526).
+    try:
+        func(req, *args)
+    except FUSEError as e:
+        log.debug('op_wrapper caught FUSEError, calling fuse_reply_err(%s)', 
+                  errno.errorcode.get(e.errno, str(e.errno)))
+        libfuse.fuse_reply_err(req, e.errno)
+    except Exception as exc:
+        log.exception('FUSE handler raised exception.')
         
-        If `foreground` is true, the process is not daemonized.
-        '''
-        
-        # Too many branches, too many statements, too many variables.
-        # But this function can't be split up any more
-        #pylint: disable-msg=R0912,R0915,R0914
-        
-        log.debug('Initializing llfuse')
-        
-        # Give operations instance a chance to check and change
-        # the FUSE options
-        operations.check_args(args)
-    
-        self.operations = operations
-        self.mountpoint = mountpoint
-        fuse_ops = libfuse.fuse_lowlevel_ops()
-        
-        # We need to keep a refence to the prototypes, since they are used
-        # from C code
-        self.fuse_ops = fuse_ops
-        
-        # Construct commandline
-        args1 = [ sys.argv[0] ]
-        for opt in args:
-            args1.append(b'-o')
-            args1.append(opt)
-                 
-        # Init fuse_args struct
-        fuse_args = libfuse.fuse_args()
-        fuse_args.allocated = 0
-        fuse_args.argc = len(args1)
-        fuse_args.argv = (POINTER(c_char) * len(args1))(*[cast(c_char_p(x), POINTER(c_char)) 
-                                                          for x in args1])
-        
-        # Init fuse_ops
-        for (name, prototype) in libfuse.fuse_lowlevel_ops._fields_:
-            if hasattr(self, 'fuse_' + name):
-                method = partial(self.op_wrapper, getattr(self, 'fuse_' + name))
-                setattr(fuse_ops, name, prototype(method))
-        
-        log.debug('Calling fuse_mount')
-        channel = libfuse.fuse_mount(mountpoint, fuse_args)
-        if not channel:
-            raise RuntimeError('fuse_mount failed')
-        try:
-            log.debug('Calling fuse_lowlevel_new')
-            session = libfuse.fuse_lowlevel_new(fuse_args, fuse_ops, sizeof(fuse_ops), None)
-            if not session:
-                raise RuntimeError("fuse_lowlevel_new() failed")
+        # Report error to filesystem
+        if hasattr(operations, 'handle_exc'):
             try:
-                log.debug('Calling fuse_set_signal_handlers')
-                if libfuse.fuse_set_signal_handlers(session) == -1:
-                    raise RuntimeError("fuse_set_signal_handlers() failed")
-                try:
-                    log.debug('Calling fuse_session_add_chan')
-                    libfuse.fuse_session_add_chan(session, channel)
-                    self.session = session
-                    self.channel = channel
-                    return
-    
-                except:
-                    log.debug('Calling fuse_remove_signal_handlers')
-                    libfuse.fuse_remove_signal_handlers(session)
-                    raise
-                    
+                operations.handle_exc(exc)
             except:
-                log.debug('Calling fuse_session_destroy')
-                libfuse.fuse_session_destroy(session)
-                raise
-        except:
-            log.debug('Calling fuse_unmount')
-            libfuse.fuse_unmount(mountpoint, channel)
-            raise
-   
-    def main(self, foreground=False, single=False):
-        '''Daemonize and run FUSE main loop
-        
-        Automatically calls `close' after the main loop has terminated. If
-        the file system should be mounted again, a new `Server` instance has
-        to be used.
-        '''
-        
-        if not hasattr(self, 'session'):
-            raise RuntimeError('Every LLFUSE instance can be used only once.')
-        
-        try:
-            if single:
-                log.debug('Calling fuse_session_loop')
-                if libfuse.fuse_session_loop(self.session) != 0:
-                    raise RuntimeError("fuse_session_loop() failed")
-            else:
-                log.debug('Calling fuse_session_loop_mt')
-                if libfuse.fuse_session_loop_mt(self.session) != 0:
-                    raise RuntimeError("fuse_session_loop_mt() failed")
-        finally:
-            self.close()
+                pass
             
-    def close(self):
-        '''Unmount file system and clean up
-        '''
-        
-        log.debug('Calling fuse_session_remove_chan')
-        libfuse.fuse_session_remove_chan(self.channel)
-        log.debug('Calling fuse_remove_signal_handlers')
-        libfuse.fuse_remove_signal_handlers(self.session) 
-        log.debug('Calling fuse_session_destroy')
-        libfuse.fuse_session_destroy(self.session)
+        # Send error reply, unless the error occured when replying
+        if not isinstance(exc, ReplyError):
+            libfuse.fuse_reply_err(req, errno.EIO)
+
+
+def init(operations_, mountpoint_, args):
+    '''Initialize and mount FUSE file system
+            
+    `operations_` has to be an instance of the `Operations` class (or another
+    class defining the same methods).
+    
+    `args` has to be a list of strings. Valid options are listed in struct fuse_opt fuse_mount_opts[]
+    (mount.c:68) and struct fuse_opt fuse_ll_opts[] (fuse_lowlevel_c:1526).
+    '''
+    
+    log.debug('Initializing llfuse')
+    
+    global operations
+    global fuse_ops
+    global mountpoint
+    global session 
+    global channel
+    
+    mountpoint = mountpoint_
+    operations = operations_
+    fuse_ops = libfuse.fuse_lowlevel_ops()
+    fuse_args = make_fuse_args(args)
+    
+    # Give operations instance a chance to check and change
+    # the FUSE options
+    operations.check_args(args)
+
+    # Init fuse_ops
+    module = globals()
+    for (name, prototype) in libfuse.fuse_lowlevel_ops._fields_:
+        if hasattr(operations, name):
+            method = partial(op_wrapper, module['fuse_' + name])
+            setattr(fuse_ops, name, prototype(method))
+    
+    log.debug('Calling fuse_mount')
+    channel = libfuse.fuse_mount(mountpoint, fuse_args)
+    if not channel:
+        raise RuntimeError('fuse_mount failed')
+    try:
+        log.debug('Calling fuse_lowlevel_new')
+        session = libfuse.fuse_lowlevel_new(fuse_args, fuse_ops, sizeof(fuse_ops), None)
+        if not session:
+            raise RuntimeError("fuse_lowlevel_new() failed")
+        try:
+            log.debug('Calling fuse_set_signal_handlers')
+            if libfuse.fuse_set_signal_handlers(session) == -1:
+                raise RuntimeError("fuse_set_signal_handlers() failed")
+            try:
+                log.debug('Calling fuse_session_add_chan')
+                libfuse.fuse_session_add_chan(session, channel)
+                session = session
+                channel = channel
+                return
+
+            except:
+                log.debug('Calling fuse_remove_signal_handlers')
+                libfuse.fuse_remove_signal_handlers(session)
+                raise
+                
+        except:
+            log.debug('Calling fuse_session_destroy')
+            libfuse.fuse_session_destroy(session)
+            raise
+    except:
         log.debug('Calling fuse_unmount')
-        libfuse.fuse_unmount(self.mountpoint, self.channel)
+        libfuse.fuse_unmount(mountpoint, channel)
+        raise
+
+def make_fuse_args(args):
+    '''Create fuse_args Structure for given mount options'''
         
-        del self.operations
-        del self.fuse_ops
-        del self.session
-        del self.channel
-        
-                       
-    def fuse_lookup(self, req, parent_inode, name):
-        '''Look up a directory entry by name and get its attributes'''
-        
-        log.debug('Handling lookup(%d, %s)', parent_inode, string_at(name))
-        
-        attr = self.operations.lookup(parent_inode, string_at(name))
-        entry = dict_to_entry(attr)
-        
-        log.debug('Calling fuse_reply_entry')
-        try:
-            libfuse.fuse_reply_entry(req, entry)
-        except DiscardedRequest:
-            pass
+    args1 = [ sys.argv[0] ]
+    for opt in args:
+        args1.append(b'-o')
+        args1.append(opt)
+             
+    # Init fuse_args struct
+    fuse_args = libfuse.fuse_args()
+    fuse_args.allocated = 0
+    fuse_args.argc = len(args1)
+    fuse_args.argv = (POINTER(c_char) * len(args1))(*[cast(c_char_p(x), POINTER(c_char)) 
+                                                      for x in args1])
+    return fuse_args
+
+def main(foreground=False, single=False):
+    '''Daemonize and run FUSE main loop
     
-    def fuse_init(self, userdata_p, conn_info_p):
-        '''Initialize Operations'''
-        self.operations.init()
-        
-    def fuse_destroy(self, userdata_p):
-        '''Cleanup Operations'''
-        self.operations.destroy()
-        
-    def fuse_getattr(self, req, ino, _unused):
-        '''Get attributes for `ino`'''
-        
-        log.debug('Handling getattr(%d)', ino)
-        
-        attr = self.operations.getattr(ino)
-        
-        attr_timeout = attr.pop('attr_timeout')
-        stat = dict_to_stat(attr)
-        
-        log.debug('Calling fuse_reply_attr')
-        try:
-            libfuse.fuse_reply_attr(req, stat, attr_timeout)
-        except DiscardedRequest:
-            pass
+    Automatically calls `close' after the main loop has terminated. If
+    the file system should be mounted again, `init` has to be called 
+    first.
+    '''
     
-    def fuse_access(self, req, ino, mask):
-        '''Check if calling user has `mask` rights for `ino`''' 
+    if not session:
+        raise RuntimeError('Need to call init() before main()')
+    
+    try:
+        if single:
+            log.debug('Calling fuse_session_loop')
+            if libfuse.fuse_session_loop(session) != 0:
+                raise RuntimeError("fuse_session_loop() failed")
+        else:
+            log.debug('Calling fuse_session_loop_mt')
+            if libfuse.fuse_session_loop_mt(session) != 0:
+                raise RuntimeError("fuse_session_loop_mt() failed")
+    finally:
+        close()
         
-        log.debug('Handling access(%d, %o)', ino, mask)
+def close():
+    '''Unmount file system and clean up'''
         
-        # Get UID
-        ctx = libfuse.fuse_req_ctx(req).contents
-        
-        # Define a function that returns a list of the GIDs
-        def get_gids():
-            # Get GID list if FUSE supports it
-            # Weird syntax to prevent PyDev from complaining
-            getgroups = getattr(libfuse, "fuse_req_getgroups")
-            gid_t = getattr(libfuse, 'gid_t') 
-            no = 10
+    global operations
+    global fuse_ops
+    global mountpoint
+    global session 
+    global channel
+    
+    log.debug('Calling fuse_session_remove_chan')
+    libfuse.fuse_session_remove_chan(channel)
+    log.debug('Calling fuse_remove_signal_handlers')
+    libfuse.fuse_remove_signal_handlers(session) 
+    log.debug('Calling fuse_session_destroy')
+    libfuse.fuse_session_destroy(session)
+    log.debug('Calling fuse_unmount')
+    libfuse.fuse_unmount(mountpoint, channel)
+    
+    operations = None
+    fuse_ops = None
+    mountpoint = None
+    session = None
+    channel = None
+    
+                   
+def fuse_lookup(req, parent_inode, name):
+    '''Look up a directory entry by name and get its attributes'''
+    
+    log.debug('Handling lookup(%d, %s)', parent_inode, string_at(name))
+    
+    attr = operations.lookup(parent_inode, string_at(name))
+    entry = dict_to_entry(attr)
+    
+    log.debug('Calling fuse_reply_entry')
+    try:
+        libfuse.fuse_reply_entry(req, entry)
+    except DiscardedRequest:
+        pass
+
+def fuse_init(userdata_p, conn_info_p):
+    '''Initialize Operations'''
+    operations.init()
+    
+def fuse_destroy(userdata_p):
+    '''Cleanup Operations'''
+    operations.destroy()
+    
+def fuse_getattr(req, ino, _unused):
+    '''Get attributes for `ino`'''
+    
+    log.debug('Handling getattr(%d)', ino)
+    
+    attr = operations.getattr(ino)
+    
+    attr_timeout = attr.pop('attr_timeout')
+    stat = dict_to_stat(attr)
+    
+    log.debug('Calling fuse_reply_attr')
+    try:
+        libfuse.fuse_reply_attr(req, stat, attr_timeout)
+    except DiscardedRequest:
+        pass
+
+def fuse_access(req, ino, mask):
+    '''Check if calling user has `mask` rights for `ino`''' 
+    
+    log.debug('Handling access(%d, %o)', ino, mask)
+    
+    # Get UID
+    ctx = libfuse.fuse_req_ctx(req).contents
+    
+    # Define a function that returns a list of the GIDs
+    def get_gids():
+        # Get GID list if FUSE supports it
+        # Weird syntax to prevent PyDev from complaining
+        getgroups = getattr(libfuse, "fuse_req_getgroups")
+        gid_t = getattr(libfuse, 'gid_t') 
+        no = 10
+        buf = (gid_t * no)(range(no))
+        ret = getgroups(req, no, buf)
+        if ret > no:
+            no = ret
             buf = (gid_t * no)(range(no))
             ret = getgroups(req, no, buf)
-            if ret > no:
-                no = ret
-                buf = (gid_t * no)(range(no))
-                ret = getgroups(req, no, buf)
-                
-            return [ buf[i].value for i in range(ret) ]  
             
-        ret = self.operations.access(ino, mask, ctx, get_gids)
+        return [ buf[i].value for i in range(ret) ]  
         
-        log.debug('Calling fuse_reply_err')
-        try:
-            if ret:
-                libfuse.fuse_reply_err(req, 0)
-            else:
-                libfuse.fuse_reply_err(req, errno.EPERM)
-        except DiscardedRequest:
-            pass
+    ret = operations.access(ino, mask, ctx, get_gids)
     
-    
-    def fuse_create(self, req, ino_parent, name, mode, fi):
-        '''Create and open a file'''
-        
-        log.debug('Handling create(%d, %s, %o)', ino_parent, string_at(name), mode)
-        (fh, attr) = self.operations.create(ino_parent, string_at(name), mode, 
-                                       libfuse.fuse_req_ctx(req).contents)
-        fi.contents.fh = fh
-        entry = dict_to_entry(attr)
-        
-        log.debug('Calling fuse_reply_create')
-        try:
-            libfuse.fuse_reply_create(req, entry, fi)
-        except DiscardedRequest:
-            self.operations.release(fh)
-        
-        
-    def fuse_flush(self, req, ino, fi):
-        '''Handle close() system call
-        
-        May be called multiple times for the same open file.
-        '''
-        
-        log.debug('Handling flush(%d)', fi.contents.fh)
-        self.operations.flush(fi.contents.fh)
-        log.debug('Calling fuse_reply_none')
-        libfuse.fuse_reply_none(req)
-        
-        
-    def fuse_fsync(self, req, ino, datasync, fi):
-        '''Flush buffers for `ino`
-        
-        If the datasync parameter is non-zero, then only the user data
-        is flushed (and not the meta data).
-        '''
-        
-        log.debug('Handling fsync(%d, %s)', fi.contents.fh, datasync != 0)
-        self.operations.fsync(fi.contents.fh, datasync != 0)
-        log.debug('Calling fuse_reply_none')
-        libfuse.fuse_reply_none(req)
-        
-        
-    def fuse_fsyncdir(self, req, ino, datasync, fi):
-        '''Synchronize directory contents
-        
-        If the datasync parameter is non-zero, then only the directory contents
-        are flushed (and not the meta data about the directory itself).
-        '''
-        
-        log.debug('Handling fsyncdir(%d, %s)', fi.contents.fh, datasync != 0)   
-        self.operations.fsyncdir(fi.contents.fh, datasync != 0) 
-        log.debug('Calling fuse_reply_none')
-        libfuse.fuse_reply_none(req)
-        
-        
-    def fuse_getxattr(self, req, ino, name, size):
-        '''Get an extended attribute.
-        '''
-        
-        log.debug('Handling getxattr(%d, %s)', ino, string_at(name))
-        val = self.operations.getxattr(ino, string_at(name))
-        if not isinstance(val, bytes):
-            raise TypeError("getxattr return value must be of type bytes")
-        
-        try:
-            if size == 0:
-                log.debug('Calling fuse_reply_xattr')
-                libfuse.fuse_reply_xattr(req, len(val))
-            elif size <= len(val):
-                log.debug('Calling fuse_reply_buf')
-                libfuse.fuse_reply_buf(req, val, len(val))
-            else:
-                raise FUSEError(errno.ERANGE)
-        except DiscardedRequest:
-            pass
-        
-        
-    def fuse_link(self, req, ino, new_parent_ino, new_name):
-        '''Create a hard link'''
-        
-        log.debug('Handling fuse_link(%d, %d, %s)', ino, new_parent_ino, string_at(new_name))
-        attr = self.operations.link(ino, new_parent_ino, string_at(new_name))
-        entry = dict_to_entry(attr)
-        
-        log.debug('Calling fuse_reply_entry')
-        try:
-            libfuse.fuse_reply_entry(req, entry)
-        except DiscardedRequest:
-            pass
-        
-    def fuse_listxattr(self, req, inode, size):
-        '''List extended attributes for `inode`'''
-        
-        log.debug('Handling listxattr(%d)', inode)
-        names = self.operations.listxattr(inode)
-        
-        if not all([ isinstance(name, bytes) for name in names]):
-            raise TypeError("listxattr return value must be list of bytes")
-        
-        # Size of the \0 separated buffer 
-        act_size = (len(names)-1) + sum( [ len(name) for name in names ])
-         
-        if size == 0:
-            try:
-                log.debug('Calling fuse_reply_xattr')
-                libfuse.fuse_reply_xattr(req, len(names))
-            except DiscardedRequest:
-                pass
-        
-        elif act_size > size:
-            raise FUSEError(errno.ERANGE)
-        
+    log.debug('Calling fuse_reply_err')
+    try:
+        if ret:
+            libfuse.fuse_reply_err(req, 0)
         else:
-            try:
-                log.debug('Calling fuse_reply_buf')
-                libfuse.fuse_reply_buf(req, b'\0'.join(names), act_size)
-            except DiscardedRequest:
+            libfuse.fuse_reply_err(req, errno.EPERM)
+    except DiscardedRequest:
+        pass
+
+
+def fuse_create(req, ino_parent, name, mode, fi):
+    '''Create and open a file'''
+    
+    log.debug('Handling create(%d, %s, %o)', ino_parent, string_at(name), mode)
+    (fh, attr) = operations.create(ino_parent, string_at(name), mode, 
+                                   libfuse.fuse_req_ctx(req).contents)
+    fi.contents.fh = fh
+    entry = dict_to_entry(attr)
+    
+    log.debug('Calling fuse_reply_create')
+    try:
+        libfuse.fuse_reply_create(req, entry, fi)
+    except DiscardedRequest:
+        operations.release(fh)
+    
+    
+def fuse_flush(req, ino, fi):
+    '''Handle close() system call
+    
+    May be called multiple times for the same open file.
+    '''
+    
+    log.debug('Handling flush(%d)', fi.contents.fh)
+    operations.flush(fi.contents.fh)
+    log.debug('Calling fuse_reply_err(0)')
+    try:
+        libfuse.fuse_reply_err(req, 0)
+    except DiscardedRequest:
+        pass
+    
+    
+def fuse_fsync(req, ino, datasync, fi):
+    '''Flush buffers for `ino`
+    
+    If the datasync parameter is non-zero, then only the user data
+    is flushed (and not the meta data).
+    '''
+    
+    log.debug('Handling fsync(%d, %s)', fi.contents.fh, datasync != 0)
+    operations.fsync(fi.contents.fh, datasync != 0)
+    log.debug('Calling fuse_reply_err(0)')
+    try:
+        libfuse.fuse_reply_err(req, 0)
+    except DiscardedRequest:
+        pass
+    
+    
+def fuse_fsyncdir(req, ino, datasync, fi):
+    '''Synchronize directory contents
+    
+    If the datasync parameter is non-zero, then only the directory contents
+    are flushed (and not the meta data about the directory itself).
+    '''
+    
+    log.debug('Handling fsyncdir(%d, %s)', fi.contents.fh, datasync != 0)   
+    operations.fsyncdir(fi.contents.fh, datasync != 0) 
+    log.debug('Calling fuse_reply_err(0)')
+    try:
+        libfuse.fuse_reply_err(req, 0)
+    except DiscardedRequest:
+        pass
+    
+    
+def fuse_getxattr(req, ino, name, size):
+    '''Get an extended attribute.
+    '''
+    
+    log.debug('Handling getxattr(%d, %r, %d)', ino, string_at(name), size)
+    val = operations.getxattr(ino, string_at(name))
+    if not isinstance(val, bytes):
+        raise TypeError("getxattr return value must be of type bytes")
+    
+    try:
+        if size == 0:
+            log.debug('Calling fuse_reply_xattr')
+            libfuse.fuse_reply_xattr(req, len(val))
+        elif size >= len(val):
+            log.debug('Calling fuse_reply_buf')
+            libfuse.fuse_reply_buf(req, val, len(val))
+        else:
+            raise FUSEError(errno.ERANGE)
+    except DiscardedRequest:
+        pass
+    
+    
+def fuse_link(req, ino, new_parent_ino, new_name):
+    '''Create a hard link'''
+    
+    log.debug('Handling fuse_link(%d, %d, %s)', ino, new_parent_ino, string_at(new_name))
+    attr = operations.link(ino, new_parent_ino, string_at(new_name))
+    entry = dict_to_entry(attr)
+    
+    log.debug('Calling fuse_reply_entry')
+    try:
+        libfuse.fuse_reply_entry(req, entry)
+    except DiscardedRequest:
+        pass
+    
+def fuse_listxattr(req, inode, size):
+    '''List extended attributes for `inode`'''
+    
+    log.debug('Handling listxattr(%d)', inode)
+    names = operations.listxattr(inode)
+    
+    if not all([ isinstance(name, bytes) for name in names]):
+        raise TypeError("listxattr return value must be list of bytes")
+    
+    # Size of the \0 separated buffer 
+    act_size = (len(names)-1) + sum( [ len(name) for name in names ])
+     
+    if size == 0:
+        try:
+            log.debug('Calling fuse_reply_xattr')
+            libfuse.fuse_reply_xattr(req, len(names))
+        except DiscardedRequest:
+            pass
+    
+    elif act_size > size:
+        raise FUSEError(errno.ERANGE)
+    
+    else:
+        try:
+            log.debug('Calling fuse_reply_buf')
+            libfuse.fuse_reply_buf(req, b'\0'.join(names), act_size)
+        except DiscardedRequest:
+            pass
+            
+            
+def fuse_mkdir(req, inode_parent, name, mode):
+    '''Create directory'''
+    
+    log.debug('Handling mkdir(%d, %s, %o)', inode_parent, string_at(name), mode)
+    attr = operations.mkdir(inode_parent, string_at(name), mode,
+                            libfuse.fuse_req_ctx(req).contents)
+    entry = dict_to_entry(attr)
+    
+    log.debug('Calling fuse_reply_entry')
+    try:
+        libfuse.fuse_reply_entry(req, entry)
+    except DiscardedRequest:
+        pass
+
+def fuse_mknod(req, inode_parent, name, mode, rdev):
+    '''Create (possibly special) file'''
+    
+    log.debug('Handling mknod(%d, %s, %o, %d)', inode_parent, string_at(name),
+              mode, rdev)
+    attr = operations.mknod(inode_parent, string_at(name), mode, rdev,
+                            libfuse.fuse_req_ctx(req).contents)
+    entry = dict_to_entry(attr)
+    
+    log.debug('Calling fuse_reply_entry')
+    try:
+        libfuse.fuse_reply_entry(req, entry)
+    except DiscardedRequest:
+        pass
+
+def fuse_open(req, inode, fi):
+    '''Open a file'''
+    log.debug('Handling open(%d, %d)', inode, fi.contents.flags)
+    fi.contents.fh = operations.open(inode, fi.contents.flags)
+    
+    log.debug('Calling fuse_reply_open')
+    try:
+        libfuse.fuse_reply_open(req, fi)
+    except DiscardedRequest:
+        operations.release(inode, fi.contents.fh)
+
+def fuse_opendir(req, inode, fi):
+    '''Open a directory'''
+    
+    log.debug('Handling opendir(%d)', inode)
+    fi.contents.fh = operations.opendir(inode)
+
+    log.debug('Calling fuse_reply_open')
+    try:
+        libfuse.fuse_reply_open(req, fi)
+    except DiscardedRequest:
+        operations.releasedir(inode, fi.contents.fh)
+
+
+def fuse_read(req, ino, size, off, fi):
+    '''Read data from file'''
+    
+    log.debug('Handling read(%d, %d, %d)', fi.contents.fh, off, size)
+    data = operations.read(fi.contents.fh, off, size)
+    
+    if not isinstance(data, bytes):
+        raise TypeError("read() must return bytes")
+    
+    if len(data) > size:
+        raise ValueError('read() must not return more than `size` bytes')
+    
+    log.debug('Calling fuse_reply_buf')
+    try:
+        libfuse.fuse_reply_buf(req, data, len(data))
+    except DiscardedRequest:
+        pass
+
+
+def fuse_readlink(req, inode):
+    '''Read target of symbolic link'''
+    
+    log.debug('Handling readlink(%d)', inode)
+    target = operations.readlink(inode)
+    log.debug('Calling fuse_reply_readlink')
+    try:
+        libfuse.fuse_reply_readlink(req, target)
+    except DiscardedRequest:
+        pass
+    
+    
+def fuse_readdir(req, ino, bufsize, off, fi):
+    '''Read directory entries'''       
+    
+    log.debug('Handling readdir(%d, %d, %d, %d)', ino, bufsize, off, fi.contents.fh)
+    
+    # Collect as much entries as we can return
+    entries = list()
+    size = 0
+    for (name, attr) in operations.readdir(fi.contents.fh, off):
+        if not isinstance(name, bytes):
+            raise TypeError("readdir() must return entry names as bytes")
+    
+        stat = dict_to_stat(attr)
+            
+        entry_size = libfuse.fuse_add_direntry(req, None, 0, name, stat, 0)
+        if size+entry_size > bufsize:
+            break
+
+        entries.append((name, stat))
+        size += entry_size
+    
+    log.debug('Gathered %d entries, total size %d', len(entries), size)
+    
+    # If there are no entries left, return empty buffer
+    if not entries:
+        try:
+            log.debug('Calling fuse_reply_buf')
+            libfuse.fuse_reply_buf(req, None, 0)
+        except DiscardedRequest:
+            pass
+        return
+    
+    # Create and fill buffer
+    log.debug('Adding entries to buffer')
+    buf = create_string_buffer(size)
+    next_ = off
+    addr_off = 0
+    for (name, stat) in entries:
+        next_ += 1
+        addr_off += libfuse.fuse_add_direntry(req, cast(addressof(buf) + addr_off, POINTER(c_char)),
+                                              bufsize, name, stat, next_)
+    
+    # Return buffer
+    log.debug('Calling fuse_reply_buf')
+    try:
+        libfuse.fuse_reply_buf(req, buf, size)
+    except DiscardedRequest:
+        pass
+                
+                
+def fuse_release(req, inode, fi):
+    '''Release open file'''
+
+    log.debug('Handling release(%d)', fi.contents.fh)
+    operations.release(fi.contents.fh)
+    log.debug('Calling fuse_reply_err(0)')
+    try:
+        libfuse.fuse_reply_err(req, 0)
+    except DiscardedRequest:
+        pass
+    
+def fuse_releasedir(req, inode, fi):
+    '''Release open directory'''
+
+    log.debug('Handling releasedir(%d)', fi.contents.fh)
+    operations.releasedir(fi.contents.fh)
+    log.debug('Calling fuse_reply_err(0)')
+    try:
+        libfuse.fuse_reply_err(req, 0)
+    except DiscardedRequest:
+        pass
+        
+def fuse_removexattr(req, inode, name):
+    '''Remove extended attribute'''
+    
+    log.debug('Handling removexattr(%d, %s)', inode, string_at(name))
+    operations.removexattr(inode, string_at(name))
+    log.debug('Calling fuse_reply_err(0)')
+    try:
+        libfuse.fuse_reply_err(req, 0)
+    except DiscardedRequest:
+        pass
+    
+def fuse_rename(req, parent_inode_old, name_old, parent_inode_new, name_new):
+    '''Rename a directory entry'''
+    
+    log.debug('Handling rename(%d, %r, %d, %r)', parent_inode_old, string_at(name_old),
+              parent_inode_new, string_at(name_new))
+    operations.rename(parent_inode_old, string_at(name_old), parent_inode_new,
+                      string_at(name_new))
+    log.debug('Calling fuse_reply_err(0)')
+    try:
+        libfuse.fuse_reply_err(req, 0)
+    except DiscardedRequest:
+        pass
+    
+def fuse_rmdir(req, inode_parent, name):
+    '''Remove a directory'''
+    
+    log.debug('Handling rmdir(%d, %r)', inode_parent, string_at(name))
+    operations.rmdir(inode_parent, string_at(name))
+    log.debug('Calling fuse_reply_err(0)')
+    try:
+        libfuse.fuse_reply_err(req, 0)
+    except DiscardedRequest:
+        pass
+    
+def fuse_setattr(req, inode, stat, to_set, fi):
+    '''Change directory entry attributes'''
+    
+    log.debug('Handling fuse_setattr(%d)', inode)
+    
+    # Note: We can't check if we know all possible flags,
+    # because the part of to_set that is not "covered"
+    # by flags seems to be undefined rather than zero.
+    
+    attr_all = stat_to_dict(stat.contents)
+    attr = dict()
+    
+    if (to_set & libfuse.FUSE_SET_ATTR_MTIME) != 0:
+        attr['st_mtime'] = attr_all['st_mtime']
+        
+    if (to_set & libfuse.FUSE_SET_ATTR_ATIME) != 0:
+        attr['st_atime'] = attr_all['st_atime']
+        
+    if (to_set & libfuse.FUSE_SET_ATTR_MODE) != 0:
+        attr['st_mode'] = attr_all['st_mode']
+        
+    if (to_set & libfuse.FUSE_SET_ATTR_UID) != 0:
+        attr['st_uid'] = attr_all['st_uid']
+        
+    if (to_set & libfuse.FUSE_SET_ATTR_GID) != 0:
+        attr['st_gid'] = attr_all['st_gid']            
+    
+    if (to_set & libfuse.FUSE_SET_ATTR_SIZE) != 0:
+        attr['st_size'] = attr_all['st_size']
+        
+    attr = operations.setattr(inode, attr)
+    
+    attr_timeout = attr.pop('attr_timeout')
+    stat = dict_to_stat(attr)
+    
+    log.debug('Calling fuse_reply_attr')
+    try:
+        libfuse.fuse_reply_attr(req, stat, attr_timeout)
+    except DiscardedRequest:
+        pass
+            
+def fuse_setxattr(req, inode, name, val, size, flags):
+    '''Set an extended attribute'''
+        
+    log.debug('Handling setxattr(%d, %r, %r, %d)', inode, string_at(name), 
+              string_at(val, size), flags)
+    
+    # Make sure we know all the flags
+    if (flags & ~(libfuse.XATTR_CREATE | libfuse.XATTR_REPLACE)) != 0:
+        raise ValueError('unknown flag')
+    
+    if (flags & libfuse.XATTR_CREATE) != 0:
+        try:
+            operations.getxattr(inode, string_at(name))
+        except FUSEError as e:
+            if e.errno == ENOATTR:
                 pass
-                
-                
-    def fuse_mkdir(self, req, inode_parent, name, mode):
-        '''Create directory'''
-        
-        log.debug('Handling mkdir(%d, %s, %o)', inode_parent, string_at(name), mode)
-        attr = self.operations.mkdir(inode_parent, string_at(name), mode,
-                                libfuse.fuse_req_ctx(req).contents)
-        entry = dict_to_entry(attr)
-        
-        log.debug('Calling fuse_reply_entry')
-        try:
-            libfuse.fuse_reply_entry(req, entry)
-        except DiscardedRequest:
-            pass
+            raise
+        else:
+            raise FUSEError(errno.EEXIST)
+    elif (flags & libfuse.XATTR_REPLACE) != 0:
+        # Exception can be passed on if the attribute does not exist
+        operations.getxattr(inode, string_at(name))
     
-    def fuse_mknod(self, req, inode_parent, name, mode, rdev):
-        '''Create (possibly special) file'''
-        
-        log.debug('Handling mknod(%d, %s, %o, %d)', inode_parent, string_at(name),
-                  mode, rdev)
-        attr = self.operations.mknod(inode_parent, string_at(name), mode, rdev,
-                                libfuse.fuse_req_ctx(req).contents)
-        entry = dict_to_entry(attr)
-        
-        log.debug('Calling fuse_reply_entry')
-        try:
-            libfuse.fuse_reply_entry(req, entry)
-        except DiscardedRequest:
-            pass
+    operations.setxattr(inode, string_at(name), string_at(val, size))
     
-    def fuse_open(self, req, inode, fi):
-        '''Open a file'''
-        log.debug('Handling open(%d, %d)', inode, fi.contents.flags)
-        fi.contents.fh = self.operations.open(inode, fi.contents.flags)
-        
-        log.debug('Calling fuse_reply_open')
-        try:
-            libfuse.fuse_reply_open(req, fi)
-        except DiscardedRequest:
-            self.operations.release(inode, fi.contents.fh)
+    log.debug('Calling fuse_reply_err(0)')
+    try:
+        libfuse.fuse_reply_err(req, 0)
+    except DiscardedRequest:
+        pass    
     
-    def fuse_opendir(self, req, inode, fi):
-        '''Open a directory'''
-        
-        log.debug('Handling opendir(%d)', inode)
-        fi.contents.fh = self.operations.opendir(inode)
+def fuse_statfs(req, inode):
+    '''Return filesystem statistics'''
     
-        log.debug('Calling fuse_reply_open')
-        try:
-            libfuse.fuse_reply_open(req, fi)
-        except DiscardedRequest:
-            self.operations.releasedir(inode, fi.contents.fh)
+    log.debug('Handling statfs(%d)', inode)
+    attr = operations.statfs()
+    statfs = libfuse.statvfs()
     
+    for (key, val) in attr:
+        setattr(statfs, key, val)
+        
+    log.debug('Calling fuse_reply_statfs')
+    try:
+        libfuse.fuse_reply_statfs(req, statfs)
+    except DiscardedRequest:
+        pass
+
+def fuse_symlink(req, target, parent_inode, name):
+    '''Create a symbolic link'''
     
-    def fuse_read(self, req, ino, size, off, fi):
-        '''Read data from file'''
-        
-        log.debug('Handling read(%d, %d, %d)', fi.contents.fh, off, size)
-        data = self.operations.read(fi.contents.fh, off, size)
-        
-        if not isinstance(data, bytes):
-            raise TypeError("read() must return bytes")
-        
-        if len(data) > size:
-            raise ValueError('read() must not return more than `size` bytes')
-        
-        log.debug('Calling fuse_reply_buf')
-        try:
-            libfuse.fuse_reply_buf(req, data, len(data))
-        except DiscardedRequest:
-            pass
+    log.debug('Handling symlink(%d, %r, %r)', parent_inode, string_at(name), string_at(target))
+    attr = operations.symlink(parent_inode, string_at(name), string_at(target),
+                              libfuse.fuse_req_ctx(req).contents)
+    entry = dict_to_entry(attr)
     
+    log.debug('Calling fuse_reply_entry')
+    try:
+        libfuse.fuse_reply_entry(req, entry)
+    except DiscardedRequest:
+        pass
+      
+      
+def fuse_unlink(req, parent_inode, name):
+    '''Delete a file'''
     
-    def fuse_readlink(self, req, inode):
-        '''Read target of symbolic link'''
-        
-        log.debug('Handling readlink(%d)', inode)
-        target = self.operations.readlink(inode)
-        log.debug('Calling fuse_reply_readlink')
-        try:
-            libfuse.fuse_reply_readlink(req, target)
-        except DiscardedRequest:
-            pass
-        
-        
-    def fuse_readdir(self, req, ino, bufsize, off, fi):
-        '''Read directory entries'''       
-            
-        # Lots of variables, but no simplification possible
-        #pylint: disable-msg=R0914
-        
-        log.debug('Handling readdir(%d, %d, %d, %d)', ino, bufsize, off, fi.contents.fh)
-        
-        # Collect as much entries as we can return
-        entries = list()
-        size = 0
-        for (name, attr) in self.operations.readdir(fi.contents.fh, off):
-            if not isinstance(name, bytes):
-                raise TypeError("readdir() must return entry names as bytes")
-        
-            stat = dict_to_stat(attr)
-                
-            entry_size = libfuse.fuse_add_direntry(req, None, 0, name, stat, 0)
-            if size+entry_size > bufsize:
-                break
+    log.debug('Handling unlink(%d, %r)', parent_inode, string_at(name))
+    operations.unlink(parent_inode, string_at(name))
+    log.debug('Calling fuse_reply_err(0)')
+    try:
+        libfuse.fuse_reply_err(req, 0)
+    except DiscardedRequest:
+        pass
     
-            entries.append((name, stat))
-            size += entry_size
-        
-        log.debug('Gathered %d entries, total size %d', len(entries), size)
-        
-        # If there are no entries left, return empty buffer
-        if not entries:
-            try:
-                log.debug('Calling fuse_reply_buf')
-                libfuse.fuse_reply_buf(req, None, 0)
-            except DiscardedRequest:
-                pass
-            return
-        
-        # Create and fill buffer
-        log.debug('Adding entries to buffer')
-        buf = create_string_buffer(size)
-        next_ = off
-        addr_off = 0
-        for (name, stat) in entries:
-            next_ += 1
-            addr_off += libfuse.fuse_add_direntry(req, cast(addressof(buf) + addr_off, POINTER(c_char)),
-                                                  bufsize, name, stat, next_)
-        
-        # Return buffer
-        log.debug('Calling fuse_reply_buf')
-        try:
-            libfuse.fuse_reply_buf(req, buf, size)
-        except DiscardedRequest:
-            pass
-                    
-                    
-    def fuse_release(self, req, inode, fi):
-        '''Release open file'''
+def fuse_write(req, inode, buf, size, off, fi):
+    '''Write into an open file handle'''
     
-        log.debug('Handling release(%d)', fi.contents.fh)
-        self.operations.release(fi.contents.fh)
-        log.debug('Calling fuse_reply_none')
-        libfuse.fuse_reply_none(req)
-        
+    log.debug('Handling write(%d, <buf>, %d, %d, %d)', inode, size, off, fi.contents.fh)
+    written = operations.write(fi.contents.fh, off, string_at(buf, size))
     
-    def fuse_releasedir(self, req, inode, fi):
-        '''Release open directory'''
-    
-        log.debug('Handling releasedir(%d)', fi.contents.fh)
-        self.operations.releasedir(fi.contents.fh)
-        log.debug('Calling fuse_reply_none')
-        libfuse.fuse_reply_none(req)
-            
-    def fuse_removexattr(self, req, inode, name):
-        '''Remove extended attribute'''
-        
-        log.debug('Handling removexattr(%d, %s)', inode, string_at(name))
-        self.operations.removexattr(inode, string_at(name))
-        log.debug('Calling fuse_reply_none')
-        libfuse.fuse_reply_none(req)
-        
-    def fuse_rename(self, req, parent_inode_old, name_old, parent_inode_new, name_new):
-        '''Rename a directory entry'''
-        
-        self.operations.rename(parent_inode_old, string_at(name_old), parent_inode_new,
-                          string_at(name_new))
-        log.debug('Calling fuse_reply_none')
-        libfuse.fuse_reply_none(req)
-        
-    def fuse_rmdir(self, req, inode_parent, name):
-        '''Remove a directory'''
-        
-        self.operations.rmdir(inode_parent, string_at(name))
-        log.debug('Calling fuse_reply_none')
-        libfuse.fuse_reply_none(req)
-        
-    def fuse_setattr(self, req, inode, stat, to_set, fi):
-        '''Change directory entry attributes'''
-        
-        # Make sure we know all the flags
-        if (to_set & ~(libfuse.FUSE_SET_ATTR_ATIME | libfuse.FUSE_SET_ATTR_GID |
-                       libfuse.FUSE_SET_ATTR_MODE | libfuse.FUSE_SET_ATTR_MTIME |
-                       libfuse.FUSE_SET_ATTR_SIZE | libfuse.FUSE_SET_ATTR_SIZE |
-                       libfuse.FUSE_SET_ATTR_UID)) != 0:
-            raise ValueError('unknown flag')
-        
-        attr_all = stat_to_dict(stat)
-        attr = dict()
-        
-        if (to_set & libfuse.FUSE_SET_ATTR_MTIME) != 0:
-            attr['st_mtime'] = attr_all['st_mtime']
-            
-        if (to_set & libfuse.FUSE_SET_ATTR_ATIME) != 0:
-            attr['st_atime'] = attr_all['st_atime']
-            
-        if (to_set & libfuse.FUSE_SET_ATTR_MODE) != 0:
-            attr['st_mode'] = stat.st_mode
-            
-        if (to_set & libfuse.FUSE_SET_ATTR_UID) != 0:
-            attr['st_uid'] = stat.st_uid
-            
-        if (to_set & libfuse.FUSE_SET_ATTR_GID) != 0:
-            attr['st_gid'] = stat.st_gid            
-        
-        if (to_set & libfuse.FUSE_SET_ATTR_SIZE) != 0:
-            attr['st_size'] = stat.st_size
-            
-        self.operations.setattr(inode, attr)
-        log.debug('Calling fuse_reply_none')
-        libfuse.fuse_reply_none(req)   
-                
-    def fuse_setxattr(self, req, inode, name, val, size, flags):
-        '''Set an extended attribute'''
-            
-        log.debug('Handling setxattr(%d, %r, %r, %d)', inode, string_at(name), 
-                  string_at(val, size), flags)
-        
-        # Make sure we know all the flags
-        if (flags & ~(libfuse.XATTR_CREATE | libfuse.XATTR_REPLACE)) != 0:
-            raise ValueError('unknown flag')
-        
-        if (flags & libfuse.XATTR_CREATE) != 0:
-            try:
-                self.operations.getxattr(inode, string_at(name))
-            except FUSEError as e:
-                if e.errno == ENOATTR:
-                    pass
-                raise
-            else:
-                raise FUSEError(errno.EEXIST)
-        elif (flags & libfuse.XATTR_REPLACE) != 0:
-            # Exception can be passed on if the attribute does not exist
-            self.operations.getxattr(inode, string_at(name))
-        
-        self.operations.setxattr(inode, string_at(name), string_at(val, size))
-        
-        log.debug('Calling fuse_reply_none')
-        libfuse.fuse_reply_none(req)    
-        
-    def fuse_statfs(self, req, inode):
-        '''Return filesystem statistics'''
-        
-        log.debug('Handling statfs(%d)', inode)
-        attr = self.operations.statfs()
-        statfs = libfuse.statvfs()
-        
-        for (key, val) in attr:
-            setattr(statfs, key, val)
-            
-        log.debug('Calling fuse_reply_statfs')
-        try:
-            libfuse.fuse_reply_statfs(req, statfs)
-        except DiscardedRequest:
-            pass
-    
-    def fuse_symlink(self, req, target, parent_inode, name):
-        '''Create a symbolic link'''
-        
-        log.debug('Handling symlink(%d, %r, %r)', parent_inode, string_at(name), string_at(target))
-        attr = self.operations.symlink(parent_inode, string_at(name), string_at(target),
-                                  libfuse.fuse_req_ctx(req).contents)
-        entry = dict_to_entry(attr)
-        
-        log.debug('Calling fuse_reply_entry')
-        try:
-            libfuse.fuse_reply_entry(req, entry)
-        except DiscardedRequest:
-            pass
-          
-          
-    def fuse_unlink(self, req, parent_inode, name):
-        '''Delete a file'''
-        
-        log.debug('Handling unlink(%d, %r)', parent_inode, string_at(name))
-        self.operations.unlink(parent_inode, string_at(name))
-        log.debug('Calling fuse_reply_none')
-        libfuse.fuse_reply_none(req)
-        
-    def fuse_write(self, req, inode, buf, size, off, fi):
-        '''Write into an open file handle'''
-        
-        written = self.operations.write(fi.contents.fh, off, string_at(buf, size))
-        
-        log.debug('Calling fuse_reply_write')
-        try:
-            libfuse.fuse_reply_write(req, written)
-        except DiscardedRequest:
-            pass
+    log.debug('Calling fuse_reply_write')
+    try:
+        libfuse.fuse_reply_write(req, written)
+    except DiscardedRequest:
+        pass

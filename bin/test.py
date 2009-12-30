@@ -19,5 +19,19 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
     
-import s3ql.cli.umount
-s3ql.cli.umount.main()
+import llfuse
+from llfuse.example import XmpOperations
+import logging
+
+root_logger = logging.getLogger()
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter('%(asctime)s,%(msecs)03d %(threadName)s: '
+                                                     '[%(name)s] %(message)s',
+                                                     datefmt="%H:%M:%S")) 
+root_logger.addHandler(handler)
+root_logger.setLevel(logging.DEBUG)    
+        
+mountpoint = b'/home/nikratio/tmp/mnt'
+server = llfuse.Server(XmpOperations(), mountpoint, [])
+server.main(True, True)
+

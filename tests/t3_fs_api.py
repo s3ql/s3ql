@@ -1,19 +1,21 @@
-#!/usr/bin/env python
-#
-#    Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
-#
-#    This program can be distributed under the terms of the GNU LGPL.
-#
+'''
+$Id$
 
-from __future__ import unicode_literals
-from __future__ import division
-from random import randrange
+Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
+
+This program can be distributed under the terms of the GNU LGPL.
+'''
+
+from __future__ import unicode_literals, division, print_function
+
+from random import randint
 from s3ql import mkfs, s3, fs, fsck
-from s3ql.common import writefile, get_path
+import time
+from s3ql.common import ROOT_INODE
+from llfuse import FUSEError
 from s3ql.s3cache import S3Cache
 from s3ql.database import ConnectionManager
 import os
-import resource
 import stat
 import tempfile
 import unittest
@@ -22,6 +24,12 @@ import unittest
 # For debug messages:
 #from s3ql.common import init_logging
 #init_logging(True, False, debug=[''])
+
+class Ctx(object):
+    def __init__(self):
+        self.uid = randint(0, 2**32)
+        self.gid = randint(0, 2**32)
+        
 
 class fs_api_tests(unittest.TestCase):
 
@@ -40,269 +48,301 @@ class fs_api_tests(unittest.TestCase):
 
         self.cache = S3Cache(self.bucket, self.cachedir, self.blocksize * 5, self.dbcm)
         self.cache.timeout = 1
-        self.server = fs.Server(self.cache, self.dbcm)
-
+        self.server = fs.Operations(self.cache, self.dbcm)
+        
+        self.root_inode = ROOT_INODE
+        
+        # Keep track of unused filenames
+        self.name_cnt = 0
 
     def tearDown(self):
-        # May not have been called if a test failed
-        if self.cache:
-            self.cache.close()
+        self.cache.clear()
         self.dbfile.close()
         os.rmdir(self.cachedir)
 
     def fsck(self):
-        self.cache.close()
-        self.cache = None
-        with self.dbcm() as conn:
-            self.assertTrue(fsck.fsck(conn, self.cachedir, self.bucket, checkonly=True))
+        self.cache.clear()
+        with self.dbcm.transaction() as conn:
+            fsck.fsck(conn, self.cachedir, self.bucket, checkonly_=True)
+        self.assertFalse(fsck.found_errors)
 
-    @staticmethod
-    def random_name(prefix=b""):
-        return prefix + b"s3ql_" + bytes(randrange(100, 999, 1))
+    def random_name(self):
+        self.name_cnt += 1
+        return  b"s3ql_%3d" % self.name_cnt
     
     @staticmethod   
     def random_data(len_):
         with open("/dev/urandom", "rb") as fd:
             return fd.read(len_)
-      
-    def assert_entry_doesnt_exist(self, name):
-        self.assertRaises(fs.FUSEError, self.server.getattr, name)
-        
-        path = os.path.dirname(name)
-        fh = self.server.opendir(path)
-        entries = list()
-        def cb_filler(name, _unused_fstat, _unused_off): 
-            entries.append(name)
-        self.server.readdir(cb_filler, 0, fh)
+    
+    def assert_entry_doesnt_exist(self, inode_p, name):
+        self.assertRaises(FUSEError, self.server.lookup, inode_p, name)       
+        fh = self.server.opendir(inode_p)
+        entries = [ x[0] for x in self.server.readdir(fh, 0) ]
         self.server.releasedir(fh)
-            
-        self.assertTrue(os.path.basename(name) not in entries)
-        
-    def assert_entry_exists(self, name):
-        self.assertTrue(self.server.getattr(name) is not None)
-        
-        path = os.path.dirname(name)
-        fh = self.server.opendir(path)
-        entries = list()
-        def cb_filler(name, _unused_fstat, _unused_off): 
-            entries.append(name)
-        self.server.readdir(cb_filler, 0, fh)
+        self.assertTrue(name not in entries)      
+         
+    def assert_entry_exists(self, inode_p, name):
+        self.assertTrue('st_ino' in self.server.lookup(inode_p, name))
+        fh = self.server.opendir(inode_p)
+        entries = [ x[0] for x in self.server.readdir(fh, 0) ]
         self.server.releasedir(fh)
-            
-        self.assertTrue(os.path.basename(name) in entries)
+        self.assertTrue(name in entries)   
                          
     def test_01_getattr_root(self):
-        fstat = self.server.getattr(b"/")
+        fstat = self.server.getattr(self.root_inode)
         self.assertTrue(stat.S_ISDIR(fstat["st_mode"]))
         self.fsck()
 
-    def test_02_utimens(self):
-        # We work on the root directory
-        path = b"/"
-        fstat_old = self.server.getattr(path)
-        atime_new = fstat_old["st_atime"] - 72
-        mtime_new = fstat_old["st_mtime"] - 72
-        self.server.setattr(path, { 'st_atime': atime_new, 'st_mtime': mtime_new })
-        fstat_new = self.server.getattr(path)
-
-        self.assertEquals(fstat_new["st_mtime"], mtime_new)
-        self.assertEquals(fstat_new["st_atime"], atime_new)
-        self.assertTrue(fstat_new["st_ctime"] > fstat_old["st_ctime"])
-
-        self.fsck()
-
+    def mkdir(self, inode_p, name):
+        '''Make directory and verify creation
+        
+        Return inode of new directory.'''
+        
+        ctx = Ctx()
+        
+        mode = randint(0, 07777) | stat.S_IFDIR
+        
+        self.assert_entry_doesnt_exist(inode_p, name)
+        attr_p_old = self.server.getattr(inode_p)
+        self.server.mkdir(inode_p, name, mode, ctx)
+        self.assert_entry_exists(inode_p, name)
+        attr_p_new = self.server.getattr(inode_p)
+        attr = self.server.lookup(inode_p, name)
+        self.assertTrue(attr_p_new["st_mtime"] > attr_p_old['st_mtime'])
+        self.assertEquals(attr_p_old["st_nlink"]+1, attr_p_new['st_nlink'])
+        
+        self.assertEquals(attr['st_mode'], mode)
+        self.assertEquals(attr["st_nlink"], 2)
+        self.assertEquals(attr["st_uid"], ctx.uid)
+        self.assertEquals(attr["st_gid"], ctx.gid)
+        
+        return attr['st_ino']
+        
+    def rmdir(self, inode_p, name):
+        '''Remove directory and verify removal'''
+        
+        self.assert_entry_exists(inode_p, name)
+        attr_p_old = self.server.getattr(inode_p)
+        self.server.rmdir(inode_p, name)
+        self.assert_entry_doesnt_exist(inode_p, name)
+        attr_p_new = self.server.getattr(inode_p)
+     
+        self.assertTrue(attr_p_new["st_mtime"] > attr_p_old['st_mtime'])
+        self.assertEquals(attr_p_old["st_nlink"]-1, attr_p_new['st_nlink'])
+        
+    def unlink(self, inode_p, name):
+        '''Remove file and verify removal'''
+        
+        self.assert_entry_exists(inode_p, name)
+        attr_p_old = self.server.getattr(inode_p)
+        attr_old = self.server.lookup(inode_p, name)
+        self.server.unlink(inode_p, name)
+        self.assert_entry_doesnt_exist(inode_p, name)
+        attr_p_new = self.server.getattr(inode_p)
+     
+        self.assertTrue(attr_p_new["st_mtime"] > attr_p_old['st_mtime'])
+        self.assertEquals(attr_p_old["st_nlink"], attr_p_new['st_nlink'])
+        
+        if attr_old['st_nlink'] == 1:
+            self.assertRaises(KeyError, self.server.getattr, attr_old['st_ino'])
+        else:
+            self.assertEquals(attr_old['st_nlink']-1, 
+                              self.server.getattr(attr_old['st_ino'])['st_nlink'])
+                                                                      
+        
     def test_03_mkdir_rmdir(self):
-        linkcnt = self.server.getattr(b"/")["st_nlink"]
-
-        name = os.path.join(b"/",  self.random_name())
-        mtime_old = self.server.getattr(b"/")["st_mtime"]
-        self.assert_entry_doesnt_exist(name)
-        self.server.mkdir(name, stat.S_IRUSR | stat.S_IXUSR | stat.S_IFDIR)
-        self.assert_entry_exists(name)
-        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
-        fstat = self.server.getattr(name)
-
-        self.assertEquals(self.server.getattr(b"/")["st_nlink"], linkcnt+1)
-        self.assertTrue(stat.S_ISDIR(fstat["st_mode"]))
-        self.assertEquals(fstat["st_nlink"], 2)
-
-        sub = os.path.join(name, self.random_name())
-        self.assert_entry_doesnt_exist(sub)
-        self.server.mkdir(sub, stat.S_IRUSR | stat.S_IXUSR | stat.S_IFDIR)
-        self.assert_entry_exists(sub)
-
-        fstat = self.server.getattr(name)
-        fstat2 = self.server.getattr(sub)
-
-        self.assertTrue(stat.S_ISDIR(fstat2["st_mode"]))
-        self.assertEquals(fstat["st_nlink"], 3)
-        self.assertEquals(fstat2["st_nlink"], 2)
-        self.assertTrue(self.server.getattr(b"/")["st_nlink"] == linkcnt+1)
-
-        self.assertRaises(fs.FUSEError, self.server.rmdir, name)
-        self.server.rmdir(sub)
-        self.assert_entry_doesnt_exist(sub)
-        self.assertEquals(self.server.getattr(name)["st_nlink"], 2)
-
-        mtime_old = self.server.getattr(b"/")["st_mtime"]
-        self.server.rmdir(name)
-        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
-        self.assert_entry_doesnt_exist(name)
-        self.assertTrue(self.server.getattr(b"/")["st_nlink"] == linkcnt)
-
+        
+        name1 = self.random_name()
+        inode_p1 = self.root_inode
+        
+        inode_p2 = self.mkdir(inode_p1, name1)
+        name2 = self.random_name()
+        self.mkdir(inode_p2, name2)
+        self.assertRaises(FUSEError, self.server.rmdir, inode_p1, name1)
+        self.rmdir(inode_p2, name2)
+        self.rmdir(inode_p1, name1)
+        
         self.fsck()
+
+    def symlink(self, inode_p, name, target):
+        '''Make symlink and verify.
+        
+        Return inode of new symlink
+        '''
+        
+        ctx = Ctx()        
+        
+        self.assert_entry_doesnt_exist(inode_p, name)
+        attr_p_old = self.server.getattr(inode_p)
+        self.server.symlink(inode_p, name, target, ctx)
+        self.assert_entry_exists(inode_p, name)
+        attr_p_new = self.server.getattr(inode_p)
+        attr = self.server.lookup(inode_p, name)
+        self.assertTrue(attr_p_new["st_mtime"] > attr_p_old['st_mtime'])
+        self.assertEquals(attr_p_old["st_nlink"], attr_p_new['st_nlink'])
+        
+        self.assertEquals(attr["st_nlink"], 1)
+        self.assertEquals(attr["st_uid"], ctx.uid)
+        self.assertEquals(attr["st_gid"], ctx.gid)
+        self.assertEquals(self.server.readlink(attr['st_ino']), target)
+        
+        return attr['st_ino']
+    
 
     def test_04_symlink(self):
-        name = os.path.join(b"/",  self.random_name())
-        target = b"../../wherever/this/is"
-        self.assert_entry_doesnt_exist(name)
-        mtime_old = self.server.getattr(b"/")["st_mtime"]
-        self.server.symlink(name, target)
-        self.assert_entry_exists(name)
-        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
-        fstat = self.server.getattr(name)
-
-        self.assertTrue(stat.S_ISLNK(fstat["st_mode"]))
-        self.assertEquals(fstat["st_nlink"], 1)
-
-        self.assertEquals(self.server.readlink(name), target)
-
-        mtime_old = self.server.getattr(b"/")["st_mtime"]
-        self.server.unlink(name)
-        self.assert_entry_doesnt_exist(name)
-        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
+        name = self.random_name()
+        target = os.path.join(*[ self.random_name() for dummy in range(5) ])
+        
+        self.symlink(self.root_inode, name, target)
+        self.unlink(self.root_inode, name)
 
         self.fsck()
 
+    def create(self, inode_p, name):
+        '''Create file and verify operation.
+        
+        Return inode of new file.
+        '''
+        
+        ctx = Ctx()
+        mode = randint(0, 07777) | stat.S_IFREG
+        
+        self.assert_entry_doesnt_exist(inode_p, name)
+        attr_p_old = self.server.getattr(inode_p)
+        fh = self.server.create(inode_p, name, mode, ctx)
+        self.assert_entry_exists(inode_p, name)
+        attr_p_new = self.server.getattr(inode_p)
+        attr = self.server.lookup(inode_p, name)
+        self.assertTrue(attr_p_new["st_mtime"] > attr_p_old['st_mtime'])
+        self.assertEquals(attr_p_old["st_nlink"], attr_p_new['st_nlink'])
+        
+        self.assertEquals(attr['st_mode'], mode)
+        self.assertEquals(attr["st_nlink"], 1)
+        self.assertEquals(attr["st_uid"], ctx.uid)
+        self.assertEquals(attr["st_gid"], ctx.gid)
+        
+        self.server.release(fh)
+        
+        return attr['st_ino']
+    
     def test_05_create_unlink(self):
-        name = os.path.join(b"/",  self.random_name())
-        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
-
-        self.assert_entry_doesnt_exist(name)
-        mtime_old = self.server.getattr(b"/")["st_mtime"]
-        fh = self.server.create(name, mode)
-        self.assert_entry_exists(name)
-        self.server.release(fh)
-        self.server.flush(fh)
-
-        self.assertEquals(self.server.getattr(name)["st_mode"], mode | stat.S_IFREG)
-        self.assertEquals(self.server.getattr(name)["st_nlink"], 1)
-        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
-
-        mtime_old = self.server.getattr(b"/")["st_mtime"]
-        self.server.unlink(name)
-        self.assert_entry_doesnt_exist(name)
-        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
+        name = self.random_name()
+        inode_p = self.root_inode
+        
+        self.create(inode_p, name)
+        self.unlink(inode_p, name)
 
         self.fsck()
 
+    def test_06_setattr(self):
+    
+        name = self.random_name()
+        inode_p = self.root_inode
 
-    def test_06_chmod_chown(self):
-        # Create file
-        name = os.path.join(b"/",  self.random_name())
-        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
-        fh = self.server.create(name, mode)
-        self.server.release(fh)
-        self.server.flush(fh)
+        inode = self.create(inode_p, name)
+        self.setattr(inode)
+        self.setattr(inode)
+        self.unlink(inode_p, name)
+        
+        inode = self.mkdir(inode_p, name)
+        self.setattr(inode)
+        self.setattr(inode)
+        self.rmdir(inode_p, name)
 
-        mode_new = ( stat.S_IFREG |
-                     stat.S_IROTH | stat.S_IWOTH | stat.S_IXGRP | stat.S_IRGRP )
-        ctime_old = self.server.getattr(name)["st_ctime"]
-        self.server.setattr(name, { 'st_mode': mode_new})
-        self.assertEquals(self.server.getattr(name)["st_mode"], mode_new | stat.S_IFREG)
-        self.assertTrue(self.server.getattr(name)["st_ctime"] > ctime_old)
+    def setattr(self, inode):
+        '''Change attributes and verify operation'''
+        
+        mode_old = self.server.getattr(inode)['st_mode']
+        ctime_old = self.server.getattr(inode)["st_ctime"]
+        
+        attr = {
+                'st_mode': stat.S_IFMT(mode_old) | (randint(0, 07777) & ~stat.S_IFMT(mode_old)),
+                'st_uid': randint(0, 2**32),
+                'st_gid': randint(0, 2**32),
+                'st_atime': randint(0, 2**32) / 10**6 + time.timezone,
+                'st_mtime': randint(0, 2**32) / 10**6 + time.timezone 
+                }
+               
+        self.server.setattr(inode, attr)
+        attr_ = self.server.getattr(inode)
+        self.assertTrue(attr_['st_ctime'] > ctime_old)
+        
+        for key in attr:
+            self.assertEquals(attr[key], attr_[key])
 
-        uid_new = 1231
-        gid_new = 3213
-        ctime_old = self.server.getattr(name)["st_ctime"]
-        self.server.setattr(name, { 'st_uid': uid_new, 'st_gid': gid_new} )
-        self.assertEquals(self.server.getattr(name)["st_uid"], uid_new)
-        self.assertEquals(self.server.getattr(name)["st_gid"], gid_new)
-        self.assertTrue(self.server.getattr(name)["st_ctime"] > ctime_old)
-
-        self.server.unlink(name)
-        self.fsck()
 
     def test_07_open_write_read(self):
-        # Create file
-        name = os.path.join(b"/",  self.random_name())
-        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
-        bufsize = resource.getpagesize()
+
+        name = self.random_name()
+        inode_p = self.root_inode
+        inode = self.create(inode_p, name)
         
-        fh = self.server.create(name, mode)
-        self.server.flush(fh)
+        data = self.random_data(10 * self.blocksize)
+        fh = self.server.open(inode, os.O_RDWR)
+        self.assertEquals(self.server.write(fh, 0, data),
+                          len(data))
+        self.assertTrue(self.server.read(fh, 0, len(data)) == data)
         self.server.release(fh)
         
-        # Write testfile
-        writefile(__file__, name, self.server)
-        
-        # Read testfile
-        srcfh = open(__file__, "rb")
-        destfh = self.server.open(name, os.O_RDWR)
-        buf = srcfh.read(bufsize)
-        off = 0
-        while buf:
-            self.assertTrue(buf == self.server.read(bufsize, off, destfh))
-            off += len(buf)
-            buf = srcfh.read(bufsize)
-        self.server.flush(fh)
+        self.cache.clear()
+        fh = self.server.open(inode, os.O_RDWR)
+        self.assertTrue(self.server.read(fh, 0, len(data)) == data)
         self.server.release(fh)
-       
-        srcfh.close()
         self.fsck()
 
 
     def test_08_link(self):
-        # Create file
-        target = os.path.join(b"/",  self.random_name(b"target"))
-        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
-        fh = self.server.create(target, mode)
-        self.server.release(fh)
-        self.server.flush(fh)
+        name = self.random_name()
+        dirname = self.random_name()
+        inode_p = self.root_inode
+        inode = self.create(inode_p, name)
 
-        name = os.path.join(b"/",  self.random_name())
-        self.assert_entry_doesnt_exist(name)
-        mtime_old = self.server.getattr(b"/")["st_mtime"]
-        self.server.link(name, target)
-        self.assert_entry_exists(target)
-        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
-        fstat = self.server.getattr(name)
+        inode_p2 = self.mkdir(inode_p, dirname)
+        name2 = self.random_name()
+        self.assert_entry_doesnt_exist(inode_p2, name2)
+        mtime_old = self.server.getattr(inode_p2)['st_mtime']
+        self.server.link(inode, inode_p2, name2)
+        self.assert_entry_exists(inode_p2, name2)
+        self.assertTrue(self.server.getattr(inode_p2)["st_mtime"] > mtime_old)
+        self.assertEquals(self.server.lookup(inode_p2, name2)['st_ino'], inode)
+        fstat = self.server.getattr(inode)
 
-        self.assertEquals(fstat, self.server.getattr(target))
         self.assertEquals(fstat["st_nlink"], 2)
 
-        self.server.unlink(name)
-        self.assertEquals(self.server.getattr(target)["st_nlink"], 1)
-        self.assert_entry_doesnt_exist(name)
+        self.unlink(inode_p, name)        
+        self.assertEquals(self.server.getattr(inode)["st_nlink"], 1)
 
-        self.server.unlink(target)
-        self.assert_entry_doesnt_exist(target)
+        self.unlink(inode_p2, name2)
+        self.assertRaises(KeyError, self.server.getattr, inode)
 
         self.fsck()
   
     def test_09_write_read_cmplx(self):
-        # Create file with holes
-        name = os.path.join(b"/",  self.random_name())
-        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+        
+        inode_p = self.root_inode
+        name = self.random_name()
+        inode = self.create(inode_p, name)
+       
         off = int(5.9 * self.blocksize)
         datalen = int(0.2 * self.blocksize)
         data = self.random_data(datalen)
-        fh = self.server.create(name, mode)
-        self.server.write(data, off, fh)
+        fh = self.server.open(inode, os.O_RDWR)
+        self.server.write(fh, off, data)
         filelen = datalen + off
-        self.assertEquals(self.server.getattr(name)["st_size"], filelen)
+        self.assertEquals(self.server.getattr(inode)["st_size"], filelen)
 
         off2 = int(0.5 * self.blocksize)
-        self.assertTrue(self.server.read(len(data)+off2, off, fh) == data)
-        self.assertEquals(self.server.read(len(data)+off2, off-off2, fh), 
+        self.assertTrue(self.server.read(fh, off, len(data)+off2) == data)
+        self.assertEquals(self.server.read(fh, off-off2, len(data)+off2), 
                           b"\0" * off2 + data)
-        self.assertEquals(self.server.read(182, off+len(data), fh), "")
+        self.assertEquals(self.server.read(fh, off+len(data), 182), "")
 
         # Write at another position
         off = int(1.9 * self.blocksize)
-        self.server.write(data, off, fh)
-        self.assertEquals(self.server.getattr(name)["st_size"], filelen)
-        self.assertEquals(self.server.read(len(data)+off2, off, fh), data + b"\0" * off2)
+        self.server.write(fh, off, data)
+        self.assertEquals(self.server.getattr(inode)["st_size"], filelen)
+        self.assertEquals(self.server.read(fh, off, len(data)+off2), data + b"\0" * off2)
 
         self.server.flush(fh)
         self.server.release(fh)
@@ -310,37 +350,39 @@ class fs_api_tests(unittest.TestCase):
         self.fsck()
         
     def test_11_truncate_within(self):
-        # Create file with holes
-        name = os.path.join(b"/",  self.random_name())
-        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+
+        inode_p = self.root_inode
+        name = self.random_name()
+        inode = self.create(inode_p, name)
+       
         off = int(5.5 * self.blocksize)
         datalen = int(0.3 * self.blocksize)
         data = self.random_data(datalen)
     
-        fh = self.server.create(name, mode)
-        self.server.write(data, off, fh)
+        fh = self.server.open(inode, os.O_RDWR)
+        self.server.write(fh, off, data)
         filelen = datalen + off
-        self.assertEquals(self.server.getattr(name)["st_size"], filelen)
+        self.assertEquals(self.server.getattr(inode)["st_size"], filelen)
 
         # Extend within same block
         ext = int(0.15 * self.blocksize)
-        self.server.ftruncate(filelen+ext, fh)
-        self.assertEquals(self.server.getattr(name)["st_size"], filelen+ext)
-        self.assertTrue(self.server.read(len(data)+2*ext, off, fh) ==
+        self.server.setattr(fh, { 'st_size': filelen+ext })
+        self.assertEquals(self.server.getattr(inode)["st_size"], filelen+ext)
+        self.assertTrue(self.server.read(fh, off, len(data)+2*ext) ==
                           data + b"\0" * ext)
-        self.assertTrue(self.server.read(2*ext, off+len(data), fh) ==
+        self.assertTrue(self.server.read(fh, off+len(data), 2*ext) ==
                           b"\0" * ext)
         
         # Truncate it
-        self.server.ftruncate(filelen-ext, fh)
-        self.assertEquals(self.server.getattr(name)["st_size"], filelen-ext)
-        self.assertEquals(self.server.read(len(data)+2 * ext, off, fh), 
+        self.server.setattr(fh, { 'st_size': filelen-ext })
+        self.assertEquals(self.server.getattr(inode)["st_size"], filelen-ext)
+        self.assertEquals(self.server.read(fh, off, len(data)+2 * ext), 
                           data[0:-ext])
         
         # And back to original size, data should have been lost
-        self.server.ftruncate(filelen, fh)
-        self.assertEquals(self.server. getattr(name)["st_size"], filelen)
-        self.assertEquals(self.server.read(len(data)+2 * ext, off, fh),
+        self.server.setattr(fh, { 'st_size': filelen })
+        self.assertEquals(self.server.getattr(inode)["st_size"], filelen)
+        self.assertEquals(self.server.read(fh, off, len(data)+2 * ext),
                           data[0:-ext] + b"\0" * ext)
 
         self.server.flush(fh)
@@ -349,265 +391,216 @@ class fs_api_tests(unittest.TestCase):
         self.fsck()
         
     def test_12_truncate_across(self):
-        # Create file with holes
-        name = os.path.join(b"/",  self.random_name())
-        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
+        
+        inode_p = self.root_inode
+        name = self.random_name()
+        inode = self.create(inode_p, name)
         off = int(5.5 * self.blocksize)
         datalen = int(0.3 * self.blocksize)
         data = self.random_data(datalen)
     
-        fh = self.server.create(name, mode)
-        self.server.write(data, off, fh)
+        fh = self.server.open(inode, os.O_RDWR)
+        self.server.write(fh, off, data)
         filelen = datalen + off
-        self.assertEquals(self.server.getattr(name)["st_size"], filelen)
+        self.assertEquals(self.server.getattr(inode)["st_size"], filelen)
 
         # Extend within same block
         ext = int(0.5 * self.blocksize)
-        self.server.ftruncate(filelen+ext, fh)
-        self.assertEquals(self.server.getattr(name)["st_size"], filelen+ext)
-        self.assertEquals(self.server.read(len(data)+2*ext, off, fh),
+        self.server.setattr(fh, { 'st_size': filelen+ext })
+        self.assertEquals(self.server.getattr(inode)["st_size"], filelen+ext)
+        self.assertEquals(self.server.read(fh, off, len(data)+2*ext),
                           data + b"\0" * ext)
-        self.assertEquals(self.server.read(2*ext, off+len(data), fh),
+        self.assertEquals(self.server.read(fh, off+len(data), 2*ext),
                           b"\0" * ext)
         
         # Truncate it
         ext = int(0.1 * self.blocksize)
-        self.server.ftruncate(filelen-ext, fh)
-        self.assertEquals(self.server.getattr(name)["st_size"], filelen-ext)
-        self.assertEquals(self.server.read(len(data)+2 * ext, off, fh), 
+        self.server.setattr(fh, { 'st_size': filelen-ext })
+        self.assertEquals(self.server.getattr(inode)["st_size"], filelen-ext)
+        self.assertEquals(self.server.read(fh, off, len(data)+2 * ext), 
                           data[0:-ext])
         
         # And back to original size, data should have been lost
-        self.server.ftruncate(filelen, fh)
-        self.assertEquals(self.server. getattr(name)["st_size"], filelen)
-        self.assertTrue(self.server.read(len(data)+2 * ext, off, fh) ==
+        self.server.setattr(fh, { 'st_size': filelen })
+        self.assertEquals(self.server. getattr(inode)["st_size"], filelen)
+        self.assertTrue(self.server.read(fh, off, len(data)+2 * ext) ==
                           data[0:-ext] + b"\0" * ext)
         
         self.server.flush(fh)
         self.server.release(fh)
         self.fsck()
         
-        
-    def test_12_truncate_simple(self):
-        name = os.path.join(b"/",  self.random_name())
-        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
-        datalen = int(0.3 * self.blocksize)
-        data = self.random_data(datalen)
-    
-        fh = self.server.create(name, mode)
-        self.server.write(data, 0, fh)
-        self.server.release(fh)
-        
-        fh = self.server.open(name, os.O_RDWR)
-        self.server.ftruncate(0, fh)
-        self.server.flush(fh)
-        self.server.release(fh)
-        
 
+    def test_11_truncate_expire(self):
+        '''Check that setattr() releases db lock before calling s3cache.get'''
+
+        inode_p = self.root_inode
+        name = self.random_name()
+        inode = self.create(inode_p, name)
+        fh = self.server.open(inode, os.O_RDWR)
+        
+        # We need at least two blocks
+        self.server.write(fh, 0, self.random_data(42))
+        self.server.write(fh, self.blocksize, self.random_data(42))
+        self.server.release(fh)
+        
+        # Force cache expiration
+        self.cache.maxsize = 0
+        
+        # Need to set some other attribute to get lock
+        self.server.setattr(inode, { 'st_size': 42,
+                                     'st_uid': 1 })
+        
+        self.fsck()
+        
     def test_10_rename(self):
-        dirname_old = os.path.join(b"/", self.random_name(b"olddir"))
-        dirname_new = os.path.join(b"/", self.random_name(b"newdir"))
-        filename_old = os.path.join(dirname_old, self.random_name(b"oldfile"))
-        filename_new = self.random_name(b"newfile")
-        filename_new1 = os.path.join(dirname_old, filename_new)
-        filename_new2 = os.path.join(dirname_new, filename_new)
+        dirname_old = self.random_name()
+        dirname_new = self.random_name()
+        filename_old = self.random_name()
+        filename_new = self.random_name()
+
+        inode_p = self.root_inode
         
         # Create directory with file
-        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IFDIR )
-        self.server.mkdir(dirname_old, mode)
-        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR )
-        fh = self.server.create(filename_old, mode)
-        self.server.write("Some random contents", 0, fh)
-        self.server.release(fh)
-        self.server.flush(fh)
+        inode_dir = self.mkdir(inode_p, dirname_old)
+        inode_file = self.create(inode_p, filename_old)
         
         # Rename file
-        fstat = self.server.getattr(filename_old)
-        mtime_old = self.server.getattr(dirname_old)["st_mtime"]
-        self.server.rename(filename_old, filename_new1)
-        self.assert_entry_doesnt_exist(filename_old)
-        self.assert_entry_exists(filename_new1)
-        self.assertEquals(fstat, self.server.getattr(filename_new1))
-        self.assertTrue(self.server.getattr(dirname_old)["st_mtime"] > mtime_old)
+        mtime_old1 = self.server.getattr(inode_p)["st_mtime"]
+        mtime_old2 = self.server.getattr(inode_dir)["st_mtime"]
+        self.server.rename(inode_p, filename_old, inode_dir, filename_new)
+        self.assert_entry_doesnt_exist(inode_p, filename_old)
+        self.assert_entry_exists(inode_dir, filename_new)
+        self.assertEquals(inode_file, self.server.lookup(inode_dir, filename_new)['st_ino'])
+        self.assertTrue(self.server.getattr(inode_p)["st_mtime"] > mtime_old1)
+        self.assertTrue(self.server.getattr(inode_dir)["st_mtime"] > mtime_old2)
         
         # Rename directory
-        fstat2 = self.server.getattr(filename_new1)
-        fstat = self.server.getattr(dirname_old)
-        mtime_old = self.server.getattr(b"/")["st_mtime"]
-        self.server.rename(dirname_old, dirname_new)
-        self.assert_entry_doesnt_exist(dirname_old)
-        self.assert_entry_exists(dirname_new)
-
-        # Make sure subentries are not there any longer
-        self.assertRaises(fs.FUSEError, self.server.getattr, filename_new1)
+        mtime_old1 = self.server.getattr(inode_p)["st_mtime"]
+        self.server.rename(inode_p, dirname_old, inode_p, dirname_new)
+        self.assert_entry_doesnt_exist(inode_p, dirname_old)
+        self.assert_entry_exists(inode_p, dirname_new)
+        self.assertEquals(inode_dir, self.server.lookup(inode_p, dirname_new)['st_ino'])
+        self.assertTrue(self.server.getattr(inode_p)["st_mtime"] > mtime_old1)
         
-        self.assertEquals(fstat, self.server.getattr(dirname_new))
-        self.assertEquals(fstat2, self.server.getattr(filename_new2))
-        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
+        self.assert_entry_doesnt_exist(inode_p, dirname_old)
+        self.assert_entry_exists(inode_p, dirname_new)
+
+        self.fsck()
 
     def test_10_overwrite_file(self):
-        filename1 = b"/file1"
-        filename2 = b"/file2"
-        
+        filename1 = self.random_name()
+        filename2 = self.random_name()
+        inode_p = self.root_inode
+                
         # Create two files
-        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR )
-        fh = self.server.create(filename1, mode)
-        data1 = self.random_data(512)
-        self.server.write(data1, 0, fh)
-        self.server.flush(fh)
-        self.server.release(fh)
+        inode1 = self.create(inode_p, filename1)
+        inode2 = self.create(inode_p, filename2)
 
-        fh = self.server.create(filename2, mode)
-        data2 = self.random_data(512)
-        self.server.write(data2, 0, fh)
-        self.server.flush(fh)
-        self.server.release(fh)
-        
         # Rename file, overwrite existing one
-        fstat = self.server.getattr(filename1)
-        mtime_old = self.server.getattr(b'/')["st_mtime"]
-        self.server.rename(filename1, filename2)
-        self.assert_entry_doesnt_exist(filename1)
-        self.assert_entry_exists(filename2)
-        self.assertEquals(fstat, self.server.getattr(filename2))
-        self.assertTrue(self.server.getattr(b'/')["st_mtime"] > mtime_old)
+        mtime_old = self.server.getattr(inode_p)["st_mtime"]
+        self.server.rename(inode_p, filename1, inode_p, filename2)
+        self.assert_entry_doesnt_exist(inode_p, filename1)
+        self.assert_entry_exists(inode_p, filename2)
+        self.assertEquals(inode1, self.server.lookup(inode_p, filename2)['st_ino'])
+        self.assertTrue(self.server.getattr(inode_p)["st_mtime"] > mtime_old)
         
-        fh = self.server.open(filename2, os.O_RDONLY)
-        self.assertEquals(data1, self.server.read(len(data2), 0, fh))
-        self.server.flush(fh)
-        self.server.release(fh)
+        # Make sure original one vanished
+        self.assertRaises(KeyError, self.server.getattr, inode2)
+        
+        self.fsck()
         
     def test_10_overwrite_dir(self):
-        dirname1 = b"/directory1"
-        dirname2 = b"/directory2"
+        dirname1 = self.random_name()
+        dirname2 = self.random_name()
+        filename = self.random_name()
+        inode_p = self.root_inode
         
-        filename = b'foobrup'
-        filename1 = dirname1 + b'/' + filename
-        filename2 = dirname2 + b'/' + filename
-
-        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR )
-        self.server.mkdir(dirname1, mode)
-        self.server.mkdir(dirname2, mode)
+        inode1 = self.mkdir(inode_p, dirname1)
+        inode2 = self.mkdir(inode_p, dirname2)
+        self.assertNotEquals(inode1, inode2)
         
-        fh = self.server.create(filename1, mode)
-        data1 = self.random_data(512)
-        self.server.write(data1, 0, fh)
-        self.server.flush(fh)
-        self.server.release(fh)
-        
-        fh = self.server.create(filename2, mode)
-        data2 = self.random_data(512)
-        self.server.write(data2, 0, fh)
-        self.server.flush(fh)
-        self.server.release(fh)   
+        self.create(inode2, filename)
         
         # Attempt to overwrite, should fail
-        self.assertRaises(fs.FUSEError, self.server.rename, dirname1,
-                          dirname2)
+        self.assertRaises(FUSEError, self.server.rename, inode_p, dirname1,
+                          inode_p, dirname2)
         
         # Delete file in target
-        self.server.unlink(filename2)
-        self.assert_entry_doesnt_exist(filename2)
+        self.unlink(inode2, filename)
         
         # Now we should be able to rename 
-        fstat = self.server.getattr(dirname1)
-        mtime_old = self.server.getattr(b'/')["st_mtime"]
-        self.server.rename(dirname1, dirname2)
-        self.assertEquals(fstat, self.server.getattr(dirname2))
-        self.assert_entry_doesnt_exist(dirname1)
-        self.assert_entry_exists(filename2)
-
-
-        self.assertTrue(self.server.getattr(b'/')["st_mtime"] > mtime_old)
+        mtime_old = self.server.getattr(inode_p)["st_mtime"]
+        self.server.rename(inode_p, dirname1, inode_p, dirname2)
+        self.assertEquals(inode1, self.server.lookup(inode_p, dirname2)['st_ino'])
+        self.assert_entry_doesnt_exist(inode_p, dirname1)
+        self.assert_entry_exists(inode_p, dirname2)
+        self.assertTrue(self.server.getattr(inode_p)["st_mtime"] > mtime_old)
         
-        fh = self.server.open(filename2, os.O_RDONLY)
-        self.assertEquals(data1, self.server.read(len(data2), 0, fh))
-        self.server.flush(fh)
-        self.server.release(fh)
+        # Make sure original is vanished
+        self.assertRaises(KeyError, self.server.getattr, inode2)
+                
+        self.fsck()
        
+    def mknod(self, inode_p, name, type_):
+        '''Create file and verify operation.
+        
+        Return inode of new file.
+        '''
+        
+        ctx = Ctx()
+        mode = randint(0, 07777) | type_
+        
+        if stat.S_ISBLK(type_) or stat.S_ISCHR(type_):
+            rdev = randint(0, 2**32)
+        else:
+            rdev = None
+        
+        self.assert_entry_doesnt_exist(inode_p, name)
+        attr_p_old = self.server.getattr(inode_p)
+        fh = self.server.mknod(inode_p, name, mode, rdev, ctx)
+        self.assert_entry_exists(inode_p, name)
+        attr_p_new = self.server.getattr(inode_p)
+        attr = self.server.lookup(inode_p, name)
+        self.assertTrue(attr_p_new["st_mtime"] > attr_p_old['st_mtime'])
+        self.assertEquals(attr_p_old["st_nlink"], attr_p_new['st_nlink'])
+        
+        self.assertEquals(attr['st_mode'], mode)
+        self.assertEquals(attr["st_nlink"], 1)
+        self.assertEquals(attr["st_uid"], ctx.uid)
+        self.assertEquals(attr["st_gid"], ctx.gid)
+        self.assertEquals(attr["st_rdev"], rdev)
+        
+        self.server.release(fh)
+        
+        return attr['st_ino']
+           
     def test_05_mknod_unlink(self):
-        name = os.path.join(b"/",  self.random_name())
+        name = self.random_name()
+        inode_p = self.root_inode
         
-        mode = ( stat.S_IFSOCK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
-        self.assert_entry_doesnt_exist(name)
-        mtime_old = self.server.getattr(b"/")["st_mtime"]
-        self.server.mknod(name, mode)
-        self.assert_entry_exists(name)
-
-        self.assertEquals(self.server.getattr(name)["st_mode"], mode)
-        self.assertEquals(self.server.getattr(name)["st_nlink"], 1)
-        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
-
-        mtime_old = self.server.getattr(b"/")["st_mtime"]
-        self.server.unlink(name)
-        self.assert_entry_doesnt_exist(name)
-        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
-        
-        mode = ( stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
-        self.assert_entry_doesnt_exist(name)
-        mtime_old = self.server.getattr(b"/")["st_mtime"]
-        self.server.mknod(name, mode)
-        self.assert_entry_exists(name)
-
-        self.assertEquals(self.server.getattr(name)["st_mode"], mode)
-        self.assertEquals(self.server.getattr(name)["st_nlink"], 1)
-        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
-
-        mtime_old = self.server.getattr(b"/")["st_mtime"]
-        self.server.unlink(name)
-        self.assert_entry_doesnt_exist(name)
-        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
-        
-        mode = ( stat.S_IFCHR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
-        dev = 42
-        self.assert_entry_doesnt_exist(name)
-        mtime_old = self.server.getattr(b"/")["st_mtime"]
-        self.server.mknod(name, mode, dev)
-        self.assert_entry_exists(name)
-
-        self.assertEquals(self.server.getattr(name)["st_mode"], mode)
-        self.assertEquals(self.server.getattr(name)["st_nlink"], 1)
-        self.assertEquals(self.server.getattr(name)["st_rdev"], dev)
-        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
-
-        mtime_old = self.server.getattr(b"/")["st_mtime"]
-        self.server.unlink(name)
-        self.assert_entry_doesnt_exist(name)
-        self.assertTrue(self.server.getattr(b"/")["st_mtime"] > mtime_old)
+        for type_ in [stat.S_IFSOCK, stat.S_IFCHR, stat.S_IFBLK, stat.S_IFIFO]:
+            self.mknod(inode_p, name, type_)
+            self.unlink(inode_p, name)
 
         self.fsck()
     
     def test_13_statfs(self):
-        self.assertTrue(isinstance(self.server.statfs(b'/'), dict))
-
-        
-    def test_path(self):
-        mode = stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP
-        self.server.mkdir(b'/dir1', mode)
-        self.server.mkdir(b'/dir2', mode)
-        self.server.mkdir(b'/dir1/dir2', mode)
-        self.server.mkdir(b'/dir1/dir2/foobar', mode)
-        self.server.mkdir(b'/dir1/d4', mode)
-        
-        inode_p = self.server.getattr(b'/dir1/dir2')['st_ino']
-        with self.dbcm() as conn:
-            self.assertEquals(b'/dir1/dir2/foobar', get_path(b'foobar', inode_p, conn))
+        self.assertTrue(isinstance(self.server.statfs(), dict))
             
     def test_14_fsync(self):    
         blocks = 3
-            
-        # Create file
-        name = os.path.join(b"/",  self.random_name())
-        mode = ( stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP )
-        
-        fh = self.server.create(name, mode)
+        name = self.random_name()
+        inode_p = self.root_inode
+        inode = self.create(inode_p, name)
+        fh = self.server.open(inode, os.O_RDWR)
         
         for i in range(blocks):
-            self.server.write(b'data', i * self.blocksize, fh)
+            self.server.write(fh, i * self.blocksize, b'data')
         
         self.assertEqual(len(list(self.bucket.list_keys())), 0)
         
-        self.server.fsync(True, fh) 
+        self.server.fsync(fh, True) 
         
         self.assertEqual(len(list(self.bucket.list_keys())), blocks)
         

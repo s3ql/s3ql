@@ -1,63 +1,49 @@
 '''
+$Id$
 
-    Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
+Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 
-    This program can be distributed under the terms of the GNU LGPL.
+This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import unicode_literals
+from __future__ import unicode_literals, division, print_function
+
 import os
-import errno
+import errno 
 import stat
-import fuse
+import llfuse
 import logging
-from s3ql.common import (decrease_refcount, get_inode, update_mtime, get_inodes,
+from s3ql.common import (decrease_refcount, get_path, update_mtime, 
                          increase_refcount, update_atime, CTRL_NAME, CTRL_INODE)
 import time
 from cStringIO import StringIO
 import threading
-import psyco
+#import psyco
 
-__all__ = [ "FUSEError", "Server", "RevisionError" ]
+__all__ = [ "Server", "RevisionError" ]
 
 # standard logger for this module
 log = logging.getLogger("fs")
 
-# Logger for low-level fuse
-log_fuse = logging.getLogger("fuse")
-
-class FUSEError(Exception):
-    """Exception representing FUSE Errors to be returned to the kernel.
-
-    This exception can store only an errno. It is meant to return error codes to
-    the kernel, which can only be done in this limited form.
     
-    Attributes
-    ----------
-    :fatal:    If set, the fs will mark the filesystem as needing fsck.
-    """
-    
-    __slots__ = [ 'errno', 'fatal' ]
-    
-    def __init__(self, errno_, fatal=False):
-        super(FUSEError, self).__init__()
-        self.errno = errno_
-        self.fatal = fatal
-
-    def __str__(self):
-        return str(self.errno)
-
-    
-class Server(object):
+class Operations(llfuse.Operations):
     """FUSE filesystem that stores its data on Amazon S3
 
+    This class implements low-level FUSE operations and is meant to be
+    passed to llfuse.init().
+    
+    The ``access`` method of this class always gives full access, independent
+    of file permissions. If the FUSE library is initialized with ``allow_other``
+    or ``allow_root``, the ``default_permissions`` option should therefore always
+    be pased as well. 
+    
+    
     Attributes:
     -----------
 
     :dbcm:        DBConnectionManager instance
     :cache:       Holds information about cached s3 objects
     :noatime:     True if entity access times shouldn't be updated.
-    :in_fuse_loop: Is the FUSE main loop running?
     :encountered_errors: Is set to true if a request handler raised an exception
     :size_cmtime_cache: Caches size, ctime and mtime for currently open files
     :writelock:  Lock for synchronizing updates to size_cmtime_cache
@@ -80,49 +66,27 @@ class Server(object):
     """
 
     
-    def __call__(self, op, *a):
+    def handle_exc(self, exc):
+        '''Handle exceptions that occured during request processing. 
+                
+        This method marks the file system as needing fsck and logs the
+        error.
+        '''
 
-        # write() is handled specially, because we don't want to dump
-        # out the whole buffer to the logs.
-        if op == "write":
-            ap = ["<data, len=%ik>" % int(len(a[0]) / 1024)] + [ repr(x) for x in a[1:] ]
-        elif op == "readdir":
-            ap = [ repr(x) for x in a ]
-            ap[0] = "<filler>"
-        else:
-            ap = [ repr(x) for x in a ]
-
-        # Print request name and parameters
-        log_fuse.debug("* %s(%s)", op, ", ".join(ap))
-
-        try:
-            return getattr(self, op)(*a)
-        except FUSEError as exc:
-            if exc.fatal:
-                self.mark_damaged()
-            # Final error handling is done in fuse.py
-            # OSError apparently has to be initialized with a tuple, otherwise
-            # errno is not stored correctly
-            raise OSError(exc.errno, "")
-        except:
-            log.error("Unexpected internal filesystem error.\n"
-                      "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n" 
-                      "Please report this bug on http://code.google.com/p/s3ql/.",
-                      exc_info=True)
-            self.mark_damaged()
-            self.encountered_errors = True
-            raise OSError(errno.EIO)
+        log.error("Unexpected internal filesystem error.\n"
+                  "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n" 
+                  "Please report this bug on http://code.google.com/p/s3ql/.")
+        self.mark_damaged()
+        self.encountered_errors = True
 
 
     def __init__(self, cache, dbcm, noatime=False):
-        """Initializes S3QL fs.
-        """
+        super(Operations, self).__init__()
 
         self.dbcm = dbcm
         self.noatime = noatime
         self.cache = cache
         self.encountered_errors = False
-        self.in_fuse_loop = False
         self.size_cmtime_cache = dict()
         self.writelock = threading.Lock()
             
@@ -138,37 +102,39 @@ class Server(object):
         # Get blocksize
         self.blocksize = dbcm.get_val("SELECT blocksize FROM parameters")
 
-    def init(self):
-        '''Called when fuse has been initialized and the main loop is about to start.
         
-        This function has to be used to start any background threads which
-        would otherwise get killed if they are started before fuse has
-        daemonized.
-        '''
-        pass        
-        
-    def getattr(self, path):
-        """Handles FUSE getattr() requests
-        
-        """
-        
-        if os.path.basename(path) == CTRL_NAME:
-            fstat = self.fgetattr(CTRL_INODE)
+    def lookup(self, parent_inode, name):        
+        if name == CTRL_NAME:
+            fstat = self.getattr_all(CTRL_INODE)
             # Make sure the control file is only writable by the user
             # who mounted the file system
             fstat["st_uid"] = os.getuid()
             fstat["st_gid"] = os.getgid()
-            return fstat
         
-        with self.dbcm() as conn:
-            try:
-                inode = get_inode(path, conn)
-            except KeyError: # not found
-                raise(FUSEError(errno.ENOENT))
+        else:
+            with self.dbcm() as conn:
+                try:
+                    inode = conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
+                                    (name, parent_inode))
+                except KeyError: # not found
+                    raise(llfuse.FUSEError(errno.ENOENT))
+    
+                fstat = self.getattr_all(inode)
 
-            return self.fgetattr(inode)
-
-    def fgetattr(self, inode):
+        return fstat
+    
+    def getattr(self, inode):
+        fstat = self.getattr_all(inode)
+        del fstat['generation']
+        del fstat['entry_timeout']
+        return fstat
+        
+    def getattr_all(self, inode):
+        '''Get entry attributes for `inode`
+        
+        This includes the elements of ``struct stat` as well as ``attr_timeout``,
+        ``entry_timeout`` and ``generation``
+        '''
         fstat = dict()
         
         (fstat["st_mode"],
@@ -205,71 +171,74 @@ class Server(object):
             # For special nodes, return arbitrary values
             fstat["st_size"] = 512
             fstat["st_blocks"] = 1
-
-        # Device ID = 0 unless we have a device node
-        if not stat.S_ISCHR(fstat["st_mode"]) and not stat.S_ISBLK(fstat["st_mode"]):
-            fstat["st_rdev"] = 0
+            
+        # Timeout
+        fstat['attr_timeout'] = 3600
+        fstat['entry_timeout'] = 3600
+        
+        # TODO: Add generation no to db
+        fstat['generation'] = 1
 
         return fstat
 
-
-    def readlink(self, path):
-        """Handles FUSE readlink() requests.
-        """
-
+    def readlink(self, inode):
         with self.dbcm() as conn:
-            inode = get_inode(path, conn)
             target = conn.get_val("SELECT target FROM inodes WHERE id=?", (inode,))
     
             if not self.noatime:
                 update_atime(inode, conn)
         return target                           
             
-    def opendir(self, path):
-        """Returns a numerical file handle."""
+    def opendir(self, inode):
+        """Open directory 
         
-        with self.dbcm() as conn:
-            return get_inode(path, conn)
+        `flags` is ignored. Returns the inode as file handle, so it is not
+        possible to distinguish between different open() and `create()` calls
+        for the same inode.
+        """        
+        return inode
 
-    def readdir(self, filler, _unused_offset, inode):
-        """Handles FUSE readdir() requests
-        """
-
+    def readdir(self, fh, off):
+        
+        if off > 0:
+            return
+        
+        inode = fh
         with self.dbcm() as conn:        
             if not self.noatime:
                 update_atime(inode, conn)
                 
+            # FIXME: Add suppoprt for `off`
             for (name, inode) in conn.query("SELECT name, inode FROM contents WHERE parent_inode=?",
                                             (inode,)):
-                filler(name, self.fgetattr(inode), 0)
+                fstat = self.getattr(inode)
+                del fstat['attr_timeout']
+                
+                # FIXME: Are we in trouble if iteration stops before
+                # the query is exhausted?
+                yield (name, fstat)
 
-    def getxattr(self, path, name, _unused_position=0):
+
+    def getxattr(self, inode, name):
         # Handle S3QL commands
-        if os.path.basename(path) == CTRL_NAME:
-            if name == 's3ql_errors?':
+        if inode == CTRL_INODE:
+            if name == b's3ql_errors?':
                 if self.encountered_errors:
-                    return 'errors encountered'
+                    return b'errors encountered'
                 else:
-                    return 'no errors'
-            elif name == 's3ql_pid?':
+                    return b'no errors'
+            elif name == b's3ql_pid?':
                 return bytes(os.getpid())
             
-            return FUSEError(errno.EINVAL)
+            return llfuse.FUSEError(errno.EINVAL)
         
-        raise FUSEError(fuse.ENOTSUP)
+        raise llfuse.FUSEError(llfuse.ENOTSUP)
 
-
-    def removexattr(self, path, name):
-        # Yes, could be a function
-        #pylint: disable-msg=R0201
-        raise FUSEError(fuse.ENOTSUP)
-
-
-    def setxattr(self, path, name, _unused_value, _unused_options, _unused_position=0):
+    def setxattr(self, inode, name, value):
         
         # Handle S3QL commands
-        if os.path.basename(path) == CTRL_NAME:
-            if name == 's3ql_flushcache!':
+        if inode == CTRL_INODE:
+            if name == b's3ql_flushcache!':
                 # Force all entries out of the cache
                 bak = self.cache.maxsize
                 try:
@@ -279,12 +248,11 @@ class Server(object):
                     self.cache.maxsize = bak
                 return
             
-            return FUSEError(errno.EINVAL)
+            return llfuse.FUSEError(errno.EINVAL)
         
-        raise FUSEError(fuse.ENOTSUP)
-
-
-    def unlink(self, path):
+        raise llfuse.FUSEError(llfuse.ENOTSUP)
+    
+    def unlink(self, inode_p, name):
         """Handles FUSE unlink() requests.
 
         Implementation depends on the ``hard_remove`` FUSE option
@@ -292,105 +260,98 @@ class Server(object):
         of open file handles to unlinked files.
         """
 
-        with self.dbcm() as conn:
-            (inode_p, inode) = get_inodes(path, conn)[-2:]
-            fstat = self.fgetattr(inode)
-
-            with conn.transaction():
-                conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                            (os.path.basename(path), inode_p))
-        
-                # No more links, remove datablocks
-                if fstat["st_nlink"] == 1:
-                    self.cache.remove(inode)
-                    conn.execute("DELETE FROM inodes WHERE id=?", (inode,))
-                else:
-                    # Also updates ctime
-                    decrease_refcount(inode, conn)
-        
-                update_mtime(inode_p, conn)
+        with self.dbcm.transaction() as conn:
+            attr = self.lookup(inode_p, name) 
+            conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
+                        (name, inode_p))
+    
+            # No more links, remove datablocks
+            if attr["st_nlink"] == 1:
+                self.cache.remove(attr['st_ino'])
+                conn.execute("DELETE FROM inodes WHERE id=?", (attr['st_ino'],))
+            else:
+                # Also updates ctime
+                decrease_refcount(attr['st_ino'], conn)
+    
+            update_mtime(inode_p, conn)
 
 
     def mark_damaged(self):
-        """Marks the filesystem as being damaged and needing fsck.
-        """
+        """Mark the filesystem as being damaged and needing fsck"""
 
         self.dbcm.execute("UPDATE parameters SET needs_fsck=?", (True,))
 
 
-    def rmdir(self, path):
+    def rmdir(self, inode_p, name):
         """Handles FUSE rmdir() requests.
         """
 
-        with self.dbcm() as conn:
-            (inode_p, inode) = get_inodes(path, conn)[-2:]
+        with self.dbcm.transaction() as conn:
+            # Raises error if directory doesn't exist
+            attr = self.lookup(inode_p, name)
+            inode = attr['st_ino']
             
             # Check if directory is empty
             if conn.get_val("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
                             (inode,)) > 2: 
-                log.debug("Attempted to remove nonempty directory %s", path)
-                raise FUSEError(errno.EINVAL)
+                log.debug("Attempted to remove nonempty directory %s",
+                          get_path(name, inode_p, conn))
+                raise llfuse.FUSEError(errno.EINVAL)
     
             # Delete
-            with conn.transaction():
-                conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                            (b'.', inode))
-                conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                            (b'..', inode))                        
-                conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                            (os.path.basename(path), inode_p))
-                conn.execute("DELETE FROM inodes WHERE id=?", (inode,))
-                decrease_refcount(inode_p, conn)
-                update_mtime(inode_p, conn)
+            conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
+                        (b'.', inode))
+            conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
+                        (b'..', inode))                        
+            conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
+                        (name, inode_p))
+            conn.execute("DELETE FROM inodes WHERE id=?", (inode,))
+            decrease_refcount(inode_p, conn)
+            update_mtime(inode_p, conn)
 
 
-    def symlink(self, name, target):
-        """Handles FUSE symlink() requests.
-        """
+    def symlink(self, inode_p, name, target, ctx):
+        if name == CTRL_NAME:
+            with self.dbcm() as conn:
+                log.error('Attempted to create s3ql control file at %s',
+                          get_path(name, inode_p, conn))
+            raise llfuse.FUSEError(errno.EACCES)
         
-        if os.path.basename(target) == CTRL_NAME: 
-            log.error('Attempted to symlink s3ql control file at %s', target)
-            return FUSEError(errno.EACCES)
-        
-        (uid, gid) = self.get_uid_pid()
-        
-        with self.dbcm() as conn:
-            inode_p = get_inode(os.path.dirname(name), conn)
-            with conn.transaction():
-                mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | 
-                        stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | 
-                        stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
-                timestamp = time.time() - time.timezone
-                inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,target,mtime,atime,ctime,refcount) "
-                            "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-                            (mode, uid, gid, target, timestamp, timestamp, timestamp, 1))
-                conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                            (os.path.basename(name), inode, inode_p))
-                update_mtime(inode_p, conn)
+        with self.dbcm.transaction() as conn:
+            mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | 
+                    stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | 
+                    stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
+            timestamp = time.time() - time.timezone
+            inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,target,mtime,atime,ctime,refcount) "
+                        "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                        (mode, ctx.uid, ctx.gid, target, timestamp, timestamp, timestamp, 1))
+            conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
+                        (name, inode, inode_p))
+            update_mtime(inode_p, conn)
+            
+        return self.getattr_all(inode)
 
 
-    def rename(self, old, new):
-        """Handles FUSE rename() requests.
-        """
-        
-        if os.path.basename(new) == CTRL_NAME: 
-            log.error('Attempted to rename to s3ql control file at %s', new)
-            return FUSEError(errno.EACCES)
+    def rename(self, inode_p_old, name_old, inode_p_new, name_new):  
+        if name_new == CTRL_NAME or name_old == CTRL_NAME: 
+            with self.dbcm() as conn:
+                log.error('Attempted to rename s3ql control file (%s -> %s)',
+                          get_path(name_old, inode_p_old, conn),
+                          get_path(name_new, inode_p_new, conn))
+            raise llfuse.FUSEError(errno.EACCES)
 
-        with self.dbcm() as conn:
-    
-            inode = get_inode(old, conn)
-            fstat = self.fgetattr(inode)
-            inode_p_old = get_inode(os.path.dirname(old), conn)
-            inode_p_new = get_inode(os.path.dirname(new), conn)
+        with self.dbcm.transaction() as conn:
+            fstat = self.lookup(inode_p_old, name_old)
+            inode = fstat['st_ino']
             
             try:
-                inode_repl = get_inode(new, conn)
+                inode_repl = conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
+                                          (name_new, inode_p_new))
             except KeyError:
                 # Target does not exist
                 conn.execute("UPDATE contents SET name=?, parent_inode=? WHERE name=? "
-                            "AND parent_inode=?", (os.path.basename(new), inode_p_new,
-                                                   os.path.basename(old), inode_p_old))
+                            "AND parent_inode=?", (name_new, inode_p_new,
+                                                   name_old, inode_p_old))
                 
                 if stat.S_ISDIR(fstat['st_mode']):
                     conn.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
@@ -402,102 +363,93 @@ class Server(object):
                 
             else:
                 # Target exists, overwrite
-                fstat_repl = self.fgetattr(inode_repl)
+                fstat_repl = self.getattr_all(inode_repl)
                 
                 # Both directories
                 if stat.S_ISDIR(fstat_repl['st_mode']) and stat.S_ISDIR(fstat['st_mode']):
-                    with conn.transaction():
-                        if conn.get_val("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
-                                        (inode_repl,)) > 2: 
-                            log.debug("Attempted to overwrite nonempty directory %s", new)
-                            raise FUSEError(errno.EINVAL)
+                    if conn.get_val("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
+                                    (inode_repl,)) > 2: 
+                        log.debug("Attempted to overwrite nonempty directory %s",
+                                  get_path(name_new, inode_p_new, conn))
+                        raise llfuse.FUSEError(errno.EINVAL)
+                
+                    # Replace target
+                    conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
+                                (inode, name_new, inode_p_new))
+                    conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
+                                (inode_p_new, b'..', inode))
                     
-                        # Replace target
-                        conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
-                                    (inode, os.path.basename(new), inode_p_new))
-                        conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
-                                    (inode_p_new, b'..', inode))
-                        
-                        # Delete old name
-                        conn.execute('DELETE FROM contents WHERE name=? AND parent_inode=?',
-                                    (os.path.basename(old), inode_p_old))
-                        decrease_refcount(inode_p_old, conn)
-                        
-                        # Delete overwritten directory
-                        conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                                    (b'.', inode_repl))
-                        conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                                    (b'..', inode_repl))
-                        conn.execute("DELETE FROM inodes WHERE id=?", (inode_repl,))
-                        
-                        update_mtime(inode_p_old, conn)
-                        update_mtime(inode_p_new, conn)
+                    # Delete old name
+                    conn.execute('DELETE FROM contents WHERE name=? AND parent_inode=?',
+                                (name_old, inode_p_old))
+                    decrease_refcount(inode_p_old, conn)
+                    
+                    # Delete overwritten directory
+                    conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
+                                (b'.', inode_repl))
+                    conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
+                                (b'..', inode_repl))
+                    conn.execute("DELETE FROM inodes WHERE id=?", (inode_repl,))
+                    
+                    update_mtime(inode_p_old, conn)
+                    update_mtime(inode_p_new, conn)
                         
                     return
                             
                 # Only one is a directory
                 elif stat.S_ISDIR(fstat['st_mode']) or stat.S_ISDIR(fstat_repl['st_mode']):
                     log.debug('Cannot rename file to directory (or vice versa).')
-                    raise FUSEError(errno.EINVAL) 
+                    raise llfuse.FUSEError(errno.EINVAL) 
                 
                 # Both files
                 else:
-                    with conn.transaction():
-                        conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
-                                    (inode, os.path.basename(new), inode_p_new))
-                        conn.execute('DELETE FROM contents WHERE name=? AND parent_inode=?',
-                                    (os.path.basename(old), inode_p_old))
-                
-                        # No more links, remove datablocks
-                        if fstat_repl["st_nlink"] == 1:
-                            self.cache.remove(inode_repl)                
-                            conn.execute("DELETE FROM inodes WHERE id=?", (inode_repl,))
-                        else:
-                            # Also updates ctime
-                            decrease_refcount(inode_repl, conn)
+                    conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
+                                (inode, name_new, inode_p_new))
+                    conn.execute('DELETE FROM contents WHERE name=? AND parent_inode=?',
+                                (name_old, inode_p_old))
+            
+                    # No more links, remove datablocks
+                    if fstat_repl["st_nlink"] == 1:
+                        self.cache.remove(inode_repl)                
+                        conn.execute("DELETE FROM inodes WHERE id=?", (inode_repl,))
+                    else:
+                        # Also updates ctime
+                        decrease_refcount(inode_repl, conn)
             
                     update_mtime(inode_p_old, conn)
                     update_mtime(inode_p_new, conn)
                     return
 
-    def link(self, source, target):
-        """Handles FUSE link() requests.
-        """
-        
-        if os.path.basename(target) == CTRL_NAME: 
-            log.error('Attempted to create s3ql control file at %s', target)
-            return FUSEError(errno.EACCES)
-        
-        if os.path.basename(source) == CTRL_NAME: 
-            log.error('Attempted to link s3ql control file at %s', source)
-            return FUSEError(errno.EACCES)
+    def link(self, inode, new_inode_p, new_name):
+        if new_name == CTRL_NAME or inode == CTRL_INODE:
+            with self.dbcm() as conn:
+                log.error('Attempted to create s3ql control file at %s',
+                          get_path(new_name, new_inode_p, conn))
+            raise llfuse.FUSEError(errno.EACCES)
 
-        with self.dbcm() as conn:
-            fstat = self.getattr(target)
-            inode_p = get_inode(os.path.dirname(source), conn)
-    
-            with conn.transaction():
-                conn.execute("INSERT INTO contents (name,inode,parent_inode) VALUES(?,?,?)",
-                         (os.path.basename(source), fstat["st_ino"], inode_p))
-                increase_refcount(fstat["st_ino"], conn)
-                update_mtime(inode_p, conn)
+        with self.dbcm.transaction() as conn:
+            conn.execute("INSERT INTO contents (name,inode,parent_inode) VALUES(?,?,?)",
+                     (new_name, inode, new_inode_p))
+            increase_refcount(inode, conn)
+            update_mtime(new_inode_p, conn)
+            
+        return self.getattr_all(inode)
 
 
-    def setattr(self, path, attr):
+    def setattr(self, inode, attr):
         """Handles FUSE setattr() requests.
         """
 
-        with self.dbcm() as conn:
-            inode = get_inode(path, conn)
+        with self.dbcm.transaction() as conn:
             timestamp = time.time() - time.timezone
             
             if 'st_mode' in attr:
                 mode = attr.pop('st_mode')
-                fstat = self.fgetattr(inode)
+                fstat = self.getattr_all(inode)
             
                 if stat.S_IFMT(mode) != stat.S_IFMT(fstat["st_mode"]):
                     log.warn("setattr: attempted to change file mode")
-                    raise FUSEError(errno.EINVAL)
+                    raise llfuse.FUSEError(errno.EINVAL)
 
                 conn.execute("UPDATE inodes SET mode=?,ctime=? WHERE id=?", 
                              (mode, timestamp, inode))
@@ -530,79 +482,76 @@ class Server(object):
                     else:
                         self.size_cmtime_cache[inode] = (st[0], timestamp, mtime - time.timezone)
 
-                
-            if len(attr) > 0:
-                log.warn("setattr: attempted to change immutable attribute(s): %s" % repr(attr))
-                raise FUSEError(errno.EINVAL)
+        # We must not hold a database lock when calling s3cache.get
+        if 'st_size' in attr:
+            size = attr.pop('st_size')
+            self._truncate(inode, size)
+            
+        if len(attr) > 0:
+            log.warn("setattr: attempted to change immutable attribute(s): %s" % repr(attr))
+            raise llfuse.FUSEError(errno.EINVAL)
+        
+        return self.getattr(inode)
             
 
-    def mknod(self, path, mode, dev=None):
-        """Handles FUSE mknod() requests.
-        """
-
-        if os.path.basename(path) == CTRL_NAME: 
-            log.error('Attempted to mknod s3ql control file at %s', path)
-            return FUSEError(errno.EACCES)
+    def mknod(self, inode_p, name, mode, rdev, ctx):
+        if name == CTRL_NAME: 
+            with self.dbcm() as conn:
+                log.error('Attempted to mknod s3ql control file at %s',
+                          get_path(name, inode_p, conn))
+            raise llfuse.FUSEError(errno.EACCES)
         
         # We create only these types (and no hybrids)
         if not (stat.S_ISCHR(mode) or stat.S_ISBLK(mode) or stat.S_ISFIFO(mode)
                 or stat.S_ISSOCK(mode) ):
             log("mknod: invalid mode")
-            raise FUSEError(errno.EINVAL)
+            raise llfuse.FUSEError(errno.EINVAL)
 
-        (uid, gid) = self.get_uid_pid()
-        with self.dbcm() as conn:
-            inode_p = get_inode(os.path.dirname(path), conn)
-            with conn.transaction():
-                timestamp = time.time() - time.timezone
-                inode = conn.rowid('INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev, '
-                                   'refcount) VALUES(?, ?, ?, ?, ?, ?, ?, ?)',
-                                   (timestamp, timestamp, timestamp, uid, gid, mode, dev, 1))
-                conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                         (os.path.basename(path), inode, inode_p))
-                update_mtime(inode_p, conn)
-
-
-    def mkdir(self, path, mode):
-        """Handles FUSE mkdir() requests.
-        """
-
-        if os.path.basename(path) == CTRL_NAME: 
-            log.error('Attempted to mkdir s3ql control file at %s', path)
-            return FUSEError(errno.EACCES)
+        timestamp = time.time() - time.timezone
+        with self.dbcm.transaction() as conn:
+            inode = conn.rowid('INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode,rdev, '
+                               'refcount) VALUES(?, ?, ?, ?, ?, ?, ?, ?)',
+                               (timestamp, timestamp, timestamp, ctx.uid, ctx.gid, mode, rdev, 1))
+            conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
+                     (name, inode, inode_p))
+            update_mtime(inode_p, conn) 
         
+        return self.getattr_all(inode)
+
+
+    def mkdir(self, inode_p, name, mode, ctx):
+        if name == CTRL_NAME: 
+            with self.dbcm() as conn:
+                log.error('Attempted to mkdir s3ql control file at %s',
+                          get_path(name, inode_p, conn))
+            raise llfuse.FUSEError(errno.EACCES)
+
         # FUSE does not pass type information, so we set S_IFDIR manually
         # We still fail if a different type information is received.
         if (stat.S_IFMT(mode) != stat.S_IFDIR and
             stat.S_IFMT(mode) != 0):
             log.warn("mkdir: invalid mode")
-            raise FUSEError(errno.EINVAL)
+            raise llfuse.FUSEError(errno.EINVAL)
         mode = (mode & ~stat.S_IFMT(mode)) | stat.S_IFDIR
+        
+        timestamp = time.time() - time.timezone
+        with self.dbcm.transaction() as conn:
+            inode = conn.rowid("INSERT INTO inodes (mtime,atime,ctime,uid,gid,mode,refcount) "
+                               "VALUES(?, ?, ?, ?, ?, ?, ?)",
+                               (timestamp, timestamp, timestamp, ctx.uid, ctx.gid, mode, 2))
+            conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
+                         (name, inode, inode_p))
+            conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
+                         (b'.', inode, inode))
+            conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
+                         (b'..', inode_p, inode))     
+            increase_refcount(inode_p, conn)
+            update_mtime(inode_p, conn)
+            
+        return self.getattr_all(inode)
 
-        with self.dbcm() as conn:
-            inode_p = get_inode(os.path.dirname(path), conn)
-            (uid, gid) = self.get_uid_pid()
-            with conn.transaction():
-                timestamp = time.time() - time.timezone
-                inode = conn.rowid("INSERT INTO inodes (mtime,atime,ctime,uid,gid,mode,refcount) "
-                                   "VALUES(?, ?, ?, ?, ?, ?, ?)",
-                                   (timestamp, timestamp, timestamp, uid, gid, mode, 2))
-                conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
-                             (os.path.basename(path), inode, inode_p))
-                conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
-                             (b'.', inode, inode))
-                conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
-                             (b'..', inode_p, inode))     
-                increase_refcount(inode_p, conn)
-                update_mtime(inode_p, conn)
 
-
-    def statfs(self, _unused_path):
-        """Handles FUSE statfs() requests.
-        """
-        # Result is independent of path
-        #pylint: disable-msg=W0613
-
+    def statfs(self):
         stat_ = dict()
 
         # Get number of blocks & inodes
@@ -640,69 +589,18 @@ class Server(object):
 
         return stat_
 
-
-    def truncate(self, bpath, len_):
-        """Handles FUSE truncate() requests.
-        """
+    def open(self, inode, flags):
+        """Open file 
         
-        # TODO: We should only call release() if this is really
-        # the last open fd to this file.
-        fh = self.open(bpath, os.O_WRONLY)
-        self.ftruncate(len_, fh)
-        self.flush(fh)
-        self.release(fh)
-
-    def main(self, mountpoint, **kw):
-        """Starts the main loop handling FUSE requests.
-        
-        Returns False if any errors occonned in the main loop.
-        Note that we cannot throw an exception, because the request handlers
-        are called from within C code.
-        """
-
-        # Start main event loop
-        log.debug("Starting main event loop...")
-        
-        # If the file system may be accessed by other users, enforce
-        # unix permission checking.
-        if b"allow_others" in kw or b"allow_root" in kw:
-            kw[b"default_permissions"] = True
-            
-        kw[b"use_ino"] = True
-        kw[b"kernel_cache"] = True
-        kw[b"fsname"] = "s3ql"
-        self.encountered_errors = False
-        handler = fuse.FUSE(self)
-        self.in_fuse_loop = True
-        try:
-            handler.mount_and_serve(mountpoint, **kw)
-        finally:
-            self.in_fuse_loop = False
-        log.debug("Main event loop terminated.")
-
-    def open(self, path, _unused_flags):
-        """Opens file `path`.
-        
-        `flags` is ignored. Returns a file descriptor that is equal to the
-        inode of the file, so it is not possible to distinguish between
-        different open() and `create()` calls for the same inode.
+        `flags` is ignored. Returns the inode as file handle, so it is not
+        possible to distinguish between different open() and `create()` calls
+        for the same inode.
         """        
-        with self.dbcm() as conn:
-            return get_inode(path, conn)
+        return inode
 
-    def get_uid_pid(self):
-        '''If running in FUSE loop, return uid and pid of requesting process.
-        
-        Otherwise return (0,0).
-        '''
-        
-        if self.in_fuse_loop:
-            return fuse.fuse_get_context()[:2]
-        else: 
-            return (0, 0)
      
-    def access(self, _unused_path, _unused_mode):
-        '''Check if calling user has `mode` rights on `path`.
+    def access(self, inode, mode, ctx, get_sup_gids):
+        '''Check if requesting process has `mode` rights on `inode`.
         
         This method always returns true, since it should only be called
         when permission checking is disabled (if permission checking is
@@ -713,62 +611,67 @@ class Server(object):
         
         return True
         
-    def create(self, path, mode, fi=None):
-        """Create file `path` with mode `mode`
-        
-        Returns a file descriptor that is equal to the
-        inode of the file, so it is not possible to distinguish between
-        different open() and create() calls for the same inode.
-        """
-        assert fi is None
-        
-        if os.path.basename(path) == CTRL_NAME:
-            log.error('Attempted to create s3ql control file at %s', path)
-            return FUSEError(errno.EACCES)
+    def create(self, inode_p, name, mode, ctx):   
+        '''Create a file and open it
+                
+        `ctx` must be a context object that contains pid, uid and 
+        primary gid of the requesting process.
+
+        Returns a tuple of the form ``(fh, attr)``. `fh` is
+        integer file handle that is used to identify the open file and
+        `attr` is a dict similar to the one returned by `lookup`. The
+        file handle is actually equal to the inode of the file,   
+        so it is not possible to distinguish between different open() and `create()` calls
+        for the same inode.
+        '''
+            
+        if name == CTRL_NAME:
+            with self.dbcm() as conn:
+                log.error('Attempted to create s3ql control file at %s',
+                          get_path(name, inode_p, conn))
+            raise llfuse.FUSEError(errno.EACCES)
 
         # Type has to be regular file or not specified at all
         if (stat.S_IFMT(mode) != stat.S_IFREG and
             stat.S_IFMT(mode) != 0):
             log.warn("create: invalid mode")
-            raise FUSEError(errno.EINVAL)
+            raise llfuse.FUSEError(errno.EINVAL)
         mode = (mode & ~stat.S_IFMT(mode)) | stat.S_IFREG
 
-        (uid, gid) = self.get_uid_pid()
-        dirname = os.path.dirname(path)
-        name = os.path.basename(path)
-        with self.dbcm() as conn:
-            inode_p = get_inode(dirname, conn)
-            with conn.transaction():
-                timestamp = time.time() - time.timezone
-                inode = conn.rowid("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode, "
-                                   "rdev,refcount,size) VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
-                                   (timestamp, timestamp, timestamp, uid, gid, mode, None, 1))
-                conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                            (name, inode, inode_p))
-                update_mtime(inode_p, conn)
+        timestamp = time.time() - time.timezone
+        with self.dbcm.transaction() as conn:
+            inode = conn.rowid("INSERT INTO inodes (mtime,ctime,atime,uid,gid,mode, "
+                               "rdev,refcount,size) VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
+                               (timestamp, timestamp, timestamp, ctx.uid, ctx.gid, mode, None, 1))
+            conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
+                        (name, inode, inode_p))
+            update_mtime(inode_p, conn)
 
-        return inode
+        return (inode, self.getattr_all(inode))
 
-    def read(self, length, offset, inode):
-        '''Handles fuse read() requests.
+    def read(self, fh, offset, length):
+        '''Read `size` bytes from `fh` at position `off`
+        
+        Unless EOF is reached, returns exactly `size` bytes. 
         '''
         buf = StringIO()
+        inode = fh
         
         # Make sure that we don't read beyond the file size. This
         # should not happen unless direct_io is activated, but it's
         # cheap and nice for testing.
-        size = self.fgetattr(inode)['st_size']
+        size = self.getattr_all(inode)['st_size']
         length = min(size - offset, length)
         
         while length > 0:
-            tmp = self._read(length, offset, inode)
+            tmp = self._read(fh, offset, length)
             buf.write(tmp)
             length -= len(tmp)
             offset += len(tmp)
             
         return buf.getvalue()
 
-    def _read(self, length, offset, inode):
+    def _read(self, inode, offset, length):
         """Reads at the specified position until the end of the block
 
         This method may return less than `length` bytes if a blocksize
@@ -799,20 +702,16 @@ class Server(object):
                 # If we can't read enough, add nullbytes
                 return buf + b"\0" * (length - len(buf))
 
-    def write(self, buf, offset, inode):
-        """Handles FUSE write() requests.
-     
-        """
-
+    def write(self, fh, offset, buf):
         total = len(buf)
         while len(buf) > 0:
-            written = self._write(buf, offset, inode)
+            written = self._write(fh, offset, buf)
             offset += written
             buf = buf[written:]
         return total
 
 
-    def _write(self, buf, offset, inode):
+    def _write(self, inode, offset, buf):
         """Write as much as we can.
 
         May write less bytes than given in `buf`, returns
@@ -852,8 +751,8 @@ class Server(object):
       
         return len(buf)
 
-    def ftruncate(self, len_, inode):
-        """Handles FUSE ftruncate() requests.
+    def _truncate(self, inode, len_):
+        """Truncate `inode` to `len_`
         """
 
         # Delete all truncated s3 objects
@@ -874,17 +773,16 @@ class Server(object):
         self.size_cmtime_cache[inode] = (len_, timestamp, timestamp)
             
 
-    def fsync(self, _unused_fdatasync, inode):
-        """Handles FUSE fsync() requests.
-        """
+    def fsync(self, fh, datasync):
         # Metadata is always synced automatically, so we ignore
         # fdatasync
-        self.cache.flush(inode)
+        self.cache.flush(fh) # fh is an inode
 
-    def releasedir(self, inode):
+    def releasedir(self, fh):
         pass
 
-    def release(self, inode):    
+    def release(self, fh):    
+        inode = fh
         with self.writelock:
             try:
                 st = self.size_cmtime_cache.pop(inode)
@@ -896,17 +794,10 @@ class Server(object):
                                         
     
     # Called for close() calls. 
-    def flush(self, inode):
-        """Handles FUSE flush() requests.
-        """
+    def flush(self, fh):
         pass
       
-    def bmap(self, path, blocksize, idx):
-        # Yes, could be a function
-        #pylint: disable-msg=R0201
-        raise FUSEError(fuse.ENOTSUP)
-    
-    def fsyncdir(self, datasync, fip):
+    def fsyncdir(self, fh, datasync):
         pass
         
 
@@ -923,4 +814,4 @@ class RevisionError(Exception):
             "revisions up %d" % (self.rev_is, self.rev_should)
 
 
-psyco.bind(Server)
+#psyco.bind(Operations)

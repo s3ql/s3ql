@@ -1,20 +1,19 @@
-#
-#    Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
-#
-#    This program can be distributed under the terms of the GNU LGPL.
-#
+'''
+$Id$
 
-# pylint has serios trouble with the boto object
-#pylint: disable-msg=E1103
+Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 
+This program can be distributed under the terms of the GNU LGPL.
+'''
 
-from __future__ import unicode_literals
+from __future__ import unicode_literals, division, print_function
+
 import hashlib
 from time import sleep
 from datetime import datetime
 import isodate
 from boto.s3.connection import S3Connection
-from contextlib import contextmanager
+from contextlib import contextmanager 
 import boto.exception as bex
 import copy
 from s3ql.common import (waitfor) 

@@ -1,4 +1,13 @@
 #!/usr/bin/env python
+'''
+$Id$
+
+Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
+
+This program can be distributed under the terms of the GNU LGPL.
+'''
+
+from __future__ import unicode_literals, division, print_function
 
 import sys
 import os
@@ -13,7 +22,7 @@ export_symbols = ['fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
                  'fuse_session_loop_mt', 'fuse_session_remove_chan',
                  'fuse_remove_signal_handlers', 'fuse_session_destroy',
                  'fuse_unmount', 'fuse_req_ctx', 'fuse_lowlevel_ops',
-                 'fuse_session_loop' ]
+                 'fuse_session_loop', 'ENOATTR', 'ENOTSUP' ]
 
 # Import ctypeslib
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
@@ -23,19 +32,19 @@ from ctypeslib import h2xml, xml2py
 def main():
     '''Create ctypes API to local FUSE headers'''
     
-    print 'Creating ctypes API from local fuse headers...'
+    print('Creating ctypes API from local fuse headers...')
 
     cflags = get_cflags()
-    print 'Using cflags: %s' % ' '.join(cflags)  
+    print('Using cflags: %s' % ' '.join(cflags))  
     
     shared_library_path = get_library_path()
-    print 'Found fuse library in %s' % shared_library_path
+    print('Found fuse library in %s' % shared_library_path)
     
     # Create temporary XML file
     tmp_fh = tempfile.NamedTemporaryFile()
     tmp_name = tmp_fh.name
     
-    print 'Calling h2xml...'
+    print('Calling h2xml...')
     #src/h2xml.py -o fuse_api.xml -I /usr/include/fuse -I src fuse_ctypes.h -D _FILE_OFFSET_BITS=64 -c -q
     sys.argv = [ 'h2xml.py', '-o', tmp_name, '-c', '-q', '-I', os.path.join(basedir, 'src'),
                 'fuse_ctypes.h' ]
@@ -43,7 +52,7 @@ def main():
     sys.argc = len(sys.argv)
     h2xml.main()
     
-    print 'Calling xml2py...'
+    print('Calling xml2py...')
     api_file = os.path.join(basedir, 'src', 'llfuse', 'ctypes_api.py')
     #src/xml2py.py fuse_api.xml -r 'FUSE_SET_.*' -r 'XATTR_.*'
     sys.argv = [ 'xml2py.py', tmp_name, '-o', api_file, '-l', shared_library_path ]
@@ -80,7 +89,7 @@ def main():
     #code.write('__all__.append("library_path")\n')
     code.close()
   
-    print 'Code generation complete.'    
+    print('Code generation complete.')    
 
 
 def get_cflags():

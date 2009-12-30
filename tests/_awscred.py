@@ -1,5 +1,13 @@
+'''
+$Id$
 
-from __future__ import unicode_literals
+Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
+
+This program can be distributed under the terms of the GNU LGPL.
+'''
+
+from __future__ import unicode_literals, division, print_function
+
 import os
 import stat
 import sys
@@ -22,9 +30,9 @@ def get():
         else:    
             pw = kfile.readline().rstrip()
             aws_credentials = (key, pw)
-            print 'Will use credentials from ~/.awssecret to access AWS.'
+            print ('Will use credentials from ~/.awssecret to access AWS.')
         kfile.close()  
     else:
-        print '~/.awssecret does not exist. Will skip tests requiring valid AWS credentials.'
+        print('~/.awssecret does not exist. Will skip tests requiring valid AWS credentials.')
         
     return aws_credentials

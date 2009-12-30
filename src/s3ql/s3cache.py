@@ -1,24 +1,25 @@
-#
-#    Copyright (C) 2008-2009  Nikolaus Rath <Nikolaus@rath.org>
-#
-#    This program can be distributed under the terms of the GNU LGPL.
-#
+'''
+$Id$
 
-from __future__ import unicode_literals
+Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
+
+This program can be distributed under the terms of the GNU LGPL.
+'''
+
+from __future__ import unicode_literals, division, print_function
+
 from contextlib import contextmanager
-from s3ql import fs
+from llfuse import FUSEError
+import errno
 from s3ql.multi_lock import MultiLock
 from s3ql.ordered_dict import OrderedDict
 from s3ql.common import ExceptionStoringThread
-import errno
 import logging
 import os
 import threading
 import time
 import psyco
 
-# Pylint has trouble to recognise the type of elements in the OrderedDict
-#pylint: disable-msg=E1103
  
 __all__ = [ "S3Cache" ]
 
@@ -139,6 +140,9 @@ class S3Cache(object):
     def get(self, inode, blockno):
         """Get file handle for s3 object backing `inode` at block `blockno`
         
+        This may cause other blocks to be expired from the cache in
+        separate threads. The caller should therefore not hold any
+        database locks when calling `get`.
         """
         # Debug logging commented out, this function is called too often.
         
@@ -150,7 +154,7 @@ class S3Cache(object):
                     s3key = conn.get_val("SELECT s3key FROM blocks WHERE inode=? AND blockno=?", 
                                         (inode, blockno))
                     #log.debug('s3key is %s', s3key)
-                except StopIteration:
+                except KeyError:
                     # Create and add to cache
                     log.debug('creating new s3 object')
                     with conn.transaction():
@@ -237,10 +241,9 @@ class S3Cache(object):
         # If still not found
         if waited >= self.timeout:
             if not self.expect_mismatch:
-                log.error("Timeout when waiting for propagation of %s!" 
-                          "Filesystem is probably corrupted (or S3 is having problems), "
-                          "run fsck.s3ql as soon as possible.", s3key)
-            raise fs.FUSEError(errno.EIO, fatal=True)
+                log.warn("Timeout when waiting for propagation of %s in Amazon S3.\n"
+                         'Setting a higher timeout with --s3timeout may help.' % s3key)
+            raise FUSEError(errno.EIO)
             
         self.bucket.fetch_to_file(s3key, cachepath) 
         log.debug('Object %s fetched successfully.', s3key)
@@ -379,11 +382,10 @@ class S3Cache(object):
                 
         log.debug('Flushing for inode %d completed.', inode)
 
-    def close(self):
-        """Uploads all dirty data and cleans the cache.
-        
-        """       
-        log.debug('Closing S3Cache') 
+    def clear(self):
+        """Upload all dirty data and clear cache"""      
+         
+        log.debug('Clearing S3Cache') 
             
         while len(self.keys) > 0:
             self._expire_parallel()
@@ -396,7 +398,7 @@ class S3Cache(object):
         
 class ExpireEntryThread(ExceptionStoringThread):
     '''Expire a cache entry. Store the space that is going
-    to be freed in self.size, then signal on self.size_ready.
+       to be freed in self.size, then signal on self.size_ready.
     '''
     
     def __init__(self, s3cache):
@@ -406,9 +408,8 @@ class ExpireEntryThread(ExceptionStoringThread):
         self.s3cache = s3cache 
         
     def expire(self):
-        '''Expire oldest cache entry.
+        '''Expire oldest cache entry'''
         
-        '''
         s3cache = self.s3cache
         log.debug('Expiration thread started.')
         
@@ -439,10 +440,10 @@ class ExpireEntryThread(ExceptionStoringThread):
             el.close()
             
             if el.dirty:
-                log.info('Committing dirty s3 object %s...', el.s3key)
+                log.info('Uploading s3 object (%s)...', el.s3key)
                 etag = s3cache.bucket.store_from_file(el.s3key, el.name)
                 s3cache.dbcm.execute("UPDATE s3_objects SET etag=?, size=? WHERE key=?",
-                                  (etag, self.size, el.s3key))
+                                     (etag, self.size, el.s3key))
    
             log.debug('Removing s3 object %s from cache..', el.s3key)
                 
@@ -493,7 +494,7 @@ class UnlinkBlocksThread(ExceptionStoringThread):
                             (s3key, cur_off) = \
                                 conn.get_row("SELECT s3key,blockno FROM blocks WHERE inode=? "
                                             "AND blockno >= ? LIMIT 1", (inode, blockno))
-                        except StopIteration:    # No keys left
+                        except KeyError:    # No keys left
                             self.blocks_remaining = False
                             return
                         

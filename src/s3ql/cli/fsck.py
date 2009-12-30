@@ -1,11 +1,13 @@
-#!/usr/bin/env python
-#
-#    Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
-#
-#    This program can be distributed under the terms of the GNU LGPL.
-#
+'''
+$Id$
 
-from __future__ import unicode_literals
+Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
+
+This program can be distributed under the terms of the GNU LGPL.
+'''
+
+from __future__ import unicode_literals, division, print_function
+
 import os
 import stat 
 import time
@@ -18,9 +20,6 @@ from s3ql import s3, fsck
 import sys
 import apsw
 
-# This is a very big method with lots of branches, variables
-# and statements
-#pylint: disable-msg=R0912,R0914,R0915
 def main():
     
     # 

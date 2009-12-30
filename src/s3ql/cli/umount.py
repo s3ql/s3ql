@@ -1,16 +1,20 @@
-#!/usr/bin/env python
-#
-#    Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
-#
-#    This program can be distributed under the terms of the GNU LGPL.
-#
+'''
+$Id$
 
-from __future__ import unicode_literals
-from __future__ import division
+Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
+
+This program can be distributed under the terms of the GNU LGPL.
+'''
+
+from __future__ import unicode_literals, division, print_function
+
+# FIXME: Make ctypes invocations more platform independent
+# by generating protypes from headers during build
+
 import ctypes
 from ctypes import c_char_p, c_size_t, c_int, c_void_p
 import sys
-from optparse import OptionParser
+from optparse import OptionParser 
 import os
 import logging
 from s3ql.common import init_logging, CTRL_NAME 
@@ -18,13 +22,15 @@ import posixpath
 import subprocess
 import time
 
-# This is a very big method with lots of branches, variables
-# and statements
-#pylint: disable-msg=R0912,R0914,R0915
-def main():
-    #
-    # Parse command line
-    #
+log = logging.getLogger("frontend")
+
+def parse_args():
+    '''Parse command line
+     
+    This function writes to stdout/stderr and may call `system.exit()` instead 
+    of throwing an exception if it encounters errors.
+    '''
+        
     parser = OptionParser(
         usage="%prog  [options] <mountpoint>\n"
               "       %prog --help",
@@ -39,80 +45,105 @@ def main():
                             'use --debug as well in order to get any output.')
     parser.add_option("--debug", action="append", 
                       help="Activate debugging output from specified facility. Valid facility names "
-                            "are: fs, fs.fuse, s3, frontend. "
+                            "are: fs, fuse, s3, frontend. "
                             "This option can be specified multiple times.")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
-    parser.add_option('--lazy', "-l", action="store_true", default=False,
+    parser.add_option('--lazy', "-z", action="store_true", default=False,
                       help="Lazy umount. Detaches the filesystem immediately, even if there "
                       'are still open files. The file system is uploaded in the background '
                       'once all open files have been closed.')
                           
-    
     (options, pps) = parser.parse_args()
     
-    #
     # Verify parameters
-    #
     if not len(pps) == 1:
         parser.error("Wrong number of parameters")
-    mountpoint = pps[0].rstrip('/')
-          
-    # Activate logging
-    init_logging(True, options.quiet, options.debug, options.debuglog)
-    log = logging.getLogger("frontend")
+    options.mountpoint = pps[0].rstrip('/')
     
-    # Check if it's a mount point
-    if not posixpath.ismount(mountpoint):
-        log.error('Not a mount point.')
-        sys.exit(1)
-        
-        
-    # Check if it's an S3QL mountpoint
-    ctrlfile = '%s/%s' % (mountpoint, CTRL_NAME) 
-    if not (CTRL_NAME not in os.listdir(mountpoint)
-            and os.path.exists(ctrlfile)):
-        log.error('Not an S3QL file system.')
-        sys.exit(1)
-        
-    
-    # Import extended attributes
+    return options
+
+def import_libc():
+    '''Import libc functions for extended attributes'''
+       
     libc = ctypes.CDLL('libc.so.6', use_errno=True)
     libc.setxattr.argtypes = [ c_char_p, c_char_p, c_char_p, c_size_t, c_int ]
     libc.setxattr.restype = c_int
     libc.getxattr.argtypes = [ c_char_p, c_char_p, c_void_p, c_size_t ]
-    libc.getxattr.restype = c_int # FIXME: This is actually ssize_t, but ctypes doesn't know about it
+    libc.getxattr.restype = c_int
     
-    # Write cache flush command
-    if not options.lazy:
-        cmd = 'doit!' 
-        log.info('Flushing cache...')
-        if libc.setxattr(ctrlfile, 's3ql_flushcache!', cmd, len(cmd), 0) != 0:
-            log.error('Failed to issue cache flush command: %s. Continuing anyway..', 
-                      os.strerror(ctypes.get_errno()))
+    return libc
+
+def main():
+    '''Umount S3QL file system
     
+    This function writes to stdout/stderr and calls `system.exit()` instead
+    of returning.
+    '''
+    
+    options = parse_args()
+    mountpoint = options.mountpoint
+     
+    # Activate logging
+    init_logging(True, options.quiet, options.debug, options.debuglog)
+    
+    # Check if it's a mount point
+    if not posixpath.ismount(mountpoint):
+        print('Not a mount point.', file=sys.stderr)
+        sys.exit(1)
         
-    # Check for errors
-    log.debug('Trying to get error status')
-    bufsize = 42
-    buf = ctypes.create_string_buffer(bufsize)
-    ret = libc.getxattr(ctrlfile, 's3ql_errors?', buf, bufsize)
-    if ret < 0:
-        log.error('Failed to read current file system status: %s. Continuing anyway..', 
-                  os.strerror(ctypes.get_errno()))
-    status = ctypes.string_at(ctypes.addressof(buf), ret)
-    if status != 'no errors':
-        log.error('Some errors occurred while the file system was mounted ("%s"). '
-                  'You should examine the log files and run fsck before mounting the '
-                  'file system again.', status)
+    # Check if it's an S3QL mountpoint
+    ctrlfile = os.path.join(mountpoint, CTRL_NAME) 
+    if not (CTRL_NAME not in os.listdir(mountpoint)
+            and os.path.exists(ctrlfile)):
+        print('Not an S3QL file system.', file=sys.stderr)
+        sys.exit(1)
     
-    # Construct umount command
     if options.lazy:
-        umount_cmd = ('fusermount', '-u', '-z', mountpoint)
+        lazy_umount(mountpoint)
     else:
-        umount_cmd = ('fusermount', '-u', mountpoint)
+        blocking_umount(mountpoint) 
     
+
+def lazy_umount(mountpoint):
+    '''Invoke fusermount -u -z for mountpoint
     
+    This function writes to stdout/stderr and calls `system.exit()`.
+    '''
+    
+    found_errors = False
+    if not warn_if_error(mountpoint):
+        found_errors = True
+    umount_cmd = ('fusermount', '-u', '-z', mountpoint)
+    if not subprocess.call(umount_cmd) == 0:
+        found_errors = True
+        
+    if found_errors:
+        sys.exit(1)
+    else:
+        sys.exit(0)
+        
+        
+def blocking_umount(mountpoint):
+    '''Invoke fusermount and wait for daemon to terminate.
+    
+    This function writes to stdout/stderr and calls `system.exit()`.
+    '''
+    
+    found_errors = False
+    
+    libc = import_libc()
+    ctrlfile = os.path.join(mountpoint, CTRL_NAME) 
+    
+    log.info('Flushing cache...')
+    cmd = 'doit!' 
+    if libc.setxattr(ctrlfile, 's3ql_flushcache!', cmd, len(cmd), 0) != 0:
+        print('Failed to issue cache flush command: %s. Continuing anyway..' %
+               os.strerror(ctypes.get_errno()), file=sys.stderr)    
+    
+    if not warn_if_error(mountpoint):
+        found_errors = True
+      
     # Get pid
     log.debug('Trying to get pid')
     bufsize = 42
@@ -123,9 +154,14 @@ def main():
                   'Unable to determine upload status, upload might still be in progress '
                   'after umount command return.', 
                   os.strerror(ctypes.get_errno()))
-        sys.exit(subprocess.call(umount_cmd))
-    pid = int(ctypes.string_at(ctypes.addressof(buf), ret))
-    
+        if subprocess.call(['fusermount', '-u', mountpoint]) != 0:
+            found_errors = True
+        if found_errors:
+            sys.exit(1)
+        else:
+            sys.exit(0)
+        
+    pid = int(ctypes.string_at(buf, ret))
     
     # Get command line to make race conditions less-likely
     with open('/proc/%d/cmdline' % pid, 'r') as fh:
@@ -133,9 +169,8 @@ def main():
     
     # Unmount
     log.info('Unmounting...')
-    if subprocess.call(umount_cmd) != 0:
+    if subprocess.call(['fusermount', '-u', mountpoint]) != 0:
         sys.exit(1)
-    
     
     # Wait for daemon
     log.info('Uploading metadata...')
@@ -163,7 +198,35 @@ def main():
         log.debug('Daemon seems to be alive, waiting...')
         time.sleep(step)
         if step < 10:
-            step *= 2
+            step *= 2    
         
-
-    sys.exit(0)
+    if found_errors:
+        sys.exit(1)
+    else:
+        sys.exit(0)
+    
+def warn_if_error(mountpoint):
+    '''Check if file system encountered any errors
+    
+    If there were errors, a warning is printed to stdout and the
+    function returns False.
+    '''
+    
+    libc = import_libc()
+    log.debug('Trying to get error status')
+    bufsize = 42
+    ctrlfile = os.path.join(mountpoint, CTRL_NAME) 
+    buf = ctypes.create_string_buffer(bufsize)
+    ret = libc.getxattr(ctrlfile, 's3ql_errors?', buf, bufsize)
+    if ret < 0:
+        print('Failed to read current file system status: %s. Continuing anyway..' %
+                  os.strerror(ctypes.get_errno()), file=sys.stderr)
+        
+    status = ctypes.string_at(ctypes.addressof(buf), ret)
+    if status != 'no errors':
+        print('Some errors occurred while the file system was mounted.\n'
+              'You should examine the log files and run fsck before mounting the\n'
+              'file system again.', file=sys.stderr) 
+        return False
+    else:
+        return True

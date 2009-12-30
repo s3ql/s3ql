@@ -1,15 +1,15 @@
-"""
-Common functions for S3QL
+'''
+$Id$
 
-Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
+Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 
-This program can be distributed under the terms of the GNU LGPL. 
-"""
+This program can be distributed under the terms of the GNU LGPL.
+'''
 
-from __future__ import unicode_literals
+from __future__ import unicode_literals, division, print_function
+
 import sys
 import os
-import resource
 import stat
 import traceback
 import threading
@@ -19,10 +19,10 @@ from time import sleep
 from getpass import getpass
 
 __all__ = [ "decrease_refcount",  "get_cachedir", "init_logging",
-           "get_credentials", "get_dbfile", "get_inode", "get_path",
-           "increase_refcount", "unused_name", "get_inodes",
+           "get_credentials", "get_dbfile", "inode_for_path", "get_path",
+           "increase_refcount", 
            "update_atime", "update_mtime", "update_ctime", 
-           "waitfor", "ROOT_INODE", "writefile", "ExceptionStoringThread",
+           "waitfor", "ROOT_INODE", "ExceptionStoringThread",
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE' ]
 
 class Filter(object):
@@ -140,19 +140,11 @@ def update_mtime(inode, conn):
     conn.execute("UPDATE inodes SET mtime=? WHERE id=?",
                 (time.time() - time.timezone, inode))
 
-def get_inode(path, conn):
-    """Returns inode of object at `path`.
+
+def inode_for_path(path, conn):
+    """Return inode of directory entry at `path`
     
-    Raises `KeyError` if the path does not exist.
-    """
-    return get_inodes(path, conn)[-1]
-    
-def get_inodes(path, conn):
-    """Returns the inodes of the elements in `path`.
-    
-    The first inode of the resulting list will always be the inode
-    of the root directory. Raises `KeyError` if the path
-    does not exist.
+     Raises `KeyError` if the path does not exist.
     """
     
     if not isinstance(path, bytes):
@@ -160,29 +152,21 @@ def get_inodes(path, conn):
     
     # Remove leading and trailing /
     path = path.lstrip(b"/").rstrip(b"/") 
-
-    inode = ROOT_INODE
-    
-    # Root directory requested
-    if not path:
-        return [inode]
     
     # Traverse
-    visited = [inode]
+    inode = ROOT_INODE
     for el in path.split(b'/'):
         try:
             inode = conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
                                 (el, inode))
-        except StopIteration:
-            raise KeyError('Path does not exist', path)
-        
-        visited.append(inode)
+        except KeyError:
+            raise KeyError('Path %s does not exist' % path)
+    
+    return inode
 
-    return visited
     
 def get_path(name, inode_p, conn):
-    """Returns the full path of `name` with parent inode `inode_p`.
-    """
+    """Return the full path of `name` with parent inode `inode_p`"""
     
     if not isinstance(name, bytes):
         raise TypeError('name must be of type bytes')
@@ -275,7 +259,7 @@ def get_credentials(keyfile, key=None):
             
         if not key:
             if sys.stdin.isatty():
-                print "Enter AWS access key: ",
+                print("Enter AWS access key: ", end='')
             key = sys.stdin.readline().rstrip()
            
         if not pw:
@@ -305,63 +289,13 @@ def waitfor(timeout, fn, *a, **kw):
             return True
         
     return False
-    
-def writefile(src, dest, server):
-    """Copies the local file `src' into the fs as `dest`
-    
-    `dest` must not be opened yet by the server.
-    """
 
-    try:
-        destfd = server.open(dest, None)
-    except KeyError:
-        mode = ( stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR )
-        destfd = server.create(dest, mode)
         
-    srcfh =  open(src, "rb")
-    chunksize = resource.getpagesize()
-
-    buf = srcfh.read(chunksize)
-    off = 0
-    while buf:
-        server.write(buf, off, destfd)
-        off += len(buf)
-        buf = srcfh.read(chunksize)        
-  
-    srcfh.close()
-    
-    server.fsync(True, destfd)
-    server.flush(destfd)
-    server.release(destfd)
-    
-
-def unused_name(path, conn):
-    '''Append suffix to path so that it does not exist
-    '''
-    
-    if not isinstance(path, bytes):
-        raise TypeError('path must be of type bytes')
-    
-    i = 0
-    newpath = path
-    path = path + b'-'
-    try:
-        while True:
-            get_inode(newpath, conn)            
-            i += 1
-            newpath = path + bytes(i)
-            
-    except KeyError:
-        pass
-    
-    return newpath
-        
-
 # Define inode of root directory
 ROOT_INODE = 1
 
 # Name and inode of the special s3ql control file
-CTRL_NAME = '.__s3ql__ctrl__'
+CTRL_NAME = b'.__s3ql__ctrl__'
 CTRL_INODE = 2
 
 class ExceptionStoringThread(threading.Thread):
@@ -415,3 +349,4 @@ class EmbeddedException(Exception):
                        'Original/inner traceback (most recent call last): \n' ] +
                        traceback.format_tb(self.tb) +
                        traceback.format_exception_only(type(self.exc), self.exc))
+        
