@@ -210,7 +210,7 @@ class fs_api_tests(unittest.TestCase):
         
         self.assert_entry_doesnt_exist(inode_p, name)
         attr_p_old = self.server.getattr(inode_p)
-        fh = self.server.create(inode_p, name, mode, ctx)
+        (fh, dummy) = self.server.create(inode_p, name, mode, ctx)
         self.assert_entry_exists(inode_p, name)
         attr_p_new = self.server.getattr(inode_p)
         attr = self.server.lookup(inode_p, name)
@@ -558,7 +558,7 @@ class fs_api_tests(unittest.TestCase):
         
         self.assert_entry_doesnt_exist(inode_p, name)
         attr_p_old = self.server.getattr(inode_p)
-        fh = self.server.mknod(inode_p, name, mode, rdev, ctx)
+        self.server.mknod(inode_p, name, mode, rdev, ctx)
         self.assert_entry_exists(inode_p, name)
         attr_p_new = self.server.getattr(inode_p)
         attr = self.server.lookup(inode_p, name)
@@ -570,8 +570,6 @@ class fs_api_tests(unittest.TestCase):
         self.assertEquals(attr["st_uid"], ctx.uid)
         self.assertEquals(attr["st_gid"], ctx.gid)
         self.assertEquals(attr["st_rdev"], rdev)
-        
-        self.server.release(fh)
         
         return attr['st_ino']
            
@@ -587,7 +585,45 @@ class fs_api_tests(unittest.TestCase):
     
     def test_13_statfs(self):
         self.assertTrue(isinstance(self.server.statfs(), dict))
-            
+        
+    def test_15_delayed_unlink(self):
+        
+        inode_p = self.root_inode
+        name = self.random_name()
+        inode = self.create(inode_p, name)
+        fh = self.server.open(inode, os.O_RDWR)
+        self.server.write(fh, 0, self.random_data(self.blocksize))
+        self.server.unlink(inode_p, name)
+        self.assert_entry_doesnt_exist(inode_p, name)
+        self.assertTrue(isinstance(self.server.getattr(inode), dict))
+        self.assertEquals(len(self.cache), 1)
+        self.cache.clear()
+        self.assertEquals(len(self.bucket.keystore), 1)
+        self.server.release(fh)
+        self.assertEquals(len(self.cache), 0)
+        self.assertEquals(len(self.bucket.keystore), 0)
+        self.assertRaises(KeyError, self.server.getattr, inode)
+        self.fsck()
+        
+    def test_15_rescued_unlink(self):
+        
+        inode_p = self.root_inode
+        name = self.random_name()
+        newname = self.random_name()
+        inode = self.create(inode_p, name)
+        data = self.random_data(self.blocksize)
+        fh = self.server.open(inode, os.O_RDWR)
+        self.server.write(fh, 0, data)
+        self.server.unlink(inode_p, name)
+        self.server.link(inode, inode_p, newname)
+        self.server.release(fh)
+        
+        fh = self.server.open(inode, os.O_RDWR)
+        self.assertTrue(self.server.read(fh, 0, len(data)) == data)
+        self.server.release(fh)
+        
+        self.fsck()
+                          
     def test_14_fsync(self):    
         blocks = 3
         name = self.random_name()

@@ -179,7 +179,7 @@ def add_common_mount_opts(parser):
     parser.add_option("--single", action="store_true", default=False,
                       help="Single threaded operation only")
     parser.add_option("--atime", action="store_true", default=False,
-                      help="Update file and directory access time. Will decrease performance.")
+                      help="Update directory access time. Will decrease performance.")
 
 
 def check_fs(bucket, cachedir, dbfile):

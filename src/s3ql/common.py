@@ -14,14 +14,11 @@ import stat
 import traceback
 import threading
 import logging
-import time
 from time import sleep
 from getpass import getpass
 
-__all__ = [ "decrease_refcount",  "get_cachedir", "init_logging",
+__all__ = [ "get_cachedir", "init_logging",
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
-           "increase_refcount", 
-           "update_atime", "update_mtime", "update_ctime", 
            "waitfor", "ROOT_INODE", "ExceptionStoringThread",
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE' ]
 
@@ -114,33 +111,6 @@ def init_logging(fg, quiet=False, debug=None, debugfile=None):
         root_logger.addHandler(debug_handler) 
         root_logger.setLevel(logging.DEBUG)
    
-
-def update_atime(inode, conn):
-    """Updates the atime of the specified object.
-
-    The objects atime will be set to the current time.
-    """
-    conn.execute("UPDATE inodes SET atime=? WHERE id=?", 
-                (time.time() - time.timezone, inode))
-
-def update_ctime(inode, conn):
-    """Updates the ctime of the specified object.
-
-    The objects ctime will be set to the current time.
-    """
-    conn.execute("UPDATE inodes SET ctime=? WHERE id=?", 
-                (time.time() - time.timezone, inode))
-
-
-def update_mtime(inode, conn):
-    """Updates the mtime of the specified object.
-
-    The objects mtime will be set to the current time.
-    """
-    conn.execute("UPDATE inodes SET mtime=? WHERE id=?",
-                (time.time() - time.timezone, inode))
-
-
 def inode_for_path(path, conn):
     """Return inode of directory entry at `path`
     
@@ -189,23 +159,7 @@ def get_path(name, inode_p, conn):
     path.reverse()
     
     return b'/'.join(path)
-    
-    
-def decrease_refcount(inode, conn):
-    """Decrease reference count for inode by 1.
 
-    Also updates ctime.
-    """
-    conn.execute("UPDATE inodes SET refcount=refcount-1,ctime=? WHERE id=?",
-             (time.time() - time.timezone, inode))
-
-def increase_refcount(inode, conn):
-    """Increase reference count for inode by 1.
-
-    Also updates ctime.
-    """
-    conn.execute("UPDATE inodes SET refcount=refcount+1, ctime=? WHERE id=?",
-             (time.time() - time.timezone, inode))
 
 def get_cachedir(bucketname, path):
     """get directory to put cache files in.
