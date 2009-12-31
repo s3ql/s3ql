@@ -48,26 +48,29 @@ class fuse_tests(unittest.TestCase):
         self.assertTrue(waitfor(10, posixpath.ismount, self.base))
 
         # Run Subtests
-        try:
-            self.t_mkdir()
-            self.t_symlink()
-            self.t_mknod()
-            self.t_readdir()
-            self.t_symlink()
-            self.t_truncate()
-            self.t_chown()
-            
-        finally:
-            
-            # Umount as soon as mountpoint is no longer in use
-            self.assertTrue(waitfor(5, lambda : 
+        self.t_mkdir()
+        self.t_symlink()
+        self.t_mknod()
+        self.t_readdir()
+        self.t_symlink()
+        self.t_truncate()
+        self.t_chown()
+ 
+        # Umount 
+        self.assertTrue(waitfor(5, lambda : 
                                     subprocess.call(['fuser', '-m', '-s', self.base]) == 1))
-            path = os.path.join(os.path.dirname(__file__), "..", "bin", "umount.s3ql")            
-            self.assertEquals(subprocess.call([path, '--quiet', self.base]), 0)
-            
-            # Now wait for server process
-            self.assertEquals(child.wait(), 0)
-            self.assertFalse(posixpath.ismount(self.base))
+        path = os.path.join(os.path.dirname(__file__), "..", "bin", "umount.s3ql")            
+        self.assertEquals(subprocess.call([path, '--quiet', self.base]), 0)
+        
+        # Now wait for server process
+        self.assertEquals(child.wait(), 0)
+        self.assertFalse(posixpath.ismount(self.base))
+        os.rmdir(self.base)
+        
+    def tearDown(self):
+        # Umount if still mounted
+        if posixpath.ismount(self.base):         
+            subprocess.call(['fusermount', '-z', '-u', self.base])
             os.rmdir(self.base)
 
 
