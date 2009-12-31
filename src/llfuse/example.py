@@ -6,8 +6,8 @@ Copyright (C) 2008  Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL. 
 '''
 
-from interface import FUSEError
-from operations import Operations
+from llfuse.interface import FUSEError
+from llfuse.operations import Operations
 import errno
 import stat
 

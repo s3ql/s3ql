@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import unicode_literals, division, print_function
 
-from interface import FUSEError
+from llfuse.interface import FUSEError
 import errno
   
 class Operations(object):

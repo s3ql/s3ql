@@ -14,7 +14,7 @@ from time import sleep
 from s3ql.common import init_logging
 from s3ql.database import ConnectionManager
 from s3ql import s3, mkfs, fsck
-from mount import run_server, add_common_mount_opts 
+from s3ql.cli.mount import run_server, add_common_mount_opts 
 import os
 import tempfile
 import logging 

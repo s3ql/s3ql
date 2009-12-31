@@ -11,7 +11,7 @@ from __future__ import unicode_literals, division, print_function
 import hashlib
 from time import sleep
 from datetime import datetime
-import isodate
+from s3ql import isodate
 from boto.s3.connection import S3Connection
 from contextlib import contextmanager 
 import boto.exception as bex

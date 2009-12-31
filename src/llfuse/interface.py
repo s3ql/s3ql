@@ -43,7 +43,7 @@ The return value and any raised exceptions of `handle_exc` are ignored.
 
 from __future__ import unicode_literals, division, print_function
 
-import ctypes_api as libfuse
+import llfuse.ctypes_api as libfuse
 from ctypes import (c_char_p, sizeof, create_string_buffer, addressof, string_at,
                     POINTER, c_char, cast)
 from functools import partial

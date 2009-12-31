@@ -10,5 +10,5 @@ from __future__ import unicode_literals, division, print_function
 
 # Wildcard imports desired
 #pylint: disable-msg=W0401
-from operations import *
-from interface import *
+from llfuse.operations import *
+from llfuse.interface import *
