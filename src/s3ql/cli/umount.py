@@ -8,9 +8,6 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import unicode_literals, division, print_function
 
-# FIXME: Make ctypes invocations more platform independent
-# by generating protypes from headers during build
-
 import ctypes
 import s3ql.libc_api as libc
 import sys
