@@ -150,6 +150,9 @@ class Operations(object):
         Note also that the ``st_Xtime`` entries support floating point numbers 
         to allow for nano second resolution.
         
+        The returned dict can be modified at will by the caller without
+        influencing the internal state of the file system.
+        
         If the entry does not exist, raises `FUSEError(errno.ENOENT)`.
         '''
         
@@ -168,7 +171,10 @@ class Operations(object):
         
         :attr_timeout: Validity timeout (in seconds) for the attributes
         
-        Note also that the ``st_Xtime`` entries support floating point numbers 
+        The returned dict can be modified at will by the caller without
+        influencing the internal state of the file system.
+        
+        Note that the ``st_Xtime`` entries support floating point numbers 
         to allow for nano second resolution.
         '''
         
