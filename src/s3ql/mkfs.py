@@ -99,16 +99,14 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
       BEFORE INSERT ON contents
       FOR EACH ROW BEGIN
           SELECT RAISE(ABORT, 'parent_inode does not refer to a directory')
-          WHERE NEW.parent_inode != 0 AND
-               (SELECT mode FROM inodes WHERE id = NEW.parent_inode) & {S_IFMT} != {S_IFDIR};
+          WHERE (SELECT mode FROM inodes WHERE id = NEW.parent_inode) & {S_IFMT} != {S_IFDIR};
       END;
 
     CREATE TRIGGER contents_check_parent_inode_update
       BEFORE UPDATE ON contents
       FOR EACH ROW BEGIN
           SELECT RAISE(ABORT, 'parent_inode does not refer to a directory')
-          WHERE NEW.parent_inode != 0 AND
-               (SELECT mode FROM inodes WHERE id = NEW.parent_inode) & {S_IFMT} != {S_IFDIR};
+          WHERE (SELECT mode FROM inodes WHERE id = NEW.parent_inode) & {S_IFMT} != {S_IFDIR};
       END;  
     """.format(**types)) 
     
@@ -127,41 +125,25 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
         -- we can't reuse old rowids. Therefore we will run out of inodes after
         -- 49 days if we insert 1000 rows per second. 
         id        INTEGER PRIMARY KEY CHECK (id < 4294967296),
-        uid       INT NOT NULL CONSTRAINT uid_type
-                  CHECK( typeof(uid) == 'integer' AND uid >= 0),
-        gid       INT NOT NULL CONSTRAINT gid_type
-                  CHECK( typeof(gid) == 'integer' AND gid >= 0),
-        -- make sure that an entry has only one type. Note that 
-        -- S_IFDIR | S_IFREG == S_IFSOCK
-        mode      INT NOT NULL CONSTRAINT mode_type
-                  CHECK ( typeof(mode) == 'integer' AND
-                          (mode & {S_IFMT}) IN ({S_IFDIR}, {S_IFREG}, {S_IFLNK},
-                                                {S_IFBLK}, {S_IFCHR}, {S_IFIFO}, {S_IFSOCK}) ),
-        mtime     REAL NOT NULL CONSTRAINT mtime_type
-                  CHECK( typeof(mtime) == 'real' AND mtime >= 0 ),
-        atime     REAL NOT NULL CONSTRAINT atime_type
-                  CHECK( typeof(atime) == 'real' AND atime >= 0 ),
-        ctime     REAL NOT NULL CONSTRAINT ctime_type
-                  CHECK( typeof(ctime) == 'real' AND ctime >= 0 ),
+        uid       INT NOT NULL,
+        gid       INT NOT NULL,
+
+        mode      INT NOT NULL,
+        mtime     REAL NOT NULL,
+        atime     REAL NOT NULL,
+        ctime     REAL NOT NULL,
         refcount  INT NOT NULL CONSTRAINT refcount_type
                   CHECK ( typeof(refcount) == 'integer' AND refcount > 0),
 
         -- for symlinks only
-        target    BLOB(256) CONSTRAINT target_type
-                  CHECK ( (mode & {S_IFMT} == {S_IFLNK} AND typeof(target) == 'blob') OR
-                          (mode & {S_IFMT} != {S_IFLNK} AND target IS NULL) ),
+        target    BLOB(256),
 
         -- for files only
-        size      INT CONSTRAINT size_type
-                  CHECK ( (mode & {S_IFMT} == {S_IFREG} AND typeof(size) == 'integer' AND size >= 0) OR
-                          (mode & {S_IFMT} != {S_IFREG} AND size IS NULL) ),
+        size      INT NOT NULL DEFAULT 0 
+                  CHECK(typeof(size) == 'integer' AND size >= 0),
 
         -- device nodes
-        rdev      INT CONSTRAINT rdev_type
-                  CHECK ( ( mode & {S_IFMT} IN ({S_IFBLK}, {S_IFCHR})
-                               AND typeof(rdev) == 'integer' AND rdev >= 0) OR
-                          ( mode & {S_IFMT} NOT IN ({S_IFBLK}, {S_IFCHR}) AND rdev IS NULL ) )    
-             
+        rdev      INT 
     )
     """.format(**types))
     conn.execute(trigger_cmd.format(**{ "src_table": "contents",
@@ -179,9 +161,8 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
     CREATE TRIGGER inodes_check_parent_inode_update
       BEFORE UPDATE ON inodes
       FOR EACH ROW BEGIN
-          SELECT RAISE(ABORT, 'cannot change directory with entries into something else')
-          WHERE NEW.mode & {S_IFMT} != {S_IFDIR} AND
-               (SELECT name FROM contents WHERE parent_inode = NEW.id LIMIT 1) IS NOT NULL;
+          SELECT RAISE(ABORT, 'cannot change directory into something else')
+          WHERE NEW.mode & {S_IFMT} != OLD.mode & {S_IFMT};
       END;      
     """.format(**types)) 
     
@@ -222,30 +203,6 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
                                        "ref_table": "s3_objects",
                                        "ref_key": "key" }))
 
-    # Make sure that inodes refer to files
-    conn.execute("""
-    CREATE TRIGGER inodes_1
-      BEFORE INSERT ON blocks
-      FOR EACH ROW BEGIN
-          SELECT RAISE(ABORT, 'inode does not refer to a file')
-          WHERE (SELECT mode FROM inodes WHERE id = NEW.inode) & {S_IFMT} != {S_IFREG};
-      END;
-
-    CREATE TRIGGER inodes_2
-      BEFORE UPDATE ON blocks
-      FOR EACH ROW BEGIN
-          SELECT RAISE(ABORT, 'inode does not refer to a file')
-          WHERE (SELECT mode FROM inodes WHERE id = NEW.inode) & {S_IFMT} != {S_IFREG};
-      END;  
-      
-    CREATE TRIGGER inodes_3
-      BEFORE UPDATE ON inodes
-      FOR EACH ROW BEGIN
-          SELECT RAISE(ABORT, 'cannot change file with s3 objects into something else')
-          WHERE NEW.mode & {S_IFMT} != {S_IFREG} AND
-               (SELECT inode FROM blocks WHERE inode = NEW.id LIMIT 1) IS NOT NULL;
-      END;    
-    """.format(**types)) 
     
     # Insert root directory
     # Refcount = 4: ".", "..", "lost+found", "lost+found/.."

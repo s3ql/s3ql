@@ -102,6 +102,7 @@ class fsck_tests(unittest.TestCase):
         inode = self.conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?", 
                                 (b"lost+found", ROOT_INODE))
         self.conn.execute('DELETE FROM contents WHERE parent_inode=?', (inode,))
+        self.conn.execute('DROP TRIGGER inodes_check_parent_inode_update')
         self.conn.execute('UPDATE inodes SET mode=?, size=? WHERE id=?',
                         (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR, 0, inode))
         
