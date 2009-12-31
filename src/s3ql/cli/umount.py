@@ -12,7 +12,7 @@ from __future__ import unicode_literals, division, print_function
 # by generating protypes from headers during build
 
 import ctypes
-from ctypes import c_char_p, c_size_t, c_int, c_void_p
+import s3ql.libc_api as libc
 import sys
 from optparse import OptionParser 
 import os
@@ -62,17 +62,6 @@ def parse_args():
     options.mountpoint = pps[0].rstrip('/')
     
     return options
-
-def import_libc():
-    '''Import libc functions for extended attributes'''
-       
-    libc = ctypes.CDLL('libc.so.6', use_errno=True)
-    libc.setxattr.argtypes = [ c_char_p, c_char_p, c_char_p, c_size_t, c_int ]
-    libc.setxattr.restype = c_int
-    libc.getxattr.argtypes = [ c_char_p, c_char_p, c_void_p, c_size_t ]
-    libc.getxattr.restype = c_int
-    
-    return libc
 
 def main():
     '''Umount S3QL file system
@@ -132,7 +121,6 @@ def blocking_umount(mountpoint):
     
     found_errors = False
     
-    libc = import_libc()
     ctrlfile = os.path.join(mountpoint, CTRL_NAME) 
     
     log.info('Flushing cache...')
@@ -212,7 +200,6 @@ def warn_if_error(mountpoint):
     function returns False.
     '''
     
-    libc = import_libc()
     log.debug('Trying to get error status')
     bufsize = 42
     ctrlfile = os.path.join(mountpoint, CTRL_NAME) 
