@@ -111,7 +111,7 @@ def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
     
     fuse_opts = [ b"nonempty", b'fsname=s3ql_local' ]
-    #              b'large_read', b'big_writes' ]
+    
     if options.allow_others:
         fuse_opts.append(b'allow_others')
     if options.allow_root:
@@ -127,13 +127,15 @@ def run_server(bucket, cachedir, dbcm, options):
     Returns the used `Operations` instance so that the `encountered_errors`
     attribute can be checked. '''
     
+
+    log.info('Mounting filesystem...')
     fuse_opts = get_fuse_opts(options) 
     cache =  S3Cache(bucket, cachedir, options.cachesize, dbcm,
                      timeout=options.s3timeout)
     try:    
         operations = fs.Operations(cache, dbcm, not options.atime)
         llfuse.init(operations, options.mountpoint, fuse_opts)
-        
+
         # Switch to background logging if necessary
         init_logging(options.fg, options.quiet, options.debug, options.debuglog)
         

@@ -177,6 +177,10 @@ class Operations(llfuse.Operations):
         fstat['attr_timeout'] = 3600
         fstat['entry_timeout'] = 3600
 
+        # We want our blocksize for IO as large as possible to get large
+        # write requests
+        fstat['st_blksize'] = 128 * 1024
+        
         # Our inodes are already unique
         fstat['generation'] = 1
         
@@ -198,6 +202,16 @@ class Operations(llfuse.Operations):
         for the same inode.
         """        
         return inode
+
+    def check_args(self, args):
+        '''Check and/or supplement fuse mount options'''
+        
+        if llfuse.fuse_version() >= 28:
+            log.debug('Using big_writes')
+            args.append(b'big_writes')
+            args.append('max_write=131072')
+            
+        
 
     def readdir(self, fh, off):
         

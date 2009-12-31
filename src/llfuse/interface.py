@@ -51,7 +51,8 @@ import logging
 import errno
 import sys
 
-__all__ = [ 'FUSEError', 'ENOATTR', 'ENOTSUP', 'init', 'main', 'close' ]
+__all__ = [ 'FUSEError', 'ENOATTR', 'ENOTSUP', 'init', 'main', 'close',
+            'fuse_version' ]
 
 # These should really be befined in the errno module, but
 # unfortunately they are missing
@@ -229,6 +230,11 @@ def op_wrapper(func, req, *args):
         if not isinstance(exc, ReplyError):
             libfuse.fuse_reply_err(req, errno.EIO)
 
+def fuse_version():
+    '''Return version of loaded fuse library'''
+    
+    return libfuse.fuse_version()
+
 
 def init(operations_, mountpoint_, args):
     '''Initialize and mount FUSE file system
@@ -248,14 +254,14 @@ def init(operations_, mountpoint_, args):
     global session 
     global channel
     
+    # Give operations instance a chance to check and change
+    # the FUSE options
+    operations_.check_args(args)
+
     mountpoint = mountpoint_
     operations = operations_
     fuse_ops = libfuse.fuse_lowlevel_ops()
     fuse_args = make_fuse_args(args)
-    
-    # Give operations instance a chance to check and change
-    # the FUSE options
-    operations.check_args(args)
 
     # Init fuse_ops
     module = globals()
@@ -314,7 +320,7 @@ def make_fuse_args(args):
                                                       for x in args1])
     return fuse_args
 
-def main(foreground=False, single=False):
+def main(single=False, foreground=False):
     '''Daemonize and run FUSE main loop
     
     Automatically calls `close' after the main loop has terminated. If
@@ -325,6 +331,8 @@ def main(foreground=False, single=False):
     if not session:
         raise RuntimeError('Need to call init() before main()')
     
+    libfuse.fuse_daemonize(0 if not foreground else 1)
+        
     try:
         if single:
             log.debug('Calling fuse_session_loop')
@@ -620,7 +628,7 @@ def fuse_opendir(req, inode, fi):
 def fuse_read(req, ino, size, off, fi):
     '''Read data from file'''
     
-    log.debug('Handling read(%d, %d, %d)', fi.contents.fh, off, size)
+    log.debug('Handling read(ino=%d, off=%d, size=%dk)', fi.contents.fh, off, size)
     data = operations.read(fi.contents.fh, off, size)
     
     if not isinstance(data, bytes):
@@ -872,7 +880,7 @@ def fuse_unlink(req, parent_inode, name):
 def fuse_write(req, inode, buf, size, off, fi):
     '''Write into an open file handle'''
     
-    log.debug('Handling write(%d, <buf>, %d, %d, %d)', inode, size, off, fi.contents.fh)
+    log.debug('Handling write(fh=%d, off=%d, size=%d)', fi.contents.fh, off, size)
     written = operations.write(fi.contents.fh, off, string_at(buf, size))
     
     log.debug('Calling fuse_reply_write')
