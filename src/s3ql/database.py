@@ -368,7 +368,7 @@ class NoUniqueValueError(Exception):
 class ResultSet(object):
     '''Iterator over the result of an SQL query
     
-    This class automatically converts back from buffer() to bytes()''' 
+    This class automatically converts back from buffer() to bytes().''' 
     
     def __init__(self, cur):
         self.cur = cur
@@ -380,9 +380,6 @@ class ResultSet(object):
         return [ ( col if not isinstance(col, buffer) else bytes(col) ) 
                   for col in self.cur.next() ]
 
-    def __del__(self):
-        # Finish of statement
-        # TODO: Can we abort the SQL statement cleanly instead?
-        for dummy in self.cur:
-            pass
-        
+    # Once the ResultSet goes out of scope, the cursor goes out of scope
+    # too (because query() uses a fresh cursor), so we don't have to
+    # take any special precautions to finish the active SQL statement. 
