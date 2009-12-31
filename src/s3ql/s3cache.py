@@ -136,6 +136,10 @@ class S3Cache(object):
         self.expiry_lock = threading.Lock()        
 
         
+    def __len__(self):
+        '''Get number of objects in cache'''
+        return len(self.keys)
+    
     @contextmanager
     def get(self, inode, blockno):
         """Get file handle for s3 object backing `inode` at block `blockno`
