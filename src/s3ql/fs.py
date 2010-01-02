@@ -664,7 +664,7 @@ class Operations(llfuse.Operations):
         attrs = self.getattr_all(inode)
         with self.lock(inode):
             self.open_files[inode] = { 'open_count': 1, 
-                                        'cached_attrs': attrs }
+                                       'cached_attrs': attrs.copy() }
                 
         return (inode, attrs)
 
