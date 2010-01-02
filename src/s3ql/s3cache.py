@@ -444,7 +444,7 @@ class ExpireEntryThread(ExceptionStoringThread):
             el.close()
             
             if el.dirty:
-                log.info('Uploading s3 object (%s)...', el.s3key)
+                log.debug('Uploading s3 object (%s)...', el.s3key)
                 etag = s3cache.bucket.store_from_file(el.s3key, el.name)
                 s3cache.dbcm.execute("UPDATE s3_objects SET etag=?, size=? WHERE key=?",
                                      (etag, self.size, el.s3key))
