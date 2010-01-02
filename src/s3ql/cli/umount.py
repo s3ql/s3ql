@@ -214,3 +214,6 @@ def warn_if_error(mountpoint):
         return False
     else:
         return True
+
+if __name__ == '__main__':
+    main()    

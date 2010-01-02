@@ -126,3 +126,5 @@ def parse_args():
     
     return options
 
+if __name__ == '__main__':
+    main()    

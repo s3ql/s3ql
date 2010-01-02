@@ -208,3 +208,6 @@ def main():
         
     os.unlink(dbfile)
     os.rmdir(cachedir)
+      
+if __name__ == '__main__':
+    main()    

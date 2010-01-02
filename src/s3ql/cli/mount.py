@@ -298,3 +298,6 @@ def parse_args():
             parser.error('Unknown mount option: "%s"' % pair) 
                 
     return options
+
+if __name__ == '__main__':
+    main()    

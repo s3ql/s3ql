@@ -139,3 +139,6 @@ def main():
     
     finally:
         os.unlink(dbfile)
+
+if __name__ == '__main__':
+    main()    
