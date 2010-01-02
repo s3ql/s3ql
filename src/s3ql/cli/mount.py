@@ -15,10 +15,10 @@ from s3ql.s3cache import S3Cache
 from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
 from s3ql.database import ConnectionManager 
 import llfuse
+import tempfile
 import os
 import stat
 import logging
-#import cProfile
 
 __all__ = [ 'main', 'add_common_mount_opts', 'run_server' ]
 
@@ -77,22 +77,22 @@ def main():
     
         # Start server
         bucket.store("s3ql_dirty", "yes")
-        operations = run_server(bucket, cachedir, dbcm, options)
-        if operations.encountered_errors:
-            log.warn('Some errors occured while handling requests. '
+        try:
+            operations = run_server(bucket, cachedir, dbcm, options)
+            if operations.encountered_errors:
+                log.warn('Some errors occured while handling requests. '
                      'Please examine the logs for more information.')
+        finally:
+            log.info("Uploading database..")
+            dbcm.execute("VACUUM")
+            if bucket.has_key("s3ql_metadata_bak_2"):
+                bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
+            if bucket.has_key("s3ql_metadata_bak_1"):
+                bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
+            bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
             
-        # Upload database
-        log.info("Uploading database..")
-        dbcm.execute("VACUUM")
-        if bucket.has_key("s3ql_metadata_bak_2"):
-            bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
-        if bucket.has_key("s3ql_metadata_bak_1"):
-            bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
-        bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
-        
-        bucket.store("s3ql_dirty", "no")
-        bucket.store_from_file("s3ql_metadata", dbfile)
+            bucket.store("s3ql_dirty", "no")
+            bucket.store_from_file("s3ql_metadata", dbfile)
     
     # Remove database
     finally:
@@ -127,7 +127,11 @@ def run_server(bucket, cachedir, dbcm, options):
     Returns the used `Operations` instance so that the `encountered_errors`
     attribute can be checked. '''
     
-
+    if options.profile:
+        import cProfile
+        import pstats
+        prof = cProfile.Profile()
+        
     log.info('Mounting filesystem...')
     fuse_opts = get_fuse_opts(options) 
     cache =  S3Cache(bucket, cachedir, options.cachesize*1024, dbcm,
@@ -139,16 +143,32 @@ def run_server(bucket, cachedir, dbcm, options):
         # Switch to background logging if necessary
         init_logging(options.fg, options.quiet, options.debug, options.debuglog)
         
-        # Uncomment this and import cProfile to activate profiling.
-        # Note that profiling only works in single threaded mode.
-        #cProfile.run('server.main(options.single, options.fg)',
-        #             '/home/nikratio/profile_psyco.dat')
-        llfuse.main(options.single, options.fg)
+        if options.profile:
+            prof.runcall(llfuse.main, options.single, options.fg)
+        else:
+            llfuse.main(options.single, options.fg)
+        
+    except:
+        llfuse.close()
+        raise
         
     finally:
         log.info("Filesystem unmounted, committing cache...")
         cache.clear()
    
+    if options.profile:
+        tmp = tempfile.NamedTemporaryFile()
+        prof.dump_stats(tmp.name)
+        fh = open('s3ql_profile.txt', 'w')
+        p = pstats.Stats(tmp.name, stream=fh)
+        tmp.close()
+        p.strip_dirs()
+        p.sort_stats('cumulative')
+        p.print_stats(50)
+        p.sort_stats('time')
+        p.print_stats(50)
+        fh.close()
+        
     return operations
 
 
@@ -258,6 +278,9 @@ def parse_args():
                       help="For compatibility with mount(8). Specifies mount options in "
                            "the form key=val,key2=val2,etc. Valid keys are s3timeout, "
                            "allow_others, allow_root, cachesize, atime")
+    parser.add_option("--profile", action="store_true", default=False,
+                      help="Create profiling information. If you don't understand this, "
+                        "then you don't need it.")
                            
     
     (options, pps) = parser.parse_args()
@@ -269,6 +292,9 @@ def parse_args():
         parser.error("Wrong number of parameters")
     options.bucketname = pps[0]
     options.mountpoint = pps[1]
+            
+    if options.profile:
+        options.single = True
     
     if not options.o:
         return options
@@ -296,7 +322,7 @@ def parse_args():
                     raise ValueError()
         except ValueError:
             parser.error('Unknown mount option: "%s"' % pair) 
-                
+        
     return options
 
 if __name__ == '__main__':
