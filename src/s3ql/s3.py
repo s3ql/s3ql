@@ -244,8 +244,8 @@ class Bucket(object):
         """
  
         with self.get_boto() as boto:
-            if not force and not boto.get_key(key):
-                raise KeyError
+            if not force and boto.get_key(key) is None:
+                raise KeyError('Key does not exist: %s' % key)
             
             boto.delete_key(key)
 
@@ -279,8 +279,8 @@ class Bucket(object):
         with self.get_boto() as boto:
             bkey = boto.get_key(key)
             
-            if not bkey:
-                raise KeyError
+            if bkey is None:
+                raise KeyError('Key does not exist: %s' % key)
 
             val = bkey.get_contents_as_string()
             
@@ -315,8 +315,8 @@ class Bucket(object):
  
         with self.get_boto() as boto:
             bkey = boto.get_key(key)
-            if not bkey.exists():
-                raise KeyError
+            if bkey is None:
+                raise KeyError('Key does not exist: %s' % key)
 
             bkey.get_contents_to_filename(file_)
         metadata = self.boto_key_to_metadata(bkey)            
