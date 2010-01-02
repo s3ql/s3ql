@@ -130,7 +130,7 @@ def run_server(bucket, cachedir, dbcm, options):
 
     log.info('Mounting filesystem...')
     fuse_opts = get_fuse_opts(options) 
-    cache =  S3Cache(bucket, cachedir, options.cachesize, dbcm,
+    cache =  S3Cache(bucket, cachedir, options.cachesize*1024, dbcm,
                      timeout=options.s3timeout)
     try:    
         operations = fs.Operations(cache, dbcm, not options.atime)
