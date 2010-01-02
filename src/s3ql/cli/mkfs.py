@@ -96,7 +96,7 @@ def main():
     if conn.bucket_exists(bucket):
         if options.force:
             log.info("Removing existing bucket...")
-            conn.empty_bucket(bucket, True)
+            conn.empty_bucket(bucket)
         else:
             log.warn(
                 "Bucket already exists!\n" 
