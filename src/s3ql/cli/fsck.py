@@ -97,18 +97,14 @@ def main():
             (not os.path.exists(cachedir) or
              not os.path.exists(dbfile)):
         if not options.force_remote:
-            log.error("""
-    Filesystem is marked dirty, but there is no cached metadata available.
-    You should run fsck.s3ql on the system and user id where the
-    filesystem has been mounted most recently.
-    
-    This message can also appear if changes from the last mount have not
-    had sufficient time to propagate in S3. In this case this message
-    should disappear when retrying later.
-    
-    Use --force-remote if you want to force a check on this machine. This
-    may result in dataloss.
-    """)
+            print('Filesystem is marked dirty, but there is no cached metadata available.\n'
+                   'You should run fsck.s3ql on the system and user id where the\n'
+                   'filesystem has been mounted most recently.\n\n'
+                   'This message can also appear if changes from the last mount have not\n'
+                   'had sufficient time to propagate in S3. In this case this message\n'
+                   'should disappear when retrying later.\n\n'    
+                   'Use --force-remote if you want to force a check on this machine. This\n'
+                   'may result in dataloss.\n', file=sys.stderr)
             sys.exit(1)
         else:
             log.warn("Dirty filesystem and no local metadata - continuing anyway.")
@@ -116,13 +112,11 @@ def main():
     if (bucket.lookup_key("s3ql_metadata").last_modified 
         < bucket.lookup_key("s3ql_dirty").last_modified):
         if not options.force_old:
-            log.error('''
-    Metadata from most recent mount has not yet propagated through Amazon S3.
-    Please try again later.
-    
-    Use --force-old if you want to check the file system with  the (outdated)
-    metadata that is available right now. This will result in data loss.
-    ''')
+            print('Metadata from most recent mount has not yet propagated through Amazon S3.\n'
+                  'Please try again later.\n\n'
+                  'Use --force-old if you want to check the file system with  the (outdated)\n'
+                  'metadata that is available right now. This will result in data loss.\n',
+                  file=sys.stderr)
             sys.exit(1)
         else:
             log.warn('Metadata has not yet propagated through Amazon S3.'
@@ -149,22 +143,19 @@ def main():
         if remote > local:
             # remote metadata is newer
             if not options.force_local:
-                log.error("""
-    The metadata stored with the filesystem is never than the
-    locally cached data. Probably the filesystem has been mounted
-    and changed on a different system. You should run fsck.s3ql
-    on that system.
-    
-    Use --force-local if you want to force a check on this machine using the
-    cached data. This will result in dataloss.
-    
-    You can also remove the local cache before calling fsck.s3ql to
-    perform the check with the newer metadata stored on S3. This
-    may also result in dataloss.
-    """)
+                print('The metadata stored with the filesystem is never than the\n'
+                      'locally cached data. Probably the filesystem has been mounted\n'
+                      'and changed on a different system. You should run fsck.s3ql\n'
+                      'on that system.\n\n'  
+                      'Use --force-local if you want to force a check on this machine using the\n'
+                      'cached data. This will result in dataloss.\n\n'  
+                      'You can also remove the local cache before calling fsck.s3ql to\n'
+                      'perform the check with the newer metadata stored on S3. This\n'
+                      'may also result in dataloss.\n', file=sys.stderr)
                 sys.exit(1)
             elif options.checkonly:
-                log.warn('Cannot overwrite local metadata in checkonly mode, exiting.')
+                print('Cannot overwrite local metadata in checkonly mode, exiting.\n',
+                      file=sys.stderr)
                 sys.exit(1)
             else:
                 log.warn("Remote metadata is never than cache - continuing anyway.")
