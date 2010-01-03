@@ -30,7 +30,7 @@ class Connection(object):
 
     Currently, this just dispatches everything to boto. Note
     that boto is not threadsafe, so we need to create a
-    separate s3 connection for each thread.
+    separate boto connection object for each thread.
     """
 
     def __init__(self, awskey, awspass):
@@ -40,8 +40,7 @@ class Connection(object):
         self.conn_cnt = 0
 
     def _pop_conn(self):
-        '''Return S3 connection from the pool
-        '''
+        '''Get boto connection object from the pool'''
         
         try:
             conn = self.pool.pop()
@@ -55,38 +54,24 @@ class Connection(object):
         return conn
     
     def _push_conn(self, conn):
-        '''Put the s3 connection back into the pool
-        '''
+        '''Return boto connection object to pool'''
         
         self.pool.append(conn)
 
     def delete_bucket(self, name, recursive=False):
-        """Deletes a bucket from S3.
-
-        Fails if there are objects in the bucket and `recursive` is
-        `False`.
-        """
+        """Delete bucket"""
         
         if recursive:
-            self.empty_bucket(name)
+            bucket = self.get_bucket(name)
+            bucket.clear()
             
-        with self.get_boto() as boto:
+        with self._get_boto() as boto:
             boto.delete_bucket(name)
-            
-    def empty_bucket(self, name):
-        """Deletes all objects in a bucket
-        """
-        with self.get_boto() as boto:
-            bucket = boto.get_bucket(name)
-            for s3key in bucket.list():
-                log.debug('Deleting key %s', s3key)
-                bucket.delete_key(s3key)
 
 
     @contextmanager
-    def get_boto(self):
-        """Return boto s3 connection for exclusive use
-        """
+    def _get_boto(self):
+        """Provide boto connection object"""
 
         conn = self._pop_conn()
         try: 
@@ -95,47 +80,42 @@ class Connection(object):
             self._push_conn(conn)
 
     def create_bucket(self, name):
-        """Create and return an S3 bucket
-        """
-        with self.get_boto() as boto:
+        """Create and return an S3 bucket"""
+        
+        with self._get_boto() as boto:
             boto.create_bucket(name)
             
             # S3 needs some time before we can fetch the bucket
             waitfor(10, self.bucket_exists, name)
             
-        return Bucket(self, name)
+        return self.get_bucket(name)
 
-    def get_bucket(self, name, create=False):
-        """Returns a bucket instance for the bucket `name`
+    def get_bucket(self, name):
+        """Return a bucket instance for the bucket `name`
         
-        If `create` is True, the bucket is created if it does not exist.
+        Raises `KeyError` if the bucket does not exist.
         """
         
-        with self.get_boto() as boto:
-            try:
-                boto.get_bucket(name)
-            except bex.S3ResponseError as e:
-                if create and e.status == 404:
-                    return self.create_bucket(name)
-                else:
-                    raise
-            else:
-                return Bucket(self, name)
-
-    def bucket_exists(self, name):
-        """Checks if the bucket `name` exists.
-        """
-        with self.get_boto() as boto:
+        with self._get_boto() as boto:
             try:
                 boto.get_bucket(name)
             except bex.S3ResponseError as e:
                 if e.status == 404:
-                    return False
+                    raise KeyError("Bucket %r does not exist." % name)
                 else:
                     raise
-            else:
-                return True
+                
+            return Bucket(self, name)
 
+    def bucket_exists(self, name):
+        """Check if the bucket `name` exists"""
+        
+        try:
+            self.get_bucket(name)
+        except KeyError:
+            return False
+        else:
+            return True
 
 
 class Bucket(object):
@@ -147,44 +127,29 @@ class Bucket(object):
     The class behaves more or less like a dict. It raises the
     same exceptions, can be iterated over and indexed into.
     """
-
+    
+    def clear(self):
+        """Delete all objects"""
+        
+        for s3key in self:
+            log.debug('Deleting key %s', s3key)
+            del self[s3key]
+              
+    @contextmanager
+    def _get_boto(self):
+        '''Provide boto bucket object'''
+        # Access to protected methods ok
+        #pylint: disable-msg=W0212
+        
+        boto_conn = self.conn._pop_conn()
+        try: 
+            yield boto_conn.get_bucket(self.name)
+        finally:
+            self.conn._push_conn(boto_conn)
+            
     def __init__(self, conn, name):
         self.name = name
         self.conn = conn
-        self.pool = list()
-        self.conn_cnt = 0
-
-    def _pop_conn(self):
-        '''Return S3 connection from the pool
-        '''
-        
-        try:
-            conn = self.pool.pop()
-        except IndexError:
-            # Need to create a new connection
-            log.debug("Creating new boto connection (active conns: %d)...", 
-                      self.conn_cnt)
-            conn = S3Connection(self.conn.awskey, self.conn.awspass).get_bucket(self.name)
-            self.conn_cnt += 1
-                   
-        return conn
-    
-    def _push_conn(self, conn):
-        '''Put the s3 connection back into the pool
-        '''
-        
-        self.pool.append(conn)
-  
-    @contextmanager
-    def get_boto(self):
-        """Return boto s3 connection for exclusive use
-        """
-
-        conn = self._pop_conn()
-        try: 
-            yield conn
-        finally:
-            self._push_conn(conn)
             
     def __str__(self):
         return "<bucket: %s>" % self.name
@@ -227,7 +192,7 @@ class Bucket(object):
         `Metadata` instance is returned.
         """
  
-        with self.get_boto() as boto:
+        with self._get_boto() as boto:
             bkey = boto.get_key(key)
 
         if bkey is not None:
@@ -243,7 +208,7 @@ class Bucket(object):
 
         """
  
-        with self.get_boto() as boto:
+        with self._get_boto() as boto:
             if not force and boto.get_key(key) is None:
                 raise KeyError('Key does not exist: %s' % key)
             
@@ -263,7 +228,7 @@ class Bucket(object):
         doesn't define the `metadata` variable).
         """
 
-        with self.get_boto() as boto:
+        with self._get_boto() as boto:
             for key in boto.list():
                 yield (unicode(key.name), self.boto_key_to_metadata(key))
 
@@ -276,7 +241,7 @@ class Bucket(object):
         for ``bucket.fetch(key)[0]``.
         """
  
-        with self.get_boto() as boto:
+        with self._get_boto() as boto:
             bkey = boto.get_key(key)
             
             if bkey is None:
@@ -299,7 +264,7 @@ class Bucket(object):
         val)``.
         """
  
-        with self.get_boto() as boto:
+        with self._get_boto() as boto:
             bkey = boto.new_key(key)
             bkey.set_contents_from_string(val)
 
@@ -313,7 +278,7 @@ class Bucket(object):
         format used by `lookup_key`.
         """
  
-        with self.get_boto() as boto:
+        with self._get_boto() as boto:
             bkey = boto.get_key(key)
             if bkey is None:
                 raise KeyError('Key does not exist: %s' % key)
@@ -330,7 +295,7 @@ class Bucket(object):
         `file` has to be a file name. Returns the etag.
         """
 
-        with self.get_boto() as boto:
+        with self._get_boto() as boto:
             bkey = boto.new_key(key)
             bkey.set_contents_from_filename(file_)
 
@@ -341,7 +306,7 @@ class Bucket(object):
         """Copies data stored under `src` to `dest`
         """
 
-        with self.get_boto() as boto:
+        with self._get_boto() as boto:
             boto.copy_key(dest, self.name, src)
 
     @staticmethod

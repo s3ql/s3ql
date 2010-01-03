@@ -76,14 +76,18 @@ def main():
     
     if options.encrypt:
         if sys.stdin.isatty():
-            options.encrypt = getpass("Enter encryption password: ")
-            if not options.encrypt == getpass("Confirm encryption password: "):
+            wrap_pw = getpass("Enter encryption password: ")
+            if not wrap_pw == getpass("Confirm encryption password: "):
                 sys.stderr.write("Passwords don't match\n.")
                 sys.exit(1)
         else:
             options.encrypt = sys.stdin.readline().rstrip()
-        sys.stderr.write('Encryption is not yet supported.')
-        sys.exit(1)
+        
+        # Generate data encryption passphrase
+        fh = open('/dev/random', "r", 0) # No buffering
+        data_pw = fh.read(128)
+        fh.close()
+        
     
     # Activate logging
     init_logging(True, options.quiet, options.debug, options.debuglog)
@@ -96,12 +100,15 @@ def main():
     if conn.bucket_exists(bucket):
         if options.force:
             log.info("Removing existing bucket...")
-            conn.empty_bucket(bucket)
+            bucket = conn.get_bucket(bucket)
+            bucket.clear()
         else:
             log.warn(
                 "Bucket already exists!\n" 
                 "Use -f option to remove the existing bucket.\n")
             sys.exit(1)
+    else:
+        bucket = conn.create_bucket(bucket)
         
     
     #
@@ -130,8 +137,6 @@ def main():
                       options.blocksize * 1024, options.label)
     
         log.info('Uploading database...')
-        bucket = conn.get_bucket(bucket, create=True)
-        
         bucket['s3ql_dirty'] = "no"
         bucket.store_from_file('s3ql_metadata', dbfile)
         

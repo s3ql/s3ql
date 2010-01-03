@@ -102,7 +102,8 @@ class s3_tests_remote(unittest.TestCase):
         if tries == 0:
             raise RuntimeError("Failed to find an unused bucket name.")
         
-        self.bucket = self.conn.get_bucket(self.bucketname, create=True)
+        self.conn.create_bucket(self.bucketname)
+        self.bucket = self.conn.get_bucket(self.bucketname)
         
         # This is the time in which we expect S3 changes to propagate. It may
         # be much longer for larger objects, but for tests this is usually enough.
