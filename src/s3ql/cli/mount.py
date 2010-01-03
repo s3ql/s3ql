@@ -200,6 +200,9 @@ def add_common_mount_opts(parser):
                       help="Single threaded operation only")
     parser.add_option("--atime", action="store_true", default=False,
                       help="Update directory access time. Will decrease performance.")
+    parser.add_option("--profile", action="store_true", default=False,
+                      help="Create profiling information. If you don't understand this, "
+                        "then you don't need it.")
 
 
 def check_fs(bucket, cachedir, dbfile):
@@ -278,9 +281,6 @@ def parse_args():
                       help="For compatibility with mount(8). Specifies mount options in "
                            "the form key=val,key2=val2,etc. Valid keys are s3timeout, "
                            "allow_others, allow_root, cachesize, atime")
-    parser.add_option("--profile", action="store_true", default=False,
-                      help="Create profiling information. If you don't understand this, "
-                        "then you don't need it.")
                            
     
     (options, pps) = parser.parse_args()
