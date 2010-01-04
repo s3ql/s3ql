@@ -11,7 +11,7 @@ from __future__ import unicode_literals, division, print_function
 from random import randint
 from s3ql import mkfs, s3, fs, fsck
 import time
-from s3ql.common import ROOT_INODE
+from s3ql.common import ROOT_INODE, ExceptionStoringThread
 from llfuse import FUSEError
 from s3ql.s3cache import S3Cache
 from s3ql.database import ConnectionManager
@@ -510,6 +510,27 @@ class fs_api_tests(unittest.TestCase):
         
         self.fsck()
         
+    def test_issue_65(self):
+        
+        from s3ql import multi_lock
+        multi_lock.FAKEDELAY = 0.02
+        
+        name = self.random_name()
+        inode_p = self.root_inode
+        
+        # Create file
+        (fh, dummy) = self.server.create(inode_p, name, 0664, Ctx())
+        self.server.write(fh, 0, self.random_data(8192)) 
+        self.server.flush(fh)
+        
+        # Now release and unlink in parallel
+        t1 = ExceptionStoringThread(lambda : self.server.unlink(inode_p, name))
+        t1.start()
+        self.server.release(fh)
+        t1.join_and_raise()
+
+        self.fsck()
+    
     def test_10_overwrite_dir(self):
         dirname1 = self.random_name()
         dirname2 = self.random_name()

@@ -24,3 +24,7 @@ class fuse_kernel_tests(unittest.TestCase):
     # FIXME: Check that FUSE does not allow to change the type of
     # a directory entry
     
+    # FIXME: Check that FUSE does not send rmdir(), unlink(), mkdir(),
+    # mknod(), symlink(), link() or create() requests
+    # for a directory entries passed to a running rename() request.
+    

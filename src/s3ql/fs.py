@@ -40,13 +40,13 @@ class Operations(llfuse.Operations):
     Attributes:
     -----------
 
-    :dbcm:        DBConnectionManager instance
+    :dbcm:        `DBConnectionManager` instance
     :cache:       Holds information about cached s3 objects
     :noatime:     Do not update directory access time
     :encountered_errors: Is set to true if a request handler raised an exception
-    :lock:       Lock for synchronizing updates to `open_files`
-    :open_files: A dict with the inodes that are currently open as keys. The values
-                 are cached values for size, mtime and atime
+    :inode_lock:    MultiLock for synchronizing updates to `open_files`
+    :open_files: A dict of the currently opened file inodes. The value is another
+                dict with keys ``cached_attrs`` and ``open count``
 
  
     Notes
@@ -56,6 +56,19 @@ class Operations(llfuse.Operations):
     in the _write() method. However, it turns out that this SQL query
     is responsible for 90% of the CPU time when copying large files. 
     Therefore we cache these values instead.
+    
+    Threads may block when waiting for `inode_lock` *and* when trying to
+    access the database. Therefore we have to be especially careful
+    to prevent deadlocks. For example: if `unlink` were to start a 
+    transaction before obtaining `inode_lock`, and a different thread
+    would call `release`, we would have a deadlock (because `release`
+    first obtains `inode_lock` and *then* tries to access the database).
+    
+    To prevent such a deadlock, a function must not try to acquire
+    an inode lock when it already holds a lock on the database.
+    If the function needs both locks, it needs to obtain the inode
+    lock first (since this is a `MultiLock` it is also more specific and less
+    likely to block other threads).
     """
 
     
@@ -82,7 +95,7 @@ class Operations(llfuse.Operations):
         self.encountered_errors = False
         self.open_files = dict()
         
-        self.lock = MultiLock()
+        self.inode_lock = MultiLock()
             
         # Check filesystem revision
         log.debug("Reading fs parameters...")
@@ -182,19 +195,18 @@ class Operations(llfuse.Operations):
         return fstat
 
     def readlink(self, inode):
-        with self.dbcm() as conn:
-            target = conn.get_val("SELECT target FROM inodes WHERE id=?", (inode,))
+        target = self.dbcm.get_val("SELECT target FROM inodes WHERE id=?", (inode,))
     
-            if not self.noatime:
-                timestamp = time.time() 
-                with self.lock(inode):
-                    if inode in self.open_files:
-                        self.open_files[inode]['cached_attrs']['st_atime'] = timestamp
-                        self.open_files[inode]['cached_attrs']['st_ctime'] = timestamp
-                    else:
-                        timestamp -= time.timezone
-                        self.dbcm.execute("UPDATE inodes SET atime=?, ctime=? WHERE id=?",
-                                          (timestamp, timestamp, inode))
+        if not self.noatime:
+            timestamp = time.time() 
+            with self.inode_lock(inode):
+                if inode in self.open_files:
+                    self.open_files[inode]['cached_attrs']['st_atime'] = timestamp
+                    self.open_files[inode]['cached_attrs']['st_ctime'] = timestamp
+                else:
+                    timestamp -= time.timezone
+                    self.dbcm.execute("UPDATE inodes SET atime=?, ctime=? WHERE id=?",
+                                      (timestamp, timestamp, inode))
             
         return target                           
             
@@ -268,15 +280,17 @@ class Operations(llfuse.Operations):
         raise llfuse.FUSEError(llfuse.ENOTSUP)
     
     def unlink(self, inode_p, name):
-        with self.dbcm.transaction() as conn:
-            timestamp = time.time() - time.timezone
-            attr = self.lookup(inode_p, name) 
-            inode = attr['st_ino']
-            conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                        (name, inode_p))
+        
+        timestamp = time.time() - time.timezone
+        attr = self.lookup(inode_p, name) 
+        inode = attr['st_ino']
+           
+        with self.inode_lock(inode):    
+            with self.dbcm.transaction() as conn:        
+                conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
+                             (name, inode_p))
     
-            # No more links and not open
-            with self.lock(inode):
+                # No more links and not open
                 if attr["st_nlink"] == 1 and inode not in self.open_files:
                     self.cache.remove(inode)
                     conn.execute("DELETE FROM inodes WHERE id=?", (inode,))
@@ -287,8 +301,8 @@ class Operations(llfuse.Operations):
                     conn.execute("UPDATE inodes SET refcount=refcount-1, ctime=? WHERE id=?",
                                  (timestamp, inode))
     
-            conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
-                         (timestamp, timestamp, inode_p))
+                conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
+                             (timestamp, timestamp, inode_p))
 
 
     def mark_damaged(self):
@@ -357,84 +371,139 @@ class Operations(llfuse.Operations):
                           get_path(name_new, inode_p_new, conn))
             raise llfuse.FUSEError(errno.EACCES)
 
-        with self.dbcm.transaction() as conn:
-            fstat = self.lookup(inode_p_old, name_old)
-            inode = fstat['st_ino']
-            timestamp = time.time() - time.timezone
-            
-            try:
-                inode_repl = conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                                          (name_new, inode_p_new))
-            except KeyError:
-                # Target does not exist
-                conn.execute("UPDATE contents SET name=?, parent_inode=? WHERE name=? "
-                            "AND parent_inode=?", (name_new, inode_p_new,
-                                                   name_old, inode_p_old))
-                
-                if stat.S_ISDIR(fstat['st_mode']):
-                    conn.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
-                                (inode_p_new, b'..', inode))
-                
+        fstat_old = self.lookup(inode_p_old, name_old)
+        
+        try:
+            fstat_new = self.lookup(inode_p_new, name_new)
+        except llfuse.FUSEError as exc:
+            if exc.errno != errno.ENOENT:
+                raise
             else:
-                # Target exists, overwrite
-                fstat_repl = self.getattr_all(inode_repl)
-                
-                # Both directories
-                if stat.S_ISDIR(fstat_repl['st_mode']) and stat.S_ISDIR(fstat['st_mode']):
-                    if conn.get_val("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
-                                    (inode_repl,)) > 2: 
-                        log.debug("Attempted to overwrite nonempty directory %s",
-                                  get_path(name_new, inode_p_new, conn))
-                        raise llfuse.FUSEError(errno.EINVAL)
-                
-                    # Replace target
-                    conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
-                                (inode, name_new, inode_p_new))
-                    conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
-                                (inode_p_new, b'..', inode))
-                    
-                    # Delete old name
-                    conn.execute('DELETE FROM contents WHERE name=? AND parent_inode=?',
-                                (name_old, inode_p_old))
-                    conn.execute("UPDATE inodes SET refcount=refcount-1, ctime=? WHERE id=?",
-                                 (timestamp, inode_p_old))
-                    
-                    # Delete overwritten directory
-                    conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                                (b'.', inode_repl))
-                    conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                                (b'..', inode_repl))
-                    conn.execute("DELETE FROM inodes WHERE id=?", (inode_repl,))
-                    
-                            
-                # Only one is a directory
-                elif stat.S_ISDIR(fstat['st_mode']) or stat.S_ISDIR(fstat_repl['st_mode']):
-                    log.debug('Cannot rename file to directory (or vice versa).')
-                    raise llfuse.FUSEError(errno.EINVAL) 
-                
-                # Both files
-                else:
-                    conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
-                                (inode, name_new, inode_p_new))
-                    conn.execute('DELETE FROM contents WHERE name=? AND parent_inode=?',
-                                (name_old, inode_p_old))
+                target_exists = False
+        else:
+            target_exists = True
             
-                    # No more links and not open
-                    with self.lock(inode_repl):
-                        if fstat_repl["st_nlink"] == 1 and inode_repl not in self.open_files:
-                            self.cache.remove(inode_repl)
-                            conn.execute("DELETE FROM inodes WHERE id=?", (inode_repl,))
-                        elif inode_repl in self.open_files:
-                            self.open_files[inode_repl]['cached_attrs']['st_nlink'] -= 1
-                            self.open_files[inode_repl]['cached_attrs']['st_ctime'] = time.time()
-                        else:
-                            conn.execute("UPDATE inodes SET refcount=refcount-1, ctime=? WHERE id=?",
-                                         (timestamp, inode_repl))
-                        
+        if not target_exists:
+            if stat.S_ISDIR(fstat_old['st_mode']):
+                self._rename_dir(inode_p_old, name_old, inode_p_new, name_new,
+                                 fstat_old['st_ino'])
+            else:
+                self._rename_file(inode_p_old, name_old, inode_p_new, name_new)
+        else:
+            if stat.S_IFMT(fstat_old['st_mode']) != stat.S_IFMT(fstat_new['st_mode']):
+                log.warn('Cannot rename file to directory (or vice versa).')
+                raise llfuse.FUSEError(errno.EINVAL) 
+            
+            if stat.S_ISDIR(fstat_old['st_mode']):
+                self._replace_dir(inode_p_old, name_old, inode_p_new, name_new,
+                                  fstat_old['st_ino'], fstat_new['st_ino'])
+            else:
+                self._replace_file(inode_p_old, name_old, inode_p_new, name_new,
+                                   fstat_old['st_ino'], fstat_new['st_ino'])
+        
+        
+    def _rename_dir(self, inode_p_old, name_old, inode_p_new, name_new, inode):
+        '''Rename a directory'''
+
+        timestamp = time.time() - time.timezone
+             
+        with self.dbcm.transaction() as conn:
+            conn.execute("UPDATE contents SET name=?, parent_inode=? WHERE name=? "
+                         "AND parent_inode=?", (name_new, inode_p_new,
+                                                name_old, inode_p_old))
+            conn.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
+                         (inode_p_new, b'..', inode))
             conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
                                  (timestamp, timestamp, inode_p_old))
             conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
                                  (timestamp, timestamp, inode_p_new))
+            
+    def _rename_file(self, inode_p_old, name_old, inode_p_new, name_new):
+        '''Rename a file'''
+
+        timestamp = time.time() - time.timezone
+             
+        with self.dbcm.transaction() as conn:
+            conn.execute("UPDATE contents SET name=?, parent_inode=? WHERE name=? "
+                         "AND parent_inode=?", (name_new, inode_p_new,
+                                                name_old, inode_p_old))
+            conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
+                                 (timestamp, timestamp, inode_p_old))
+            conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
+                                 (timestamp, timestamp, inode_p_new))
+            
+    def _replace_dir(self, inode_p_old, name_old, inode_p_new, name_new, 
+                 inode_old, inode_new):
+        '''Replace a directory'''
+        
+        timestamp = time.time() - time.timezone
+             
+        with self.dbcm.transaction() as conn:
+            if conn.get_val("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
+                            (inode_new,)) > 2: 
+                log.warn("Attempted to overwrite nonempty directory %s",
+                          get_path(name_new, inode_p_new, conn))
+                raise llfuse.FUSEError(errno.EINVAL)
+                
+            # Replace target
+            conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
+                        (inode_old, name_new, inode_p_new))
+            conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
+                        (inode_p_new, b'..', inode_old))
+            
+            # Delete old name
+            conn.execute('DELETE FROM contents WHERE name=? AND parent_inode=?',
+                        (name_old, inode_p_old))
+            conn.execute("UPDATE inodes SET refcount=refcount-1, ctime=? WHERE id=?",
+                         (timestamp, inode_p_old))
+            
+            # Delete overwritten directory
+            conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
+                        (b'.', inode_new))
+            conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
+                        (b'..', inode_new))
+            conn.execute("DELETE FROM inodes WHERE id=?", (inode_new,))
+            
+            conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
+                         (timestamp, timestamp, inode_p_old))
+            conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
+                         (timestamp, timestamp, inode_p_new))
+                    
+                            
+    def _replace_file(self, inode_p_old, name_old, inode_p_new, name_new, 
+                 inode_old, inode_new):
+        '''Replace a file'''
+        
+        timestamp = time.time() - time.timezone
+             
+        with self.inode_lock(inode_new):      
+            with self.dbcm.transaction() as conn:       
+                conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
+                            (inode_old, name_new, inode_p_new))
+                conn.execute('DELETE FROM contents WHERE name=? AND parent_inode=?',
+                            (name_old, inode_p_old))
+            
+                # We need to get up-to-date information after having
+                # started the transaction
+                nlink =  conn.get_val('SELECT refcount FROM inodes WHERE id=?', (inode_new,))
+                
+                # No more links and not open
+                if nlink == 1 and inode_new not in self.open_files:
+                    self.cache.remove(inode_new)
+                    conn.execute("DELETE FROM inodes WHERE id=?", (inode_new,))
+                elif inode_new in self.open_files:
+                    self.open_files[inode_new]['cached_attrs']['st_nlink'] -= 1
+                    self.open_files[inode_new]['cached_attrs']['st_ctime'] = time.time()
+                else:
+                    conn.execute("UPDATE inodes SET refcount=refcount-1, ctime=? WHERE id=?",
+                                 (timestamp, inode_new))
+                    
+                        
+                conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
+                             (timestamp, timestamp, inode_p_old))
+                conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
+                             (timestamp, timestamp, inode_p_new))
+            
 
     def link(self, inode, new_inode_p, new_name):
         if new_name == CTRL_NAME or inode == CTRL_INODE:
@@ -443,20 +512,20 @@ class Operations(llfuse.Operations):
                           get_path(new_name, new_inode_p, conn))
             raise llfuse.FUSEError(errno.EACCES)
 
-        with self.dbcm.transaction() as conn:
-            conn.execute("INSERT INTO contents (name,inode,parent_inode) VALUES(?,?,?)",
-                     (new_name, inode, new_inode_p))
-            
-            with self.lock(inode):
+        with self.inode_lock(inode):
+            with self.dbcm.transaction() as conn:
+                conn.execute("INSERT INTO contents (name,inode,parent_inode) VALUES(?,?,?)",
+                         (new_name, inode, new_inode_p))
+                  
                 if inode in self.open_files:
                     self.open_files[inode]['cached_attrs']['st_nlink'] += 1
                     self.open_files[inode]['cached_attrs']['st_ctime'] = time.time()
                 else:
                     conn.execute("UPDATE inodes SET refcount=refcount+1, ctime=? WHERE id=?",
                                  (time.time() - time.timezone, inode))
-                    
-            conn.execute("UPDATE inodes SET mtime=? WHERE id=?",
-                         (time.time() - time.timezone, new_inode_p))
+                        
+                conn.execute("UPDATE inodes SET mtime=? WHERE id=?",
+                             (time.time() - time.timezone, new_inode_p))
             
         return self.getattr_all(inode)
 
@@ -476,7 +545,7 @@ class Operations(llfuse.Operations):
                     fh.truncate(len_ - self.blocksize * blockno)
                  
            
-        with self.lock(inode):   
+        with self.inode_lock(inode):   
             # Update metadata in cache if possible
             if inode in self.open_files:
                 self.open_files[inode]['cached_attrs'].update(attr)
@@ -602,7 +671,7 @@ class Operations(llfuse.Operations):
         possible to distinguish between different open() and `create()` calls
         for the same inode.
         """        
-        with self.lock(inode):
+        with self.inode_lock(inode):
             if inode in self.open_files:
                 self.open_files[inode]['open_count'] += 1
             else:
@@ -662,7 +731,7 @@ class Operations(llfuse.Operations):
                          (timestamp, inode_p))
             
         attrs = self.getattr_all(inode)
-        with self.lock(inode):
+        with self.inode_lock(inode):
             self.open_files[inode] = { 'open_count': 1, 
                                        'cached_attrs': attrs.copy() }
                 
@@ -688,7 +757,7 @@ class Operations(llfuse.Operations):
             length -= len(tmp)
             offset += len(tmp)
            
-        with self.lock(inode):
+        with self.inode_lock(inode):
             self.open_files[fh]['cached_attrs']['st_atime'] = time.time()
              
         return buf.getvalue()
@@ -733,7 +802,7 @@ class Operations(llfuse.Operations):
         # a concurrent write.
         minsize = offset + len(buf)
         timestamp = time.time()
-        with self.lock(fh):
+        with self.inode_lock(fh):
             tmp = self.open_files[fh]['cached_attrs']
             tmp['st_size'] = max(tmp['st_size'], minsize)
             tmp['st_mtime'] = timestamp
@@ -773,7 +842,7 @@ class Operations(llfuse.Operations):
         pass
        
     def release(self, fh):    
-        with self.lock(fh):
+        with self.inode_lock(fh):
             tmp =  self.open_files[fh]
             tmp['open_count'] -= 1
             

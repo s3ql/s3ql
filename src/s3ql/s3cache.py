@@ -96,6 +96,11 @@ class S3Cache(object):
     SQLite database. With the s3 key known, a key-specific lock is
     acquired and then the global lock released. 
     
+    However, threads may also block when trying to access the database, so
+    we have to be especially careful not to hold a database lock when
+    we are trying to get a global or s3 key lock (otherwise a 
+    deadlock becomes possible).
+    
     
     Attributes:
     -----------
@@ -327,6 +332,9 @@ class S3Cache(object):
         continues to process the remaining blocks in parallel.
         """        
 
+        # We can share the connection among threads, because
+        # we ensure that it is only used by one thread at
+        # a time. 
         with self.dbcm() as dbconn:
             threads = list()
             blocks_remaining = True
@@ -519,7 +527,7 @@ class UnlinkBlocksThread(ExceptionStoringThread):
                     self.ready.set()
                      
                     conn.execute("DELETE FROM s3_objects WHERE key=?", (s3key,))
-                    cache.s3_lock.acquire(s3key) # In case another thread wants to recreate this key
+                cache.s3_lock.acquire(s3key) # In case another thread wants to recreate this key
                     
             try:
                 log.debug('Removing object %s', s3key)
