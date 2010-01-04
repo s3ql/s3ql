@@ -11,11 +11,17 @@ from __future__ import unicode_literals, division, print_function
 import threading
 import logging
 from contextlib import contextmanager
+import time
 
 __all__ = [ "MultiLock" ]
 
 log = logging.getLogger("MultiLock")
         
+     
+# For debugging, can be set to impose an artifical delay when
+# obtaining the lock. Introduced to debug a very
+# timing-critical bug.
+FAKEDELAY = 0.02
             
 class MultiLock(object):
     """Provides locking for multiple objects.
@@ -49,6 +55,9 @@ class MultiLock(object):
     def acquire(self, key):
         '''Acquire lock for given key'''
         
+        if FAKEDELAY:
+            time.sleep(FAKEDELAY)  
+            
         # Lock set of lockedkeys (global lock)
         with self.cond:
             
