@@ -21,7 +21,7 @@ log = logging.getLogger("MultiLock")
 # For debugging, can be set to impose an artifical delay when
 # obtaining the lock. Introduced to debug a very
 # timing-critical bug.
-FAKEDELAY = 0.02
+FAKEDELAY = False
             
 class MultiLock(object):
     """Provides locking for multiple objects.
