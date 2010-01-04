@@ -101,13 +101,15 @@ def init_logging(fg, quiet=False, debug=None, debugfile=None):
     if debug:
         if debugfile is None:
             debug_handler = logging.StreamHandler()
+            debug_handler.addFilter(Filter(acceptnames=debug, acceptlevel=logging.DEBUG))
         else:
+            # Debug file gets all debug output
             debug_handler = logging.handlers.WatchedFileHandler(debugfile)
             
         debug_handler.setFormatter(logging.Formatter('%(asctime)s,%(msecs)03d %(threadName)s: '
                                                      '[%(name)s] %(message)s',
                                                      datefmt="%H:%M:%S")) 
-        debug_handler.addFilter(Filter(acceptnames=debug, acceptlevel=logging.DEBUG))
+        
         root_logger.addHandler(debug_handler) 
         root_logger.setLevel(logging.DEBUG)
    
