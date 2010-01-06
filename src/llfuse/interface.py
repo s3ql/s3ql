@@ -452,6 +452,7 @@ def fuse_create(req, ino_parent, name, mode, fi):
     (fh, attr) = operations.create(ino_parent, string_at(name), mode, 
                                    libfuse.fuse_req_ctx(req).contents)
     fi.contents.fh = fh
+    fi.contents.keep_cache = 1
     entry = dict_to_entry(attr)
     
     log.debug('Calling fuse_reply_create')
@@ -606,6 +607,7 @@ def fuse_open(req, inode, fi):
     '''Open a file'''
     log.debug('Handling open(%d, %d)', inode, fi.contents.flags)
     fi.contents.fh = operations.open(inode, fi.contents.flags)
+    fi.contents.keep_cache = 1
     
     log.debug('Calling fuse_reply_open')
     try:
