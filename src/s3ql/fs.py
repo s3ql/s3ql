@@ -226,7 +226,8 @@ class Operations(llfuse.Operations):
         if llfuse.fuse_version() >= 28:
             log.debug('Using big_writes')
             args.append(b'big_writes')
-            args.append('max_write=131072')
+            args.append('max_write=131072')  
+            args.append('no_remote_lock')
 
     def readdir(self, fh, off):
         
