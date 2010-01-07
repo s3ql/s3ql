@@ -9,6 +9,7 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import unicode_literals, division, print_function
 
 import unittest
+import hashlib
 import s3ql.s3
 from random   import randrange
 from time import sleep
@@ -89,6 +90,15 @@ class s3_tests_remote(unittest.TestCase):
         sleep(self.delay)
         self.assertEquals(self.bucket[key2], value)
     
+    def test_04_encryption(self):
+        key = hashlib.md5('ffo').digest()
+        bucket = self.conn.get_bucket(self.bucketname, key)
+        
+        bucket['foobar'] = b'testdata'
+        
+        self.assertEquals(bucket['foobar'], b'testdata')
+        
+        
     def setUp(self):
         (awskey, awspass) = main.aws_credentials
         self.conn = s3ql.s3.Connection(awskey, awspass)

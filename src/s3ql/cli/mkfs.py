@@ -66,8 +66,11 @@ def main():
     
     if not len(pps) == 1:
         parser.error("bucketname not specificed")
-    bucket = pps[0]
+    bucketname = pps[0]
     
+    # Activate logging
+    init_logging(True, options.quiet, options.debug, options.debuglog)
+    log = logging.getLogger("frontend")
     
     #
     # Read password(s)
@@ -81,26 +84,23 @@ def main():
                 sys.stderr.write("Passwords don't match\n.")
                 sys.exit(1)
         else:
-            options.encrypt = sys.stdin.readline().rstrip()
+            wrap_pw = sys.stdin.readline().rstrip()
         
         # Generate data encryption passphrase
-        fh = open('/dev/random', "r", 0) # No buffering
-        data_pw = fh.read(128)
+        log.info('Generating random encryption key...')
+        fh = open('/dev/random', "rb", 0) # No buffering
+        data_pw = fh.read(16)
         fh.close()
-        
-    
-    # Activate logging
-    init_logging(True, options.quiet, options.debug, options.debuglog)
-    log = logging.getLogger("frontend")
+
     
     #
     # Setup bucket
     #
     conn = s3.Connection(awskey, awspass)
-    if conn.bucket_exists(bucket):
+    if conn.bucket_exists(bucketname):
         if options.force:
             log.info("Removing existing bucket...")
-            bucket = conn.get_bucket(bucket)
+            bucket = conn.get_bucket(bucketname)
             bucket.clear()
         else:
             log.warn(
@@ -108,8 +108,15 @@ def main():
                 "Use -f option to remove the existing bucket.\n")
             sys.exit(1)
     else:
-        bucket = conn.create_bucket(bucket)
+        conn.create_bucket(bucketname)
         
+    # Setup encryption
+    if options.encrypt:
+        bucket = conn.get_bucket(bucketname, wrap_pw)
+        bucket['s3ql_passphrase'] = data_pw
+        bucket = conn.get_bucket(bucketname, data_pw)
+    else:
+        bucket = conn.get_bucket(bucketname)
     
     #
     # Setup database
@@ -138,9 +145,7 @@ def main():
     
         log.info('Uploading database...')
         bucket['s3ql_dirty'] = "no"
-        bucket.store_from_file('s3ql_metadata', dbfile)
-        
-        
+        bucket.store_fh('s3ql_metadata', open(dbfile, 'r'))
     
     finally:
         os.unlink(dbfile)

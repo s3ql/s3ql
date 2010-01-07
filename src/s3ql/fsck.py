@@ -135,7 +135,7 @@ def check_cache():
         found_errors = True
         log_error("Committing (potentially changed) cache for %s", s3key)
         if not checkonly:
-            etag = bucket.store_from_file(s3key, os.path.join(cachedir, s3key))
+            etag = bucket.store_fh(s3key, open(os.path.join(cachedir, s3key), 'r'))
             conn.execute("UPDATE s3_objects SET etag=? WHERE key=?",
                         (etag, s3key))
             os.unlink(os.path.join(cachedir, s3key))
@@ -352,7 +352,7 @@ def check_keylist():
                       s3key, name)
             if not checkonly:
                 if not expect_errors:
-                    bucket.fetch_to_file(s3key, name)
+                    bucket.fetch_fh(s3key, open(name, 'w'))
                 to_delete.append(s3key)    
             continue
                 
@@ -383,13 +383,14 @@ def check_keylist():
             if not checkonly:
                 tmp = tempfile.NamedTemporaryFile()
                 if expect_errors:
-                    bucket.fetch_to_file(s3key, tmp.name)
+                    bucket.fetch_fh(s3key, tmp)
                 else:
-                    bucket.fetch_to_file(s3key, name)
+                    bucket.fetch_fh(s3key, open(name, 'w'))
                     shutil.copyfile(name, tmp.name)
                 tmp.seek(blocksize)
                 tmp.truncate()
-                etag_new = bucket.store_from_file(s3key, tmp.name)
+                tmp.seek(0)
+                etag_new = bucket.store_fh(s3key, tmp)
                 tmp.close()
     
                 conn.execute("UPDATE s3_objects SET etag=?, size=? WHERE key=?",

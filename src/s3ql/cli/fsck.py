@@ -17,6 +17,7 @@ from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
 from s3ql.database import WrappedConnection
 import logging
 from s3ql import s3, fsck
+from getpass import getpass
 import sys
 import apsw
 
@@ -89,6 +90,19 @@ def main():
         sys.exit(1)
     bucket = conn.get_bucket(bucketname)
     
+    # Get passphrase
+    if bucket.has_key('s3ql_passphrase'):
+        if sys.stdin.isatty():
+            wrap_pw = getpass("Enter encryption password: ")
+        else:
+            wrap_pw = sys.stdin.readline().rstrip()
+        bucket = conn.get_bucket(bucketname, wrap_pw)
+        try:
+            data_pw = bucket['s3ql_passphrase']
+        except s3.ChecksumError:
+            print('Checksum error - incorrect password?', file=sys.stderr)
+            sys.exit(1)
+        bucket = conn.get_bucket(bucketname, data_pw)
     
     #
     # Check if fs is dirty and we lack metadata
@@ -167,7 +181,7 @@ def main():
         # Download remote metadata
         log.info('Downloading metadata..')
         os.mknod(dbfile, 0600 | stat.S_IFREG)
-        bucket.fetch_to_file("s3ql_metadata", dbfile)
+        bucket.fetch_fh("s3ql_metadata", open(dbfile, 'w'))
     
     
     conn = WrappedConnection(apsw.Connection(dbfile), retrytime=0)
@@ -202,7 +216,7 @@ def main():
         bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
         
         bucket.store("s3ql_dirty", "no")
-        bucket.store_from_file("s3ql_metadata", dbfile)
+        bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
         
     
         

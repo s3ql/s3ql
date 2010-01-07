@@ -254,7 +254,7 @@ class S3Cache(object):
                          'Setting a higher timeout with --s3timeout may help.' % s3key)
             raise FUSEError(errno.EIO)
             
-        self.bucket.fetch_to_file(s3key, cachepath) 
+        self.bucket.fetch_fh(s3key, open(cachepath, 'wb')) 
         log.debug('Object %s fetched successfully.', s3key)
         
         return cachepath      
@@ -386,8 +386,8 @@ class S3Cache(object):
             
             with self.s3_lock(el.s3key):
                 el.flush()    
-                el.seek(0, 2)
-                etag = self.bucket.store_from_file(el.s3key, el.name)
+                el.seek(0)
+                etag = self.bucket.store_fh(el.s3key, el)
                 self.dbcm.execute("UPDATE s3_objects SET etag=?, size=? WHERE key=?",
                             (etag, el.tell(), el.s3key))
                 el.dirty = False
@@ -449,16 +449,16 @@ class ExpireEntryThread(ExceptionStoringThread):
             self.size = el.tell()
             log.debug('Signaling S3Cache that size is ready to be read.')
             self.size_ready.set()
-            el.close()
             
             if el.dirty:
                 log.debug('Uploading s3 object (%s)...', el.s3key)
-                etag = s3cache.bucket.store_from_file(el.s3key, el.name)
+                el.seek(0)
+                etag = s3cache.bucket.store_fh(el.s3key, el)
                 s3cache.dbcm.execute("UPDATE s3_objects SET etag=?, size=? WHERE key=?",
                                      (etag, self.size, el.s3key))
    
             log.debug('Removing s3 object %s from cache..', el.s3key)
-                
+            el.close()   
             os.unlink(el.name)
         finally:
             s3cache.s3_lock.release(el.s3key)

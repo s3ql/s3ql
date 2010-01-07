@@ -41,8 +41,9 @@ class fuse_tests(unittest.TestCase):
               
         # Mount
         path = os.path.join(os.path.dirname(__file__), "..", "bin", "mount.s3ql_local")
-        child = subprocess.Popen([path, "--fg", "--blocksize", "1", '--fsck',
+        child = subprocess.Popen([path, "--fg", "--blocksize", "1", '--fsck', 
                                   "--quiet", self.base])
+                                  #'--debug', 'fuse', self.base])
 
         # Wait for mountpoint to come up
         self.assertTrue(waitfor(10, posixpath.ismount, self.base))

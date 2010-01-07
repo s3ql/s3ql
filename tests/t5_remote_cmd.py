@@ -53,12 +53,19 @@ class RemoteCmdTests(unittest.TestCase):
 
     
     def test_mount(self):
+        passphrase = 'blafasel'
+        
         cmd =  os.path.join(os.path.dirname(__file__), "..", "bin", "mkfs.s3ql")
-        self.assertEquals(subprocess.call([cmd, "--blocksize", "1", '--quiet', self.bucketname]),
-                          0)       
-
+        child = subprocess.Popen([cmd, "--blocksize", "1", '--quiet',
+                                           '--encrypt', self.bucketname], stdin=subprocess.PIPE)
+        child.communicate('%s\n%s\n' % (passphrase, passphrase))
+        self.assertEquals(child.returncode, 0)
+               
         cmd = os.path.join(os.path.dirname(__file__), "..", "bin", "mount.s3ql")
-        child = subprocess.Popen([cmd, "--cachesize", "1", '--quiet', self.bucketname, self.base])       
+        child = subprocess.Popen([cmd, "--cachesize", "1", '--quiet', self.bucketname, self.base],
+                                 stdin=subprocess.PIPE)
+        child.stdin.write('%s\n' % passphrase)  
+        self.assertEqual(child.wait(), 0)     
                
         # Wait for mountpoint to come up
         self.assertTrue(waitfor(10, posixpath.ismount, self.base))
@@ -76,8 +83,9 @@ class RemoteCmdTests(unittest.TestCase):
         os.rmdir(self.base)
         
         cmd = os.path.join(os.path.dirname(__file__), "..", "bin", "fsck.s3ql")
-        self.assertEquals(subprocess.call([cmd, "--quiet", self.bucketname]),
-                          0)       
+        child = subprocess.Popen([cmd, "--quiet", self.bucketname], stdin=subprocess.PIPE)
+        child.stdin.write('%s\n' % passphrase)  
+        self.assertEqual(child.wait(), 0)     
 
 
 # Somehow important according to pyunit documentation

@@ -176,7 +176,7 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
                   CHECK ( typeof(refcount) == 'integer' AND refcount > 0),
                   
         -- etag and size is only updated when the object is committed
-        etag      TEXT CONSTRAINT etag_type
+        etag      BLOB(16) CONSTRAINT etag_type
                   CHECK ( typeof(etag) IN ('blob', 'null') ),
         size      INT CONSTRAINT size_type
                   CHECK ( (typeof(size) == 'integer' AND size >= 0) 

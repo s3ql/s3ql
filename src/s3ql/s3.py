@@ -8,7 +8,6 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import unicode_literals, division, print_function
 
-import hashlib
 from time import sleep
 from datetime import datetime
 from s3ql import isodate
@@ -16,9 +15,18 @@ from boto.s3.connection import S3Connection
 from contextlib import contextmanager 
 import boto.exception as bex
 import copy
+from cStringIO import StringIO
+from base64 import b64decode
 from s3ql.common import (waitfor) 
+import tempfile
 import logging
 import threading
+import pycryptopp
+import io
+import time
+import hashlib
+import bz2
+import struct
 
 __all__ = [ "Connection", "ConcurrencyError", "Bucket", "LocalBucket", "Metadata" ]
 
@@ -79,7 +87,7 @@ class Connection(object):
         finally:
             self._push_conn(conn)
 
-    def create_bucket(self, name):
+    def create_bucket(self, name, passphrase=None):
         """Create and return an S3 bucket"""
         
         with self._get_boto() as boto:
@@ -88,9 +96,9 @@ class Connection(object):
             # S3 needs some time before we can fetch the bucket
             waitfor(10, self.bucket_exists, name)
             
-        return self.get_bucket(name)
+        return self.get_bucket(name, passphrase)
 
-    def get_bucket(self, name):
+    def get_bucket(self, name, passphrase=None):
         """Return a bucket instance for the bucket `name`
         
         Raises `KeyError` if the bucket does not exist.
@@ -105,7 +113,7 @@ class Connection(object):
                 else:
                     raise
                 
-            return Bucket(self, name)
+            return Bucket(self, name, passphrase)
 
     def bucket_exists(self, name):
         """Check if the bucket `name` exists"""
@@ -147,9 +155,13 @@ class Bucket(object):
         finally:
             self.conn._push_conn(boto_conn)
             
-    def __init__(self, conn, name):
+    def __init__(self, conn, name, passphrase):
         self.name = name
         self.conn = conn
+        if passphrase:
+            self.passphrase = hashlib.md5(passphrase).digest()
+        else:
+            self.passphrase = None
             
     def __str__(self):
         return "<bucket: %s>" % self.name
@@ -241,17 +253,10 @@ class Bucket(object):
         for ``bucket.fetch(key)[0]``.
         """
  
-        with self._get_boto() as boto:
-            bkey = boto.get_key(key)
-            
-            if bkey is None:
-                raise KeyError('Key does not exist: %s' % key)
-
-            val = bkey.get_contents_as_string()
-            
-        metadata = self.boto_key_to_metadata(bkey)            
-  
-        return (val, metadata)
+        fh = StringIO()
+        meta = self.fetch_fh(key, fh)
+        
+        return (fh.getvalue(), meta)
 
     def store(self, key, val):
         """Store data under `key`.
@@ -263,48 +268,73 @@ class Bucket(object):
         ``bucket[key] = val`` is equivalent to ``bucket.store(key,
         val)``.
         """
- 
-        with self._get_boto() as boto:
-            bkey = boto.new_key(key)
-            bkey.set_contents_from_string(val)
-
-        return bkey.etag.rstrip('"').lstrip('"').encode('us-ascii')
-
+        if isinstance(val, unicode):
+            val = val.encode('us-ascii')
             
-    def fetch_to_file(self, key, file_):
-        """Fetches data stored under `key` and writes them to `file_`.
+        fh = StringIO(val)
+        etag = self.store_fh(key, fh)
+        
+        return etag
+            
+    def fetch_fh(self, key, fh):
+        """Fetch data for `key` and write to `fh`
 
-        `file_` has to be a file name. Returns the metadata in the
-        format used by `lookup_key`.
+        Returns the metadata in the format used by `lookup_key`.
         """
  
+        if self.passphrase:
+            fh = CEWriter(fh, self.passphrase)
+            
         with self._get_boto() as boto:
             bkey = boto.get_key(key)
             if bkey is None:
                 raise KeyError('Key does not exist: %s' % key)
 
-            bkey.get_contents_to_filename(file_)
-        metadata = self.boto_key_to_metadata(bkey)            
-
+            bkey.get_contents_to_file(fh)
+           
+            
+        metadata = self.boto_key_to_metadata(bkey)         
+        
+        if self.passphrase:
+            fh.verify()
+            metadata.etag = fh.get_hash()   
 
         return metadata
 
-    def store_from_file(self, key, file_):
-        """Reads `file` and stores the data under `key`
+    def store_fh(self, key, fh):
+        """Store data in `fh` under `key`
 
-        `file` has to be a file name. Returns the etag.
+        Returns the md5 sum of `fh`. 
         """
 
+        if self.passphrase:
+            # Stupid boto insists on calculating the md5 sum
+            # separately and then calling fh.seek(), so we
+            # can't directly stream the data
+            tmp = CEReader(fh, self.passphrase, 
+                          hashlib.md5(key).digest()[:12] 
+                          + struct.pack(b'<f', time.time() - time.timezone))
+            fh = tempfile.TemporaryFile()
+            while True:
+                buf = tmp.read(128*1024)
+                if not buf:
+                    break
+                fh.write(buf)
+            fh.seek(0)
+                   
         with self._get_boto() as boto:
             bkey = boto.new_key(key)
-            bkey.set_contents_from_filename(file_)
+            bkey.set_contents_from_file(fh)
 
-        return bkey.etag.rstrip('"').lstrip('"').encode('us-ascii')
- 
+        if self.passphrase:
+            fh.close()
+            return tmp.get_hash()
+        else:
+            return b64decode(bkey.etag.rstrip('"').lstrip('"').encode('us-ascii'))
+
 
     def copy(self, src, dest):
-        """Copies data stored under `src` to `dest`
-        """
+        """Copy data stored under `src` to `dest`"""
 
         with self._get_boto() as boto:
             boto.copy_key(dest, self.name, src)
@@ -326,7 +356,7 @@ class Bucket(object):
                                                 
             
         return Metadata(usertags=bkey.metadata,
-                        etag=bkey.etag.rstrip('"').lstrip('"').encode('us-ascii'),
+                        etag=b64decode(bkey.etag.rstrip('"').lstrip('"').encode('us-ascii')),
                         key=bkey.name,
                         last_modified=last_modified,
                         size=int(bkey.size))
@@ -429,19 +459,13 @@ class LocalBucket(Bucket):
         return metadata.etag
 
 
-    def fetch_to_file(self, key, file_):
+    def fetch_fh(self, key, fh):
         (data, metadata) = self.fetch(key)
-        file_ = open(file_, "wb")
-        file_.write(data)
-        file_.close()
+        fh.write(data)
         return metadata
 
-    def store_from_file(self, key, file_):
-        file_ = open(file_, "rb")
-        value = file_.read()
-        file_.close()
-
-        return self.store(key, value)
+    def store_fh(self, key, fh):
+        return self.store(key, fh.read())
 
     def copy(self, src, dest):
         """Copies data stored under `src` to `dest`
@@ -490,3 +514,147 @@ class ConcurrencyError(Exception):
     """Raised if several threads try to access the same s3 object
     """
     pass
+
+class ChecksumError(Exception):
+    """
+    Raised if there is a checksum error in the data that we received 
+    from S3.
+    """
+    pass
+
+
+class CEReader(io.IOBase):
+    '''
+    Generate compressed and encrypted input stream from a plaintext
+    file handle.
+    '''   
+    
+    def __init__(self, fh, key, nonce, blocksize=128*1024):
+        super(CEReader, self).__init__()
+        self.fh = fh
+        self.compr = bz2.BZ2Compressor(9)
+        self.blocksize = blocksize
+        self.eof = False
+        self.hash = hashlib.md5()
+        
+        key = pycryptopp.cipher.aes.AES(key).process(nonce)
+        self.cipher = pycryptopp.cipher.aes.AES(key)
+        self.buf = nonce
+        
+    def read(self, len_):
+        '''Read compress, decrypt and return data from underlying file handle'''
+        
+        buf = self.buf
+        
+        if not buf and self.eof:
+            return ''
+                
+        if not buf:
+            while not buf:
+                buf = self.fh.read(self.blocksize)
+                if not buf:
+                    buf = self.compr.flush()
+                    self.eof = True
+                    break
+                self.hash.update(buf)
+                buf = self.compr.compress(buf)
+                
+            buf = self.cipher.process(buf)
+            
+        if self.eof:
+            buf += self.cipher.process(self.hash.digest())
+            
+        tmp = buf[:len_]
+        self.buf = buf[len_:]
+        
+        return tmp
+        
+    def readable(self):
+        return True  
+                   
+    def get_hash(self):
+        '''Return hash of retrieved plaintext data.
+        
+        If called before all data hasa been read, it may return an
+        intermediate value that includes data that is still in the
+        internal read buffer.
+        '''
+
+        return self.hash.digest() 
+    
+class CEWriter(io.IOBase): 
+    '''
+    Generate plaintext output stream from a compressed and 
+    encrypted file handle
+    '''   
+    
+    def __init__(self, fh, key):
+        super(CEWriter, self).__init__()
+        self.fh = fh
+        self.decomp = bz2.BZ2Decompressor()
+        self.nounce = b''
+        self.cipher = None
+        self.key = key
+        self.hash = hashlib.md5()
+        self.buf = b''
+        
+    def write(self, buf):
+        '''Decrypt and decompress `buf`, then write to underlying fh'''
+        
+        len_ = len(buf)
+        
+        if not self.cipher:
+            i = 16 - len(self.nounce) 
+            self.nounce += buf[:i]
+            buf = buf[i:]
+            
+            if not buf:
+                return len_
+            
+            key = pycryptopp.cipher.aes.AES(self.key).process(self.nounce)
+            self.cipher = pycryptopp.cipher.aes.AES(key)
+        
+        buf = self.cipher.process(buf)
+        try:
+            buf = self.decomp.decompress(buf)
+            
+        except EOFError:
+            # We are past the end of the compressed stream
+            self.buf += self.cipher.process(buf)
+            buf = b''
+    
+            if len(self.buf) > len(self.hash.digest()):
+                raise ChecksumError('Received corrupted data')
+            
+        except IOError:
+            raise ChecksumError('Received corrupted data')
+        
+        if buf:
+            self.fh.write(buf)
+            self.hash.update(buf)
+        
+        return len_
+
+    def verify(self):
+        '''Verify checksum'''
+        
+        digest = self.decomp.unused_data + self.buf  
+        if digest != self.hash.digest():
+            raise ChecksumError('Received corrupted data')
+      
+    def flush(self):  
+        self.fh.flush()
+
+    def get_hash(self):
+        '''Return hash of written plaintext data.
+        
+        If called before all data has been written, it may return an
+        intermediate value that excludes data that is still in the
+        internal decompression buffer.
+        '''
+
+        return self.hash.digest()               
+    
+    @staticmethod
+    def writeable():
+        return True

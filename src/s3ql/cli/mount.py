@@ -12,8 +12,9 @@ import sys
 from optparse import OptionParser
 from s3ql import fs, s3
 from s3ql.s3cache import S3Cache
-from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
+from s3ql.common import (init_logging, get_credentials, get_cachedir, get_dbfile)
 from s3ql.database import ConnectionManager 
+from getpass import getpass
 import llfuse
 import tempfile
 import os
@@ -54,6 +55,20 @@ def main():
     conn = s3.Connection(awskey, awspass)
     bucket = conn.get_bucket(options.bucketname)
     
+    # Get passphrase
+    if bucket.has_key('s3ql_passphrase'):
+        if sys.stdin.isatty():
+            wrap_pw = getpass("Enter encryption password: ")
+        else:
+            wrap_pw = sys.stdin.readline().rstrip()
+        bucket = conn.get_bucket(options.bucketname, wrap_pw)
+        try:
+            data_pw = bucket['s3ql_passphrase']
+        except s3.ChecksumError:
+            print('Checksum error - incorrect password?', file=sys.stderr)
+            sys.exit(1)
+        bucket = conn.get_bucket(options.bucketname, data_pw)
+    
     options.cachedir = options.cachedir.rstrip('/')
     dbfile = get_dbfile(options.bucketname, options.cachedir)
     cachedir = get_cachedir(options.bucketname, options.cachedir)
@@ -67,7 +82,7 @@ def main():
         os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
         if not os.path.exists(cachedir):
             os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-        bucket.fetch_to_file("s3ql_metadata", dbfile)
+        bucket.fetch_fh("s3ql_metadata", open(dbfile, 'w'))
     
         # Check that the fs itself is clean
         dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
@@ -92,7 +107,7 @@ def main():
             bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
             
             bucket.store("s3ql_dirty", "no")
-            bucket.store_from_file("s3ql_metadata", dbfile)
+            bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
     
     # Remove database
     finally:
@@ -136,7 +151,7 @@ def run_server(bucket, cachedir, dbcm, options):
     fuse_opts = get_fuse_opts(options) 
     cache =  S3Cache(bucket, cachedir, options.cachesize*1024, dbcm,
                      timeout=options.s3timeout)
-    try:    
+    try: 
         operations = fs.Operations(cache, dbcm, not options.atime)
         llfuse.init(operations, options.mountpoint, fuse_opts)
 
@@ -213,6 +228,7 @@ def check_fs(bucket, cachedir, dbfile):
     '''
      
     log.debug("Checking consistency...")
+    
     if bucket["s3ql_dirty"] != "no":
         print(
             "Metadata is dirty! Either some changes have not yet propagated\n" 
