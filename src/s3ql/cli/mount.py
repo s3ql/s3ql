@@ -293,12 +293,8 @@ def parse_args():
                       help="Cache size in kb (default: 51200 (50 MB)). Should be at least 10 times "
                       "the blocksize of the filesystem, otherwise an object may be retrieved and "
                       "written several times during a single write() or read() operation." )
-    parser.add_option("-o", type='string', default=None,
-                      help="For compatibility with mount(8). Specifies mount options in "
-                           "the form key=val,key2=val2,etc. Valid keys are s3timeout, "
-                           "allow_others, allow_root, cachesize, atime")
-                           
-    
+
+ 
     (options, pps) = parser.parse_args()
     
     #
@@ -311,33 +307,6 @@ def parse_args():
             
     if options.profile:
         options.single = True
-    
-    if not options.o:
-        return options
-    
-    # Parse -o style mount options
-    for pair in options.o.split(','):
-        try:
-            if '=' in pair:
-                (key, val) = pair.split('=')
-                if key == 's3timeout':
-                    options.s3timeout = int(val)
-                if key == 'cachesize':
-                    options.cachesize = int(val)
-                else:
-                    raise ValueError()
-            else:
-                key = pair
-                if key == 'allow_others':
-                    options.allow_others = True
-                if key == 'allow_root':
-                    options.allow_root = True
-                if key == 'atime':
-                    options.atime = True              
-                else:
-                    raise ValueError()
-        except ValueError:
-            parser.error('Unknown mount option: "%s"' % pair) 
         
     return options
 
