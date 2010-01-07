@@ -26,8 +26,7 @@ class fuse_tests(unittest.TestCase):
 
         # We need this to test multi block operations
         self.src = __file__
-        fstat = os.stat(self.src)
-        if fstat.st_size <= 1024: # 1 kb blocksize, see below
+        if fstat.st_size < 2048: 
             raise RuntimeError("test file %s should be bigger than 1 kb" % self.src)
 
     @staticmethod
@@ -35,15 +34,12 @@ class fuse_tests(unittest.TestCase):
         return "s3ql" + str(randrange(100, 999, 1))
 
     def test_mount(self):
-        """Operations on mounted filesystem
-        """
-
-              
+        
         # Mount
         path = os.path.join(os.path.dirname(__file__), "..", "bin", "mount.s3ql_local")
         child = subprocess.Popen([path, "--fg", "--blocksize", "1", '--fsck', 
-                                  "--quiet", self.base])
-                                  #'--debug', 'fuse', self.base])
+        #                          "--quiet", self.base])
+                                  '--debug', 'fuse', self.base])
 
         # Wait for mountpoint to come up
         self.assertTrue(waitfor(10, posixpath.ismount, self.base))

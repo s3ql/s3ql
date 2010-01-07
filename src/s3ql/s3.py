@@ -19,6 +19,7 @@ from cStringIO import StringIO
 from base64 import b64decode
 from s3ql.common import (waitfor) 
 import tempfile
+import hmac
 import logging
 import threading
 import pycryptopp
@@ -158,10 +159,7 @@ class Bucket(object):
     def __init__(self, conn, name, passphrase):
         self.name = name
         self.conn = conn
-        if passphrase:
-            self.passphrase = hashlib.md5(passphrase).digest()
-        else:
-            self.passphrase = None
+        self.passphrase = passphrase
             
     def __str__(self):
         return "<bucket: %s>" % self.name
@@ -308,18 +306,15 @@ class Bucket(object):
         """
 
         if self.passphrase:
+            # Generate session key
+            nonce = struct.pack(b'<f', time.time() - time.timezone) + key.encode('utf-8')
+            
             # Stupid boto insists on calculating the md5 sum
             # separately and then calling fh.seek(), so we
             # can't directly stream the data
-            tmp = CEReader(fh, self.passphrase, 
-                          hashlib.md5(key).digest()[:12] 
-                          + struct.pack(b'<f', time.time() - time.timezone))
+            tmp = CEReader(fh, self.passphrase, nonce)
             fh = tempfile.TemporaryFile()
-            while True:
-                buf = tmp.read(128*1024)
-                if not buf:
-                    break
-                fh.write(buf)
+            copy_fh(tmp, fh)
             fh.seek(0)
                    
         with self._get_boto() as boto:
@@ -529,16 +524,18 @@ class CEReader(io.IOBase):
     file handle.
     '''   
     
-    def __init__(self, fh, key, nonce, blocksize=128*1024):
+    def __init__(self, fh, passphrase, nonce, blocksize=128*1024):
         super(CEReader, self).__init__()
         self.fh = fh
         self.compr = bz2.BZ2Compressor(9)
         self.blocksize = blocksize
         self.eof = False
-        self.hash = hashlib.md5()
         
-        key = pycryptopp.cipher.aes.AES(key).process(nonce)
+        # Generate session key
+        nonce = sha256(nonce)
+        key = md5(passphrase + nonce)
         self.cipher = pycryptopp.cipher.aes.AES(key)
+        self.hash = hmac.new(key, digestmod=hashlib.sha256)
         self.buf = nonce
         
     def read(self, len_):
@@ -588,14 +585,14 @@ class CEWriter(io.IOBase):
     encrypted file handle
     '''   
     
-    def __init__(self, fh, key):
+    def __init__(self, fh, passphrase):
         super(CEWriter, self).__init__()
         self.fh = fh
         self.decomp = bz2.BZ2Decompressor()
-        self.nounce = b''
+        self.nonce = b''
         self.cipher = None
-        self.key = key
-        self.hash = hashlib.md5()
+        self.hash = None
+        self.passphrase = passphrase
         self.buf = b''
         
     def write(self, buf):
@@ -604,15 +601,17 @@ class CEWriter(io.IOBase):
         len_ = len(buf)
         
         if not self.cipher:
-            i = 16 - len(self.nounce) 
-            self.nounce += buf[:i]
+            i = 32 - len(self.nonce) 
+            self.nonce += buf[:i]
             buf = buf[i:]
             
             if not buf:
                 return len_
             
-            key = pycryptopp.cipher.aes.AES(self.key).process(self.nounce)
+            # Reconstruct session key
+            key = md5(self.passphrase + self.nonce)
             self.cipher = pycryptopp.cipher.aes.AES(key)
+            self.hash = hmac.new(key, digestmod=hashlib.sha256)
         
         buf = self.cipher.process(buf)
         try:
@@ -658,3 +657,18 @@ class CEWriter(io.IOBase):
     @staticmethod
     def writeable():
         return True
+    
+def copy_fh(infh, outfh):
+    '''Copy contents of `infh` to `outfh`'''
+    
+    while True:
+        buf = infh.read(128*1024)
+        if not buf:
+            break
+        outfh.write(buf)   
+        
+def md5(s):
+    return hashlib.md5(s).digest()
+
+def sha256(s):
+    return hashlib.sha256(s).digest()
