@@ -10,6 +10,7 @@ from __future__ import unicode_literals, division, print_function
 
 import shutil
 import os
+import time
 import stat
 from os.path  import basename 
 from random   import randrange
@@ -26,7 +27,7 @@ class fuse_tests(unittest.TestCase):
 
         # We need this to test multi block operations
         self.src = __file__
-        if fstat.st_size < 2048: 
+        if os.path.getsize(self.src) < 1048: 
             raise RuntimeError("test file %s should be bigger than 1 kb" % self.src)
 
     @staticmethod
@@ -38,13 +39,15 @@ class fuse_tests(unittest.TestCase):
         # Mount
         path = os.path.join(os.path.dirname(__file__), "..", "bin", "mount.s3ql_local")
         child = subprocess.Popen([path, "--fg", "--blocksize", "1", '--fsck', 
-        #                          "--quiet", self.base])
-                                  '--debug', 'fuse', self.base])
+                                  "--quiet", '--txdelay', '0.01', '--propdelay', '0.01',
+                                  self.base])
+        #                          '--debug', 'fuse', '--debug', 'fs', self.base])
 
         # Wait for mountpoint to come up
         self.assertTrue(waitfor(10, posixpath.ismount, self.base))
 
         # Run Subtests
+        self.t_write()
         self.t_mkdir()
         self.t_symlink()
         self.t_mknod()
@@ -54,6 +57,7 @@ class fuse_tests(unittest.TestCase):
         self.t_chown()
  
         # Umount 
+        time.sleep(0.5)
         self.assertTrue(waitfor(5, lambda : 
                                     subprocess.call(['fuser', '-m', '-s', self.base]) == 1))
         path = os.path.join(os.path.dirname(__file__), "..", "bin", "umount.s3ql")            
@@ -133,12 +137,19 @@ class fuse_tests(unittest.TestCase):
         self.assertRaises(OSError, os.stat, filename)
         self.assertTrue(basename(filename) not in os.listdir(self.base))
 
-
+    def t_write(self):
+        name = self.base + "/" + self.random_name()
+        src = self.src
+        shutil.copyfile(src, name)
+        self.assertTrue(filecmp.cmp(name, src, False))
+        os.unlink(name)
+        
     def t_link(self):
         name1 = self.base + "/" + self.random_name()
         name2 = self.base + "/" + self.random_name()
         src = self.src
         shutil.copyfile(src, name1)
+        self.assertTrue(filecmp.cmp(name1, src, False))
         os.link(name1, name2)
 
         fstat1 = os.lstat(name1)
@@ -181,10 +192,11 @@ class fuse_tests(unittest.TestCase):
         filename = self.base + "/" + self.random_name()
         src = self.src
         shutil.copyfile(src, filename)
+        self.assertTrue(filecmp.cmp(filename, src, False))
         fstat = os.stat(filename)
         size = fstat.st_size
         fd = os.open(filename, os.O_RDWR)
-
+        
         os.ftruncate(fd, size + 1024) # add > 1 block
         self.assertEquals(os.stat(filename).st_size, size + 1024)
 
