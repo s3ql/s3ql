@@ -121,8 +121,8 @@ def blocking_umount(mountpoint):
     ctrlfile = os.path.join(mountpoint, CTRL_NAME) 
     
     log.info('Flushing cache...')
-    cmd = 'doit!' 
-    if libc.setxattr(ctrlfile, 's3ql_flushcache!', cmd, len(cmd), 0) != 0:
+    cmd = b'doit!' 
+    if libc.setxattr(ctrlfile, b's3ql_flushcache!', cmd, len(cmd), 0) != 0:
         print('Failed to issue cache flush command: %s. Continuing anyway..' %
                os.strerror(ctypes.get_errno()), file=sys.stderr)    
     
@@ -133,7 +133,7 @@ def blocking_umount(mountpoint):
     log.debug('Trying to get pid')
     bufsize = 42
     buf = ctypes.create_string_buffer(bufsize)
-    ret = libc.getxattr(ctrlfile, 's3ql_pid?', buf, bufsize)
+    ret = libc.getxattr(ctrlfile, b's3ql_pid?', buf, bufsize)
     if ret < 0:
         log.error('Failed to read S3QL daemon pid: %s. '
                   'Unable to determine upload status, upload might still be in progress '
