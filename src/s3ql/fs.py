@@ -173,7 +173,7 @@ class Operations(llfuse.Operations):
         
         if stat.S_ISREG(fstat["st_mode"]):
             # This is the number of 512 blocks allocated for the file
-            fstat["st_blocks"] = int( fstat['st_size'] / 512 )
+            fstat["st_blocks"] =  fstat['st_size'] // 512 
                                  
         else:
             # For special nodes, return arbitrary values
@@ -791,7 +791,8 @@ class Operations(llfuse.Operations):
 
     def write(self, fh, offset, buf):
         total = len(buf)
-        while len(buf) > 0:
+        minsize = offset + total
+        while buf:
             written = self._write(fh, offset, buf)
             offset += written
             buf = buf[written:]
@@ -801,7 +802,6 @@ class Operations(llfuse.Operations):
         # Fuse does not ensure that we do not get concurrent write requests,
         # so we have to be careful not to undo a size extension made by
         # a concurrent write.
-        minsize = offset + len(buf)
         timestamp = time.time()
         with self.inode_lock(fh):
             tmp = self.open_files[fh]['cached_attrs']
@@ -842,18 +842,23 @@ class Operations(llfuse.Operations):
     def releasedir(self, inode):
         pass
        
-    def release(self, fh):    
+    def release(self, fh):  
+        
         with self.inode_lock(fh):
             tmp =  self.open_files[fh]
             tmp['open_count'] -= 1
-            
+             
             if tmp['open_count'] == 0:
-                del self.open_files[fh]     
                 if tmp['cached_attrs']['st_nlink'] == 0:
                     self.cache.remove(fh)
                     self.dbcm.execute("DELETE FROM inodes WHERE id=?", (fh,))
                 else:
-                    self._setattr(fh, tmp['cached_attrs'])  
+                    self._setattr(fh, tmp['cached_attrs'])
+                
+                # We must delete the cache only after having
+                # committed to db to prevent a race condition with
+                # getattr_all().  
+                del self.open_files[fh]   
                                         
     # Called for close() calls. 
     def flush(self, fh):
