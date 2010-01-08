@@ -12,13 +12,11 @@ import os
 from os.path import basename
 import types
 import stat
-import tempfile
 import time
 import numbers
 import logging
 from s3ql.database import NoUniqueValueError
-import shutil
-from s3ql.common import (get_path, ROOT_INODE, CTRL_INODE, inode_for_path)
+from s3ql.common import (get_path, ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh)
 
 __all__ = [ "fsck", 'found_errors' ]
 
@@ -135,11 +133,13 @@ def check_cache():
         found_errors = True
         log_error("Committing (potentially changed) cache for %s", s3key)
         if not checkonly:
-            etag = bucket.store_fh(s3key, open(os.path.join(cachedir, s3key), 'r'))
-            conn.execute("UPDATE s3_objects SET etag=? WHERE key=?",
-                        (etag, s3key))
+            fh = open(os.path.join(cachedir, s3key), 'r')
+            hash_ = sha256_fh(fh)
+            bucket.store_fh(s3key, fh, { 'hash': hash_ })
+            conn.execute("UPDATE s3_objects SET hash=? WHERE key=?",
+                        (hash_, s3key))
+            fh.close()
             os.unlink(os.path.join(cachedir, s3key))
-
 
 def check_lof():
     """Ensure that there is a lost+found directory"""
@@ -323,7 +323,7 @@ def check_keylist():
     Checks that:
     - all s3 objects are referred in the s3 table
     - all objects in the s3 table exist
-    and calls check_metadata for each object
+    - object has correct hash
     """
  
     global found_errors
@@ -332,9 +332,8 @@ def check_keylist():
     # seen
     conn.execute("CREATE TEMP TABLE s3keys AS SELECT key FROM s3_objects")
 
-    blocksize = conn.get_val("SELECT blocksize FROM parameters")
     to_delete = list() # We can't delete the object during iteration
-    for (s3key, meta) in bucket.list_keys():
+    for s3key in bucket:
 
         # We only bother with data objects
         if not s3key.startswith("s3ql_data_"):
@@ -342,7 +341,7 @@ def check_keylist():
 
         # Retrieve object information from database
         try:
-            (etag, size) = conn.get_row("SELECT etag, size FROM s3_objects WHERE key=?", (s3key,))
+            hash_ = conn.get_val("SELECT hash FROM s3_objects WHERE key=?", (s3key,))
         
         # Handle object that exists only in S3
         except KeyError:
@@ -359,42 +358,13 @@ def check_keylist():
         # Mark object as seen
         conn.execute("DELETE FROM s3keys WHERE key=?", (s3key,))
         
-        # Check Etag
-        if etag != meta.etag:
+        # Check Hash
+        meta = bucket.lookup_key(s3key)
+        if hash_ != meta['hash']:
             found_errors = True
-            log_error("object %s has incorrect etag in metadata, adjusting" % s3key)
-            conn.execute("UPDATE s3_objects SET etag=? WHERE key=?",
-                         (meta.etag, s3key))  
-        
-        # Size agreement
-        if size != meta.size:
-            found_errors = True
-            log_error("object %s has incorrect size in metadata, adjusting" % s3key)
-            conn.execute("UPDATE s3_objects SET size=? WHERE key=?",
-                         (meta.size, s3key)) 
- 
-        # Size <= block size
-        if meta.size > blocksize:
-            found_errors = True
-            name = unused_filename('s3-object-%s' % s3key)
-            log_error("s3 object %s is larger than blocksize (%d > %d), "
-                      "truncating and saving original object locally as ./%s",
-                      s3key, meta.size, blocksize, name)
-            if not checkonly:
-                tmp = tempfile.NamedTemporaryFile()
-                if expect_errors:
-                    bucket.fetch_fh(s3key, tmp)
-                else:
-                    bucket.fetch_fh(s3key, open(name, 'w'))
-                    shutil.copyfile(name, tmp.name)
-                tmp.seek(blocksize)
-                tmp.truncate()
-                tmp.seek(0)
-                etag_new = bucket.store_fh(s3key, tmp)
-                tmp.close()
-    
-                conn.execute("UPDATE s3_objects SET etag=?, size=? WHERE key=?",
-                             (etag_new, blocksize, s3key))  
+            log_error("object %s has incorrect hash in metadata, adjusting" % s3key)
+            conn.execute("UPDATE s3_objects SET hash=? WHERE key=?",
+                         (meta['hash'], s3key))  
                 
     # Carry out delete
     if to_delete:

@@ -271,7 +271,6 @@ class fs_api_tests(unittest.TestCase):
         for key in attr:
             self.assertEquals(attr[key], attr_[key])
 
-
     def test_07_open_write_read(self):
 
         name = self.random_name()
@@ -655,11 +654,11 @@ class fs_api_tests(unittest.TestCase):
         for i in range(blocks):
             self.server.write(fh, i * self.blocksize, b'data')
         
-        self.assertEqual(len(list(self.bucket.list_keys())), 0)
+        self.assertEqual(len(list(self.bucket.keys())), 0)
         
         self.server.fsync(fh, True) 
         
-        self.assertEqual(len(list(self.bucket.list_keys())), blocks)
+        self.assertEqual(len(list(self.bucket.keys())), blocks)
         
         self.server.flush(fh)
         self.server.release(fh)

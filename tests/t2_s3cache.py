@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import unicode_literals, division, print_function 
 
 from s3ql import mkfs, s3, s3cache
-from s3ql.common import EmbeddedException, ExceptionStoringThread
+from s3ql.common import EmbeddedException, ExceptionStoringThread, sha256
 from s3ql.database import ConnectionManager
 from llfuse import FUSEError
 import os
@@ -76,7 +76,7 @@ class s3cache_tests(unittest.TestCase):
             fh.write(data)
         
         # Should only be in cache now
-        self.assertTrue(s3key not in self.bucket.keys())
+        self.assertTrue(s3key not in self.bucket)
         
         # Read cached
         with self.cache.get(inode, blockno) as fh:
@@ -87,11 +87,11 @@ class s3cache_tests(unittest.TestCase):
         self.cache.flush(inode)
         
         # Should be committed now
-        self.assertTrue(s3key in self.bucket.keys())
+        self.assertTrue(s3key in self.bucket)
         
         # Even if we change in S3, we should get the cached data
         data2 = self.random_data(241)
-        self.bucket[s3key] = data2
+        self.bucket.store(s3key, data2, { 'hash': sha256(data2) })
         with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
             self.assertEqual(data, fh.read(len(data)))
@@ -100,7 +100,7 @@ class s3cache_tests(unittest.TestCase):
         s3cache.ExpireEntryThread(self.cache).expire()
             
         # This should not upload any data, so now we read the new key
-        # and get an etag mismatch
+        # and get a hash mismatch
         self.cache.timeout = 1
         self.cache.expect_mismatch = True
         cm = self.cache.get(inode, blockno)

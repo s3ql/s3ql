@@ -9,24 +9,22 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import unicode_literals, division, print_function
 
 from time import sleep
-from datetime import datetime
-from s3ql import isodate
 from boto.s3.connection import S3Connection
 from contextlib import contextmanager 
 import boto.exception as bex
 import copy
 from cStringIO import StringIO
-from base64 import b64decode
-from s3ql.common import (waitfor) 
+from s3ql.common import (waitfor, sha256)
 import tempfile
 import hmac
 import logging
 import threading
 import pycryptopp
-import io
+import cPickle as pickle
 import time
 import hashlib
 import bz2
+from base64 import b64decode, b64encode
 import struct
 
 __all__ = [ "Connection", "ConcurrencyError", "Bucket", "LocalBucket", "Metadata" ]
@@ -160,7 +158,7 @@ class Bucket(object):
         self.name = name
         self.conn = conn
         self.passphrase = passphrase
-            
+    
     def __str__(self):
         return "<bucket: %s>" % self.name
 
@@ -169,7 +167,7 @@ class Bucket(object):
 
     def __setitem__(self, key, value):
         self.store(key, value)
-
+    
     def __delitem__(self, key):
         self.delete_key(key)
 
@@ -180,36 +178,39 @@ class Bucket(object):
         return self.has_key(key)
 
     def has_key(self, key):
-        try:
-            self.lookup_key(key)
-        except KeyError:
-            return False
-        else:
-            return True
+        with self._get_boto() as boto:
+            bkey = boto.get_key(key)
+
+        return bkey is not None
 
     def iteritems(self):
         for key in self.keys():
             yield (key, self[key])
 
-    def keys(self):
-        for pair in self.list_keys():
-            yield pair[0]
-
     def lookup_key(self, key):
         """Return metadata for given key.
 
-        If the key does not exist, KeyError is raised. Otherwise a
-        `Metadata` instance is returned.
+        If the key does not exist, KeyError is raised.
         """
  
         with self._get_boto() as boto:
             bkey = boto.get_key(key)
 
-        if bkey is not None:
-            return self.boto_key_to_metadata(bkey)
-        else:
+        if bkey is None:
             raise KeyError('Key does not exist: %s' % key)
-  
+        
+        meta_raw = b64decode(bkey.get_metadata('meta')) 
+        encrypted = bkey.get_metadata('encrypted') == 'True'   
+        if encrypted and not self.passphrase:
+            raise ChecksumError('Encrypted key and no passphrase supplied')
+        
+        if self.passphrase:
+            meta_raw = decrypt(meta_raw, self.passphrase)
+ 
+        metadata = pickle.loads(meta_raw)
+            
+        return metadata
+    
     def delete_key(self, key, force=False):
         """Deletes the specified key
 
@@ -225,23 +226,15 @@ class Bucket(object):
             boto.delete_key(key)
 
 
-    def list_keys(self):
+    def keys(self):
         """List keys in bucket
 
-        Returns an iterator over all keys in the bucket. The iterator
-        generates tuples of the form (key, metadata), where metadata is
-        of the form returned by `lookup_key`.
-
-        This function is also used if the bucket itself is used in an
-        iterative context: ``for key in bucket`` is the same as ``for
-        (key,metadata) in bucket.list_keys()`` (except that the former
-        doesn't define the `metadata` variable).
+        Returns an iterator over all keys in the bucket.
         """
 
         with self._get_boto() as boto:
-            for key in boto.list():
-                yield (unicode(key.name), self.boto_key_to_metadata(key))
-
+            for bkey in boto.list():
+                yield unicode(bkey.name)
 
     def fetch(self, key):
         """Return data stored under `key`.
@@ -256,12 +249,14 @@ class Bucket(object):
         
         return (fh.getvalue(), meta)
 
-    def store(self, key, val):
+    def store(self, key, val, metadata=None):
         """Store data under `key`.
 
-        Returns the etag of the data.
+        `metadata` can be a dictionary of additional attributes to 
+        store with the object. A key named ``last-modified`` with
+        the current UTC timestamp is always added automatically.
 
-        If the metadata is not required, one can simply assign to the
+        If no metadata is required, one can simply assign to the
         subscripted bucket instead of using this function:
         ``bucket[key] = val`` is equivalent to ``bucket.store(key,
         val)``.
@@ -270,62 +265,77 @@ class Bucket(object):
             val = val.encode('us-ascii')
             
         fh = StringIO(val)
-        etag = self.store_fh(key, fh)
-        
-        return etag
+        self.store_fh(key, fh, metadata)
             
     def fetch_fh(self, key, fh):
         """Fetch data for `key` and write to `fh`
 
-        Returns the metadata in the format used by `lookup_key`.
+        Return a dictionary with the metadata.
         """
  
         if self.passphrase:
-            fh = CEWriter(fh, self.passphrase)
+            tmp = tempfile.TemporaryFile() 
+            (fh, tmp) = (tmp, fh)
             
         with self._get_boto() as boto:
             bkey = boto.get_key(key)
             if bkey is None:
                 raise KeyError('Key does not exist: %s' % key)
 
+            fh.seek(0)
             bkey.get_contents_to_file(fh)
-           
-            
-        metadata = self.boto_key_to_metadata(bkey)         
+            meta_raw = b64decode(bkey.get_metadata('meta'))
+            encrypted = bkey.get_metadata('encrypted') == 'True'
+        
+        if encrypted and not self.passphrase:
+            raise ChecksumError('Encrypted key and no passphrase supplied')
         
         if self.passphrase:
-            fh.verify()
-            metadata.etag = fh.get_hash()   
-
+            (fh, tmp) = (tmp, fh)
+            tmp.seek(0)
+            fh.seek(0)
+            decrypt_uncompress_fh(tmp, fh, self.passphrase)
+            tmp.close()
+            meta_raw = decrypt(meta_raw, self.passphrase)
+            
+        metadata = pickle.loads(meta_raw)
+                 
         return metadata
 
-    def store_fh(self, key, fh):
+    def store_fh(self, key, fh, metadata=None):
         """Store data in `fh` under `key`
 
-        Returns the md5 sum of `fh`. 
+        `metadata` can be a dictionary of additional attributes to 
+        store with the object. A key named ``last-modified`` with
+        the current UTC timestamp is always added automatically.
         """
 
-        if self.passphrase:
-            # Generate session key
+        if metadata is None:
+            metadata = dict()
+         
+        fh.seek(0)   
+        metadata['last-modified'] = time.time() - time.timezone
+        meta_raw = pickle.dumps(metadata, 2)
+        
+        if self.passphrase:    
+            # We need to generate a temporary copy to determine the
+            # size of the object (which needs to transmitted as Content-Length)
             nonce = struct.pack(b'<f', time.time() - time.timezone) + key.encode('utf-8')
-            
-            # Stupid boto insists on calculating the md5 sum
-            # separately and then calling fh.seek(), so we
-            # can't directly stream the data
-            tmp = CEReader(fh, self.passphrase, nonce)
-            fh = tempfile.TemporaryFile()
-            copy_fh(tmp, fh)
+            tmp = tempfile.TemporaryFile()
+            compress_encrypt_fh(fh, tmp, self.passphrase, nonce)
+            (fh, tmp) = (tmp, fh)
+            meta_raw = encrypt(meta_raw, self.passphrase, nonce)
             fh.seek(0)
-                   
+        
         with self._get_boto() as boto:
             bkey = boto.new_key(key)
+            bkey.set_metadata('meta', b64encode(meta_raw))
+            bkey.set_metadata('encrypted', 'True' if self.passphrase else 'False')
             bkey.set_contents_from_file(fh)
-
+            
         if self.passphrase:
-            fh.close()
-            return tmp.get_hash()
-        else:
-            return b64decode(bkey.etag.rstrip('"').lstrip('"').encode('us-ascii'))
+            (fh, tmp) = (tmp, fh)
+            tmp.close()
 
 
     def copy(self, src, dest):
@@ -334,34 +344,11 @@ class Bucket(object):
         with self._get_boto() as boto:
             boto.copy_key(dest, self.name, src)
 
-    @staticmethod
-    def boto_key_to_metadata(bkey):
-        """Extracts metadata from boto key object.
-        """
-   
-        # The format depends on how the data has been retrieved (fetch or list)
-        try:
-            last_modified = datetime.strptime(bkey.last_modified, "%a, %d %b %Y %H:%M:%S %Z")
-        except ValueError:
-            last_modified = isodate.parse_datetime(bkey.last_modified)
-            
-        # Convert to UTC if timezone aware
-        if last_modified.utcoffset():
-            last_modified = (last_modified - last_modified.utcoffset()).replace(tzinfo=None)
-                                                
-            
-        return Metadata(usertags=bkey.metadata,
-                        etag=b64decode(bkey.etag.rstrip('"').lstrip('"').encode('us-ascii')),
-                        key=bkey.name,
-                        last_modified=last_modified,
-                        size=int(bkey.size))
-
-
 
 class LocalBucket(Bucket):
-    """Represents a bucket stored in Amazon S3.
+    """Represents a bucket stored in memory
 
-    This class doesn't actually connect but holds all data in memory.
+    This class holds all objects in memory.
     It is meant only for testing purposes. It emulates an artificial
     propagation delay and transmit time.
 
@@ -383,7 +370,10 @@ class LocalBucket(Bucket):
         self.tx_delay = 0
         self.prop_delay = 0
 
-
+            
+    def has_key(self, key):
+        return key in self.keystore
+    
     def lookup_key(self, key):
         log.debug("LocalBucket: Received lookup for %s", key)
         if key in self.in_transmit:
@@ -396,9 +386,9 @@ class LocalBucket(Bucket):
         else:
             return self.keystore[key][1]
 
-    def list_keys(self):
+    def keys(self):
         for key in self.keystore:
-            yield (key, self.keystore[key][1])
+            yield key
 
     def delete_key(self, key, force=False):
         if key in self.in_transmit:
@@ -433,34 +423,36 @@ class LocalBucket(Bucket):
         self.in_transmit.remove(key)
         return self.keystore[key]
 
-    def store(self, key, val):
+    def store(self, key, val, metadata=None):
+        if metadata is None:
+            metadata = dict()
+        metadata['last-modified'] = time.time() - time.timezone
+        
         log.debug("LocalBucket: Received store for %s", key)
         if key in self.in_transmit:
             raise ConcurrencyError
         self.in_transmit.add(key)
         sleep(self.tx_delay)
-        metadata = Metadata(key = key,
-                            size = len(val),
-                            last_modified = datetime.utcnow(),
-                            etag =  hashlib.md5(val).hexdigest())
+       
         def set_():
             sleep(self.prop_delay)
-            log.debug("LocalBucket: Committing store for %s, etag %s", key, metadata.etag)
+            log.debug("LocalBucket: Committing store for %s", key)
             self.keystore[key] = (val, metadata)
         t = threading.Thread(target=set_)
         t.start()
         self.in_transmit.remove(key)
         log.debug("LocalBucket: Returning from store for %s" % key)
-        return metadata.etag
 
 
     def fetch_fh(self, key, fh):
         (data, metadata) = self.fetch(key)
+        fh.seek(0)
         fh.write(data)
         return metadata
 
-    def store_fh(self, key, fh):
-        return self.store(key, fh.read())
+    def store_fh(self, key, fh, metadata=None):
+        fh.seek(0)
+        return self.store(key, fh.read(), metadata)
 
     def copy(self, src, dest):
         """Copies data stored under `src` to `dest`
@@ -481,30 +473,6 @@ class LocalBucket(Bucket):
         log.debug("LocalBucket: Returning from copy %s to %s", src, dest)
 
 
-class Metadata(dict):
-    """Represents the metadata associated with an S3 object.
-
-    The "hardcoded" meta-information etag, size and last-modified are
-    accessible as instance attributes. For access to user defined
-    metadata, the instance has to be subscripted.
-
-    Note that the last-modified attribute is a datetime object.
-    """
-    
-    __slots__ = [ 'etag', 'key', 'last_modified', 'size' ]
-    
-    def __init__(self, etag, key, last_modified, size, usertags=None):
-        if usertags is not None:
-            super(Metadata, self).__init__(usertags)
-        else: 
-            super(Metadata, self).__init__()
-        self.etag = etag
-        self.key = key
-        self.last_modified = last_modified
-        self.size = size
-        
-        
-
 class ConcurrencyError(Exception):
     """Raised if several threads try to access the same s3 object
     """
@@ -518,157 +486,129 @@ class ChecksumError(Exception):
     pass
 
 
-class CEReader(io.IOBase):
-    '''
-    Generate compressed and encrypted input stream from a plaintext
-    file handle.
-    '''   
+def encrypt(buf, passphrase, nonce):
+    '''Encrypt given string'''
     
-    def __init__(self, fh, passphrase, nonce, blocksize=128*1024):
-        super(CEReader, self).__init__()
-        self.fh = fh
-        self.compr = bz2.BZ2Compressor(9)
-        self.blocksize = blocksize
-        self.eof = False
-        
-        # Generate session key
-        nonce = sha256(nonce)
-        key = md5(passphrase + nonce)
-        self.cipher = pycryptopp.cipher.aes.AES(key)
-        self.hash = hmac.new(key, digestmod=hashlib.sha256)
-        self.buf = nonce
-        
-    def read(self, len_):
-        '''Read compress, decrypt and return data from underlying file handle'''
-        
-        buf = self.buf
-        
-        if not buf and self.eof:
-            return ''
-                
-        if not buf:
-            while not buf:
-                buf = self.fh.read(self.blocksize)
-                if not buf:
-                    buf = self.compr.flush()
-                    self.eof = True
-                    break
-                self.hash.update(buf)
-                buf = self.compr.compress(buf)
-                
-            buf = self.cipher.process(buf)
-            
-        if self.eof:
-            buf += self.cipher.process(self.hash.digest())
-            
-        tmp = buf[:len_]
-        self.buf = buf[len_:]
-        
-        return tmp
-        
-    def readable(self):
-        return True  
-                   
-    def get_hash(self):
-        '''Return hash of retrieved plaintext data.
-        
-        If called before all data hasa been read, it may return an
-        intermediate value that includes data that is still in the
-        internal read buffer.
-        '''
+    if isinstance(nonce, unicode):
+        nonce = nonce.encode('utf-8')
+    
+    key = sha256(passphrase + nonce)
+    cipher = pycryptopp.cipher.aes.AES(key)
+    hmac_ = hmac.new(key, digestmod=hashlib.sha256)
+    
+    hmac_.update(buf)
+    buf = cipher.process(buf)
+    hash_ = cipher.process(hmac_.digest())
+    
+    return b''.join(
+                    (struct.pack(b'<B', len(nonce)),
+                    nonce, hash_, buf))
+    
+def decrypt(buf, passphrase):
+    '''Decrypt given string'''
+    
+    fh = StringIO(buf)
 
-        return self.hash.digest() 
+    len_ = struct.unpack(b'<B', fh.read(struct.calcsize(b'<B')))[0]
+    nonce = fh.read(len_)
     
-class CEWriter(io.IOBase): 
-    '''
-    Generate plaintext output stream from a compressed and 
-    encrypted file handle
-    '''   
+    key = sha256(passphrase + nonce)
+    cipher = pycryptopp.cipher.aes.AES(key)
+    hmac_ = hmac.new(key, digestmod=hashlib.sha256)
     
-    def __init__(self, fh, passphrase):
-        super(CEWriter, self).__init__()
-        self.fh = fh
-        self.decomp = bz2.BZ2Decompressor()
-        self.nonce = b''
-        self.cipher = None
-        self.hash = None
-        self.passphrase = passphrase
-        self.buf = b''
-        
-    def write(self, buf):
-        '''Decrypt and decompress `buf`, then write to underlying fh'''
-        
-        len_ = len(buf)
-        
-        if not self.cipher:
-            i = 32 - len(self.nonce) 
-            self.nonce += buf[:i]
-            buf = buf[i:]
-            
-            if not buf:
-                return len_
-            
-            # Reconstruct session key
-            key = md5(self.passphrase + self.nonce)
-            self.cipher = pycryptopp.cipher.aes.AES(key)
-            self.hash = hmac.new(key, digestmod=hashlib.sha256)
-        
-        buf = self.cipher.process(buf)
-        try:
-            buf = self.decomp.decompress(buf)
-            
-        except EOFError:
-            # We are past the end of the compressed stream
-            self.buf += self.cipher.process(buf)
-            buf = b''
+    # Read (encrypted) hmac
+    hash_ = fh.read(32) # Length of hash
     
-            if len(self.buf) > len(self.hash.digest()):
-                raise ChecksumError('Received corrupted data')
-            
-        except IOError:
-            raise ChecksumError('Received corrupted data')
-        
-        if buf:
-            self.fh.write(buf)
-            self.hash.update(buf)
-        
-        return len_
+    buf = fh.read()
+    buf = cipher.process(buf)
+    hmac_.update(buf)
+    
+    hash_ = cipher.process(hash_)    
 
-    def verify(self):
-        '''Verify checksum'''
-        
-        digest = self.decomp.unused_data + self.buf  
-        if digest != self.hash.digest():
-            raise ChecksumError('Received corrupted data')
-      
-    def flush(self):  
-        self.fh.flush()
-
-    def get_hash(self):
-        '''Return hash of written plaintext data.
-        
-        If called before all data has been written, it may return an
-        intermediate value that excludes data that is still in the
-        internal decompression buffer.
-        '''
-
-        return self.hash.digest()               
+    if hash_ != hmac_.digest():
+        raise ChecksumError('HMAC mismatch')
     
-    @staticmethod
-    def writeable():
-        return True
+    return buf
+        
+
+def compress_encrypt_fh(ifh, ofh, passphrase, nonce):
+    '''Read `ifh` and write compressed, encrypted data to `ofh`'''
     
-def copy_fh(infh, outfh):
-    '''Copy contents of `infh` to `outfh`'''
+    if isinstance(nonce, unicode):
+        nonce = nonce.encode('utf-8')
+    
+    compr = bz2.BZ2Compressor(9)
+    bs = 900*1024 # 900k blocksize
+    key = sha256(passphrase + nonce)
+    cipher = pycryptopp.cipher.aes.AES(key)
+    hmac_ = hmac.new(key, digestmod=hashlib.sha256)
+    
+    # Write nonce
+    ofh.write(struct.pack(b'<B', len(nonce)))
+    ofh.write(nonce)
+    off = ofh.tell()
+    
+    # Reserve space for hmac
+    ofh.write(b'0' * 32)
     
     while True:
-        buf = infh.read(128*1024)
+        buf = ifh.read(bs)
+        if not buf:
+            buf = compr.flush()
+            buf = cipher.process(buf)
+            ofh.write(buf)
+            break
+        
+        hmac_.update(buf)
+        buf = compr.compress(buf)
+        if buf:
+            buf = cipher.process(buf)
+            ofh.write(buf)
+        
+    buf = hmac_.digest()
+    buf = cipher.process(buf)
+    ofh.seek(off)
+    ofh.write(buf)
+    
+    
+def decrypt_uncompress_fh(ifh, ofh, passphrase):
+    '''Read `ofh` and write decrypted, uncompressed data to `ofh`'''
+    
+    decomp = bz2.BZ2Decompressor()
+    bs = 900*1024 # 900k blocksize
+    
+    # Read nonce
+    len_ = struct.unpack(b'<B', ifh.read(struct.calcsize(b'<B')))[0]
+    nonce = ifh.read(len_)
+    
+    key = sha256(passphrase + nonce)
+    cipher = pycryptopp.cipher.aes.AES(key)
+    hmac_ = hmac.new(key, digestmod=hashlib.sha256)
+    
+    # Read (encrypted) hmac
+    hash_ = ifh.read(32) # Length of hash
+    
+    while True:
+        buf = ifh.read(bs)
         if not buf:
             break
-        outfh.write(buf)   
         
-def md5(s):
-    return hashlib.md5(s).digest()
-
-def sha256(s):
-    return hashlib.sha256(s).digest()
+        buf = cipher.process(buf)
+        try:
+            buf = decomp.decompress(buf)
+        except IOError:
+            raise ChecksumError('Invalid bz2 stream')
+    
+        if buf:
+            hmac_.update(buf)
+            ofh.write(buf)
+        
+    if decomp.unused_data:
+        raise ChecksumError('Data after end of bz2 stream')
+        
+    # Decompress hmac
+    hash_ = cipher.process(hash_)
+ 
+    if hash_ != hmac_.digest():
+        raise ChecksumError('HMAC mismatch')
+  

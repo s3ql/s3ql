@@ -246,8 +246,8 @@ def check_fs(bucket, cachedir, dbfile):
             "fsck.", file=sys.stderr)
         sys.exit(1)
         
-    if (bucket.lookup_key("s3ql_metadata").last_modified 
-        < bucket.lookup_key("s3ql_dirty").last_modified):
+    if (bucket.lookup_key("s3ql_metadata")['last-modified'] 
+        < bucket.lookup_key("s3ql_dirty")['last-modified']):
         print(
             'Metadata from most recent mount has not yet propagated '
             'through Amazon S3. Please try again later.', file=sys.stderr)

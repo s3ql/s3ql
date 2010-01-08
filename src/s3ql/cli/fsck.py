@@ -123,8 +123,8 @@ def main():
         else:
             log.warn("Dirty filesystem and no local metadata - continuing anyway.")
     
-    if (bucket.lookup_key("s3ql_metadata").last_modified 
-        < bucket.lookup_key("s3ql_dirty").last_modified):
+    if (bucket.lookup_key("s3ql_metadata")['last-modified'] 
+        < bucket.lookup_key("s3ql_dirty")['last-modified']):
         if not options.force_old:
             print('Metadata from most recent mount has not yet propagated through Amazon S3.\n'
                   'Please try again later.\n\n'
@@ -150,10 +150,10 @@ def main():
     if os.path.exists(dbfile):
         # Compare against online metadata
         local = datetime.utcfromtimestamp(os.stat(dbfile).st_mtime)
-        remote = bucket.lookup_key("s3ql_metadata").last_modified
+        remote = bucket.lookup_key("s3ql_metadata")['last-modified']
     
-        log.debug('Local metadata timestamp: %s', local)
-        log.debug('Remote metadata timestamp: %s', remote)
+        log.debug('Local metadata timestamp: %.3f', local)
+        log.debug('Remote metadata timestamp: %.3f', remote)
         if remote > local:
             # remote metadata is newer
             if not options.force_local:

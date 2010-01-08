@@ -13,7 +13,7 @@ from llfuse import FUSEError
 import errno
 from s3ql.multi_lock import MultiLock
 from s3ql.ordered_dict import OrderedDict
-from s3ql.common import ExceptionStoringThread
+from s3ql.common import (ExceptionStoringThread, sha256_fh)
 import logging
 import os
 import threading
@@ -122,7 +122,7 @@ class S3Cache(object):
                   
     
     The `expect_mismatch` attribute is only for unit testing instrumentation
-    and suppresses warnings if a mismatch between local and remote etag
+    and suppresses warnings if a mismatch between local and remote hash
     is encountered.                   
     """
     
@@ -185,8 +185,8 @@ class S3Cache(object):
                 el = self.keys[s3key]
             except KeyError:
                 log.debug('Object %s not cached, retrieving from s3', s3key)
-                etag = self.dbcm.get_val("SELECT etag FROM s3_objects WHERE key=?", (s3key,))
-                el = CacheEntry(s3key, self._download_object(s3key, etag), 'r+b')
+                hash_ = self.dbcm.get_val("SELECT hash FROM s3_objects WHERE key=?", (s3key,))
+                el = CacheEntry(s3key, self._download_object(s3key, hash_), 'r+b')
                 self.keys[s3key] = el
                 
                 # Update cache size
@@ -215,7 +215,7 @@ class S3Cache(object):
             
         self.expire()    
             
-    def _download_object(self, s3key, etag):
+    def _download_object(self, s3key, hash_):
         """Download s3 object into the cache. Return path.
         
         s3_lock must be acquired before this method is called. 
@@ -235,13 +235,12 @@ class S3Cache(object):
                              "Try to increase the cache size to avoid this.", s3key)
                 log.debug('Key does not exist in S3: %s, waiting...', s3key)
             else:
-                if meta.etag == etag:
+                if meta['hash'] == hash_:
                     break # Object is ready to be fetched
                 
                 if not self.expect_mismatch:
                     log.warn("Changes in s3 object %s have not yet propagated. Waiting and retrying...\n"
                              "Try to increase the cache size to avoid this.", s3key)
-                log.debug('Stored etag: %s, Received etag: %s', repr(etag), repr(meta.etag))
                 
             time.sleep(waittime)
             waited += waittime
@@ -387,9 +386,10 @@ class S3Cache(object):
             with self.s3_lock(el.s3key):
                 el.flush()    
                 el.seek(0)
-                etag = self.bucket.store_fh(el.s3key, el)
-                self.dbcm.execute("UPDATE s3_objects SET etag=?, size=? WHERE key=?",
-                            (etag, el.tell(), el.s3key))
+                hash_ = sha256_fh(el)
+                self.bucket.store_fh(el.s3key, el, { 'hash': hash_ })
+                self.dbcm.execute("UPDATE s3_objects SET hash=?, size=? WHERE key=?",
+                            (hash_, el.tell(), el.s3key))
                 el.dirty = False
                 
         log.debug('Flushing for inode %d completed.', inode)
@@ -451,11 +451,12 @@ class ExpireEntryThread(ExceptionStoringThread):
             self.size_ready.set()
             
             if el.dirty:
-                log.debug('Uploading s3 object (%s)...', el.s3key)
+                log.debug('Committing dirty object %s', el.s3key)
                 el.seek(0)
-                etag = s3cache.bucket.store_fh(el.s3key, el)
-                s3cache.dbcm.execute("UPDATE s3_objects SET etag=?, size=? WHERE key=?",
-                                     (etag, self.size, el.s3key))
+                hash_ = sha256_fh(el)
+                s3cache.bucket.store_fh(el.s3key, el, { 'hash': hash_ })
+                s3cache.dbcm.execute("UPDATE s3_objects SET hash=?, size=? WHERE key=?",
+                                     (hash_, self.size, el.s3key))
    
             log.debug('Removing s3 object %s from cache..', el.s3key)
             el.close()   

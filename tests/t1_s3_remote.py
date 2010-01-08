@@ -28,55 +28,63 @@ class s3_tests_remote(unittest.TestCase):
     def random_name(prefix=""):
         return "s3ql_" + prefix + str(randrange(100, 999, 1))
 
-    def test_01_fetch_store(self):
-        key = self.random_name("key1_")
-        value1 = self.random_name("value1_")
-        value2 = self.random_name("value2_")
-        
+    def test_01_store_fetch_lookup_delete_key(self):
+
+        key = self.random_name("key_")
+        value = self.random_name("value_")
         self.assertRaises(KeyError, self.bucket.lookup_key, key)
         self.assertRaises(KeyError, self.bucket.delete_key, key)
         self.assertRaises(KeyError, self.bucket.fetch, key)
 
-        etag = self.bucket.store(key, value1)
-        sleep(self.delay)
-        (val, meta) = self.bucket.fetch(key)
-        self.assertEquals(val, value1)
-        self.assertEquals(meta.etag, etag)
-        self.assertEquals(meta.size, len(value1))
-        self.assertEquals(meta.key, key)
-
-        etag = self.bucket.store(key, value2)
-        sleep(self.delay)
-        (val, meta2) = self.bucket.fetch(key)
-        self.assertEquals(meta2.etag, etag)
-        self.assertNotEquals(meta.etag, meta2.etag)
-        self.assertEquals(meta2.size, len(value2))
-        self.assertEquals(meta2.key, key)
-        self.assertTrue(meta.last_modified < meta2.last_modified)
-
+        self.bucket.store(key, value)
+        self.assertEquals(self.bucket[key], value)
+        self.bucket.lookup_key(key)
+        
         self.bucket.delete_key(key)
-        sleep(self.delay)
         self.assertFalse(self.bucket.has_key(key))
         self.assertRaises(KeyError, self.bucket.lookup_key, key)
         self.assertRaises(KeyError, self.bucket.delete_key, key)
         self.assertRaises(KeyError, self.bucket.fetch, key)
 
-    def test_02_list_keys(self):
+
+    def test_02_meta(self):
+        key = self.random_name()
+        value1 = self.random_name()
+        value2 = self.random_name()
+
+        self.bucket.store(key, value1, { 'foo': 42 })
+        meta1 = self.bucket.fetch(key)[1]
+
+        self.assertEquals(meta1['foo'], 42)
+
+        self.bucket.store(key, value2, { 'bar': 37 })
+        meta2 = self.bucket.fetch(key)[1]
+        
+        self.assertTrue('foo' not in meta2)
+        self.assertEquals(meta2['bar'], 37)
+        
+        self.assertTrue(meta1['last-modified'] < meta2['last-modified'])
+
+        del self.bucket[key]
+
+
+    def test_03_list_keys(self):
+
         # Keys need to be unique
-        keys = [ self.random_name("key" + str(x)) for x in range(12) ]
-        values = [ self.random_name("value") for x in range(12) ]
+        keys = [ self.random_name("key_") + str(x) for x in range(12) ]
+        values = [ self.random_name("value_") for x in range(12) ]
 
         for i in range(12):
-            self.bucket[keys[i]] = values[i]
+            self.bucket.store(keys[i], values[i])
 
-        sleep(self.delay)
         self.assertEquals(sorted(self.bucket.keys()), sorted(keys))
-
+            
         for i in range(12):
             del self.bucket[keys[i]]
+            
 
 
-    def test_03_copy(self):
+    def test_05_copy(self):
         key1 = self.random_name("key_1")
         key2 = self.random_name("key_2")
         value = self.random_name("value_")
@@ -91,13 +99,20 @@ class s3_tests_remote(unittest.TestCase):
         self.assertEquals(self.bucket[key2], value)
     
     def test_04_encryption(self):
+        bucket = self.bucket
+        bucket['plain'] = b'foobar452'
+
         key = hashlib.md5('ffo').digest()
-        bucket = self.conn.get_bucket(self.bucketname, key)
+        ebucket = self.conn.get_bucket(self.bucketname, key)
         
-        bucket['foobar'] = b'testdata'
+        ebucket['foobar'] = b'testdata'
+        self.assertEquals(ebucket['foobar'], b'testdata')
         
-        self.assertEquals(bucket['foobar'], b'testdata')
+        self.assertRaises(s3ql.s3.ChecksumError, ebucket.fetch, 'plain')
+        self.assertRaises(s3ql.s3.ChecksumError, bucket.fetch, 'foobar')
         
+        self.assertRaises(s3ql.s3.ChecksumError, ebucket.lookup_key, 'plain')
+        self.assertRaises(s3ql.s3.ChecksumError, bucket.lookup_key, 'foobar')
         
     def setUp(self):
         (awskey, awspass) = main.aws_credentials

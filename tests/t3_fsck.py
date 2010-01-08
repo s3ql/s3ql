@@ -12,7 +12,7 @@ import unittest
 from s3ql import mkfs, s3,  fsck
 from s3ql.database import WrappedConnection
 import apsw
-from s3ql.common import ROOT_INODE
+from s3ql.common import ROOT_INODE, sha256
 import os
 import stat
 import tempfile
@@ -158,27 +158,16 @@ class fsck_tests(unittest.TestCase):
     
     def test_metadata(self):
 
-        # Create an object with wrong size
+        # Create an object with wrong hash
         s3key = 's3ql_data_jummi_jip'
         data = 'oh oeu 3p, joum39 udoeu'
         
-        etag = self.bucket.store(s3key, data)
-        self.conn.execute('INSERT INTO s3_objects (key, etag, size, refcount) VALUES(?, ?, ?, ?)',
-                           (s3key, etag, len(data) + 42, 1))
+        hash_ = sha256(data)
+        self.bucket.store(s3key, data, { 'hash': hash_ })
+        self.conn.execute('INSERT INTO s3_objects (key, hash, size, refcount) VALUES(?, ?, ?, ?)',
+                           (s3key, sha256('foobar'), len(data), 1))
         
-        self.assert_fsck(fsck.check_keylist)
-        
-        # And another with wrong etag
-        self.conn.execute('UPDATE s3_objects SET etag=? WHERE key=?',
-                           (b'wrong etag', s3key))
-        self.assert_fsck(fsck.check_keylist)
-        
-        # Create an object with size > blocksize
-        size = 2 * self.blocksize
-        etag = self.bucket.store(s3key, self.random_data(size))
-        self.conn.execute('UPDATE s3_objects SET etag=?, size=? WHERE key=?',
-                          (etag, size, s3key))
-        self.assert_fsck(fsck.check_keylist)
+        self.assert_fsck(fsck.check_keylist)    
       
         
     def test_loops(self): 

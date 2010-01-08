@@ -35,10 +35,14 @@ class s3_tests_local(unittest.TestCase):
         self.bucket.store(key, value)
         sleep(self.bucket.prop_delay+0.1)
         self.assertEquals(self.bucket[key], value)
-
+        self.bucket.lookup_key(key)
+        
         self.bucket.delete_key(key)
         sleep(self.bucket.prop_delay+0.1)
         self.assertFalse(self.bucket.has_key(key))
+        self.assertRaises(KeyError, self.bucket.lookup_key, key)
+        self.assertRaises(KeyError, self.bucket.delete_key, key)
+        self.assertRaises(KeyError, self.bucket.fetch, key)
 
     def test_02_meta(self):
         self.bucket.tx_delay = 0
@@ -47,24 +51,20 @@ class s3_tests_local(unittest.TestCase):
         value1 = self.random_name()
         value2 = self.random_name()
 
-        etag1 = self.bucket.store(key, value1)
+        self.bucket.store(key, value1, { 'foo': 42 })
         sleep(self.bucket.prop_delay+0.1)
         meta1 = self.bucket.fetch(key)[1]
 
-        self.assertEquals(meta1.key, key)
-        self.assertEquals(meta1.etag, etag1)
-        self.assertEquals(meta1.size, len(value1))
+        self.assertEquals(meta1['foo'], 42)
 
-        etag2 = self.bucket.store(key, value2)
+        self.bucket.store(key, value2, { 'bar': 37 })
         sleep(self.bucket.prop_delay+0.1)
         meta2 = self.bucket.fetch(key)[1]
         
-        self.assertEquals(meta2.key, key)
-        self.assertEquals(meta2.etag, etag2)
-        self.assertEquals(meta2.size, len(value2))
-
-        self.assertTrue(meta1.etag != meta2.etag)
-        self.assertTrue(meta1.last_modified < meta2.last_modified)
+        self.assertTrue('foo' not in meta2)
+        self.assertEquals(meta2['bar'], 37)
+        
+        self.assertTrue(meta1['last-modified'] < meta2['last-modified'])
 
         del self.bucket[key]
 
@@ -76,12 +76,13 @@ class s3_tests_local(unittest.TestCase):
         keys = [ self.random_name("key_") + str(x) for x in range(12) ]
         values = [ self.random_name("value_") for x in range(12) ]
 
+
         for i in range(12):
-            self.bucket[keys[i]] = values[i]
+            self.bucket.store(keys[i], values[i])
 
         sleep(self.bucket.prop_delay+0.1)
         self.assertEquals(sorted(self.bucket.keys()), sorted(keys))
-
+            
         for i in range(12):
             del self.bucket[keys[i]]
 
@@ -129,7 +130,7 @@ class s3_tests_local(unittest.TestCase):
         sleep(0.1) # Make sure the other thread is actually running
         self.assertRaises(s3ql.s3.ConcurrencyError, self.bucket.store, key, value)
         t.join()
-        self.assertTrue(self.bucket.store(key, value) is not None)
+        self.bucket.store(key, value)
 
         def async2():
             self.bucket[key] = value
@@ -147,7 +148,7 @@ class s3_tests_local(unittest.TestCase):
         sleep(0.1) # Make sure the other thread is actually running
         self.assertRaises(s3ql.s3.ConcurrencyError, self.bucket.store, key, value)
         t.join()
-        self.assertTrue(self.bucket.store(key, value) is not None)
+        self.bucket.store(key, value) 
 
         def async4():
             self.bucket.fetch(key)

@@ -89,7 +89,7 @@ def main():
         # Generate data encryption passphrase
         log.info('Generating random encryption key...')
         fh = open('/dev/random', "rb", 0) # No buffering
-        data_pw = fh.read(16)
+        data_pw = fh.read(32)
         fh.close()
 
     
