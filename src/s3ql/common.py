@@ -12,12 +12,13 @@ import sys
 import os
 import stat
 import traceback
+import hashlib
 import threading
 import logging
 from time import sleep
 from getpass import getpass
 
-__all__ = [ "get_cachedir", "init_logging",
+__all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
            "waitfor", "ROOT_INODE", "ExceptionStoringThread",
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE' ]
@@ -305,4 +306,20 @@ class EmbeddedException(Exception):
                        'Original/inner traceback (most recent call last): \n' ] +
                        traceback.format_tb(self.tb) +
                        traceback.format_exception_only(type(self.exc), self.exc))
+
+
+def sha256_fh(fh):
+    fh.seek(0)
+    sha = hashlib.sha256()
+    
+    while True:
+        buf = fh.read(128*1024)
+        if not buf:
+            break
+        sha.update(buf)
         
+    return sha.digest()
+
+
+def sha256(s):
+    return hashlib.sha256(s).digest()        
