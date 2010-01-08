@@ -631,7 +631,7 @@ def fuse_opendir(req, inode, fi):
 def fuse_read(req, ino, size, off, fi):
     '''Read data from file'''
     
-    log.debug('Handling read(ino=%d, off=%d, size=%dk)', fi.contents.fh, off, size)
+    log.debug('Handling read(ino=%d, off=%d, size=%d)', fi.contents.fh, off, size)
     data = operations.read(fi.contents.fh, off, size)
     
     if not isinstance(data, bytes):
