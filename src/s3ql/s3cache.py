@@ -13,7 +13,7 @@ from llfuse import FUSEError
 import errno
 from s3ql.multi_lock import MultiLock
 from s3ql.ordered_dict import OrderedDict
-from s3ql.common import (ExceptionStoringThread, sha256_fh)
+from s3ql.common import (ExceptionStoringThread, sha256_fh, waitfor)
 import logging
 import os
 import threading
@@ -501,8 +501,8 @@ class UnlinkBlocksThread(ExceptionStoringThread):
             log.debug('Unlinking blocks >= %d from inode %i', blockno, inode)
             with cache.global_lock:
                 with conn.transaction():
-                    refcount = 1 # To start loop
-                    while refcount > 0:
+                    
+                    while True: # Loop until we need to delete something from S3
                         try:
                             (s3key, cur_off) = \
                                 conn.get_row("SELECT s3key,blockno FROM blocks WHERE inode=? "
@@ -515,13 +515,29 @@ class UnlinkBlocksThread(ExceptionStoringThread):
                         log.debug('Removing object %s from table', s3key)
                         conn.execute("DELETE FROM blocks WHERE inode=? AND blockno=?", 
                                      (inode, cur_off))
-                        refcount = conn.get_val("SELECT refcount FROM s3_objects WHERE key=?",
-                                                (s3key,))
+                        (refcount, hash_) = \
+                            conn.get_row("SELECT refcount, hash FROM s3_objects WHERE key=?",
+                                         (s3key,))
                         
                         refcount -= 1
                         if refcount > 0: # We don't need to remove the s3 object
                             conn.execute("UPDATE s3_objects SET refcount=? WHERE key=?",
                                         (refcount, s3key))
+                        elif hash_ is None:
+                            # Not committed to S3 yet, need to remove from db only 
+                            log.debug('Removing object %s from db and cache', s3key)
+                            conn.execute("DELETE FROM s3_objects WHERE key=?", (s3key,))
+                            
+                            el = cache.keys.pop(s3key, None)
+                            if el is not None: # in cache
+                                el.seek(0, 2)
+                                cache.size -= el.tell()
+                                el.close()  
+                                os.unlink(el.name) 
+                                
+                        else:
+                            # Need to remove from S3
+                            break
                             
                     # Need to delete s3 object
                     self.blocks_remaining = True
@@ -531,7 +547,7 @@ class UnlinkBlocksThread(ExceptionStoringThread):
                 cache.s3_lock.acquire(s3key) # In case another thread wants to recreate this key
                     
             try:
-                log.debug('Removing object %s', s3key)
+                log.debug('Removing object %s from s3', s3key)
                 el = cache.keys.pop(s3key, None)
                 if el is not None: # in cache
                     el.seek(0, 2)
@@ -541,10 +557,15 @@ class UnlinkBlocksThread(ExceptionStoringThread):
                 
                 # Remove from s3
                 try:
-                    # The object may not have been committed yet
                     cache.bucket.delete_key(s3key)
-                except KeyError:  
-                    pass 
+                except KeyError:
+                    # Has not propagated yet
+                    if not waitfor(cache.timeout, cache.bucket.has_key, s3key):
+                        log.warn("Timeout when waiting for propagation of %s in Amazon S3.\n"
+                                 'Setting a higher timeout with --s3timeout may help.' % s3key)
+                        raise FUSEError(errno.EIO) 
+                    cache.bucket.delete_key(s3key)
+
             finally:
                 cache.s3_lock.release(s3key)
         finally:
