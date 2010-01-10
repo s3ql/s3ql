@@ -40,7 +40,7 @@ class fuse_tests(unittest.TestCase):
         path = os.path.join(os.path.dirname(__file__), "..", "bin", "mount.s3ql_local")
         child = subprocess.Popen([path, "--fg", "--blocksize", "1", '--fsck', 
                                   "--quiet", self.base])
-        #                          '--debug', 'fuse', '--debug', 's3', self.base])
+        #                          '--debug', 'fuse', '--debug', 'fs', self.base])
 
         # Wait for mountpoint to come up
         self.assertTrue(waitfor(10, posixpath.ismount, self.base))
@@ -54,6 +54,7 @@ class fuse_tests(unittest.TestCase):
         self.t_link()
         self.t_truncate()
         self.t_chown()
+        self.t_statvfs()
  
         # Umount 
         time.sleep(0.5)
@@ -142,6 +143,9 @@ class fuse_tests(unittest.TestCase):
         shutil.copyfile(src, name)
         self.assertTrue(filecmp.cmp(name, src, False))
         os.unlink(name)
+        
+    def t_statvfs(self):
+        os.statvfs(self.base)
         
     def t_link(self):
         name1 = self.base + "/" + self.random_name()
