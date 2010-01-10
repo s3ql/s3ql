@@ -46,8 +46,6 @@ def main():
     
     # Initialize local bucket and database
     bucket =  s3.LocalConnection().create_bucket('foobar', 'brazl')
-    s3.LOCAL_TX_DELAY = options.txdelay
-    s3.LOCAL_PROP_DELAY = options.propdelay
     dbfile = tempfile.NamedTemporaryFile()
    
     dbcm = ConnectionManager(dbfile.name, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
@@ -60,6 +58,7 @@ def main():
     try:
         
         # Run server
+        options.s3timeout = s3.LOCAL_PROP_DELAY*1.1
         operations = run_server(bucket, cachedir, dbcm, options)
         if operations.encountered_errors:
             log.warn('Some errors occured while handling requests. '
@@ -67,7 +66,7 @@ def main():
             
         # We have to make sure that all changes have been committed by the
         # background threads
-        sleep(options.propdelay)
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
             
         # Do fsck
         if options.fsck:
@@ -104,18 +103,12 @@ def parse_args():
                       help="Maximum size of s3 objects in KB (default: %default)")
     parser.add_option("--fsck", action="store_true", default=False,
                       help="Runs fsck after the filesystem is unmounted.")
-    parser.add_option("--txdelay", type="float", default=0.0,
-                      help="Simulated transmission time to/from S3 in seconds (default: %default)")
-    parser.add_option("--propdelay", type="float", default=0.0,
-                      help="Simulated propagation in S3 in seconds (default: %default)")
     parser.add_option("--cachesize", type="int", default=10,
                       help="Cache size in kb (default: %default). Should be at least 10 times "
                       "the blocksize of the filesystem, otherwise an object may be retrieved and "
                       "written several times during a single write() or read() operation." )    
     
     (options, pps) = parser.parse_args()
-    
-    options.s3timeout = options.propdelay+1
     
     #
     # Verify parameters

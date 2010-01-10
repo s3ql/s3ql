@@ -41,7 +41,7 @@ class Filter(object):
             acceptnames = list()
             
         self.acceptlevel = acceptlevel
-        self.acceptnames = acceptnames
+        self.acceptnames = [ x.lower() for x in acceptnames ]
         
     def filter(self, record):
         '''Determine if the log message should be printed
@@ -51,7 +51,7 @@ class Filter(object):
         
         name = record.name.lower()
         for accept in self.acceptnames:
-            if name.startswith(accept.lower()):
+            if name == accept:
                 return True
         
         return False
