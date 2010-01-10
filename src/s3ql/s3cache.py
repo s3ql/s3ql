@@ -27,12 +27,11 @@ __all__ = [ "S3Cache" ]
 log = logging.getLogger("S3Cache") 
 
 
-# This is an additional limit on the cache, in addition
-# to the cache size. It prevents that we run out of
-# file descriptors, or simply eat up too much memory
-# for cache elements, if the users creates thousands
-# of 10-byte files.
-MAX_CACHE_ENTRIES = 982
+# This is an additional limit on the cache, in addition to the cache size. It prevents that we
+# run out of file descriptors, or simply eat up too much memory for cache elements if the users
+# creates thousands of 10-byte files.
+# Standard file descriptor limit per process is 1024
+MAX_CACHE_ENTRIES = 768
 
 
 class CacheEntry(file):
