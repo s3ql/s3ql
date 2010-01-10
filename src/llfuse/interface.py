@@ -845,7 +845,7 @@ def fuse_statfs(req, inode):
     attr = operations.statfs()
     statfs = libfuse.statvfs()
     
-    for (key, val) in attr:
+    for (key, val) in attr.iteritems():
         setattr(statfs, key, val)
         
     log.debug('Calling fuse_reply_statfs')
