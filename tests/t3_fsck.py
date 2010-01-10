@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import unicode_literals, division, print_function
+from __future__ import division, print_function
 
 import unittest
 from s3ql import mkfs, s3,  fsck
@@ -17,6 +17,7 @@ import os
 import stat
 import tempfile
 import time
+from time import sleep
 
 # For debug messages:
 #from s3ql.common import init_logging
@@ -25,9 +26,7 @@ import time
 class fsck_tests(unittest.TestCase):
 
     def setUp(self):
-        self.bucket = s3.LocalBucket()
-        self.bucket.tx_delay = 0
-        self.bucket.prop_delay = 0
+        self.bucket =  s3.LocalConnection().create_bucket('foobar', 'brazl')
 
         self.dbfile = tempfile.NamedTemporaryFile()
         self.cachedir = tempfile.mkdtemp() + "/"
@@ -59,6 +58,7 @@ class fsck_tests(unittest.TestCase):
         fn()
         self.assertTrue(fsck.found_errors)
         fsck.found_errors = False
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
         fn()
         self.assertFalse(fsck.found_errors)
         
@@ -68,7 +68,7 @@ class fsck_tests(unittest.TestCase):
         fh.close()
         
         self.assert_fsck(fsck.check_cache)
-        
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
         self.assertEquals(self.bucket['testkey'], 'somedata')
         
     def test_dirs(self):
@@ -144,6 +144,7 @@ class fsck_tests(unittest.TestCase):
 
         # Create an object that only exists in s3
         self.bucket['s3ql_data_foobrasl'] = 'Testdata' 
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
         self.assert_fsck(fsck.check_keylist)
         
         # Create an object that does not exist in S3
@@ -166,7 +167,7 @@ class fsck_tests(unittest.TestCase):
         self.bucket.store(s3key, data, { 'hash': hash_ })
         self.conn.execute('INSERT INTO s3_objects (key, hash, size, refcount) VALUES(?, ?, ?, ?)',
                            (s3key, sha256('foobar'), len(data), 1))
-        
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
         self.assert_fsck(fsck.check_keylist)    
       
         

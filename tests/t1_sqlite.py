@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import unicode_literals, division, print_function
+from __future__ import division, print_function
 
 import tempfile
 import unittest 
@@ -22,9 +22,7 @@ import os
 class sqlite_tests(unittest.TestCase): 
 
     def setUp(self):
-        self.bucket = s3.LocalBucket()
-        self.bucket.tx_delay = 0
-        self.bucket.prop_delay = 0
+        self.bucket =  s3.LocalConnection().create_bucket('foobar', 'brazl')
 
         self.dbfile = tempfile.NamedTemporaryFile()
         self.cachedir = tempfile.mkdtemp() + "/"

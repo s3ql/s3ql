@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import unicode_literals, division, print_function
+from __future__ import division, print_function
 
 import sys
 from optparse import OptionParser
@@ -45,9 +45,9 @@ def main():
         return 1
     
     # Initialize local bucket and database
-    bucket = s3.LocalBucket()
-    bucket.tx_delay = options.txdelay
-    bucket.prop_delay = options.propdelay
+    bucket =  s3.LocalConnection().create_bucket('foobar', 'brazl')
+    s3.LOCAL_TX_DELAY = options.txdelay
+    s3.LOCAL_PROP_DELAY = options.propdelay
     dbfile = tempfile.NamedTemporaryFile()
    
     dbcm = ConnectionManager(dbfile.name, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')

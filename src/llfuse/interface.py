@@ -41,7 +41,7 @@ The return value and any raised exceptions of `handle_exc` are ignored.
 # We need globals
 #pylint: disable-msg=W0603
 
-from __future__ import unicode_literals, division, print_function
+from __future__ import division, print_function
 
 import llfuse.ctypes_api as libfuse
 from ctypes import (c_char_p, sizeof, create_string_buffer, addressof, string_at,

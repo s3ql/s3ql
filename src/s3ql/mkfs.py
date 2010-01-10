@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import unicode_literals, division, print_function
+from __future__ import division, print_function
 
 import stat
 import os
@@ -16,7 +16,7 @@ from s3ql.common import ROOT_INODE, CTRL_INODE
 
 __all__ = [ "setup_db" ]
 
-def setup_db(conn, blocksize, label="unnamed s3qlfs"):
+def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     """Creates the metadata tables
     """
     
@@ -77,7 +77,7 @@ def setup_db(conn, blocksize, label="unnamed s3qlfs"):
     );
     INSERT INTO parameters(label,blocksize,last_fsck,mountcnt,needs_fsck,version)
         VALUES(?,?,?,?,?, ?)
-    """, (label, blocksize, time.time() - time.timezone, 0, False, 1.0))
+    """, (unicode(label), blocksize, time.time() - time.timezone, 0, False, 1.0))
 
     # Table of filesystem objects
     conn.execute("""

@@ -6,11 +6,12 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import unicode_literals, division, print_function
+from __future__ import division, print_function
 
 from random import randint
 from s3ql import mkfs, s3, fs, fsck
 import time
+from time import sleep
 from s3ql.common import ROOT_INODE, ExceptionStoringThread
 from llfuse import FUSEError
 from s3ql.s3cache import S3Cache
@@ -34,9 +35,7 @@ class Ctx(object):
 class fs_api_tests(unittest.TestCase):
 
     def setUp(self):
-        self.bucket = s3.LocalBucket()
-        self.bucket.tx_delay = 0
-        self.bucket.prop_delay = 0
+        self.bucket =  s3.LocalConnection().create_bucket('foobar', 'brazl')
 
         self.dbfile = tempfile.NamedTemporaryFile()
         self.cachedir = tempfile.mkdtemp() + "/"
@@ -62,6 +61,7 @@ class fs_api_tests(unittest.TestCase):
 
     def fsck(self):
         self.cache.clear()
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
         with self.dbcm.transaction() as conn:
             fsck.fsck(conn, self.cachedir, self.bucket, checkonly_=True)
         self.assertFalse(fsck.found_errors)
@@ -618,10 +618,12 @@ class fs_api_tests(unittest.TestCase):
         self.assertTrue(isinstance(self.server.getattr(inode), dict))
         self.assertEquals(len(self.cache), 1)
         self.cache.clear()
-        self.assertEquals(len(self.bucket.keystore), 1)
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
+        self.assertEquals(len(list(self.bucket.keys())), 1)
         self.server.release(fh)
         self.assertEquals(len(self.cache), 0)
-        self.assertEquals(len(self.bucket.keystore), 0)
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
+        self.assertEquals(len(list(self.bucket.keys())), 0)
         self.assertRaises(KeyError, self.server.getattr, inode)
         self.fsck()
         
@@ -658,6 +660,7 @@ class fs_api_tests(unittest.TestCase):
         
         self.server.fsync(fh, True) 
         
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
         self.assertEqual(len(list(self.bucket.keys())), blocks)
         
         self.server.flush(fh)

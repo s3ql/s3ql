@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import unicode_literals, division, print_function
+from __future__ import division, print_function
 
 from time import sleep
 from boto.s3.connection import S3Connection
@@ -27,10 +27,16 @@ import bz2
 from base64 import b64decode, b64encode
 import struct
 
-__all__ = [ "Connection", "ConcurrencyError", "Bucket", "LocalBucket", "Metadata" ]
+__all__ = [ "Connection", "ConcurrencyError", "LocalConnection" ]
 
 log = logging.getLogger("s3")
  
+
+# For testing 
+# Don't change randomly, these values are fine tuned
+# for the tests to work without too much time.
+LOCAL_TX_DELAY = 0.02
+LOCAL_PROP_DELAY = 0.09
 
 class Connection(object):
     """Represents a connection to Amazon S3
@@ -234,7 +240,7 @@ class Bucket(object):
 
         with self._get_boto() as boto:
             for bkey in boto.list():
-                yield unicode(bkey.name)
+                yield bkey.name
 
     def fetch(self, key):
         """Return data stored under `key`.
@@ -344,133 +350,185 @@ class Bucket(object):
         with self._get_boto() as boto:
             boto.copy_key(dest, self.name, src)
 
+class LocalConnection(Connection):
+    '''
+    For testing purposes only. Pretends to be a Connection,
+    but stores all data in memory rather than sending
+    anything to S3.
+    '''
+    
+    def __init__(self):
+        super(LocalConnection, self).__init__('', '')
+        self.boto_conn = LocalBotoConn() 
+        
+    def _pop_conn(self):
+        '''Get connection object from the pool'''
+        
+        try:
+            conn = self.pool.pop()
+        except IndexError:
+            # Need to create a new connection
+            log.debug("Creating new local connection (active conns: %d)...", 
+                      self.conn_cnt)
+            conn = self.boto_conn
+            self.conn_cnt += 1
+                   
+        return conn
+    
+class LocalBotoConn(object):
+    '''
+    For testing purposes. Pretends to be a boto S3 connection, but
+    stores everything in memory.
+    '''
+    
+    def __init__(self):
+        self.buckets = dict()
+         
+    def get_bucket(self, name):
+        if name in self.buckets:
+            return self.buckets[name]
+        else:
+            raise bex.S3ResponseError(404, 'Bucket does not exist')
+      
+    def delete_bucket(self, name):
+        if self.buckets[name]:
+            raise RuntimeError('Attempted to delete nonempty bucket')
+        del self.buckets[name]
+        
+    def create_bucket(self, name):
+        if name in self.buckets:
+            raise RuntimeError('Attempted to create existing bucket')
+        
+        self.buckets[name] = LocalBotoBucket(name)
+    
+class LocalBotoKey(dict):
+    '''
+    Pretends to be a boto S3 key.
+    '''
 
-class LocalBucket(Bucket):
-    """Represents a bucket stored in memory
+    def __init__(self, bucket, name, meta):
+        super(LocalBotoKey, self).__init__()
+        self.bucket = bucket
+        self.name = name
+        self.meta = meta
+        
 
-    This class holds all objects in memory.
-    It is meant only for testing purposes. It emulates an artificial
-    propagation delay and transmit time.
+    def get_contents_to_file(self, fh):
+        log.debug("LocalBotoKey: get_contents_to_file()")
+        
+        if self.name in self.bucket.in_transmit:
+            raise ConcurrencyError()
+        
+        self.bucket.in_transmit.add(self.name)
+        sleep(LOCAL_TX_DELAY)
+        self.bucket.in_transmit.remove(self.name)
+        
+        fh.seek(0)
+        fh.write(self.bucket.keystore[self.name][0])
+        self.meta = self.bucket.keystore[self.name][1]
+        
+
+    def set_contents_from_file(self, fh):
+        log.debug("LocalBotoKey: set_contents_from_file()")
+        fh.seek(0)
+        val = fh.read()
+        
+        if self.name in self.bucket.in_transmit:
+            raise ConcurrencyError()
+        
+        self.bucket.in_transmit.add(self.name)
+        sleep(LOCAL_TX_DELAY)
+        self.bucket.in_transmit.remove(self.name)
+       
+        def set_():
+            sleep(LOCAL_PROP_DELAY)
+            log.debug("LocalBotoKey: Committing store for %s", self.name)
+            self.bucket.keystore[self.name] = (val, self.meta)
+            
+        t = threading.Thread(target=set_)
+        t.start()
+     
+    def set_metadata(self, key, val):    
+        self.meta[key] = val
+        
+    def get_metadata(self, key):
+        return self.meta[key]       
+         
+         
+class LocalBotoBucket(object):
+    """
+    Only for testing purposes. Represents a bucket stored in memory.
+    It emulates an artificial propagation delay and transmit time. 
 
     It tries to raise ConcurrencyError if several threads try to write or read
     the same object at a time (but it cannot guarantee to catch these cases).
-    The reason for this is not that
-    concurrent accesses to the same object were in itself harmful, but
-    that they should not occur because the write(), sync() etc.
-    systemcalls are synchronized. So if the s3 accesses occur
-    concurrent, something went wrong with the syscall synchronization.
     """
 
-    def __init__(self, name="local"):
-        # We deliberately do not call the superclass constructor
-        #pylint: disable-msg=W0231
-        self.keystore = {}
+    def __init__(self, name):
+        super(LocalBotoBucket, self).__init__()
+        self.keystore = dict()
         self.name = name
         self.in_transmit = set()
-        self.tx_delay = 0
-        self.prop_delay = 0
-
-            
-    def has_key(self, key):
-        return key in self.keystore
-    
-    def lookup_key(self, key):
-        log.debug("LocalBucket: Received lookup for %s", key)
+      
+    def delete_key(self, key):
+        log.debug("LocalBotoBucket: Handling delete_key(%s)", key)
         if key in self.in_transmit:
             raise ConcurrencyError
         self.in_transmit.add(key)
-        sleep(self.tx_delay)
+        sleep(LOCAL_TX_DELAY)
         self.in_transmit.remove(key)
-        if key not in self.keystore:
-            raise KeyError('Key does not exist: %s' % key)
-        else:
-            return self.keystore[key][1]
-
-    def keys(self):
-        for key in self.keystore:
-            yield key
-
-    def delete_key(self, key, force=False):
-        if key in self.in_transmit:
-            raise ConcurrencyError
-        log.debug("LocalBucket: Received delete for %s", key)
-        self.in_transmit.add(key)
-        sleep(self.tx_delay)
-        self.in_transmit.remove(key)
-
-        # Make sure the key exists, otherwise we get an error
-        # in a different thread
-        if not force and not self.keystore.has_key(key):
-            raise KeyError
-
-        def set_():
-            sleep(self.prop_delay)
-            log.debug("LocalBucket: Committing delete for %s", key)
-            # Don't bother if some other thread already deleted it
-            try:
-                del self.keystore[key]
-            except KeyError:
-                pass
-
-        threading.Thread(target=set_).start()
-
-    def fetch(self, key):
-        log.debug("LocalBucket: Received fetch for %s", key)
-        if key in self.in_transmit:
-            raise ConcurrencyError
-        self.in_transmit.add(key)
-        sleep(self.tx_delay)
-        self.in_transmit.remove(key)
-        return self.keystore[key]
-
-    def store(self, key, val, metadata=None):
-        if metadata is None:
-            metadata = dict()
-        metadata['last-modified'] = time.time() - time.timezone
         
-        log.debug("LocalBucket: Received store for %s", key)
+        if not key in self.keystore:
+            raise KeyError('Key does not exist in bucket')
+        
+        def set_():
+            sleep(LOCAL_PROP_DELAY)
+            log.debug("LocalBotoBucket: Committing delete_key(%s)", key)
+            del self.keystore[key]
+        threading.Thread(target=set_).start()      
+     
+    def list(self):
+        log.debug("LocalBotoBucket: Handling list()")
+        for key in self.keystore:
+            yield LocalBotoKey(self, key, dict())          
+        
+    def get_key(self, key):
+        log.debug("LocalBotoBucket: Handling get_key(%s)", key)
         if key in self.in_transmit:
             raise ConcurrencyError
         self.in_transmit.add(key)
-        sleep(self.tx_delay)
-       
-        def set_():
-            sleep(self.prop_delay)
-            log.debug("LocalBucket: Committing store for %s", key)
-            self.keystore[key] = (val, metadata)
-        t = threading.Thread(target=set_)
-        t.start()
+        sleep(LOCAL_TX_DELAY)
         self.in_transmit.remove(key)
-        log.debug("LocalBucket: Returning from store for %s" % key)
+        if key in self.keystore:
+            return LocalBotoKey(self, key, self.keystore[key][1])
+        else:
+            return None
+    
+    def new_key(self, key):
+        return LocalBotoKey(self, key, dict())
 
-
-    def fetch_fh(self, key, fh):
-        (data, metadata) = self.fetch(key)
-        fh.seek(0)
-        fh.write(data)
-        return metadata
-
-    def store_fh(self, key, fh, metadata=None):
-        fh.seek(0)
-        return self.store(key, fh.read(), metadata)
-
-    def copy(self, src, dest):
-        """Copies data stored under `src` to `dest`
-        """
-        log.debug("LocalBucket: Received copy from %s to %s", src, dest)
+    def copy_key(self, dest, src_bucket, src):
+        log.debug("LocalBotoBucket: Received copy from %s to %s", src, dest)
+        if src_bucket != self.name:
+            raise RuntimeError('Inter-bucket copying not supported')
+        
         if dest in self.in_transmit or src in self.in_transmit:
             raise ConcurrencyError
         self.in_transmit.add(src)
         self.in_transmit.add(dest)
-        sleep(self.tx_delay)
+        sleep(LOCAL_TX_DELAY)
+        
+        if not src in self.keystore:
+            raise KeyError('source key does not exist')
+        
         def set_():
-            sleep(self.prop_delay)
-            log.debug("LocalBucket: Committing copy from %s to %s", src, dest)
+            sleep(LOCAL_PROP_DELAY)
+            log.debug("LocalBotoBucket: Committing copy from %s to %s", src, dest)
             self.keystore[dest] = copy.deepcopy(self.keystore[src])
         threading.Thread(target=set_).start()
         self.in_transmit.remove(dest)
         self.in_transmit.remove(src)
-        log.debug("LocalBucket: Returning from copy %s to %s", src, dest)
+        log.debug("LocalBotoBucket: Returning from copy %s to %s", src, dest)
 
 
 class ConcurrencyError(Exception):

@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import unicode_literals, division, print_function 
+from __future__ import division, print_function 
 
 from s3ql import mkfs, s3, s3cache
 from s3ql.common import EmbeddedException, ExceptionStoringThread, sha256
@@ -29,9 +29,7 @@ from contextlib import contextmanager
 class s3cache_tests(unittest.TestCase):
     
     def setUp(self):
-        self.bucket = s3.LocalBucket()
-        self.bucket.tx_delay = 0
-        self.bucket.prop_delay = 0
+        self.bucket =  s3.LocalConnection().create_bucket('foobar', 'brazl')
 
         self.dbfile = tempfile.NamedTemporaryFile()
         self.cachedir = tempfile.mkdtemp() + "/"
@@ -87,8 +85,9 @@ class s3cache_tests(unittest.TestCase):
         self.cache.flush(inode)
         
         # Should be committed now
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
         self.assertTrue(s3key in self.bucket)
-        
+
         # Even if we change in S3, we should get the cached data
         data2 = self.random_data(241)
         self.bucket.store(s3key, data2, { 'hash': sha256(data2) })
@@ -101,15 +100,18 @@ class s3cache_tests(unittest.TestCase):
             
         # This should not upload any data, so now we read the new key
         # and get a hash mismatch
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
         self.cache.timeout = 1
         self.cache.expect_mismatch = True
         cm = self.cache.get(inode, blockno)
         
-        # Pylint doesn't recognize that cm is a context manager
-        #pylint: disable-msg=E1101
-        self.assertRaises(FUSEError, cm.__enter__)
-            
-    def test_02_locking_meta(self):
+        try:
+            self.assertRaises(FUSEError, cm.__enter__)
+        finally:
+            cm.__exit__(None, None, None)
+
+                    
+    def test_02_threading(self):
         # Test our threading object
         def works():
             pass
@@ -167,7 +169,7 @@ class s3cache_tests(unittest.TestCase):
         s3key = "s3ql_data_%d_%d" % (self.inode, blockno)
         
         # Make sure the threads actually conflict
-        self.bucket.tx_delay = 1
+        assert s3.LOCAL_TX_DELAY > 0
         
         # Enfore cache expiration on each expire() call
         self.cache.maxsize = 0
@@ -189,15 +191,16 @@ class s3cache_tests(unittest.TestCase):
         t2.join_and_raise()
         
         # Make sure the cache has actually been flushed
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
         self.assertTrue(s3key in self.bucket.keys())
         
-        # After we Monkeypatch the locking away, we except and exception
+        # After we Monkeypatch the locking away, we expect an exception
         self.cache.s3_lock = DummyLock()
         
         t1 = ExceptionStoringThread(target=access)
         t2 = ExceptionStoringThread(target=access)      
         t1.start()
-        sleep(0.5)
+        sleep(s3.LOCAL_TX_DELAY/2)
         t2.start()  
         
         t1.join_and_raise()

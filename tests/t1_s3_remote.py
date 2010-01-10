@@ -6,10 +6,9 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import unicode_literals, division, print_function
+from __future__ import division, print_function
 
 import unittest
-import hashlib
 import s3ql.s3
 from random   import randrange
 from time import sleep
@@ -81,7 +80,6 @@ class s3_tests_remote(unittest.TestCase):
             
         for i in range(12):
             del self.bucket[keys[i]]
-            
 
 
     def test_05_copy(self):
@@ -97,22 +95,7 @@ class s3_tests_remote(unittest.TestCase):
 
         sleep(self.delay)
         self.assertEquals(self.bucket[key2], value)
-    
-    def test_04_encryption(self):
-        bucket = self.bucket
-        bucket['plain'] = b'foobar452'
 
-        key = hashlib.md5('ffo').digest()
-        ebucket = self.conn.get_bucket(self.bucketname, key)
-        
-        ebucket['foobar'] = b'testdata'
-        self.assertEquals(ebucket['foobar'], b'testdata')
-        
-        self.assertRaises(s3ql.s3.ChecksumError, ebucket.fetch, 'plain')
-        self.assertRaises(s3ql.s3.ChecksumError, bucket.fetch, 'foobar')
-        
-        self.assertRaises(s3ql.s3.ChecksumError, ebucket.lookup_key, 'plain')
-        self.assertRaises(s3ql.s3.ChecksumError, bucket.lookup_key, 'foobar')
         
     def setUp(self):
         (awskey, awspass) = main.aws_credentials
@@ -132,7 +115,7 @@ class s3_tests_remote(unittest.TestCase):
         
         # This is the time in which we expect S3 changes to propagate. It may
         # be much longer for larger objects, but for tests this is usually enough.
-        self.delay = 1
+        self.delay = 0.3
 
     def tearDown(self):
         self.conn.delete_bucket(self.bucketname, recursive=True)

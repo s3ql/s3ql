@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import unicode_literals, division, print_function
+from __future__ import division, print_function
 
 from contextlib import contextmanager
 from llfuse import FUSEError
@@ -156,13 +156,13 @@ class S3Cache(object):
         # Debug logging commented out, this function is called too often.
         
         # Get s3 key    
-        #log.debug('Getting file handle for inode %i, block %i', inode, blockno)
+        log.debug('Getting file handle for inode %i, block %i', inode, blockno)
         with self.global_lock:
             with self.dbcm() as conn:
                 try:
                     s3key = conn.get_val("SELECT s3key FROM blocks WHERE inode=? AND blockno=?", 
                                         (inode, blockno))
-                    #log.debug('s3key is %s', s3key)
+                    log.debug('s3key is %s', s3key)
                 except KeyError:
                     # Create and add to cache
                     log.debug('creating new s3 object')
@@ -175,7 +175,7 @@ class S3Cache(object):
                         
                     self.keys[s3key] = CacheEntry(s3key, self.cachedir + s3key, "w+b")
 
-            #log.debug('Acquiring object lock')   
+            log.debug('Acquiring object lock')   
             self.s3_lock.acquire(s3key)
 
        
@@ -195,7 +195,7 @@ class S3Cache(object):
                 self.size += oldsize
                 
             else:
-                #log.debug('Using cached object')
+                log.debug('Using cached object')
                 self.keys.to_head(s3key)
             
                 el.seek(0, 2)
@@ -210,7 +210,7 @@ class S3Cache(object):
                 self.size = self.size - oldsize + newsize 
             
         finally:
-            #log.debug('Releasing object lock')
+            log.debug('Releasing object lock')
             self.s3_lock.release(s3key)
             
         self.expire()    
