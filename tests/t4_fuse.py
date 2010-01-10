@@ -39,9 +39,8 @@ class fuse_tests(unittest.TestCase):
         # Mount
         path = os.path.join(os.path.dirname(__file__), "..", "bin", "mount.s3ql_local")
         child = subprocess.Popen([path, "--fg", "--blocksize", "1", '--fsck', 
-                                  "--quiet", '--txdelay', '0.01', '--propdelay', '0.01',
-                                  self.base])
-        #                          '--debug', 'fuse', '--debug', 'fs', self.base])
+                                  "--quiet", self.base])
+        #                          '--debug', 'fuse', '--debug', 's3', self.base])
 
         # Wait for mountpoint to come up
         self.assertTrue(waitfor(10, posixpath.ismount, self.base))
@@ -52,7 +51,7 @@ class fuse_tests(unittest.TestCase):
         self.t_symlink()
         self.t_mknod()
         self.t_readdir()
-        self.t_symlink()
+        self.t_link()
         self.t_truncate()
         self.t_chown()
  
