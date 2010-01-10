@@ -122,20 +122,6 @@ def main():
             sys.exit(1)
         else:
             log.warn("Dirty filesystem and no local metadata - continuing anyway.")
-    
-    if (bucket.lookup_key("s3ql_metadata")['last-modified'] 
-        < bucket.lookup_key("s3ql_dirty")['last-modified']):
-        if not options.force_old:
-            print('Metadata from most recent mount has not yet propagated through Amazon S3.\n'
-                  'Please try again later.\n\n'
-                  'Use --force-old if you want to check the file system with  the (outdated)\n'
-                  'metadata that is available right now. This will result in data loss.\n',
-                  file=sys.stderr)
-            sys.exit(1)
-        else:
-            log.warn('Metadata has not yet propagated through Amazon S3.'
-                     'Continuing with outdated metadata...')
-            commit_required = True
         
         
     #
@@ -150,7 +136,7 @@ def main():
     if os.path.exists(dbfile):
         # Compare against online metadata
         local = datetime.utcfromtimestamp(os.stat(dbfile).st_mtime)
-        remote = bucket.lookup_key("s3ql_metadata")['last-modified']
+        remote = bucket.lookup_key("s3ql_dirty")['last-modified']
     
         log.debug('Local metadata timestamp: %.3f', local)
         log.debug('Remote metadata timestamp: %.3f', remote)
@@ -178,6 +164,20 @@ def main():
         commit_required = True
     
     else:
+        if (bucket.lookup_key("s3ql_metadata")['last-modified'] 
+            < bucket.lookup_key("s3ql_dirty")['last-modified']):
+            if not options.force_old:
+                print('Metadata from most recent mount has not yet propagated through Amazon S3.\n'
+                      'Please try again later.\n\n'
+                      'Use --force-old if you want to check the file system with  the (outdated)\n'
+                      'metadata that is available right now. This will result in data loss.\n',
+                      file=sys.stderr)
+                sys.exit(1)
+            else:
+                log.warn('Metadata has not yet propagated through Amazon S3.'
+                         'Continuing with outdated metadata...')
+                commit_required = True
+                    
         # Download remote metadata
         log.info('Downloading metadata..')
         os.mknod(dbfile, 0600 | stat.S_IFREG)
