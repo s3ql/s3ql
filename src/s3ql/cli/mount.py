@@ -77,47 +77,41 @@ def main():
     check_fs(bucket, cachedir, dbfile)
    
     # Init cache + get metadata
+    log.info("Downloading metadata...")
+    os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
+    if not os.path.exists(cachedir):
+        os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+    bucket.fetch_fh("s3ql_metadata", open(dbfile, 'w'))
+
+    # Check that the fs itself is clean
+    dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
+    if dbcm.get_val("SELECT needs_fsck FROM parameters"):
+        print("File system damaged, run fsck!", file=sys.stderr)
+        sys.exit(1)
+
+    # Start server
+    bucket.store("s3ql_dirty", "yes")
     try:
-        log.info("Downloading metadata...")
-        os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
-        if not os.path.exists(cachedir):
-            os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-        bucket.fetch_fh("s3ql_metadata", open(dbfile, 'w'))
-    
-        # Check that the fs itself is clean
-        dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
-        if dbcm.get_val("SELECT needs_fsck FROM parameters"):
-            print("File system damaged, run fsck!", file=sys.stderr)
-            sys.exit(1)
-    
-        # Start server
-        bucket.store("s3ql_dirty", "yes")
-        try:
-            operations = run_server(bucket, cachedir, dbcm, options)
-            if operations.encountered_errors:
-                log.warn('Some errors occured while handling requests. '
-                     'Please examine the logs for more information.')
-        finally:
-            log.info("Uploading database..")
-            dbcm.execute("VACUUM")
-            if bucket.has_key("s3ql_metadata_bak_2"):
-                bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
-            if bucket.has_key("s3ql_metadata_bak_1"):
-                bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
-            bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
-            
-            bucket.store("s3ql_dirty", "no")
-            bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
+        operations = run_server(bucket, cachedir, dbcm, options)
+        if operations.encountered_errors:
+            log.warn('Some errors occured while handling requests. '
+                 'Please examine the logs for more information.')
+    finally:
+        log.info("Uploading database..")
+        dbcm.execute("VACUUM")
+        if bucket.has_key("s3ql_metadata_bak_2"):
+            bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
+        if bucket.has_key("s3ql_metadata_bak_1"):
+            bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
+        bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
+        
+        bucket.store("s3ql_dirty", "no")
+        bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
     
     # Remove database
-    finally:
-        # Ignore exceptions when cleaning up
-        try:
-            log.debug("Cleaning up...")
-            os.unlink(dbfile)
-            os.rmdir(cachedir)
-        except:
-            pass
+    log.debug("Cleaning up...")
+    os.unlink(dbfile)
+    os.rmdir(cachedir)
          
     sys.exit(0 if not operations.encountered_errors else 1)
  

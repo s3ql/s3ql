@@ -55,29 +55,28 @@ def main():
     
     # Create cache directory
     cachedir = tempfile.mkdtemp() + b'/'
-    try:
-        
-        # Run server
-        options.s3timeout = s3.LOCAL_PROP_DELAY*1.1
-        operations = run_server(bucket, cachedir, dbcm, options)
-        if operations.encountered_errors:
-            log.warn('Some errors occured while handling requests. '
-                     'Please examine the logs for more information.')
-            
-        # We have to make sure that all changes have been committed by the
-        # background threads
-        sleep(s3.LOCAL_PROP_DELAY*1.1)
-            
-        # Do fsck
-        if options.fsck:
-            with dbcm.transaction() as conn:
-                fsck.fsck(conn, cachedir, bucket)
-            if fsck.found_errors:
-                log.warn("fsck found errors")
-            
-    finally:
-        os.rmdir(cachedir)
  
+    # Run server
+    options.s3timeout = s3.LOCAL_PROP_DELAY*1.1
+    operations = run_server(bucket, cachedir, dbcm, options)
+    if operations.encountered_errors:
+        log.warn('Some errors occured while handling requests. '
+                 'Please examine the logs for more information.')
+        
+    # We have to make sure that all changes have been committed by the
+    # background threads
+    sleep(s3.LOCAL_PROP_DELAY*1.1)
+        
+    # Do fsck
+    if options.fsck:
+        with dbcm.transaction() as conn:
+            fsck.fsck(conn, cachedir, bucket)
+        if fsck.found_errors:
+            log.warn("fsck found errors")
+        
+    
+    os.rmdir(cachedir)
+
     if operations.encountered_errors or fsck.found_errors:
         sys.exit(1)
     else:
