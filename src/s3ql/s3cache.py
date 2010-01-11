@@ -185,7 +185,7 @@ class S3Cache(object):
             except KeyError:
                 log.debug('Object %s not cached, retrieving from s3', s3key)
                 hash_ = self.dbcm.get_val("SELECT hash FROM s3_objects WHERE key=?", (s3key,))
-                el = CacheEntry(s3key, self._download_object(s3key, hash_), 'r+b')
+                el = self._download_object(s3key, hash_)
                 self.keys[s3key] = el
                 
                 # Update cache size
@@ -215,7 +215,7 @@ class S3Cache(object):
         self.expire()    
             
     def _download_object(self, s3key, hash_):
-        """Download s3 object into the cache. Return path.
+        """Download s3 object into the cache. Return `CacheEntry`
         
         s3_lock must be acquired before this method is called. 
         """
@@ -252,10 +252,12 @@ class S3Cache(object):
                          'Setting a higher timeout with --s3timeout may help.' % s3key)
             raise FUSEError(errno.EIO)
             
-        self.bucket.fetch_fh(s3key, open(cachepath, 'wb')) 
+        el = CacheEntry(s3key, cachepath, 'w+b')
+        self.bucket.fetch_fh(s3key, el) 
+        el.dirty = False
         log.debug('Object %s fetched successfully.', s3key)
         
-        return cachepath      
+        return el      
         
     def expire(self):
         '''Expire cache. 
