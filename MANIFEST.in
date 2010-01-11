@@ -1,0 +1,6 @@
+include build.py
+include runtests.py
+recursive-include tests *.py
+include src/*.h
+include src/ctypeslib.zip
+
