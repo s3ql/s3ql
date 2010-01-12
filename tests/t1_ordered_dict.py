@@ -10,8 +10,9 @@ from __future__ import division, print_function
 
 import unittest
 from s3ql.ordered_dict import OrderedDict
+from _common import TestCase 
 
-class OrderedDictTests(unittest.TestCase):
+class OrderedDictTests(TestCase):
                
     def test_1_add_del(self):
         od = OrderedDict()

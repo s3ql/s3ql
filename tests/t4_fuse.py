@@ -15,13 +15,16 @@ import stat
 from os.path  import basename 
 from random   import randrange
 from s3ql.common import waitfor
+from _common import TestCase 
 import filecmp
 import tempfile
 import posixpath
 import unittest
 import subprocess
 
-class fuse_tests(unittest.TestCase): 
+# TODO: Run commands in separate thread rather than separate process
+
+class fuse_tests(TestCase): 
     def setUp(self):
         self.base = tempfile.mkdtemp()
 

@@ -16,6 +16,7 @@ from s3ql.common import ROOT_INODE, ExceptionStoringThread
 from llfuse import FUSEError
 from s3ql.s3cache import S3Cache
 from s3ql.database import ConnectionManager
+from _common import TestCase 
 import os
 import stat
 import tempfile
@@ -32,7 +33,7 @@ class Ctx(object):
         self.gid = randint(0, 2**32)
         
 
-class fs_api_tests(unittest.TestCase):
+class fs_api_tests(TestCase):
 
     def setUp(self):
         self.bucket =  s3.LocalConnection().create_bucket('foobar', 'brazl')

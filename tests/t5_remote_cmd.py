@@ -15,6 +15,7 @@ from s3ql import s3
 import tempfile
 import posixpath
 import unittest
+from _common import TestCase 
 import _awscred
 import sys
 import subprocess
@@ -25,7 +26,7 @@ if not hasattr(main, 'aws_credentials'):
     main.aws_credentials = _awscred.get()
     
 @unittest.skipUnless(main.aws_credentials, 'remote tests disabled')
-class RemoteCmdTests(unittest.TestCase): 
+class RemoteCmdTests(TestCase): 
     
     def setUp(self):
         self.base = tempfile.mkdtemp()

@@ -13,13 +13,14 @@ import unittest
 from time import time
 from s3ql import mkfs, s3
 from s3ql.common import ROOT_INODE
+from _common import TestCase 
 from s3ql.database import WrappedConnection
 import apsw
 import stat
 import os
 
 
-class sqlite_tests(unittest.TestCase): 
+class sqlite_tests(TestCase): 
 
     def setUp(self):
         self.bucket =  s3.LocalConnection().create_bucket('foobar', 'brazl')

@@ -13,17 +13,14 @@ from s3ql import mkfs, s3,  fsck
 from s3ql.database import WrappedConnection
 import apsw
 from s3ql.common import ROOT_INODE, sha256
+from _common import TestCase 
 import os
 import stat
 import tempfile
 import time
 from time import sleep
 
-# For debug messages:
-#from s3ql.common import init_logging
-#init_logging(True, False, debug=['fsck'])
-
-class fsck_tests(unittest.TestCase):
+class fsck_tests(TestCase):
 
     def setUp(self):
         self.bucket =  s3.LocalConnection().create_bucket('foobar', 'brazl')

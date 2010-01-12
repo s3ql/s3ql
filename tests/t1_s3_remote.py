@@ -10,7 +10,8 @@ from __future__ import division, print_function
 
 import unittest
 import s3ql.s3
-from random   import randrange
+from random import randrange
+from _common import TestCase 
 from time import sleep
 import sys
 import _awscred
@@ -21,7 +22,7 @@ if not hasattr(main, 'aws_credentials'):
     main.aws_credentials = _awscred.get()
 
 @unittest.skipUnless(main.aws_credentials, 'remote tests disabled')
-class s3_tests_remote(unittest.TestCase):
+class s3_tests_remote(TestCase):
 
     @staticmethod
     def random_name(prefix=""):

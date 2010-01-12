@@ -13,12 +13,10 @@ from s3ql import s3
 from random   import randrange
 import threading
 from time import sleep
+from _common import TestCase
 
-# For debug messages
-#from s3ql.common import init_logging
-#init_logging(True, False, debug=[''])
 
-class s3_tests_local(unittest.TestCase):
+class s3_tests_local(TestCase):
     
     def setUp(self):
         self.conn = s3.LocalConnection()

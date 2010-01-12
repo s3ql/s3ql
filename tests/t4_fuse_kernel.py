@@ -9,10 +9,9 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 import unittest
+from _common import TestCase 
 
-
-
-class fuse_kernel_tests(unittest.TestCase):
+class fuse_kernel_tests(TestCase):
     pass
 
     # FIXME: Check if FUSE does not allow us to move a directory inside
@@ -28,3 +27,12 @@ class fuse_kernel_tests(unittest.TestCase):
     # mknod(), symlink(), link() or create() requests
     # for a directory entries passed to a running rename() request.
     
+
+# Somehow important according to pyunit documentation
+def suite():
+    return unittest.makeSuite(fuse_kernel_tests)
+
+
+# Allow calling from command line
+if __name__ == "__main__":
+    unittest.main()

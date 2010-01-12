@@ -14,6 +14,7 @@ from s3ql.database import ConnectionManager
 from llfuse import FUSEError
 import os
 import tempfile
+from _common import TestCase
 import unittest
 import stat
 from time import time, sleep
@@ -22,11 +23,7 @@ from contextlib import contextmanager
 # We may call protected methods in test cases
 #pylint: disable-msg=W0212
 
-# For debug messages:
-#from s3ql.common import init_logging
-#init_logging(True, False, debug=[''])
-
-class s3cache_tests(unittest.TestCase):
+class s3cache_tests(TestCase):
     
     def setUp(self):
         self.bucket =  s3.LocalConnection().create_bucket('foobar', 'brazl')
@@ -126,7 +123,6 @@ class s3cache_tests(unittest.TestCase):
         
         t1.join_and_raise()
         self.assertRaises(EmbeddedException, t2.join_and_raise)
-        
          
     def test_03_access_locking(self):      
         # Test concurrent writes 
