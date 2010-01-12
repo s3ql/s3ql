@@ -278,7 +278,23 @@ class S3Cache(object):
             
         log.debug("Expiration end")
     
-            
+        
+    def _upload_object(self, el):
+        '''Upload specified cache entry
+        
+        Caller has to take care of any necessary locking.
+        '''        
+                
+        log.debug('Committing object %s', el.s3key)
+        el.seek(0, 2)
+        size = el.tell()
+        el.seek(0)
+        hash_ = sha256_fh(el)
+        self.bucket.store_fh(el.s3key, el, { 'hash': hash_ })
+        self.dbcm.execute("UPDATE s3_objects SET hash=?, size=? WHERE key=?",
+                     (hash_, size, el.s3key))
+        
+        
     def _expire_parallel(self):
         """Remove oldest entries from the cache.
         
@@ -385,12 +401,7 @@ class S3Cache(object):
             log.info('Flushing object %s', el.s3key)
             
             with self.s3_lock(el.s3key):
-                el.flush()    
-                el.seek(0)
-                hash_ = sha256_fh(el)
-                self.bucket.store_fh(el.s3key, el, { 'hash': hash_ })
-                self.dbcm.execute("UPDATE s3_objects SET hash=?, size=? WHERE key=?",
-                            (hash_, el.tell(), el.s3key))
+                self._upload_object(el)
                 el.dirty = False
                 
         log.debug('Flushing for inode %d completed.', inode)
@@ -453,11 +464,9 @@ class ExpireEntryThread(ExceptionStoringThread):
             
             if el.dirty:
                 log.debug('Committing dirty object %s', el.s3key)
-                el.seek(0)
-                hash_ = sha256_fh(el)
-                s3cache.bucket.store_fh(el.s3key, el, { 'hash': hash_ })
-                s3cache.dbcm.execute("UPDATE s3_objects SET hash=?, size=? WHERE key=?",
-                                     (hash_, self.size, el.s3key))
+                # Access to protected member
+                #pylint: disable-msg=W0212 
+                s3cache._upload_object(el)
    
             log.debug('Removing s3 object %s from cache..', el.s3key)
             el.close()   
