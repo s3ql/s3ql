@@ -45,14 +45,14 @@ class MultiLock(object):
          
       
     @contextmanager
-    def __call__(self, key):
-        self.acquire(key)
+    def __call__(self, *key):
+        self.acquire(*key)
         try:
             yield
         finally:
-            self.release(key)
+            self.release(*key)
             
-    def acquire(self, key):
+    def acquire(self, *key):
         '''Acquire lock for given key'''
         
         if FAKEDELAY:
@@ -68,7 +68,7 @@ class MultiLock(object):
             # Mark it as used (local lock)
             self.locked_keys.add(key)
 
-    def release(self, key):
+    def release(self, *key):
         """Release lock on given key"""
 
         # Lock set of locked keys (global lock)
