@@ -15,24 +15,17 @@ from s3ql import s3
 import tempfile
 import posixpath
 import unittest
-from _common import TestCase 
-import _awscred
-import sys
+from _common import TestCase, get_aws_credentials
 import subprocess
-
-# Allow invocation without runall.py
-main = sys.modules['__main__']
-if not hasattr(main, 'aws_credentials'):
-    main.aws_credentials = _awscred.get()
     
-@unittest.skipUnless(main.aws_credentials, 'remote tests disabled')
+@unittest.skipUnless(get_aws_credentials(), 'remote tests disabled')
 class RemoteCmdTests(TestCase): 
     
     def setUp(self):
         self.base = tempfile.mkdtemp()
 
         # Find unused bucket
-        (awskey, awspass) = main.aws_credentials
+        (awskey, awspass) = get_aws_credentials()
         self.conn = s3.Connection(awskey, awspass)
         
         self.bucketname = self.random_name()

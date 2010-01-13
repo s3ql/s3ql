@@ -7,6 +7,8 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
+# TODO: Integrate this file into setup.py
+
 from __future__ import division, print_function
 
 import sys
@@ -39,9 +41,10 @@ sys.path = [os.path.join(basedir, 'src'),
             os.path.join(basedir, 'tests')] + sys.path
          
 import unittest
+import _common
 from optparse import OptionParser
 from s3ql.common import init_logging
-import _awscred
+from getpass import getpass
                               
 #
 # Parse commandline
@@ -55,13 +58,30 @@ parser.add_option("--debug", action="append",
                   help="Activate debugging output from specified facility. Valid facility names "
                         "are: mkfs, fsck, fs, fuse, s3, frontend. "
                         "This option can be specified multiple times.")
+parser.add_option("--awskey", type="string",
+                  help="Amazon Webservices access key to use. If not "
+                  "specified, tries to read ~/.awssecret or the file given by --credfile.")
+parser.add_option("--credfile", type="string", default=os.environ["HOME"].rstrip("/")
+                   + "/.awssecret",
+                  help='Try to read AWS access key and key id from this file. '
+                  'The file must be readable only be the owner and should contain '
+                  'the key id and the secret key separated by a newline. '
+                  'Default: ~/.awssecret')
 (options, test_names) = parser.parse_args()
 
 # Init Logging
 init_logging(True, True, options.debug)
-    
-# Get credentials for remote tests.
-aws_credentials = _awscred.get()
+
+# Init AWS
+_common.keyfile = options.credfile
+if options.awskey:
+    if sys.stdin.isatty():
+        pw = getpass("Enter AWS password: ")
+    else:
+        pw = sys.stdin.readline().rstrip() 
+    _common.aws_credentials_available = True
+    _common.aws_credentials = (options.awskey, pw)   
+_common.get_aws_credentials()
 
 # Find and import all tests
 testdir = os.path.join(basedir, 'tests')

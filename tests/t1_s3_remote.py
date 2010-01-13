@@ -11,17 +11,10 @@ from __future__ import division, print_function
 import unittest
 import s3ql.s3
 from random import randrange
-from _common import TestCase 
+from _common import TestCase, get_aws_credentials
 from time import sleep
-import sys
-import _awscred
 
-# Allow invocation without runall.py
-main = sys.modules['__main__']
-if not hasattr(main, 'aws_credentials'):
-    main.aws_credentials = _awscred.get()
-
-@unittest.skipUnless(main.aws_credentials, 'remote tests disabled')
+@unittest.skipUnless(get_aws_credentials(), 'remote tests disabled')
 class s3_tests_remote(TestCase):
 
     @staticmethod
@@ -100,7 +93,7 @@ class s3_tests_remote(TestCase):
 
         
     def setUp(self):
-        (awskey, awspass) = main.aws_credentials
+        (awskey, awspass) = get_aws_credentials()
         self.conn = s3ql.s3.Connection(awskey, awspass)
         
         self.bucketname = self.random_name()
