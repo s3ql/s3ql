@@ -336,7 +336,7 @@ def check_keylist():
     to_delete = list() # We can't delete the object during iteration
     for (i, s3key) in enumerate(bucket):
         
-        if i % 100 == 0:
+        if i % 5000 == 0:
             log.info('..processed %d objects so far..', i)
 
         # We only bother with data objects
@@ -345,7 +345,7 @@ def check_keylist():
 
         # Retrieve object information from database
         try:
-            hash_ = conn.get_val("SELECT hash FROM s3_objects WHERE key=?", (s3key,))
+            conn.get_val("SELECT hash FROM s3_objects WHERE key=?", (s3key,))
         
         # Handle object that exists only in S3
         except KeyError:
@@ -361,14 +361,7 @@ def check_keylist():
                 
         # Mark object as seen
         conn.execute("DELETE FROM s3keys WHERE key=?", (s3key,))
-        
-        # Check Hash
-        meta = bucket.lookup_key(s3key)
-        if hash_ != meta['hash']:
-            found_errors = True
-            log_error("object %s has incorrect hash in metadata, adjusting" % s3key)
-            conn.execute("UPDATE s3_objects SET hash=? WHERE key=?",
-                         (meta['hash'], s3key))  
+
                 
     # Carry out delete
     if to_delete:
