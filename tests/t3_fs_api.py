@@ -491,7 +491,6 @@ class fs_api_tests(TestCase):
     def test_move_dir(self):
         dir1 = self.random_name()
         dir2 = self.random_name()
-        inode_p = self.root_inode
         
         n = self.server.getattr(self.root_inode)['st_nlink']
         inode1 = self.mkdir(self.root_inode, dir1)
