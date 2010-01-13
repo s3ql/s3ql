@@ -119,7 +119,7 @@ def main():
 def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
     
-    fuse_opts = [ b"nonempty", b'fsname=s3ql_local' ]
+    fuse_opts = [ b"nonempty", b'fsname=s3ql' ]
     
     if options.allow_others:
         fuse_opts.append(b'allow_others')
