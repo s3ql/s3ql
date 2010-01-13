@@ -21,7 +21,21 @@ from getpass import getpass
 __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
            "waitfor", "ROOT_INODE", "ExceptionStoringThread",
-           "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE' ]
+           "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE',
+           'stacktraces' ]
+
+def stacktraces():
+    '''Return stack trace for every running thread'''
+    
+    code = []
+    for threadId, frame in sys._current_frames().items():
+        code.append("\n# ThreadID: %s" % threadId)
+        for filename, lineno, name, line in traceback.extract_stack(frame):
+            code.append('%s:%d, in %s' % (os.path.basename(filename), lineno, name))
+            if line:
+                code.append("    %s" % (line.strip()))
+ 
+    return "\n".join(code)
 
 class Filter(object):
     """

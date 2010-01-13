@@ -9,6 +9,7 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 import logging
+from s3ql.common import stacktraces
 from contextlib import contextmanager
 import apsw
 import time
@@ -304,6 +305,9 @@ class WrappedConnection(object):
             except apsw.BusyError:
                 if time.time() - curtime < self.retrytime/1000:
                     log.warn('SQLite detected deadlock condition!')
+                # Print stack trace
+                log.warn('Deadlock suspected, printing stack trace for all threads:')
+                log.warn(stacktraces())
                 raise
             
             
