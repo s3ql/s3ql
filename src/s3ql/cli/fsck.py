@@ -135,7 +135,7 @@ def main():
     #
     if os.path.exists(dbfile):
         # Compare against online metadata
-        local = datetime.utcfromtimestamp(os.stat(dbfile).st_mtime)
+        local = os.stat(dbfile).st_mtime - time.timezone
         remote = bucket.lookup_key("s3ql_dirty")['last-modified']
     
         log.debug('Local metadata timestamp: %.3f', local)
