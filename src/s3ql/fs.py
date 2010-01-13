@@ -414,9 +414,9 @@ class Operations(llfuse.Operations):
                                                 name_old, inode_p_old))
             conn.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
                          (inode_p_new, b'..', inode))
-            conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
+            conn.execute("UPDATE inodes SET mtime=?, ctime=?, refcount=refcount-1 WHERE id=?",
                                  (timestamp, timestamp, inode_p_old))
-            conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
+            conn.execute("UPDATE inodes SET mtime=?, ctime=?, refcount=refcount+1 WHERE id=?",
                                  (timestamp, timestamp, inode_p_new))
             
     def _rename_file(self, inode_p_old, name_old, inode_p_new, name_new):

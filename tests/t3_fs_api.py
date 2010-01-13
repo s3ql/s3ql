@@ -488,6 +488,27 @@ class fs_api_tests(TestCase):
 
         self.fsck()
 
+    def test_move_dir(self):
+        dir1 = self.random_name()
+        dir2 = self.random_name()
+        inode_p = self.root_inode
+        
+        n = self.server.getattr(self.root_inode)['st_nlink']
+        inode1 = self.mkdir(self.root_inode, dir1)
+        inode2 = self.mkdir(self.root_inode, dir2)
+        
+        self.assertEqual(self.server.getattr(inode1)['st_nlink'], 2)
+        self.assertEqual(self.server.getattr(inode2)['st_nlink'], 2)
+        self.assertEqual(self.server.getattr(self.root_inode)['st_nlink'], n+2)
+        
+        self.server.rename(self.root_inode, dir2, inode1, dir2)
+        self.assert_entry_doesnt_exist(self.root_inode, dir2)
+        self.assert_entry_exists(inode1, dir2)
+        
+        self.assertEqual(self.server.getattr(inode1)['st_nlink'], 3)
+        self.assertEqual(self.server.getattr(inode2)['st_nlink'], 2)
+        self.assertEqual(self.server.getattr(self.root_inode)['st_nlink'], n+1)
+           
     def test_10_overwrite_file(self):
         filename1 = self.random_name()
         filename2 = self.random_name()
