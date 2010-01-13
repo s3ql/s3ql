@@ -12,7 +12,6 @@ import os
 import stat 
 import time
 from optparse import OptionParser
-from datetime import datetime
 from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
 from s3ql.database import WrappedConnection
 import logging
