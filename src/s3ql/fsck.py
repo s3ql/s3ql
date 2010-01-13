@@ -325,7 +325,8 @@ def check_keylist():
     - all objects in the s3 table exist
     - object has correct hash
     """
- 
+    
+    log.info('Checking S3 key list...')
     global found_errors
  
     # We use this table to keep track of the s3keys that we have
@@ -333,7 +334,10 @@ def check_keylist():
     conn.execute("CREATE TEMP TABLE s3keys AS SELECT key FROM s3_objects")
 
     to_delete = list() # We can't delete the object during iteration
-    for s3key in bucket:
+    for (i, s3key) in enumerate(bucket):
+        
+        if i % 100 == 0:
+            log.info('..processed %d objects so far..', i)
 
         # We only bother with data objects
         if not s3key.startswith("s3ql_data_"):
