@@ -7,6 +7,8 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
+# TODO: Integrate this file into setup.py
+
 from __future__ import division, print_function
 
 import sys
