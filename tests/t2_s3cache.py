@@ -246,6 +246,55 @@ class s3cache_tests(TestCase):
         self.assertEquals(len(self.cache.cache), no-1)
         
     
+    def test_04_deduplication(self):
+        inode = self.inode
+        blockno1 = 21
+        blockno2 = 25
+        
+        data1 = self.random_data(325)
+        data2 = self.random_data(326)
+        
+        cnt = bucket_len(self.bucket)
+        
+        with self.cache.get(inode, blockno1) as fh:
+            fh.seek(0)
+            fh.write(data1)
+            el1 = fh 
+        
+        with self.cache.get(inode, blockno2) as fh:
+            fh.seek(0)
+            fh.write(data1)
+            el2 = fh         
+        
+        self.cache.flush(inode)
+        
+        self.assertEquals(el1.s3key, el2.s3key)
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
+        self.assertEquals(bucket_len(self.bucket), cnt+1)
+        orig_s3key = el1.s3key
+        
+        with self.cache.get(inode, blockno2) as fh:
+            fh.seek(0)
+            fh.write(data2)
+            el2 = fh
+            
+        self.cache.flush(inode)
+        self.assertNotEquals(orig_s3key, el2.s3key)
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
+        self.assertEquals(bucket_len(self.bucket), cnt+2)
+        
+        with self.cache.get(inode, blockno1) as fh:
+            fh.seek(0)
+            fh.write(data2)
+            el1 = fh
+            
+        self.cache.flush(inode)
+        self.assertEquals(el1.s3key, el2.s3key)
+        self.assertNotEqual(orig_s3key, el1.s3key)
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
+        self.assertEquals(bucket_len(self.bucket), cnt+1)
+        
+    
 class DummyLock(object):
     """Dummy MultiLock class doing nothing
     

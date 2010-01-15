@@ -257,21 +257,65 @@ class S3Cache(object):
         Caller has to take care of any necessary locking.
         '''        
                 
-        log.debug('Uploading object %s', el)
+        log.debug('Uploading %s', el)
         el.seek(0, 2)
         size = el.tell()
         el.seek(0)
         hash_ = sha256_fh(el)
         
-        if el.s3key is None:
-            with self.dbcm.transaction() as conn:
-                el.s3key = conn.rowid('INSERT INTO s3_objects (refcount) VALUES(?)', (1,))
-                conn.execute('INSERT INTO blocks (s3key, inode, blockno) VALUES(?,?,?)',
-                             (el.s3key, el.inode, el.blockno))
+        old_s3key = el.s3key                              
+        try:
+            el.s3key = self.dbcm.get_val('SELECT id FROM s3_objects WHERE hash=?', (hash_,))
             
-        self.bucket.store_fh('s3ql_data_%d' % el.s3key, el, { 'hash': hash_ })
-        self.dbcm.execute("UPDATE s3_objects SET hash=?, size=? WHERE id=?",
-                          (hash_, size, el.s3key))
+        except KeyError:
+            # Need to re-upload
+            with self.dbcm() as conn:
+                el.s3key = conn.rowid('INSERT INTO s3_objects (refcount, hash, size) VALUES(?, ?, ?)',
+                                      (1, hash_, size))
+            log.debug('No object with matching hash, uploading as %d', el.s3key)
+            self.bucket.store_fh('s3ql_data_%d' % el.s3key, el, { 'hash': hash_ })
+            
+        else:
+            # Identical block exists
+            log.debug('Object %d has identical hash, relinking', el.s3key)
+            self.dbcm.execute('UPDATE s3_objects SET refcount=refcount+1 WHERE id=?',
+                              (el.s3key,))      
+
+            
+        if old_s3key is None:
+            self.dbcm.execute('INSERT INTO blocks (s3key, inode, blockno) VALUES(?,?,?)',
+                              (el.s3key, el.inode, el.blockno))  
+        else:
+            log.debug('Decreasing reference count for s3 object %d', old_s3key)
+            
+            with self.dbcm.transaction() as conn:
+                conn.execute('UPDATE blocks SET s3key=? WHERE inode=? AND blockno=?',
+                             (el.s3key, el.inode, el.blockno))
+ 
+                refcount = conn.get_val('SELECT refcount FROM s3_objects WHERE id=?',
+                                        (old_s3key,))
+                if refcount > 1:
+                    conn.execute('UPDATE s3_objects SET refcount=refcount-1 WHERE id=?',
+                                 (old_s3key,))
+                    to_delete = False
+                else:
+                    conn.execute('DELETE FROM s3_objects WHERE id=?', (old_s3key,))
+                    to_delete = True    
+            
+            if to_delete:
+                log.debug('No references to object %d left, deleting', old_s3key)
+                # FIXME: Move this to separate method, copied from remove()
+                try:
+                    del self.bucket['s3ql_data_%d' % old_s3key]
+                except KeyError:
+                    # Has not propagated yet
+                    if not waitfor(self.timeout, self.bucket.has_key, 's3ql_data_%d' % old_s3key):
+                        log.warn("Timeout when waiting for propagation of %s in Amazon S3.\n"
+                                 'Setting a higher timeout with --s3timeout may help.' % old_s3key)
+                        raise FUSEError(errno.EIO) 
+                    del self.bucket['s3ql_data_%d' % old_s3key]
+                                     
+                log.debug('Deletion of object %d from S3 completed.', old_s3key)  
         
         
     def _expire_parallel(self):
