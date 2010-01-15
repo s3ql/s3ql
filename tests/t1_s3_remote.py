@@ -70,7 +70,7 @@ class s3_tests_remote(TestCase):
         for i in range(12):
             self.bucket.store(keys[i], values[i])
 
-        sleep(s3ql.s3.LOCAL_PROP_DELAY)
+        sleep(s3ql.s3.LOCAL_PROP_DELAY*1.1)
         self.assertEquals(sorted(self.bucket.keys()), sorted(keys))
             
         for i in range(12):
