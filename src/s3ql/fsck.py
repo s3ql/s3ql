@@ -136,7 +136,7 @@ def check_cache():
             fh = open(os.path.join(cachedir, s3key), 'r')
             hash_ = sha256_fh(fh)
             bucket.store_fh(s3key, fh, { 'hash': hash_ })
-            conn.execute("UPDATE s3_objects SET hash=? WHERE key=?",
+            conn.execute("UPDATE s3_objects SET hash=? WHERE id=?",
                         (hash_, s3key))
             fh.close()
             os.unlink(os.path.join(cachedir, s3key))
@@ -301,7 +301,7 @@ def check_s3_refcounts():
     global found_errors
     log.info('Checking S3 object reference counts...')
 
-    for (key, refcount) in conn.query("SELECT key, refcount FROM s3_objects"):
+    for (key, refcount) in conn.query("SELECT id, refcount FROM s3_objects"):
  
         refcount2 = conn.get_val("SELECT COUNT(inode) FROM blocks WHERE s3key=?",
                                  (key,))
@@ -310,11 +310,11 @@ def check_s3_refcounts():
                       key, refcount, refcount2)
             found_errors = True
             if refcount2 != 0:
-                conn.execute("UPDATE s3_objects SET refcount=? WHERE key=?",
+                conn.execute("UPDATE s3_objects SET refcount=? WHERE id=?",
                              (refcount2, key))
             else:
                 # Orphaned object will be picked up by check_keylist
-                conn.execute('DELETE FROM s3_objects WHERE key=?', (key,)) 
+                conn.execute('DELETE FROM s3_objects WHERE id=?', (key,)) 
    
 
 def check_keylist():
@@ -331,7 +331,7 @@ def check_keylist():
  
     # We use this table to keep track of the s3keys that we have
     # seen
-    conn.execute("CREATE TEMP TABLE s3keys AS SELECT key FROM s3_objects")
+    conn.execute("CREATE TEMP TABLE s3keys AS SELECT id FROM s3_objects")
 
     to_delete = list() # We can't delete the object during iteration
     for (i, s3key) in enumerate(bucket):
@@ -342,10 +342,12 @@ def check_keylist():
         # We only bother with data objects
         if not s3key.startswith("s3ql_data_"):
             continue
+        else:
+            s3key = int(s3key[len('s3ql_data_'):])
 
         # Retrieve object information from database
         try:
-            conn.get_val("SELECT hash FROM s3_objects WHERE key=?", (s3key,))
+            conn.get_val("SELECT hash FROM s3_objects WHERE id=?", (s3key,))
         
         # Handle object that exists only in S3
         except KeyError:
@@ -355,26 +357,26 @@ def check_keylist():
                       s3key, name)
             if not checkonly:
                 if not expect_errors:
-                    bucket.fetch_fh(s3key, open(name, 'w'))
+                    bucket.fetch_fh('s3ql_data_%d' % s3key, open(name, 'w'))
                 to_delete.append(s3key)    
             continue
                 
         # Mark object as seen
-        conn.execute("DELETE FROM s3keys WHERE key=?", (s3key,))
+        conn.execute("DELETE FROM s3keys WHERE id=?", (s3key,))
 
                 
     # Carry out delete
     if to_delete:
         log.info('Performing deferred S3 removals...')
     for s3key in to_delete:
-        del bucket[s3key]      
+        del bucket['s3ql_data_%d' % s3key]      
      
     # Now handle objects that only exist in s3_objects
-    for (s3key,) in conn.query("SELECT key FROM s3keys"):
+    for (s3key,) in conn.query("SELECT id FROM s3keys"):
         found_errors = True
         log_error("object %s only exists in table but not on s3, deleting", s3key)
         conn.execute("DELETE FROM blocks WHERE s3key=?", (s3key,))
-        conn.execute("DELETE FROM s3_objects WHERE key=?", (s3key,))
+        conn.execute("DELETE FROM s3_objects WHERE id=?", (s3key,))
                                 
     conn.execute('DROP TABLE s3keys')
     

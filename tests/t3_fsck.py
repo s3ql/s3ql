@@ -12,7 +12,7 @@ import unittest
 from s3ql import mkfs, s3,  fsck
 from s3ql.database import WrappedConnection
 import apsw
-from s3ql.common import ROOT_INODE, sha256
+from s3ql.common import ROOT_INODE
 from _common import TestCase 
 import os
 import stat
@@ -140,34 +140,20 @@ class fsck_tests(TestCase):
     def test_keylist(self):
 
         # Create an object that only exists in s3
-        self.bucket['s3ql_data_foobrasl'] = 'Testdata' 
+        self.bucket['s3ql_data_4364'] = 'Testdata' 
         sleep(s3.LOCAL_PROP_DELAY*1.1)
         self.assert_fsck(fsck.check_keylist)
         
         # Create an object that does not exist in S3
-        self.conn.execute('INSERT INTO s3_objects (key, refcount) VALUES(?, ?)', 
-                          ('s3ql_data_foobuu', 1))
+        self.conn.execute('INSERT INTO s3_objects (id, refcount) VALUES(?, ?)', 
+                          (34, 1))
         self.assert_fsck(fsck.check_keylist)
         
     @staticmethod   
     def random_data(len_):
         with open("/dev/urandom", "rb") as fd:
             return fd.read(len_)  
-    
-    def test_metadata(self):
-
-        # Create an object with wrong hash
-        s3key = 's3ql_data_jummi_jip'
-        data = 'oh oeu 3p, joum39 udoeu'
-        
-        hash_ = sha256(data)
-        self.bucket.store(s3key, data, { 'hash': hash_ })
-        self.conn.execute('INSERT INTO s3_objects (key, hash, size, refcount) VALUES(?, ?, ?, ?)',
-                           (s3key, sha256('foobar'), len(data), 1))
-        sleep(s3.LOCAL_PROP_DELAY*1.1)
-        self.assert_fsck(fsck.check_keylist)    
       
-        
     def test_loops(self): 
  
         conn = self.conn
@@ -201,14 +187,14 @@ class fsck_tests(TestCase):
             
     def test_s3_refcounts(self):
         conn = self.conn
-        s3key = 's3ql_data_jup_42'
+        s3key = 42
         inode = 42
         conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount,size) "
                      "VALUES (?,?,?,?,?,?,?,?,?)", 
                      (inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                       os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1,0))
         
-        conn.execute('INSERT INTO s3_objects (key, refcount) VALUES(?, ?)',
+        conn.execute('INSERT INTO s3_objects (id, refcount) VALUES(?, ?)',
                    (s3key, 2))
         conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
                      (inode, 1, s3key))

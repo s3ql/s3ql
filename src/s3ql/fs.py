@@ -57,18 +57,12 @@ class Operations(llfuse.Operations):
     is responsible for 90% of the CPU time when copying large files. 
     Therefore we cache these values instead.
     
-    Threads may block when waiting for `inode_lock` *and* when trying to
-    access the database. Therefore we have to be especially careful
-    to prevent deadlocks. For example: if `unlink` were to start a 
-    transaction before obtaining `inode_lock`, and a different thread
-    would call `release`, we would have a deadlock (because `release`
-    first obtains `inode_lock` and *then* tries to access the database).
-    
-    To prevent such a deadlock, a function must not try to acquire
-    an inode lock when it already holds a lock on the database.
-    If the function needs both locks, it needs to obtain the inode
-    lock first (since this is a `MultiLock` it is also more specific and less
-    likely to block other threads).
+    Threads may block when acquiring a Python lock and when trying to
+    access the database. To prevent deadlocks, a function must not
+    try to acquire any Python lock when it holds a database lock (i.e.,
+    is in the middle of a transaction). This has also to be taken
+    into account when calling other functions, especially from e.g.
+    S3Cache.
     """
 
     
@@ -247,6 +241,8 @@ class Operations(llfuse.Operations):
 
                 yield (name, fstat)
 
+    # TODO: Implement a new S3QL command that returns file
+    # system statistics more comprehensively than statfs can
     def getxattr(self, inode, name):
         # Handle S3QL commands
         if inode == CTRL_INODE:
@@ -293,18 +289,22 @@ class Operations(llfuse.Operations):
     
                 # No more links and not open
                 if attr["st_nlink"] == 1 and inode not in self.open_files:
-                    self.cache.remove(inode)
-                    conn.execute("DELETE FROM inodes WHERE id=?", (inode,))
+                    remove = True
                 elif inode in self.open_files:
                     self.open_files[inode]['cached_attrs']['st_nlink'] -= 1
                     self.open_files[inode]['cached_attrs']['st_ctime'] = time.time()
+                    remove = False
                 else:
                     conn.execute("UPDATE inodes SET refcount=refcount-1, ctime=? WHERE id=?",
                                  (timestamp, inode))
+                    remove = False
     
                 conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
                              (timestamp, timestamp, inode_p))
-
+            
+            if remove:
+                self.cache.remove(inode)
+                self.dbcm.execute("DELETE FROM inodes WHERE id=?", (inode,))
 
     def mark_damaged(self):
         """Mark the filesystem as being damaged and needing fsck"""
@@ -490,20 +490,26 @@ class Operations(llfuse.Operations):
                 
                 # No more links and not open
                 if nlink == 1 and inode_new not in self.open_files:
-                    self.cache.remove(inode_new)
+                    remove = True
                     conn.execute("DELETE FROM inodes WHERE id=?", (inode_new,))
                 elif inode_new in self.open_files:
                     self.open_files[inode_new]['cached_attrs']['st_nlink'] -= 1
                     self.open_files[inode_new]['cached_attrs']['st_ctime'] = time.time()
+                    remove = False
                 else:
                     conn.execute("UPDATE inodes SET refcount=refcount-1, ctime=? WHERE id=?",
                                  (timestamp, inode_new))
+                    remove = False
                     
                         
                 conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
                              (timestamp, timestamp, inode_p_old))
                 conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
                              (timestamp, timestamp, inode_p_new))
+                
+            # Must release transaction first
+            if remove:
+                self.cache.remove(inode_new)
             
 
     def link(self, inode, new_inode_p, new_name):
@@ -632,7 +638,7 @@ class Operations(llfuse.Operations):
 
         # Get number of blocks & inodes
         with self.dbcm() as conn: 
-            blocks = conn.get_val("SELECT COUNT(key) FROM s3_objects")
+            blocks = conn.get_val("SELECT COUNT(id) FROM s3_objects")
             inodes = conn.get_val("SELECT COUNT(id) FROM inodes")
             size = conn.get_val('SELECT SUM(size) FROM s3_objects')
             

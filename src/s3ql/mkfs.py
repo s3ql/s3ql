@@ -169,9 +169,10 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     
     # Maps file data chunks to S3 objects
     # Refcount is included for performance reasons
+    # TODO: Actually keep track of compressed size
     conn.execute("""
     CREATE TABLE s3_objects (
-        key       TEXT PRIMARY KEY,
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
         refcount  INT NOT NULL CONSTRAINT refcount_type
                   CHECK ( typeof(refcount) == 'integer' AND refcount > 0),
                   
@@ -180,7 +181,10 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
                   CHECK ( typeof(hash) IN ('blob', 'null') ),
         size      INT CONSTRAINT size_type
                   CHECK ( (typeof(size) == 'integer' AND size >= 0) 
-                          OR typeof(size) == 'null'  )
+                          OR typeof(size) == 'null'  ),
+        compr_size INT CONSTRAINT compr_size_type
+                  CHECK ( (typeof(compr_size) == 'integer' AND compr_size >= 0) 
+                          OR typeof(compr_size) == 'null'  )                          
     )
     """)
     
@@ -188,8 +192,8 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     conn.execute("""
     CREATE TABLE blocks (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
-        blockno    INT NOT NULL CHECK (typeof(blockno) == 'integer' AND blockno >= 0),
-        s3key     TEXT NOT NULL REFERENCES s3_objects(key),
+        blockno   INT NOT NULL CHECK (typeof(blockno) == 'integer' AND blockno >= 0),
+        s3key     INTEGER NOT NULL REFERENCES s3_objects(id),
  
         PRIMARY KEY (inode, blockno)
     )
@@ -201,7 +205,7 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     conn.execute(trigger_cmd.format(**{ "src_table": "blocks",
                                        "src_key": "s3key",
                                        "ref_table": "s3_objects",
-                                       "ref_key": "key" }))
+                                       "ref_key": "id" }))
 
     
     # Insert root directory
