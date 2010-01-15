@@ -326,7 +326,7 @@ class Bucket(object):
         if self.passphrase:    
             # We need to generate a temporary copy to determine the
             # size of the object (which needs to transmitted as Content-Length)
-            nonce = struct.pack(b'<f', time.time() - time.timezone) + key.encode('utf-8')
+            nonce = struct.pack(b'<f', time.time() - time.timezone) + bytes(key)
             tmp = tempfile.TemporaryFile()
             compress_encrypt_fh(fh, tmp, self.passphrase, nonce)
             (fh, tmp) = (tmp, fh)
@@ -414,7 +414,7 @@ class LocalBotoKey(dict):
         
 
     def get_contents_to_file(self, fh):
-        log.debug("LocalBotoKey: get_contents_to_file()")
+        log.debug("LocalBotoKey: get_contents_to_file() for %s", self.name)
         
         if self.name in self.bucket.in_transmit:
             raise ConcurrencyError()
@@ -429,7 +429,7 @@ class LocalBotoKey(dict):
         
 
     def set_contents_from_file(self, fh):
-        log.debug("LocalBotoKey: set_contents_from_file()")
+        log.debug("LocalBotoKey: set_contents_from_file() for %s", self.name)
         fh.seek(0)
         val = fh.read()
         
