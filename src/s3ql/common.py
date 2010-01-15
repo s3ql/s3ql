@@ -94,10 +94,16 @@ def init_logging(fg, quiet=False, debug=None, debugfile=None):
     for hdlr in [ x for x in root_logger.handlers ]: 
         root_logger.removeHandler(hdlr)
     
+    if debug:
+        formatter = logging.Formatter('%(asctime)s,%(msecs)03d %(threadName)s: [%(name)s] %(message)s',
+                                      datefmt="%H:%M:%S")
+    else:
+        formatter = logging.Formatter('[%(name)s] %(message)s')
+        
     # Standard handler
     if fg: 
         handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter('[%(name)s] %(message)s'))           
+        handler.setFormatter(formatter)           
     else:
         handler = logging.handlers.SysLogHandler(b"/dev/log")
         handler.setFormatter(logging.Formatter('s3ql[%(process)d]: [%(name)s] %(message)s'))  
@@ -121,9 +127,7 @@ def init_logging(fg, quiet=False, debug=None, debugfile=None):
             # Debug file gets all debug output
             debug_handler = logging.handlers.WatchedFileHandler(debugfile)
             
-        debug_handler.setFormatter(logging.Formatter('%(asctime)s,%(msecs)03d %(threadName)s: '
-                                                     '[%(name)s] %(message)s',
-                                                     datefmt="%H:%M:%S")) 
+        debug_handler.setFormatter(formatter) 
         
         root_logger.addHandler(debug_handler) 
         root_logger.setLevel(logging.DEBUG)
