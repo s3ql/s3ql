@@ -25,7 +25,7 @@ import unittest
 
 # For debug messages:
 #from s3ql.common import init_logging
-#init_logging(True, False, debug=[''])
+#init_logging(True, False, debug=['s3cache', 's3'])
 
 class Ctx(object):
     def __init__(self):
@@ -291,6 +291,28 @@ class fs_api_tests(TestCase):
         self.server.release(fh)
         self.fsck()
 
+    def test_07_unlink(self):
+
+        # We check what happens if we try to delete an object
+        # that has not yet propagated. 
+        bak = s3.LOCAL_PROP_DELAY
+        s3.LOCAL_PROP_DELAY = 2
+        self.cache.timeout = 3
+        
+        name1 = self.random_name()
+        inode_p = self.root_inode
+        data = self.random_data(5 * self.blocksize)
+        
+        (fh, dummy) = self.server.create(inode_p, name1, 0644, Ctx())
+        self.server.write(fh, 0, data)
+        self.server.fsync(fh, True)
+        self.server.release(fh)
+
+        self.server.unlink(inode_p, name1)
+
+        self.fsck()
+        
+        s3.LOCAL_PROP_DELAY = bak
 
     def test_08_link(self):
         name = self.random_name()
@@ -533,6 +555,7 @@ class fs_api_tests(TestCase):
     def test_issue_65(self):
         
         from s3ql import multi_lock
+        bak = multi_lock.FAKEDELAY
         multi_lock.FAKEDELAY = 0.02
         
         name = self.random_name()
@@ -550,6 +573,7 @@ class fs_api_tests(TestCase):
         t1.join_and_raise()
 
         self.fsck()
+        multi_lock.FAKEDELAY = bak
     
     def test_10_overwrite_dir(self):
         dirname1 = self.random_name()
