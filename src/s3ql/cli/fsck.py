@@ -161,6 +161,7 @@ def main():
     
         # Continue with local metadata from here, make sure that we upload it at the end
         commit_required = True
+        log.info('Using local metadata from cache')
     
     else:
         if (bucket.lookup_key("s3ql_metadata")['last-modified'] 
