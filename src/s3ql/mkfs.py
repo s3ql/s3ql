@@ -185,7 +185,8 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
         compr_size INT CONSTRAINT compr_size_type
                   CHECK ( (typeof(compr_size) == 'integer' AND compr_size >= 0) 
                           OR typeof(compr_size) == 'null'  )                          
-    )
+    );
+    CREATE INDEX ix_s3_objects_hash ON s3_objects(hash);
     """)
     
     # Maps file data chunks to S3 objects
