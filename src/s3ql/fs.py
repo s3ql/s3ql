@@ -491,7 +491,6 @@ class Operations(llfuse.Operations):
                 # No more links and not open
                 if nlink == 1 and inode_new not in self.open_files:
                     remove = True
-                    conn.execute("DELETE FROM inodes WHERE id=?", (inode_new,))
                 elif inode_new in self.open_files:
                     self.open_files[inode_new]['cached_attrs']['st_nlink'] -= 1
                     self.open_files[inode_new]['cached_attrs']['st_ctime'] = time.time()
@@ -510,6 +509,7 @@ class Operations(llfuse.Operations):
             # Must release transaction first
             if remove:
                 self.cache.remove(inode_new)
+                self.dbcm.execute("DELETE FROM inodes WHERE id=?", (inode_new,))
             
 
     def link(self, inode, new_inode_p, new_name):
