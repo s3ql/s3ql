@@ -155,6 +155,7 @@ class S3Cache(object):
  
             # Not in cache
             except KeyError:
+                filename = self.cachedir + 'inode_%d_block_%d' % (inode, blockno)
                 with self.dbcm() as conn:
                     try:
                         s3key = conn.get_val("SELECT s3key FROM blocks WHERE inode=? AND blockno=?", 
@@ -163,14 +164,13 @@ class S3Cache(object):
                     # No corresponding S3 object
                     except KeyError:
                         # Generate temporary filename
-                        el = CacheEntry(inode, blockno, None, 
-                                        self.cachedir + '_new_%d_%d' % (inode, blockno), "w+b")
+                        el = CacheEntry(inode, blockno, None, filename, "w+b")
                         oldsize = 0
                       
                     # Need to download corresponding S3 object
                     else:
                         hash_ = conn.get_val("SELECT hash FROM s3_objects WHERE id=?", (s3key,))
-                        el = CacheEntry(inode, blockno, s3key, self.cachedir + str(s3key), "w+b")
+                        el = CacheEntry(inode, blockno, s3key, filename, "w+b")
                         self._download_object('s3ql_data_%d' % s3key, hash_, el)
                  
                         # Update cache size
@@ -304,19 +304,22 @@ class S3Cache(object):
             
             if to_delete:
                 log.debug('No references to object %d left, deleting', old_s3key)
-                # FIXME: Move this to separate method, copied from remove()
-                try:
-                    del self.bucket['s3ql_data_%d' % old_s3key]
-                except KeyError:
-                    # Has not propagated yet
-                    if not waitfor(self.timeout, self.bucket.has_key, 's3ql_data_%d' % old_s3key):
-                        log.warn("Timeout when waiting for propagation of %s in Amazon S3.\n"
-                                 'Setting a higher timeout with --s3timeout may help.' % old_s3key)
-                        raise FUSEError(errno.EIO) 
-                    del self.bucket['s3ql_data_%d' % old_s3key]
-                                     
-                log.debug('Deletion of object %d from S3 completed.', old_s3key)  
+                self._delete_object(old_s3key)
+                log.debug('Deletion of object %d from S3 completed.', old_s3key) 
+
+    def _delete_object(self, key):
+        '''Delete object from S3'''
         
+        try:
+            del self.bucket['s3ql_data_%d' % key]
+        except KeyError:
+            # Has not propagated yet
+            if not waitfor(self.timeout, self.bucket.has_key, 's3ql_data_%d' % key):
+                log.warn("Timeout when waiting for propagation of %s in Amazon S3.\n"
+                         'Setting a higher timeout with --s3timeout may help.' % key)
+                raise FUSEError(errno.EIO) 
+            del self.bucket['s3ql_data_%d' % key]
+                                                 
         
     def _expire_parallel(self):
         """Remove oldest entries from the cache.
@@ -465,16 +468,7 @@ class S3Cache(object):
             # of s3key
             def do_remove(s3key=s3key):
                 log.debug('Deleting s3 object %d from S3...', s3key)
-                try:
-                    del self.bucket['s3ql_data_%d' % s3key]
-                except KeyError:
-                    # Has not propagated yet
-                    if not waitfor(self.timeout, self.bucket.has_key, 's3ql_data_%d' % s3key):
-                        log.warn("Timeout when waiting for propagation of %s in Amazon S3.\n"
-                                 'Setting a higher timeout with --s3timeout may help.' % s3key)
-                        raise FUSEError(errno.EIO) 
-                    del self.bucket['s3ql_data_%d' % s3key]
-                                     
+                self._delete_object(s3key)
                 log.debug('Deletion of object %d from S3 completed.', s3key)
                 
             t = ExceptionStoringThread(do_remove)

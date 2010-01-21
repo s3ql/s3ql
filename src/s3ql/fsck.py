@@ -15,6 +15,7 @@ import stat
 import time
 import numbers
 import logging
+import re
 from s3ql.database import NoUniqueValueError
 from s3ql.common import (get_path, ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh)
 
@@ -128,22 +129,60 @@ def check_cache():
     global found_errors
     
     log.info("Checking cached objects...")
-    
-    # TODO: This is rather broken at the moment. We cannot just upload
-    # the files, because we don't know what S3 keys to use.
-    return
-
-    for s3key in os.listdir(cachedir):
+    for name in os.listdir(cachedir):
         found_errors = True
-        log_error("Committing (potentially changed) cache for %s", s3key)
-        if not checkonly:
-            fh = open(os.path.join(cachedir, s3key), 'r')
-            hash_ = sha256_fh(fh)
-            bucket.store_fh(s3key, fh, { 'hash': hash_ })
-            conn.execute("UPDATE s3_objects SET hash=? WHERE id=?",
-                        (hash_, s3key))
-            fh.close()
-            os.unlink(os.path.join(cachedir, s3key))
+        
+        res = re.match('^inode_(\\d+)_block_(\\d+)$', name)
+        if not res:
+            raise RuntimeError('Strange file in cache directory: %s', name)
+        (inode, blockno) = [ int(res.group(i)) for i in (1, 2) ]
+
+        log_error("Committing (potentially changed) cache for inode %d, block %d", 
+                  inode, blockno)
+        
+        if checkonly:
+            continue
+        
+        fh = open(os.path.join(cachedir, name), "rb")
+        fh.seek(0, 2)
+        size = fh.tell()
+        fh.seek(0)
+        hash_ = sha256_fh(fh) 
+        
+        try:
+            s3key = conn.get_val('SELECT id FROM s3_objects WHERE hash=?', (hash_,))
+            
+        except KeyError:
+            s3key = conn.rowid('INSERT INTO s3_objects (refcount, hash, size) VALUES(?, ?, ?)',
+                               (1, hash_, size))
+            bucket.store_fh('s3ql_data_%d' % s3key, fh, { 'hash': hash_ })
+            
+        else:
+            conn.execute('UPDATE s3_objects SET refcount=refcount+1 WHERE id=?',
+                         (s3key,))      
+        
+        try:
+            old_s3key = conn.get_val('SELECT s3key FROM blocks WHERE inode=? AND blockno=?',
+                                     (inode, blockno))
+        except KeyError:
+            conn.execute('INSERT INTO blocks (s3key, inode, blockno) VALUES(?,?,?)',
+                         (s3key, inode, blockno))
+        else:
+            conn.execute('UPDATE blocks SET s3key=? WHERE inode=? AND blockno=?',
+                         (s3key, inode, blockno))
+            
+            refcount = conn.get_val('SELECT refcount FROM s3_objects WHERE id=?',
+                                    (old_s3key,))
+            if refcount > 1:
+                conn.execute('UPDATE s3_objects SET refcount=refcount-1 WHERE id=?',
+                             (old_s3key,))
+            else:
+                # Don't delete yet, maybe it's still referenced
+                pass
+        
+            
+        fh.close()
+        os.unlink(os.path.join(cachedir, name))
 
 def check_lof():
     """Ensure that there is a lost+found directory"""
