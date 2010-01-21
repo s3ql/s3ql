@@ -366,8 +366,8 @@ class LocalConnection(Connection):
     anything to S3.
     '''
     
-    def __init__(self):
-        super(LocalConnection, self).__init__('', '')
+    def __init__(self, awskey=None, awspass=None):
+        super(LocalConnection, self).__init__(awskey, awspass)
         self.boto_conn = LocalBotoConn() 
         
     def _pop_conn(self):
@@ -384,6 +384,8 @@ class LocalConnection(Connection):
                    
         return conn
     
+# Stores the buckets
+local_buckets = dict()
 class LocalBotoConn(object):
     '''
     For testing purposes. Pretends to be a boto S3 connection, but
@@ -391,24 +393,24 @@ class LocalBotoConn(object):
     '''
     
     def __init__(self):
-        self.buckets = dict()
+        pass
          
     def get_bucket(self, name):
-        if name in self.buckets:
-            return self.buckets[name]
+        if name in local_buckets:
+            return local_buckets[name]
         else:
             raise bex.S3ResponseError(404, 'Bucket does not exist')
       
     def delete_bucket(self, name):
-        if self.buckets[name]:
+        if local_buckets[name]:
             raise RuntimeError('Attempted to delete nonempty bucket')
-        del self.buckets[name]
+        del local_buckets[name]
         
     def create_bucket(self, name):
-        if name in self.buckets:
+        if name in local_buckets:
             raise RuntimeError('Attempted to create existing bucket')
         
-        self.buckets[name] = LocalBotoBucket(name)
+        local_buckets[name] = LocalBotoBucket(name)
     
 class LocalBotoKey(dict):
     '''
