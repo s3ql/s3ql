@@ -711,7 +711,7 @@ class fs_api_tests(TestCase):
         fh = self.server.open(inode, os.O_RDWR)
         
         for i in range(blocks):
-            self.server.write(fh, i * self.blocksize, b'data')
+            self.server.write(fh, i * self.blocksize, self.random_data(32+i))
         
         self.assertEqual(len(list(self.bucket.keys())), 0)
         
