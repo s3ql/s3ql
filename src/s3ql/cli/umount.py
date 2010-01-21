@@ -8,8 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function
 
-import ctypes
-import s3ql.libc_api as libc
+from s3ql import libc
 import sys
 from optparse import OptionParser 
 import os
@@ -20,6 +19,7 @@ import subprocess
 import time
 
 log = logging.getLogger("frontend")
+DONTWAIT = False
 
 def parse_args():
     '''Parse command line
@@ -80,7 +80,7 @@ def main():
         
     # Check if it's an S3QL mountpoint
     ctrlfile = os.path.join(mountpoint, CTRL_NAME) 
-    if not (CTRL_NAME not in os.listdir(mountpoint)
+    if not (CTRL_NAME not in libc.listdir(mountpoint)
             and os.path.exists(ctrlfile)):
         print('Not an S3QL file system.', file=sys.stderr)
         sys.exit(1)
@@ -122,31 +122,14 @@ def blocking_umount(mountpoint):
     
     log.info('Flushing cache...')
     cmd = b'doit!' 
-    if libc.setxattr(ctrlfile, b's3ql_flushcache!', cmd, len(cmd), 0) != 0:
-        print('Failed to issue cache flush command: %s. Continuing anyway..' %
-               os.strerror(ctypes.get_errno()), file=sys.stderr)    
+    libc.setxattr(ctrlfile, b's3ql_flushcache!', cmd)
     
     if not warn_if_error(mountpoint):
         found_errors = True
       
     # Get pid
     log.debug('Trying to get pid')
-    bufsize = 42
-    buf = ctypes.create_string_buffer(bufsize)
-    ret = libc.getxattr(ctrlfile, b's3ql_pid?', buf, bufsize)
-    if ret < 0:
-        log.error('Failed to read S3QL daemon pid: %s. '
-                  'Unable to determine upload status, upload might still be in progress '
-                  'after umount command return.', 
-                  os.strerror(ctypes.get_errno()))
-        if subprocess.call(['fusermount', '-u', mountpoint]) != 0:
-            found_errors = True
-        if found_errors:
-            sys.exit(1)
-        else:
-            sys.exit(0)
-        
-    pid = int(ctypes.string_at(buf, ret))
+    pid = int(libc.getxattr(ctrlfile, b's3ql_pid?'))
     
     # Get command line to make race conditions less-likely
     with open('/proc/%d/cmdline' % pid, 'r') as fh:
@@ -178,6 +161,9 @@ def blocking_umount(mountpoint):
             # Process must have exited by now
             log.debug('Reading cmdline failed, assuming daemon has quit.')
             break
+        
+        if DONTWAIT: # for testing 
+            break
     
         # Process still exists, we wait
         log.debug('Daemon seems to be alive, waiting...')
@@ -198,15 +184,9 @@ def warn_if_error(mountpoint):
     '''
     
     log.debug('Trying to get error status')
-    bufsize = 42
     ctrlfile = os.path.join(mountpoint, CTRL_NAME) 
-    buf = ctypes.create_string_buffer(bufsize)
-    ret = libc.getxattr(ctrlfile, 's3ql_errors?', buf, bufsize)
-    if ret < 0:
-        print('Failed to read current file system status: %s. Continuing anyway..' %
-                  os.strerror(ctypes.get_errno()), file=sys.stderr)
+    status = libc.getxattr(ctrlfile, 's3ql_errors?')
         
-    status = ctypes.string_at(ctypes.addressof(buf), ret)
     if status != 'no errors':
         print('Some errors occurred while the file system was mounted.\n'
               'You should examine the log files and run fsck before mounting the\n'
