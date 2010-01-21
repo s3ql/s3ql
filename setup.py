@@ -19,15 +19,16 @@ import subprocess
 import re
 
 # These are the definitons that we need 
-export_regex = ['^FUSE_SET_.*', '^XATTR_.*', 'fuse_reply_.*' ]
-export_symbols = ['fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
+fuse_export_regex = ['^FUSE_SET_.*', '^XATTR_.*', 'fuse_reply_.*' ]
+fuse_export_symbols = ['fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
                  'fuse_set_signal_handlers', 'fuse_session_add_chan',
                  'fuse_session_loop_mt', 'fuse_session_remove_chan',
                  'fuse_remove_signal_handlers', 'fuse_session_destroy',
                  'fuse_unmount', 'fuse_req_ctx', 'fuse_lowlevel_ops',
                  'fuse_session_loop', 'ENOATTR', 'ENOTSUP',
                  'fuse_version', 'fuse_daemonize' ]
-
+libc_export_symbols = [ 'setxattr', 'getxattr', 'readdir', 'opendir',
+                       'closedir' ]
     
 class build_ctypes(Command):
     
@@ -81,10 +82,10 @@ class build_ctypes(Command):
         print('Calling xml2py...')
         api_file = os.path.join(basedir, 'src', 'llfuse', 'ctypes_api.py')
         sys.argv = [ 'xml2py.py', tmp_name, '-o', api_file, '-l', fuse_path ]
-        for el in export_regex:
+        for el in fuse_export_regex:
             sys.argv.append('-r')
             sys.argv.append(el)
-        for el in export_symbols:
+        for el in fuse_export_symbols:
             sys.argv.append('-s')
             sys.argv.append(el)
         sys.argc = len(sys.argv)
@@ -95,7 +96,7 @@ class build_ctypes(Command):
       
         print('Code generation complete.')    
     
-    def create_libc_api():
+    def create_libc_api(self):
         '''Create ctypes API to local libc'''
     
          # Import ctypeslib
@@ -128,8 +129,10 @@ class build_ctypes(Command):
         
         print('Calling xml2py...')
         api_file = os.path.join(basedir, 'src', 's3ql', 'libc_api.py')
-        sys.argv = [ 'xml2py.py', tmp_name, '-o', api_file, '-l', libc_path,
-                    '-s', 'getxattr', '-s', 'setxattr' ]
+        sys.argv = [ 'xml2py.py', tmp_name, '-o', api_file, '-l', libc_path ]
+        for el in libc_export_symbols:
+            sys.argv.append('-s')
+            sys.argv.append(el)
         sys.argc = len(sys.argv)
         xml2py.main()
         
@@ -139,7 +142,7 @@ class build_ctypes(Command):
         print('Code generation complete.')    
         
     
-    def get_cflags():
+    def get_cflags(self):
         '''Get cflags required to compile with fuse library''' 
         
         proc = subprocess.Popen(['pkg-config', 'fuse', '--cflags'], stdout=subprocess.PIPE)
@@ -154,7 +157,7 @@ class build_ctypes(Command):
     
       
     
-    def get_library_path(lib):
+    def get_library_path(self, lib):
         '''Find location of libfuse.so'''
         
         proc = subprocess.Popen(['/sbin/ldconfig', '-p'], stdout=subprocess.PIPE)
