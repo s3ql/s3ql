@@ -91,11 +91,12 @@ def main():
 
     # Start server
     bucket.store("s3ql_dirty", "yes")
+    # TODO: Wait for propagation of the dirty marker here
     try:
         operations = run_server(bucket, cachedir, dbcm, options)
         if operations.encountered_errors:
             log.warn('Some errors occured while handling requests. '
-                 'Please examine the logs for more information.')
+                     'Please examine the logs for more information.')
     finally:
         log.info("Uploading database..")
         dbcm.execute("VACUUM")
