@@ -21,7 +21,7 @@ from time import time, sleep
 from contextlib import contextmanager
 
 #from s3ql.common import init_logging
-#init_logging(True, False, debug=[''])
+#init_logging(True, False, debug=['s3cache'])
         
 class s3cache_tests(TestCase):
     
@@ -110,7 +110,7 @@ class s3cache_tests(TestCase):
             cm.__exit__(None, None, None)
             
         # Remove scrap
-        os.unlink(self.cachedir + str(s3key))
+        os.unlink(self.cachedir + 'inode_%d_block_%d' % (inode, blockno))
          
     def test_03_access_locking(self):    
         # Make sure the threads actually conflict
@@ -151,77 +151,6 @@ class s3cache_tests(TestCase):
         self.assertRaises(EmbeddedException, t2.join_and_raise)
         self.assertTrue(isinstance(t2.exc, s3.ConcurrencyError))        
    
-    def test_03_flush_locking(self):      
-        blockno = 102
-        
-        # Make sure the threads actually conflict
-        assert s3.LOCAL_TX_DELAY > 0
-
-        def flush():
-            self.cache.flush(self.inode)
-            
-        # Create object
-        with self.cache.get(self.inode, blockno) as fh:
-            fh.write(b'data')  
-
-        # This should work nicely
-        t1 = ExceptionStoringThread(flush)
-        t1.start()
-        sleep(s3.LOCAL_TX_DELAY/2)
-        flush()
-        t1.join_and_raise()
-        
-        # After we Monkeypatch the locking away, we expect an exception
-        self.cache.mlock = DummyLock()
-        
-        with self.cache.get(self.inode, blockno) as fh:
-            fh.write(b'data')
-            
-        t1 = ExceptionStoringThread(flush)
-        t1.start()
-        sleep(s3.LOCAL_TX_DELAY/2)
-        self.assertRaises(s3.ConcurrencyError, flush)
-        
-        t1.join_and_raise()
-                
-    def test_03_expiry_locking(self):      
-        blockno = 102
-        
-        # Make sure the threads actually conflict
-        assert s3.LOCAL_TX_DELAY > 0
-            
-        # Create object
-        with self.cache.get(self.inode, blockno) as fh:
-            fh.write(b'data')  
-
-        # This should work nicely
-        t1 = ExceptionStoringThread(self.cache._expire_parallel)
-        t1.start()
-        sleep(s3.LOCAL_TX_DELAY/2)
-        self.cache._expire_parallel()
-        t1.join_and_raise()
-        
-        # After we Monkeypatch the locking away, we expect an exception
-        self.cache.mlock = DummyLock()
-        
-        with self.cache.get(self.inode, blockno) as fh:
-            fh.write(b'data')
-            el = fh
-            
-        t1 = ExceptionStoringThread(self.cache._expire_parallel)
-        t1.start()
-        sleep(s3.LOCAL_TX_DELAY/2)
-        # Sneak the element back into the cache
-        self.cache.cache[(self.inode, blockno)] = el
-        try:
-            self.cache._expire_parallel()
-        except EmbeddedException as exc:
-            self.assertTrue(isinstance(exc.exc, s3.ConcurrencyError))     
-        else:
-            self.fail('Did not raise ConcurrencyError()')   
-        
-        
-        t1.join_and_raise()
         
     def test_expiry(self):
         '''Check if we do not expire more or less than necessary
