@@ -292,6 +292,11 @@ class ExceptionStoringThread(threading.Thread):
             self.exc = exc
             self.tb = sys.exc_info()[2] # This creates a circular reference chain
     
+    def join_get_exc(self):
+        self.joined = True
+        self.join()
+        return self.exc
+         
     def join_and_raise(self):
         '''Wait for the thread to finish, raise any occured exceptions
         '''
