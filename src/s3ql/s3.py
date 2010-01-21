@@ -333,11 +333,20 @@ class Bucket(object):
             meta_raw = encrypt(meta_raw, self.passphrase, nonce)
             fh.seek(0)
         
-        with self._get_boto() as boto:
-            bkey = boto.new_key(key)
-            bkey.set_metadata('meta', b64encode(meta_raw))
-            bkey.set_metadata('encrypted', 'True' if self.passphrase else 'False')
-            bkey.set_contents_from_file(fh)
+        done = False
+        while not done:
+            with self._get_boto() as boto:
+                bkey = boto.new_key(key)
+                bkey.set_metadata('meta', b64encode(meta_raw))
+                bkey.set_metadata('encrypted', 'True' if self.passphrase else 'False')
+                try:
+                    bkey.set_contents_from_file(fh)
+                    done = True
+                except bex.S3ResponseError as exc:
+                    if exc.status == 400 and exc.error_code == 'RequestTimeout':
+                        log.warn('RequestTimeout when uploading to Amazon S3. Retrying..')
+                    else:
+                        raise
             
         if self.passphrase:
             (fh, tmp) = (tmp, fh)
