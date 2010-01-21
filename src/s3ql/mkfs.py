@@ -169,7 +169,6 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     
     # Maps file data chunks to S3 objects
     # Refcount is included for performance reasons
-    # TODO: Actually keep track of compressed size
     conn.execute("""
     CREATE TABLE s3_objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
