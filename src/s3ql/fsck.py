@@ -129,6 +129,10 @@ def check_cache():
     
     log.info("Checking cached objects...")
     
+    # TODO: This is rather broken at the moment. We cannot just upload
+    # the files, because we don't know what S3 keys to use.
+    return
+
     for s3key in os.listdir(cachedir):
         found_errors = True
         log_error("Committing (potentially changed) cache for %s", s3key)
