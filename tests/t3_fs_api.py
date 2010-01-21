@@ -529,7 +529,16 @@ class fs_api_tests(TestCase):
         self.assertEqual(self.server.getattr(inode1)['st_nlink'], 3)
         self.assertEqual(self.server.getattr(inode2)['st_nlink'], 2)
         self.assertEqual(self.server.getattr(self.root_inode)['st_nlink'], n+1)
-           
+        
+    def fill_file(self, inode):
+        '''Put some data into the given file'''
+        
+        data = self.random_data(3 * self.blocksize)
+        fh = self.server.open(inode, os.O_RDWR)
+        self.assertEquals(self.server.write(fh, 0, data),
+                          len(data))
+        self.server.release(fh)
+        
     def test_10_overwrite_file(self):
         filename1 = self.random_name()
         filename2 = self.random_name()
@@ -539,6 +548,9 @@ class fs_api_tests(TestCase):
         inode1 = self.create(inode_p, filename1)
         inode2 = self.create(inode_p, filename2)
 
+        self.fill_file(inode1)
+        self.fill_file(inode2)
+        
         # Rename file, overwrite existing one
         mtime_old = self.server.getattr(inode_p)["st_mtime"]
         self.server.rename(inode_p, filename1, inode_p, filename2)

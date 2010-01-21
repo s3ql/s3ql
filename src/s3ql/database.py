@@ -124,7 +124,7 @@ class ConnectionManager(object):
             conn = self.pool.pop()
         except IndexError:
             # Need to create a new connection
-            log.debug("Creating new db connection (active conns: %d)...", 
+            log.info("Creating new db connection (active conns: %d)...", 
                       len(self.provided))
             conn = apsw.Connection(self.dbfile)
             conn.setbusytimeout(self.retrytime)
