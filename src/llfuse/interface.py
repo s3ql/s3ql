@@ -215,7 +215,10 @@ def op_wrapper(func, req, *args):
     except FUSEError as e:
         log.debug('op_wrapper caught FUSEError, calling fuse_reply_err(%s)', 
                   errno.errorcode.get(e.errno, str(e.errno)))
-        libfuse.fuse_reply_err(req, e.errno)
+        try:
+            libfuse.fuse_reply_err(req, e.errno)
+        except DiscardedRequest:
+            pass
     except Exception as exc:
         log.exception('FUSE handler raised exception.')
         
@@ -625,7 +628,7 @@ def fuse_opendir(req, inode, fi):
     try:
         libfuse.fuse_reply_open(req, fi)
     except DiscardedRequest:
-        operations.releasedir(inode, fi.contents.fh)
+        operations.releasedir(fi.contents.fh)
 
 
 def fuse_read(req, ino, size, off, fi):
