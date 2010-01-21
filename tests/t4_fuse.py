@@ -14,17 +14,13 @@ import time
 import stat
 from os.path  import basename 
 from random   import randrange
-from s3ql.common import waitfor, ExceptionStoringThread
-import s3ql.cli.mount_local
-import s3ql.cli.umount
-import s3ql.cli.fsck
+from s3ql.common import waitfor
 from _common import TestCase 
 import filecmp
 import tempfile
 import posixpath
 import unittest
 import subprocess
-import sys
 
 # TODO: Run commands in separate thread rather than separate process
 
@@ -44,43 +40,35 @@ class fuse_tests(TestCase):
     def test_mount(self):
         
         # Mount
- 
         path = os.path.join(os.path.dirname(__file__), "..", "bin", "mount.s3ql_local")
-        #sys.argv = [path, "--fg", "--blocksize", "1", '--fsck', "--quiet", self.base]
-        sys.argv = [path, "--fg", '--single', "--blocksize", "1", '--fsck', "--debug", 'frontend', 
-                    '--debug', 'fuse', '--debug', 'fs', '--debug', 's3cache', self.base]
-        sys.argc = len(sys.argv)
-        mount = ExceptionStoringThread(s3ql.cli.mount_local.main)
-        mount.start()
+        #child = subprocess.Popen(['python-dbg', path, "--fg", "--blocksize", "1", '--fsck', 
+        #                          '--debug', 'fuse', '--debug', 'fs', self.base])
+        child = subprocess.Popen([path, "--fg", "--blocksize", "1", '--fsck', 
+                                  "--quiet", self.base])
                                   
         # Wait for mountpoint to come up
         self.assertTrue(waitfor(10, posixpath.ismount, self.base))
 
         # Run Subtests
-        #self.t_write()
+        self.t_write()
         self.t_mkdir()
-        #self.t_symlink()
-        #self.t_mknod()
-        #self.t_readdir()
-        #self.t_link()
-        #self.t_truncate()
-        #self.t_chown()
-        #self.t_statvfs()
+        self.t_symlink()
+        self.t_mknod()
+        self.t_readdir()
+        self.t_link()
+        self.t_truncate()
+        self.t_chown()
+        self.t_statvfs()
  
         # Umount 
         time.sleep(0.5)
         self.assertTrue(waitfor(5, lambda : 
                                     subprocess.call(['fuser', '-m', '-s', self.base]) == 1))
-        path = os.path.join(os.path.dirname(__file__), "..", "bin", "umount.s3ql")
-        #sys.argv = [path, "--quiet", self.base]
-        sys.argv = [path, "--debug", 'frontend', self.base]
-        sys.argc = len(sys.argv)
-        s3ql.cli.umount.DONTWAIT = True
-        s3ql.cli.umount.main()
-
+        path = os.path.join(os.path.dirname(__file__), "..", "bin", "umount.s3ql")            
+        self.assertEquals(subprocess.call([path, '--quiet', self.base]), 0)
         
         # Now wait for server process
-        mount.join_and_raise()
+        self.assertEquals(child.wait(), 0)
         self.assertFalse(posixpath.ismount(self.base))
         os.rmdir(self.base)
         
