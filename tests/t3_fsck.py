@@ -60,13 +60,20 @@ class fsck_tests(TestCase):
         self.assertFalse(fsck.found_errors)
         
     def test_cache(self):
-        fh = open(self.cachedir + 'testkey', 'wb')
+        inode = 6
+        self.conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount) "
+                   "VALUES (?,?,?,?,?,?,?,?)", 
+                   (inode, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
+                   | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
+                    os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1))
+        
+        fh = open(self.cachedir + 'inode_%d_block_1' % inode, 'wb')
         fh.write('somedata')
         fh.close()
         
         self.assert_fsck(fsck.check_cache)
         sleep(s3.LOCAL_PROP_DELAY*1.1)
-        self.assertEquals(self.bucket['testkey'], 'somedata')
+        self.assertEquals(self.bucket['s3ql_data_1'], 'somedata')
         
     def test_dirs(self):
         inode = 42
