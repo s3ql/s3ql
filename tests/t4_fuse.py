@@ -50,7 +50,7 @@ class fuse_tests(TestCase):
         sys.argc = len(sys.argv)
         self.mount = ExceptionStoringThread(s3ql.cli.mount_local.main)
         self.mount.start()
-                                  
+
         # Wait for mountpoint to come up
         self.assertTrue(waitfor(10, posixpath.ismount, self.base))
         
