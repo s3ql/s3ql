@@ -279,8 +279,8 @@ class run_tests(Command):
 
 
 setup(name='s3ql',
-      version='alpha3',
-      description='a FUSE filesystem that stores data on Amazon S3',
+      version='alpha4',
+      description='a FUSE filesystem for storing data in Amazon S3',
       author='Nikolaus Rath',
       author_email='Nikolaus@rath.org',
       url='http://code.google.com/p/s3ql/',
