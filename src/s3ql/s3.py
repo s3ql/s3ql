@@ -14,7 +14,7 @@ from contextlib import contextmanager
 import boto.exception as bex
 import copy
 from cStringIO import StringIO
-from s3ql.common import (waitfor, sha256)
+from s3ql.common import (waitfor, sha256, ExceptionStoringThread)
 import tempfile
 import hmac
 import logging
@@ -145,11 +145,34 @@ class Bucket(object):
     """
     
     def clear(self):
-        """Delete all objects"""
+        """Delete all objects
         
-        for s3key in self:
+        This function starts multiple threads."""
+        
+        threads = list()
+        
+        stamp = time.time()
+        for (no, s3key) in enumerate(self):
+            if no != 0 and no % 1000 == 0:
+                log.info('Deleted %d objects in %d seconds so far..', no, time.time() - stamp)
+                stamp = time.time()
+                
             log.debug('Deleting key %s', s3key)
-            del self[s3key]
+            
+            def do_remove(s3key=s3key):
+                del self[s3key]
+            
+            t = ExceptionStoringThread(do_remove)
+            t.start()
+            threads.append(t)
+            
+            if len(threads) > 50:
+                log.debug('50 threads reached, waiting..')
+                threads.pop(0).join_and_raise()
+            
+        log.debug('Waiting for removal threads')
+        for t in threads:
+            t.join_and_raise()
               
     @contextmanager
     def _get_boto(self):
