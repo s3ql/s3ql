@@ -11,6 +11,7 @@ from __future__ import division, print_function
 import logging
 from s3ql.common import stacktraces
 from contextlib import contextmanager
+import tempfile
 import apsw
 import time
 import thread
@@ -124,7 +125,7 @@ class ConnectionManager(object):
             conn = self.pool.pop()
         except IndexError:
             # Need to create a new connection
-            log.info("Creating new db connection (active conns: %d)...", 
+            log.debug("Creating new db connection (active conns: %d", 
                       len(self.provided))
             conn = apsw.Connection(self.dbfile)
             conn.setbusytimeout(self.retrytime)
@@ -306,8 +307,17 @@ class WrappedConnection(object):
                 if time.time() - curtime < self.retrytime/1000:
                     log.warn('SQLite detected deadlock condition!')
                 # Print stack trace
-                log.warn('Deadlock suspected, printing stack trace for all threads:')
-                log.warn(stacktraces())
+                log.warn('BusyError - writing stack trace to ./s3ql_stack_trace.txt:')
+                fh = open('s3ql_stack_trace.txt', 'w')
+                fh.write(stacktraces())
+                fh.close()
+                raise
+            except apsw.CantOpenError:
+                # Try to open a file, this should give us a better error
+                # in case we have run out of FDs
+                fh = tempfile.NamedTemporaryFile()
+                fh.write('Enough fds...')
+                fh.close()
                 raise
             
             
