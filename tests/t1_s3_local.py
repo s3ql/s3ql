@@ -32,6 +32,10 @@ class s3_tests_local(TestCase):
         self.conn.create_bucket(self.bucketname)
         self.bucket = self.conn.get_bucket(self.bucketname)
         
+    def tearDown(self):
+        # Delete the bucket, we don't want to wait for any propagations here
+        del s3.local_buckets[self.bucketname]
+        
     @staticmethod
     def random_name(prefix=""):
         return "s3ql_" + prefix + str(randrange(100, 999, 1))
@@ -95,13 +99,9 @@ class s3_tests_local(TestCase):
             del self.bucket[keys[i]]
 
 
-    def test_04_delays(self):
-        # The other threads may not start immediately, so
-        # we need some tolerance here.
-        prop_delay = 2 * s3.LOCAL_PROP_DELAY
-        
+    def test_04_delays(self):   
         # Required for test to work
-        assert s3.LOCAL_PROP_DELAY > 0
+        assert s3.LOCAL_TX_DELAY > 0
         assert s3.LOCAL_PROP_DELAY > 3*s3.LOCAL_TX_DELAY
 
         key = self.random_name()
@@ -111,19 +111,18 @@ class s3_tests_local(TestCase):
         self.assertFalse(self.bucket.has_key(key))
         self.bucket[key] = value1
         self.assertFalse(self.bucket.has_key(key))
-        sleep(prop_delay*1.1)
+        sleep(s3.LOCAL_PROP_DELAY*1.1)
         self.assertTrue(self.bucket.has_key(key))
         self.assertEquals(self.bucket[key], value1)
          
         self.bucket[key] = value2
         self.assertEquals(self.bucket[key], value1)
-        sleep(prop_delay*1.1)
+        sleep(s3.LOCAL_PROP_DELAY**1.1)
         self.assertEquals(self.bucket[key], value2)
 
         self.bucket.delete_key(key)
-        self.assertTrue(self.bucket.has_key(key))
         self.assertEquals(self.bucket[key], value2)
-        sleep(prop_delay*1.1)
+        sleep(s3.LOCAL_PROP_DELAY**1.1)
         self.assertFalse(self.bucket.has_key(key))
 
     def test_04_encryption(self):
