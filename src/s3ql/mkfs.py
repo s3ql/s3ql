@@ -176,7 +176,7 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
                   CHECK ( typeof(refcount) == 'integer' AND refcount > 0),
                   
         -- hash and size is only updated when the object is committed
-        hash      BLOB(16) CONSTRAINT hash_type
+        hash      BLOB(16) UNIQUE CONSTRAINT hash_type
                   CHECK ( typeof(hash) IN ('blob', 'null') ),
         size      INT CONSTRAINT size_type
                   CHECK ( (typeof(size) == 'integer' AND size >= 0) 
