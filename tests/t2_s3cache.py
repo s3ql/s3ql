@@ -19,6 +19,7 @@ import unittest
 import stat
 from time import time, sleep
 from contextlib import contextmanager
+import shutil
 
 #from s3ql.common import init_logging
 #init_logging(True, False, debug=['s3cache'])
@@ -50,7 +51,7 @@ class s3cache_tests(TestCase):
     def tearDown(self):
         self.cache.clear()
         self.dbfile.close()
-        os.rmdir(self.cachedir)
+        shutil.rmtree(self.cachedir)
         
         # Delete the bucket, we don't want to wait for any propagations here
         del s3.local_buckets['foobar']

@@ -21,7 +21,7 @@ import os
 import stat
 import tempfile
 import unittest
-
+import shutil
 
 # For debug messages:
 #from s3ql.common import init_logging
@@ -58,7 +58,7 @@ class fs_api_tests(TestCase):
     def tearDown(self):
         self.cache.clear()
         self.dbfile.close()
-        os.rmdir(self.cachedir)
+        shutil.rmtree(self.cachedir)
         
         # Delete the bucket, we don't want to wait for any propagations here
         del s3.local_buckets['foobar']

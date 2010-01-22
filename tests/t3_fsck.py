@@ -19,6 +19,7 @@ import stat
 import tempfile
 import time
 from time import sleep
+import shutil
 
 class fsck_tests(TestCase):
 
@@ -42,7 +43,7 @@ class fsck_tests(TestCase):
         
     def tearDown(self):
         self.dbfile.close()
-        os.rmdir(self.cachedir)        
+        shutil.rmtree(self.cachedir)        
         
     def test_detect(self):
         self.conn.execute('DELETE FROM parameters')

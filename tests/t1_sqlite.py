@@ -18,6 +18,7 @@ from s3ql.database import WrappedConnection
 import apsw
 import stat
 import os
+import shutil
 
 
 class sqlite_tests(TestCase): 
@@ -36,7 +37,7 @@ class sqlite_tests(TestCase):
 
     def tearDown(self):
         self.dbfile.close()
-        os.rmdir(self.cachedir)
+        shutil.rmtree(self.cachedir)
         
     def test_contents_parent_inode(self):
         """Check that parent_inode can only be a directory
