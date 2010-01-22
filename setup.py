@@ -11,7 +11,6 @@ from __future__ import division, print_function
     
 from distutils.core import setup, Command
 import distutils.command.build  
-from s3ql.common import init_logging
 import sys
 import os
 import tempfile
@@ -285,7 +284,7 @@ setup(name='s3ql',
       author_email='Nikolaus@rath.org',
       url='http://code.google.com/p/s3ql/',
       package_dir={'': 'src'},
-      packages=['s3ql', 'llfuse'],
+      packages=['s3ql', 'llfuse', 's3ql.cli'],
       provides=['s3ql'],
       scripts=[ 'bin/fsck.s3ql',
                 'bin/mkfs.s3ql',
