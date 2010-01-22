@@ -13,12 +13,13 @@ from llfuse import FUSEError
 import errno
 from s3ql.multi_lock import MultiLock
 from s3ql.ordered_dict import OrderedDict
-from s3ql.common import (ExceptionStoringThread, sha256_fh, waitfor)
+from s3ql.common import (ExceptionStoringThread, sha256_fh, waitfor, EmbeddedException)
 import logging
 import os
 import threading
 import time
 import psyco
+import sys
 
  
 __all__ = [ "S3Cache" ]
@@ -132,7 +133,29 @@ class S3Cache(object):
         self.timeout = timeout 
         self.expect_mismatch = False  
         self.expiry_lock = threading.Lock()
+        self.exp_thread = None
 
+    def start_background_expiration(self, threshold):
+        '''Start background expiration thread.
+        
+        This thread will try to keep the cache size less than
+        `threshold'.
+        '''
+        
+        self.exp_thread = BackgroundExpirationThread(self, threshold)
+        self.exp_thread.start()
+        
+    def stop_background_expiration(self):
+        '''Stop background expiration thread'''
+        
+        t = self.exp_thread
+        t.keep_running = False
+        t.join()
+        if t.exc is not None:
+            # Break reference chain
+            tb = t.tb
+            del t.tb 
+            raise EmbeddedException(t.exc, tb, t.name)
         
     def __len__(self):
         '''Get number of objects in cache'''
@@ -235,18 +258,22 @@ class S3Cache(object):
         log.debug('Object %s fetched successfully.', s3key)
 
         
-    def expire(self):
+    def expire(self, maxsize=None):
         '''Expire cache. 
         
-        Removes entries until the cache size is below self.maxsize.
+        Removes entries until the cache size is below `maxsizez` 
+        (or self.maxsize if not specified).
         Serializes concurrent calls by different threads.
         '''
         
-        while (self.size > self.maxsize or
+        if maxsize is None:
+            maxsize = self.maxsize
+        
+        while (self.size > maxsize or
                len(self.cache) > MAX_CACHE_ENTRIES):
             with self.expiry_lock:
                 # Other threads may have expired enough objects already
-                if (self.size > self.maxsize or
+                if (self.size > maxsize or
                     len(self.cache) > MAX_CACHE_ENTRIES):
                     self._expire_parallel()
     
@@ -464,15 +491,8 @@ class S3Cache(object):
                 log.debug('More than 25 threads, waiting..')
                 threads.pop(0).join_and_raise()
                           
-            # Start a removal thread
-            # We need to be careful to preserve the current value
-            # of s3key
-            def do_remove(s3key=s3key):
-                log.debug('Deleting s3 object %d from S3...', s3key)
-                self._delete_object(s3key)
-                log.debug('Deletion of object %d from S3 completed.', s3key)
-                
-            t = ExceptionStoringThread(do_remove)
+            # Start a removal thread              
+            t = ExceptionStoringThread(self._delete_object, args=(s3key,))
             threads.append(t)            
             t.start()
             
@@ -518,7 +538,30 @@ class S3Cache(object):
         if len(self.cache) > 0:
             raise RuntimeError("s3ql.S3Cache instance was destroyed without calling clear()!")
 
-                
+
+class BackgroundExpirationThread(threading.Thread):
+    
+    def __init__(self, cache, threshold):
+        super(BackgroundExpirationThread, self).__init__(name='Expiry-Thread')
+        self.keep_running = True
+        self.cache = cache
+        self.threshold = threshold
+        self.exc = None
+        self.tb = None
+        self.daemon = True
+        
+    def run(self):
+        log.debug('Starting background expiration thread')
+        try:
+            while self.keep_running:
+                self.cache.expire(self.threshold)
+                time.sleep(1)
+        except BaseException as exc:
+            self.exc = exc
+            self.tb = sys.exc_info()[2] # This creates a circular reference chain
+            
+    
+                    
 # Optimize logger calls
 psyco.bind(logging.getLogger)        
 psyco.bind(logging.Logger.debug)        

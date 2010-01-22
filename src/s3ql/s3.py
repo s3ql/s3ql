@@ -155,10 +155,7 @@ class Bucket(object):
                 log.info('Deleted %d objects so far..', no)
                 
             log.debug('Deleting key %s', s3key)
-            
-            def do_remove(s3key=s3key):
-                del self[s3key]
-            t = ExceptionStoringThread(do_remove)
+            t = ExceptionStoringThread(self.delete_key, args=(s3key,))
             t.start()
             threads.append(t)
             

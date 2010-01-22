@@ -137,6 +137,8 @@ def blocking_umount(mountpoint):
     
     # Unmount
     log.info('Unmounting...')
+    # This seems to be necessary to prevent weird busy errors
+    time.sleep(3)
     if subprocess.call(['fusermount', '-u', mountpoint]) != 0:
         sys.exit(1)
     

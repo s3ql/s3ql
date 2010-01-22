@@ -42,7 +42,7 @@ class fuse_tests(TestCase):
             raise RuntimeError("test file %s should be bigger than 1 kb" % self.src)
         
         # Mount
-        sys.argv = ['mount.s3ql_local', "--fg", "--blocksize", "1", '--fsck', "--quiet", self.base]
+        sys.argv = ['mount.s3ql_local', "--fg", "--multi", "--blocksize", "1", '--fsck', "--quiet", self.base]
         #sys.argv = ['mount.s3ql_local', "--fg", '--single', "--blocksize", "1", '--fsck', 
         #            "--debug", 'frontend',  self.base]
         sys.argc = len(sys.argv)

@@ -144,27 +144,29 @@ def run_server(bucket, cachedir, dbcm, options):
         
     log.info('Mounting filesystem...')
     fuse_opts = get_fuse_opts(options) 
-    cache =  S3Cache(bucket, cachedir, options.cachesize*1024, dbcm,
+    cache =  S3Cache(bucket, cachedir, int(options.cachesize*1024*1.15), dbcm,
                      timeout=options.s3timeout)
+    cache.start_background_expiration(int(options.cachesize * 1024 * 0.85))
     try: 
         operations = fs.Operations(cache, dbcm, not options.atime)
         llfuse.init(operations, options.mountpoint, fuse_opts)
-
-        # Switch to background logging if necessary
-        init_logging(options.fg, options.quiet, options.debug, options.debuglog)
-        
-        if options.profile:
-            prof.runcall(llfuse.main, options.single, options.fg)
-        else:
-            llfuse.main(options.single, options.fg)
-        
-    except:
-        llfuse.close()
-        raise
+        try:
+            # Switch to background logging if necessary
+            init_logging(options.fg, options.quiet, options.debug, options.debuglog)
+            
+            if options.profile:
+                prof.runcall(llfuse.main, not options.multi, options.fg)
+            else:
+                llfuse.main(not options.multi, options.fg)
+            
+        except:
+            llfuse.close()
+            raise
         
     finally:
         log.info("Filesystem unmounted, committing cache...")
         cache.clear()
+        cache.stop_background_expiration()
    
     if options.profile:
         tmp = tempfile.NamedTemporaryFile()
@@ -206,8 +208,16 @@ def add_common_mount_opts(parser):
                       "individual permissions.")
     parser.add_option("--fg", action="store_true", default=False,
                       help="Do not daemonize, stay in foreground")
-    parser.add_option("--single", action="store_true", default=False,
-                      help="Single threaded operation only")
+    parser.add_option("--multi", action="store_true", default=False,
+                      help="Normally, all operations on the file system are carried out strictly "
+                      'one after another. This means that e.g. if you are writing a large file and '
+                      'at the same time try to list the contents of a directory, you will have to '
+                      'wait for the write operation to finish before you get the contents. In '
+                      'multithreaded mode, such operations can be carried out at the same time, '
+                      'so you can retrieve the contents while the file is being written.\n\n'
+ 
+                      'Note that this is still an EXPERIMENTAL feature, and it may also '
+                      'decrease the performance of S3QL. You have been warned.')
     parser.add_option("--atime", action="store_true", default=False,
                       help="Update directory access time. Will decrease performance.")
     parser.add_option("--profile", action="store_true", default=False,
@@ -301,7 +311,7 @@ def parse_args():
     options.mountpoint = pps[1]
             
     if options.profile:
-        options.single = True
+        options.multi = False
         
     return options
 

@@ -582,7 +582,7 @@ class fs_api_tests(TestCase):
         self.server.flush(fh)
         
         # Now release and unlink in parallel
-        t1 = ExceptionStoringThread(lambda : self.server.unlink(inode_p, name))
+        t1 = ExceptionStoringThread(self.server.unlink, args=(inode_p, name))
         t1.start()
         self.server.release(fh)
         t1.join_and_raise()

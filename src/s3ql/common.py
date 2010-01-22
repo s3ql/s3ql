@@ -277,17 +277,19 @@ class ExceptionStoringThread(threading.Thread):
     '''Catch all exceptions and store them
     '''
     
-    def __init__(self, target = None):
+    def __init__(self, target, args=(), kwargs={}):
         super(ExceptionStoringThread, self).__init__()
         if target is not None:
             self.target = target
         self.exc = None
         self.tb = None
         self.joined = False
+        self.args = args
+        self.kwargs = kwargs
         
     def run(self):
         try:
-            self.target()
+            self.target(*self.args, **self.kwargs)
         except BaseException as exc:
             self.exc = exc
             self.tb = sys.exc_info()[2] # This creates a circular reference chain
@@ -303,11 +305,11 @@ class ExceptionStoringThread(threading.Thread):
         self.joined = True
         self.join()
         if self.exc is not None:
-            try:
-                raise EmbeddedException(self.exc, self.tb, self.name)
-            finally: 
-                # Here we break the chain
-                self.tb = None  
+            # Break reference chain
+            tb = self.tb
+            del self.tb
+            raise EmbeddedException(self.exc, tb, self.name)
+
                 
     def __del__(self):
         if not self.joined:
