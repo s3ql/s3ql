@@ -77,7 +77,10 @@ class Connection(object):
         if recursive:
             bucket = self.get_bucket(name)
             bucket.clear()
-            
+            # TODO: Wait until all deletions have actually propagated (by iterating
+            # over the keys until the list is empty, this also takes care of new keys
+            # that had not yet propagated when the list of keys was requested.        
+        
         with self._get_boto() as boto:
             boto.delete_bucket(name)
 
@@ -502,7 +505,7 @@ class LocalBotoBucket(dict):
      
     def list(self):
         log.debug("LocalBotoBucket: Handling list()")
-        for key in self:
+        for key in list(self):
             yield LocalBotoKey(self, key, dict())          
         
     def get_key(self, key):
