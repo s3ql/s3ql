@@ -461,7 +461,7 @@ class S3Cache(object):
             # If there are more than 25 threads, we wait for the
             # first one to finish
             if len(threads) > 25:
-                log.debug('More than 25 threadings, waiting..')
+                log.debug('More than 25 threads, waiting..')
                 threads.pop(0).join_and_raise()
                           
             # Start a removal thread
