@@ -38,6 +38,7 @@ class sqlite_tests(TestCase):
     def tearDown(self):
         self.dbfile.close()
         shutil.rmtree(self.cachedir)
+        del s3.local_buckets['foobar']
         
     def test_contents_parent_inode(self):
         """Check that parent_inode can only be a directory
