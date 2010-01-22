@@ -21,14 +21,6 @@ class s3_tests_local(TestCase):
     def setUp(self):
         self.conn = s3.LocalConnection()
         self.bucketname = self.random_name()
-        tries = 10
-        while self.conn.bucket_exists(self.bucketname) and tries > 10:
-            self.bucketname = self.random_name()
-            tries -= 1
-            
-        if tries == 0:
-            raise RuntimeError("Failed to find an unused bucket name.")
-        
         self.conn.create_bucket(self.bucketname)
         self.bucket = self.conn.get_bucket(self.bucketname)
         
