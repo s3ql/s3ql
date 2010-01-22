@@ -76,6 +76,9 @@ def main():
         
     
     os.rmdir(cachedir)
+    
+    # Kill bucket
+    del s3.local_buckets['foobar']
 
     if operations.encountered_errors or fsck.found_errors:
         sys.exit(1)
