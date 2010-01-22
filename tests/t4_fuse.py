@@ -29,7 +29,6 @@ import sys
 
 class fuse_tests(TestCase): 
 
-
     @staticmethod
     def random_name():
         return "s3ql" + str(randrange(100, 999, 1))
@@ -43,16 +42,18 @@ class fuse_tests(TestCase):
             raise RuntimeError("test file %s should be bigger than 1 kb" % self.src)
         
         # Mount
-        path = os.path.join(os.path.dirname(__file__), "..", "bin", "mount.s3ql_local")
-        sys.argv = [path, "--fg", "--blocksize", "1", '--fsck', "--quiet", self.base]
-        #sys.argv = [path, "--fg", '--single', "--blocksize", "1", '--fsck', "--debug", 'frontend', 
-        #            '--debug', 'fuse', '--debug', 'fs', '--debug', 's3cache', self.base]
+        sys.argv = ['mount.s3ql_local', "--fg", "--blocksize", "1", '--fsck', "--quiet", self.base]
+        #sys.argv = ['mount.s3ql_local', "--fg", '--single', "--blocksize", "1", '--fsck', 
+        #            "--debug", 'frontend',  self.base]
         sys.argc = len(sys.argv)
         self.mount = ExceptionStoringThread(s3ql.cli.mount_local.main)
         self.mount.start()
 
         # Wait for mountpoint to come up
-        self.assertTrue(waitfor(10, posixpath.ismount, self.base))
+        try:
+            self.assertTrue(waitfor(10, posixpath.ismount, self.base))
+        except:
+            self.mount.join_and_raise()
         
     def tearDown(self):
         try:
@@ -61,7 +62,8 @@ class fuse_tests(TestCase):
             # Umount if still mounted
             if posixpath.ismount(self.base):         
                 subprocess.call(['fusermount', '-z', '-u', self.base])
-                os.rmdir(self.base)            
+                os.rmdir(self.base)   
+
         
     def umount(self):
         # Umount 
