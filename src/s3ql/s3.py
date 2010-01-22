@@ -396,17 +396,20 @@ class LocalBotoConn(object):
         pass
          
     def get_bucket(self, name):
+        sleep(LOCAL_TX_DELAY)
         if name in local_buckets:
             return local_buckets[name]
         else:
             raise bex.S3ResponseError(404, 'Bucket does not exist')
       
     def delete_bucket(self, name):
+        sleep(LOCAL_TX_DELAY)
         if local_buckets[name]:
             raise RuntimeError('Attempted to delete nonempty bucket')
         del local_buckets[name]
         
     def create_bucket(self, name):
+        sleep(LOCAL_TX_DELAY)
         if name in local_buckets:
             raise RuntimeError('Attempted to create existing bucket')
         
@@ -435,8 +438,8 @@ class LocalBotoKey(dict):
         self.bucket.in_transmit.remove(self.name)
         
         fh.seek(0)
-        fh.write(self.bucket.keystore[self.name][0])
-        self.meta = self.bucket.keystore[self.name][1]
+        fh.write(self.bucket[self.name][0])
+        self.meta = self.bucket[self.name][1]
         
 
     def set_contents_from_file(self, fh):
@@ -454,7 +457,7 @@ class LocalBotoKey(dict):
         def set_():
             sleep(LOCAL_PROP_DELAY)
             log.debug("LocalBotoKey: Committing store for %s", self.name)
-            self.bucket.keystore[self.name] = (val, self.meta)
+            self.bucket[self.name] = (val, self.meta)
             
         t = threading.Thread(target=set_)
         t.start()
@@ -466,7 +469,7 @@ class LocalBotoKey(dict):
         return self.meta[key]       
          
          
-class LocalBotoBucket(object):
+class LocalBotoBucket(dict):
     """
     Only for testing purposes. Represents a bucket stored in memory.
     It emulates an artificial propagation delay and transmit time. 
@@ -477,7 +480,6 @@ class LocalBotoBucket(object):
 
     def __init__(self, name):
         super(LocalBotoBucket, self).__init__()
-        self.keystore = dict()
         self.name = name
         self.in_transmit = set()
       
@@ -489,18 +491,18 @@ class LocalBotoBucket(object):
         sleep(LOCAL_TX_DELAY)
         self.in_transmit.remove(key)
         
-        if not key in self.keystore:
+        if not key in self:
             raise KeyError('Key does not exist in bucket')
         
         def set_():
             sleep(LOCAL_PROP_DELAY)
             log.debug("LocalBotoBucket: Committing delete_key(%s)", key)
-            del self.keystore[key]
+            del self[key]
         threading.Thread(target=set_).start()      
      
     def list(self):
         log.debug("LocalBotoBucket: Handling list()")
-        for key in self.keystore:
+        for key in self:
             yield LocalBotoKey(self, key, dict())          
         
     def get_key(self, key):
@@ -510,8 +512,8 @@ class LocalBotoBucket(object):
         self.in_transmit.add(key)
         sleep(LOCAL_TX_DELAY)
         self.in_transmit.remove(key)
-        if key in self.keystore:
-            return LocalBotoKey(self, key, self.keystore[key][1])
+        if key in self:
+            return LocalBotoKey(self, key, self[key][1])
         else:
             return None
     
@@ -529,13 +531,13 @@ class LocalBotoBucket(object):
         self.in_transmit.add(dest)
         sleep(LOCAL_TX_DELAY)
         
-        if not src in self.keystore:
+        if not src in self:
             raise KeyError('source key does not exist')
         
         def set_():
             sleep(LOCAL_PROP_DELAY)
             log.debug("LocalBotoBucket: Committing copy from %s to %s", src, dest)
-            self.keystore[dest] = copy.deepcopy(self.keystore[src])
+            self[dest] = copy.deepcopy(self[src])
         threading.Thread(target=set_).start()
         self.in_transmit.remove(dest)
         self.in_transmit.remove(src)
