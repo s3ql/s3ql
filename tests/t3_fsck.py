@@ -43,7 +43,11 @@ class fsck_tests(TestCase):
         
     def tearDown(self):
         self.dbfile.close()
-        shutil.rmtree(self.cachedir)        
+        shutil.rmtree(self.cachedir)  
+        
+        # Delete the bucket, we don't want to wait for any propagations here
+        del s3.local_buckets['foobar']
+      
         
     def test_detect(self):
         self.conn.execute('DELETE FROM parameters')
