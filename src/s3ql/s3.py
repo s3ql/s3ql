@@ -150,18 +150,14 @@ class Bucket(object):
         This function starts multiple threads."""
         
         threads = list()
-        
-        stamp = time.time()
         for (no, s3key) in enumerate(self):
             if no != 0 and no % 1000 == 0:
-                log.info('Deleted %d objects in %d seconds so far..', no, time.time() - stamp)
-                stamp = time.time()
+                log.info('Deleted %d objects so far..', no)
                 
             log.debug('Deleting key %s', s3key)
             
             def do_remove(s3key=s3key):
                 del self[s3key]
-            
             t = ExceptionStoringThread(do_remove)
             t.start()
             threads.append(t)
