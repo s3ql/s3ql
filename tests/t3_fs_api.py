@@ -59,6 +59,9 @@ class fs_api_tests(TestCase):
         self.cache.clear()
         self.dbfile.close()
         os.rmdir(self.cachedir)
+        
+        # Delete the bucket, we don't want to wait for any propagations here
+        del s3.local_buckets['foobar']
 
     def fsck(self):
         self.cache.clear()
