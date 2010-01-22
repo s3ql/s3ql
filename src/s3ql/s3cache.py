@@ -257,41 +257,38 @@ class S3Cache(object):
         Caller has to take care of any necessary locking.
         '''        
                 
-        log.debug('Uploading %s', el)
+        log.debug('_upload_object(inode=%d, blockno=%d)', el.inode, el.blockno)
         el.seek(0, 2)
         size = el.tell()
         el.seek(0)
         hash_ = sha256_fh(el)
         
-        old_s3key = el.s3key                              
-        try:
-            el.s3key = self.dbcm.get_val('SELECT id FROM s3_objects WHERE hash=?', (hash_,))
-            
-        except KeyError:
-            # Need to re-upload
-            with self.dbcm() as conn:
+        old_s3key = el.s3key    
+        with self.dbcm.transaction() as conn:                          
+            try:
+                el.s3key = conn.get_val('SELECT id FROM s3_objects WHERE hash=?', (hash_,))
+                
+            except KeyError:
+                need_upload = True
                 el.s3key = conn.rowid('INSERT INTO s3_objects (refcount, hash, size) VALUES(?, ?, ?)',
                                       (1, hash_, size))
-            log.debug('No object with matching hash, uploading as %d', el.s3key)
-            self.bucket.store_fh('s3ql_data_%d' % el.s3key, el, { 'hash': hash_ })
-            
-        else:
-            # Identical block exists
-            log.debug('Object %d has identical hash, relinking', el.s3key)
-            self.dbcm.execute('UPDATE s3_objects SET refcount=refcount+1 WHERE id=?',
-                              (el.s3key,))      
-
-            
-        if old_s3key is None:
-            self.dbcm.execute('INSERT INTO blocks (s3key, inode, blockno) VALUES(?,?,?)',
-                              (el.s3key, el.inode, el.blockno))  
-        else:
-            log.debug('Decreasing reference count for s3 object %d', old_s3key)
-            
-            with self.dbcm.transaction() as conn:
+                log.debug('No matching hash, will upload to new object %s', el.s3key)
+                
+            else:
+                need_upload = False
+                log.debug('Object %d has identical hash, relinking', el.s3key)
+                conn.execute('UPDATE s3_objects SET refcount=refcount+1 WHERE id=?',
+                             (el.s3key,))    
+                
+            if old_s3key is None:
+                log.debug('Not associated with any S3 object previously.')
+                conn.execute('INSERT INTO blocks (s3key, inode, blockno) VALUES(?,?,?)',
+                             (el.s3key, el.inode, el.blockno))  
+                to_delete = False
+            else:
+                log.debug('Decreasing reference count for previous s3 object %d', old_s3key)
                 conn.execute('UPDATE blocks SET s3key=? WHERE inode=? AND blockno=?',
-                             (el.s3key, el.inode, el.blockno))
- 
+                             (el.s3key, el.inode, el.blockno))  
                 refcount = conn.get_val('SELECT refcount FROM s3_objects WHERE id=?',
                                         (old_s3key,))
                 if refcount > 1:
@@ -300,12 +297,16 @@ class S3Cache(object):
                     to_delete = False
                 else:
                     conn.execute('DELETE FROM s3_objects WHERE id=?', (old_s3key,))
-                    to_delete = True    
+                    to_delete = True 
+                           
+        if need_upload:
+            log.debug('Uploading..')
+            self.bucket.store_fh('s3ql_data_%d' % el.s3key, el, { 'hash': hash_ })
             
-            if to_delete:
-                log.debug('No references to object %d left, deleting', old_s3key)
-                self._delete_object(old_s3key)
-                log.debug('Deletion of object %d from S3 completed.', old_s3key) 
+        if to_delete:
+            log.debug('No references to object %d left, deleting', old_s3key)
+            self._delete_object(old_s3key)
+            
 
     def _delete_object(self, key):
         '''Delete object from S3'''
