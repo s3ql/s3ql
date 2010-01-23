@@ -16,16 +16,17 @@ import os
 import tempfile
 import subprocess
 import re
+import ctypes.util
 
 # These are the definitons that we need 
 fuse_export_regex = ['^FUSE_SET_.*', '^XATTR_.*', 'fuse_reply_.*' ]
 fuse_export_symbols = ['fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
-                 'fuse_set_signal_handlers', 'fuse_session_add_chan',
-                 'fuse_session_loop_mt', 'fuse_session_remove_chan',
-                 'fuse_remove_signal_handlers', 'fuse_session_destroy',
-                 'fuse_unmount', 'fuse_req_ctx', 'fuse_lowlevel_ops',
-                 'fuse_session_loop', 'ENOATTR', 'ENOTSUP',
-                 'fuse_version', 'fuse_daemonize' ]
+                       'fuse_set_signal_handlers', 'fuse_session_add_chan',
+                       'fuse_session_loop_mt', 'fuse_session_remove_chan',
+                       'fuse_remove_signal_handlers', 'fuse_session_destroy',
+                       'fuse_unmount', 'fuse_req_ctx', 'fuse_lowlevel_ops',
+                       'fuse_session_loop', 'ENOATTR', 'ENOTSUP',
+                       'fuse_version', 'fuse_daemonize' ]
 libc_export_symbols = [ 'setxattr', 'getxattr', 'readdir', 'opendir',
                        'closedir' ]
     
@@ -59,8 +60,11 @@ class build_ctypes(Command):
         cflags = self.get_cflags()
         print('Using cflags: %s' % ' '.join(cflags))  
         
-        fuse_path = self.get_library_path('libfuse.so')
-        print('Found fuse library in %s' % fuse_path)
+        fuse_path = 'fuse'
+        if not ctypes.util.find_library(fuse_path):
+            print('Could not find fuse library', file=sys.stderr)
+            sys.exit(1)
+
         
         # Create temporary XML file
         tmp_fh = tempfile.NamedTemporaryFile()
@@ -106,11 +110,12 @@ class build_ctypes(Command):
             
         print('Creating ctypes API from local libc headers...')
     
-        libc_path = b'/lib/libc.so.6'
-        if not os.path.exists(libc_path):
-            print('Could not load libc (expected at %s)' % libc_path, file=sys.stderr)
+        # We must not use an absolute path, see http://bugs.python.org/issue7760
+        libc_path = b'c'
+        if not ctypes.util.find_library(libc_path):
+            print('Could not find libc', file=sys.stderr)
             sys.exit(1)
-        
+
         # Create temporary XML file
         tmp_fh = tempfile.NamedTemporaryFile()
         tmp_name = tmp_fh.name
@@ -154,32 +159,6 @@ class build_ctypes(Command):
             sys.exit(1)
         return cflags.split()
     
-      
-    
-    def get_library_path(self, lib):
-        '''Find location of libfuse.so'''
-        
-        proc = subprocess.Popen(['/sbin/ldconfig', '-p'], stdout=subprocess.PIPE)
-        shared_library_path = None
-        for line in proc.stdout:
-            res = re.match('^\\s*%s\\.[0-9]+ \\(libc6\\) => (.+)$' % lib, line)
-            if res is not None:
-                shared_library_path = res.group(1)
-                # Slurp rest of output
-                for _ in proc.stdout:
-                    pass
-                
-        proc.stdout.close()
-        if proc.wait() != 0:
-            sys.stderr.write('Failed to execute /sbin/ldconfig. Exit code: %d.\n' 
-                             % proc.returncode)
-            sys.exit(1)
-        
-        if shared_library_path is None:
-            sys.stderr.write('Failed to locate library %s.\n' % lib)
-            sys.exit(1)
-            
-        return shared_library_path
 
 # Add as subcommand of build
 distutils.command.build.build.sub_commands.insert(0, ('build_ctypes', None))
