@@ -287,4 +287,4 @@ def parse_args(args):
     return options
 
 if __name__ == '__main__':
-    main()    
+    main(sys.argv[1:])    

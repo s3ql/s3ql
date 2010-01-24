@@ -31,10 +31,9 @@ def parse_args(args):
     
     parser.add_option("--awskey", type="string",
                       help="Amazon Webservices access key to use. If not "
-                      "specified, tries to read ~/.awssecret or the file given by --credfile.")
+                           "specified, tries to read ~/.awssecret or the file given by --credfile.")
     parser.add_option("--debuglog", type="string",
-                      help="Write debugging information in specified file. You will need to "
-                            'use --debug as well in order to get any output.')
+                      help="Write debugging information in specified file.")
     parser.add_option("--credfile", type="string", default=os.environ["HOME"].rstrip("/")
                        + "/.awssecret",
                       help='Try to read AWS access key and key id from this file. '
@@ -56,8 +55,8 @@ def parse_args(args):
     parser.add_option("--encrypt", action="store_true", default=None,
                       help="Create an AES encrypted filesystem")
     parser.add_option("--debug", action="append", 
-                      help="Activate debugging output from specified facility."
-                          "This option can be specified multiple times.")
+                      help="Activate debugging output from specified facility. "
+                           "This option can be specified multiple times.")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
     
@@ -149,4 +148,4 @@ def main(args):
         os.unlink(dbfile)
 
 if __name__ == '__main__':
-    main()    
+    main(sys.argv[1:])    

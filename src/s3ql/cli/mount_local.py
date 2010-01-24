@@ -8,14 +8,14 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
-import sys
 from optparse import OptionParser
 from time import sleep
-from s3ql.common import init_logging_from_options
+from s3ql.common import init_logging_from_options, QuietError
 from s3ql.database import ConnectionManager
 from s3ql import s3, mkfs, fsck
 from s3ql.cli.mount import run_server, add_common_mount_opts 
 import os
+import sys
 import tempfile
 import logging 
 
@@ -28,21 +28,13 @@ def main(args):
     of returning.
     '''
     
-    # Parse options
     options = parse_args(args)  
-    
-    # Activate logging
-    if options.debug is not None and options.debuglog is None and not options.fg:
-        sys.stderr.write('Warning! Debugging output will be lost. '
-                         'You should use either --fg or --debuglog.\n')
-        
-    # Foreground logging until we daemonize
     init_logging_from_options(options)
     
     # Check mountpoint
     if not os.path.exists(options.mountpoint):
         log.error('Mountpoint does not exist.\n')
-        return 1
+        raise QuietError(1)
     
     # Initialize local bucket and database
     bucket =  s3.LocalConnection().create_bucket('foobar', 'brazl')
@@ -81,11 +73,11 @@ def main(args):
     del s3.local_buckets['foobar']
 
     if operations.encountered_errors or fsck.found_errors:
-        sys.exit(1)
+        raise QuietError(1)
 
         
 
-def parse_args():
+def parse_args(args):
     '''Parse command line
     
     This function writes to stdout/stderr and may call `system.exit()` instead 
@@ -109,7 +101,7 @@ def parse_args():
                       "the blocksize of the filesystem, otherwise an object may be retrieved and "
                       "written several times during a single write() or read() operation." )    
     
-    (options, pps) = parser.parse_args()
+    (options, pps) = parser.parse_args(args)
     
     #
     # Verify parameters
@@ -121,4 +113,4 @@ def parse_args():
     return options
 
 if __name__ == '__main__':
-    main()    
+    main(sys.argv[1:])    

@@ -38,12 +38,10 @@ def parse_args(args):
         'be detected and appear only in the logging messages of the mount program.')
     
     parser.add_option("--debuglog", type="string",
-                      help="Write debugging information in specified file. You will need to "
-                            'use --debug as well in order to get any output.')
+                      help='Write debugging information in specified file.')
     parser.add_option("--debug", action="append", 
-                      help="Activate debugging output from specified facility. Valid facility names "
-                            "are: fs, fuse, s3, frontend. "
-                            "This option can be specified multiple times.")
+                      help="Activate debugging output from specified facility."
+                           "This option can be specified multiple times.")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
     parser.add_option('--lazy', "-z", action="store_true", default=False,
@@ -193,4 +191,4 @@ def warn_if_error(mountpoint):
         return True
 
 if __name__ == '__main__':
-    main()    
+    main(sys.argv[1:])    
