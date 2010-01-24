@@ -68,7 +68,7 @@ def main(args):
     buf = libc.getxattr(ctrlfile, b'stat.s3ql', size_guess=256)
      
     (entries, blocks, inodes, size_1, size_2, 
-     size_3, dbsize) = struct.unpack('LLLLLLL', buf)
+     size_3, dbsize) = struct.unpack('QQQQQQQ', buf)
     print ('Directory entries:    %d\n'        
            'Inodes:               %d\n' 
            'Data blocks:          %d\n' 

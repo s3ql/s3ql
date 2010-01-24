@@ -689,7 +689,7 @@ class Operations(llfuse.Operations):
         if not size_2:
             size_2 = 1
 
-        return struct.pack('LLLLLLL', entries, blocks, inodes, size_1, size_2, 
+        return struct.pack('QQQQQQQ', entries, blocks, inodes, size_1, size_2, 
                            self.cache.get_bucket_size(),
                            self.dbcm.get_db_size())
             
