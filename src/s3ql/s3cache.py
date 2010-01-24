@@ -508,9 +508,7 @@ class S3Cache(object):
                     
         
     def flush(self, inode):
-        """Upload dirty data for `inode`.
-        
-        """
+        """Upload dirty data for `inode`"""
         
         # It is really unlikely that one inode will several small
         # blocks (the file would have to be terribly fragmented),
@@ -529,7 +527,24 @@ class S3Cache(object):
                 el.dirty = False       
                 
         log.debug('Flushing for inode %d completed.', inode)
-
+        
+    def flush_all(self):
+        """Upload all dirty data"""
+        
+        # It is really unlikely that one inode will several small
+        # blocks (the file would have to be terribly fragmented),
+        # therefore there is no need to upload in parallel.
+        
+        log.debug('Flushing all objects') 
+        for el in self.cache.itervalues():
+            if not el.dirty:
+                continue
+            
+            log.debug('Flushing object %s', el) 
+            with self.mlock(el.inode, el.blockno):
+                self._upload_object(el)
+                el.dirty = False       
+    
     def clear(self):
         """Upload all dirty data and clear cache"""      
          

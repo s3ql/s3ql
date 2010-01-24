@@ -274,10 +274,50 @@ class Operations(llfuse.Operations):
                     self.cache.maxsize = bak
                 return
             
+            elif name == 'copy':
+                self.copy_tree(*struct.unpack('II', value))
+            
             return llfuse.FUSEError(errno.EINVAL)
         
         raise llfuse.FUSEError(llfuse.ENOTSUP)
     
+    def copy_tree(self, src_ino, target_ino):
+        '''Efficiently copy directory tree'''
+        
+        # First we have to flush the cache
+        self.cache.flush_all()
+        
+        queue = [ (src_ino, target_ino) ]
+        stamp = time.time()
+        while queue:
+            (src_ino, target_ino) = queue.pop()
+            self._copy_tree(src_ino, target_ino, queue)
+            
+            # Give other threads a chance to access the db
+            if time.time() - stamp > 5:
+                time.sleep(1)
+                stamp = time.time()
+        
+    def _copy_tree(self, src_ino, target_ino, queue):
+        
+        with self.dbcm.transaction() as conn:
+            for (name_, ino) in conn.query('SELECT name, inode FROM contents WHERE parent_inode=?',
+                                          (src_ino,)):
+                ino_new = conn.rowid('INSERT INTO inodes SELECT * FROM inodes WHERE id=?',
+                                     (ino,))
+                conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
+                             (name_, ino_new, target_ino))
+                
+                mode = conn.get_val('SELECT mode FROM inodes WHERE id=?', ino)
+                if stat.S_ISDIR(mode):
+                    queue.append((ino, ino_new))
+                       
+                for (s3key, blockno) in conn.query('SELECT s3key, blockno FROM blocks WHERE inode=?',
+                                                   (ino,)):
+                    conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
+                                 (ino_new, blockno, s3key))
+                    
+        
     def unlink(self, inode_p, name):
         
         timestamp = time.time() - time.timezone
