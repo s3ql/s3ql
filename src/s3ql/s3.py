@@ -261,6 +261,16 @@ class Bucket(object):
             for bkey in boto.list():
                 yield bkey.name
 
+    def get_size(self):
+        """Get total size of bucket"""
+
+        with self._get_boto() as boto:
+            size = 0
+            for bkey in boto.list():
+                size += bkey.size
+                
+        return size
+                
     def fetch(self, key):
         """Return data stored under `key`.
 
@@ -520,9 +530,13 @@ class LocalBotoBucket(dict):
         threading.Thread(target=set_).start()      
      
     def list(self):
+        # We add the size attribute outside init
+        #pylint: disable-msg=W0201
         log.debug("LocalBotoBucket: Handling list()")
         for key in list(self):
-            yield LocalBotoKey(self, key, dict())          
+            el = LocalBotoKey(self, key, dict())
+            el.size = len(self[key])
+            yield el
         
     def get_key(self, key):
         log.debug("LocalBotoBucket: Handling get_key(%s)", key)

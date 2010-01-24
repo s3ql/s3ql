@@ -24,7 +24,6 @@ import tempfile
 import posixpath
 import unittest
 import subprocess
-import sys
 
 
 class fuse_tests(TestCase): 
@@ -42,11 +41,9 @@ class fuse_tests(TestCase):
             raise RuntimeError("test file %s should be bigger than 1 kb" % self.src)
         
         # Mount
-        sys.argv = ['mount.s3ql_local', "--fg", "--multi", "--blocksize", "1", '--fsck', "--quiet", self.base]
-        #sys.argv = ['mount.s3ql_local', "--fg", '--single', "--blocksize", "1", '--fsck', 
-        #            "--debug", 'frontend',  self.base]
-        sys.argc = len(sys.argv)
-        self.mount = ExceptionStoringThread(s3ql.cli.mount_local.main)
+        self.mount = ExceptionStoringThread(s3ql.cli.mount_local.main,
+                                            args=(['mount.s3ql_local', "--fg", "--multi", "--blocksize",
+                                                   "1", '--fsck', "--quiet", self.base],))
         self.mount.start()
 
         # Wait for mountpoint to come up
@@ -70,23 +67,15 @@ class fuse_tests(TestCase):
         time.sleep(0.5)
         self.assertTrue(waitfor(5, lambda : 
                                     subprocess.call(['fuser', '-m', '-s', self.base]) == 1))
-        path = os.path.join(os.path.dirname(__file__), "..", "bin", "umount.s3ql")
-        sys.argv = [path, "--quiet", self.base]
-        #sys.argv = [path, "--debug", 'frontend', self.base]
-        sys.argc = len(sys.argv)
         s3ql.cli.umount.DONTWAIT = True
         try:
-            s3ql.cli.umount.main()
+            s3ql.cli.umount.main(["--quiet", self.base])
         except SystemExit as exc:
-            if exc.code == 0:
-                pass
-            else:
-                self.fail("Umount failed with error code %d" % exc.code)
+            self.fail("Umount failed: %s" % exc)
         
         # Now wait for server process
         exc = self.mount.join_get_exc()
-        self.assertTrue(isinstance(exc, SystemExit))
-        self.assertEqual(exc.code, 0)
+        self.assertIsNone(exc)
                         
         self.assertFalse(posixpath.ismount(self.base))
         os.rmdir(self.base)

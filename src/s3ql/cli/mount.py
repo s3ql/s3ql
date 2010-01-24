@@ -6,15 +6,15 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import division, print_function
+from __future__ import division, print_function, absolute_import
 
 import sys
 from optparse import OptionParser
 from s3ql import fs, s3
 from s3ql.s3cache import S3Cache
-from s3ql.common import (init_logging, get_credentials, get_cachedir, get_dbfile)
+from s3ql.common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
+                         QuietError, unlock_bucket)
 from s3ql.database import ConnectionManager 
-from getpass import getpass
 import llfuse
 import tempfile
 import os
@@ -23,51 +23,27 @@ import logging
 
 __all__ = [ 'main', 'add_common_mount_opts', 'run_server' ]
 
-log = logging.getLogger("frontend")
+log = logging.getLogger("mount.s3ql")
 
-def main():
-    '''Mount S3QL file system
+def main(args):
+    '''Mount S3QL file system'''
     
-    This function writes to stdout/stderr and calls `system.exit()` instead
-    of returning.
-    '''
-    
-    # Parse options
-    options = parse_args()  
-    
-    # Activate logging
-    if options.debug is not None and options.debuglog is None and not options.fg:
-        print('Warning! Debugging output will be lost. '
-              'You should use either --fg or --debuglog.', file=sys.stderr)
-        
-    # Foreground logging until we daemonize
-    init_logging(True, options.quiet, options.debug, options.debuglog)
+    options = parse_args(args)  
+    init_logging_from_options(options)
 
-    # Check mountpoint
     if not os.path.exists(options.mountpoint):
-        print('Mountpoint does not exist.', file=sys.stderr)
-        sys.exit(1)
+        log.error('Mountpoint does not exist.')
+        raise QuietError(1)
         
-    # Read password
     (awskey, awspass) = get_credentials(options.credfile, options.awskey)
-    
-    # Connect to S3
     conn = s3.Connection(awskey, awspass)
     bucket = conn.get_bucket(options.bucketname)
     
-    # Get passphrase
-    if bucket.has_key('s3ql_passphrase'):
-        if sys.stdin.isatty():
-            wrap_pw = getpass("Enter encryption password: ")
-        else:
-            wrap_pw = sys.stdin.readline().rstrip()
-        bucket = conn.get_bucket(options.bucketname, wrap_pw)
-        try:
-            data_pw = bucket['s3ql_passphrase']
-        except s3.ChecksumError:
-            print('Checksum error - incorrect password?', file=sys.stderr)
-            sys.exit(1)
-        bucket = conn.get_bucket(options.bucketname, data_pw)
+    try:
+        unlock_bucket(bucket)
+    except s3.ChecksumError:
+        log.error('Checksum error - incorrect password?')
+        raise QuietError(1)
     
     options.cachedir = options.cachedir.rstrip('/')
     dbfile = get_dbfile(options.bucketname, options.cachedir)
@@ -86,8 +62,8 @@ def main():
     # Check that the fs itself is clean
     dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
     if dbcm.get_val("SELECT needs_fsck FROM parameters"):
-        print("File system damaged, run fsck!", file=sys.stderr)
-        sys.exit(1)
+        log.error("File system damaged, run fsck!")
+        raise QuietError(1)
 
     # Start server
     bucket.store("s3ql_dirty", "yes")
@@ -114,7 +90,8 @@ def main():
     os.unlink(dbfile)
     os.rmdir(cachedir)
          
-    sys.exit(0 if not operations.encountered_errors else 1)
+    if operations.encountered_errors:
+        raise QuietError(1)
  
         
 def get_fuse_opts(options):
@@ -152,7 +129,7 @@ def run_server(bucket, cachedir, dbcm, options):
         llfuse.init(operations, options.mountpoint, fuse_opts)
         try:
             # Switch to background logging if necessary
-            init_logging(options.fg, options.quiet, options.debug, options.debuglog)
+            init_logging_from_options(options, daemon=True)
             
             if options.profile:
                 prof.runcall(llfuse.main, not options.multi, options.fg)
@@ -260,7 +237,7 @@ def check_fs(bucket, cachedir, dbfile):
     
      
     
-def parse_args():
+def parse_args(args):
     '''Parse command line
     
     This function writes to stdout/stderr and may call `system.exit()` instead 
@@ -300,7 +277,7 @@ def parse_args():
                       "written several times during a single write() or read() operation." )
 
  
-    (options, pps) = parser.parse_args()
+    (options, pps) = parser.parse_args(args)
     
     #
     # Verify parameters

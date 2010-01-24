@@ -157,6 +157,11 @@ class S3Cache(object):
             del t.tb 
             raise EmbeddedException(t.exc, tb, t.name)
         
+    def get_bucket_size(self):
+        '''Return total size of the underlying bucket'''
+        
+        return self.bucket.get_size()
+        
     def __len__(self):
         '''Get number of objects in cache'''
         return len(self.cache)
@@ -518,7 +523,7 @@ class S3Cache(object):
             if not el.dirty:
                 continue
             
-            log.info('Flushing object %s', el) 
+            log.debug('Flushing object %s', el) 
             with self.mlock(el.inode, el.blockno):
                 self._upload_object(el)
                 el.dirty = False       

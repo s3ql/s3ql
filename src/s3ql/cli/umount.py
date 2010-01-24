@@ -6,14 +6,14 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import division, print_function
+from __future__ import division, print_function, absolute_import
 
 from s3ql import libc
 import sys
 from optparse import OptionParser 
 import os
 import logging
-from s3ql.common import init_logging, CTRL_NAME 
+from s3ql.common import init_logging_from_options, CTRL_NAME 
 import posixpath
 import subprocess
 import time
@@ -21,7 +21,7 @@ import time
 log = logging.getLogger("frontend")
 DONTWAIT = False
 
-def parse_args():
+def parse_args(args):
     '''Parse command line
      
     This function writes to stdout/stderr and may call `system.exit()` instead 
@@ -51,7 +51,7 @@ def parse_args():
                       'are still open files. The file system is uploaded in the background '
                       'once all open files have been closed.')
                           
-    (options, pps) = parser.parse_args()
+    (options, pps) = parser.parse_args(args)
     
     # Verify parameters
     if not len(pps) == 1:
@@ -60,18 +60,16 @@ def parse_args():
     
     return options
 
-def main():
+def main(args):
     '''Umount S3QL file system
     
     This function writes to stdout/stderr and calls `system.exit()` instead
     of returning.
     '''
     
-    options = parse_args()
+    options = parse_args(args)
     mountpoint = options.mountpoint
-     
-    # Activate logging
-    init_logging(True, options.quiet, options.debug, options.debuglog)
+    init_logging_from_options(options)
     
     # Check if it's a mount point
     if not posixpath.ismount(mountpoint):
@@ -106,8 +104,6 @@ def lazy_umount(mountpoint):
         
     if found_errors:
         sys.exit(1)
-    else:
-        sys.exit(0)
         
         
 def blocking_umount(mountpoint):
@@ -175,8 +171,7 @@ def blocking_umount(mountpoint):
         
     if found_errors:
         sys.exit(1)
-    else:
-        sys.exit(0)
+
     
 def warn_if_error(mountpoint):
     '''Check if file system encountered any errors

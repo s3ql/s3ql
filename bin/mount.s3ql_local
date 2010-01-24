@@ -20,4 +20,4 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     sys.path = [os.path.join(basedir, 'src')] + sys.path
     
 import s3ql.cli.mount_local
-s3ql.cli.mount_local.main()
+s3ql.cli.mount_local.main(sys.argv[1:])

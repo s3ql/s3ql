@@ -20,4 +20,4 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     sys.path = [os.path.join(basedir, 'src')] + sys.path
     
 import s3ql.cli.mkfs
-s3ql.cli.mkfs.main()
+s3ql.cli.mkfs.main(sys.argv[1:])

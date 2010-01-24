@@ -25,7 +25,7 @@ import shutil
 
 # For debug messages:
 #from s3ql.common import init_logging
-#init_logging(True, False, debug=['s3cache', 's3'])
+#init_logging(logging.DEBUG)
 
 class Ctx(object):
     def __init__(self):

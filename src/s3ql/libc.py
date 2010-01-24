@@ -11,6 +11,7 @@ from __future__ import division, print_function
 import s3ql.libc_api as libc
 import os 
 import ctypes
+import errno
 
 __all__ = [ 'listdir', 'setxattr', 'getxattr' ]
 
@@ -56,22 +57,35 @@ def setxattr(path, name, value):
         raise OSError(err, os.strerror(err), path)
         
     
-def getxattr(path, name):
-    '''Get extended attribute'''
+def getxattr(path, name, size_guess=42):
+    '''Get extended attribute
     
-    bufsize = 42 # Default
+    If the caller knows the approximate size of the attribute value,
+    it should be supplied in `size_guess`. If the guess turns out
+    to be wrong, the system call will be carried out twice (once
+    to determine the size and once to actually get the value).
+    '''
+    
+    # First we try with the guessed size
+    bufsize = size_guess
     buf = ctypes.create_string_buffer(bufsize)
-    size = libc.getxattr(path, name, buf, bufsize)
-    if size < 0:
-        err = libc.get_errno()
-        raise OSError(err, os.strerror(err), path)
+    ret = libc.getxattr(path, name, buf, bufsize)
     
-    if size > bufsize:
-        buf = ctypes.create_string_buffer(bufsize)
-        size = libc.getxattr(path, name, buf, bufsize)
+    if ret < 0 and libc.get_errno() == errno.ERANGE:
+        # We guessed the wrong size
+        ret = libc.getxattr(path, name, buf, 0)
         
-        if size < 0:
+        if ret < 0:
             err = libc.get_errno()
             raise OSError(err, os.strerror(err), path)
         
-    return ctypes.string_at(buf, size)
+        bufsize = ret
+        buf = ctypes.create_string_buffer(bufsize)
+        ret = libc.getxattr(path, name, buf, bufsize)
+        
+    # Other error
+    if ret < 0:
+        err = libc.get_errno()
+        raise OSError(err, os.strerror(err), path)
+        
+    return ctypes.string_at(buf, ret)

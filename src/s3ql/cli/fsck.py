@@ -6,25 +6,23 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import division, print_function
+from __future__ import division, print_function, absolute_import
 
 import os
 import stat 
 import time
 from optparse import OptionParser
-from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
+from s3ql.common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
+                         unlock_bucket, QuietError)
 from s3ql.database import WrappedConnection
 import logging
 from s3ql import s3, fsck
-from getpass import getpass
 import sys
 import apsw
 
-def main():
+  
+def parse_args(args):
     
-    # 
-    # Parse Command line
-    #
     parser = OptionParser(
         usage="%prog  [options] <bucketname>\n"
         "%prog --help",
@@ -63,45 +61,40 @@ def main():
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
     
-    
-    (options, pps) = parser.parse_args()
+    (options, pps) = parser.parse_args(args)
     
     if not len(pps) == 1:
         parser.error("bucketname not specificed")
-    bucketname = pps[0]
-    dbfile = get_dbfile(bucketname, options.cachedir)
-    cachedir = get_cachedir(bucketname, options.cachedir)
+        
+    options.bucketname = pps[0]
     
-    # Activate logging
-    init_logging(True, options.quiet, options.debug, options.debuglog)
+    return options
+
+ 
+def main(args):
+
+    options = parse_args(args)
+    dbfile = get_dbfile(options.bucketname, options.cachedir)
+    cachedir = get_cachedir(options.bucketname, options.cachedir)
+
+    init_logging_from_options(options)
     log = logging.getLogger("frontend")
     
     # Set if we need to reupload the metadata
     commit_required = False
     
-    #
-    # Open bucket
-    #
     (awskey, awspass) = get_credentials(options.credfile, options.awskey)
     conn = s3.Connection(awskey, awspass)
-    if not conn.bucket_exists(bucketname):
+    if not conn.bucket_exists(options.bucketname):
         log.error("Bucket does not exist.")
         sys.exit(1)
-    bucket = conn.get_bucket(bucketname)
+    bucket = conn.get_bucket(options.bucketname)
     
-    # Get passphrase
-    if bucket.has_key('s3ql_passphrase'):
-        if sys.stdin.isatty():
-            wrap_pw = getpass("Enter encryption password: ")
-        else:
-            wrap_pw = sys.stdin.readline().rstrip()
-        bucket = conn.get_bucket(bucketname, wrap_pw)
-        try:
-            data_pw = bucket['s3ql_passphrase']
-        except s3.ChecksumError:
-            print('Checksum error - incorrect password?', file=sys.stderr)
-            sys.exit(1)
-        bucket = conn.get_bucket(bucketname, data_pw)
+    try:
+        unlock_bucket(bucket)
+    except s3.ChecksumError:
+        log.error('Checksum error - incorrect password?')
+        raise QuietError(1)
     
     #
     # Check if fs is dirty and we lack metadata

@@ -21,9 +21,33 @@ from getpass import getpass
 __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
            "waitfor", "ROOT_INODE", "ExceptionStoringThread",
-           "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE',
-           'stacktraces' ]
+           "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
+           'stacktraces', 'init_logging_from_options', 'QuietError' ]
 
+def unlock_bucket(bucket):
+    '''Ask for passphrase if bucket requires one'''
+    
+    if bucket.has_key('s3ql_passphrase'):
+        if sys.stdin.isatty():
+            wrap_pw = getpass("Enter encryption password: ")
+        else:
+            wrap_pw = sys.stdin.readline().rstrip()
+        bucket.passphrase = wrap_pw
+        data_pw = bucket['s3ql_passphrase']
+        bucket.passphrase = data_pw
+               
+
+class QuietError(SystemExit):
+    '''QuietError is an exception that should not result in a
+    stack trace being printed. It is typically raised if the
+    exception can generally only be handled by the user invoking
+    a non-interactive program.
+    The exception argument should be a string containing sufficient
+    information about the problem.
+    '''
+    pass
+    
+    
 def stacktraces():
     '''Return stack trace for every running thread'''
     
@@ -49,7 +73,7 @@ class Filter(object):
         """Initializes a Filter object.
         
         Passes through all messages with priority higher than
-        `acceptlevel` or coming from a logger with name in `acceptnames`. 
+        `acceptlevel` or coming from a logger in `acceptnames`. 
         """
         if acceptnames is None:
             acceptnames = list()
@@ -58,79 +82,120 @@ class Filter(object):
         self.acceptnames = [ x.lower() for x in acceptnames ]
         
     def filter(self, record):
-        '''Determine if the log message should be printed
-        '''
-        if record.levelno != self.acceptlevel:
-            return False
+        '''Determine if the log message should be printed'''
         
-        name = record.name.lower()
-        for accept in self.acceptnames:
-            if name == accept:
-                return True
+        if record.levelno > self.acceptlevel:
+            return True
+        
+        if record.name.lower() in self.acceptnames:
+            return True
         
         return False
-            
-def init_logging(fg, quiet=False, debug=None, debugfile=None):
-    """Initializes logging system.
     
-    If `fg` is set, logging messages are send to stdout. Otherwise logging
-    is done via unix syslog.
+class Formatter(logging.Formatter):
     
-    If `quiet` is set, only messages with priority larger than
-    logging.WARN are printed. Otherwise the minimum priority is
-    logging.INFO.
-    
-    `debug` can be set to a list of logger names from which debugging
-    messages are to be printed. If debugfile is not none, it specifies
-    a file into which the debugging messages are written.
-    """            
-    if debug is None:
-        debug = list()
+    def format(self, record):
+        '''Format log message.
         
+        Splits the message by newlines and calls the base class method for each
+        line.'''
+        
+        # First format the exception
+        if record.exc_info and record.exc_text is None:
+            # Prevent logging.Formatter from adding the traceback again
+            record.exc_text = ''
+            if record.msg[-1:] == "\n":
+                record.msg += logging.Formatter.formatException(self, record.exc_info)
+            else:
+                record.msg += '\n' + logging.Formatter.formatException(self, record.exc_info)
+                
+        formatted_msgs = list()
+        full_msg = record.msg
+        exc = record.exc_info
+        record.exc_info = None
+        for msg in full_msg.split('\n'):
+            record.msg = msg
+            # Can't use super with old style class
+            formatted_msgs.append(logging.Formatter.format(self, record))
+        record.msg = full_msg
+        record.exc_info = exc
+            
+        return '\n'.join(formatted_msgs)
+
+def init_logging_from_options(options, daemon=False):
+    '''Call init_logging according to command line arguments
+    
+    `options` should have attributes ``quiet``, ``debug`` and ``debuglog``.
+    '''
+    
+    if options.debug and not options.debuglog:
+        level = logging.DEBUG
+    elif options.quiet:
+        level = logging.WARN
+    else:
+        level = logging.INFO
+        
+    if options.debug and 'all' in options.debug:
+        init_logging(level, daemon, logfile=options.debuglog)
+    else:
+        init_logging(level, daemon, debug_logger=options.debug, logfile=options.debuglog) 
+        
+    
+def init_logging(level=logging.INFO, daemon=False, debug_logger=None, logfile=None,
+                 logfile_level=logging.DEBUG):
+    """Initialize logging
+    
+    If `daemon` is true, logging messages are send to syslog. Otherwise
+    to stdout. 
+    
+    `debug_logger` can be set to a list of logger names. In that case, debug
+    messages are only logged from these loggers.
+    
+    If `logfile` is set to a file name, all log messages will also be
+    written into this file.
+    
+     Does nothing if logging has already been initialized
+    """
+                  
     root_logger = logging.getLogger()
     
     # Remove existing handlers. We have to copy the list
     # since it is going to change during iteration
-    for hdlr in [ x for x in root_logger.handlers ]: 
+    for hdlr in list(root_logger.handlers): 
         root_logger.removeHandler(hdlr)
-    
-    if debug:
-        formatter = logging.Formatter('%(asctime)s,%(msecs)03d %(threadName)s: [%(name)s] %(message)s',
+        
+    if level <= logging.DEBUG:
+        formatter = Formatter('%(asctime)s,%(msecs)03d %(threadName)s: [%(name)s] %(message)s',
                                       datefmt="%H:%M:%S")
     else:
-        formatter = logging.Formatter('[%(name)s] %(message)s')
-        
-    # Standard handler
-    if fg: 
-        handler = logging.StreamHandler()
-        handler.setFormatter(formatter)           
-    else:
-        handler = logging.handlers.SysLogHandler(b"/dev/log")
-        handler.setFormatter(logging.Formatter('s3ql[%(process)d]: [%(name)s] %(message)s'))  
+        formatter = Formatter('[%(name)s] %(message)s')
     
-    if quiet:
-        root_logger.setLevel(logging.WARN)
-        handler.setLevel(logging.WARN)
-    else:
-        root_logger.setLevel(logging.INFO)
-        handler.setLevel(logging.INFO)
-        
+    if daemon:
+        handler = logging.handlers.SysLogHandler(b"/dev/log")
+        handler.setFormatter(Formatter('s3ql[%(process)d]: [%(name)s] %(message)s'))
+    else:  
+        handler = logging.StreamHandler()
+        handler.setFormatter(formatter)       
+    
+    root_logger.setLevel(level)
+    handler.setLevel(level)
     root_logger.addHandler(handler)
 
-
-    # Debugging handler
-    if debug:
-        if debugfile is None:
-            debug_handler = logging.StreamHandler()
-            debug_handler.addFilter(Filter(acceptnames=debug, acceptlevel=logging.DEBUG))
-        else:
-            # Debug file gets all debug output
-            debug_handler = logging.handlers.WatchedFileHandler(debugfile)
-            
-        debug_handler.setFormatter(formatter) 
+    if debug_logger:
+        handler.addFilter(Filter(acceptnames=debug_logger, acceptlevel=logging.DEBUG))
         
-        root_logger.addHandler(debug_handler) 
-        root_logger.setLevel(logging.DEBUG)
+    if logfile:
+        file_handler = logging.handlers.WatchedFileHandler(logfile)
+        file_handler.setFormatter(formatter)
+
+        if debug_logger:
+            file_handler.addFilter(Filter(acceptnames=debug_logger, acceptlevel=logging.DEBUG))
+        
+        file_handler.setLevel(logfile_level)
+        root_logger.addHandler(file_handler)
+        root_logger.setLevel(min(level, logfile_level))
+        
+   
    
 def inode_for_path(path, conn):
     """Return inode of directory entry at `path`
@@ -278,6 +343,8 @@ class ExceptionStoringThread(threading.Thread):
     '''
     
     def __init__(self, target, args=(), kwargs={}):
+        # Default value isn't dangerous
+        #pylint: disable-msg=W0102
         super(ExceptionStoringThread, self).__init__()
         if target is not None:
             self.target = target

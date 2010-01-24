@@ -22,7 +22,7 @@ from contextlib import contextmanager
 import shutil
 
 #from s3ql.common import init_logging
-#init_logging(True, False, debug=['s3cache'])
+#init_logging(logging.DEBUG)
         
 class s3cache_tests(TestCase):
     

@@ -241,8 +241,6 @@ class Operations(llfuse.Operations):
 
                 yield (name, fstat)
 
-    # TODO: Implement a new S3QL command that returns file
-    # system statistics more comprehensively than statfs can
     def getxattr(self, inode, name):
         # Handle S3QL commands
         if inode == CTRL_INODE:
@@ -253,6 +251,9 @@ class Operations(llfuse.Operations):
                     return b'no errors'
             elif name == b's3ql_pid?':
                 return bytes(os.getpid())
+            
+            elif name == b'stat.s3ql':
+                return self.extstat()
             
             return llfuse.FUSEError(errno.EINVAL)
         
@@ -632,7 +633,34 @@ class Operations(llfuse.Operations):
             
         return self.getattr_all(inode)
 
+    def extstat(self):
+        '''Return extended file system statistics'''
+        
+        with self.dbcm() as conn: 
+            entries = conn.get_val("SELECT COUNT(rowid) FROM contents")
+            blocks = conn.get_val("SELECT COUNT(id) FROM s3_objects")
+            inodes = conn.get_val("SELECT COUNT(id) FROM inodes")
+            size_1 = conn.get_val('SELECT SUM(size) FROM inodes')
+            size_2 = conn.get_val('SELECT SUM(size) FROM s3_objects')
 
+        if not size_1:
+            size_1 = 1
+        if not size_2:
+            size_2 = 1
+
+        size_3 = self.cache.get_bucket_size()
+
+        return('\n'.join([
+                          'Directory entries:    %d' % entries,                
+                          'Inodes:               %d' % inodes,
+                          'Data blocks:          %d' % blocks,
+                          'Total data size:      %.2f MB' % (size_1/1024**2,),
+                          'After de-duplication: %.2f MB (%.2f%% of total)' 
+                             % (size_2/1024**2, size_2/size_1 * 100),
+                          'After compression:    %.2f MB (%.2f%% of total, %.2f%% of de-duplicated)'
+                             % (size_3/1024**2, size_3/size_1 * 100, size_3/size_2 * 100)
+                          ]))
+        
     def statfs(self):
         stat_ = dict()
 

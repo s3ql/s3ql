@@ -138,7 +138,5 @@ class OrderedDictTests(TestCase):
 def suite():
     return unittest.makeSuite(OrderedDictTests)
 
-
 if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
     unittest.main()

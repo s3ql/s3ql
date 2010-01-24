@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import division, print_function
+from __future__ import division, print_function, absolute_import
 
 import sys
 import os
@@ -14,16 +14,16 @@ from getpass import getpass
 import shutil 
 from optparse import OptionParser
 import logging
-
 from s3ql import mkfs, s3
-from s3ql.common import init_logging, get_credentials, get_cachedir, get_dbfile
+from s3ql.common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
+                         QuietError)
 from s3ql.database import WrappedConnection
 import apsw
 
-def main():
-    #
-    # Parse options
-    #
+log = logging.getLogger("mkfs.s3ql")
+
+def parse_args(args):
+
     parser = OptionParser(
         usage="%prog  [options] <bucketname>\n" \
             "       %prog --help",
@@ -62,19 +62,18 @@ def main():
                       help="Be really quiet")
     
     
-    (options, pps) = parser.parse_args()
+    (options, pps) = parser.parse_args(args)
     
     if not len(pps) == 1:
         parser.error("bucketname not specificed")
-    bucketname = pps[0]
+    options.bucketname = pps[0]
     
-    # Activate logging
-    init_logging(True, options.quiet, options.debug, options.debuglog)
-    log = logging.getLogger("frontend")
+    return options
+
+def main(args):
     
-    #
-    # Read password(s)
-    #
+    options = parse_args(args)
+    init_logging_from_options(options)
     (awskey, awspass) = get_credentials(options.credfile, options.awskey)
     
     if options.encrypt:
@@ -97,26 +96,25 @@ def main():
     # Setup bucket
     #
     conn = s3.Connection(awskey, awspass)
-    if conn.bucket_exists(bucketname):
+    if conn.bucket_exists(options.bucketname):
         if options.force:
             log.info("Removing existing bucket...")
-            bucket = conn.get_bucket(bucketname)
+            bucket = conn.get_bucket(options.bucketname)
             bucket.clear()
         else:
-            log.warn(
+            log.error(
                 "Bucket already exists!\n" 
                 "Use -f option to remove the existing bucket.\n")
-            sys.exit(1)
+            raise QuietError(1)
     else:
-        conn.create_bucket(bucketname)
+        bucket = conn.create_bucket(options.bucketname)
         
     # Setup encryption
     if options.encrypt:
-        bucket = conn.get_bucket(bucketname, wrap_pw)
+        bucket.passphrase = wrap_pw
         bucket['s3ql_passphrase'] = data_pw
-        bucket = conn.get_bucket(bucketname, data_pw)
-    else:
-        bucket = conn.get_bucket(bucketname)
+        bucket.passphrase = data_pw
+
     
     #
     # Setup database

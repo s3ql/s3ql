@@ -6,12 +6,12 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import division, print_function
+from __future__ import division, print_function, absolute_import
 
 import sys
 from optparse import OptionParser
 from time import sleep
-from s3ql.common import init_logging
+from s3ql.common import init_logging_from_options
 from s3ql.database import ConnectionManager
 from s3ql import s3, mkfs, fsck
 from s3ql.cli.mount import run_server, add_common_mount_opts 
@@ -21,7 +21,7 @@ import logging
 
 log = logging.getLogger("frontend")
 
-def main():
+def main(args):
     '''Run main program.
     
     This function writes to stdout/stderr and calls `system.exit()` instead
@@ -29,7 +29,7 @@ def main():
     '''
     
     # Parse options
-    options = parse_args()  
+    options = parse_args(args)  
     
     # Activate logging
     if options.debug is not None and options.debuglog is None and not options.fg:
@@ -37,7 +37,7 @@ def main():
                          'You should use either --fg or --debuglog.\n')
         
     # Foreground logging until we daemonize
-    init_logging(True, options.quiet, options.debug, options.debuglog)
+    init_logging_from_options(options)
     
     # Check mountpoint
     if not os.path.exists(options.mountpoint):
@@ -82,8 +82,7 @@ def main():
 
     if operations.encountered_errors or fsck.found_errors:
         sys.exit(1)
-    else:
-        sys.exit(0)
+
         
 
 def parse_args():

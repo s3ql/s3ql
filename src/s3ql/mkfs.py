@@ -178,9 +178,8 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
         -- hash and size is only updated when the object is committed
         hash      BLOB(16) UNIQUE CONSTRAINT hash_type
                   CHECK ( typeof(hash) IN ('blob', 'null') ),
-        size      INT CONSTRAINT size_type
-                  CHECK ( (typeof(size) == 'integer' AND size >= 0) 
-                          OR typeof(size) == 'null'  )                    
+        size      INT NOT NULL CONSTRAINT size_type
+                  CHECK ( typeof(size) == 'integer' AND size >= 0)                  
     );
     CREATE INDEX ix_s3_objects_hash ON s3_objects(hash);
     """)
