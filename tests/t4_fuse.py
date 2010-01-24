@@ -42,7 +42,7 @@ class fuse_tests(TestCase):
         
         # Mount
         self.mount = ExceptionStoringThread(s3ql.cli.mount_local.main,
-                                            args=(['mount.s3ql_local', "--fg", "--multi", "--blocksize",
+                                            args=(['mount.s3ql_local', "--fg", "--blocksize",
                                                    "1", '--fsck', "--quiet", self.base],))
         self.mount.start()
 

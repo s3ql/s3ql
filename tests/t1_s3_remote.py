@@ -14,7 +14,8 @@ from random import randrange
 from _common import TestCase, get_aws_credentials
 from time import sleep
 
-@unittest.skipUnless(get_aws_credentials(), 'remote tests disabled')
+#@unittest.skipUnless(get_aws_credentials(), 'remote tests disabled')
+@unittest.skipUnless(None, 'remote tests disabled')
 class s3_tests_remote(TestCase):
 
     @staticmethod
@@ -110,7 +111,7 @@ class s3_tests_remote(TestCase):
         
         # This is the time in which we expect S3 changes to propagate. It may
         # be much longer for larger objects, but for tests this is usually enough.
-        self.delay = 0.3
+        self.delay = 1
 
     def tearDown(self):
         self.conn.delete_bucket(self.bucketname, recursive=True)

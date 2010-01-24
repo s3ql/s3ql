@@ -157,8 +157,8 @@ class fsck_tests(TestCase):
         self.assert_fsck(fsck.check_keylist)
         
         # Create an object that does not exist in S3
-        self.conn.execute('INSERT INTO s3_objects (id, refcount) VALUES(?, ?)', 
-                          (34, 1))
+        self.conn.execute('INSERT INTO s3_objects (id, refcount, size) VALUES(?, ?, ?)', 
+                          (34, 1, 0))
         self.assert_fsck(fsck.check_keylist)
         
     @staticmethod   
@@ -206,8 +206,8 @@ class fsck_tests(TestCase):
                      (inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                       os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1,0))
         
-        conn.execute('INSERT INTO s3_objects (id, refcount) VALUES(?, ?)',
-                   (s3key, 2))
+        conn.execute('INSERT INTO s3_objects (id, refcount, size) VALUES(?, ?, ?)',
+                     (s3key, 2, 0))
         conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
                      (inode, 1, s3key))
         conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
@@ -225,7 +225,5 @@ class fsck_tests(TestCase):
 def suite():
     return unittest.makeSuite(fsck_tests)
 
-
-# Allow calling from command line
 if __name__ == "__main__":
     unittest.main()

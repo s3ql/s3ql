@@ -16,6 +16,7 @@ import os
 import tempfile
 import subprocess
 import re
+import logging
 import ctypes.util
 
 # These are the definitons that we need 
@@ -217,7 +218,7 @@ class run_tests(Command):
             else:
                 init_logging(logging.DEBUG, debug_logger=self.debug)
         else:
-            init_logging()            
+            init_logging(logging.WARN)            
         
         # Init AWS
         if self.credfile:
