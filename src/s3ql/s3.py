@@ -301,7 +301,21 @@ class Bucket(object):
             
         fh = StringIO(val)
         self.store_fh(key, fh, metadata)
-            
+
+    def store_wait(self, key, val, metadata=None):
+        """Store data under `key` and wait for propagation
+
+        Like `store`, but wait until the update has propagated in
+        S3.
+        """
+        
+        stamp = time.time() - time.timezone
+        self.store(key, val, metadata)
+        
+        if not waitfor(600, lambda: self.lookup_key(key)['last-modified'] >= stamp):
+            raise RuntimeError('Timeout when waiting for propagation in S3')
+        
+                    
     def fetch_fh(self, key, fh):
         """Fetch data for `key` and write to `fh`
 

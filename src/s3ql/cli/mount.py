@@ -66,8 +66,7 @@ def main(args):
         raise QuietError(1)
 
     # Start server
-    bucket.store("s3ql_dirty", "yes")
-    # TODO: Wait for propagation of the dirty marker here
+    bucket.store_wait("s3ql_dirty", "yes")
     try:
         operations = run_server(bucket, cachedir, dbcm, options)
         if operations.encountered_errors:
