@@ -11,7 +11,7 @@ from __future__ import division, print_function, absolute_import
 import sys
 from optparse import OptionParser
 from s3ql import fs, s3
-from s3ql.s3cache import S3Cache
+from s3ql.s3cache import SynchronizedS3Cache
 from s3ql.common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
                          QuietError, unlock_bucket)
 from s3ql.database import ConnectionManager 
@@ -112,7 +112,8 @@ def run_server(bucket, cachedir, dbcm, options):
     '''Start FUSE server and run main loop
     
     Returns the used `Operations` instance so that the `encountered_errors`
-    attribute can be checked. '''
+    attribute can be checked.
+    '''
     
     if options.profile:
         import cProfile
@@ -121,20 +122,22 @@ def run_server(bucket, cachedir, dbcm, options):
         
     log.info('Mounting filesystem...')
     fuse_opts = get_fuse_opts(options) 
-    cache =  S3Cache(bucket, cachedir, int(options.cachesize*1024*1.15), dbcm,
-                     timeout=options.s3timeout)
+    # TODO: We should run multithreaded at some point
+    cache =  SynchronizedS3Cache(bucket, cachedir, int(options.cachesize*1024*1.15), dbcm,
+                                 timeout=options.s3timeout)
     cache.start_background_expiration(int(options.cachesize * 1024 * 0.85))
     try: 
+        
         operations = fs.Operations(cache, dbcm, not options.atime)
         llfuse.init(operations, options.mountpoint, fuse_opts)
         try:
             # Switch to background logging if necessary
-            init_logging_from_options(options, daemon=True)
+            init_logging_from_options(options, daemon=not options.fg)
             
             if options.profile:
-                prof.runcall(llfuse.main, not options.multi, options.fg)
+                prof.runcall(llfuse.main, options.single, options.fg)
             else:
-                llfuse.main(not options.multi, options.fg)
+                llfuse.main(options.single, options.fg)
             
         except:
             llfuse.close()
@@ -165,12 +168,10 @@ def add_common_mount_opts(parser):
     '''Add options common to mount and mount_local'''
         
     parser.add_option("--debuglog", type="string",
-                      help="Write debugging information in specified file. You will need to "
-                            'use --debug as well in order to get any output.')
+                      help="Write debugging information in specified file.")
     parser.add_option("--debug", action="append", 
-                      help="Activate debugging output from specified facility. Valid facility names "
-                            "are: fs, fuse, s3, fsck, mkfs, frontend. "
-                            "This option can be specified multiple times.")
+                      help="Activate debugging output from specified facility."
+                           "This option can be specified multiple times.")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
     parser.add_option("--allow_others", action="store_true", default=False, help=
@@ -185,22 +186,15 @@ def add_common_mount_opts(parser):
                       "individual permissions.")
     parser.add_option("--fg", action="store_true", default=False,
                       help="Do not daemonize, stay in foreground")
-    parser.add_option("--multi", action="store_true", default=False,
-                      help="Normally, all operations on the file system are carried out strictly "
-                      'one after another. This means that e.g. if you are writing a large file and '
-                      'at the same time try to list the contents of a directory, you will have to '
-                      'wait for the write operation to finish before you get the contents. In '
-                      'multithreaded mode, such operations can be carried out at the same time, '
-                      'so you can retrieve the contents while the file is being written.\n\n'
- 
-                      'Note that this is still an EXPERIMENTAL feature, and it may also '
-                      'decrease the performance of S3QL. You have been warned.')
+    parser.add_option("--single", action="store_true", default=False,
+                      help="Run in single threaded mode. If you don't understand this, "
+                           "then you don't need it.")
     parser.add_option("--atime", action="store_true", default=False,
                       help="Update directory access time. Will decrease performance.")
     parser.add_option("--profile", action="store_true", default=False,
                       help="Create profiling information. If you don't understand this, "
-                        "then you don't need it.")
-
+                           "then you don't need it.")
+    
 
 def check_fs(bucket, cachedir, dbfile):
     '''Check if file system seems to be consistent
@@ -288,7 +282,7 @@ def parse_args(args):
     options.mountpoint = pps[1]
             
     if options.profile:
-        options.multi = False
+        options.single = True
         
     return options
 

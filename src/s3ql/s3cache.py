@@ -22,7 +22,7 @@ import psyco
 import sys
 
  
-__all__ = [ "S3Cache" ]
+__all__ = [ "S3Cache", 'SynchronizedS3Cache' ]
 
 # standard logger for this module
 log = logging.getLogger("S3Cache") 
@@ -566,6 +566,40 @@ class BackgroundExpirationThread(threading.Thread):
             self.tb = sys.exc_info()[2] # This creates a circular reference chain
             
     
+class SynchronizedS3Cache(S3Cache):
+    # Argument number difffers from overridden method
+    #pylint: disable-msg=W0221
+        
+    def __init__(self, *a, **kw):
+        super(SynchronizedS3Cache, self).__init__(*a, **kw)
+        self.lock = threading.RLock()
+        
+    def clear(self, *a, **kw):
+        with self.lock:
+            return super(SynchronizedS3Cache, self).clear(*a, **kw)
+
+    def expire(self, *a, **kw):
+        with self.lock:
+            return super(SynchronizedS3Cache, self).expire(*a, **kw)
+
+    def flush(self, *a, **kw):
+        with self.lock:
+            return super(SynchronizedS3Cache, self).flush(*a, **kw)
+
+    @contextmanager
+    def get(self, *a, **kw):
+        with self.lock:
+            with super(SynchronizedS3Cache, self).get(*a, **kw) as fh:
+                yield fh
+
+    def get_bucket_size(self, *a, **kw):
+        with self.lock:
+            return super(SynchronizedS3Cache, self).get_bucket_size(*a, **kw)
+
+    def remove(self, *a, **kw):
+        with self.lock:
+            return super(SynchronizedS3Cache, self).remove(*a, **kw)
+ 
                     
 # Optimize logger calls
 psyco.bind(logging.getLogger)        
