@@ -31,10 +31,12 @@ class s3_tests_remote(TestCase):
         self.assertRaises(KeyError, self.bucket.fetch, key)
 
         self.bucket.store(key, value)
+        sleep(self.delay)
         self.assertEquals(self.bucket[key], value)
         self.bucket.lookup_key(key)
         
         self.bucket.delete_key(key)
+        sleep(self.delay)
         self.assertFalse(self.bucket.has_key(key))
         self.assertRaises(KeyError, self.bucket.lookup_key, key)
         self.assertRaises(KeyError, self.bucket.delete_key, key)
@@ -47,11 +49,13 @@ class s3_tests_remote(TestCase):
         value2 = self.random_name()
 
         self.bucket.store(key, value1, { 'foo': 42 })
+        sleep(self.delay)
         meta1 = self.bucket.fetch(key)[1]
 
         self.assertEquals(meta1['foo'], 42)
 
         self.bucket.store(key, value2, { 'bar': 37 })
+        sleep(self.delay)
         meta2 = self.bucket.fetch(key)[1]
         
         self.assertTrue('foo' not in meta2)
@@ -60,7 +64,7 @@ class s3_tests_remote(TestCase):
         self.assertTrue(meta1['last-modified'] < meta2['last-modified'])
 
         del self.bucket[key]
-
+        sleep(self.delay)
 
     def test_03_list_keys(self):
 
@@ -71,12 +75,12 @@ class s3_tests_remote(TestCase):
         for i in range(12):
             self.bucket.store(keys[i], values[i])
 
-        sleep(s3ql.s3.LOCAL_PROP_DELAY*1.1)
+        sleep(self.delay)
         self.assertEquals(sorted(self.bucket.keys()), sorted(keys))
             
         for i in range(12):
             del self.bucket[keys[i]]
-
+        sleep(self.delay)
 
     def test_05_copy(self):
         key1 = self.random_name("key_1")
@@ -88,8 +92,8 @@ class s3_tests_remote(TestCase):
         self.bucket.store(key1, value)
         sleep(self.delay)
         self.bucket.copy(key1, key2)
-
         sleep(self.delay)
+        
         self.assertEquals(self.bucket[key2], value)
 
         
@@ -111,10 +115,12 @@ class s3_tests_remote(TestCase):
         
         # This is the time in which we expect S3 changes to propagate. It may
         # be much longer for larger objects, but for tests this is usually enough.
-        self.delay = 1
+        self.delay = 0.5
 
     def tearDown(self):
-        self.conn.delete_bucket(self.bucketname, recursive=True)
+        self.bucket.clear()
+        sleep(self.delay)
+        self.conn.delete_bucket(self.bucketname)
 
 
 # Somehow important according to pyunit documentation
