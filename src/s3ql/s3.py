@@ -71,15 +71,9 @@ class Connection(object):
         
         self.pool.append(conn)
 
-    def delete_bucket(self, name, recursive=False):
-        """Delete bucket"""
-        
-        if recursive:
-            bucket = self.get_bucket(name)
-            bucket.clear()
-            # TODO: Wait until all deletions have actually propagated (by iterating
-            # over the keys until the list is empty, this also takes care of new keys
-            # that had not yet propagated when the list of keys was requested.        
+
+    def delete_bucket(self, name):
+        """Delete bucket"""     
         
         with self._get_boto() as boto:
             boto.delete_bucket(name)
