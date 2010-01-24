@@ -15,6 +15,7 @@ import logging
 from s3ql.common import init_logging_from_options, CTRL_NAME, QuietError
 import posixpath
 import struct
+import sys
 
 log = logging.getLogger("stat.s3ql")
 
