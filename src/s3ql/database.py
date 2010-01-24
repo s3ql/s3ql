@@ -14,6 +14,7 @@ from contextlib import contextmanager
 import tempfile
 import apsw
 import time
+import os
 import thread
 from random import randrange
 
@@ -160,7 +161,11 @@ class ConnectionManager(object):
         with self() as conn:
             return conn.execute(*a, **kw)   
         
-         
+    def get_db_size(self):
+        '''Return size of database file'''
+        
+        return os.path.getsize(self.dbfile)
+    
 class WrappedConnection(object):
     '''This class wraps an APSW connection object. It should be
     used instead of any native APSW cursors. 
