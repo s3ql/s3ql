@@ -17,6 +17,7 @@ from s3ql.common import (get_path, CTRL_NAME, CTRL_INODE)
 import time
 from cStringIO import StringIO
 import psyco
+import struct
 from s3ql.multi_lock import MultiLock
 
 __all__ = [ "Server", "RevisionError" ]
@@ -648,19 +649,10 @@ class Operations(llfuse.Operations):
         if not size_2:
             size_2 = 1
 
-        size_3 = self.cache.get_bucket_size()
-
-        return('\n'.join([
-                          'Directory entries:    %d' % entries,                
-                          'Inodes:               %d' % inodes,
-                          'Data blocks:          %d' % blocks,
-                          'Total data size:      %.2f MB' % (size_1/1024**2,),
-                          'After de-duplication: %.2f MB (%.2f%% of total)' 
-                             % (size_2/1024**2, size_2/size_1 * 100),
-                          'After compression:    %.2f MB (%.2f%% of total, %.2f%% of de-duplicated)'
-                             % (size_3/1024**2, size_3/size_1 * 100, size_3/size_2 * 100)
-                          ]))
-        
+        return struct.pack('LLLLLLL', entries, blocks, inodes, size_1, size_2, 
+                           self.cache.get_bucket_size(),
+                           self.dbcm.get_db_size())
+            
     def statfs(self):
         stat_ = dict()
 
