@@ -85,7 +85,7 @@ def main(args):
     
     os.mkdir(options.target)
     fstat_t = os.stat(options.target)
-    libc.setxattr(parent, 'copy', struct.pack('II', fstat_s.st_ino, fstat_t.st_ino))
+    libc.setxattr(ctrlfile, 'copy', struct.pack('II', fstat_s.st_ino, fstat_t.st_ino))
     
      
 if __name__ == '__main__':
