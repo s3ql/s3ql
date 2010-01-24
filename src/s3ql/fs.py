@@ -288,36 +288,60 @@ class Operations(llfuse.Operations):
         self.cache.flush_all()
         
         queue = [ (src_ino, target_ino) ]
+        ino_cache = dict()
         stamp = time.time()
         while queue:
             (src_ino, target_ino) = queue.pop()
-            self._copy_tree(src_ino, target_ino, queue)
+            self._copy_tree(src_ino, target_ino, queue, ino_cache)
             
             # Give other threads a chance to access the db
             if time.time() - stamp > 5:
                 time.sleep(1)
                 stamp = time.time()
         
-    def _copy_tree(self, src_ino, target_ino, queue):
+    def _copy_tree(self, src_ino, target_ino, queue, ino_cache):
         
         with self.dbcm.transaction() as conn:
             for (name_, ino) in conn.query('SELECT name, inode FROM contents WHERE parent_inode=?',
-                                          (src_ino,)):
-                ino_new = conn.rowid('INSERT INTO inodes SELECT * FROM inodes WHERE id=?',
-                                     (ino,))
+                                           (src_ino,)):
+                if name_ in ('.', '..'):
+                    continue
+                
+                if ino not in ino_cache:
+                    attributes = 'uid,gid,mode,mtime,atime,ctime,refcount,target,size,rdev'
+                    ino_new = conn.rowid('INSERT INTO inodes (%s) SELECT %s FROM inodes WHERE id=?'
+                                         % (attributes, attributes), (ino,))
+                    (mode, refcount) = conn.get_row('SELECT mode, refcount FROM inodes WHERE id=?',
+                                                    (ino_new,))
+
+                    if stat.S_ISDIR(mode):
+                        conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
+                                     (b'.', ino_new, ino_new))
+                        conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
+                                     (b'..', target_ino, ino_new))
+                        
+                        if refcount != 2:
+                            conn.execute('UPDATE inodes SET refcount=2 WHERE id=?', (ino_new,))
+                        conn.execute('UPDATE inodes SET refcount=refcount+1 WHERE id=?', (target_ino,))
+                        queue.append((ino, ino_new))
+                    
+                    elif refcount != 1:
+                        ino_cache[ino] = ino_new
+                        conn.execute('UPDATE inodes SET refcount=1 WHERE id=?', (ino_new,))    
+                           
+                    for (s3key, blockno) in conn.query('SELECT s3key, blockno FROM blocks WHERE inode=?',
+                                                       (ino,)):
+                        conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
+                                     (ino_new, blockno, s3key))
+                else:
+                    ino_new = ino_cache[ino]
+                    conn.execute('UPDATE inodes SET refcount=refcount+1 WHERE id=?', 
+                                 (ino_new,))
+                
                 conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
                              (name_, ino_new, target_ino))
                 
-                mode = conn.get_val('SELECT mode FROM inodes WHERE id=?', ino)
-                if stat.S_ISDIR(mode):
-                    queue.append((ino, ino_new))
-                       
-                for (s3key, blockno) in conn.query('SELECT s3key, blockno FROM blocks WHERE inode=?',
-                                                   (ino,)):
-                    conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
-                                 (ino_new, blockno, s3key))
-                    
-        
+
     def unlink(self, inode_p, name):
         
         timestamp = time.time() - time.timezone
