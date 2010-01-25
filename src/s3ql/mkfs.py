@@ -176,7 +176,11 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
         PRIMARY KEY (inode, name)               
     );
     """)
-    
+    conn.execute(trigger_cmd.format(**{ "src_table": "ext_attributes",
+                                       "src_key": "inode",
+                                       "ref_table": "inodes",
+                                       "ref_key": "id" }))
+        
     # Maps file data chunks to S3 objects
     # Refcount is included for performance reasons
     conn.execute("""
