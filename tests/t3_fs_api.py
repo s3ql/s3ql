@@ -513,6 +513,38 @@ class fs_api_tests(TestCase):
 
         self.fsck()
 
+    def test_xattr(self):
+        name = self.random_name()
+        key1 = 'xattr_1_key'
+        key2 = 'xattr_2_key'
+        value = 'blablabla!'
+        inode = self.create(self.root_inode, name)
+        
+        self.assertEqual(self.server.listxattr(inode), [])
+        self.assertRaises(FUSEError, self.server.getxattr, inode, key1)
+        self.assertRaises(FUSEError, self.server.removexattr, inode, key1)
+        
+        self.server.setxattr(inode, key1, value)
+        self.assertEqual(self.server.listxattr(inode), [ key1 ])
+        self.assertEqual(self.server.getxattr(inode, key1), value)
+        
+        self.server.setxattr(inode, key2, value)
+        self.assertEqual(sorted(self.server.listxattr(inode)), sorted([ key1, key2 ]))
+        self.assertEqual(self.server.getxattr(inode, key2), value)        
+        
+        self.server.removexattr(inode, key1)
+        self.assertRaises(FUSEError, self.server.getxattr, inode, key1)
+        self.assertRaises(FUSEError, self.server.removexattr, inode, key1)
+        self.assertEqual(self.server.listxattr(inode), [ key2 ])
+        self.assertEqual(self.server.getxattr(inode, key2), value)
+        
+        self.server.removexattr(inode, key2)
+        self.assertRaises(FUSEError, self.server.getxattr, inode, key2)
+        self.assertRaises(FUSEError, self.server.removexattr, inode, key2)
+        self.assertEqual(self.server.listxattr(inode), [ ])
+           
+        self.fsck()
+        
     def test_move_dir(self):
         dir1 = self.random_name()
         dir2 = self.random_name()

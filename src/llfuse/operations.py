@@ -265,7 +265,10 @@ class Operations(object):
         raise FUSEError(errno.ENOSYS)
     
     def removexattr(self, inode, name):
-        '''Remove extended attribute'''
+        '''Remove extended attribute
+        
+        If the attribute does not exist, raises FUSEError(ENOATTR)
+        '''
         
         raise FUSEError(errno.ENOSYS)
     

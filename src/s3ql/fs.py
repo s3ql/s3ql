@@ -258,8 +258,21 @@ class Operations(llfuse.Operations):
             
             return llfuse.FUSEError(errno.EINVAL)
         
-        raise llfuse.FUSEError(llfuse.ENOTSUP)
-
+        else:
+            try:
+                value = self.dbcm.get_val('SELECT value FROM ext_attributes WHERE inode=? AND name=?',
+                                          (inode, name))
+            except KeyError:
+                raise llfuse.FUSEError(llfuse.ENOATTR)
+            return value
+        
+    def listxattr(self, inode):
+        names = list()
+        with self.dbcm() as conn:
+            for (name,) in conn.query('SELECT name FROM ext_attributes WHERE inode=?', (inode,)):
+                names.append(name)
+        return names
+    
     def setxattr(self, inode, name, value):
         
         # Handle S3QL commands
@@ -278,8 +291,15 @@ class Operations(llfuse.Operations):
                 self.copy_tree(*struct.unpack('II', value))
             
             return llfuse.FUSEError(errno.EINVAL)
-        
-        raise llfuse.FUSEError(llfuse.ENOTSUP)
+        else:
+            self.dbcm.execute('INSERT OR REPLACE INTO ext_attributes (inode, name, value) '
+                              'VALUES(?, ?, ?)', (inode, name, value))
+                
+    def removexattr(self, inode, name):
+        changes = self.dbcm.execute('DELETE FROM ext_attributes WHERE inode=? AND name=?',
+                                    (inode, name))
+        if changes == 0:
+            raise llfuse.FUSEError(llfuse.ENOATTR)
     
     def copy_tree(self, src_ino, target_ino):
         '''Efficiently copy directory tree'''

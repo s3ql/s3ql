@@ -166,6 +166,16 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
       END;      
     """.format(**types)) 
     
+    # Extended attributes
+    conn.execute("""
+    CREATE TABLE ext_attributes (
+        inode     INTEGER NOT NULL REFERENCES inodes(id),
+        name      TEXT NOT NULL,
+        value     BLOB NOT NULL,
+ 
+        PRIMARY KEY (inode, name)               
+    );
+    """)
     
     # Maps file data chunks to S3 objects
     # Refcount is included for performance reasons
