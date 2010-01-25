@@ -49,7 +49,7 @@ class RemoteCmdTests(TestCase):
         
         # Init logging, make sure that further changes do nothing
         common.init_logging(logging.WARN)
-        common.init_logging = lambda : None
+        common.init_logging = lambda *a, **kw: None
         
         # Create filesystem
         sys.stdin = StringIO('bla\n%s\n%s\n' % (passphrase, passphrase))
