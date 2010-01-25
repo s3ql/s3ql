@@ -127,10 +127,12 @@ def blocking_umount(mountpoint):
     # Get pid
     log.debug('Trying to get pid')
     pid = int(libc.getxattr(ctrlfile, b's3ql_pid?'))
+    log.debug('PID is %d', pid)
     
     # Get command line to make race conditions less-likely
     with open('/proc/%d/cmdline' % pid, 'r') as fh:
         cmdline = fh.readline()
+    log.debug('cmdline is %r', cmdline)
     
     # Unmount
     log.info('Unmounting...')
@@ -154,8 +156,11 @@ def blocking_umount(mountpoint):
         try:
             with open('/proc/%d/cmdline' % pid, 'r') as fh:
                 if fh.readline() != cmdline:
+                    log.debug('PID still alive, but cmdline changed')
                     # PID must have been reused, original process terminated
                     break
+                else:
+                    log.debug('PID still alive and commandline unchanged.')
         except OSError:
             # Process must have exited by now
             log.debug('Reading cmdline failed, assuming daemon has quit.')
