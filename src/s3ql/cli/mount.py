@@ -65,6 +65,9 @@ def main(args):
         log.error("File system damaged, run fsck!")
         raise QuietError(1)
 
+    # TODO: Build indices
+    # TODO: Run Analyze
+    
     # Start server
     bucket.store_wait("s3ql_dirty", "yes")
     try:
@@ -74,6 +77,7 @@ def main(args):
                      'Please examine the logs for more information.')
     finally:
         log.info("Uploading database..")
+        # TODO: Drop indices
         dbcm.execute("VACUUM")
         if bucket.has_key("s3ql_metadata_bak_2"):
             bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
