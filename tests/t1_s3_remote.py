@@ -14,8 +14,7 @@ from random import randrange
 from _common import TestCase, get_aws_credentials
 from time import sleep
 
-#@unittest.skipUnless(get_aws_credentials(), 'remote tests disabled')
-@unittest.skipUnless(None, 'remote tests disabled')
+@unittest.skipUnless(get_aws_credentials(), 'remote tests disabled')
 class s3_tests_remote(TestCase):
 
     @staticmethod
