@@ -318,6 +318,8 @@ class Operations(llfuse.Operations):
             if time.time() - stamp > 5:
                 time.sleep(1)
                 stamp = time.time()
+                
+        # TODO: Invalidate attributes of target_ino
         
     def _copy_tree(self, src_ino, target_ino, queue, ino_cache):
         
