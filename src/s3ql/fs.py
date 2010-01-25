@@ -355,6 +355,7 @@ class Operations(llfuse.Operations):
                                                        (ino,)):
                         conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
                                      (ino_new, blockno, s3key))
+                        conn.execute('UPDATE s3_objects SET refcount=refcount+1 WHERE id=?', (s3key,))
                 else:
                     ino_new = ino_cache[ino]
                     conn.execute('UPDATE inodes SET refcount=refcount+1 WHERE id=?', 
