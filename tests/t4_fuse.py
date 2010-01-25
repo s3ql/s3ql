@@ -12,8 +12,8 @@ import shutil
 import os
 import time
 import stat
-from os.path  import basename 
-from random   import randrange
+from os.path import basename 
+from random import randrange
 from s3ql import libc
 from s3ql.common import waitfor, ExceptionStoringThread
 import s3ql.cli.mount_local
@@ -215,6 +215,10 @@ class fuse_tests(TestCase):
         os.close(fd)
         os.unlink(filename)
 
+    # TODO: test_stat.s3ql
+    
+    # TODO: test cp.s3ql
+    
 
 # Somehow important according to pyunit documentation
 def suite():
