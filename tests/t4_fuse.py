@@ -220,6 +220,9 @@ class fuse_tests(TestCase):
     # TODO: test cp.s3ql
     
 
+# TODO: test tune.s3ql
+
+
 # Somehow important according to pyunit documentation
 def suite():
     return unittest.makeSuite(fuse_tests)
