@@ -114,7 +114,7 @@ class s3_tests_remote(TestCase):
         
         # This is the time in which we expect S3 changes to propagate. It may
         # be much longer for larger objects, but for tests this is usually enough.
-        self.delay = 0.5
+        self.delay = 1
 
     def tearDown(self):
         self.bucket.clear()
