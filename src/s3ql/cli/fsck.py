@@ -155,7 +155,7 @@ def main(args):
         log.info('Using local metadata from cache')
     
     else:
-        if (bucket.lookup_key("s3ql_metadata")['last-modified'] 
+        if (not options.force_local and bucket.lookup_key("s3ql_metadata")['last-modified'] 
             < bucket.lookup_key("s3ql_dirty")['last-modified']):
             if not options.force_old:
                 print('Metadata from most recent mount has not yet propagated through Amazon S3.\n'
