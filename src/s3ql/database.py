@@ -401,4 +401,5 @@ class ResultSet(object):
 
     # Once the ResultSet goes out of scope, the cursor goes out of scope
     # too (because query() uses a fresh cursor), so we don't have to
-    # take any special precautions to finish the active SQL statement. 
+    # take any special precautions to finish the active SQL statement.  
+    

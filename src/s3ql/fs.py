@@ -16,7 +16,6 @@ import logging
 from s3ql.common import (get_path, CTRL_NAME, CTRL_INODE)
 import time
 from cStringIO import StringIO
-import psyco
 import struct
 from s3ql.multi_lock import MultiLock
 
@@ -992,5 +991,3 @@ class RevisionError(Exception):
     def __str__(self):
         return "Filesystem has revision %d, filesystem tools can only handle " \
             "revisions up %d" % (self.rev_is, self.rev_should)
-
-psyco.bind(Operations)

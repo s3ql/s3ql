@@ -71,6 +71,12 @@ def parse_args(args):
  
 def main(args):
 
+    try:
+        import psyco
+        psyco.profile()
+    except ImportError:
+        pass
+    
     options = parse_args(args)
     dbfile = get_dbfile(options.bucketname, options.cachedir)
     cachedir = get_cachedir(options.bucketname, options.cachedir)

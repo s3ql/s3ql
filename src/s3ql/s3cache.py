@@ -18,7 +18,6 @@ import logging
 import os
 import threading
 import time
-import psyco
 import sys
 
  
@@ -613,9 +612,4 @@ class SynchronizedS3Cache(S3Cache):
 
     def remove(self, *a, **kw):
         with self.lock:
-            return super(SynchronizedS3Cache, self).remove(*a, **kw)
- 
-                    
-# Optimize logger calls
-psyco.bind(logging.getLogger)        
-psyco.bind(logging.Logger.debug)        
+            return super(SynchronizedS3Cache, self).remove(*a, **kw)      

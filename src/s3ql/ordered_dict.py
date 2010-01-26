@@ -198,5 +198,3 @@ class OrderedDict(collections.MutableMapping):
             raise IndexError()
 
         return self.head.next.value
-
-        
