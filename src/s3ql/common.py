@@ -157,6 +157,14 @@ def init_logging(level=logging.INFO, daemon=False, debug_logger=None, logfile=No
      Does nothing if logging has already been initialized
     """
                   
+    # TODO: Change logging 
+    #  - Do not log to syslog
+    #  - Always log INFO to ~/.s3ql/log
+    #  - On Debug, log DEBUG to ~/.s3ql/log
+    #  - Depending on quiet, log INFO or WARN to stdout
+    #  - Get rid of fg setting
+    #  - Make ~/.s3ql/log a rotating logfile
+    
     root_logger = logging.getLogger()
     
     # Remove existing handlers. We have to copy the list
@@ -165,14 +173,14 @@ def init_logging(level=logging.INFO, daemon=False, debug_logger=None, logfile=No
         root_logger.removeHandler(hdlr)
         
     if level <= logging.DEBUG:
-        formatter = Formatter('%(asctime)s,%(msecs)03d %(threadName)s: [%(name)s] %(message)s',
+        formatter = logging.Formatter('%(asctime)s,%(msecs)03d %(threadName)s: [%(name)s] %(message)s',
                                       datefmt="%H:%M:%S")
     else:
-        formatter = Formatter('[%(name)s] %(message)s')
+        formatter = logging.Formatter('[%(name)s] %(message)s')
     
     if daemon:
         handler = logging.handlers.SysLogHandler(b"/dev/log")
-        handler.setFormatter(Formatter('s3ql[%(process)d]: [%(name)s] %(message)s'))
+        handler.setFormatter(logging.Formatter('s3ql[%(process)d]: [%(name)s] %(message)s'))
     else:  
         handler = logging.StreamHandler()
         handler.setFormatter(formatter)       
@@ -310,6 +318,9 @@ def get_credentials(keyfile, key=None):
 
     return (key, pw)
 
+# TODO: Replace waitfor() by retry(), retry() executes until
+# the function return value is something true and then returns
+# that value. Otherwise it raises a TimeoutError.
 def waitfor(timeout, fn, *a, **kw):
     """Wait for fn(*a, **kw) to return True.
     

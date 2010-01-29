@@ -19,7 +19,7 @@ import re
 import logging
 import ctypes.util
 
-# These are the definitons that we need 
+# These are the definitions that we need 
 fuse_export_regex = ['^FUSE_SET_.*', '^XATTR_.*', 'fuse_reply_.*' ]
 fuse_export_symbols = ['fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
                        'fuse_set_signal_handlers', 'fuse_session_add_chan',

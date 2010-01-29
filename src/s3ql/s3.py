@@ -218,6 +218,7 @@ class Bucket(object):
         if bkey is None:
             raise KeyError('Key does not exist: %s' % key)
         
+        # TODO: Only decrypt metadata if header is present
         meta_raw = b64decode(bkey.get_metadata('meta')) 
         encrypted = bkey.get_metadata('encrypted') == 'True'   
         if encrypted and not self.passphrase:
@@ -320,6 +321,8 @@ class Bucket(object):
             tmp = tempfile.TemporaryFile() 
             (fh, tmp) = (tmp, fh)
             
+        # TODO: Only decrypt metadata if header is present
+        
         with self._get_boto() as boto:
             bkey = boto.get_key(key)
             if bkey is None:
@@ -353,6 +356,13 @@ class Bucket(object):
         the current UTC timestamp is always added automatically.
         """
 
+        # TODO: We should get rid of the last-modified and only
+        # store metadata if it's not empty.
+        
+        # TODO: Switch to compression with pyliblzma. To keep this backwards
+        # compatible, we will introduce a new (unencryted) "compression-method"
+        # metadata header that defaults to bz2 if absent.
+        
         if metadata is None:
             metadata = dict()
          

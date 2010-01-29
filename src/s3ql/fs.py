@@ -24,6 +24,9 @@ __all__ = [ "Server", "RevisionError" ]
 # standard logger for this module
 log = logging.getLogger("fs")
 
+# TODO: Don't store '.' and '..' in the database. The information can
+# trivially be added in getattr and readdir. Currently, '.' and '..'
+# have to be kept up to date in complicated ways.
     
 class Operations(llfuse.Operations):
     """FUSE filesystem that stores its data on Amazon S3

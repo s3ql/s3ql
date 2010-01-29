@@ -149,6 +149,7 @@ class S3Cache(object):
         
         t = self.exp_thread
         t.keep_running = False
+        log.debug('Waiting for background expiration thread')
         t.join()
         if t.exc is not None:
             # Break reference chain
@@ -222,6 +223,9 @@ class S3Cache(object):
                 newsize = el.tell()
                 self.size = self.size - oldsize + newsize 
                         
+        # TODO: Instead of calling expire, we should wait for
+        # the permament expiration thread to have reduced
+        # the cache size sufficiently.
         self.expire()    
             
     def _download_object(self, s3key, hash_, el):
@@ -232,6 +236,8 @@ class S3Cache(object):
         waited = 0
         waittime = 0.2
         while waited < self.timeout:
+            # TODO: We cannot have a cache mismatch, since we are using
+            # a new s3 key for every upload
             try:
                 meta = self.bucket.lookup_key(s3key)
             except KeyError:
@@ -372,6 +378,12 @@ class S3Cache(object):
            amount of transferred data is 1 MB.
         """
          
+        # TODO: We really want to do compression/encyption and upload in parallel.
+        # This is probably best implemented by moving the entire _expire_parallel
+        # function into the dedicated expiration thread. It can then sequentially compress,
+        # and upload in a separate thread while compressing the next object, while
+        # also keeping track of how many uploads we are doing at the same time. 
+        
         log.debug('_expire parallel started') 
         
         threads = list()
@@ -559,6 +571,8 @@ class S3Cache(object):
 
 
 class BackgroundExpirationThread(threading.Thread):
+    # TODO: This thread should also take into account
+    # the max no. of open files
     
     def __init__(self, cache, threshold):
         super(BackgroundExpirationThread, self).__init__(name='Expiry-Thread')

@@ -20,10 +20,21 @@ import tempfile
 import os
 import stat
 import logging
-
+ 
 __all__ = [ 'main', 'add_common_mount_opts', 'run_server' ]
 
 log = logging.getLogger("mount.s3ql")
+
+# TODO: Instead of using last-modified timestamps, store a 'mount index' in
+# the db and S3. If the mount index does not agree between the two, one of 
+# them is out of date.
+
+# TODO: If there is local metadata and cache, gracefully recover without
+# needings fsck if it seems safe. The metadata should be uploaded right
+# before mounting the file system in this case. 
+ 
+# TODO: Evaluate if we can save the db in plain text, that seems to
+# make it much smaller and easier to compress.
 
 def main(args):
     '''Mount S3QL file system'''
@@ -71,7 +82,6 @@ def main(args):
         log.error("File system damaged, run fsck!")
         raise QuietError(1)
 
-    # TODO: Build indices
     # TODO: Run Analyze
     
     # Start server
@@ -83,7 +93,6 @@ def main(args):
                      'Please examine the logs for more information.')
     finally:
         log.info("Uploading database..")
-        # TODO: Drop indices
         dbcm.execute("VACUUM")
         if bucket.has_key("s3ql_metadata_bak_2"):
             bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
