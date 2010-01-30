@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 import os
-import errno 
+import errno
 import stat
 import llfuse
 import logging
@@ -27,7 +27,7 @@ log = logging.getLogger("fs")
 # TODO: Don't store '.' and '..' in the database. The information can
 # trivially be added in getattr and readdir. Currently, '.' and '..'
 # have to be kept up to date in complicated ways.
-    
+
 class Operations(llfuse.Operations):
     """FUSE filesystem that stores its data on Amazon S3
 
@@ -68,7 +68,7 @@ class Operations(llfuse.Operations):
     S3Cache.
     """
 
-    
+
     def handle_exc(self, exc):
         '''Handle exceptions that occured during request processing. 
                 
@@ -77,7 +77,7 @@ class Operations(llfuse.Operations):
         '''
 
         log.error("Unexpected internal filesystem error.\n"
-                  "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n" 
+                  "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n"
                   "Please report this bug on http://code.google.com/p/s3ql/.")
         self.mark_damaged()
         self.encountered_errors = True
@@ -91,9 +91,9 @@ class Operations(llfuse.Operations):
         self.cache = cache
         self.encountered_errors = False
         self.open_files = dict()
-        
+
         self.inode_lock = MultiLock()
-            
+
         # Check filesystem revision
         log.debug("Reading fs parameters...")
         rev = dbcm.get_val("SELECT version FROM parameters")
@@ -106,15 +106,21 @@ class Operations(llfuse.Operations):
         # Get blocksize
         self.blocksize = dbcm.get_val("SELECT blocksize FROM parameters")
 
-        
-    def lookup(self, parent_inode, name):        
+    def init(self):
+        self.cache.start_background_expiration()
+
+
+    def destroy(self):
+        self.cache.stop_background_expiration()
+
+    def lookup(self, parent_inode, name):
         if name == CTRL_NAME:
             fstat = self.getattr_all(CTRL_INODE)
             # Make sure the control file is only writable by the user
             # who mounted the file system
             fstat["st_uid"] = os.getuid()
             fstat["st_gid"] = os.getgid()
-        
+
         else:
             with self.dbcm() as conn:
                 try:
@@ -122,24 +128,24 @@ class Operations(llfuse.Operations):
                                     (name, parent_inode))
                 except KeyError: # not found
                     raise(llfuse.FUSEError(errno.ENOENT))
-    
+
                 fstat = self.getattr_all(inode)
 
         return fstat
-    
+
     def getattr(self, inode):
         fstat = self.getattr_all(inode)
         del fstat['generation']
         del fstat['entry_timeout']
         return fstat
-        
+
     def getattr_all(self, inode):
         '''Get entry attributes for `inode`
         
         This includes the elements of ``struct stat` as well as ``attr_timeout``,
         ``entry_timeout`` and ``generation``
         '''
-        
+
         # Check cache first
         if inode in self.open_files:
             try:
@@ -147,9 +153,9 @@ class Operations(llfuse.Operations):
             except KeyError:
                 # File has just been closed, continue with fetching
                 pass
-            
+
         fstat = dict()
-        
+
         (fstat["st_mode"],
          fstat["st_nlink"],
          fstat["st_uid"],
@@ -162,21 +168,21 @@ class Operations(llfuse.Operations):
          fstat["st_ctime"]) = self.dbcm.get_row("SELECT mode, refcount, uid, gid, size, id, "
                                                 "rdev, atime, mtime, ctime FROM inodes WHERE id=? ",
                                                 (inode,))
-                
+
         # Convert to local time
         fstat['st_mtime'] += time.timezone
         fstat['st_atime'] += time.timezone
         fstat['st_ctime'] += time.timezone
-        
+
         if stat.S_ISREG(fstat["st_mode"]):
             # This is the number of 512 blocks allocated for the file
-            fstat["st_blocks"] =  fstat['st_size'] // 512 
-                                 
+            fstat["st_blocks"] = fstat['st_size'] // 512
+
         else:
             # For special nodes, return arbitrary values
             fstat["st_size"] = 512
             fstat["st_blocks"] = 1
-            
+
         # Timeout, can effectively be infinite since attribute changes
         # are only triggered by the kernel's own requests
         fstat['attr_timeout'] = 3600
@@ -185,17 +191,17 @@ class Operations(llfuse.Operations):
         # We want our blocksize for IO as large as possible to get large
         # write requests
         fstat['st_blksize'] = 128 * 1024
-        
+
         # Our inodes are already unique
         fstat['generation'] = 1
-        
+
         return fstat
 
     def readlink(self, inode):
         target = self.dbcm.get_val("SELECT target FROM inodes WHERE id=?", (inode,))
-    
+
         if not self.noatime:
-            timestamp = time.time() 
+            timestamp = time.time()
             with self.inode_lock(inode):
                 if inode in self.open_files:
                     self.open_files[inode]['cached_attrs']['st_atime'] = timestamp
@@ -204,37 +210,37 @@ class Operations(llfuse.Operations):
                     timestamp -= time.timezone
                     self.dbcm.execute("UPDATE inodes SET atime=?, ctime=? WHERE id=?",
                                       (timestamp, timestamp, inode))
-            
-        return target                           
-            
+
+        return target
+
     def opendir(self, inode):
         """Open directory 
         
         `flags` is ignored. Returns the inode as file handle, so it is not
         possible to distinguish between different open() and `create()` calls
         for the same inode.
-        """        
-       
+        """
+
         return inode
 
     def check_args(self, args):
         '''Check and/or supplement fuse mount options'''
-        
+
         if llfuse.fuse_version() >= 28:
             log.debug('Using big_writes')
             args.append(b'big_writes')
-            args.append('max_write=131072')  
+            args.append('max_write=131072')
             args.append('no_remote_lock')
 
     def readdir(self, fh, off):
-        
+
         inode = fh
-        with self.dbcm() as conn:   
+        with self.dbcm() as conn:
             if not self.noatime:
                 timestamp = time - time.timezone
                 conn.execute("UPDATE inodes SET atime=?, ctime=? WHERE id=?",
-                                  (timestamp, timestamp, fh))     
-               
+                                  (timestamp, timestamp, fh))
+
             # The ResultSet is automatically deleted
             # when yield raises GeneratorExit.
             for (name, inode) in conn.query("SELECT name, inode FROM contents WHERE parent_inode=? "
@@ -254,12 +260,12 @@ class Operations(llfuse.Operations):
                     return b'no errors'
             elif name == b's3ql_pid?':
                 return bytes(os.getpid())
-            
+
             elif name == b'stat.s3ql':
                 return self.extstat()
-            
+
             return llfuse.FUSEError(errno.EINVAL)
-        
+
         else:
             try:
                 value = self.dbcm.get_val('SELECT value FROM ext_attributes WHERE inode=? AND name=?',
@@ -267,70 +273,65 @@ class Operations(llfuse.Operations):
             except KeyError:
                 raise llfuse.FUSEError(llfuse.ENOATTR)
             return value
-        
+
     def listxattr(self, inode):
         names = list()
         with self.dbcm() as conn:
             for (name,) in conn.query('SELECT name FROM ext_attributes WHERE inode=?', (inode,)):
                 names.append(name)
         return names
-    
+
     def setxattr(self, inode, name, value):
-        
+
         # Handle S3QL commands
         if inode == CTRL_INODE:
             if name == b's3ql_flushcache!':
                 # Force all entries out of the cache
-                bak = self.cache.maxsize
-                try:
-                    self.cache.maxsize = 0
-                    self.cache.expire()
-                finally:
-                    self.cache.maxsize = bak
+                self.cache.expire(0, 0)
                 return
-            
+
             elif name == 'copy':
                 self.copy_tree(*struct.unpack('II', value))
-            
+
             return llfuse.FUSEError(errno.EINVAL)
         else:
             self.dbcm.execute('INSERT OR REPLACE INTO ext_attributes (inode, name, value) '
                               'VALUES(?, ?, ?)', (inode, name, value))
-                
+
     def removexattr(self, inode, name):
         changes = self.dbcm.execute('DELETE FROM ext_attributes WHERE inode=? AND name=?',
                                     (inode, name))
         if changes == 0:
             raise llfuse.FUSEError(llfuse.ENOATTR)
-    
+
     def copy_tree(self, src_ino, target_ino):
         '''Efficiently copy directory tree'''
-        
+
         # First we have to flush the cache
         self.cache.flush_all()
-        
+
         queue = [ (src_ino, target_ino) ]
         ino_cache = dict()
         stamp = time.time()
         while queue:
             (src_ino, target_ino) = queue.pop()
             self._copy_tree(src_ino, target_ino, queue, ino_cache)
-            
+
             # Give other threads a chance to access the db
             if time.time() - stamp > 5:
                 time.sleep(1)
                 stamp = time.time()
-                
+
         # TODO: Invalidate attributes of target_ino
-        
+
     def _copy_tree(self, src_ino, target_ino, queue, ino_cache):
-        
+
         with self.dbcm.transaction() as conn:
             for (name_, ino) in conn.query('SELECT name, inode FROM contents WHERE parent_inode=?',
                                            (src_ino,)):
                 if name_ in ('.', '..'):
                     continue
-                
+
                 if ino not in ino_cache:
                     attributes = 'uid,gid,mode,mtime,atime,ctime,refcount,target,size,rdev'
                     ino_new = conn.rowid('INSERT INTO inodes (%s) SELECT %s FROM inodes WHERE id=?'
@@ -343,16 +344,16 @@ class Operations(llfuse.Operations):
                                      (b'.', ino_new, ino_new))
                         conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
                                      (b'..', target_ino, ino_new))
-                        
+
                         if refcount != 2:
                             conn.execute('UPDATE inodes SET refcount=2 WHERE id=?', (ino_new,))
                         conn.execute('UPDATE inodes SET refcount=refcount+1 WHERE id=?', (target_ino,))
                         queue.append((ino, ino_new))
-                    
+
                     elif refcount != 1:
                         ino_cache[ino] = ino_new
-                        conn.execute('UPDATE inodes SET refcount=1 WHERE id=?', (ino_new,))    
-                           
+                        conn.execute('UPDATE inodes SET refcount=1 WHERE id=?', (ino_new,))
+
                     for (s3key, blockno) in conn.query('SELECT s3key, blockno FROM blocks WHERE inode=?',
                                                        (ino,)):
                         conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
@@ -360,24 +361,24 @@ class Operations(llfuse.Operations):
                         conn.execute('UPDATE s3_objects SET refcount=refcount+1 WHERE id=?', (s3key,))
                 else:
                     ino_new = ino_cache[ino]
-                    conn.execute('UPDATE inodes SET refcount=refcount+1 WHERE id=?', 
+                    conn.execute('UPDATE inodes SET refcount=refcount+1 WHERE id=?',
                                  (ino_new,))
-                
+
                 conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
                              (name_, ino_new, target_ino))
-                
+
 
     def unlink(self, inode_p, name):
-        
+
         timestamp = time.time() - time.timezone
-        attr = self.lookup(inode_p, name) 
+        attr = self.lookup(inode_p, name)
         inode = attr['st_ino']
-           
-        with self.inode_lock(inode):    
-            with self.dbcm.transaction() as conn:        
+
+        with self.inode_lock(inode):
+            with self.dbcm.transaction() as conn:
                 conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
                              (name, inode_p))
-    
+
                 # No more links and not open
                 if attr["st_nlink"] == 1 and inode not in self.open_files:
                     remove = True
@@ -389,10 +390,10 @@ class Operations(llfuse.Operations):
                     conn.execute("UPDATE inodes SET refcount=refcount-1, ctime=? WHERE id=?",
                                  (timestamp, inode))
                     remove = False
-    
+
                 conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
                              (timestamp, timestamp, inode_p))
-            
+
             if remove:
                 self.cache.remove(inode)
                 self.dbcm.execute("DELETE FROM inodes WHERE id=?", (inode,))
@@ -411,19 +412,19 @@ class Operations(llfuse.Operations):
             # Raises error if directory doesn't exist
             attr = self.lookup(inode_p, name)
             inode = attr['st_ino']
-            
+
             # Check if directory is empty
             if conn.get_val("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
-                            (inode,)) > 2: 
+                            (inode,)) > 2:
                 log.debug("Attempted to remove nonempty directory %s",
                           get_path(name, inode_p, conn))
                 raise llfuse.FUSEError(errno.EINVAL)
-    
+
             # Delete
             conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
                         (b'.', inode))
             conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                        (b'..', inode))                        
+                        (b'..', inode))
             conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
                         (name, inode_p))
             conn.execute("DELETE FROM inodes WHERE id=?", (inode,))
@@ -438,10 +439,10 @@ class Operations(llfuse.Operations):
                 log.error('Attempted to create s3ql control file at %s',
                           get_path(name, inode_p, conn))
             raise llfuse.FUSEError(errno.EACCES)
-        
+
         with self.dbcm.transaction() as conn:
-            mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | 
-                    stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | 
+            mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
+                    stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP |
                     stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
             timestamp = time.time() - time.timezone
             inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,target,mtime,atime,ctime,refcount) "
@@ -451,12 +452,12 @@ class Operations(llfuse.Operations):
                         (name, inode, inode_p))
             conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
                          (timestamp, timestamp, inode_p))
-            
+
         return self.getattr_all(inode)
 
 
-    def rename(self, inode_p_old, name_old, inode_p_new, name_new):  
-        if name_new == CTRL_NAME or name_old == CTRL_NAME: 
+    def rename(self, inode_p_old, name_old, inode_p_new, name_new):
+        if name_new == CTRL_NAME or name_old == CTRL_NAME:
             with self.dbcm() as conn:
                 log.error('Attempted to rename s3ql control file (%s -> %s)',
                           get_path(name_old, inode_p_old, conn),
@@ -464,7 +465,7 @@ class Operations(llfuse.Operations):
             raise llfuse.FUSEError(errno.EACCES)
 
         fstat_old = self.lookup(inode_p_old, name_old)
-        
+
         try:
             fstat_new = self.lookup(inode_p_new, name_new)
         except llfuse.FUSEError as exc:
@@ -474,7 +475,7 @@ class Operations(llfuse.Operations):
                 target_exists = False
         else:
             target_exists = True
-            
+
         if not target_exists:
             if stat.S_ISDIR(fstat_old['st_mode']):
                 self._rename_dir(inode_p_old, name_old, inode_p_new, name_new,
@@ -484,21 +485,21 @@ class Operations(llfuse.Operations):
         else:
             if stat.S_IFMT(fstat_old['st_mode']) != stat.S_IFMT(fstat_new['st_mode']):
                 log.warn('Cannot rename file to directory (or vice versa).')
-                raise llfuse.FUSEError(errno.EINVAL) 
-            
+                raise llfuse.FUSEError(errno.EINVAL)
+
             if stat.S_ISDIR(fstat_old['st_mode']):
                 self._replace_dir(inode_p_old, name_old, inode_p_new, name_new,
                                   fstat_old['st_ino'], fstat_new['st_ino'])
             else:
                 self._replace_file(inode_p_old, name_old, inode_p_new, name_new,
                                    fstat_old['st_ino'], fstat_new['st_ino'])
-        
-        
+
+
     def _rename_dir(self, inode_p_old, name_old, inode_p_new, name_new, inode):
         '''Rename a directory'''
 
         timestamp = time.time() - time.timezone
-             
+
         with self.dbcm.transaction() as conn:
             conn.execute("UPDATE contents SET name=?, parent_inode=? WHERE name=? "
                          "AND parent_inode=?", (name_new, inode_p_new,
@@ -509,12 +510,12 @@ class Operations(llfuse.Operations):
                                  (timestamp, timestamp, inode_p_old))
             conn.execute("UPDATE inodes SET mtime=?, ctime=?, refcount=refcount+1 WHERE id=?",
                                  (timestamp, timestamp, inode_p_new))
-            
+
     def _rename_file(self, inode_p_old, name_old, inode_p_new, name_new):
         '''Rename a file'''
 
         timestamp = time.time() - time.timezone
-             
+
         with self.dbcm.transaction() as conn:
             conn.execute("UPDATE contents SET name=?, parent_inode=? WHERE name=? "
                          "AND parent_inode=?", (name_new, inode_p_new,
@@ -523,62 +524,62 @@ class Operations(llfuse.Operations):
                                  (timestamp, timestamp, inode_p_old))
             conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
                                  (timestamp, timestamp, inode_p_new))
-            
-    def _replace_dir(self, inode_p_old, name_old, inode_p_new, name_new, 
+
+    def _replace_dir(self, inode_p_old, name_old, inode_p_new, name_new,
                  inode_old, inode_new):
         '''Replace a directory'''
-        
+
         timestamp = time.time() - time.timezone
-             
+
         with self.dbcm.transaction() as conn:
             if conn.get_val("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
-                            (inode_new,)) > 2: 
+                            (inode_new,)) > 2:
                 log.warn("Attempted to overwrite nonempty directory %s",
                           get_path(name_new, inode_p_new, conn))
                 raise llfuse.FUSEError(errno.EINVAL)
-                
+
             # Replace target
             conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
                         (inode_old, name_new, inode_p_new))
             conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
                         (inode_p_new, b'..', inode_old))
-            
+
             # Delete old name
             conn.execute('DELETE FROM contents WHERE name=? AND parent_inode=?',
                         (name_old, inode_p_old))
             conn.execute("UPDATE inodes SET refcount=refcount-1, ctime=? WHERE id=?",
                          (timestamp, inode_p_old))
-            
+
             # Delete overwritten directory
             conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
                         (b'.', inode_new))
             conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
                         (b'..', inode_new))
             conn.execute("DELETE FROM inodes WHERE id=?", (inode_new,))
-            
+
             conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
                          (timestamp, timestamp, inode_p_old))
             conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
                          (timestamp, timestamp, inode_p_new))
-                    
-                            
-    def _replace_file(self, inode_p_old, name_old, inode_p_new, name_new, 
+
+
+    def _replace_file(self, inode_p_old, name_old, inode_p_new, name_new,
                  inode_old, inode_new):
         '''Replace a file'''
-        
+
         timestamp = time.time() - time.timezone
-             
-        with self.inode_lock(inode_new):      
-            with self.dbcm.transaction() as conn:       
+
+        with self.inode_lock(inode_new):
+            with self.dbcm.transaction() as conn:
                 conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
                             (inode_old, name_new, inode_p_new))
                 conn.execute('DELETE FROM contents WHERE name=? AND parent_inode=?',
                             (name_old, inode_p_old))
-            
+
                 # We need to get up-to-date information after having
                 # started the transaction
-                nlink =  conn.get_val('SELECT refcount FROM inodes WHERE id=?', (inode_new,))
-                
+                nlink = conn.get_val('SELECT refcount FROM inodes WHERE id=?', (inode_new,))
+
                 # No more links and not open
                 if nlink == 1 and inode_new not in self.open_files:
                     remove = True
@@ -590,18 +591,18 @@ class Operations(llfuse.Operations):
                     conn.execute("UPDATE inodes SET refcount=refcount-1, ctime=? WHERE id=?",
                                  (timestamp, inode_new))
                     remove = False
-                    
-                        
+
+
                 conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
                              (timestamp, timestamp, inode_p_old))
                 conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
                              (timestamp, timestamp, inode_p_new))
-                
+
             # Must release transaction first
             if remove:
                 self.cache.remove(inode_new)
                 self.dbcm.execute("DELETE FROM inodes WHERE id=?", (inode_new,))
-            
+
 
     def link(self, inode, new_inode_p, new_name):
         if new_name == CTRL_NAME or inode == CTRL_INODE:
@@ -614,47 +615,47 @@ class Operations(llfuse.Operations):
             with self.dbcm.transaction() as conn:
                 conn.execute("INSERT INTO contents (name,inode,parent_inode) VALUES(?,?,?)",
                          (new_name, inode, new_inode_p))
-                  
+
                 if inode in self.open_files:
                     self.open_files[inode]['cached_attrs']['st_nlink'] += 1
                     self.open_files[inode]['cached_attrs']['st_ctime'] = time.time()
                 else:
                     conn.execute("UPDATE inodes SET refcount=refcount+1, ctime=? WHERE id=?",
                                  (time.time() - time.timezone, inode))
-                        
+
                 conn.execute("UPDATE inodes SET mtime=? WHERE id=?",
                              (time.time() - time.timezone, new_inode_p))
-            
+
         return self.getattr_all(inode)
 
     def setattr(self, inode, attr):
         """Handles FUSE setattr() requests"""
-            
+
         if 'st_size' in attr:
             len_ = attr['st_size']
-            
+
             # Delete all truncated s3 objects
             blockno = len_ // self.blocksize
             self.cache.remove(inode, blockno + 1)
-    
+
             # Get last object before truncation
             if len != 0:
                 with self.cache.get(inode, blockno) as fh:
                     fh.truncate(len_ - self.blocksize * blockno)
-                 
-           
-        with self.inode_lock(inode):   
+
+
+        with self.inode_lock(inode):
             # Update metadata in cache if possible
             if inode in self.open_files:
                 self.open_files[inode]['cached_attrs'].update(attr)
                 return self.open_files[inode]['cached_attrs'].copy()
-            
+
             # Otherwise write metadata update to db
             else:
                 attr_old = self.getattr(inode)
                 attr_old.update(attr)
                 self._setattr(inode, attr_old)
-                
+
                 return attr_old
 
     def _setattr(self, inode, attr):
@@ -662,20 +663,20 @@ class Operations(llfuse.Operations):
 
         timestamp = time.time() - time.timezone
         self.dbcm.execute("UPDATE inodes SET mode=?, refcount=?, uid=?, gid=?, size=?, "
-                          "rdev=?, atime=?, mtime=?, ctime=? WHERE id=?", 
+                          "rdev=?, atime=?, mtime=?, ctime=? WHERE id=?",
                           [ attr[x] for x in ('st_mode', 'st_nlink', 'st_uid', 'st_gid', 'st_size',
-                                              'st_rdev',) ] + 
-                          [ attr['st_atime'] -  time.timezone, attr['st_mtime'] -  time.timezone,
+                                              'st_rdev',) ] +
+                          [ attr['st_atime'] - time.timezone, attr['st_mtime'] - time.timezone,
                            timestamp, inode ])
-    
+
 
     def mknod(self, inode_p, name, mode, rdev, ctx):
-        if name == CTRL_NAME: 
+        if name == CTRL_NAME:
             with self.dbcm() as conn:
                 log.error('Attempted to mknod s3ql control file at %s',
                           get_path(name, inode_p, conn))
             raise llfuse.FUSEError(errno.EACCES)
-        
+
         # Type can be everything except for directory
         if stat.S_ISDIR(mode):
             log("mknod: can't create directory")
@@ -689,12 +690,12 @@ class Operations(llfuse.Operations):
             conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                      (name, inode, inode_p))
             conn.execute("UPDATE inodes SET mtime=? WHERE id=?", (timestamp, inode_p))
-        
+
         return self.getattr_all(inode)
 
 
     def mkdir(self, inode_p, name, mode, ctx):
-        if name == CTRL_NAME: 
+        if name == CTRL_NAME:
             with self.dbcm() as conn:
                 log.error('Attempted to mkdir s3ql control file at %s',
                           get_path(name, inode_p, conn))
@@ -706,7 +707,7 @@ class Operations(llfuse.Operations):
             log.warn("mkdir: invalid mode")
             raise llfuse.FUSEError(errno.EINVAL)
         mode = (mode & ~stat.S_IFMT(mode)) | stat.S_IFDIR
-        
+
         timestamp = time.time() - time.timezone
         with self.dbcm.transaction() as conn:
             inode = conn.rowid("INSERT INTO inodes (mtime,atime,ctime,uid,gid,mode,refcount) "
@@ -717,16 +718,16 @@ class Operations(llfuse.Operations):
             conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
                          (b'.', inode, inode))
             conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
-                         (b'..', inode_p, inode))     
+                         (b'..', inode_p, inode))
             conn.execute("UPDATE inodes SET mtime=?, refcount=refcount+1 WHERE id=?",
                          (timestamp, inode_p))
-            
+
         return self.getattr_all(inode)
 
     def extstat(self):
         '''Return extended file system statistics'''
-        
-        with self.dbcm() as conn: 
+
+        with self.dbcm() as conn:
             entries = conn.get_val("SELECT COUNT(rowid) FROM contents")
             blocks = conn.get_val("SELECT COUNT(id) FROM s3_objects")
             inodes = conn.get_val("SELECT COUNT(id) FROM inodes")
@@ -738,41 +739,41 @@ class Operations(llfuse.Operations):
         if not size_2:
             size_2 = 1
 
-        return struct.pack('QQQQQQQ', entries, blocks, inodes, size_1, size_2, 
+        return struct.pack('QQQQQQQ', entries, blocks, inodes, size_1, size_2,
                            self.cache.get_bucket_size(),
                            self.dbcm.get_db_size())
-            
+
     def statfs(self):
         stat_ = dict()
 
         # Get number of blocks & inodes
-        with self.dbcm() as conn: 
+        with self.dbcm() as conn:
             blocks = conn.get_val("SELECT COUNT(id) FROM s3_objects")
             inodes = conn.get_val("SELECT COUNT(id) FROM inodes")
             size = conn.get_val('SELECT SUM(size) FROM s3_objects')
-            
-        if size is None: 
+
+        if size is None:
             size = 0
-        
+
         # file system block size,
         # It would be more appropriate to switch f_bsize and f_frsize,
         # but since df and stat ignore f_frsize, this way we can
         # export more information  
-        stat_["f_bsize"] =  int(size // blocks) if blocks != 0 else self.blocksize
-        stat_['f_frsize'] = self.blocksize     
-        
+        stat_["f_bsize"] = int(size // blocks) if blocks != 0 else self.blocksize
+        stat_['f_frsize'] = self.blocksize
+
         # size of fs in f_frsize units 
         # (since S3 is unlimited, always return a half-full filesystem,
         # but at least 50 GB)
         if stat_['f_bsize'] != 0:
-            total_blocks = int(max(2*blocks, 50 * 1024**3 // stat_['f_bsize']))
+            total_blocks = int(max(2 * blocks, 50 * 1024 ** 3 // stat_['f_bsize']))
         else:
-            total_blocks = 2*blocks
-            
+            total_blocks = 2 * blocks
+
         stat_["f_blocks"] = total_blocks
         stat_["f_bfree"] = total_blocks - blocks
         stat_["f_bavail"] = total_blocks - blocks # free for non-root
-        
+
         total_inodes = max(2 * inodes, 50000)
         stat_["f_files"] = total_inodes
         stat_["f_ffree"] = total_inodes - inodes
@@ -786,17 +787,17 @@ class Operations(llfuse.Operations):
         `flags` is ignored. Returns the inode as file handle, so it is not
         possible to distinguish between different open() and `create()` calls
         for the same inode.
-        """        
+        """
         with self.inode_lock(inode):
             if inode in self.open_files:
                 self.open_files[inode]['open_count'] += 1
             else:
-                self.open_files[inode] = { 'open_count': 1, 
+                self.open_files[inode] = { 'open_count': 1,
                                           'cached_attrs': self.getattr_all(inode) }
-                
+
         return inode
 
-     
+
     def access(self, inode, mode, ctx, get_sup_gids):
         '''Check if requesting process has `mode` rights on `inode`.
         
@@ -806,10 +807,10 @@ class Operations(llfuse.Operations):
         '''
         # Yeah, could be a function
         #pylint: disable-msg=R0201 
-        
+
         return True
-        
-    def create(self, inode_p, name, mode, ctx):   
+
+    def create(self, inode_p, name, mode, ctx):
         '''Create a file and open it
                 
         `ctx` must be a context object that contains pid, uid and 
@@ -822,7 +823,7 @@ class Operations(llfuse.Operations):
         so it is not possible to distinguish between different open() and `create()` calls
         for the same inode.
         '''
-            
+
         if name == CTRL_NAME:
             with self.dbcm() as conn:
                 log.error('Attempted to create s3ql control file at %s',
@@ -845,12 +846,12 @@ class Operations(llfuse.Operations):
                         (name, inode, inode_p))
             conn.execute("UPDATE inodes SET mtime=? WHERE id=?",
                          (timestamp, inode_p))
-            
+
         attrs = self.getattr_all(inode)
         with self.inode_lock(inode):
-            self.open_files[inode] = { 'open_count': 1, 
+            self.open_files[inode] = { 'open_count': 1,
                                        'cached_attrs': attrs.copy() }
-                
+
         return (inode, attrs)
 
     def read(self, fh, offset, length):
@@ -860,22 +861,22 @@ class Operations(llfuse.Operations):
         '''
         buf = StringIO()
         inode = fh
-        
+
         # Make sure that we don't read beyond the file size. This
         # should not happen unless direct_io is activated, but it's
         # cheap and nice for testing.
         size = self.getattr_all(inode)['st_size']
         length = min(size - offset, length)
-        
+
         while length > 0:
             tmp = self._read(fh, offset, length)
             buf.write(tmp)
             length -= len(tmp)
             offset += len(tmp)
-           
+
         with self.inode_lock(inode):
             self.open_files[fh]['cached_attrs']['st_atime'] = time.time()
-             
+
         return buf.getvalue()
 
     def _read(self, inode, offset, length):
@@ -889,15 +890,15 @@ class Operations(llfuse.Operations):
         # Calculate required block
         blockno = offset // self.blocksize
         offset_rel = offset - blockno * self.blocksize
-        
+
         # Don't try to read into the next block
         if offset_rel + length > self.blocksize:
             length = self.blocksize - offset_rel
-         
+
         with self.cache.get(inode, blockno) as fh:
             fh.seek(offset_rel)
             buf = fh.read(length)
-            
+
             if len(buf) == length:
                 return buf
             else:
@@ -911,8 +912,8 @@ class Operations(llfuse.Operations):
             written = self._write(fh, offset, buf)
             offset += written
             buf = buf[written:]
-            
-        
+
+
         # Update file size if changed
         # Fuse does not ensure that we do not get concurrent write requests,
         # so we have to be careful not to undo a size extension made by
@@ -923,7 +924,7 @@ class Operations(llfuse.Operations):
             tmp['st_size'] = max(tmp['st_size'], minsize)
             tmp['st_mtime'] = timestamp
             tmp['st_atime'] = timestamp
-            
+
         return total
 
 
@@ -933,11 +934,11 @@ class Operations(llfuse.Operations):
         May write less bytes than given in `buf`, returns
         the number of bytes written.
         """
-        
+
         # Calculate required block
         blockno = offset // self.blocksize
         offset_rel = offset - blockno * self.blocksize
-        
+
         # Don't try to write into the next block
         if offset_rel + len(buf) > self.blocksize:
             buf = buf[:self.blocksize - offset_rel]
@@ -945,44 +946,44 @@ class Operations(llfuse.Operations):
         with self.cache.get(inode, blockno) as fh:
             fh.seek(offset_rel)
             fh.write(buf)
-      
+
         return len(buf)
-            
+
     def fsync(self, fh, datasync):
         if not datasync:
             self._setattr(fh, self.open_files[fh]['cached_attrs'])
-            
-        self.cache.flush(fh) 
+
+        self.cache.flush(fh)
 
     def releasedir(self, inode):
         pass
-       
-    def release(self, fh):  
-        
+
+    def release(self, fh):
+
         with self.inode_lock(fh):
-            tmp =  self.open_files[fh]
+            tmp = self.open_files[fh]
             tmp['open_count'] -= 1
-             
+
             if tmp['open_count'] == 0:
                 if tmp['cached_attrs']['st_nlink'] == 0:
                     self.cache.remove(fh)
                     self.dbcm.execute("DELETE FROM inodes WHERE id=?", (fh,))
                 else:
                     self._setattr(fh, tmp['cached_attrs'])
-                
+
                 # We must delete the cache only after having
                 # committed to db to prevent a race condition with
                 # getattr_all().  
-                del self.open_files[fh]   
-                                        
+                del self.open_files[fh]
+
     # Called for close() calls. 
     def flush(self, fh):
         pass
-      
+
     def fsyncdir(self, fh, datasync):
         if not datasync:
-            self._setattr(fh,  self.open_files[fh]['cached_attrs'])  
-    
+            self._setattr(fh, self.open_files[fh]['cached_attrs'])
+
 class RevisionError(Exception):
     """Raised if the filesystem revision is too new for the program
     """

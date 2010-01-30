@@ -143,7 +143,6 @@ def run_server(bucket, cachedir, dbcm, options):
     # TODO: We should run multithreaded at some point
     cache = SynchronizedS3Cache(bucket, cachedir, int(options.cachesize * 1024 * 1.15), dbcm,
                                  timeout=options.s3timeout)
-    cache.start_background_expiration(int(options.cachesize * 1024 * 0.85))
     try:
 
         operations = fs.Operations(cache, dbcm, not options.atime)
@@ -164,7 +163,6 @@ def run_server(bucket, cachedir, dbcm, options):
     finally:
         log.info("Filesystem unmounted, committing cache...")
         cache.clear()
-        cache.stop_background_expiration()
 
     if options.profile:
         tmp = tempfile.NamedTemporaryFile()
