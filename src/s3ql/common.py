@@ -7,17 +7,16 @@ This program can be distributed under the terms of the GNU LGPL.
 '''
 
 from __future__ import division, print_function
-
-import sys
+from getpass import getpass
+from time import sleep
+import hashlib
+import logging.handlers
 import os
 import stat
-import traceback
-import hashlib
+import sys
 import threading
-import logging
-import logging.handlers
-from time import sleep
-from getpass import getpass
+import traceback
+
 
 __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",

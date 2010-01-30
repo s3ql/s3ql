@@ -7,17 +7,17 @@ This program can be distributed under the terms of the GNU LGPL.
 '''
 
 from __future__ import division, print_function, absolute_import
-
 from optparse import OptionParser
-from time import sleep
-from s3ql.common import init_logging_from_options, QuietError
-from s3ql.database import ConnectionManager
 from s3ql import s3, mkfs, fsck
 from s3ql.cli.mount import run_server, add_common_mount_opts
+from s3ql.common import init_logging_from_options, QuietError
+from s3ql.database import ConnectionManager
+from time import sleep
+import logging
 import os
 import sys
 import tempfile
-import logging
+
 
 log = logging.getLogger("mount")
 
