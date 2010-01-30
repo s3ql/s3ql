@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import division, print_function 
+from __future__ import division, print_function
 
 from random import randrange
 from s3ql.common import waitfor, ExceptionStoringThread
@@ -24,9 +24,8 @@ import s3ql.cli.mount
 import s3ql.cli.fsck
 import s3ql.cli.umount
 import shutil
-import logging
 
-class RemoteCmdTests(TestCase): 
+class RemoteCmdTests(TestCase):
 
     @staticmethod
     def random_name():
@@ -35,33 +34,33 @@ class RemoteCmdTests(TestCase):
     def setUp(self):
         self.base = tempfile.mkdtemp()
         self.cache = tempfile.mkdtemp()
-        
+
         # Fake connection
         s3.Connection = s3.LocalConnection
-        
+
     def tearDown(self):
         shutil.rmtree(self.base)
         shutil.rmtree(self.cache)
-            
+
     def test_mount(self):
         bucketname = 'test_bucket'
         passphrase = 'foobar'
-        
-        # Init logging, make sure that further changes do nothing
-        common.init_logging(logging.WARN)
-        common.init_logging = lambda *a, **kw: None
-        
+
+        # Make sure that the mount thread does not mess with the
+        # logging settings
+        common.init_logging = lambda * a, **kw: None
+
         # Create filesystem
         sys.stdin = StringIO('bla\n%s\n%s\n' % (passphrase, passphrase))
         try:
             s3ql.cli.mkfs.main(['--awskey', 'foo', '-L', 'test fs', '--blocksize', '10',
                                 '--encrypt', '--quiet', '--cachedir', self.cache, bucketname ])
         except SystemExit as exc:
-            self.fail("mkfs.s3ql failed: %s" % exc)   
+            self.fail("mkfs.s3ql failed: %s" % exc)
 
         # Mount filesystem
-        sys.stdin = StringIO('foo\n%s\n' % passphrase)   
-        mount = ExceptionStoringThread(s3ql.cli.mount.main, 
+        sys.stdin = StringIO('foo\n%s\n' % passphrase)
+        mount = ExceptionStoringThread(s3ql.cli.mount.main,
                                        args=(["--fg", "--quiet", '--awskey', 'foo',
                                               '--cachedir', self.cache, bucketname, self.base],))
         mount.start()
@@ -77,12 +76,12 @@ class RemoteCmdTests(TestCase):
             s3ql.cli.umount.main(["--quiet", self.base])
         except SystemExit as exc:
             self.fail("Umount failed: %s" % exc)
-        
+
         # Now wait for server process
         exc = mount.join_get_exc()
         self.assertIsNone(exc)
         self.assertFalse(posixpath.ismount(self.base))
-        
+
         # Now run an fsck
         sys.stdin = StringIO('foo\n%s\n' % passphrase)
         try:
