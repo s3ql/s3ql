@@ -14,16 +14,16 @@ from s3ql import fs, s3
 from s3ql.s3cache import SynchronizedS3Cache
 from s3ql.common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
                          QuietError, unlock_bucket)
-from s3ql.database import ConnectionManager 
+from s3ql.database import ConnectionManager
 import llfuse
 import tempfile
 import os
 import stat
 import logging
- 
+
 __all__ = [ 'main', 'add_common_mount_opts', 'run_server' ]
 
-log = logging.getLogger("mount.s3ql")
+log = logging.getLogger("mount")
 
 # TODO: Instead of using last-modified timestamps, store a 'mount index' in
 # the db and S3. If the mount index does not agree between the two, one of 
@@ -32,43 +32,43 @@ log = logging.getLogger("mount.s3ql")
 # TODO: If there is local metadata and cache, gracefully recover without
 # needings fsck if it seems safe. The metadata should be uploaded right
 # before mounting the file system in this case. 
- 
+
 # TODO: Evaluate if we can save the db in plain text, that seems to
 # make it much smaller and easier to compress.
 
 def main(args):
     '''Mount S3QL file system'''
-    
+
     try:
         import psyco
         psyco.profile()
     except ImportError:
         pass
 
-    options = parse_args(args)  
+    options = parse_args(args)
     init_logging_from_options(options)
 
     if not os.path.exists(options.mountpoint):
         log.error('Mountpoint does not exist.')
         raise QuietError(1)
-        
+
     (awskey, awspass) = get_credentials(options.credfile, options.awskey)
     conn = s3.Connection(awskey, awspass)
     bucket = conn.get_bucket(options.bucketname)
-    
+
     try:
         unlock_bucket(bucket)
     except s3.ChecksumError:
         log.error('Checksum error - incorrect password?')
         raise QuietError(1)
-    
+
     options.cachedir = options.cachedir.rstrip('/')
     dbfile = get_dbfile(options.bucketname, options.cachedir)
     cachedir = get_cachedir(options.bucketname, options.cachedir)
-    
+
     # Check consistency
     check_fs(bucket, cachedir, dbfile)
-   
+
     # Init cache + get metadata
     log.info("Downloading metadata...")
     os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
@@ -83,7 +83,7 @@ def main(args):
         raise QuietError(1)
 
     # TODO: Run Analyze
-    
+
     # Start server
     bucket.store_wait("s3ql_dirty", "yes")
     try:
@@ -99,73 +99,73 @@ def main(args):
         if bucket.has_key("s3ql_metadata_bak_1"):
             bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
         bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
-        
+
         bucket.store("s3ql_dirty", "no")
         bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
-    
+
     # Remove database
     log.debug("Cleaning up...")
     os.unlink(dbfile)
     os.rmdir(cachedir)
-         
+
     if operations.encountered_errors:
         raise QuietError(1)
- 
-        
+
+
 def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
-    
+
     fuse_opts = [ b"nonempty", b'fsname=s3ql' ]
-    
+
     if options.allow_others:
         fuse_opts.append(b'allow_others')
     if options.allow_root:
         fuse_opts.append(b'allow_root')
     if options.allow_others or options.allow_root:
         fuse_opts.append(b'default_permissions')
-        
+
     return fuse_opts
-    
+
 def run_server(bucket, cachedir, dbcm, options):
     '''Start FUSE server and run main loop
     
     Returns the used `Operations` instance so that the `encountered_errors`
     attribute can be checked.
     '''
-    
+
     if options.profile:
         import cProfile
         import pstats
         prof = cProfile.Profile()
-        
+
     log.info('Mounting filesystem...')
-    fuse_opts = get_fuse_opts(options) 
+    fuse_opts = get_fuse_opts(options)
     # TODO: We should run multithreaded at some point
-    cache =  SynchronizedS3Cache(bucket, cachedir, int(options.cachesize*1024*1.15), dbcm,
+    cache = SynchronizedS3Cache(bucket, cachedir, int(options.cachesize * 1024 * 1.15), dbcm,
                                  timeout=options.s3timeout)
     cache.start_background_expiration(int(options.cachesize * 1024 * 0.85))
-    try: 
-        
+    try:
+
         operations = fs.Operations(cache, dbcm, not options.atime)
         llfuse.init(operations, options.mountpoint, fuse_opts)
         try:
             # Switch to background logging if necessary
             init_logging_from_options(options, daemon=not options.fg)
-            
+
             if options.profile:
                 prof.runcall(llfuse.main, options.single, options.fg)
             else:
                 llfuse.main(options.single, options.fg)
-            
+
         except:
             llfuse.close()
             raise
-        
+
     finally:
         log.info("Filesystem unmounted, committing cache...")
         cache.clear()
         cache.stop_background_expiration()
-   
+
     if options.profile:
         tmp = tempfile.NamedTemporaryFile()
         prof.dump_stats(tmp.name)
@@ -178,18 +178,20 @@ def run_server(bucket, cachedir, dbcm, options):
         p.sort_stats('time')
         p.print_stats(50)
         fh.close()
-        
+
     return operations
 
 
 def add_common_mount_opts(parser):
     '''Add options common to mount and mount_local'''
-        
-    parser.add_option("--debuglog", type="string",
-                      help="Write debugging information in specified file.")
-    parser.add_option("--debug", action="append", 
-                      help="Activate debugging output from specified facility."
-                           "This option can be specified multiple times.")
+
+    parser.add_option("--logfile", type="string",
+                      default=os.path.join(os.environ["HOME"], ".s3ql", 'mount.log'),
+                      help="Write log messages in this file. Default: ~/.s3ql/mount.log")
+    parser.add_option("--debug", action="append",
+                      help="Activate debugging output from specified module. Use 'all' "
+                           "to get debug messages from all modules. This option can be "
+                           "specified multiple times.")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
     parser.add_option("--allow_others", action="store_true", default=False, help=
@@ -212,7 +214,7 @@ def add_common_mount_opts(parser):
     parser.add_option("--profile", action="store_true", default=False,
                       help="Create profiling information. If you don't understand this, "
                            "then you don't need it.")
-    
+
 
 def check_fs(bucket, cachedir, dbfile):
     '''Check if file system seems to be consistent
@@ -220,52 +222,52 @@ def check_fs(bucket, cachedir, dbfile):
     This function writes to stdout/stderr and may call `system.exit()` instead 
     of throwing an exception if it encounters errors.
     '''
-     
+
     log.debug("Checking consistency...")
-    
+
     if bucket["s3ql_dirty"] != "no":
         print(
-            "Metadata is dirty! Either some changes have not yet propagated\n" 
-            "through S3 or the file system has not been unmounted cleanly. In\n" 
-            "the later case you should run fsck on the system where the\n" 
+            "Metadata is dirty! Either some changes have not yet propagated\n"
+            "through S3 or the file system has not been unmounted cleanly. In\n"
+            "the later case you should run fsck on the system where the\n"
             "file system has been mounted most recently!", file=sys.stderr)
         sys.exit(1)
-    
+
     # Init cache
     if os.path.exists(cachedir) or os.path.exists(dbfile):
         print(
-            "Local cache files already exists! Either you are trying to\n" 
-            "to mount a file system that is already mounted, or the filesystem\n" 
-            "has not been unmounted cleanly. In the later case you should run\n" 
+            "Local cache files already exists! Either you are trying to\n"
+            "to mount a file system that is already mounted, or the filesystem\n"
+            "has not been unmounted cleanly. In the later case you should run\n"
             "fsck.", file=sys.stderr)
         sys.exit(1)
-        
-    if (bucket.lookup_key("s3ql_metadata")['last-modified'] 
+
+    if (bucket.lookup_key("s3ql_metadata")['last-modified']
         < bucket.lookup_key("s3ql_dirty")['last-modified']):
         print(
             'Metadata from most recent mount has not yet propagated '
             'through Amazon S3. Please try again later.', file=sys.stderr)
         sys.exit(1)
-    
-     
-    
+
+
+
 def parse_args(args):
     '''Parse command line
     
     This function writes to stdout/stderr and may call `system.exit()` instead 
     of throwing an exception if it encounters errors.
     '''
-    
+
     # Not too many branches
     #pylint: disable-msg=R0912
-    
+
     parser = OptionParser(
         usage="%prog  [options] <bucketname> <mountpoint>\n"
               "       %prog --help",
         description="Mounts an amazon S3 bucket as a filesystem.")
-    
+
     add_common_mount_opts(parser)
-        
+
     parser.add_option("--awskey", type="string",
                       help="Amazon Webservices access key to use. If not "
                       "specified, tries to read ~/.awssecret or the file given by --credfile.")
@@ -277,7 +279,7 @@ def parse_args(args):
                       'Default: ~/.awssecret')
     parser.add_option("--cachedir", type="string", default=os.environ["HOME"].rstrip("/") + "/.s3ql",
                       help="Specifies the directory for cache files. Different S3QL file systems "
-                      '(i.e. located in different S3 buckets) can share a cache location, even if ' 
+                      '(i.e. located in different S3 buckets) can share a cache location, even if '
                       'they are mounted at the same time. '
                       'You should try to always use the same location here, so that S3QL can detect '
                       'and, as far as possible, recover from unclean umounts. Default is ~/.s3ql.')
@@ -286,11 +288,11 @@ def parse_args(args):
     parser.add_option("--cachesize", type="int", default=51200,
                       help="Cache size in kb (default: 51200 (50 MB)). Should be at least 10 times "
                       "the blocksize of the filesystem, otherwise an object may be retrieved and "
-                      "written several times during a single write() or read() operation." )
+                      "written several times during a single write() or read() operation.")
 
- 
+
     (options, pps) = parser.parse_args(args)
-    
+
     #
     # Verify parameters
     #
@@ -298,11 +300,11 @@ def parse_args(args):
         parser.error("Wrong number of parameters")
     options.bucketname = pps[0]
     options.mountpoint = pps[1]
-            
+
     if options.profile:
         options.single = True
-        
+
     return options
 
 if __name__ == '__main__':
-    main(sys.argv[1:])    
+    main(sys.argv[1:])
