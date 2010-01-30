@@ -7,23 +7,23 @@ This program can be distributed under the terms of the GNU LGPL.
 '''
 
 from __future__ import division, print_function
-
-from random import randrange
-from s3ql.common import waitfor, ExceptionStoringThread
-from s3ql import s3, common
-import sys
-from cStringIO import StringIO
-import posixpath
-import unittest
-import tempfile
-import time
-import subprocess
 from _common import TestCase
+from cStringIO import StringIO
+from random import randrange
+from s3ql import s3, common
+from s3ql.common import waitfor, ExceptionStoringThread
+import posixpath
+import s3ql.cli.fsck
 import s3ql.cli.mkfs
 import s3ql.cli.mount
-import s3ql.cli.fsck
 import s3ql.cli.umount
 import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
 
 class RemoteCmdTests(TestCase):
 
