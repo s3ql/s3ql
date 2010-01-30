@@ -140,26 +140,29 @@ def init_logging(logfile, stdout_level=logging.INFO, file_level=logging.INFO,
                                           '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
 
     # Add stdout logger
-    handler = logging.StreamHandler()
-    if stdout_level <= logging.DEBUG:
-        handler.setFormatter(verbose_formatter)
-    else:
-        handler.setFormatter(quiet_formatter)
-    handler.setLevel(stdout_level)
-    root_logger.addHandler(handler)
+    if stdout_level is not None:
+        handler = logging.StreamHandler()
+        if stdout_level <= logging.DEBUG:
+            handler.setFormatter(verbose_formatter)
+        else:
+            handler.setFormatter(quiet_formatter)
+        handler.setLevel(stdout_level)
+        root_logger.addHandler(handler)
+        root_logger.setLevel(stdout_level)
 
     # Add file logger
-    handler = logging.handlers.RotatingFileHandler(logfile, maxBytes=1 * 1024 * 1024, backupCount=5)
-    handler.setFormatter(verbose_formatter)
-    handler.setLevel(file_level)
-    root_logger.addHandler(handler)
+    if logfile is not None:
+        handler = logging.handlers.RotatingFileHandler(logfile, maxBytes=1 * 1024 * 1024, backupCount=5)
+        handler.setFormatter(verbose_formatter)
+        handler.setLevel(file_level)
+        root_logger.addHandler(handler)
 
-    if file_loggers:
-        if not isinstance(file_loggers, list):
-            raise ValueError('file_loggers must be list of strings')
-        handler.addFilter(Filter(acceptnames=file_loggers, acceptlevel=logging.DEBUG))
+        if file_loggers:
+            if not isinstance(file_loggers, list):
+                raise ValueError('file_loggers must be list of strings')
+            handler.addFilter(Filter(acceptnames=file_loggers, acceptlevel=logging.DEBUG))
 
-    root_logger.setLevel(min(stdout_level, file_level))
+        root_logger.setLevel(min(stdout_level, file_level))
 
 
 def inode_for_path(path, conn):
