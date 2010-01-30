@@ -31,11 +31,6 @@ def main(args):
     options = parse_args(args)
     init_logging_from_options(options)
 
-    log.error('mount error')
-    log.warn('mount warn')
-    log.info('mount info')
-    log.debug('mount debug')
-
     # Check mountpoint
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.\n')
