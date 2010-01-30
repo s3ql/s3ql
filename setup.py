@@ -8,9 +8,9 @@ This program can be distributed under the terms of the GNU LGPL.
 '''
 
 from __future__ import division, print_function
-    
+
 from distutils.core import setup, Command
-import distutils.command.build  
+import distutils.command.build
 import sys
 import os
 import tempfile
@@ -30,16 +30,16 @@ fuse_export_symbols = ['fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
                        'fuse_version', 'fuse_daemonize' ]
 libc_export_symbols = [ 'setxattr', 'getxattr', 'readdir', 'opendir',
                        'closedir' ]
-    
+
 class build_ctypes(Command):
-    
+
     description = "Build ctypes interfaces"
     user_options = []
     boolean_options = []
-     
+
     def initialize_options(self):
          pass
-     
+
     def finalize_options(self):
         pass
 
@@ -49,28 +49,28 @@ class build_ctypes(Command):
 
     def create_fuse_api(self):
         '''Create ctypes API to local FUSE headers'''
-     
+
          # Import ctypeslib
         basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
         sys.path.insert(0, os.path.join(basedir, 'src', 'ctypeslib.zip'))
         from ctypeslib import h2xml, xml2py
-        from ctypeslib.codegen import codegenerator as ctypeslib 
-    
+        from ctypeslib.codegen import codegenerator as ctypeslib
+
         print('Creating ctypes API from local fuse headers...')
-    
+
         cflags = self.get_cflags()
-        print('Using cflags: %s' % ' '.join(cflags))  
-        
+        print('Using cflags: %s' % ' '.join(cflags))
+
         fuse_path = 'fuse'
         if not ctypes.util.find_library(fuse_path):
             print('Could not find fuse library', file=sys.stderr)
             sys.exit(1)
 
-        
+
         # Create temporary XML file
         tmp_fh = tempfile.NamedTemporaryFile()
         tmp_name = tmp_fh.name
-        
+
         print('Calling h2xml...')
         argv = [ 'h2xml.py', '-o', tmp_name, '-c', '-q', '-I', os.path.join(basedir, 'src'),
                     'fuse_ctypes.h' ]
@@ -81,7 +81,7 @@ class build_ctypes(Command):
                             '#pylint: disable-all\n'
                             '#@PydevCodeAnalysisIgnore\n\n')
         h2xml.main(argv)
-        
+
         print('Calling xml2py...')
         api_file = os.path.join(basedir, 'src', 'llfuse', 'ctypes_api.py')
         argv = [ 'xml2py.py', tmp_name, '-o', api_file, '-l', fuse_path ]
@@ -92,23 +92,23 @@ class build_ctypes(Command):
             argv.append('-s')
             argv.append(el)
         xml2py.main(argv)
-        
+
         # Delete temporary XML file
         tmp_fh.close()
-      
-        print('Code generation complete.')    
-    
+
+        print('Code generation complete.')
+
     def create_libc_api(self):
         '''Create ctypes API to local libc'''
-    
+
          # Import ctypeslib
         basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
         sys.path.insert(0, os.path.join(basedir, 'src', 'ctypeslib.zip'))
         from ctypeslib import h2xml, xml2py
-        from ctypeslib.codegen import codegenerator as ctypeslib 
-            
+        from ctypeslib.codegen import codegenerator as ctypeslib
+
         print('Creating ctypes API from local libc headers...')
-    
+
         # We must not use an absolute path, see http://bugs.python.org/issue7760
         libc_path = b'c'
         if not ctypes.util.find_library(libc_path):
@@ -118,7 +118,7 @@ class build_ctypes(Command):
         # Create temporary XML file
         tmp_fh = tempfile.NamedTemporaryFile()
         tmp_name = tmp_fh.name
-        
+
         print('Calling h2xml...')
         argv = [ 'h2xml.py', '-o', tmp_name, '-c', '-q', '-I', os.path.join(basedir, 'src'),
                     'libc_ctypes.h' ]
@@ -128,7 +128,7 @@ class build_ctypes(Command):
                             '#pylint: disable-all\n'
                             '#@PydevCodeAnalysisIgnore\n\n')
         h2xml.main(argv)
-        
+
         print('Calling xml2py...')
         api_file = os.path.join(basedir, 'src', 's3ql', 'libc_api.py')
         argv = [ 'xml2py.py', tmp_name, '-o', api_file, '-l', libc_path ]
@@ -136,90 +136,95 @@ class build_ctypes(Command):
             argv.append('-s')
             argv.append(el)
         xml2py.main(argv)
-        
+
         # Delete temporary XML file
         tmp_fh.close()
-      
-        print('Code generation complete.')    
-        
-    
+
+        print('Code generation complete.')
+
+
     def get_cflags(self):
-        '''Get cflags required to compile with fuse library''' 
-        
+        '''Get cflags required to compile with fuse library'''
+
         proc = subprocess.Popen(['pkg-config', 'fuse', '--cflags'], stdout=subprocess.PIPE)
         cflags = proc.stdout.readline().rstrip()
         proc.stdout.close()
         if proc.wait() != 0:
-            sys.stderr.write('Failed to execute pkg-config. Exit code: %d.\n' 
+            sys.stderr.write('Failed to execute pkg-config. Exit code: %d.\n'
                              % proc.returncode)
             sys.stderr.write('Check that the FUSE development package been installed properly.\n')
             sys.exit(1)
         return cflags.split()
-    
+
 
 # Add as subcommand of build
 distutils.command.build.build.sub_commands.insert(0, ('build_ctypes', None))
-   
+
 class run_tests(Command):
-    
+
     description = "Run self-tests"
-    user_options = [('debug=', None, 'Activate debugging for specified facilitites '
-                                    '(separated by commas)'),
+    user_options = [('debug=', None, 'Activate debugging for specified modules '
+                                    '(separated by commas, specify "all" for all modules)'),
                     ('awskey=', None, 'Specify AWS access key to use, secret key will be asked for'),
                     ('credfile=', None, 'Try to read AWS access key and secret key from specified '
                                        'file (instead of ~/.awssecret)'),
                     ('tests=', None, 'Run only the specified tests (separated by commas)')
-                ]                     
+                ]
     boolean_options = []
-     
+
     def initialize_options(self):
         self.debug = None
         self.awskey = None
         self.credfile = None
         self.tests = None
-     
+
     def finalize_options(self):
         if self.debug:
             self.debug = [ x.strip() for x  in self.debug.split(',') ]
-            
+
         if self.tests:
             self.tests = [ x.strip() for x  in self.tests.split(',') ]
-      
+
 
     def run(self):
-        
+
         # Enforce correct APSW version
         import apsw
         tmp = apsw.apswversion()
         tmp = tmp[:tmp.index('-')]
         apsw_ver = tuple([ int(x) for x in tmp.split('.') ])
-        if apsw_ver < (3, 6, 14):    
+        if apsw_ver < (3, 6, 14):
             raise StandardError('APSW version too old, must be 3.6.14 or newer!\n')
-            
+
         # Enforce correct SQLite version    
         sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
-        if sqlite_ver < (3, 6, 17):    
-            raise StandardError('SQLite version too old, must be 3.6.17 or newer!\n')           
+        if sqlite_ver < (3, 6, 17):
+            raise StandardError('SQLite version too old, must be 3.6.17 or newer!\n')
 
         # Add test modules
         basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
         sys.path = [os.path.join(basedir, 'src'),
                     os.path.join(basedir, 'tests')] + sys.path
-     
+
         import unittest
         import _common
         from s3ql.common import init_logging
         from getpass import getpass
-        
+
         # Init Logging
-        if self.debug:
-            if 'all' in self.debug: 
-                init_logging(logging.DEBUG)
-            else:
-                init_logging(logging.DEBUG, debug_logger=self.debug)
+        logfile = os.path.join(basedir, 'setup.log')
+        stdout_level = logging.WARN
+        if self.debug and 'all' in self.debug:
+            file_level = logging.DEBUG
+            file_loggers = None
+        elif self.debug:
+            file_level = logging.DEBUG
+            file_loggers = self.debug
         else:
-            init_logging(logging.WARN)            
-        
+            file_level = logging.INFO
+            file_loggers = None
+        init_logging(logfile, stdout_level, file_level, file_loggers)
+
         # Init AWS
         if self.credfile:
             _common.keyfile = self.credfile
@@ -227,33 +232,33 @@ class run_tests(Command):
             if sys.stdin.isatty():
                 pw = getpass("Enter AWS password: ")
             else:
-                pw = sys.stdin.readline().rstrip() 
+                pw = sys.stdin.readline().rstrip()
             _common.aws_credentials_available = True
-            _common.aws_credentials = (self.awskey, pw)   
+            _common.aws_credentials = (self.awskey, pw)
         _common.get_aws_credentials()
-        
+
         # Find and import all tests
         testdir = os.path.join(basedir, 'tests')
-        modules_to_test =  [ name[:-3] for name in os.listdir(testdir) 
+        modules_to_test = [ name[:-3] for name in os.listdir(testdir)
                             if name.endswith(".py") and name.startswith('t') ]
         modules_to_test.sort()
         #modules_to_test = [ __import__(name) for name in modules_to_test ]
-        
+
         base_module = sys.modules[__name__]
         for name in modules_to_test:
             # Note that __import__ itself does not add the modules to the namespace
             module = __import__(name)
             setattr(base_module, name, module)
-        
+
         if self.tests:
             modules_to_test = self.tests
-                
+
         # Run tests
         runner = unittest.TextTestRunner(verbosity=2)
         tests = unittest.defaultTestLoader.loadTestsFromNames(modules_to_test, module=base_module)
         result = runner.run(tests)
         if not result.wasSuccessful():
-            sys.exit(1)      
+            sys.exit(1)
 
 
 setup(name='s3ql',
@@ -276,5 +281,5 @@ setup(name='s3ql',
                  ],
       requires=['apsw', 'boto', 'pycryptopp' ],
       cmdclass={'test': run_tests,
-                'build_ctypes': build_ctypes,}
+                'build_ctypes': build_ctypes, }
      )
