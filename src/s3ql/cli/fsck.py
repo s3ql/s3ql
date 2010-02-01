@@ -20,7 +20,6 @@ from s3ql import s3, fsck
 import sys
 import shutil
 import cPickle as pickle
-import apsw
 
 log = logging.getLogger("fsck")
 
@@ -60,7 +59,7 @@ def parse_args(args):
     (options, pps) = parser.parse_args(args)
 
     if not len(pps) == 1:
-        parser.error("bucketname not specificed")
+        parser.error("bucketname not specified")
 
     options.bucketname = pps[0]
 
@@ -92,7 +91,6 @@ def main(args):
         unlock_bucket(bucket)
     except s3.ChecksumError:
         raise QuietError('Checksum error - incorrect password?')
-
 
     if 's3ql_parameters' not in bucket:
         raise QuietError('Old file system revision, please run tune.s3ql --upgrade first.')
