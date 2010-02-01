@@ -20,18 +20,11 @@ import tempfile
 import os
 import stat
 import logging
+import cPickle as pickle
 
 __all__ = [ 'main', 'add_common_mount_opts', 'run_server' ]
 
 log = logging.getLogger("mount")
-
-# TODO: Instead of using last-modified timestamps, store a 'mount index' in
-# the db and S3. If the mount index does not agree between the two, one of 
-# them is out of date.
-
-# TODO: If there is local metadata and cache, gracefully recover without
-# needings fsck if it seems safe. The metadata should be uploaded right
-# before mounting the file system in this case. 
 
 # TODO: Evaluate if we can save the db in plain text, that seems to
 # make it much smaller and easier to compress.
@@ -49,8 +42,7 @@ def main(args):
     init_logging_from_options(options)
 
     if not os.path.exists(options.mountpoint):
-        log.error('Mountpoint does not exist.')
-        raise QuietError(1)
+        raise QuietError('Mountpoint does not exist.')
 
     (awskey, awspass) = get_credentials(options.credfile, options.awskey)
     conn = s3.Connection(awskey, awspass)
@@ -59,38 +51,78 @@ def main(args):
     try:
         unlock_bucket(bucket)
     except s3.ChecksumError:
-        log.error('Checksum error - incorrect password?')
-        raise QuietError(1)
+        raise QuietError('Checksum error - incorrect password?')
 
-    options.cachedir = options.cachedir.rstrip('/')
+    options.cachedir = options.cachedir
     dbfile = get_dbfile(options.bucketname, options.cachedir)
     cachedir = get_cachedir(options.bucketname, options.cachedir)
 
-    # Check consistency
-    check_fs(bucket, cachedir, dbfile)
+    if 's3ql_parameters' not in bucket:
+        raise QuietError('Old file system revision, please run tune.s3ql --upgrade first.')
 
-    # Init cache + get metadata
-    log.info("Downloading metadata...")
-    os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
-    if not os.path.exists(cachedir):
+    param = pickle.loads(bucket['s3ql_parameters'])
+
+    if param['revision'] < 2:
+        raise QuietError('File system revision too old, please run tune.s3ql --upgrade first.')
+    elif param['revision'] > 2:
+        raise QuietError('File system revision too new, please update your '
+                         'S3QL installation.')
+
+    if os.path.exists(dbfile):
+        dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
+        mountcnt = dbcm.get_val('SELECT mountcnt FROM parameters')
+        if mountcnt != param['mountcnt']:
+            raise QuietError('Local cache files exist, but file system appears to have \n'
+                             'been mounted elsewhere after the unclean shutdown.')
+
+        log.info('Recovering old metadata from unclean shutdown..')
+        # TODO: We should run multithreaded at some point
+        cache = SynchronizedS3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm,
+                                    timeout=options.s3timeout)
+        cache.recover()
+    else:
+        if os.path.exists(cachedir):
+            raise RuntimeError('cachedir exists, but no local metadata.'
+                               'This should not happen.')
+
+        log.info("Downloading metadata...")
+        os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
+        bucket.fetch_fh("s3ql_metadata", open(dbfile, 'w'))
+        dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
+
+        mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
+        if mountcnt_db < param['mountcnt']:
+            os.unlink(dbfile)
+            raise QuietError('Metadata from most recent mount has not yet propagated through S3, or\n'
+                             'file system has not been unmounted cleanly. In the later case you\n'
+                             'should run fsck.s3l on the computer where the bucket has been\n'
+                             'mounted most-recently.')
+        elif mountcnt_db > param['mountcnt']:
+            os.unlink(dbfile)
+            raise RuntimeError('mountcnt_db > mountcnt_s3, this should not happen.')
+
         os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-    bucket.fetch_fh("s3ql_metadata", open(dbfile, 'w'))
+        # TODO: We should run multithreaded at some point
+        cache = SynchronizedS3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm,
+                                    timeout=options.s3timeout)
 
     # Check that the fs itself is clean
-    dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
     if dbcm.get_val("SELECT needs_fsck FROM parameters"):
-        log.error("File system damaged, run fsck!")
-        raise QuietError(1)
-
-    # TODO: Run Analyze
+        raise QuietError("File system damaged, run fsck!")
 
     # Start server
-    bucket.store_wait("s3ql_dirty", "yes")
+    log.info('Analyzing metadata...')
+    dbcm.execute('ANALYZE')
+
+    param['mountcnt'] += 1
+    bucket.store_wait('s3ql_parameters', pickle.dumps(param, 2))
+    dbcm.execute('UPDATE parameters SET mountcnt=mountcnt+1')
     try:
-        operations = run_server(bucket, cachedir, dbcm, options)
-        if operations.encountered_errors:
-            log.warn('Some errors occured while handling requests. '
-                     'Please examine the logs for more information.')
+        try:
+            operations = run_server(bucket, cache, dbcm, options)
+        finally:
+            log.info('Clearing cache...')
+            cache.clear()
     finally:
         log.info("Uploading database..")
         dbcm.execute("VACUUM")
@@ -99,8 +131,6 @@ def main(args):
         if bucket.has_key("s3ql_metadata_bak_1"):
             bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
         bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
-
-        bucket.store("s3ql_dirty", "no")
         bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
 
     # Remove database
@@ -109,7 +139,10 @@ def main(args):
     os.rmdir(cachedir)
 
     if operations.encountered_errors:
-        raise QuietError(1)
+        raise QuietError('Some errors were encountered while the file system was mounted.\n'
+                         'Please examine the log files for more information.')
+
+
 
 
 def get_fuse_opts(options):
@@ -126,7 +159,7 @@ def get_fuse_opts(options):
 
     return fuse_opts
 
-def run_server(bucket, cachedir, dbcm, options):
+def run_server(bucket, cache, dbcm, options):
     '''Start FUSE server and run main loop
     
     Returns the used `Operations` instance so that the `encountered_errors`
@@ -140,29 +173,21 @@ def run_server(bucket, cachedir, dbcm, options):
 
     log.info('Mounting filesystem...')
     fuse_opts = get_fuse_opts(options)
-    # TODO: We should run multithreaded at some point
-    cache = SynchronizedS3Cache(bucket, cachedir, int(options.cachesize * 1024 * 1.15), dbcm,
-                                 timeout=options.s3timeout)
+
+    operations = fs.Operations(cache, dbcm, not options.atime)
+    llfuse.init(operations, options.mountpoint, fuse_opts)
     try:
+        # Switch to background logging if necessary
+        init_logging_from_options(options, daemon=not options.fg)
 
-        operations = fs.Operations(cache, dbcm, not options.atime)
-        llfuse.init(operations, options.mountpoint, fuse_opts)
-        try:
-            # Switch to background logging if necessary
-            init_logging_from_options(options, daemon=not options.fg)
+        if options.profile:
+            prof.runcall(llfuse.main, options.single, options.fg)
+        else:
+            llfuse.main(options.single, options.fg)
 
-            if options.profile:
-                prof.runcall(llfuse.main, options.single, options.fg)
-            else:
-                llfuse.main(options.single, options.fg)
-
-        except:
-            llfuse.close()
-            raise
-
-    finally:
-        log.info("Filesystem unmounted, committing cache...")
-        cache.clear()
+    except:
+        llfuse.close()
+        raise
 
     if options.profile:
         tmp = tempfile.NamedTemporaryFile()
@@ -214,40 +239,6 @@ def add_common_mount_opts(parser):
                            "then you don't need it.")
 
 
-def check_fs(bucket, cachedir, dbfile):
-    '''Check if file system seems to be consistent
-    
-    This function writes to stdout/stderr and may call `system.exit()` instead 
-    of throwing an exception if it encounters errors.
-    '''
-
-    log.debug("Checking consistency...")
-
-    if bucket["s3ql_dirty"] != "no":
-        print(
-            "Metadata is dirty! Either some changes have not yet propagated\n"
-            "through S3 or the file system has not been unmounted cleanly. In\n"
-            "the later case you should run fsck on the system where the\n"
-            "file system has been mounted most recently!", file=sys.stderr)
-        sys.exit(1)
-
-    # Init cache
-    if os.path.exists(cachedir) or os.path.exists(dbfile):
-        print(
-            "Local cache files already exists! Either you are trying to\n"
-            "to mount a file system that is already mounted, or the filesystem\n"
-            "has not been unmounted cleanly. In the later case you should run\n"
-            "fsck.", file=sys.stderr)
-        sys.exit(1)
-
-    if (bucket.lookup_key("s3ql_metadata")['last-modified']
-        < bucket.lookup_key("s3ql_dirty")['last-modified']):
-        print(
-            'Metadata from most recent mount has not yet propagated '
-            'through Amazon S3. Please try again later.', file=sys.stderr)
-        sys.exit(1)
-
-
 
 def parse_args(args):
     '''Parse command line
@@ -269,13 +260,14 @@ def parse_args(args):
     parser.add_option("--awskey", type="string",
                       help="Amazon Webservices access key to use. If not "
                       "specified, tries to read ~/.awssecret or the file given by --credfile.")
-    parser.add_option("--credfile", type="string", default=os.environ["HOME"].rstrip("/")
-                       + "/.awssecret",
+    parser.add_option("--credfile", type="string",
+                      default=os.path.join(os.environ["HOME"], ".awssecret"),
                       help='Try to read AWS access key and key id from this file. '
                       'The file must be readable only be the owner and should contain '
                       'the key id and the secret key separated by a newline. '
                       'Default: ~/.awssecret')
-    parser.add_option("--cachedir", type="string", default=os.environ["HOME"].rstrip("/") + "/.s3ql",
+    parser.add_option("--cachedir", type="string",
+                      default=os.path.join(os.environ["HOME"], ".s3ql"),
                       help="Specifies the directory for cache files. Different S3QL file systems "
                       '(i.e. located in different S3 buckets) can share a cache location, even if '
                       'they are mounted at the same time. '
@@ -283,8 +275,8 @@ def parse_args(args):
                       'and, as far as possible, recover from unclean umounts. Default is ~/.s3ql.')
     parser.add_option("--s3timeout", type="int", default=120,
                       help="Maximum time in seconds to wait for propagation in S3 (default: %default)")
-    parser.add_option("--cachesize", type="int", default=51200,
-                      help="Cache size in kb (default: 51200 (50 MB)). Should be at least 10 times "
+    parser.add_option("--cachesize", type="int", default=102400,
+                      help="Cache size in kb (default: 102400 (100 MB)). Should be at least 10 times "
                       "the blocksize of the filesystem, otherwise an object may be retrieved and "
                       "written several times during a single write() or read() operation.")
 

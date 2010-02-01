@@ -19,6 +19,7 @@ from s3ql.common import (init_logging_from_options, get_credentials, get_cachedi
                          QuietError)
 from s3ql.database import WrappedConnection
 import apsw
+import cPickle as pickle
 
 log = logging.getLogger("mkfs")
 
@@ -144,7 +145,10 @@ def main(args):
                       options.blocksize * 1024, options.label)
 
         log.info('Uploading database...')
-        bucket['s3ql_dirty'] = "no"
+        param = dict()
+        param['revision'] = 2
+        param['mountcnt'] = 0
+        bucket.store_wait('s3ql_parameters', pickle.dumps(param, 2))
         bucket.store_fh('s3ql_metadata', open(dbfile, 'r'))
 
     finally:

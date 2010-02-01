@@ -12,14 +12,14 @@ import stat
 import os
 import time
 
-from s3ql.common import ROOT_INODE, CTRL_INODE 
+from s3ql.common import ROOT_INODE, CTRL_INODE
 
 __all__ = [ "setup_db" ]
 
 def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     """Creates the metadata tables
     """
-    
+
     # Create a list of valid inode types
     types = {"S_IFDIR": stat.S_IFDIR, "S_IFREG": stat.S_IFREG,
              "S_IFSOCK": stat.S_IFSOCK, "S_IFBLK": stat.S_IFBLK,
@@ -31,7 +31,7 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     for i in types.itervalues():
         ifmt |= i
     types["S_IFMT"] = ifmt
-        
+
     # This command creates triggers that ensure referential integrity
     trigger_cmd = """
     CREATE TRIGGER fki_{src_table}_{src_key}
@@ -70,14 +70,12 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
                     CHECK (typeof(last_fsck) == 'real'),
         mountcnt    INT NOT NULL
                     CHECK (typeof(mountcnt) == 'integer'),
-        version     REAL NOT NULL
-                    CHECK (typeof(version) == 'real'),
         needs_fsck  BOOLEAN NOT NULL
                     CHECK (typeof(needs_fsck) == 'integer')
     );
     INSERT INTO parameters(label,blocksize,last_fsck,mountcnt,needs_fsck,version)
         VALUES(?,?,?,?,?, ?)
-    """, (unicode(label), blocksize, time.time() - time.timezone, 0, False, 1.0))
+    """, (unicode(label), blocksize, time.time() - time.timezone, 0, False))
 
     # Table of filesystem objects
     conn.execute("""
@@ -92,7 +90,7 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     CREATE INDEX ix_contents_parent_inode ON contents(parent_inode);
     CREATE INDEX ix_contents_inode ON contents(inode);
     """)
-    
+
     # Make sure that parent inodes are directories
     conn.execute("""
     CREATE TRIGGER contents_check_parent_inode_insert
@@ -108,8 +106,8 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
           SELECT RAISE(ABORT, 'parent_inode does not refer to a directory')
           WHERE (SELECT mode FROM inodes WHERE id = NEW.parent_inode) & {S_IFMT} != {S_IFDIR};
       END;  
-    """.format(**types)) 
-    
+    """.format(**types))
+
 
     # Table with filesystem metadata
     # The number of links `refcount` to an inode can in theory
@@ -154,7 +152,7 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
                                          "src_key": "parent_inode",
                                          "ref_table": "inodes",
                                          "ref_key": "id" }))
-    
+
     # Make sure that we cannot change a directory into something
     # else as long as it has entries
     conn.execute("""  
@@ -164,8 +162,8 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
           SELECT RAISE(ABORT, 'cannot change directory into something else')
           WHERE NEW.mode & {S_IFMT} != OLD.mode & {S_IFMT};
       END;      
-    """.format(**types)) 
-    
+    """.format(**types))
+
     # Extended attributes
     conn.execute("""
     CREATE TABLE ext_attributes (
@@ -180,7 +178,7 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
                                        "src_key": "inode",
                                        "ref_table": "inodes",
                                        "ref_key": "id" }))
-        
+
     # Maps file data chunks to S3 objects
     # Refcount is included for performance reasons
     conn.execute("""
@@ -197,7 +195,7 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     );
     CREATE INDEX ix_s3_objects_hash ON s3_objects(hash);
     """)
-    
+
     # Maps file data chunks to S3 objects
     conn.execute("""
     CREATE TABLE blocks (
@@ -217,27 +215,27 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
                                        "ref_table": "s3_objects",
                                        "ref_key": "id" }))
 
-    
+
     # Insert root directory
     # Refcount = 4: ".", "..", "lost+found", "lost+found/.."
     timestamp = time.time() - time.timezone
     conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
-                   "VALUES (?,?,?,?,?,?,?,?)", 
+                   "VALUES (?,?,?,?,?,?,?,?)",
                    (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                     os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 4))
     conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                    (b".", ROOT_INODE, ROOT_INODE))
     conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                   (b"..", ROOT_INODE, ROOT_INODE))     
-    
-    
+                   (b"..", ROOT_INODE, ROOT_INODE))
+
+
     # Insert control inode, the actual values don't matter that much 
     conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
-                   "VALUES (?,?,?,?,?,?,?,?)", 
+                   "VALUES (?,?,?,?,?,?,?,?)",
                    (CTRL_INODE, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
                     0, 0, timestamp, timestamp, timestamp, 42))
-    
+
     # Insert lost+found directory
     # refcount = 2: /, "."
     inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
@@ -250,4 +248,4 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
                    (b".", inode, inode))
     conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                    (b"..", ROOT_INODE, inode))
-        
+

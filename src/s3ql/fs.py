@@ -19,7 +19,7 @@ from cStringIO import StringIO
 import struct
 from s3ql.multi_lock import MultiLock
 
-__all__ = [ "Server", "RevisionError" ]
+__all__ = [ "Server" ]
 
 # standard logger for this module
 log = logging.getLogger("fs")
@@ -91,24 +91,11 @@ class Operations(llfuse.Operations):
         self.cache = cache
         self.encountered_errors = False
         self.open_files = dict()
-
         self.inode_lock = MultiLock()
-
-        # Check filesystem revision
-        log.debug("Reading fs parameters...")
-        rev = dbcm.get_val("SELECT version FROM parameters")
-        if rev < 1:
-            raise RevisionError(rev, 1)
-
-        # Update mount count
-        dbcm.execute("UPDATE parameters SET mountcnt = mountcnt + 1")
-
-        # Get blocksize
         self.blocksize = dbcm.get_val("SELECT blocksize FROM parameters")
 
     def init(self):
         self.cache.start_background_expiration()
-
 
     def destroy(self):
         self.cache.stop_background_expiration()
@@ -984,14 +971,3 @@ class Operations(llfuse.Operations):
         if not datasync:
             self._setattr(fh, self.open_files[fh]['cached_attrs'])
 
-class RevisionError(Exception):
-    """Raised if the filesystem revision is too new for the program
-    """
-    def __init__(self, args):
-        super(RevisionError, self).__init__()
-        self.rev_is = args[0]
-        self.rev_should = args[1]
-
-    def __str__(self):
-        return "Filesystem has revision %d, filesystem tools can only handle " \
-            "revisions up %d" % (self.rev_is, self.rev_should)

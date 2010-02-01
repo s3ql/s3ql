@@ -19,6 +19,7 @@ import os
 import threading
 import time
 import sys
+import re
 
 
 __all__ = [ "S3Cache", 'SynchronizedS3Cache' ]
@@ -192,14 +193,13 @@ class S3Cache(object):
 
                     # No corresponding S3 object
                     except KeyError:
-                        # Generate temporary filename
                         el = CacheEntry(inode, blockno, None, filename, "w+b")
                         oldsize = 0
 
                     # Need to download corresponding S3 object
                     else:
-                        hash_ = conn.get_val("SELECT hash FROM s3_objects WHERE id=?", (s3key,))
                         el = CacheEntry(inode, blockno, s3key, filename, "w+b")
+                        hash_ = conn.get_val("SELECT hash FROM s3_objects WHERE id=?", (s3key,))
                         self._download_object('s3ql_data_%d' % s3key, hash_, el)
 
                         # Update cache size
@@ -268,6 +268,31 @@ class S3Cache(object):
         self.bucket.fetch_fh(s3key, el)
         log.debug('Object %s fetched successfully.', s3key)
 
+    def recover(self):
+        '''Register old files in cache directory'''
+
+        if self.cache:
+            raise RuntimeError('Cannot call recover() if there are already cache entries')
+
+        for filename in os.listdir(self.cachedir):
+            match = re.match('^inode_(\\d+)_block_(\\d+)$', filename)
+            if match:
+                (inode, blockno) = [ int(match.group(i)) for i in (1, 2) ]
+                s3key = None
+
+            else:
+                raise RuntimeError('Strange file in cache directory: %s' % filename)
+
+            try:
+                s3key = self.dbcm.get_val('SELECT s3key FROM blocks WHERE inode=? AND blockno=?',
+                                              (inode, blockno))
+            except KeyError:
+                s3key = None
+
+            el = CacheEntry(inode, blockno, s3key, os.path.join(self.cachedir, filename), "r+b")
+            el.dirty = True
+            el.seek(0, 2)
+            self.size += el.tell()
 
     def expire(self, max_size, max_files):
         '''Expire cache. 
@@ -569,8 +594,6 @@ class S3Cache(object):
 
 
 class BackgroundExpirationThread(threading.Thread):
-    # TODO: This thread should also take into account
-    # the max no. of open files
 
     def __init__(self, cache, max_size, max_files):
         super(BackgroundExpirationThread, self).__init__(name='Expiry-Thread')
