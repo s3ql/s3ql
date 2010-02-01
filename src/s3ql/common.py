@@ -221,7 +221,7 @@ def get_cachedir(bucketname, path):
     if not os.path.exists(path):
         os.mkdir(path)
 
-    return path + ("/%s-cache/" % bucketname)
+    return os.path.join(path, "%s-cache" % bucketname)
 
 
 def get_dbfile(bucketname, path):
@@ -231,7 +231,7 @@ def get_dbfile(bucketname, path):
     if not os.path.exists(path):
         os.mkdir(path)
 
-    return path + ("/%s.db" % bucketname)
+    return os.path.join(path, "%s.db" % bucketname)
 
 
 def get_credentials(keyfile, key=None):
