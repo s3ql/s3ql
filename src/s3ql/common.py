@@ -20,7 +20,7 @@ import traceback
 
 __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
-           "waitfor", "ROOT_INODE", "ExceptionStoringThread",
+           "waitfor", "ROOT_INODE", "ExceptionStoringThread", 'retry',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'stacktraces', 'init_logging_from_options', 'QuietError' ]
 
@@ -299,6 +299,32 @@ def waitfor(timeout, fn, *a, **kw):
             return True
 
     return False
+
+def retry(timeout, fn, *a, **kw):
+    """Wait for fn(*a, **kw) to return True.
+    
+    If the return value of fn() returns something True, this value
+    is returned. Otherwise, the function is called repeatedly for
+    `timeout` seconds. If the timeout is reached, `TimeoutError` is
+    raised.
+    """
+
+    step = 0.2
+    while timeout > 0:
+        ret = fn(*a, **kw)
+        if ret:
+            return ret
+        sleep(step)
+        timeout -= step
+        step *= 2
+
+    raise TimeoutError()
+
+class TimeoutError(Exception):
+    '''Raised by `retry()` when a timeout is reached.'''
+
+    pass
+
 
 
 # Define inode of root directory
