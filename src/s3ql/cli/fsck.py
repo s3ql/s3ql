@@ -165,14 +165,13 @@ def main(args):
     if not os.path.exists(cachedir):
         os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
-    with dbcm.transaction() as conn:
-        fsck.fsck(conn, cachedir, bucket)
+    fsck.fsck(dbcm, cachedir, bucket)
 
     log.info("Committing data to S3...")
-    conn.execute("UPDATE parameters SET needs_fsck=?, last_fsck=?, "
+    dbcm.execute("UPDATE parameters SET needs_fsck=?, last_fsck=?, "
                  "mountcnt=?", (False, time.time() - time.timezone, mountcnt))
 
-    conn.execute("VACUUM")
+    dbcm.execute("VACUUM")
     log.debug("Uploading database..")
     if bucket.has_key("s3ql_metadata_bak_2"):
         bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
