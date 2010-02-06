@@ -9,11 +9,9 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 from contextlib import contextmanager
-from llfuse import FUSEError
-import errno
 from s3ql.multi_lock import MultiLock
 from s3ql.ordered_dict import OrderedDict
-from s3ql.common import (ExceptionStoringThread, sha256_fh, waitfor, EmbeddedException)
+from s3ql.common import (ExceptionStoringThread, sha256_fh, retry, EmbeddedException)
 import logging
 import os
 import threading
@@ -234,38 +232,13 @@ class S3Cache(object):
 
         log.debug('Attempting to download object %s from S3', s3key)
 
-        waited = 0
-        waittime = 0.2
-        while waited < self.timeout:
-            # TODO: We cannot have a cache mismatch, since we are using
-            # a new s3 key for every upload
-            try:
-                meta = self.bucket.lookup_key(s3key)
-            except KeyError:
-                if not self.expect_mismatch:
-                    log.warn("Changes in s3 object %s have not yet propagated. Waiting and retrying...\n"
-                             "Try to increase the cache size to avoid this.", s3key)
-                log.debug('Key does not exist in S3: %s, waiting...', s3key)
-            else:
-                if meta['hash'] == hash_:
-                    break # Object is ready to be fetched
+        try:
+            self.bucket.fetch_fh(s3key, el)
+        except KeyError:
+            # Wait for object to show up
+            retry(360, lambda: s3key in self.bucket)
+            self.bucket.fetch_fh(s3key, el)
 
-                if not self.expect_mismatch:
-                    log.warn("Changes in s3 object %s have not yet propagated. Waiting and retrying...\n"
-                             "Try to increase the cache size to avoid this.", s3key)
-
-            time.sleep(waittime)
-            waited += waittime
-            waittime *= 1.5
-
-        # If still not found
-        if waited >= self.timeout:
-            if not self.expect_mismatch:
-                log.warn("Timeout when waiting for propagation of %s in Amazon S3.\n"
-                         'Setting a higher timeout with --s3timeout may help.' % s3key)
-            raise FUSEError(errno.EIO)
-
-        self.bucket.fetch_fh(s3key, el)
         log.debug('Object %s fetched successfully.', s3key)
 
     def recover(self):
@@ -297,8 +270,7 @@ class S3Cache(object):
     def expire(self, max_size, max_files):
         '''Expire cache. 
         
-        Removes entries until the cache size is below `maxsizez` 
-        (or self.maxsize if not specified).
+        Removes entries until the cache size is below `max_size` 
         Serializes concurrent calls by different threads.
         '''
 
@@ -367,7 +339,6 @@ class S3Cache(object):
             log.debug('No references to object %d left, deleting', old_s3key)
             self._delete_object(old_s3key)
 
-
     def _delete_object(self, key):
         '''Delete object from S3'''
 
@@ -375,12 +346,8 @@ class S3Cache(object):
             del self.bucket['s3ql_data_%d' % key]
         except KeyError:
             # Has not propagated yet
-            if not waitfor(self.timeout, self.bucket.has_key, 's3ql_data_%d' % key):
-                log.warn("Timeout when waiting for propagation of %s in Amazon S3.\n"
-                         'Setting a higher timeout with --s3timeout may help.' % key)
-                raise FUSEError(errno.EIO)
+            retry(360, lambda: 's3ql_data_%d' % key in self.bucket)
             del self.bucket['s3ql_data_%d' % key]
-
 
     def _expire_parallel(self):
         """Remove oldest entries from the cache.
@@ -603,7 +570,7 @@ class BackgroundExpirationThread(threading.Thread):
         self.max_files = max_files
         self.exc = None
         self.tb = None
-        self.daemon = True
+        self.daemon = True #threading.thread attribute
 
     def run(self):
         log.debug('Starting background expiration thread')
