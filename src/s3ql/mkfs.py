@@ -73,8 +73,8 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
         needs_fsck  BOOLEAN NOT NULL
                     CHECK (typeof(needs_fsck) == 'integer')
     );
-    INSERT INTO parameters(label,blocksize,last_fsck,mountcnt,needs_fsck,version)
-        VALUES(?,?,?,?,?, ?)
+    INSERT INTO parameters(label,blocksize,last_fsck,mountcnt,needs_fsck)
+        VALUES(?,?,?,?,?)
     """, (unicode(label), blocksize, time.time() - time.timezone, 0, False))
 
     # Table of filesystem objects
