@@ -72,10 +72,7 @@ class fuse_tests(TestCase):
         except SystemExit as exc:
             self.fail("Umount failed: %s" % exc)
 
-        # Now wait for server process
-        exc = self.mount.join_get_exc()
-        self.assertIsNone(exc)
-
+        self.mount.join_and_raise()
         self.assertFalse(posixpath.ismount(self.base))
         os.rmdir(self.base)
 
