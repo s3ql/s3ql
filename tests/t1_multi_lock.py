@@ -10,20 +10,25 @@ from __future__ import division, print_function
 
 import unittest
 from s3ql.multi_lock import MultiLock
-from _common import TestCase 
+from _common import TestCase
 
+# TODO: Rewrite this test case
+
+# Each test should correspond to exactly one function in the tested
+# module, and testing should be done under the assumption that any
+# other functions that are called by the tested function work perfectly.
 class MultiLockTests(TestCase):
-               
+
     def test_tuple(self):
         mlock = MultiLock()
-        
+
         with mlock('foo', 32):
             pass
-        
+
         mlock.acquire(43, 'bar')
         mlock.release(43, 'bar')
-        
-      
+
+
 def suite():
     return unittest.makeSuite(MultiLockTests)
 

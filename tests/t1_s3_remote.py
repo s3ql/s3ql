@@ -14,6 +14,11 @@ from random import randrange
 from _common import TestCase, get_aws_credentials
 from time import sleep
 
+# TODO: Rewrite this test case
+
+# Each test should correspond to exactly one function in the tested
+# module, and testing should be done under the assumption that any
+# other functions that are called by the tested function work perfectly.
 @unittest.skipUnless(get_aws_credentials(), 'remote tests disabled')
 class s3_tests_remote(TestCase):
 
@@ -33,7 +38,7 @@ class s3_tests_remote(TestCase):
         sleep(self.delay)
         self.assertEquals(self.bucket[key], value)
         self.bucket.lookup_key(key)
-        
+
         self.bucket.delete_key(key)
         sleep(self.delay)
         self.assertFalse(self.bucket.has_key(key))
@@ -56,10 +61,10 @@ class s3_tests_remote(TestCase):
         self.bucket.store(key, value2, { 'bar': 37 })
         sleep(self.delay)
         meta2 = self.bucket.fetch(key)[1]
-        
+
         self.assertTrue('foo' not in meta2)
         self.assertEquals(meta2['bar'], 37)
-        
+
         self.assertTrue(meta1['last-modified'] < meta2['last-modified'])
 
         del self.bucket[key]
@@ -76,7 +81,7 @@ class s3_tests_remote(TestCase):
 
         sleep(self.delay)
         self.assertEquals(sorted(self.bucket.keys()), sorted(keys))
-            
+
         for i in range(12):
             del self.bucket[keys[i]]
         sleep(self.delay)
@@ -92,26 +97,26 @@ class s3_tests_remote(TestCase):
         sleep(self.delay)
         self.bucket.copy(key1, key2)
         sleep(self.delay)
-        
+
         self.assertEquals(self.bucket[key2], value)
 
-        
+
     def setUp(self):
         (awskey, awspass) = get_aws_credentials()
         self.conn = s3ql.s3.Connection(awskey, awspass)
-        
+
         self.bucketname = self.random_name()
         tries = 10
         while self.conn.bucket_exists(self.bucketname) and tries > 10:
             self.bucketname = self.random_name()
             tries -= 1
-            
+
         if tries == 0:
             raise RuntimeError("Failed to find an unused bucket name.")
-        
+
         self.conn.create_bucket(self.bucketname)
         self.bucket = self.conn.get_bucket(self.bucketname)
-        
+
         # This is the time in which we expect S3 changes to propagate. It may
         # be much longer for larger objects, but for tests this is usually enough.
         self.delay = 1

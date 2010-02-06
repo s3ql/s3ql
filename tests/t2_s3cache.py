@@ -18,8 +18,6 @@ import stat
 from time import time, sleep
 import shutil
 
-# TODO: Rewrite this test case
-
 # Each test should correspond to exactly one function in the tested
 # module, and testing should be done under the assumption that any
 # other functions that are called by the tested function work perfectly.
