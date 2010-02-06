@@ -143,12 +143,11 @@ def main(args):
                          'Please examine the log files for more information.')
 
 
-
-
 def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
 
-    fuse_opts = [ b"nonempty", b'fsname=s3ql' ]
+    fuse_opts = [ b"nonempty", b'fsname=%s' % options.bucketname,
+                  'subtype=s3ql' ]
 
     if options.allow_others:
         fuse_opts.append(b'allow_others')

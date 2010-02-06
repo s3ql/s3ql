@@ -50,6 +50,7 @@ def main(args):
 
     # Run server
     options.s3timeout = s3.LOCAL_PROP_DELAY * 1.1
+    options.bucketname = ':local:'
     # TODO: We should run multithreaded at some point
     cache = SynchronizedS3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm,
                                 timeout=options.s3timeout)
