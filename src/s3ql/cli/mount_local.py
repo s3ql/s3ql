@@ -8,10 +8,11 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 from optparse import OptionParser
-from s3ql import s3, mkfs, fsck
-from s3ql.cli.mount import run_server, add_common_mount_opts
-from s3ql.common import init_logging_from_options, QuietError
-from s3ql.database import ConnectionManager
+from .. import s3, mkfs, fsck
+from .mount import run_server, add_common_mount_opts
+from ..common import init_logging_from_options, QuietError
+from ..database import ConnectionManager
+from ..s3cache import SynchronizedS3Cache
 from time import sleep
 import logging
 import os
@@ -49,7 +50,14 @@ def main(args):
 
     # Run server
     options.s3timeout = s3.LOCAL_PROP_DELAY * 1.1
-    operations = run_server(bucket, cachedir, dbcm, options)
+    # TODO: We should run multithreaded at some point
+    cache = SynchronizedS3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm,
+                                timeout=options.s3timeout)
+    try:
+        operations = run_server(bucket, cache, dbcm, options)
+    finally:
+        log.info('Clearing cache...')
+        cache.clear()
     if operations.encountered_errors:
         log.warn('Some errors occured while handling requests. '
                  'Please examine the logs for more information.')
@@ -60,8 +68,7 @@ def main(args):
 
     # Do fsck
     if options.fsck:
-        with dbcm.transaction() as conn:
-            fsck.fsck(conn, cachedir, bucket)
+        fsck.fsck(dbcm, cachedir, bucket)
         if fsck.found_errors:
             log.warn("fsck found errors")
 
