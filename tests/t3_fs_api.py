@@ -67,8 +67,7 @@ class fs_api_tests(TestCase):
     def fsck(self):
         self.cache.clear()
         sleep(s3.LOCAL_PROP_DELAY * 1.1)
-        with self.dbcm.transaction() as conn:
-            fsck.fsck(conn, self.cachedir, self.bucket, checkonly_=True)
+        fsck.fsck(self.dbcm, self.cachedir, self.bucket)
         self.assertFalse(fsck.found_errors)
 
     def random_name(self):
