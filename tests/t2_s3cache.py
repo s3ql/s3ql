@@ -9,21 +9,20 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 from s3ql import mkfs, s3, s3cache
-from s3ql.common import EmbeddedException, ExceptionStoringThread, sha256
 from s3ql.database import ConnectionManager
-from llfuse import FUSEError
 import os
 import tempfile
 from _common import TestCase
 import unittest
 import stat
 from time import time, sleep
-from contextlib import contextmanager
 import shutil
 
-#from s3ql.common import init_logging
-#init_logging(logging.DEBUG)
+# TODO: Rewrite this test case
 
+# Each test should correspond to exactly one function in the tested
+# module, and testing should be done under the assumption that any
+# other functions that are called by the tested function work perfectly.
 class s3cache_tests(TestCase):
 
     def setUp(self):
@@ -32,7 +31,7 @@ class s3cache_tests(TestCase):
         self.dbfile = tempfile.NamedTemporaryFile()
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
-        self.cachesize = int(1.5 * self.blocksize)
+        cachesize = int(1.5 * self.blocksize)
 
         self.dbcm = ConnectionManager(self.dbfile.name)
         with self.dbcm() as conn:
@@ -46,7 +45,7 @@ class s3cache_tests(TestCase):
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                     os.getuid(), os.getgid(), time(), time(), time(), 1, 32))
 
-        self.cache = s3cache.S3Cache(self.bucket, self.cachedir, self.cachesize, self.dbcm)
+        self.cache = s3cache.S3Cache(self.bucket, self.cachedir, cachesize, self.dbcm)
 
     def tearDown(self):
         self.cache.clear()
@@ -58,197 +57,278 @@ class s3cache_tests(TestCase):
 
     @staticmethod
     def random_data(len_):
-        fd = open("/dev/urandom", "rb")
-        return fd.read(len_)
+        with open("/dev/urandom", "rb") as fh:
+            return fh.read(len_)
 
-    def test_01_create_read(self):
+    def test_get(self):
         inode = self.inode
         blockno = 11
-        data = self.random_data(self.blocksize)
+        data = self.random_data(int(0.5 * self.cache.maxsize))
 
-        obj_count = bucket_len(self.bucket)
-
-        # Write
+        # Case 1: Object does not exist yet
         with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
             fh.write(data)
 
-        # Should only be in cache now
-        self.assertEquals(bucket_len(self.bucket), obj_count)
-
-        # Read cached
-        with self.cache.get(inode, blockno) as fh:
-            el = fh
-            fh.seek(0)
-            self.assertEqual(data, fh.read(len(data)))
-
-        # Flush
-        self.cache.flush(inode)
-
-        # Should be committed now
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
-        self.assertEqual(bucket_len(self.bucket), obj_count + 1)
-
-        s3key = el.s3key
-
-        # Even if we change in S3, we should get the cached data
-        data2 = self.random_data(241)
-        self.bucket.store('s3ql_data_%d' % s3key, data2, { 'hash': sha256(data2) })
+        # Case 2: Object is in cache
         with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
             self.assertEqual(data, fh.read(len(data)))
 
-        # Now we remove this element from the cache
+        # Case 3: Object needs to be downloaded
         self.cache._expire_parallel()
-
-        # This should not upload any data, so now we read the new key
-        # and get a hash mismatch
         sleep(s3.LOCAL_PROP_DELAY * 1.1)
-        self.cache.timeout = 1
-        self.cache.expect_mismatch = True
-        cm = self.cache.get(inode, blockno)
-
-        try:
-            self.assertRaises(FUSEError, cm.__enter__)
-        finally:
-            cm.__exit__(None, None, None)
-
-        # Remove scrap
-        os.unlink(self.cachedir + 'inode_%d_block_%d' % (inode, blockno))
-
-    def test_03_access_locking(self):
-        # Make sure the threads actually conflict
-        assert s3.LOCAL_TX_DELAY > 0
-
-        # Test concurrent writes 
-        flag = { 'writing': False }
-        blockno = 102
-
-        # Access the same file in two threads
-        def access():
-            with self.cache.get(self.inode, blockno):
-                if flag['writing']:
-                    raise s3.ConcurrencyError
-                flag['writing'] = True
-                sleep(s3.LOCAL_TX_DELAY)
-                flag['writing'] = False
-
-        # This should work nicely
-        t1 = ExceptionStoringThread(target=access)
-        t2 = ExceptionStoringThread(target=access)
-        t1.start()
-        sleep(s3.LOCAL_TX_DELAY / 2)
-        t2.start()
-        t1.join_and_raise()
-        t2.join_and_raise()
-
-        # After we Monkeypatch the locking away, we except and exception
-        self.cache.mlock = DummyLock()
-
-        t1 = ExceptionStoringThread(target=access)
-        t2 = ExceptionStoringThread(target=access)
-        t1.start()
-        sleep(s3.LOCAL_TX_DELAY / 2)
-        t2.start()
-
-        t1.join_and_raise()
-        self.assertRaises(EmbeddedException, t2.join_and_raise)
-        self.assertTrue(isinstance(t2.exc, s3.ConcurrencyError))
+        with self.cache.get(inode, blockno) as fh:
+            fh.seek(0)
+            self.assertEqual(data, fh.read(len(data)))
 
 
-    def test_expiry(self):
-        '''Check if we do not expire more or less than necessary
-        '''
-
-        # expire will try to free at least 1 MB, so we make each
-        # object 1 MB big
-        datalen = 1024 * 1024
-        no = 4
-        self.cache.maxsize = no * datalen
-
-        for i in range(no):
-            with self.cache.get(self.inode, i) as fh:
-                fh.write(self.random_data(datalen))
-
-        self.assertEquals(len(self.cache.cache), no)
-
-        self.cache.maxsize = (no - 1) * datalen
-
-        self.cache.expire(self.cache.maxsize, 200)
-
-        self.assertEquals(len(self.cache.cache), no - 1)
-
-
-    def test_04_deduplication(self):
+    def test_flush(self):
         inode = self.inode
+        blockno = 11
+        data = self.random_data(int(0.5 * self.cache.maxsize))
+
+        self.cache.bucket = TestBucket(self.bucket)
+        self.assertEqual(len(self.cache), 0)
+        with self.cache.get(inode, blockno) as fh:
+            fh.seek(0)
+            fh.write(data)
+        self.assertEqual(len(self.cache), 1)
+        self.cache.flush(inode + 1)
+        self.assertEqual(len(self.cache), 1)
+        self.cache.bucket = TestBucket(self.bucket, no_store=1)
+        self.cache.flush(inode)
+        self.assertEqual(len(self.cache), 1)
+        self.cache.bucket.verify()
+
+    def test_flush_all(self):
+        inode = self.inode
+        blockno = 11
+        data = self.random_data(int(0.5 * self.cache.maxsize))
+
+        self.cache.bucket = TestBucket(self.bucket)
+        self.assertEqual(len(self.cache), 0)
+        with self.cache.get(inode, blockno) as fh:
+            fh.seek(0)
+            fh.write(data)
+        self.assertEqual(len(self.cache), 1)
+        self.cache.bucket = TestBucket(self.bucket, no_store=1)
+        self.cache.flush_all()
+        self.assertEqual(len(self.cache), 1)
+        self.cache.bucket.verify()
+
+    def test_expire_parallel(self):
+        inode = self.inode
+        data1 = self.random_data(int(0.5 * self.blocksize))
+        data2 = self.random_data(int(0.5 * self.blocksize))
+
+        # This object will not be dirty
+        self.cache.bucket = TestBucket(self.bucket)
+        with self.cache.get(inode, 1) as fh:
+            fh.seek(0)
+            fh.write(data1)
+        self.cache.bucket = TestBucket(self.bucket, no_store=1)
+        self.cache.flush(inode)
+        self.cache.bucket.verify()
+
+        # This one will be
+        self.cache.bucket = TestBucket(self.bucket)
+        with self.cache.get(inode, 2) as fh:
+            fh.seek(0)
+            fh.write(data2)
+
+        self.assertEqual(len(self.cache), 2)
+        self.cache.bucket = TestBucket(self.bucket, no_store=1)
+        self.cache._expire_parallel()
+        self.assertEquals(len(self.cache), 0)
+        self.cache.bucket.verify()
+
+    def test_upload_object(self):
+        inode = self.inode
+        datalen = int(0.1 * self.cache.maxsize)
         blockno1 = 21
         blockno2 = 25
+        blockno3 = 7
 
-        data1 = self.random_data(325)
-        data2 = self.random_data(326)
+        data1 = self.random_data(datalen)
+        data2 = self.random_data(datalen)
+        data3 = self.random_data(datalen)
 
-        cnt = bucket_len(self.bucket)
-
+        # Case 1: Upload new object
+        self.cache.bucket = TestBucket(self.bucket, no_store=1)
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data1)
             el1 = fh
+        self.cache._upload_object(el1)
+        self.cache.bucket.verify()
 
+        # Case 2: Link new object
+        self.cache.bucket = TestBucket(self.bucket)
         with self.cache.get(inode, blockno2) as fh:
             fh.seek(0)
             fh.write(data1)
             el2 = fh
+        self.cache._upload_object(el2)
 
-        self.cache.flush(inode)
-
-        self.assertEquals(el1.s3key, el2.s3key)
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
-        self.assertEquals(bucket_len(self.bucket), cnt + 1)
-        orig_s3key = el1.s3key
-
-        with self.cache.get(inode, blockno2) as fh:
-            fh.seek(0)
-            fh.write(data2)
-            el2 = fh
-
-        self.cache.flush(inode)
-        self.assertNotEquals(orig_s3key, el2.s3key)
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
-        self.assertEquals(bucket_len(self.bucket), cnt + 2)
-
+        # Case 3: Upload old object, still has references
+        self.cache.bucket = TestBucket(self.bucket, no_store=1)
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data2)
-            el1 = fh
+        self.cache._upload_object(el1)
+        self.cache.bucket.verify()
 
+        # Case 4: Upload old object, no references left
+        self.cache.bucket = TestBucket(self.bucket, no_del=1, no_store=1)
+        with self.cache.get(inode, blockno2) as fh:
+            fh.seek(0)
+            fh.write(data3)
+        self.cache._upload_object(el2)
+        self.cache.bucket.verify()
+
+        # Case 5: Link old object, no references left
+        self.cache.bucket = TestBucket(self.bucket, no_del=1)
+        with self.cache.get(inode, blockno2) as fh:
+            fh.seek(0)
+            fh.write(data2)
+        self.cache._upload_object(el2)
+        self.cache.bucket.verify()
+
+        # Case 6: Link old object, still has references
+        # (Need to create another object first)
+        self.cache.bucket = TestBucket(self.bucket, no_store=1)
+        with self.cache.get(inode, blockno3) as fh:
+            fh.seek(0)
+            fh.write(data1)
+            el3 = fh
+        self.cache._upload_object(el3)
+        self.cache.bucket.verify()
+
+        self.cache.bucket = TestBucket(self.bucket)
+        with self.cache.get(inode, blockno1) as fh:
+            fh.seek(0)
+            fh.write(data1)
+        self.cache._upload_object(el1)
+        self.cache.bucket.verify()
+
+    def test_recover(self):
+        inode = self.inode
+        data1 = self.random_data(int(0.4 * self.blocksize))
+        data2 = self.random_data(int(0.4 * self.blocksize))
+
+
+        with self.cache.get(inode, 1) as fh:
+            fh.seek(0)
+            fh.write(data1)
+        with self.cache.get(inode, 2) as fh:
+            fh.seek(0)
+            fh.write(data2)
+
+        # Destroy cache info
+        self.cache.clear()
+        self.cache.recover()
+
+        with self.cache.get(inode, 1) as fh:
+            fh.seek(0)
+            self.assertTrue(data1, fh.read(len(data1)))
+
+        with self.cache.get(inode, 2) as fh:
+            fh.seek(0)
+            self.assertTrue(data2, fh.read(len(data2)))
+
+    def test_remove(self):
+        inode = self.inode
+        data1 = self.random_data(int(0.4 * self.blocksize))
+        data2 = self.random_data(int(0.4 * self.blocksize))
+
+        # Case 1: Elements only in cache
+        with self.cache.get(inode, 1) as fh:
+            fh.seek(0)
+            fh.write(data1)
+        with self.cache.get(inode, 2) as fh:
+            fh.seek(0)
+            fh.write(data2)
+        self.cache.bucket = TestBucket(self.bucket)
+        self.cache.remove(inode)
+        self.cache.bucket.verify()
+
+        # Case 2: Elements in cache and db and not referenced
+        with self.cache.get(inode, 1) as fh:
+            fh.seek(0)
+            fh.write(data1)
+        with self.cache.get(inode, 2) as fh:
+            fh.seek(0)
+            fh.write(data2)
+        self.cache.bucket = TestBucket(self.bucket, no_store=2)
         self.cache.flush(inode)
-        self.assertEquals(el1.s3key, el2.s3key)
-        self.assertNotEqual(orig_s3key, el1.s3key)
+        self.cache.bucket.verify()
+        self.cache.bucket = TestBucket(self.bucket, no_del=2)
+        # Key errors would cause multiple delete calls
         sleep(s3.LOCAL_PROP_DELAY * 1.1)
-        self.assertEquals(bucket_len(self.bucket), cnt + 1)
+        self.cache.remove(inode)
+        self.cache.bucket.verify()
+
+        # Case 3: Elements not in cache and still referenced
+        with self.cache.get(inode, 1) as fh:
+            fh.seek(0)
+            fh.write(data1)
+        with self.cache.get(inode, 2) as fh:
+            fh.seek(0)
+            fh.write(data1)
+        self.cache.bucket = TestBucket(self.bucket, no_store=1)
+        self.cache._expire_parallel()
+        self.cache.remove(inode, 2)
+        self.cache.bucket.verify()
 
 
-class DummyLock(object):
-    """Dummy MultiLock class doing nothing
-    
-    This class pretends to be a MultiLock, but it actually does not do 
-    anything at all.
-    """
+class TestBucket(object):
+    def __init__(self, bucket, no_fetch=0, no_store=0, no_del=0):
+        self.no_fetch = no_fetch
+        self.no_store = no_store
+        self.no_del = no_del
+        self.bucket = bucket
 
-    @contextmanager
-    def __call__(self, *_):
-        # pylint: disable-msg=R0201
-        # Yeah, this could be a function / static method.
-        yield
+    def verify(self):
+        if self.no_fetch != 0:
+            raise RuntimeError('Got too few fetch calls')
+        if self.no_store != 0:
+            raise RuntimeError('Got too few store calls')
+        if self.no_del != 0:
+            raise RuntimeError('Got too few delete calls')
 
-    def acquire(self, *_):
-        pass
+    def store_fh(self, *a, **kw):
+        self.no_store -= 1
 
-    def release(self, *_):
-        pass
+        if self.no_store < 0:
+            raise RuntimeError('Got too many store calls')
 
-def bucket_len(bucket):
-    return len(list(bucket.keys()))
+        return self.bucket.store_fh(*a, **kw)
+
+    def fetch_fh(self, *a, **kw):
+        self.no_fetch -= 1
+
+        if self.no_fetch < 0:
+            raise RuntimeError('Got too many fetch calls')
+
+        return self.bucket.fetch_fh(*a, **kw)
+
+    def delete_key(self, *a, **kw):
+        self.no_del -= 1
+
+        if self.no_del < 0:
+            raise RuntimeError('Got too many delete calls')
+
+        return self.bucket.delete_key(*a, **kw)
+
+    def __delitem__(self, key):
+        self.delete_key(key)
+
+    def __iter__(self):
+        return self.bucket.keys()
+
+    def  __contains__(self, key):
+        return self.bucket.has_key(key)
 
 def suite():
     return unittest.makeSuite(s3cache_tests)
