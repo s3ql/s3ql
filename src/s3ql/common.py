@@ -20,7 +20,7 @@ import traceback
 
 __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
-           "waitfor", "ROOT_INODE", "ExceptionStoringThread", 'retry',
+           "ROOT_INODE", "ExceptionStoringThread", 'retry',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'stacktraces', 'init_logging_from_options', 'QuietError' ]
 
@@ -276,29 +276,6 @@ def get_credentials(keyfile, key=None):
                 pw = sys.stdin.readline().rstrip()
 
     return (key, pw)
-
-# TODO: Replace waitfor() by retry(), retry() executes until
-# the function return value is something true and then returns
-# that value. Otherwise it raises a TimeoutError.
-def waitfor(timeout, fn, *a, **kw):
-    """Wait for fn(*a, **kw) to return True.
-    
-    Waits in increasing periods. Returns False if a timeout occurs, 
-    True otherwise.
-    """
-
-    if fn(*a, **kw):
-        return True
-
-    step = 0.2
-    while timeout > 0:
-        sleep(step)
-        timeout -= step
-        step *= 2
-        if fn(*a, **kw):
-            return True
-
-    return False
 
 def retry(timeout, fn, *a, **kw):
     """Wait for fn(*a, **kw) to return True.

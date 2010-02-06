@@ -11,7 +11,7 @@ from _common import TestCase
 from cStringIO import StringIO
 from random import randrange
 from s3ql import s3, common
-from s3ql.common import waitfor, ExceptionStoringThread
+from s3ql.common import retry, ExceptionStoringThread
 import posixpath
 import s3ql.cli.fsck
 import s3ql.cli.mkfs
@@ -24,7 +24,8 @@ import tempfile
 import time
 import unittest
 
-
+# TODO: Merge this with t4_fuse as soon as we have support for
+# local:[name] buckets
 class RemoteCmdTests(TestCase):
 
     @staticmethod
@@ -66,11 +67,11 @@ class RemoteCmdTests(TestCase):
         mount.start()
 
         # Wait for mountpoint to come up
-        self.assertTrue(waitfor(10, posixpath.ismount, self.base))
+        retry(10, posixpath.ismount, self.base)
 
         # Umount as soon as mountpoint is no longer in use
         time.sleep(0.5)
-        self.assertTrue(waitfor(5, lambda: subprocess.call(['fuser', '-m', '-s', self.base]) == 1))
+        retry(5, lambda: subprocess.call(['fuser', '-m', '-s', self.base]) == 1)
         s3ql.cli.umount.DONTWAIT = True
         try:
             s3ql.cli.umount.main(["--quiet", self.base])

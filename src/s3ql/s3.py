@@ -14,7 +14,7 @@ from contextlib import contextmanager
 import boto.exception as bex
 import copy
 from cStringIO import StringIO
-from s3ql.common import (waitfor, sha256, ExceptionStoringThread)
+from s3ql.common import (retry, sha256, ExceptionStoringThread)
 import tempfile
 import hmac
 import logging
@@ -96,7 +96,7 @@ class Connection(object):
             boto.create_bucket(name)
 
             # S3 needs some time before we can fetch the bucket
-            waitfor(10, self.bucket_exists, name)
+            retry(60, self.bucket_exists, name)
 
         return self.get_bucket(name, passphrase)
 
@@ -308,9 +308,7 @@ class Bucket(object):
         stamp = time.time() - time.timezone
         self.store(key, val, metadata)
 
-        if not waitfor(600, lambda: self.lookup_key(key)['last-modified'] >= stamp):
-            raise RuntimeError('Timeout when waiting for propagation in S3')
-
+        retry(600, lambda: self.lookup_key(key)['last-modified'] >= stamp)
 
     def fetch_fh(self, key, fh):
         """Fetch data for `key` and write to `fh`
