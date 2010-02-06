@@ -36,6 +36,12 @@ class s3_tests_local(TestCase):
     def random_name(prefix=""):
         return "s3ql_" + prefix + str(randrange(100, 999, 1))
 
+    def test_store_wait(self):
+        key = self.random_name("key_")
+        value = self.random_name("value_")
+
+        self.bucket.store_wait(key, value, { 'foobar': 77 })
+
     def test_01_store_fetch_lookup_delete_key(self):
         key = self.random_name("key_")
         value = self.random_name("value_")

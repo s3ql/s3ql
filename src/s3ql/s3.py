@@ -308,7 +308,15 @@ class Bucket(object):
         stamp = time.time() - time.timezone
         self.store(key, val, metadata)
 
-        retry(600, lambda: self.lookup_key(key)['last-modified'] >= stamp)
+        def check_key():
+            try:
+                meta = self.lookup_key(key)
+            except KeyError:
+                return False
+            else:
+                return meta['last-modified'] >= stamp
+
+        retry(600, check_key)
 
     def fetch_fh(self, key, fh):
         """Fetch data for `key` and write to `fh`
