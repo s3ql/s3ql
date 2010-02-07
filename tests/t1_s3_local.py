@@ -29,8 +29,8 @@ class s3_tests_local(TestCase):
         self.conn = s3.LocalConnection()
         self.bucket_dir = tempfile.mkdtemp()
         self.bucketname = os.path.join(self.bucket_dir, 'mybucket')
-        self.base = tempfile.mkdtemp()
-        self.conn.create_bucket(self.bucketname, passphrase='flup!')
+        self.passphrase = 'flurp'
+        self.conn.create_bucket(self.bucketname, self.passphrase)
         self.bucket = self.conn.get_bucket(self.bucketname)
 
     def tearDown(self):
@@ -42,13 +42,13 @@ class s3_tests_local(TestCase):
     def random_name(prefix=""):
         return "s3ql_" + prefix + str(randrange(100, 999, 1))
 
-    def test_store_wait(self):
+    def tst_store_wait(self):
         key = self.random_name("key_")
         value = self.random_name("value_")
 
         self.bucket.store_wait(key, value, { 'foobar': 77 })
 
-    def test_01_store_fetch_lookup_delete_key(self):
+    def tst_01_store_fetch_lookup_delete_key(self):
         key = self.random_name("key_")
         value = self.random_name("value_")
         self.assertRaises(KeyError, self.bucket.lookup_key, key)
@@ -67,7 +67,7 @@ class s3_tests_local(TestCase):
         self.assertRaises(KeyError, self.bucket.delete_key, key)
         self.assertRaises(KeyError, self.bucket.fetch, key)
 
-    def test_02_meta(self):
+    def tst_02_meta(self):
         key = self.random_name()
         value1 = self.random_name()
         value2 = self.random_name()
@@ -89,13 +89,24 @@ class s3_tests_local(TestCase):
 
         del self.bucket[key]
 
+    def runTest(self):
+        # Run all tests in same environment, creating and deleting
+        # the bucket every time just takes too long.
 
-    def test_03_list_keys(self):
+        self.tst_01_store_fetch_lookup_delete_key()
+        self.tst_02_meta()
+        self.tst_03_list_keys()
+        self.tst_04_encryption()
+        self.tst_04_delays()
+        self.tst_05_concurrency()
+        self.tst_06_copy()
+        self.tst_store_wait()
+
+    def tst_03_list_keys(self):
 
         # Keys need to be unique
         keys = [ self.random_name("key_") + str(x) for x in range(12) ]
         values = [ self.random_name("value_") for x in range(12) ]
-
 
         for i in range(12):
             self.bucket.store(keys[i], values[i])
@@ -106,8 +117,7 @@ class s3_tests_local(TestCase):
         for i in range(12):
             del self.bucket[keys[i]]
 
-
-    def test_04_delays(self):
+    def tst_04_delays(self):
         # Required for test to work
         assert s3.LOCAL_TX_DELAY > 0
         assert s3.LOCAL_PROP_DELAY > 3 * s3.LOCAL_TX_DELAY
@@ -133,23 +143,30 @@ class s3_tests_local(TestCase):
         sleep(s3.LOCAL_PROP_DELAY ** 1.1)
         self.assertFalse(self.bucket.has_key(key))
 
-    def test_04_encryption(self):
+    def tst_04_encryption(self):
         bucket = self.bucket
+        bucket.passphrase = None
         bucket['plain'] = b'foobar452'
 
-        ebucket = self.conn.get_bucket(self.bucketname, 'flup2fd')
-
-        ebucket['foobar'] = b'testdata'
+        bucket.passphrase = 'schlurp'
+        bucket['encrypted'] = b'testdata'
         sleep(s3.LOCAL_PROP_DELAY * 1.1)
-        self.assertEquals(ebucket['foobar'], b'testdata')
+        self.assertEquals(bucket['encrypted'], b'testdata')
+        self.assertRaises(s3.ChecksumError, bucket.fetch, 'plain')
+        self.assertRaises(s3.ChecksumError, bucket.lookup_key, 'plain')
 
-        self.assertRaises(s3.ChecksumError, ebucket.fetch, 'plain')
-        self.assertRaises(s3.ChecksumError, bucket.fetch, 'foobar')
+        bucket.passphrase = None
+        self.assertRaises(s3.ChecksumError, bucket.fetch, 'encrypted')
+        self.assertRaises(s3.ChecksumError, bucket.lookup_key, 'encrypted')
 
-        self.assertRaises(s3.ChecksumError, ebucket.lookup_key, 'plain')
-        self.assertRaises(s3.ChecksumError, bucket.lookup_key, 'foobar')
+        bucket.passphrase = self.passphrase
+        self.assertRaises(s3.ChecksumError, bucket.fetch, 'encrypted')
+        self.assertRaises(s3.ChecksumError, bucket.lookup_key, 'encrypted')
+        self.assertRaises(s3.ChecksumError, bucket.fetch, 'plain')
+        self.assertRaises(s3.ChecksumError, bucket.lookup_key, 'plain')
 
-    def test_05_concurrency(self):
+
+    def tst_05_concurrency(self):
         tx_delay = s3.LOCAL_TX_DELAY
 
         # Required for tests to work
@@ -198,7 +215,7 @@ class s3_tests_local(TestCase):
         sleep(s3.LOCAL_PROP_DELAY * 1.1)
         del self.bucket[key]
 
-    def test_06_copy(self):
+    def tst_06_copy(self):
 
         key1 = self.random_name("key_1")
         key2 = self.random_name("key_2")
