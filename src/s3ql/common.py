@@ -12,6 +12,7 @@ from time import sleep
 import hashlib
 import logging.handlers
 import os
+import re
 import stat
 import sys
 import threading
@@ -151,6 +152,8 @@ def init_logging(logfile, stdout_level=logging.INFO, file_level=logging.INFO,
 
     # Add file logger
     if logfile is not None:
+        if not os.path.exists(os.path.dirname(logfile)):
+            os.mkdir(os.path.dirname(logfile), 0700)
         handler = logging.handlers.RotatingFileHandler(logfile, maxBytes=1 * 1024 * 1024, backupCount=5)
         handler.setFormatter(verbose_formatter)
         handler.setLevel(file_level)
@@ -221,6 +224,9 @@ def get_cachedir(bucketname, path):
     if not os.path.exists(path):
         os.mkdir(path)
 
+    # Escape backslash
+    bucketname = re.sub('_', '__', bucketname)
+    bucketname = re.sub('/', '_', bucketname)
     return os.path.join(path, "%s-cache" % bucketname)
 
 
@@ -231,6 +237,9 @@ def get_dbfile(bucketname, path):
     if not os.path.exists(path):
         os.mkdir(path)
 
+    # Escape backslash
+    bucketname = re.sub('_', '__', bucketname)
+    bucketname = re.sub('/', '_', bucketname)
     return os.path.join(path, "%s.db" % bucketname)
 
 
