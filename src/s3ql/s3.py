@@ -494,7 +494,7 @@ class LocalBotoKey(dict):
         filename = os.path.join(self.bucket.name, b64encode(self.name))
         with open(filename + '.dat', 'rb') as src:
             fh.seek(0)
-            fh.write(src.read())
+            shutil.copyfileobj(src, fh)
         with open(filename + '.meta', 'rb') as src:
             self.metadata = pickle.load(src)
 
@@ -511,7 +511,7 @@ class LocalBotoKey(dict):
         filename = os.path.join(self.bucket.name, b64encode(self.name))
         fh.seek(0)
         with open(filename + '.tmp', 'wb') as dest:
-            dest.write(fh.read())
+            shutil.copyfileobj(fh, dest)
         with open(filename + '.mtmp', 'wb') as dest:
             pickle.dump(self.metadata, dest, 2)
 
