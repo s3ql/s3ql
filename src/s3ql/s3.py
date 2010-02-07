@@ -92,6 +92,11 @@ class Connection(object):
             boto.create_bucket(name)
             retry(60, self.bucket_exists, name)
 
+        # TODO: Even with retry, sometimes a later call to get_bucket
+        # may fail. That is probably because the bucket exists on
+        # some server (so the above call succeeded), but not on all.
+        time.sleep(5)
+
         return self.get_bucket(name, passphrase)
 
     def get_bucket(self, name, passphrase=None):
@@ -346,6 +351,9 @@ class Bucket(object):
             else:
                 return meta['last-modified'] >= stamp
 
+        # TODO: This may not work. It is possible that one server already has
+        # the update (and responds correctly), but a later request is answered
+        # by a different server which is not yet updated.
         retry(600, check_key)
 
     def fetch_fh(self, key, fh):
