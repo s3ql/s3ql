@@ -7,117 +7,163 @@ This program can be distributed under the terms of the GNU LGPL.
 '''
 
 from __future__ import division, print_function
-
-import shutil
-import os
-import time
-import stat
+from _common import TestCase
+from cStringIO import StringIO
 from os.path import basename
 from random import randrange
-from s3ql import libc
+from s3ql import libc, common, s3
 from s3ql.common import retry, ExceptionStoringThread
-import s3ql.cli.mount_local
-import s3ql.cli.umount
-from _common import TestCase
 import filecmp
-import tempfile
+import os
 import posixpath
-import unittest
+import s3ql.cli.fsck
+import s3ql.cli.mkfs
+import s3ql.cli.mount
+import s3ql.cli.umount
+import shutil
+import stat
 import subprocess
-
+import sys
+import tempfile
+import time
+import unittest
 
 class fuse_tests(TestCase):
 
-    @staticmethod
-    def random_name():
-        return "s3ql" + str(randrange(100, 999, 1))
-
     def setUp(self):
-        self.base = tempfile.mkdtemp()
-
         # We need this to test multi block operations
         self.src = __file__
         if os.path.getsize(self.src) < 1048:
             raise RuntimeError("test file %s should be bigger than 1 kb" % self.src)
 
-        # Mount
-        self.mount = ExceptionStoringThread(s3ql.cli.mount_local.main,
-                                            args=(["--fg", "--blocksize",
-                                                   "1", '--fsck', "--quiet", self.base],))
-        self.mount.start()
+        self.mnt_dir = tempfile.mkdtemp()
+        self.cache_dir = tempfile.mkdtemp()
+        self.bucket_dir = tempfile.mkdtemp()
+
+        self.bucketname = 'local:' + os.path.join(self.bucket_dir, self.random_name())
+        self.passphrase = self.random_name()
+
+        # Make sure that the mount thread does not mess with the
+        # logging settings
+        common.init_logging = lambda * a, **kw: None
+
+        self.mount_thread = None
+
+    def tearDown(self):
+        # Umount if still mounted
+        if posixpath.ismount(self.mnt_dir):
+            subprocess.call(['fusermount', '-z', '-u', self.mnt_dir])
+
+        time.sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        shutil.rmtree(self.mnt_dir)
+        shutil.rmtree(self.cache_dir)
+        shutil.rmtree(self.bucket_dir)
+
+    def mount(self):
+        sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
+        try:
+            s3ql.cli.mkfs.main(['-L', 'test fs', '--blocksize', '10',
+                                '--encrypt', '--cachedir', self.cache_dir, self.bucketname ])
+        except SystemExit as exc:
+            self.fail("mkfs.s3ql failed: %s" % exc)
+
+        sys.stdin = StringIO('%s\n' % self.passphrase)
+        self.mount_thread = ExceptionStoringThread(s3ql.cli.mount.main,
+                                       args=(["--fg", '--cachedir', self.cache_dir, self.bucketname,
+                                              self.mnt_dir],))
+        self.mount_thread.start()
 
         # Wait for mountpoint to come up
         try:
-            retry(10, posixpath.ismount, self.base)
+            retry(3, posixpath.ismount, self.mnt_dir)
         except:
-            self.mount.join_and_raise()
-
-    def tearDown(self):
-        try:
-            self.umount()
-        finally:
-            # Umount if still mounted
-            if posixpath.ismount(self.base):
-                subprocess.call(['fusermount', '-z', '-u', self.base])
-                os.rmdir(self.base)
-
+            self.mount_thread.join_and_raise()
 
     def umount(self):
-        # Umount 
         time.sleep(0.5)
-        retry(5, lambda: subprocess.call(['fuser', '-m', '-s', self.base]) == 1)
+        retry(5, lambda: subprocess.call(['fuser', '-m', '-s', self.mnt_dir]) == 1)
         s3ql.cli.umount.DONTWAIT = True
         try:
-            s3ql.cli.umount.main(["--quiet", self.base])
+            s3ql.cli.umount.main([self.mnt_dir])
         except SystemExit as exc:
             self.fail("Umount failed: %s" % exc)
 
-        self.mount.join_and_raise()
-        self.assertFalse(posixpath.ismount(self.base))
-        os.rmdir(self.base)
+        # Now wait for server process
+        exc = self.mount_thread.join_get_exc()
+        self.assertIsNone(exc)
+        self.assertFalse(posixpath.ismount(self.mnt_dir))
 
+        # Now run an fsck
+        sys.stdin = StringIO('%s\n' % self.passphrase)
+        try:
+            s3ql.cli.fsck.main(['--cachedir', self.cache_dir, self.bucketname])
+        except SystemExit as exc:
+            self.fail("fsck failed: %s" % exc)
+
+    def test_bla(self):
+        self.runTest()
+
+    def runTest(self):
+        # Run all tests in same environment, mounting and umounting
+        # just takes too long otherwise
+
+        self.mount()
+        self.test_chown()
+        self.test_link()
+        self.test_mkdir()
+        self.test_mknod()
+        self.test_readdir()
+        self.test_statvfs()
+        self.test_symlink()
+        self.test_truncate()
+        self.test_write()
+        self.umount()
+
+    @staticmethod
+    def random_name():
+        return "s3ql" + str(randrange(100, 999, 1))
 
     def test_mkdir(self):
         dirname = self.random_name()
-        fullname = self.base + "/" + dirname
+        fullname = self.mnt_dir + "/" + dirname
         os.mkdir(fullname)
         fstat = os.stat(fullname)
         self.assertTrue(stat.S_ISDIR(fstat.st_mode))
         self.assertEquals(libc.listdir(fullname), [])
         self.assertEquals(fstat.st_nlink, 2)
-        self.assertTrue(dirname in libc.listdir(self.base))
+        self.assertTrue(dirname in libc.listdir(self.mnt_dir))
         os.rmdir(fullname)
         self.assertRaises(OSError, os.stat, fullname)
-        self.assertTrue(dirname not in libc.listdir(self.base))
+        self.assertTrue(dirname not in libc.listdir(self.mnt_dir))
 
     def test_symlink(self):
         linkname = self.random_name()
-        fullname = self.base + "/" + linkname
+        fullname = self.mnt_dir + "/" + linkname
         os.symlink("/imaginary/dest", fullname)
         fstat = os.lstat(fullname)
         self.assertTrue(stat.S_ISLNK(fstat.st_mode))
         self.assertEquals(os.readlink(fullname), "/imaginary/dest")
         self.assertEquals(fstat.st_nlink, 1)
-        self.assertTrue(linkname in libc.listdir(self.base))
+        self.assertTrue(linkname in libc.listdir(self.mnt_dir))
         os.unlink(fullname)
         self.assertRaises(OSError, os.lstat, fullname)
-        self.assertTrue(linkname not in libc.listdir(self.base))
+        self.assertTrue(linkname not in libc.listdir(self.mnt_dir))
 
     def test_mknod(self):
-        filename = self.base + "/" + self.random_name()
+        filename = os.path.join(self.mnt_dir, self.random_name())
         src = self.src
         shutil.copyfile(src, filename)
         fstat = os.lstat(filename)
         self.assertTrue(stat.S_ISREG(fstat.st_mode))
         self.assertEquals(fstat.st_nlink, 1)
-        self.assertTrue(basename(filename) in libc.listdir(self.base))
+        self.assertTrue(basename(filename) in libc.listdir(self.mnt_dir))
         self.assertTrue(filecmp.cmp(src, filename, False))
         os.unlink(filename)
         self.assertRaises(OSError, os.stat, filename)
-        self.assertTrue(basename(filename) not in libc.listdir(self.base))
+        self.assertTrue(basename(filename) not in libc.listdir(self.mnt_dir))
 
     def test_chown(self):
-        filename = self.base + "/" + self.random_name()
+        filename = os.path.join(self.mnt_dir, self.random_name())
         os.mkdir(filename)
         fstat = os.lstat(filename)
         uid = fstat.st_uid
@@ -137,21 +183,24 @@ class fuse_tests(TestCase):
 
         os.rmdir(filename)
         self.assertRaises(OSError, os.stat, filename)
-        self.assertTrue(basename(filename) not in libc.listdir(self.base))
+        self.assertTrue(basename(filename) not in libc.listdir(self.mnt_dir))
+
 
     def test_write(self):
-        name = self.base + "/" + self.random_name()
+        name = os.path.join(self.mnt_dir, self.random_name())
         src = self.src
         shutil.copyfile(src, name)
         self.assertTrue(filecmp.cmp(name, src, False))
-        os.unlink(name)
+
+        # Don't unlink file, we want to see if cache flushing
+        # works
 
     def test_statvfs(self):
-        os.statvfs(self.base)
+        os.statvfs(self.mnt_dir)
 
     def test_link(self):
-        name1 = self.base + "/" + self.random_name()
-        name2 = self.base + "/" + self.random_name()
+        name1 = os.path.join(self.mnt_dir, self.random_name())
+        name2 = os.path.join(self.mnt_dir, self.random_name())
         src = self.src
         shutil.copyfile(src, name1)
         self.assertTrue(filecmp.cmp(name1, src, False))
@@ -163,7 +212,7 @@ class fuse_tests(TestCase):
         self.assertEquals(fstat1, fstat2)
         self.assertEquals(fstat1.st_nlink, 2)
 
-        self.assertTrue(basename(name2) in libc.listdir(self.base))
+        self.assertTrue(basename(name2) in libc.listdir(self.mnt_dir))
         self.assertTrue(filecmp.cmp(name1, name2, False))
         os.unlink(name2)
         fstat1 = os.lstat(name1)
@@ -171,7 +220,7 @@ class fuse_tests(TestCase):
         os.unlink(name1)
 
     def test_readdir(self):
-        dir_ = self.base + "/" + self.random_name()
+        dir_ = os.path.join(self.mnt_dir, self.random_name())
         file_ = dir_ + "/" + self.random_name()
         subdir = dir_ + "/" + self.random_name()
         subfile = subdir + "/" + self.random_name()
@@ -194,7 +243,7 @@ class fuse_tests(TestCase):
         os.rmdir(dir_)
 
     def test_truncate(self):
-        filename = self.base + "/" + self.random_name()
+        filename = os.path.join(self.mnt_dir, self.random_name())
         src = self.src
         shutil.copyfile(src, filename)
         self.assertTrue(filecmp.cmp(filename, src, False))

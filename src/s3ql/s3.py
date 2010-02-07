@@ -12,7 +12,7 @@ from time import sleep
 from boto.s3.connection import S3Connection
 from contextlib import contextmanager
 import boto.exception as bex
-import copy
+import shutil
 from cStringIO import StringIO
 from s3ql.common import (retry, sha256, ExceptionStoringThread)
 import tempfile
@@ -20,17 +20,18 @@ import hmac
 import logging
 import threading
 import pycryptopp
+import errno
 import cPickle as pickle
+import os
 import time
 import hashlib
 import bz2
 from base64 import b64decode, b64encode
 import struct
 
-__all__ = [ "Connection", "ConcurrencyError", "LocalConnection" ]
+__all__ = [ "Connection", "ConcurrencyError", "LocalConnection", 'ChecksumError' ]
 
 log = logging.getLogger("s3")
-
 
 # For testing 
 # Don't change randomly, these values are fine tuned
@@ -41,9 +42,8 @@ LOCAL_PROP_DELAY = 0.09
 class Connection(object):
     """Represents a connection to Amazon S3
 
-    Currently, this just dispatches everything to boto. Note
-    that boto is not threadsafe, so we need to create a
-    separate boto connection object for each thread.
+    This class just dispatches everything to boto. Note separate boto connection 
+    object for each thread.
     """
 
     def __init__(self, awskey, awspass):
@@ -68,16 +68,12 @@ class Connection(object):
 
     def _push_conn(self, conn):
         '''Return boto connection object to pool'''
-
         self.pool.append(conn)
-
 
     def delete_bucket(self, name):
         """Delete bucket"""
-
         with self._get_boto() as boto:
             boto.delete_bucket(name)
-
 
     @contextmanager
     def _get_boto(self):
@@ -94,8 +90,6 @@ class Connection(object):
 
         with self._get_boto() as boto:
             boto.create_bucket(name)
-
-            # S3 needs some time before we can fetch the bucket
             retry(60, self.bucket_exists, name)
 
         return self.get_bucket(name, passphrase)
@@ -114,8 +108,7 @@ class Connection(object):
                     raise KeyError("Bucket %r does not exist." % name)
                 else:
                     raise
-
-            return Bucket(self, name, passphrase)
+        return Bucket(self, name, passphrase)
 
     def bucket_exists(self, name):
         """Check if the bucket `name` exists"""
@@ -126,6 +119,43 @@ class Connection(object):
             return False
         else:
             return True
+
+class LocalConnection(Connection):
+    """A connection that stores buckets on the local disk rather than
+    on S3.
+    """
+
+    def __init__(self):
+        super(LocalConnection, self).__init__('awskey', 'awspass')
+
+    def delete_bucket(self, name):
+        """Delete bucket"""
+
+        if not os.path.exists(name):
+            raise KeyError('Directory of local bucket does not exist')
+
+        os.rmdir(name)
+
+
+    def create_bucket(self, name, passphrase=None):
+        """Create and return an S3 bucket"""
+
+        if os.path.exists(name):
+            raise RuntimeError('Bucket already exists')
+        os.mkdir(name)
+
+        return self.get_bucket(name, passphrase)
+
+    def get_bucket(self, name, passphrase=None):
+        """Return a bucket instance for the bucket `name`
+        
+        Raises `KeyError` if the bucket does not exist.
+        """
+
+        if not os.path.exists(name):
+            raise KeyError('Local bucket directory %s does not exist' % name)
+        return LocalBucket(self, name, passphrase)
+
 
 
 class Bucket(object):
@@ -174,9 +204,9 @@ class Bucket(object):
             self.conn._push_conn(boto_conn)
 
     def __init__(self, conn, name, passphrase):
-        self.name = name
         self.conn = conn
         self.passphrase = passphrase
+        self.name = name
 
     def __str__(self):
         return "<bucket: %s>" % self.name
@@ -414,61 +444,19 @@ class Bucket(object):
         with self._get_boto() as boto:
             boto.copy_key(dest, self.name, src)
 
-class LocalConnection(Connection):
-    '''
-    For testing purposes only. Pretends to be a Connection,
-    but stores all data in memory rather than sending
-    anything to S3.
-    '''
 
-    def __init__(self, awskey=None, awspass=None):
-        super(LocalConnection, self).__init__(awskey, awspass)
-        self.boto_conn = LocalBotoConn()
+class LocalBucket(Bucket):
+    '''A bucket that is stored on the local harddisk'''
 
-    def _pop_conn(self):
-        '''Get connection object from the pool'''
+    def __init__(self, conn, name, passphrase):
+        super(LocalBucket, self).__init__(conn, name, passphrase)
+        self.bbucket = LocalBotoBucket(name)
 
-        try:
-            conn = self.pool.pop()
-        except IndexError:
-            # Need to create a new connection
-            log.debug("Creating new local connection (active conns: %d)...",
-                      self.conn_cnt)
-            conn = self.boto_conn
-            self.conn_cnt += 1
+    @contextmanager
+    def _get_boto(self):
+        '''Provide boto bucket object'''
 
-        return conn
-
-# Stores the buckets
-local_buckets = dict()
-class LocalBotoConn(object):
-    '''
-    For testing purposes. Pretends to be a boto S3 connection, but
-    stores everything in memory.
-    '''
-
-    def __init__(self):
-        pass
-
-    def get_bucket(self, name):
-        sleep(LOCAL_TX_DELAY)
-        if name in local_buckets:
-            return local_buckets[name]
-        else:
-            raise bex.S3ResponseError(404, 'Bucket does not exist')
-
-    def delete_bucket(self, name):
-        sleep(LOCAL_TX_DELAY)
-        if local_buckets[name]:
-            raise RuntimeError('Attempted to delete nonempty bucket')
-        del local_buckets[name]
-
-    def create_bucket(self, name):
-        sleep(LOCAL_TX_DELAY)
-        if name in local_buckets:
-            raise RuntimeError('Attempted to create existing bucket')
-
-        local_buckets[name] = LocalBotoBucket(name)
+        yield self.bbucket
 
 class LocalBotoKey(dict):
     '''
@@ -481,7 +469,6 @@ class LocalBotoKey(dict):
         self.name = name
         self.metadata = meta
 
-
     def get_contents_to_file(self, fh):
         log.debug("LocalBotoKey: get_contents_to_file() for %s", self.name)
 
@@ -492,15 +479,15 @@ class LocalBotoKey(dict):
         sleep(LOCAL_TX_DELAY)
         self.bucket.in_transmit.remove(self.name)
 
-        fh.seek(0)
-        fh.write(self.bucket[self.name][0])
-        self.metadata = self.bucket[self.name][1]
-
+        filename = os.path.join(self.bucket.name, b64encode(self.name))
+        with open(filename + '.dat', 'rb') as src:
+            fh.seek(0)
+            fh.write(src.read())
+        with open(filename + '.meta', 'rb') as src:
+            self.metadata = pickle.load(src)
 
     def set_contents_from_file(self, fh):
         log.debug("LocalBotoKey: set_contents_from_file() for %s", self.name)
-        fh.seek(0)
-        val = fh.read()
 
         if self.name in self.bucket.in_transmit:
             raise ConcurrencyError()
@@ -509,10 +496,28 @@ class LocalBotoKey(dict):
         sleep(LOCAL_TX_DELAY)
         self.bucket.in_transmit.remove(self.name)
 
+        filename = os.path.join(self.bucket.name, b64encode(self.name))
+        fh.seek(0)
+        with open(filename + '.tmp', 'wb') as dest:
+            dest.write(fh.read())
+        with open(filename + '.mtmp', 'wb') as dest:
+            pickle.dump(self.metadata, dest, 2)
+
         def set_():
             sleep(LOCAL_PROP_DELAY)
             log.debug("LocalBotoKey: Committing store for %s", self.name)
-            self.bucket[self.name] = (val, self.metadata)
+            try:
+                os.rename(filename + '.tmp', filename + '.dat')
+                os.rename(filename + '.mtmp', filename + '.meta')
+            except OSError as e:
+                # Quick successive calls of store may fail, because they
+                # overwrite an existing .tmp file, which is already
+                # renamed by an earlier thread when the current thread tries
+                # to rename.
+                if e.errno == errno.ENOENT:
+                    pass
+                else:
+                    raise
 
         t = threading.Thread(target=set_)
         t.start()
@@ -524,10 +529,10 @@ class LocalBotoKey(dict):
         return self.metadata[key]
 
 
-class LocalBotoBucket(dict):
+class LocalBotoBucket(object):
     """
-    Only for testing purposes. Represents a bucket stored in memory.
-    It emulates an artificial propagation delay and transmit time. 
+    Represents a bucket stored on a local directory and
+    emulates an artificial propagation delay and transmit time. 
 
     It tries to raise ConcurrencyError if several threads try to write or read
     the same object at a time (but it cannot guarantee to catch these cases).
@@ -546,22 +551,28 @@ class LocalBotoBucket(dict):
         sleep(LOCAL_TX_DELAY)
         self.in_transmit.remove(key)
 
-        if not key in self:
+        filename = os.path.join(self.name, b64encode(key))
+        if not os.path.exists(filename + '.dat'):
             raise KeyError('Key does not exist in bucket')
 
         def set_():
             sleep(LOCAL_PROP_DELAY)
             log.debug("LocalBotoBucket: Committing delete_key(%s)", key)
-            del self[key]
+            os.unlink(filename + '.dat')
+            os.unlink(filename + '.meta')
+
         threading.Thread(target=set_).start()
 
     def list(self):
         # We add the size attribute outside init
         #pylint: disable-msg=W0201
         log.debug("LocalBotoBucket: Handling list()")
-        for key in list(self):
+        for name in os.listdir(self.name):
+            if not name.endswith('.dat'):
+                continue
+            key = b64decode(name[:-len('.dat')])
             el = LocalBotoKey(self, key, dict())
-            el.size = len(self[key])
+            el.size = os.path.getsize(os.path.join(self.name, name))
             yield el
 
     def get_key(self, key):
@@ -571,8 +582,12 @@ class LocalBotoBucket(dict):
         self.in_transmit.add(key)
         sleep(LOCAL_TX_DELAY)
         self.in_transmit.remove(key)
-        if key in self:
-            return LocalBotoKey(self, key, self[key][1])
+        filename = os.path.join(self.name, b64encode(key))
+        if os.path.exists(filename + '.dat'):
+            with open(filename + '.meta', 'rb') as src:
+                metadata = pickle.load(src)
+
+            return LocalBotoKey(self, key, metadata)
         else:
             return None
 
@@ -581,8 +596,6 @@ class LocalBotoBucket(dict):
 
     def copy_key(self, dest, src_bucket, src):
         log.debug("LocalBotoBucket: Received copy from %s to %s", src, dest)
-        if src_bucket != self.name:
-            raise RuntimeError('Inter-bucket copying not supported')
 
         if dest in self.in_transmit or src in self.in_transmit:
             raise ConcurrencyError
@@ -590,13 +603,18 @@ class LocalBotoBucket(dict):
         self.in_transmit.add(dest)
         sleep(LOCAL_TX_DELAY)
 
-        if not src in self:
+        filename_src = os.path.join(src_bucket, b64encode(src))
+        filename_dest = os.path.join(self.name, b64encode(dest))
+
+        if not os.path.exists(filename_src + '.dat'):
             raise KeyError('source key does not exist')
 
         def set_():
             sleep(LOCAL_PROP_DELAY)
             log.debug("LocalBotoBucket: Committing copy from %s to %s", src, dest)
-            self[dest] = copy.deepcopy(self[src])
+            shutil.copyfile(filename_src + '.dat', filename_dest + '.dat')
+            shutil.copyfile(filename_src + '.meta', filename_dest + '.meta')
+
         threading.Thread(target=set_).start()
         self.in_transmit.remove(dest)
         self.in_transmit.remove(src)

@@ -11,7 +11,10 @@ from __future__ import division, print_function
 import unittest
 from s3ql import s3
 from random   import randrange
+import tempfile
 import threading
+import os
+import shutil
 from time import sleep
 from _common import TestCase
 
@@ -24,13 +27,16 @@ class s3_tests_local(TestCase):
 
     def setUp(self):
         self.conn = s3.LocalConnection()
-        self.bucketname = self.random_name()
-        self.conn.create_bucket(self.bucketname)
+        self.bucket_dir = tempfile.mkdtemp()
+        self.bucketname = os.path.join(self.bucket_dir, 'mybucket')
+        self.base = tempfile.mkdtemp()
+        self.conn.create_bucket(self.bucketname, passphrase='flup!')
         self.bucket = self.conn.get_bucket(self.bucketname)
 
     def tearDown(self):
-        # Delete the bucket, we don't want to wait for any propagations here
-        del s3.local_buckets[self.bucketname]
+        # Wait for pending transactions
+        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        shutil.rmtree(self.bucket_dir)
 
     @staticmethod
     def random_name(prefix=""):
@@ -189,6 +195,7 @@ class s3_tests_local(TestCase):
         t.join()
         self.assertTrue(self.bucket.fetch(key) is not None)
 
+        sleep(s3.LOCAL_PROP_DELAY * 1.1)
         del self.bucket[key]
 
     def test_06_copy(self):

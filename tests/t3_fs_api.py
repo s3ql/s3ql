@@ -37,8 +37,9 @@ class Ctx(object):
 class fs_api_tests(TestCase):
 
     def setUp(self):
-        self.bucket = s3.LocalConnection().create_bucket('foobar', 'brazl')
-
+        self.bucket_dir = tempfile.mkdtemp()
+        self.passphrase = 'sdfds'
+        self.bucket = s3.LocalConnection().get_bucket(self.bucket_dir, self.passphrase)
         self.dbfile = tempfile.NamedTemporaryFile()
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
@@ -60,9 +61,9 @@ class fs_api_tests(TestCase):
         self.cache.clear()
         self.dbfile.close()
         shutil.rmtree(self.cachedir)
+        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        shutil.rmtree(self.bucket_dir)
 
-        # Delete the bucket, we don't want to wait for any propagations here
-        del s3.local_buckets['foobar']
 
     def fsck(self):
         self.cache.clear()

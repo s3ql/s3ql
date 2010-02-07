@@ -22,7 +22,7 @@ import stat
 import logging
 import cPickle as pickle
 
-__all__ = [ 'main', 'add_common_mount_opts', 'run_server' ]
+__all__ = [ 'main' ]
 
 log = logging.getLogger("mount")
 
@@ -44,8 +44,12 @@ def main(args):
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.')
 
-    (awskey, awspass) = get_credentials(options.credfile, options.awskey)
-    conn = s3.Connection(awskey, awspass)
+    if options.bucketname.startswith('local:'):
+        options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
+        conn = s3.LocalConnection()
+    else:
+        (awskey, awspass) = get_credentials(options.credfile, options.awskey)
+        conn = s3.Connection(awskey, awspass)
     bucket = conn.get_bucket(options.bucketname)
 
     try:
@@ -204,9 +208,43 @@ def run_server(bucket, cache, dbcm, options):
     return operations
 
 
-def add_common_mount_opts(parser):
-    '''Add options common to mount and mount_local'''
+def parse_args(args):
+    '''Parse command line
+    
+    This function writes to stdout/stderr and may call `system.exit()` instead 
+    of throwing an exception if it encounters errors.
+    '''
 
+    # Not too many branches
+    #pylint: disable-msg=R0912
+
+    parser = OptionParser(
+        usage="%prog  [options] <bucketname> <mountpoint>\n"
+              "       %prog --help",
+        description="Mounts an amazon S3 bucket as a filesystem.")
+
+    parser.add_option("--awskey", type="string",
+                      help="Amazon Webservices access key to use. If not "
+                      "specified, tries to read ~/.awssecret or the file given by --credfile.")
+    parser.add_option("--credfile", type="string",
+                      default=os.path.join(os.environ["HOME"], ".awssecret"),
+                      help='Try to read AWS access key and key id from this file. '
+                      'The file must be readable only be the owner and should contain '
+                      'the key id and the secret key separated by a newline. '
+                      'Default: ~/.awssecret')
+    parser.add_option("--cachedir", type="string",
+                      default=os.path.join(os.environ["HOME"], ".s3ql"),
+                      help="Specifies the directory for cache files. Different S3QL file systems "
+                      '(i.e. located in different S3 buckets) can share a cache location, even if '
+                      'they are mounted at the same time. '
+                      'You should try to always use the same location here, so that S3QL can detect '
+                      'and, as far as possible, recover from unclean umounts. Default is ~/.s3ql.')
+    parser.add_option("--s3timeout", type="int", default=120,
+                      help="Maximum time in seconds to wait for propagation in S3 (default: %default)")
+    parser.add_option("--cachesize", type="int", default=102400,
+                      help="Cache size in kb (default: 102400 (100 MB)). Should be at least 10 times "
+                      "the blocksize of the filesystem, otherwise an object may be retrieved and "
+                      "written several times during a single write() or read() operation.")
     parser.add_option("--logfile", type="string",
                       default=os.path.join(os.environ["HOME"], ".s3ql", 'mount.log'),
                       help="Write log messages in this file. Default: ~/.s3ql/mount.log")
@@ -236,49 +274,6 @@ def add_common_mount_opts(parser):
     parser.add_option("--profile", action="store_true", default=False,
                       help="Create profiling information. If you don't understand this, "
                            "then you don't need it.")
-
-
-
-def parse_args(args):
-    '''Parse command line
-    
-    This function writes to stdout/stderr and may call `system.exit()` instead 
-    of throwing an exception if it encounters errors.
-    '''
-
-    # Not too many branches
-    #pylint: disable-msg=R0912
-
-    parser = OptionParser(
-        usage="%prog  [options] <bucketname> <mountpoint>\n"
-              "       %prog --help",
-        description="Mounts an amazon S3 bucket as a filesystem.")
-
-    add_common_mount_opts(parser)
-
-    parser.add_option("--awskey", type="string",
-                      help="Amazon Webservices access key to use. If not "
-                      "specified, tries to read ~/.awssecret or the file given by --credfile.")
-    parser.add_option("--credfile", type="string",
-                      default=os.path.join(os.environ["HOME"], ".awssecret"),
-                      help='Try to read AWS access key and key id from this file. '
-                      'The file must be readable only be the owner and should contain '
-                      'the key id and the secret key separated by a newline. '
-                      'Default: ~/.awssecret')
-    parser.add_option("--cachedir", type="string",
-                      default=os.path.join(os.environ["HOME"], ".s3ql"),
-                      help="Specifies the directory for cache files. Different S3QL file systems "
-                      '(i.e. located in different S3 buckets) can share a cache location, even if '
-                      'they are mounted at the same time. '
-                      'You should try to always use the same location here, so that S3QL can detect '
-                      'and, as far as possible, recover from unclean umounts. Default is ~/.s3ql.')
-    parser.add_option("--s3timeout", type="int", default=120,
-                      help="Maximum time in seconds to wait for propagation in S3 (default: %default)")
-    parser.add_option("--cachesize", type="int", default=102400,
-                      help="Cache size in kb (default: 102400 (100 MB)). Should be at least 10 times "
-                      "the blocksize of the filesystem, otherwise an object may be retrieved and "
-                      "written several times during a single write() or read() operation.")
-
 
     (options, pps) = parser.parse_args(args)
 

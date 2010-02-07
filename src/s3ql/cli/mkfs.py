@@ -77,7 +77,26 @@ def main(args):
 
     options = parse_args(args)
     init_logging_from_options(options)
-    (awskey, awspass) = get_credentials(options.credfile, options.awskey)
+
+    if options.bucketname.startswith('local:'):
+        options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
+        conn = s3.LocalConnection()
+    else:
+        (awskey, awspass) = get_credentials(options.credfile, options.awskey)
+        conn = s3.Connection(awskey, awspass)
+
+    if conn.bucket_exists(options.bucketname):
+        if options.force:
+            log.info("Removing existing bucket...")
+            bucket = conn.get_bucket(options.bucketname)
+            bucket.clear()
+        else:
+            log.error(
+                "Bucket already exists!\n"
+                "Use -f option to remove the existing bucket.\n")
+            raise QuietError(1)
+    else:
+        bucket = conn.create_bucket(options.bucketname)
 
     if options.encrypt:
         if sys.stdin.isatty():
@@ -94,26 +113,6 @@ def main(args):
         data_pw = fh.read(32)
         fh.close()
 
-
-    #
-    # Setup bucket
-    #
-    conn = s3.Connection(awskey, awspass)
-    if conn.bucket_exists(options.bucketname):
-        if options.force:
-            log.info("Removing existing bucket...")
-            bucket = conn.get_bucket(options.bucketname)
-            bucket.clear()
-        else:
-            log.error(
-                "Bucket already exists!\n"
-                "Use -f option to remove the existing bucket.\n")
-            raise QuietError(1)
-    else:
-        bucket = conn.create_bucket(options.bucketname)
-
-    # Setup encryption
-    if options.encrypt:
         bucket.passphrase = wrap_pw
         bucket['s3ql_passphrase'] = data_pw
         bucket.passphrase = data_pw
@@ -122,8 +121,8 @@ def main(args):
     #
     # Setup database
     #
-    dbfile = get_dbfile(bucket, options.cachedir)
-    cachedir = get_cachedir(bucket, options.cachedir)
+    dbfile = get_dbfile(options.bucketname, options.cachedir)
+    cachedir = get_cachedir(options.bucketname, options.cachedir)
 
     if (os.path.exists(dbfile) or
         os.path.exists(cachedir)):

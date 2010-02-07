@@ -80,8 +80,12 @@ def main(args):
     dbfile = get_dbfile(options.bucketname, options.cachedir)
     cachedir = get_cachedir(options.bucketname, options.cachedir)
 
-    (awskey, awspass) = get_credentials(options.credfile, options.awskey)
-    conn = s3.Connection(awskey, awspass)
+    if options.bucketname.startswith('local:'):
+        options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
+        conn = s3.LocalConnection()
+    else:
+        (awskey, awspass) = get_credentials(options.credfile, options.awskey)
+        conn = s3.Connection(awskey, awspass)
     if not conn.bucket_exists(options.bucketname):
         log.error("Bucket does not exist.")
         sys.exit(1)

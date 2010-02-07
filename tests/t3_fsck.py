@@ -29,8 +29,9 @@ import shutil
 class fsck_tests(TestCase):
 
     def setUp(self):
-        self.bucket = s3.LocalConnection().create_bucket('foobar', 'brazl')
-
+        self.bucket_dir = tempfile.mkdtemp()
+        self.passphrase = 'schnupp'
+        self.bucket = s3.LocalConnection().get_bucket(self.bucket_dir, self.passphrase)
         self.dbfile = tempfile.NamedTemporaryFile()
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
@@ -49,9 +50,8 @@ class fsck_tests(TestCase):
     def tearDown(self):
         self.dbfile.close()
         shutil.rmtree(self.cachedir)
-
-        # Delete the bucket, we don't want to wait for any propagations here
-        del s3.local_buckets['foobar']
+        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        shutil.rmtree(self.bucket_dir)
 
 
     def test_detect(self):

@@ -71,8 +71,13 @@ def main(args):
     options = parse_args(args)
     init_logging_from_options(options)
 
-    (awskey, awspass) = get_credentials(options.credfile, options.awskey)
-    conn = s3.Connection(awskey, awspass)
+    if options.bucketname.startswith('local:'):
+        options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
+        conn = s3.LocalConnection()
+    else:
+        (awskey, awspass) = get_credentials(options.credfile, options.awskey)
+        conn = s3.Connection(awskey, awspass)
+
     if not conn.bucket_exists(options.bucketname):
         raise QuietError("Bucket does not exist.")
     bucket = conn.get_bucket(options.bucketname)

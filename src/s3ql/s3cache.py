@@ -183,7 +183,7 @@ class S3Cache(object):
 
             # Not in cache
             except KeyError:
-                filename = self.cachedir + 'inode_%d_block_%d' % (inode, blockno)
+                filename = os.path.join(self.cachedir, 'inode_%d_block_%d' % (inode, blockno))
                 with self.dbcm() as conn:
                     try:
                         s3key = conn.get_val("SELECT s3key FROM blocks WHERE inode=? AND blockno=?",
