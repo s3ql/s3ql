@@ -32,25 +32,26 @@ class s3_tests_local(TestCase):
         self.passphrase = 'flurp'
         self.conn.create_bucket(self.bucketname, self.passphrase)
         self.bucket = self.conn.get_bucket(self.bucketname)
+        self.name_cnt = 0
 
     def tearDown(self):
         # Wait for pending transactions
         sleep(s3.LOCAL_PROP_DELAY * 1.1)
         shutil.rmtree(self.bucket_dir)
 
-    @staticmethod
-    def random_name(prefix=""):
-        return "s3ql_" + prefix + str(randrange(100, 999, 1))
+    def newname(self):
+        self.name_cnt += 1
+        return "s3ql_%d" % self.name_cnt
 
     def tst_store_wait(self):
-        key = self.random_name("key_")
-        value = self.random_name("value_")
+        key = self.newname()
+        value = self.newname()
 
         self.bucket.store_wait(key, value, { 'foobar': 77 })
 
     def tst_01_store_fetch_lookup_delete_key(self):
-        key = self.random_name("key_")
-        value = self.random_name("value_")
+        key = self.newname()
+        value = self.newname()
         self.assertRaises(KeyError, self.bucket.lookup_key, key)
         self.assertRaises(KeyError, self.bucket.delete_key, key)
         self.assertRaises(KeyError, self.bucket.fetch, key)
@@ -68,9 +69,9 @@ class s3_tests_local(TestCase):
         self.assertRaises(KeyError, self.bucket.fetch, key)
 
     def tst_02_meta(self):
-        key = self.random_name()
-        value1 = self.random_name()
-        value2 = self.random_name()
+        key = self.newname()
+        value1 = self.newname()
+        value2 = self.newname()
 
         self.bucket.store(key, value1, { 'foo': 42 })
         sleep(s3.LOCAL_PROP_DELAY * 1.1)
@@ -84,8 +85,6 @@ class s3_tests_local(TestCase):
 
         self.assertTrue('foo' not in meta2)
         self.assertEquals(meta2['bar'], 37)
-
-        self.assertTrue(meta1['last-modified'] < meta2['last-modified'])
 
         del self.bucket[key]
 
@@ -105,8 +104,8 @@ class s3_tests_local(TestCase):
     def tst_03_list_keys(self):
 
         # Keys need to be unique
-        keys = [ self.random_name("key_") + str(x) for x in range(12) ]
-        values = [ self.random_name("value_") for x in range(12) ]
+        keys = [ self.newname() + str(x) for x in range(12) ]
+        values = [ self.newname() for x in range(12) ]
 
         for i in range(12):
             self.bucket.store(keys[i], values[i])
@@ -122,9 +121,9 @@ class s3_tests_local(TestCase):
         assert s3.LOCAL_TX_DELAY > 0
         assert s3.LOCAL_PROP_DELAY > 3 * s3.LOCAL_TX_DELAY
 
-        key = self.random_name()
-        value1 = self.random_name()
-        value2 = self.random_name()
+        key = self.newname()
+        value1 = self.newname()
+        value2 = self.newname()
 
         self.assertFalse(self.bucket.has_key(key))
         self.bucket[key] = value1
@@ -149,7 +148,7 @@ class s3_tests_local(TestCase):
         bucket['plain'] = b'foobar452'
 
         bucket.passphrase = 'schlurp'
-        bucket['encrypted'] = b'testdata'
+        bucket.store('encrypted', 'testdata', { 'tag': True })
         sleep(s3.LOCAL_PROP_DELAY * 1.1)
         self.assertEquals(bucket['encrypted'], b'testdata')
         self.assertRaises(s3.ChecksumError, bucket.fetch, 'plain')
@@ -172,8 +171,8 @@ class s3_tests_local(TestCase):
         # Required for tests to work
         assert tx_delay > 0
 
-        key = self.random_name()
-        value = self.random_name()
+        key = self.newname()
+        value = self.newname()
 
         def async1():
             self.bucket[key] = value
@@ -217,9 +216,9 @@ class s3_tests_local(TestCase):
 
     def tst_06_copy(self):
 
-        key1 = self.random_name("key_1")
-        key2 = self.random_name("key_2")
-        value = self.random_name("value_")
+        key1 = self.newname()
+        key2 = self.newname()
+        value = self.newname()
         self.assertRaises(KeyError, self.bucket.lookup_key, key1)
         self.assertRaises(KeyError, self.bucket.lookup_key, key2)
 

@@ -40,14 +40,15 @@ class fuse_tests(TestCase):
         self.cache_dir = tempfile.mkdtemp()
         self.bucket_dir = tempfile.mkdtemp()
 
-        self.bucketname = 'local:' + os.path.join(self.bucket_dir, self.random_name())
-        self.passphrase = self.random_name()
+        self.bucketname = 'local:' + os.path.join(self.bucket_dir, self.newname())
+        self.passphrase = self.newname()
 
         # Make sure that the mount thread does not mess with the
         # logging settings
         common.init_logging = lambda * a, **kw: None
 
         self.mount_thread = None
+        self.name_cnt = 0
 
     def tearDown(self):
         # Umount if still mounted
@@ -100,31 +101,28 @@ class fuse_tests(TestCase):
         except SystemExit as exc:
             self.fail("fsck failed: %s" % exc)
 
-    def test_bla(self):
-        self.runTest()
-
     def runTest(self):
         # Run all tests in same environment, mounting and umounting
         # just takes too long otherwise
 
         self.mount()
-        self.test_chown()
-        self.test_link()
-        self.test_mkdir()
-        self.test_mknod()
-        self.test_readdir()
-        self.test_statvfs()
-        self.test_symlink()
-        self.test_truncate()
-        self.test_write()
+        self.tst_chown()
+        self.tst_link()
+        self.tst_mkdir()
+        self.tst_mknod()
+        self.tst_readdir()
+        self.tst_statvfs()
+        self.tst_symlink()
+        self.tst_truncate()
+        self.tst_write()
         self.umount()
 
-    @staticmethod
-    def random_name():
-        return "s3ql" + str(randrange(100, 999, 1))
+    def newname(self):
+        self.name_cnt += 1
+        return "s3ql_%d" % self.name_cnt
 
-    def test_mkdir(self):
-        dirname = self.random_name()
+    def tst_mkdir(self):
+        dirname = self.newname()
         fullname = self.mnt_dir + "/" + dirname
         os.mkdir(fullname)
         fstat = os.stat(fullname)
@@ -136,8 +134,8 @@ class fuse_tests(TestCase):
         self.assertRaises(OSError, os.stat, fullname)
         self.assertTrue(dirname not in libc.listdir(self.mnt_dir))
 
-    def test_symlink(self):
-        linkname = self.random_name()
+    def tst_symlink(self):
+        linkname = self.newname()
         fullname = self.mnt_dir + "/" + linkname
         os.symlink("/imaginary/dest", fullname)
         fstat = os.lstat(fullname)
@@ -149,8 +147,8 @@ class fuse_tests(TestCase):
         self.assertRaises(OSError, os.lstat, fullname)
         self.assertTrue(linkname not in libc.listdir(self.mnt_dir))
 
-    def test_mknod(self):
-        filename = os.path.join(self.mnt_dir, self.random_name())
+    def tst_mknod(self):
+        filename = os.path.join(self.mnt_dir, self.newname())
         src = self.src
         shutil.copyfile(src, filename)
         fstat = os.lstat(filename)
@@ -162,8 +160,8 @@ class fuse_tests(TestCase):
         self.assertRaises(OSError, os.stat, filename)
         self.assertTrue(basename(filename) not in libc.listdir(self.mnt_dir))
 
-    def test_chown(self):
-        filename = os.path.join(self.mnt_dir, self.random_name())
+    def tst_chown(self):
+        filename = os.path.join(self.mnt_dir, self.newname())
         os.mkdir(filename)
         fstat = os.lstat(filename)
         uid = fstat.st_uid
@@ -186,8 +184,8 @@ class fuse_tests(TestCase):
         self.assertTrue(basename(filename) not in libc.listdir(self.mnt_dir))
 
 
-    def test_write(self):
-        name = os.path.join(self.mnt_dir, self.random_name())
+    def tst_write(self):
+        name = os.path.join(self.mnt_dir, self.newname())
         src = self.src
         shutil.copyfile(src, name)
         self.assertTrue(filecmp.cmp(name, src, False))
@@ -195,12 +193,12 @@ class fuse_tests(TestCase):
         # Don't unlink file, we want to see if cache flushing
         # works
 
-    def test_statvfs(self):
+    def tst_statvfs(self):
         os.statvfs(self.mnt_dir)
 
-    def test_link(self):
-        name1 = os.path.join(self.mnt_dir, self.random_name())
-        name2 = os.path.join(self.mnt_dir, self.random_name())
+    def tst_link(self):
+        name1 = os.path.join(self.mnt_dir, self.newname())
+        name2 = os.path.join(self.mnt_dir, self.newname())
         src = self.src
         shutil.copyfile(src, name1)
         self.assertTrue(filecmp.cmp(name1, src, False))
@@ -219,11 +217,11 @@ class fuse_tests(TestCase):
         self.assertEquals(fstat1.st_nlink, 1)
         os.unlink(name1)
 
-    def test_readdir(self):
-        dir_ = os.path.join(self.mnt_dir, self.random_name())
-        file_ = dir_ + "/" + self.random_name()
-        subdir = dir_ + "/" + self.random_name()
-        subfile = subdir + "/" + self.random_name()
+    def tst_readdir(self):
+        dir_ = os.path.join(self.mnt_dir, self.newname())
+        file_ = dir_ + "/" + self.newname()
+        subdir = dir_ + "/" + self.newname()
+        subfile = subdir + "/" + self.newname()
         src = self.src
 
         os.mkdir(dir_)
@@ -242,8 +240,8 @@ class fuse_tests(TestCase):
         os.rmdir(subdir)
         os.rmdir(dir_)
 
-    def test_truncate(self):
-        filename = os.path.join(self.mnt_dir, self.random_name())
+    def tst_truncate(self):
+        filename = os.path.join(self.mnt_dir, self.newname())
         src = self.src
         shutil.copyfile(src, filename)
         self.assertTrue(filecmp.cmp(filename, src, False))

@@ -23,7 +23,7 @@ class s3_tests_remote(t1_s3_local.s3_tests_local):
 
     @staticmethod
     def random_name(prefix=""):
-        return "s3ql_" + prefix + str(randrange(100, 999, 1))
+        return "s3ql_" + prefix + str(randrange(1000, 9999, 1))
 
     def setUp(self):
         (awskey, awspass) = get_aws_credentials()
@@ -46,6 +46,8 @@ class s3_tests_remote(t1_s3_local.s3_tests_local):
         # This is the time in which we expect S3 changes to propagate. It may
         # be much longer for larger objects, but for tests this is usually enough.
         self.delay = 1
+
+        self.name_cnt = 0
 
     def tearDown(self):
         self.bucket.clear()

@@ -71,9 +71,9 @@ class fs_api_tests(TestCase):
         fsck.fsck(self.dbcm, self.cachedir, self.bucket)
         self.assertFalse(fsck.found_errors)
 
-    def random_name(self):
+    def newname(self):
         self.name_cnt += 1
-        return  b"s3ql_%3d" % self.name_cnt
+        return "s3ql_%d" % self.name_cnt
 
     @staticmethod
     def random_data(len_):
@@ -158,11 +158,11 @@ class fs_api_tests(TestCase):
 
     def test_03_mkdir_rmdir(self):
 
-        name1 = self.random_name()
+        name1 = self.newname()
         inode_p1 = self.root_inode
 
         inode_p2 = self.mkdir(inode_p1, name1)
-        name2 = self.random_name()
+        name2 = self.newname()
         self.mkdir(inode_p2, name2)
         self.assertRaises(FUSEError, self.server.rmdir, inode_p1, name1)
         self.rmdir(inode_p2, name2)
@@ -196,8 +196,8 @@ class fs_api_tests(TestCase):
 
 
     def test_04_symlink(self):
-        name = self.random_name()
-        target = os.path.join(*[ self.random_name() for dummy in range(5) ])
+        name = self.newname()
+        target = os.path.join(*[ self.newname() for dummy in range(5) ])
 
         self.symlink(self.root_inode, name, target)
         self.unlink(self.root_inode, name)
@@ -232,7 +232,7 @@ class fs_api_tests(TestCase):
         return attr['st_ino']
 
     def test_05_create_unlink(self):
-        name = self.random_name()
+        name = self.newname()
         inode_p = self.root_inode
 
         self.create(inode_p, name)
@@ -242,7 +242,7 @@ class fs_api_tests(TestCase):
 
     def test_06_setattr(self):
 
-        name = self.random_name()
+        name = self.newname()
         inode_p = self.root_inode
 
         inode = self.create(inode_p, name)
@@ -278,7 +278,7 @@ class fs_api_tests(TestCase):
 
     def test_07_open_write_read(self):
 
-        name = self.random_name()
+        name = self.newname()
         inode_p = self.root_inode
         inode = self.create(inode_p, name)
 
@@ -303,7 +303,7 @@ class fs_api_tests(TestCase):
         s3.LOCAL_PROP_DELAY = 2
         self.cache.timeout = 3
 
-        name1 = self.random_name()
+        name1 = self.newname()
         inode_p = self.root_inode
         data = self.random_data(5 * self.blocksize)
 
@@ -319,13 +319,13 @@ class fs_api_tests(TestCase):
         s3.LOCAL_PROP_DELAY = bak
 
     def test_08_link(self):
-        name = self.random_name()
-        dirname = self.random_name()
+        name = self.newname()
+        dirname = self.newname()
         inode_p = self.root_inode
         inode = self.create(inode_p, name)
 
         inode_p2 = self.mkdir(inode_p, dirname)
-        name2 = self.random_name()
+        name2 = self.newname()
         self.assert_entry_doesnt_exist(inode_p2, name2)
         mtime_old = self.server.getattr(inode_p2)['st_mtime']
         self.server.link(inode, inode_p2, name2)
@@ -347,7 +347,7 @@ class fs_api_tests(TestCase):
     def test_09_write_read_cmplx(self):
 
         inode_p = self.root_inode
-        name = self.random_name()
+        name = self.newname()
         inode = self.create(inode_p, name)
 
         off = int(5.9 * self.blocksize)
@@ -378,7 +378,7 @@ class fs_api_tests(TestCase):
     def test_11_truncate_within(self):
 
         inode_p = self.root_inode
-        name = self.random_name()
+        name = self.newname()
         inode = self.create(inode_p, name)
 
         off = int(5.5 * self.blocksize)
@@ -419,7 +419,7 @@ class fs_api_tests(TestCase):
     def test_12_truncate_across(self):
 
         inode_p = self.root_inode
-        name = self.random_name()
+        name = self.newname()
         inode = self.create(inode_p, name)
         off = int(5.5 * self.blocksize)
         datalen = int(0.3 * self.blocksize)
@@ -461,7 +461,7 @@ class fs_api_tests(TestCase):
         '''Check that setattr() releases db lock before calling s3cache.get'''
 
         inode_p = self.root_inode
-        name = self.random_name()
+        name = self.newname()
         inode = self.create(inode_p, name)
         fh = self.server.open(inode, os.O_RDWR)
 
@@ -480,10 +480,10 @@ class fs_api_tests(TestCase):
         self.fsck()
 
     def test_10_rename(self):
-        dirname_old = self.random_name()
-        dirname_new = self.random_name()
-        filename_old = self.random_name()
-        filename_new = self.random_name()
+        dirname_old = self.newname()
+        dirname_new = self.newname()
+        filename_old = self.newname()
+        filename_new = self.newname()
 
         inode_p = self.root_inode
 
@@ -515,7 +515,7 @@ class fs_api_tests(TestCase):
         self.fsck()
 
     def test_xattr(self):
-        name = self.random_name()
+        name = self.newname()
         key1 = 'xattr_1_key'
         key2 = 'xattr_2_key'
         value = 'blablabla!'
@@ -547,8 +547,8 @@ class fs_api_tests(TestCase):
         self.fsck()
 
     def test_move_dir(self):
-        dir1 = self.random_name()
-        dir2 = self.random_name()
+        dir1 = self.newname()
+        dir2 = self.newname()
 
         n = self.server.getattr(self.root_inode)['st_nlink']
         inode1 = self.mkdir(self.root_inode, dir1)
@@ -576,8 +576,8 @@ class fs_api_tests(TestCase):
         self.server.release(fh)
 
     def test_10_overwrite_file(self):
-        filename1 = self.random_name()
-        filename2 = self.random_name()
+        filename1 = self.newname()
+        filename2 = self.newname()
         inode_p = self.root_inode
 
         # Create two files
@@ -606,7 +606,7 @@ class fs_api_tests(TestCase):
         bak = multi_lock.FAKEDELAY
         multi_lock.FAKEDELAY = 0.02
 
-        name = self.random_name()
+        name = self.newname()
         inode_p = self.root_inode
 
         # Create file
@@ -624,9 +624,9 @@ class fs_api_tests(TestCase):
         multi_lock.FAKEDELAY = bak
 
     def test_10_overwrite_dir(self):
-        dirname1 = self.random_name()
-        dirname2 = self.random_name()
-        filename = self.random_name()
+        dirname1 = self.newname()
+        dirname2 = self.newname()
+        filename = self.newname()
         inode_p = self.root_inode
 
         inode1 = self.mkdir(inode_p, dirname1)
@@ -687,7 +687,7 @@ class fs_api_tests(TestCase):
         return attr['st_ino']
 
     def test_05_mknod_unlink(self):
-        name = self.random_name()
+        name = self.newname()
         inode_p = self.root_inode
 
         for type_ in [stat.S_IFSOCK, stat.S_IFCHR, stat.S_IFBLK, stat.S_IFIFO]:
@@ -702,7 +702,7 @@ class fs_api_tests(TestCase):
     def test_15_delayed_unlink(self):
 
         inode_p = self.root_inode
-        name = self.random_name()
+        name = self.newname()
         inode = self.create(inode_p, name)
         fh = self.server.open(inode, os.O_RDWR)
         self.server.write(fh, 0, self.random_data(self.blocksize))
@@ -723,8 +723,8 @@ class fs_api_tests(TestCase):
     def test_15_rescued_unlink(self):
 
         inode_p = self.root_inode
-        name = self.random_name()
-        newname = self.random_name()
+        name = self.newname()
+        newname = self.newname()
         inode = self.create(inode_p, name)
         data = self.random_data(self.blocksize)
         fh = self.server.open(inode, os.O_RDWR)
@@ -741,7 +741,7 @@ class fs_api_tests(TestCase):
 
     def test_14_fsync(self):
         blocks = 3
-        name = self.random_name()
+        name = self.newname()
         inode_p = self.root_inode
         inode = self.create(inode_p, name)
         fh = self.server.open(inode, os.O_RDWR)

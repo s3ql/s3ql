@@ -255,7 +255,9 @@ class Bucket(object):
 
         encrypted = bkey.metadata['encrypted'] == 'True'
         if encrypted and not self.passphrase:
-            raise ChecksumError('Encrypted key and no passphrase supplied')
+            raise ChecksumError('Encrypted object and no passphrase supplied')
+        if not encrypted and self.passphrase:
+            raise ChecksumError('Passphrase supplied, but object is not encrypted')
 
         if 'meta' in bkey.metadata:
             meta_raw = b64decode(bkey.metadata['meta'])
@@ -337,10 +339,14 @@ class Bucket(object):
         """Store data under `key` and wait for propagation
 
         Like `store`, but wait until the update has propagated in
-        S3.
+        S3. This adds special 'last-modified' entry to the
+        metadata.
         """
 
+        if metadata is None:
+            metadata = dict()
         stamp = time.time() - time.timezone
+        metadata['last-modified'] = stamp
         self.store(key, val, metadata)
 
         def check_key():
@@ -349,7 +355,7 @@ class Bucket(object):
             except KeyError:
                 return False
             else:
-                return meta['last-modified'] >= stamp
+                return 'last-modified' in meta and meta['last-modified'] == stamp
 
         # TODO: This may not work. It is possible that one server already has
         # the update (and responds correctly), but a later request is answered
@@ -375,7 +381,9 @@ class Bucket(object):
 
         encrypted = bkey.metadata['encrypted'] == 'True'
         if encrypted and not self.passphrase:
-            raise ChecksumError('Encrypted key and no passphrase supplied')
+            raise ChecksumError('Encrypted object and no passphrase supplied')
+        if not encrypted and self.passphrase:
+            raise ChecksumError('Passphrase supplied, but object is not encrypted')
 
         if 'meta' in bkey.metadata:
             meta_raw = b64decode(bkey.metadata['meta'])
@@ -402,19 +410,13 @@ class Bucket(object):
         the current UTC timestamp is always added automatically.
         """
 
-        # TODO: We should get rid of the last-modified and only
-        # store metadata if it's not empty.
-
         # TODO: Switch to compression with pyliblzma. To keep this backwards
         # compatible, we will introduce a new (unencryted) "compression-method"
         # metadata header that defaults to bz2 if absent.
 
-        if metadata is None:
-            metadata = dict()
-
         fh.seek(0)
-        metadata['last-modified'] = time.time() - time.timezone
-        meta_raw = pickle.dumps(metadata, 2)
+        if metadata:
+            meta_raw = pickle.dumps(metadata, 2)
 
         if self.passphrase:
             # We need to generate a temporary copy to determine the
@@ -423,14 +425,16 @@ class Bucket(object):
             tmp = tempfile.TemporaryFile()
             compress_encrypt_fh(fh, tmp, self.passphrase, nonce)
             (fh, tmp) = (tmp, fh)
-            meta_raw = encrypt(meta_raw, self.passphrase, nonce)
             fh.seek(0)
+            if metadata:
+                meta_raw = encrypt(meta_raw, self.passphrase, nonce)
 
         done = False
         while not done:
             with self._get_boto() as boto:
                 bkey = boto.new_key(key)
-                bkey.set_metadata('meta', b64encode(meta_raw))
+                if metadata:
+                    bkey.set_metadata('meta', b64encode(meta_raw))
                 bkey.set_metadata('encrypted', 'True' if self.passphrase else 'False')
                 try:
                     bkey.set_contents_from_file(fh)
