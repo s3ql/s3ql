@@ -130,7 +130,7 @@ def check_cache():
         except KeyError:
             s3key = conn.rowid('INSERT INTO s3_objects (refcount, hash, size) VALUES(?, ?, ?)',
                                (1, hash_, size))
-            bucket.store_fh('s3ql_data_%d' % s3key, fh, { 'hash': hash_ })
+            bucket.store_fh('s3ql_data_%d' % s3key, fh)
 
         else:
             conn.execute('UPDATE s3_objects SET refcount=refcount+1 WHERE id=?',

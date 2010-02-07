@@ -333,7 +333,7 @@ class S3Cache(object):
 
         if need_upload:
             log.debug('Uploading..')
-            self.bucket.store_fh('s3ql_data_%d' % el.s3key, el, { 'hash': hash_ })
+            self.bucket.store_fh('s3ql_data_%d' % el.s3key, el)
 
         if to_delete:
             log.debug('No references to object %d left, deleting', old_s3key)
