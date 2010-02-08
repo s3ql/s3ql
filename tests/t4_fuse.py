@@ -10,7 +10,6 @@ from __future__ import division, print_function
 from _common import TestCase
 from cStringIO import StringIO
 from os.path import basename
-from random import randrange
 from s3ql import libc, common, s3
 from s3ql.common import retry, ExceptionStoringThread
 import filecmp
@@ -40,8 +39,8 @@ class fuse_tests(TestCase):
         self.cache_dir = tempfile.mkdtemp()
         self.bucket_dir = tempfile.mkdtemp()
 
-        self.bucketname = 'local:' + os.path.join(self.bucket_dir, self.newname())
-        self.passphrase = self.newname()
+        self.bucketname = 'local:' + os.path.join(self.bucket_dir, 'mybucket')
+        self.passphrase = 'oeut3d'
 
         # Make sure that the mount thread does not mess with the
         # logging settings
