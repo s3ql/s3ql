@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 import threading
-import collections 
+import collections
 
 
 __all__ = [ "OrderedDict" ]
@@ -26,39 +26,39 @@ class OrderedDictElement(object):
     :key:       Dict key of the element
     :value:     Dict value of the element
     """
-    
+
     __slots__ = [ "next", "prev", "key", "value" ]
-    
+
     def __init__(self, key, value, next_=None, prev=None):
         self.key = key
         self.value = value
         self.next = next_
         self.prev = prev
-    
+
 class HeadSentinel(object):
     '''Sentinel that marks the head of a linked list
     '''
-    
+
     __slots__ = [ 'next' ]
-    
+
     def __init__(self, next_=None):
         self.next = next_
-    
+
     def __str__(self):
         return '<head sentinel>'
 
 class TailSentinel(object):
     '''Sentinel that marks the tail of a linked list
     '''
-    
+
     __slots__ = [ 'prev' ]
-    
+
     def __init__(self, prev=None):
         self.prev = prev
-    
+
     def __str__(self):
-        return '<tail sentinel>'    
-    
+        return '<tail sentinel>'
+
 class OrderedDict(collections.MutableMapping):
     """Implements an ordered dictionary
     
@@ -79,7 +79,7 @@ class OrderedDict(collections.MutableMapping):
     :tail:    Last element in list
     
     """
-    
+
     def __init__(self):
         self.data = dict()
         self.lock = threading.Lock()
@@ -96,34 +96,34 @@ class OrderedDict(collections.MutableMapping):
                 self.head.next.prev = el
                 self.head.next = el
                 self.data[key] = el
-                
+
     def __delitem__(self, key):
         with self.lock:
             el = self.data.pop(key)  # exception can be passed on
             el.prev.next = el.next
             el.next.prev = el.prev
-        
+
     def __getitem__(self, key):
         return self.data[key].value
-    
+
     def __len__(self):
         return len(self.data)
-    
+
     def __iter__(self):
         cur = self.head.next
         while cur is not self.tail:
             yield cur.key
             cur = cur.next
-    
+
     def __reversed__(self):
         cur = self.tail.prev
         while cur is not self.head:
             yield cur.key
             cur = cur.prev
-                    
+
     def __contains__(self, key):
         return key in self.data
-    
+
     def to_head(self, key):
         """Moves `key` to the head in the ordering
         """
@@ -132,14 +132,14 @@ class OrderedDict(collections.MutableMapping):
             # Splice out
             el.prev.next = el.next
             el.next.prev = el.prev
-            
+
             # Insert back at front
             el.next = self.head.next
             el.prev = self.head
-            
+
             self.head.next.prev = el
             self.head.next = el
-        
+
     def to_tail(self, key):
         """Moves `key` to the end in the ordering
         """
@@ -148,11 +148,11 @@ class OrderedDict(collections.MutableMapping):
             # Splice out
             el.prev.next = el.next
             el.next.prev = el.prev
-            
+
             # Insert back at end
-            el.next = self.tail 
+            el.next = self.tail
             el.prev = self.tail.prev
-            
+
             self.tail.prev.next = el
             self.tail.prev = el
 
@@ -163,13 +163,13 @@ class OrderedDict(collections.MutableMapping):
             el = self.tail.prev
             if el is self.head:
                 raise IndexError()
-            
+
             del self.data[el.key]
             self.tail.prev = el.prev
             el.prev.next = self.tail
-                            
+
         return el.value
-        
+
     def get_last(self):
         """Fetch last element 
         """
@@ -186,11 +186,11 @@ class OrderedDict(collections.MutableMapping):
             if el is self.tail:
                 raise IndexError
             del self.data[el.key]
-            self.head.next = el.next 
+            self.head.next = el.next
             el.next.prev = self.head
-            
+
         return el.value
-        
+
     def get_first(self):
         """Fetch first element 
         """
@@ -198,3 +198,11 @@ class OrderedDict(collections.MutableMapping):
             raise IndexError()
 
         return self.head.next.value
+
+    def clear(self):
+        '''Delete all elements'''
+
+        self.data.clear()
+        self.head = HeadSentinel()
+        self.tail = TailSentinel(self.head)
+        self.head.next = self.tail
