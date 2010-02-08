@@ -63,7 +63,6 @@ class s3_tests_remote(t1_s3_local.s3_tests_local):
         self.tst_03_list_keys()
         self.tst_04_encryption()
         self.tst_06_copy()
-        self.tst_store_wait()
 
 
 

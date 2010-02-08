@@ -10,7 +10,6 @@ from __future__ import division, print_function
 
 import unittest
 from s3ql import s3
-from random   import randrange
 import tempfile
 import threading
 import os
@@ -42,12 +41,6 @@ class s3_tests_local(TestCase):
     def newname(self):
         self.name_cnt += 1
         return "s3ql_%d" % self.name_cnt
-
-    def tst_store_wait(self):
-        key = self.newname()
-        value = self.newname()
-
-        self.bucket.store_wait(key, value, { 'foobar': 77 })
 
     def tst_01_store_fetch_lookup_delete_key(self):
         key = self.newname()
@@ -99,12 +92,11 @@ class s3_tests_local(TestCase):
         self.tst_04_delays()
         self.tst_05_concurrency()
         self.tst_06_copy()
-        self.tst_store_wait()
 
     def tst_03_list_keys(self):
 
         # Keys need to be unique
-        keys = [ self.newname() + str(x) for x in range(12) ]
+        keys = [ self.newname() for x in range(12) ]
         values = [ self.newname() for x in range(12) ]
 
         for i in range(12):

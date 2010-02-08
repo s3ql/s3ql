@@ -119,7 +119,7 @@ def main(args):
     dbcm.execute('ANALYZE')
 
     param['mountcnt'] += 1
-    bucket.store_wait('s3ql_parameters', pickle.dumps(param, 2))
+    bucket.store('s3ql_parameters', pickle.dumps(param, 2))
     dbcm.execute('UPDATE parameters SET mountcnt=mountcnt+1')
     try:
         try:

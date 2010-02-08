@@ -14,7 +14,7 @@ from contextlib import contextmanager
 import boto.exception as bex
 import shutil
 from cStringIO import StringIO
-from s3ql.common import (retry, sha256, ExceptionStoringThread)
+from s3ql.common import (sha256, ExceptionStoringThread, retry_boto)
 import tempfile
 import hmac
 import logging
@@ -36,8 +36,8 @@ log = logging.getLogger("s3")
 # For testing 
 # Don't change randomly, these values are fine tuned
 # for the tests to work without too much time.
-LOCAL_TX_DELAY = 0.02
-LOCAL_PROP_DELAY = 0.09
+LOCAL_TX_DELAY = 0.1
+LOCAL_PROP_DELAY = 0.4
 
 class Connection(object):
     """Represents a connection to Amazon S3
@@ -86,18 +86,16 @@ class Connection(object):
             self._push_conn(conn)
 
     def create_bucket(self, name, passphrase=None):
-        """Create and return an S3 bucket"""
+        """Create and return an S3 bucket
+        
+        Note that a call to `get_bucket` right after creation may fail,
+        since the changes do not propagate instantaneously through AWS.
+        """
 
         with self._get_boto() as boto:
             boto.create_bucket(name)
-            retry(60, self.bucket_exists, name)
 
-        # TODO: Even with retry, sometimes a later call to get_bucket
-        # may fail. That is probably because the bucket exists on
-        # some server (so the above call succeeded), but not on all.
-        time.sleep(5)
-
-        return self.get_bucket(name, passphrase)
+        return Bucket(self, name, passphrase)
 
     def get_bucket(self, name, passphrase=None):
         """Return a bucket instance for the bucket `name`
@@ -171,7 +169,13 @@ class Bucket(object):
 
     The class behaves more or less like a dict. It raises the
     same exceptions, can be iterated over and indexed into.
+
+    Due to AWS' eventual propagation model, we may receive e.g. a 'unknown bucket'
+    error when we try to upload a key into a newly created bucket. For this reason,
+    many boto calls are wrapped with `retry_boto`. Note that this assumes that
+    no one else is messing with the bucket at the same time.
     """
+
 
     def clear(self):
         """Delete all objects
@@ -204,7 +208,7 @@ class Bucket(object):
 
         boto_conn = self.conn._pop_conn()
         try:
-            yield boto_conn.get_bucket(self.name)
+            yield retry_boto(60, [ 'NoSuchBucket' ], boto_conn.get_bucket, self.name)
         finally:
             self.conn._push_conn(boto_conn)
 
@@ -247,21 +251,26 @@ class Bucket(object):
         If the key does not exist, KeyError is raised.
         """
 
+        if not isinstance(key, str):
+            raise TypeError('key must be of type str')
+
         with self._get_boto() as boto:
             bkey = boto.get_key(key)
 
         if bkey is None:
             raise KeyError('Key does not exist: %s' % key)
 
-        encrypted = bkey.metadata['encrypted'] == 'True'
+        encrypted = 'encrypted' in bkey.metadata and bkey.metadata['encrypted'] == 'True'
         if encrypted and not self.passphrase:
             raise ChecksumError('Encrypted object and no passphrase supplied')
         if not encrypted and self.passphrase:
             raise ChecksumError('Passphrase supplied, but object is not encrypted')
+        if encrypted and not 'meta' in bkey.metadata:
+            raise ChecksumError('Encrypted object without metadata, unable to verify on lookup.')
 
         if 'meta' in bkey.metadata:
             meta_raw = b64decode(bkey.metadata['meta'])
-            if self.passphrase:
+            if encrypted:
                 meta_raw = decrypt(meta_raw, self.passphrase)
             metadata = pickle.loads(meta_raw)
         else:
@@ -276,6 +285,9 @@ class Bucket(object):
         If `force` is true, do not return an error if the key does not exist.
 
         """
+
+        if not isinstance(key, str):
+            raise TypeError('key must be of type str')
 
         with self._get_boto() as boto:
             if not force and boto.get_key(key) is None:
@@ -312,6 +324,9 @@ class Bucket(object):
         for ``bucket.fetch(key)[0]``.
         """
 
+        if not isinstance(key, str):
+            raise TypeError('key must be of type str')
+
         fh = StringIO()
         meta = self.fetch_fh(key, fh)
 
@@ -332,41 +347,20 @@ class Bucket(object):
         if isinstance(val, unicode):
             val = val.encode('us-ascii')
 
+        if not isinstance(key, str):
+            raise TypeError('key must be of type str')
+
         fh = StringIO(val)
         self.store_fh(key, fh, metadata)
-
-    def store_wait(self, key, val, metadata=None):
-        """Store data under `key` and wait for propagation
-
-        Like `store`, but wait until the update has propagated in
-        S3. This adds special 'last-modified' entry to the
-        metadata.
-        """
-
-        if metadata is None:
-            metadata = dict()
-        stamp = time.time() - time.timezone
-        metadata['last-modified'] = stamp
-        self.store(key, val, metadata)
-
-        def check_key():
-            try:
-                meta = self.lookup_key(key)
-            except KeyError:
-                return False
-            else:
-                return 'last-modified' in meta and meta['last-modified'] == stamp
-
-        # TODO: This may not work. It is possible that one server already has
-        # the update (and responds correctly), but a later request is answered
-        # by a different server which is not yet updated.
-        retry(600, check_key)
 
     def fetch_fh(self, key, fh):
         """Fetch data for `key` and write to `fh`
 
         Return a dictionary with the metadata.
         """
+
+        if not isinstance(key, str):
+            raise TypeError('key must be of type str')
 
         if self.passphrase:
             tmp = tempfile.TemporaryFile()
@@ -379,7 +373,7 @@ class Bucket(object):
             fh.seek(0)
             bkey.get_contents_to_file(fh)
 
-        encrypted = bkey.metadata['encrypted'] == 'True'
+        encrypted = 'encrypted' in bkey.metadata and bkey.metadata['encrypted'] == 'True'
         if encrypted and not self.passphrase:
             raise ChecksumError('Encrypted object and no passphrase supplied')
         if not encrypted and self.passphrase:
@@ -387,7 +381,7 @@ class Bucket(object):
 
         if 'meta' in bkey.metadata:
             meta_raw = b64decode(bkey.metadata['meta'])
-            if self.passphrase:
+            if encrypted:
                 meta_raw = decrypt(meta_raw, self.passphrase)
             metadata = pickle.loads(meta_raw)
         else:
@@ -410,13 +404,18 @@ class Bucket(object):
         the current UTC timestamp is always added automatically.
         """
 
+        if not isinstance(key, str):
+            raise TypeError('key must be of type str')
+
         # TODO: Switch to compression with pyliblzma. To keep this backwards
         # compatible, we will introduce a new (unencryted) "compression-method"
         # metadata header that defaults to bz2 if absent.
 
         fh.seek(0)
-        if metadata:
-            meta_raw = pickle.dumps(metadata, 2)
+
+        # We always store metadata (even if it's just None), so that we can verify that the
+        # object has been created by us when we call lookup().
+        meta_raw = pickle.dumps(metadata, 2)
 
         if self.passphrase:
             # We need to generate a temporary copy to determine the
@@ -426,15 +425,13 @@ class Bucket(object):
             compress_encrypt_fh(fh, tmp, self.passphrase, nonce)
             (fh, tmp) = (tmp, fh)
             fh.seek(0)
-            if metadata:
-                meta_raw = encrypt(meta_raw, self.passphrase, nonce)
+            meta_raw = encrypt(meta_raw, self.passphrase, nonce)
 
         done = False
         while not done:
             with self._get_boto() as boto:
                 bkey = boto.new_key(key)
-                if metadata:
-                    bkey.set_metadata('meta', b64encode(meta_raw))
+                bkey.set_metadata('meta', b64encode(meta_raw))
                 bkey.set_metadata('encrypted', 'True' if self.passphrase else 'False')
                 try:
                     bkey.set_contents_from_file(fh)
@@ -452,6 +449,12 @@ class Bucket(object):
 
     def copy(self, src, dest):
         """Copy data stored under `src` to `dest`"""
+
+        if not isinstance(src, str):
+            raise TypeError('key must be of type str')
+
+        if not isinstance(dest, str):
+            raise TypeError('key must be of type str')
 
         with self._get_boto() as boto:
             boto.copy_key(dest, self.name, src)

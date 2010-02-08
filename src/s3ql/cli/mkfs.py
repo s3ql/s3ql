@@ -147,7 +147,7 @@ def main(args):
         param = dict()
         param['revision'] = 2
         param['mountcnt'] = 0
-        bucket.store_wait('s3ql_parameters', pickle.dumps(param, 2))
+        bucket.store('s3ql_parameters', pickle.dumps(param, 2))
         bucket.store_fh('s3ql_metadata', open(dbfile, 'r'))
 
     finally:
