@@ -11,7 +11,7 @@ from __future__ import division, print_function
 from contextlib import contextmanager
 from s3ql.multi_lock import MultiLock
 from s3ql.ordered_dict import OrderedDict
-from s3ql.common import (ExceptionStoringThread, sha256_fh, retry, EmbeddedException)
+from s3ql.common import (ExceptionStoringThread, sha256_fh, EmbeddedException, retry, retry_boto)
 import logging
 import os
 import threading
@@ -184,26 +184,25 @@ class S3Cache(object):
             # Not in cache
             except KeyError:
                 filename = os.path.join(self.cachedir, 'inode_%d_block_%d' % (inode, blockno))
-                with self.dbcm() as conn:
-                    try:
-                        s3key = conn.get_val("SELECT s3key FROM blocks WHERE inode=? AND blockno=?",
-                                             (inode, blockno))
+                try:
+                    s3key = self.dbcm.get_val("SELECT s3key FROM blocks WHERE inode=? AND blockno=?",
+                                         (inode, blockno))
 
-                    # No corresponding S3 object
-                    except KeyError:
-                        el = CacheEntry(inode, blockno, None, filename, "w+b")
-                        oldsize = 0
+                # No corresponding S3 object
+                except KeyError:
+                    el = CacheEntry(inode, blockno, None, filename, "w+b")
+                    oldsize = 0
 
-                    # Need to download corresponding S3 object
-                    else:
-                        el = CacheEntry(inode, blockno, s3key, filename, "w+b")
-                        hash_ = conn.get_val("SELECT hash FROM s3_objects WHERE id=?", (s3key,))
-                        self._download_object('s3ql_data_%d' % s3key, hash_, el)
+                # Need to download corresponding S3 object
+                else:
+                    el = CacheEntry(inode, blockno, s3key, filename, "w+b")
+                    retry_boto(600, [ 'NoSuchKey' ], self.bucket.fetch_fh,
+                               's3ql_data_%d' % s3key, el)
 
-                        # Update cache size
-                        el.seek(0, 2)
-                        oldsize = el.tell()
-                        self.size += oldsize
+                    # Update cache size
+                    el.seek(0, 2)
+                    oldsize = el.tell()
+                    self.size += oldsize
 
                 self.cache[(inode, blockno)] = el
 
@@ -227,19 +226,6 @@ class S3Cache(object):
         # the cache size sufficiently.
         self.expire(self.maxsize, MAX_CACHE_ENTRIES)
 
-    def _download_object(self, s3key, hash_, el):
-        """Download s3 object into cache and return `CacheEntry` instance"""
-
-        log.debug('Attempting to download object %s from S3', s3key)
-
-        try:
-            self.bucket.fetch_fh(s3key, el)
-        except KeyError:
-            # Wait for object to show up
-            retry(360, lambda: s3key in self.bucket)
-            self.bucket.fetch_fh(s3key, el)
-
-        log.debug('Object %s fetched successfully.', s3key)
 
     def recover(self):
         '''Register old files in cache directory'''
@@ -342,12 +328,16 @@ class S3Cache(object):
     def _delete_object(self, key):
         '''Delete object from S3'''
 
-        try:
-            del self.bucket['s3ql_data_%d' % key]
-        except KeyError:
-            # Has not propagated yet
-            retry(360, lambda: 's3ql_data_%d' % key in self.bucket)
-            del self.bucket['s3ql_data_%d' % key]
+        def doit():
+            try:
+                del self.bucket['s3ql_data_%d' % key]
+            except KeyError:
+                return False
+            else:
+                return True
+
+        retry(600, doit)
+
 
     def _expire_parallel(self):
         """Remove oldest entries from the cache.
