@@ -96,8 +96,8 @@ class s3_tests_local(TestCase):
     def tst_03_list_keys(self):
 
         # Keys need to be unique
-        keys = [ self.newname() for x in range(12) ]
-        values = [ self.newname() for x in range(12) ]
+        keys = [ self.newname() for dummy in range(12) ]
+        values = [ self.newname() for dummy in range(12) ]
 
         for i in range(12):
             self.bucket.store(keys[i], values[i])
