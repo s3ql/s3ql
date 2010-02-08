@@ -11,6 +11,7 @@ from getpass import getpass
 from time import sleep
 import hashlib
 import logging.handlers
+import boto.exception
 import os
 import re
 import stat
@@ -21,7 +22,7 @@ import traceback
 
 __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
-           "ROOT_INODE", "ExceptionStoringThread", 'retry',
+           "ROOT_INODE", "ExceptionStoringThread", 'retry', 'retry_boto',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'stacktraces', 'init_logging_from_options', 'QuietError' ]
 
@@ -305,6 +306,31 @@ def retry(timeout, fn, *a, **kw):
         step *= 2
 
     raise TimeoutError()
+
+def retry_boto(timeout, errcodes, fn, *a, **kw):
+    """Wait for fn(*a, **kw) to succeed
+    
+    If `fn(*a, **kw)` raises `boto.exception.S3ResponseError` with errorcode
+    in `errcodes`, the function is called again. If the timeout is reached, 
+    `TimeoutError` is raised.
+    """
+
+    step = 0.2
+    while timeout > 0:
+        try:
+            return fn(*a, **kw)
+        except boto.exception.S3ResponseError as exc:
+            if exc.error_code in errcodes:
+                pass
+            else:
+                raise
+
+        sleep(step)
+        timeout -= step
+        step *= 2
+
+    raise TimeoutError()
+
 
 class TimeoutError(Exception):
     '''Raised by `retry()` when a timeout is reached.'''
