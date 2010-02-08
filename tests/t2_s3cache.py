@@ -225,8 +225,9 @@ class s3cache_tests(TestCase):
             fh.seek(0)
             fh.write(data2)
 
-        # Destroy cache info
-        self.cache.clear()
+        # Fake cache crash
+        self.cache.cache.clear()
+        self.cache = s3cache.S3Cache(self.bucket, self.cachedir, self.cache.maxsize, self.dbcm)
         self.cache.recover()
 
         with self.cache.get(inode, 1) as fh:
@@ -319,7 +320,13 @@ class TestBucket(object):
         if self.no_del < 0:
             raise RuntimeError('Got too many delete calls')
 
-        return self.bucket.delete_key(*a, **kw)
+        try:
+            return self.bucket.delete_key(*a, **kw)
+        except KeyError:
+            # Don't count key errors
+            self.no_del += 1
+            raise
+
 
     def __delitem__(self, key):
         self.delete_key(key)
