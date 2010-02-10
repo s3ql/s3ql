@@ -127,6 +127,7 @@ def upgrade_rev1(bucket):
     log.info('Downloading metadata...')
     dbfile = tempfile.NamedTemporaryFile()
     bucket.fetch_fh('s3ql_metadata', dbfile)
+    dbfile.flush()
 
     log.info('Updating metadata...')
     dbcm = ConnectionManager(dbfile.name, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
@@ -138,7 +139,7 @@ def upgrade_rev1(bucket):
 
     log.info('Uploading metadata')
     bucket.store('s3ql_parameters', pickle.dumps(param, 2))
-    bucket.store_fh('s3ql_metadata', open(dbfile, 'r'))
+    bucket.store_fh('s3ql_metadata', dbfile)
 
 def change_passphrase(bucket):
     '''Change bucket passphrase'''
