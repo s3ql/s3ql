@@ -91,7 +91,7 @@ def main(args):
 
         log.info("Downloading metadata...")
         os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
-        bucket.fetch_fh("s3ql_metadata", open(dbfile, 'w'))
+        bucket.fetch_fh("s3ql_metadata", open(dbfile, 'wb'))
         dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
 
         mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')

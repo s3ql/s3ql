@@ -374,7 +374,7 @@ def check_keylist():
             log_error("object %s not referenced in s3 objects table, saving locally as ./%s",
                       s3key, name)
             if not expect_errors:
-                bucket.fetch_fh('s3ql_data_%d' % s3key, open(name, 'w'))
+                bucket.fetch_fh('s3ql_data_%d' % s3key, open(name, 'wb'))
             to_delete.append(s3key)
             continue
 
