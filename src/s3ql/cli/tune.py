@@ -11,7 +11,7 @@ from __future__ import division, print_function, absolute_import
 from optparse import OptionParser
 import logging
 import cPickle as pickle
-from ..common import (init_logging_from_options, get_credentials, QuietError)
+from ..common import (init_logging_from_options, get_credentials, QuietError, unlock_bucket)
 from getpass import getpass
 import sys
 from .. import s3
@@ -82,6 +82,11 @@ def main(args):
         raise QuietError("Bucket does not exist.")
     bucket = conn.get_bucket(options.bucketname)
 
+    try:
+        unlock_bucket(bucket)
+    except s3.ChecksumError:
+        raise QuietError('Checksum error - incorrect password?')
+
     if options.upgrade:
         upgrade(bucket)
 
@@ -110,7 +115,6 @@ def upgrade(bucket):
     log.info('Continuing in 10 seconds, press Ctrl-C to abort.')
     time.sleep(10)
 
-
     # Revision 1
     if 's3ql_parameters' not in bucket:
         upgrade_rev1(bucket)
@@ -133,25 +137,14 @@ def upgrade_rev1(bucket):
     param['mountcnt'] = dbcm.get_val('SELECT mountcnt FROM parameters')
 
     log.info('Uploading metadata')
-    bucket.store_wait('s3ql_parameters', pickle.dumps(param, 2))
+    bucket.store('s3ql_parameters', pickle.dumps(param, 2))
     bucket.store_fh('s3ql_metadata', open(dbfile, 'r'))
 
 def change_passphrase(bucket):
     '''Change bucket passphrase'''
 
-
     if not bucket.has_key('s3ql_passphrase'):
         raise QuietError('Bucket is not encrypted.')
-
-    if sys.stdin.isatty():
-        wrap_pw = getpass("Enter old encryption password: ")
-    else:
-        wrap_pw = sys.stdin.readline().rstrip()
-    bucket.passphrase = wrap_pw
-    try:
-        data_pw = bucket['s3ql_passphrase']
-    except s3.ChecksumError:
-        raise QuietError('Incorrect password')
 
     if sys.stdin.isatty():
         wrap_pw = getpass("Enter new encryption password: ")
@@ -160,6 +153,7 @@ def change_passphrase(bucket):
     else:
         wrap_pw = sys.stdin.readline().rstrip()
 
+    data_pw = bucket['s3ql_passphrase']
     bucket.passphrase = wrap_pw
     bucket['s3ql_passphrase'] = data_pw
 
