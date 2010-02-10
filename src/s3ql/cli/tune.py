@@ -60,7 +60,7 @@ def parse_args(args):
         parser.error("Wrong number of parameters")
     options.bucketname = pps[0]
 
-    if not any(options.change_passphrase, options.upgrade):
+    if not any([options.change_passphrase, options.upgrade]):
         parser.error("Need to specify at least one action.")
 
     return options
