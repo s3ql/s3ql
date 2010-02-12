@@ -70,10 +70,33 @@ class Connection(object):
         '''Return boto connection object to pool'''
         self.pool.append(conn)
 
-    def delete_bucket(self, name):
+    def delete_bucket(self, name, recursive=False):
         """Delete bucket"""
+
+        if not recursive:
+            with self._get_boto() as boto:
+                boto.delete_bucket(name)
+                return
+
+        # Delete recursively
         with self._get_boto() as boto:
-            boto.delete_bucket(name)
+            step = 1
+            waited = 0
+            while waited < 600:
+                try:
+                    boto.delete_bucket(name)
+                except bex.S3ResponseError as exc:
+                    if exc.code != 'BucketNotEmpty':
+                        raise
+                else:
+                    return
+                self.get_bucket(name, passphrase=None).clear()
+                time.sleep(step)
+                waited += step
+                step *= 2
+
+            raise RuntimeError('Bucket does not seem to get empty')
+
 
     @contextmanager
     def _get_boto(self):

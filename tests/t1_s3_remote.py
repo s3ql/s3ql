@@ -50,9 +50,7 @@ class s3_tests_remote(t1_s3_local.s3_tests_local):
         self.name_cnt = 0
 
     def tearDown(self):
-        self.bucket.clear()
-        sleep(self.delay)
-        self.conn.delete_bucket(self.bucketname)
+        self.conn.delete_bucket(self.bucketname, recursive=True)
 
     def runTest(self):
         # Run all tests in same environment, creating and deleting
