@@ -131,6 +131,11 @@ def upgrade_rev1(bucket):
 
     log.info('Updating metadata...')
     dbcm = ConnectionManager(dbfile.name, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
+
+    # Remove . and .. from database
+    dbcm.execute('DELETE FROM contents WHERE name=? OR name=?', ('.', '..'))
+
+    # Prepare new eventual consistency handling
     dbcm.execute('UPDATE parameters SET mountcnt=mountcnt+1')
 
     param = dict()

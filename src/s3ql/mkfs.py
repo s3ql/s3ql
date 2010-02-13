@@ -180,7 +180,8 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
                                        "ref_key": "id" }))
 
     # Maps file data chunks to S3 objects
-    # Refcount is included for performance reasons
+    # Refcount is included for performance reasons, for directories, the
+    # refcount also includes the implicit '.' entry
     conn.execute("""
     CREATE TABLE s3_objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -217,35 +218,25 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
 
 
     # Insert root directory
-    # Refcount = 4: ".", "..", "lost+found", "lost+found/.."
     timestamp = time.time() - time.timezone
     conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
                    "VALUES (?,?,?,?,?,?,?,?)",
                    (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
-                    os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 4))
-    conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                   (b".", ROOT_INODE, ROOT_INODE))
-    conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                   (b"..", ROOT_INODE, ROOT_INODE))
-
+                    os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 3))
 
     # Insert control inode, the actual values don't matter that much 
     conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
-                   "VALUES (?,?,?,?,?,?,?,?)",
-                   (CTRL_INODE, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
-                    0, 0, timestamp, timestamp, timestamp, 42))
+                 "VALUES (?,?,?,?,?,?,?,?)",
+                 (CTRL_INODE, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
+                  0, 0, timestamp, timestamp, timestamp, 42))
 
     # Insert lost+found directory
-    # refcount = 2: /, "."
     inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                        "VALUES (?,?,?,?,?,?,?)",
                        (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
                         os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 2))
     conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   (b"lost+found", inode, ROOT_INODE))
-    conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   (b".", inode, inode))
-    conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                   (b"..", ROOT_INODE, inode))
+                 (b"lost+found", inode, ROOT_INODE))
+
 

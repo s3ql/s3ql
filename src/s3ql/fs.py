@@ -13,7 +13,7 @@ import errno
 import stat
 import llfuse
 import logging
-from s3ql.common import (get_path, CTRL_NAME, CTRL_INODE)
+from s3ql.common import (get_path, CTRL_NAME, CTRL_INODE, ROOT_INODE)
 import time
 from cStringIO import StringIO
 import struct
@@ -24,9 +24,6 @@ __all__ = [ "Server" ]
 # standard logger for this module
 log = logging.getLogger("fs")
 
-# TODO: Don't store '.' and '..' in the database. The information can
-# trivially be added in getattr and readdir. Currently, '.' and '..'
-# have to be kept up to date in complicated ways.
 
 class Operations(llfuse.Operations):
     """FUSE filesystem that stores its data on Amazon S3
@@ -37,7 +34,7 @@ class Operations(llfuse.Operations):
     The ``access`` method of this class always gives full access, independent
     of file permissions. If the FUSE library is initialized with ``allow_other``
     or ``allow_root``, the ``default_permissions`` option should therefore always
-    be pased as well. 
+    be passed as well. 
     
     
     Attributes:
@@ -101,24 +98,40 @@ class Operations(llfuse.Operations):
         self.cache.stop_background_expiration()
 
     def lookup(self, parent_inode, name):
-        if name == CTRL_NAME:
-            fstat = self.getattr_all(CTRL_INODE)
-            # Make sure the control file is only writable by the user
-            # who mounted the file system
-            fstat["st_uid"] = os.getuid()
-            fstat["st_gid"] = os.getgid()
 
-        else:
-            with self.dbcm() as conn:
+        with self.dbcm() as conn:
+            if name == CTRL_NAME:
+                fstat = self.getattr_all(CTRL_INODE)
+                # Make sure the control file is only writable by the user
+                # who mounted the file system
+                fstat["st_uid"] = os.getuid()
+                fstat["st_gid"] = os.getgid()
+                return fstat
+
+            elif name == '.':
+                log.info('lookup for . received, this is weird.') # Why should fuse do that?
+                return self.getattr_all(parent_inode)
+
+            elif name == '..':
+                log.info('lookup for .. received, this is weird.') # Why should fuse do that?
+                if parent_inode == ROOT_INODE:
+                    inode = ROOT_INODE
+                else:
+                    try:
+                        inode = conn.get_val("SELECT parent_inode FROM contents WHERE inode=?",
+                                             (parent_inode,))
+                    except KeyError: # not found
+                        raise(llfuse.FUSEError(errno.ENOENT))
+                return self.getattr_all(inode)
+
+            else:
                 try:
                     inode = conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                                    (name, parent_inode))
+                                         (name, parent_inode))
                 except KeyError: # not found
                     raise(llfuse.FUSEError(errno.ENOENT))
+                return self.getattr_all(inode)
 
-                fstat = self.getattr_all(inode)
-
-        return fstat
 
     def getattr(self, inode):
         fstat = self.getattr_all(inode)
@@ -221,20 +234,34 @@ class Operations(llfuse.Operations):
 
     def readdir(self, fh, off):
 
-        inode = fh
         with self.dbcm() as conn:
             if not self.noatime:
                 timestamp = time - time.timezone
                 conn.execute("UPDATE inodes SET atime=?, ctime=? WHERE id=?",
                                   (timestamp, timestamp, fh))
 
+            # .
+            if off == 0:
+                fstat = self.getattr(fh)
+                del fstat['attr_timeout']
+                yield ('.', fstat)
+
+            # ..
+            if off <= 1:
+                if fh == ROOT_INODE:
+                    inode = ROOT_INODE
+                else:
+                    inode = conn.get_val('SELECT parent_inode FROM contents WHERE inode=?', (fh,))
+                fstat = self.getattr(inode)
+                del fstat['attr_timeout']
+                yield ('..', fstat)
+
             # The ResultSet is automatically deleted
             # when yield raises GeneratorExit.
             for (name, inode) in conn.query("SELECT name, inode FROM contents WHERE parent_inode=? "
-                                            "LIMIT -1 OFFSET ?", (inode, off)):
+                                            "LIMIT -1 OFFSET ?", (fh, off - 2)):
                 fstat = self.getattr(inode)
                 del fstat['attr_timeout']
-
                 yield (name, fstat)
 
     def getxattr(self, inode, name):
@@ -316,22 +343,15 @@ class Operations(llfuse.Operations):
         with self.dbcm.transaction() as conn:
             for (name_, ino) in conn.query('SELECT name, inode FROM contents WHERE parent_inode=?',
                                            (src_ino,)):
-                if name_ in ('.', '..'):
-                    continue
 
                 if ino not in ino_cache:
-                    attributes = 'uid,gid,mode,mtime,atime,ctime,refcount,target,size,rdev'
+                    attributes = 'refcount,mode,uid,gid,mtime,atime,ctime,target,size,rdev'
                     ino_new = conn.rowid('INSERT INTO inodes (%s) SELECT %s FROM inodes WHERE id=?'
                                          % (attributes, attributes), (ino,))
                     (mode, refcount) = conn.get_row('SELECT mode, refcount FROM inodes WHERE id=?',
                                                     (ino_new,))
 
                     if stat.S_ISDIR(mode):
-                        conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
-                                     (b'.', ino_new, ino_new))
-                        conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
-                                     (b'..', target_ino, ino_new))
-
                         if refcount != 2:
                             conn.execute('UPDATE inodes SET refcount=2 WHERE id=?', (ino_new,))
                         conn.execute('UPDATE inodes SET refcount=refcount+1 WHERE id=?', (target_ino,))
@@ -400,18 +420,14 @@ class Operations(llfuse.Operations):
             attr = self.lookup(inode_p, name)
             inode = attr['st_ino']
 
-            # Check if directory is empty
+            # Check if directory is empty. 
             if conn.get_val("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
-                            (inode,)) > 2:
+                            (inode,)) > 0:
                 log.debug("Attempted to remove nonempty directory %s",
                           get_path(name, inode_p, conn))
                 raise llfuse.FUSEError(errno.EINVAL)
 
             # Delete
-            conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                        (b'.', inode))
-            conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                        (b'..', inode))
             conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
                         (name, inode_p))
             conn.execute("DELETE FROM inodes WHERE id=?", (inode,))
@@ -426,6 +442,8 @@ class Operations(llfuse.Operations):
                 log.error('Attempted to create s3ql control file at %s',
                           get_path(name, inode_p, conn))
             raise llfuse.FUSEError(errno.EACCES)
+        elif name in ('.', '..'):
+            raise llfuse.FUSEError(errno.EEXIST)
 
         with self.dbcm.transaction() as conn:
             mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
@@ -446,9 +464,15 @@ class Operations(llfuse.Operations):
     def rename(self, inode_p_old, name_old, inode_p_new, name_new):
         if name_new == CTRL_NAME or name_old == CTRL_NAME:
             with self.dbcm() as conn:
-                log.error('Attempted to rename s3ql control file (%s -> %s)',
+                log.warn('Attempted to rename s3ql control file (%s -> %s)',
                           get_path(name_old, inode_p_old, conn),
                           get_path(name_new, inode_p_new, conn))
+            raise llfuse.FUSEError(errno.EACCES)
+        elif name_old in ('.', '..'):
+            log.warn('Attempted to rename . or ..')
+            raise llfuse.FUSEError(errno.EACCES)
+        elif name_new in ('.', '..'):
+            log.warn('Attempted to rename . or ..')
             raise llfuse.FUSEError(errno.EACCES)
 
         fstat_old = self.lookup(inode_p_old, name_old)
@@ -491,8 +515,6 @@ class Operations(llfuse.Operations):
             conn.execute("UPDATE contents SET name=?, parent_inode=? WHERE name=? "
                          "AND parent_inode=?", (name_new, inode_p_new,
                                                 name_old, inode_p_old))
-            conn.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
-                         (inode_p_new, b'..', inode))
             conn.execute("UPDATE inodes SET mtime=?, ctime=?, refcount=refcount-1 WHERE id=?",
                                  (timestamp, timestamp, inode_p_old))
             conn.execute("UPDATE inodes SET mtime=?, ctime=?, refcount=refcount+1 WHERE id=?",
@@ -520,7 +542,7 @@ class Operations(llfuse.Operations):
 
         with self.dbcm.transaction() as conn:
             if conn.get_val("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
-                            (inode_new,)) > 2:
+                            (inode_new,)) > 0:
                 log.warn("Attempted to overwrite nonempty directory %s",
                           get_path(name_new, inode_p_new, conn))
                 raise llfuse.FUSEError(errno.EINVAL)
@@ -528,8 +550,6 @@ class Operations(llfuse.Operations):
             # Replace target
             conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
                         (inode_old, name_new, inode_p_new))
-            conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
-                        (inode_p_new, b'..', inode_old))
 
             # Delete old name
             conn.execute('DELETE FROM contents WHERE name=? AND parent_inode=?',
@@ -538,12 +558,7 @@ class Operations(llfuse.Operations):
                          (timestamp, inode_p_old))
 
             # Delete overwritten directory
-            conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                        (b'.', inode_new))
-            conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
-                        (b'..', inode_new))
             conn.execute("DELETE FROM inodes WHERE id=?", (inode_new,))
-
             conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
                          (timestamp, timestamp, inode_p_old))
             conn.execute("UPDATE inodes SET mtime=?, ctime=? WHERE id=?",
@@ -597,6 +612,8 @@ class Operations(llfuse.Operations):
                 log.error('Attempted to create s3ql control file at %s',
                           get_path(new_name, new_inode_p, conn))
             raise llfuse.FUSEError(errno.EACCES)
+        elif new_name in ('.', '..'):
+            raise llfuse.FUSEError(errno.EEXIST)
 
         with self.inode_lock(inode):
             with self.dbcm.transaction() as conn:
@@ -663,6 +680,8 @@ class Operations(llfuse.Operations):
                 log.error('Attempted to mknod s3ql control file at %s',
                           get_path(name, inode_p, conn))
             raise llfuse.FUSEError(errno.EACCES)
+        elif name in ('.', '..'):
+            raise llfuse.FUSEError(errno.EEXIST)
 
         # Type can be everything except for directory
         if stat.S_ISDIR(mode):
@@ -687,6 +706,8 @@ class Operations(llfuse.Operations):
                 log.error('Attempted to mkdir s3ql control file at %s',
                           get_path(name, inode_p, conn))
             raise llfuse.FUSEError(errno.EACCES)
+        elif name in ('.', '..'):
+            raise llfuse.FUSEError(errno.EEXIST)
 
         # Type must be directory or unspecified
         if (stat.S_IFMT(mode) != stat.S_IFDIR and
@@ -702,10 +723,6 @@ class Operations(llfuse.Operations):
                                (timestamp, timestamp, timestamp, ctx.uid, ctx.gid, mode, 2))
             conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
                          (name, inode, inode_p))
-            conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
-                         (b'.', inode, inode))
-            conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?, ?, ?)",
-                         (b'..', inode_p, inode))
             conn.execute("UPDATE inodes SET mtime=?, refcount=refcount+1 WHERE id=?",
                          (timestamp, inode_p))
 
@@ -816,6 +833,8 @@ class Operations(llfuse.Operations):
                 log.error('Attempted to create s3ql control file at %s',
                           get_path(name, inode_p, conn))
             raise llfuse.FUSEError(errno.EACCES)
+        elif name in ('.', '..'):
+            raise llfuse.FUSEError(errno.EEXIST)
 
         # Type has to be regular file or not specified at all
         if (stat.S_IFMT(mode) != stat.S_IFREG and

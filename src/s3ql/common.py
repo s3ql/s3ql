@@ -203,9 +203,8 @@ def get_path(name, inode_p, conn):
     maxdepth = 255
     while inode_p != ROOT_INODE:
         # This can be ambigious if directories are hardlinked
-        (name2, inode_p) = conn.get_row("SELECT name, parent_inode FROM contents "
-                                      "WHERE inode=? AND name != ? AND name != ?",
-                                       (inode_p, b'.', b'..'))
+        (name2, inode_p) = conn.get_row("SELECT name, parent_inode FROM contents WHERE inode=?",
+                                       (inode_p,))
         path.append(name2)
         maxdepth -= 1
         if maxdepth == 0:

@@ -17,7 +17,7 @@ import numbers
 import logging
 import re
 from s3ql.database import NoUniqueValueError
-from s3ql.common import (get_path, ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh)
+from s3ql.common import (ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh)
 
 __all__ = [ "fsck" ]
 
@@ -53,7 +53,6 @@ def fsck(dbcm, cachedir_, bucket_):
         detect_fs()
         check_cache()
         check_lof()
-        check_dirs()
         check_loops()
         check_inode_refcount()
         check_s3_refcounts()
@@ -180,7 +179,6 @@ def check_lof():
         conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                      (b"lost+found", inode_l, ROOT_INODE))
 
-        # . and .. will be added by the next checker
 
     mode = conn.get_val('SELECT mode FROM inodes WHERE id=?', (inode_l,))
     if not stat.S_ISDIR(mode):
@@ -198,62 +196,6 @@ def check_lof():
 
 
 
-def check_dirs():
-    """Ensure that directories have correct . and .. entries"""
-
-    global found_errors
-    log.info('Checking directories for . and .. entries...')
-
-    for (name, inode, mode, parent_inode) in \
-        conn.query('SELECT name, inode, mode, parent_inode FROM contents JOIN inodes '
-                   'ON id == inode'):
-
-        if not stat.S_ISDIR(mode):
-            continue
-
-        # Checked with their parent directories
-        if name == '.' or name == '..':
-            continue
-
-        # .
-        try:
-            inode2 = conn.get_val('SELECT inode FROM contents WHERE name=? AND parent_inode=?',
-                                (b'.', inode))
-        except KeyError:
-            found_errors = True
-            log_error('Directory "%s", inode %d has no . entry',
-                      get_path(name, parent_inode, conn), inode)
-            conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
-                         (b'.', inode, inode))
-            inode2 = inode
-
-        if inode2 != inode:
-            found_errors = True
-            log_error('Directory "%s", inode %d has wrong . entry',
-                      get_path(name, parent_inode, conn), inode)
-            conn.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
-                         (inode, b'.', inode))
-
-        # ..
-        try:
-            inode2 = conn.get_val('SELECT inode FROM contents WHERE name=? AND parent_inode=?',
-                                  (b'..', inode))
-        except KeyError:
-            found_errors = True
-            log_error('Directory "%s", inode %d has no .. entry',
-                      get_path(name, parent_inode, conn), inode)
-            conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
-                         (b'..', parent_inode, inode))
-            inode2 = parent_inode
-
-        if inode2 != parent_inode:
-            found_errors = True
-            log_error('Directory "%s", inode %d has wrong .. entry',
-                      get_path(name, parent_inode, conn), inode)
-            conn.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
-                         (parent_inode, b'..', inode))
-
-
 def check_loops():
     """Ensure that all directories can be reached from root"""
 
@@ -264,10 +206,10 @@ def check_loops():
 
     def delete_tree(inode_p):
         subdirs = list()
-        for (inode, mode, name) in conn.query("SELECT inode, mode, name FROM contents JOIN inodes "
+        for (inode, mode) in conn.query("SELECT inode, mode FROM contents JOIN inodes "
                                         "ON inode == id WHERE parent_inode=?",
                                         (inode_p,)):
-            if stat.S_ISDIR(mode) and not name in (b'.', b'..'):
+            if stat.S_ISDIR(mode):
                 subdirs.append(inode)
         conn.execute("DELETE FROM loopcheck WHERE parent_inode=?", (inode_p,))
         for inode in subdirs:
@@ -277,7 +219,7 @@ def check_loops():
 
     if conn.get_val("SELECT COUNT(inode) FROM loopcheck") > 0:
         found_errors = True
-        log_error("Found unreachable filesystem entries! "
+        log_error("Found unreachable filesystem entries!\n"
                   "This problem cannot be corrected automatically yet.")
 
     conn.execute("DROP TABLE loopcheck")
@@ -289,15 +231,27 @@ def check_inode_refcount():
 
     log.info('Checking inodes...')
 
-    for (inode, refcount) in conn.query("SELECT id, refcount FROM inodes"):
+    for (inode, refcount_cached, mode) in conn.query("SELECT id, refcount, mode FROM inodes"):
 
-        # No checks for root and contral
+        # No checks for root and control
         if inode in (ROOT_INODE, CTRL_INODE):
             continue
 
-        refcount2 = conn.get_val("SELECT COUNT(name) FROM contents WHERE inode=?", (inode,))
+        refcount_actual = conn.get_val("SELECT COUNT(name) FROM contents WHERE inode=?", (inode,))
 
-        if refcount2 == 0:
+        # Directory
+        if stat.S_ISDIR(mode):
+            # Add implicit '.' reference
+            refcount_actual += 1
+
+            # Add implicit '..' references in sub directories
+            for (inode_s,) in conn.query('SELECT inode FROM contents WHERE parent_inode=?',
+                                         (inode,)):
+                mode_s = conn.get_val("SELECT mode FROM inodes WHERE id=?", (inode_s,))
+                if stat.S_ISDIR(mode_s):
+                    refcount_actual += 1
+
+        if refcount_actual == 0:
             found_errors = True
             (inode_p, name) = resolve_free(b"/lost+found", b"inode-%d" % inode)
             log_error("Inode %d not referenced, adding as /lost+found/%s", inode, name)
@@ -306,11 +260,11 @@ def check_inode_refcount():
             conn.execute("UPDATE inodes SET refcount=? WHERE id=?",
                          (1, inode))
 
-        elif refcount != refcount2:
+        elif refcount_cached != refcount_actual:
             found_errors = True
             log_error("Inode %d has wrong reference count, setting from %d to %d",
-                      inode, refcount, refcount2)
-            conn.execute("UPDATE inodes SET refcount=? WHERE id=?", (refcount2, inode))
+                      inode, refcount_cached, refcount_actual)
+            conn.execute("UPDATE inodes SET refcount=? WHERE id=?", (refcount_actual, inode))
 
 
 def check_s3_refcounts():

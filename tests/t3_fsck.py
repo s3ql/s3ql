@@ -85,31 +85,6 @@ class fsck_tests(TestCase):
         sleep(s3.LOCAL_PROP_DELAY * 1.1)
         self.assertEquals(self.bucket['s3ql_data_1'], 'somedata')
 
-    def test_dirs(self):
-        inode = 42
-        self.conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount) "
-                   "VALUES (?,?,?,?,?,?,?,?)",
-                   (inode, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
-                   | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
-                    os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1))
-
-        # Create a new directory without . and ..
-        self.conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
-                        (b'testdir', inode, ROOT_INODE))
-
-        self.assert_fsck(fsck.check_dirs)
-
-        # and another with wrong entries
-        self.conn.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
-                        (ROOT_INODE, b'.', inode))
-        self.assert_fsck(fsck.check_dirs)
-
-
-        self.conn.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
-                        (inode, b'..', inode))
-
-        self.assert_fsck(fsck.check_dirs)
-
     def test_lof1(self):
 
         # Make lost+found a file
@@ -187,10 +162,6 @@ class fsck_tests(TestCase):
         for inode in inodes[1:]:
             conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
                          (bytes(inode), inode, last))
-            conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
-                         (b'.', inode, inode))
-            conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
-                         (b'..', last, inode))
             last = inode
 
 
