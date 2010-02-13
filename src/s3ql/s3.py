@@ -154,13 +154,16 @@ class LocalConnection(Connection):
     def __init__(self):
         super(LocalConnection, self).__init__('awskey', 'awspass')
 
-    def delete_bucket(self, name):
+    def delete_bucket(self, name, recursive=False):
         """Delete bucket"""
 
         if not os.path.exists(name):
             raise KeyError('Directory of local bucket does not exist')
 
-        os.rmdir(name)
+        if recursive:
+            shutil.rmtree(name)
+        else:
+            os.rmdir(name)
 
 
     def create_bucket(self, name, passphrase=None):
