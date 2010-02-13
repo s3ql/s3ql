@@ -13,7 +13,6 @@ import t1_s3_local
 import s3ql.s3
 from random import randrange
 from _common import get_aws_credentials
-from time import sleep
 
 # Each test should correspond to exactly one function in the tested
 # module, and testing should be done under the assumption that any
