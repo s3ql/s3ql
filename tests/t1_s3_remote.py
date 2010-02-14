@@ -22,7 +22,7 @@ class s3_tests_remote(t1_s3_local.s3_tests_local):
 
     @staticmethod
     def random_name(prefix=""):
-        return "s3ql_" + prefix + str(randrange(1000, 9999, 1))
+        return "s3ql-" + prefix + str(randrange(1000, 9999, 1))
 
     def setUp(self):
         (awskey, awspass) = get_aws_credentials()

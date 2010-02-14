@@ -217,7 +217,6 @@ class s3cache_tests(TestCase):
         data1 = self.random_data(int(0.4 * self.blocksize))
         data2 = self.random_data(int(0.4 * self.blocksize))
 
-
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
             fh.write(data1)
@@ -232,11 +231,11 @@ class s3cache_tests(TestCase):
 
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
-            self.assertTrue(data1, fh.read(len(data1)))
+            self.assertTrue(data1 == fh.read(len(data1)))
 
         with self.cache.get(inode, 2) as fh:
             fh.seek(0)
-            self.assertTrue(data2, fh.read(len(data2)))
+            self.assertTrue(data2 == fh.read(len(data2)))
 
     def test_remove(self):
         inode = self.inode

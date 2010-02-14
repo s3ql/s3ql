@@ -32,10 +32,11 @@ class s3_tests_local(TestCase):
         self.conn.create_bucket(self.bucketname, self.passphrase)
         self.bucket = self.conn.get_bucket(self.bucketname)
         self.name_cnt = 0
+        self.delay = s3.LOCAL_PROP_DELAY * 1.1
 
     def tearDown(self):
         # Wait for pending transactions
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(self.delay)
         shutil.rmtree(self.bucket_dir)
 
     def newname(self):
@@ -50,12 +51,12 @@ class s3_tests_local(TestCase):
         self.assertRaises(KeyError, self.bucket.fetch, key)
 
         self.bucket.store(key, value)
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(self.delay)
         self.assertEquals(self.bucket[key], value)
         self.bucket.lookup_key(key)
 
         self.bucket.delete_key(key)
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(self.delay)
         self.assertFalse(self.bucket.has_key(key))
         self.assertRaises(KeyError, self.bucket.lookup_key, key)
         self.assertRaises(KeyError, self.bucket.delete_key, key)
@@ -67,13 +68,13 @@ class s3_tests_local(TestCase):
         value2 = self.newname()
 
         self.bucket.store(key, value1, { 'foo': 42 })
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(self.delay)
         meta1 = self.bucket.fetch(key)[1]
 
         self.assertEquals(meta1['foo'], 42)
 
         self.bucket.store(key, value2, { 'bar': 37 })
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(self.delay)
         meta2 = self.bucket.fetch(key)[1]
 
         self.assertTrue('foo' not in meta2)
@@ -102,7 +103,7 @@ class s3_tests_local(TestCase):
         for i in range(12):
             self.bucket.store(keys[i], values[i])
 
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(self.delay)
         self.assertEquals(sorted(self.bucket.keys()), sorted(keys))
 
         for i in range(12):
@@ -126,12 +127,12 @@ class s3_tests_local(TestCase):
 
         self.bucket[key] = value2
         self.assertEquals(self.bucket[key], value1)
-        sleep(s3.LOCAL_PROP_DELAY ** 1.1)
+        sleep(s3.LOCAL_PROP_DELAY * 1.1)
         self.assertEquals(self.bucket[key], value2)
 
         self.bucket.delete_key(key)
         self.assertEquals(self.bucket[key], value2)
-        sleep(s3.LOCAL_PROP_DELAY ** 1.1)
+        sleep(s3.LOCAL_PROP_DELAY * 1.1)
         self.assertFalse(self.bucket.has_key(key))
 
     def tst_04_encryption(self):
@@ -141,7 +142,7 @@ class s3_tests_local(TestCase):
 
         bucket.passphrase = 'schlurp'
         bucket.store('encrypted', 'testdata', { 'tag': True })
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(self.delay)
         self.assertEquals(bucket['encrypted'], b'testdata')
         self.assertRaises(s3.ChecksumError, bucket.fetch, 'plain')
         self.assertRaises(s3.ChecksumError, bucket.lookup_key, 'plain')
@@ -174,7 +175,7 @@ class s3_tests_local(TestCase):
         self.assertRaises(s3.ConcurrencyError, self.bucket.store, key, value)
         t.join()
         self.bucket.store(key, value)
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(self.delay)
 
         def async2():
             self.bucket[key] = value
@@ -203,7 +204,7 @@ class s3_tests_local(TestCase):
         t.join()
         self.assertTrue(self.bucket.fetch(key) is not None)
 
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(self.delay)
         del self.bucket[key]
 
     def tst_06_copy(self):
@@ -215,10 +216,10 @@ class s3_tests_local(TestCase):
         self.assertRaises(KeyError, self.bucket.lookup_key, key2)
 
         self.bucket.store(key1, value)
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(self.delay)
         self.bucket.copy(key1, key2)
 
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(self.delay)
         self.assertEquals(self.bucket[key2], value)
 
 
