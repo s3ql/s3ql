@@ -11,7 +11,7 @@ from __future__ import division, print_function
 from contextlib import contextmanager
 from s3ql.multi_lock import MultiLock
 from s3ql.ordered_dict import OrderedDict
-from s3ql.common import (ExceptionStoringThread, sha256_fh, EmbeddedException, retry, retry_boto)
+from s3ql.common import (ExceptionStoringThread, sha256_fh, EmbeddedException, retry, retry_exc)
 import logging
 import os
 import threading
@@ -196,8 +196,8 @@ class S3Cache(object):
                 # Need to download corresponding S3 object
                 else:
                     el = CacheEntry(inode, blockno, s3key, filename, "w+b")
-                    retry_boto(600, [ 'NoSuchKey' ], self.bucket.fetch_fh,
-                               's3ql_data_%d' % s3key, el)
+                    retry_exc(600, [ KeyError ], self.bucket.fetch_fh,
+                              's3ql_data_%d' % s3key, el)
 
                     # Update cache size
                     el.seek(0, 2)
@@ -222,7 +222,7 @@ class S3Cache(object):
                 self.size = self.size - oldsize + newsize
 
         # TODO: Instead of calling expire, we should wait for
-        # the permament expiration thread to have reduced
+        # the permanent expiration thread to have reduced
         # the cache size sufficiently.
         self.expire(self.maxsize, MAX_CACHE_ENTRIES)
 
@@ -252,6 +252,7 @@ class S3Cache(object):
             el.dirty = True
             el.seek(0, 2)
             self.size += el.tell()
+            self.cache[(inode, blockno)] = el
 
     def expire(self, max_size, max_files):
         '''Expire cache. 

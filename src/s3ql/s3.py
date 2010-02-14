@@ -9,12 +9,12 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 from time import sleep
-from boto.s3.connection import S3Connection
+from boto.s3.connection import S3Connection, Location
 from contextlib import contextmanager
 import boto.exception as bex
 import shutil
 from cStringIO import StringIO
-from s3ql.common import (sha256, ExceptionStoringThread, retry_boto)
+from s3ql.common import (sha256, ExceptionStoringThread, retry_boto, QuietError)
 import tempfile
 import hmac
 import logging
@@ -115,8 +115,21 @@ class Connection(object):
         since the changes do not propagate instantaneously through AWS.
         """
 
+        # TODO: We should also support buckets in US N. California,
+        # but boto does not know this location yet. This would
+        # also force us to export S3 specific options into mkfs...
         with self._get_boto() as boto:
-            boto.create_bucket(name)
+            # We need an EU bucket for the list-after-put consistency,
+            # otherwise it is possible that we read old metadata
+            # without noticing it.
+            try:
+                boto.create_bucket(name, location=Location.EU)
+            except bex.S3ResponseError as exc:
+                if exc.code == 'InvalidBucketName':
+                    log.error('Bucket name contains invalid characters.')
+                    raise QuietError(1)
+                else:
+                    raise
 
         return Bucket(self, name, passphrase)
 
@@ -322,14 +335,14 @@ class Bucket(object):
             boto.delete_key(key)
 
 
-    def keys(self):
+    def keys(self, prefix=''):
         """List keys in bucket
 
         Returns an iterator over all keys in the bucket.
         """
 
         with self._get_boto() as boto:
-            for bkey in boto.list():
+            for bkey in boto.list(prefix):
                 yield bkey.name
 
     def get_size(self):
@@ -604,7 +617,7 @@ class LocalBotoBucket(object):
 
         threading.Thread(target=set_).start()
 
-    def list(self):
+    def list(self, prefix=''):
         # We add the size attribute outside init
         #pylint: disable-msg=W0201
         log.debug("LocalBotoBucket: Handling list()")
@@ -612,6 +625,8 @@ class LocalBotoBucket(object):
             if not name.endswith('.dat'):
                 continue
             key = b64decode(name[:-len('.dat')])
+            if not key.startswith(prefix):
+                continue
             el = LocalBotoKey(self, key, dict())
             el.size = os.path.getsize(os.path.join(self.name, name))
             yield el

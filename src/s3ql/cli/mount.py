@@ -13,7 +13,7 @@ from optparse import OptionParser
 from s3ql import fs, s3
 from s3ql.s3cache import SynchronizedS3Cache
 from s3ql.common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
-                         QuietError, unlock_bucket)
+                         QuietError, unlock_bucket, get_parameters)
 from s3ql.database import ConnectionManager
 import llfuse
 import tempfile
@@ -25,9 +25,6 @@ import cPickle as pickle
 __all__ = [ 'main' ]
 
 log = logging.getLogger("mount")
-
-# TODO: Evaluate if we can save the db in plain text, that seems to
-# make it much smaller and easier to compress.
 
 def main(args):
     '''Mount S3QL file system'''
@@ -47,6 +44,10 @@ def main(args):
     if options.bucketname.startswith('local:'):
         options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
         conn = s3.LocalConnection()
+
+        if not options.fg:
+            raise QuietError('Local buckets currently work only with --fg.\n'
+                             'This is bug and will hopefully be fixed very soon.')
     else:
         (awskey, awspass) = get_credentials(options.credfile, options.awskey)
         conn = s3.Connection(awskey, awspass)
@@ -61,23 +62,17 @@ def main(args):
     dbfile = get_dbfile(options.bucketname, options.cachedir)
     cachedir = get_cachedir(options.bucketname, options.cachedir)
 
-    if 's3ql_parameters' not in bucket:
-        raise QuietError('Old file system revision, please run tune.s3ql --upgrade first.')
-
-    param = pickle.loads(bucket['s3ql_parameters'])
-
-    if param['revision'] < 2:
-        raise QuietError('File system revision too old, please run tune.s3ql --upgrade first.')
-    elif param['revision'] > 2:
-        raise QuietError('File system revision too new, please update your '
-                         'S3QL installation.')
+    # Get most-recent s3ql_parameters object and check fs revision
+    log.info('Getting file system parameters..')
+    param = get_parameters(bucket)
 
     if os.path.exists(dbfile):
         dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
         mountcnt = dbcm.get_val('SELECT mountcnt FROM parameters')
         if mountcnt != param['mountcnt']:
-            raise QuietError('Local cache files exist, but file system appears to have \n'
-                             'been mounted elsewhere after the unclean shutdown.')
+            raise QuietError('Local cache files exist, but file system appears to have\n'
+                             'been mounted elsewhere after the unclean shutdown. You\n'
+                             'need to run fsck.s3ql.')
 
         log.info('Recovering old metadata from unclean shutdown..')
         # TODO: We should run multithreaded at some point
@@ -99,7 +94,7 @@ def main(args):
             os.unlink(dbfile)
             raise QuietError('Metadata from most recent mount has not yet propagated through S3, or\n'
                              'file system has not been unmounted cleanly. In the later case you\n'
-                             'should run fsck.s3l on the computer where the bucket has been\n'
+                             'should run fsck.s3ql on the computer where the bucket has been\n'
                              'mounted most-recently.')
         elif mountcnt_db > param['mountcnt']:
             os.unlink(dbfile)
@@ -119,8 +114,10 @@ def main(args):
     dbcm.execute('ANALYZE')
 
     param['mountcnt'] += 1
-    bucket.store('s3ql_parameters', pickle.dumps(param, 2))
     dbcm.execute('UPDATE parameters SET mountcnt=mountcnt+1')
+    bucket.store('s3ql_parameters_%d' % param['mountcnt'],
+                 pickle.dumps(param, 2))
+
     try:
         try:
             operations = run_server(bucket, cache, dbcm, options)
@@ -136,6 +133,7 @@ def main(args):
             bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
         bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
         bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
+
 
     # Remove database
     log.debug("Cleaning up...")
@@ -280,8 +278,8 @@ def parse_args(args):
     #
     # Verify parameters
     #
-    if not len(pps) == 2:
-        parser.error("Wrong number of parameters")
+    if len(pps) != 2:
+        parser.error("Incorrent number of arguments.")
     options.bucketname = pps[0]
     options.mountpoint = pps[1]
 

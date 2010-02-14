@@ -18,11 +18,11 @@ import stat
 import sys
 import threading
 import traceback
+import cPickle as pickle
 
-
-__all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh',
+__all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_parameters',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
-           "ROOT_INODE", "ExceptionStoringThread", 'retry', 'retry_boto',
+           "ROOT_INODE", "ExceptionStoringThread", 'retry', 'retry_boto', 'retry_exc',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'stacktraces', 'init_logging_from_options', 'QuietError' ]
 
@@ -38,6 +38,31 @@ def unlock_bucket(bucket):
         data_pw = bucket['s3ql_passphrase']
         bucket.passphrase = data_pw
 
+def get_parameters(bucket):
+    '''Return file system parameters.
+    
+    If the file system is too old or too new, raises `QuietError`.
+    '''
+
+    seq_nos = [ int(x[len('s3ql_parameters_'):]) for x in bucket.keys('s3ql_parameters_') ]
+    if not seq_nos:
+        raise QuietError('Old file system revision, please run tune.s3ql --upgrade first.')
+    seq_no = max(seq_nos)
+    param = pickle.loads(bucket['s3ql_parameters_%d' % seq_no])
+    assert seq_no == param['mountcnt']
+
+    if param['revision'] < 2:
+        raise QuietError('File system revision too old, please run tune.s3ql --upgrade first.')
+    elif param['revision'] > 2:
+        raise QuietError('File system revision too new, please update your '
+                         'S3QL installation.')
+
+    # Delete old parameter objects 
+    for i in seq_nos:
+        if i < seq_no:
+            del bucket['s3ql_parameters_%d' % i ]
+
+    return param
 
 class QuietError(SystemExit):
     '''QuietError is an exception that should not result in a
@@ -330,6 +355,29 @@ def retry_boto(timeout, errcodes, fn, *a, **kw):
 
     raise TimeoutError()
 
+def retry_exc(timeout, exc_types, fn, *a, **kw):
+    """Wait for fn(*a, **kw) to succeed
+    
+    If `fn(*a, **kw)` raises an exception in `exc_types`, the function is called again.
+    If the timeout is reached, `TimeoutError` is raised.
+    """
+
+    step = 0.2
+    while timeout > 0:
+        try:
+            return fn(*a, **kw)
+        except BaseException as exc:
+            for exc_type in exc_types:
+                if isinstance(exc, exc_type):
+                    break
+            else:
+                raise exc
+
+        sleep(step)
+        timeout -= step
+        step *= 2
+
+    raise TimeoutError()
 
 class TimeoutError(Exception):
     '''Raised by `retry()` when a timeout is reached.'''

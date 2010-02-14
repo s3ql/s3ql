@@ -13,7 +13,7 @@ import stat
 import time
 from optparse import OptionParser
 from s3ql.common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
-                         unlock_bucket, QuietError)
+                         unlock_bucket, QuietError, get_parameters)
 from s3ql.database import ConnectionManager
 import logging
 from s3ql import s3, fsck
@@ -58,8 +58,8 @@ def parse_args(args):
 
     (options, pps) = parser.parse_args(args)
 
-    if not len(pps) == 1:
-        parser.error("bucketname not specified")
+    if len(pps) != 1:
+        parser.error("Incorrent number of arguments.")
 
     options.bucketname = pps[0]
 
@@ -96,16 +96,8 @@ def main(args):
     except s3.ChecksumError:
         raise QuietError('Checksum error - incorrect password?')
 
-    if 's3ql_parameters' not in bucket:
-        raise QuietError('Old file system revision, please run tune.s3ql --upgrade first.')
-
-    param = pickle.loads(bucket['s3ql_parameters'])
-
-    if param['revision'] < 2:
-        raise QuietError('File system revision too old, please run tune.s3ql --upgrade first.')
-    elif param['revision'] > 2:
-        raise QuietError('File system revision too new, please update your '
-                         'S3QL installation.')
+    # Get most-recent s3ql_parameters object and check fs revision
+    param = get_parameters(bucket)
 
     if os.path.exists(dbfile):
         dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
@@ -118,53 +110,54 @@ def main(args):
                   '  a) Remove the local cache files and loose the changes in there\n'
                   '  b) Use the local cache and loose the changes performed during\n'
                   '     all mounts after the unclean shutdown.\n')
-            while choice in ('a', 'b'):
-                print('Your choice [ab]? ')
-                choice = sys.stdin.readline().strip().tolower()
+            while choice not in ('a', 'b'):
+                print('Your choice [ab]? ', end='')
+                choice = sys.stdin.readline().strip().lower()
 
             if choice == 'a':
                 log.info('Removing local cache files..')
                 os.unlink(dbfile)
                 shutil.rmtree(cachedir)
-                log.info("Downloading metadata...")
-                os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
-                bucket.fetch_fh("s3ql_metadata", open(dbfile, 'wb'))
-                dbcm = ConnectionManager(dbfile,
-                                         initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
-                mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
+                do_download = True
             else:
                 log.info('Using local cache files.')
+                do_download = False
 
         elif mountcnt_db > param['mountcnt']:
             raise RuntimeError('mountcnt_db > mountcnt_s3, this should not happen.')
+        else:
+            do_download = False
     else:
         if os.path.exists(cachedir):
             raise RuntimeError('cachedir exists, but no local metadata.'
                                'This should not happen.')
+        do_download = True
 
+    if do_download:
         log.info("Downloading metadata...")
         os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
         bucket.fetch_fh("s3ql_metadata", open(dbfile, 'wb'))
         dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
         mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
 
-    if mountcnt_db < param['mountcnt']:
-        print('Metadata from most recent mount has not yet propagated through S3, or\n'
-              'file system has not been unmounted cleanly. In the later case you\n'
-              'should run fsck.s3l on the computer where the bucket has been\n'
-              'mounted most-recently.')
-        print('Enter "continue" to use the outdated data anyway:')
-        if sys.stdin.readline().strip() != 'continue':
-            os.unlink(dbfile)
-            raise QuietError(1)
+        if mountcnt_db < param['mountcnt']:
+            print('Metadata from most recent mount has not yet propagated through S3, or\n'
+                  'file system has not been unmounted cleanly.')
+            print('Enter "continue" to use the outdated data anyway:',
+                  '> ', sep='\n', end='')
+            if sys.stdin.readline().strip() != 'continue':
+                os.unlink(dbfile)
+                raise QuietError(1)
 
-    elif mountcnt_db > param['mountcnt']:
-        os.unlink(dbfile)
-        raise RuntimeError('mountcnt_db > mountcnt_s3, this should not happen.')
+        elif mountcnt_db > param['mountcnt']:
+            os.unlink(dbfile)
+            raise RuntimeError('mountcnt_db > mountcnt_s3, this should not happen.')
 
     mountcnt = max(mountcnt_db, param['mountcnt']) + 1
     param['mountcnt'] = mountcnt
-    bucket.store('s3ql_parameters', pickle.dumps(param, 2))
+    dbcm.execute('UPDATE parameters SET mountcnt=?', (mountcnt,))
+    bucket.store('s3ql_parameters_%d' % param['mountcnt'],
+                 pickle.dumps(param, 2))
 
     if not os.path.exists(cachedir):
         os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
@@ -172,8 +165,8 @@ def main(args):
     fsck.fsck(dbcm, cachedir, bucket)
 
     log.info("Committing data to S3...")
-    dbcm.execute("UPDATE parameters SET needs_fsck=?, last_fsck=?, "
-                 "mountcnt=?", (False, time.time() - time.timezone, mountcnt))
+    dbcm.execute("UPDATE parameters SET needs_fsck=?, last_fsck=?",
+                 (False, time.time() - time.timezone))
 
     dbcm.execute("VACUUM")
     log.debug("Uploading database..")

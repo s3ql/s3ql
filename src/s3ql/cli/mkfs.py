@@ -53,8 +53,6 @@ def parse_args(args):
                       dest="label")
     parser.add_option("--blocksize", type="int", default=10240,
                       help="Maximum size of s3 objects in KB (default: %default)")
-    parser.add_option("-f", action="store_true", default=False,
-                      dest="force", help="Force creation and remove any existing data")
     parser.add_option("--encrypt", action="store_true", default=None,
                       help="Create an AES encrypted filesystem")
     parser.add_option("--debug", action="append",
@@ -67,8 +65,8 @@ def parse_args(args):
 
     (options, pps) = parser.parse_args(args)
 
-    if not len(pps) == 1:
-        parser.error("bucketname not specificed")
+    if len(pps) != 1:
+        parser.error("Incorrent number of arguments.")
     options.bucketname = pps[0]
 
     return options
@@ -86,17 +84,11 @@ def main(args):
         conn = s3.Connection(awskey, awspass)
 
     if conn.bucket_exists(options.bucketname):
-        if options.force:
-            log.info("Removing existing bucket...")
-            bucket = conn.get_bucket(options.bucketname)
-            bucket.clear()
-        else:
-            log.error(
-                "Bucket already exists!\n"
-                "Use -f option to remove the existing bucket.\n")
-            raise QuietError(1)
-    else:
-        bucket = conn.create_bucket(options.bucketname)
+        log.error(
+            "Bucket already exists!\n"
+            "(you can delete an existing bucket with tune.s3ql --delete)\n")
+        raise QuietError(1)
+    bucket = conn.create_bucket(options.bucketname)
 
     if options.encrypt:
         if sys.stdin.isatty():
@@ -124,19 +116,14 @@ def main(args):
     dbfile = get_dbfile(options.bucketname, options.cachedir)
     cachedir = get_cachedir(options.bucketname, options.cachedir)
 
-    if (os.path.exists(dbfile) or
-        os.path.exists(cachedir)):
-        if options.force:
-            if os.path.exists(dbfile):
-                os.unlink(dbfile)
-            if os.path.exists(cachedir):
-                shutil.rmtree(cachedir)
-            log.info("Removed existing metadata.")
-        else:
-            log.warn(
-                "Local metadata file already exists!\n"
-                "Use -f option to really remove the existing filesystem.")
-            sys.exit(1)
+
+    # There can't be a corresponding bucket, so we can safely delete
+    # these files.
+    if os.path.exists(dbfile):
+        os.unlink(dbfile)
+    if os.path.exists(cachedir):
+        shutil.rmtree(cachedir)
+
 
     try:
         log.info('Creating metadata tables...')
@@ -147,7 +134,8 @@ def main(args):
         param = dict()
         param['revision'] = 2
         param['mountcnt'] = 0
-        bucket.store('s3ql_parameters', pickle.dumps(param, 2))
+        bucket.store('s3ql_parameters_%d' % param['mountcnt'],
+                     pickle.dumps(param, 2))
         bucket.store_fh('s3ql_metadata', open(dbfile, 'r'))
 
     finally:
