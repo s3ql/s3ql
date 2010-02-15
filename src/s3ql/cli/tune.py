@@ -13,7 +13,7 @@ import logging
 import cPickle as pickle
 from boto.s3.connection import Location
 from ..common import (init_logging_from_options, get_credentials, QuietError, unlock_bucket,
-                      ExceptionStoringThread, get_parameters)
+                      ExceptionStoringThread)
 from getpass import getpass
 import sys
 from .. import s3
