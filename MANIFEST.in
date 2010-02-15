@@ -1,4 +1,6 @@
 recursive-include tests *.py
 include src/*.h
 include src/ctypeslib.zip
+include Changes.txt
+include README.txt
 
