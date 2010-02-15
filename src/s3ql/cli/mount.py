@@ -279,7 +279,7 @@ def parse_args(args):
     # Verify parameters
     #
     if len(pps) != 2:
-        parser.error("Incorrent number of arguments.")
+        parser.error("Incorrect number of arguments.")
     options.bucketname = pps[0]
     options.mountpoint = pps[1]
 

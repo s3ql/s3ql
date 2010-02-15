@@ -66,7 +66,7 @@ def parse_args(args):
     (options, pps) = parser.parse_args(args)
 
     if len(pps) != 1:
-        parser.error("Incorrent number of arguments.")
+        parser.error("Incorrect number of arguments.")
     options.bucketname = pps[0]
 
     return options
@@ -132,7 +132,7 @@ def main(args):
 
         log.info('Uploading database...')
         param = dict()
-        param['revision'] = 2
+        param['revision'] = 3
         param['mountcnt'] = 0
         bucket.store('s3ql_parameters_%d' % param['mountcnt'],
                      pickle.dumps(param, 2))

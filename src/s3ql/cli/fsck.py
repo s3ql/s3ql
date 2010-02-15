@@ -59,7 +59,7 @@ def parse_args(args):
     (options, pps) = parser.parse_args(args)
 
     if len(pps) != 1:
-        parser.error("Incorrent number of arguments.")
+        parser.error("Incorrect number of arguments.")
 
     options.bucketname = pps[0]
 

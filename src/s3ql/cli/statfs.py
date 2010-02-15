@@ -41,7 +41,7 @@ def parse_args(args):
 
     # Verify parameters
     if len(pps) != 1:
-        parser.error("Incorrent number of arguments.")
+        parser.error("Incorrect number of arguments.")
     options.mountpoint = pps[0].rstrip('/')
 
     return options

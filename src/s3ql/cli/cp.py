@@ -41,7 +41,7 @@ def parse_args(args):
 
     # Verify parameters
     if len(pps) != 2:
-        parser.error("Incorrent number of arguments.")
+        parser.error("Incorrect number of arguments.")
     options.source = pps[0].rstrip('/')
     options.target = pps[1].rstrip('/')
 
