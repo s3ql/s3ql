@@ -26,6 +26,7 @@ import os
 import time
 import hashlib
 import bz2
+import lzma
 from base64 import b64decode, b64encode
 import struct
 
@@ -299,7 +300,16 @@ class Bucket(object):
         if bkey is None:
             raise KeyError('Key does not exist: %s' % key)
 
-        encrypted = 'encrypted' in bkey.metadata and bkey.metadata['encrypted'] == 'True'
+        if 'encrypted' in bkey.metadata:
+            if bkey.metadata['encrypted'] in ('True', 'AES/BZ2', 'AES/LZMA'):
+                encrypted = True
+            elif bkey.metadata['encrypted'] == 'False':
+                encrypted = False
+            else:
+                raise RuntimeError('Unsupported compression/encryption')
+        else:
+            encrypted = False
+
         if encrypted and not self.passphrase:
             raise ChecksumError('Encrypted object and no passphrase supplied')
         if not encrypted and self.passphrase:
@@ -412,7 +422,20 @@ class Bucket(object):
             fh.seek(0)
             bkey.get_contents_to_file(fh)
 
-        encrypted = 'encrypted' in bkey.metadata and bkey.metadata['encrypted'] == 'True'
+        if 'encrypted' in bkey.metadata:
+            if bkey.metadata['encrypted'] in ('True', 'AES/BZ2'):
+                decomp = bz2.BZ2Decompressor()
+                encrypted = True
+            elif bkey.metadata['encrypted'] == 'AES/LZMA':
+                decomp = lzma.LZMADecompressor()
+                encrypted = True
+            elif bkey.metadata['encrypted'] == 'False':
+                encrypted = False
+            else:
+                raise RuntimeError('Unsupported compression/encryption')
+        else:
+            encrypted = False
+
         if encrypted and not self.passphrase:
             raise ChecksumError('Encrypted object and no passphrase supplied')
         if not encrypted and self.passphrase:
@@ -430,7 +453,7 @@ class Bucket(object):
             (fh, tmp) = (tmp, fh)
             tmp.seek(0)
             fh.seek(0)
-            decrypt_uncompress_fh(tmp, fh, self.passphrase)
+            decrypt_uncompress_fh(tmp, fh, self.passphrase, decomp)
             tmp.close()
 
         return metadata
@@ -445,10 +468,6 @@ class Bucket(object):
 
         if not isinstance(key, str):
             raise TypeError('key must be of type str')
-
-        # TODO: Switch to compression with pyliblzma. To keep this backwards
-        # compatible, we will introduce a new (unencryted) "compression-method"
-        # metadata header that defaults to bz2 if absent.
 
         fh.seek(0)
 
@@ -466,20 +485,15 @@ class Bucket(object):
             fh.seek(0)
             meta_raw = encrypt(meta_raw, self.passphrase, nonce)
 
-        done = False
-        while not done:
-            with self._get_boto() as boto:
-                bkey = boto.new_key(key)
-                bkey.set_metadata('meta', b64encode(meta_raw))
-                bkey.set_metadata('encrypted', 'True' if self.passphrase else 'False')
-                try:
-                    bkey.set_contents_from_file(fh)
-                    done = True
-                except bex.S3ResponseError as exc:
-                    if exc.status == 400 and exc.error_code == 'RequestTimeout':
-                        log.warn('RequestTimeout when uploading to Amazon S3. Retrying..')
-                    else:
-                        raise
+        with self._get_boto() as boto:
+            bkey = boto.new_key(key)
+            bkey.set_metadata('meta', b64encode(meta_raw))
+            if self.passphrase:
+                # LZMA is not yet working
+                bkey.set_metadata('encrypted', 'AES/BZ2')
+            else:
+                bkey.set_metadata('encrypted', 'False')
+            retry_boto(600, [ 'RequestTimeout' ], bkey.set_contents_from_file, fh)
 
         if self.passphrase:
             (fh, tmp) = (tmp, fh)
@@ -735,14 +749,57 @@ def decrypt(buf, passphrase):
     return buf
 
 
+def decrypt_uncompress_fh(ifh, ofh, passphrase, decomp):
+    '''Read `ofh` and write decrypted, uncompressed data to `ofh`'''
+
+    bs = 256 * 1024
+
+    # Read nonce
+    len_ = struct.unpack(b'<B', ifh.read(struct.calcsize(b'<B')))[0]
+    nonce = ifh.read(len_)
+
+    key = sha256(passphrase + nonce)
+    cipher = pycryptopp.cipher.aes.AES(key)
+    hmac_ = hmac.new(key, digestmod=hashlib.sha256)
+
+    # Read (encrypted) hmac
+    hash_ = ifh.read(32) # Length of hash
+
+    while True:
+        buf = ifh.read(bs)
+        if not buf:
+            break
+
+        buf = cipher.process(buf)
+        try:
+            buf = decomp.decompress(buf)
+        except IOError:
+            raise ChecksumError('Invalid bz2 stream')
+
+        if buf:
+            hmac_.update(buf)
+            ofh.write(buf)
+
+    if decomp.unused_data:
+        raise ChecksumError('Data after end of compressed stream')
+
+    # Decompress hmac
+    hash_ = cipher.process(hash_)
+
+    if hash_ != hmac_.digest():
+        raise ChecksumError('HMAC mismatch')
+
+
 def compress_encrypt_fh(ifh, ofh, passphrase, nonce):
     '''Read `ifh` and write compressed, encrypted data to `ofh`'''
 
     if isinstance(nonce, unicode):
         nonce = nonce.encode('utf-8')
 
+    # LZMA is not yet working
+    #compr = lzma.LZMACompressor(options={ 'level': 9 })
     compr = bz2.BZ2Compressor(9)
-    bs = 900 * 1024 # 900k blocksize
+    bs = 512 * 1024
     key = sha256(passphrase + nonce)
     cipher = pycryptopp.cipher.aes.AES(key)
     hmac_ = hmac.new(key, digestmod=hashlib.sha256)
@@ -773,46 +830,4 @@ def compress_encrypt_fh(ifh, ofh, passphrase, nonce):
     buf = cipher.process(buf)
     ofh.seek(off)
     ofh.write(buf)
-
-
-def decrypt_uncompress_fh(ifh, ofh, passphrase):
-    '''Read `ofh` and write decrypted, uncompressed data to `ofh`'''
-
-    decomp = bz2.BZ2Decompressor()
-    bs = 900 * 1024 # 900k blocksize
-
-    # Read nonce
-    len_ = struct.unpack(b'<B', ifh.read(struct.calcsize(b'<B')))[0]
-    nonce = ifh.read(len_)
-
-    key = sha256(passphrase + nonce)
-    cipher = pycryptopp.cipher.aes.AES(key)
-    hmac_ = hmac.new(key, digestmod=hashlib.sha256)
-
-    # Read (encrypted) hmac
-    hash_ = ifh.read(32) # Length of hash
-
-    while True:
-        buf = ifh.read(bs)
-        if not buf:
-            break
-
-        buf = cipher.process(buf)
-        try:
-            buf = decomp.decompress(buf)
-        except IOError:
-            raise ChecksumError('Invalid bz2 stream')
-
-        if buf:
-            hmac_.update(buf)
-            ofh.write(buf)
-
-    if decomp.unused_data:
-        raise ChecksumError('Data after end of bz2 stream')
-
-    # Decompress hmac
-    hash_ = cipher.process(hash_)
-
-    if hash_ != hmac_.digest():
-        raise ChecksumError('HMAC mismatch')
 
