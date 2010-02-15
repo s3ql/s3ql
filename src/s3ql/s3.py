@@ -524,7 +524,8 @@ def retry_boto(fn, *a, **kw):
 
     step = 0.2
     timeout = 300
-    while timeout > 0:
+    waited = 0
+    while waited < timeout:
         try:
             return fn(*a, **kw)
         except bex.S3ResponseError as exc:
@@ -539,8 +540,9 @@ def retry_boto(fn, *a, **kw):
                 raise
 
         sleep(step)
-        timeout -= step
-        step *= 2
+        waited += step
+        if step < timeout / 30:
+            step *= 2
 
     raise TimeoutError()
 

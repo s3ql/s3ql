@@ -114,8 +114,7 @@ def blocking_umount(mountpoint):
 
     found_errors = False
 
-    # TODO: Call fuser -m here to determine if the fs is still
-    # busy.
+    # TODO: Call fuser -m here to determine if the fs is still busy.
 
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
 

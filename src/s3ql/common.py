@@ -326,13 +326,15 @@ def retry(timeout, fn, *a, **kw):
     """
 
     step = 0.2
-    while timeout > 0:
+    waited = 0
+    while waited < timeout:
         ret = fn(*a, **kw)
         if ret:
             return ret
         sleep(step)
-        timeout -= step
-        step *= 2
+        waited += step
+        if step < waited / 30:
+            step *= 2
 
     raise TimeoutError()
 
@@ -346,7 +348,8 @@ def retry_exc(timeout, exc_types, fn, *a, **kw):
     """
 
     step = 0.2
-    while timeout > 0:
+    waited = 0
+    while waited < timeout:
         try:
             return fn(*a, **kw)
         except BaseException as exc:
@@ -357,8 +360,9 @@ def retry_exc(timeout, exc_types, fn, *a, **kw):
                 raise exc
 
         sleep(step)
-        timeout -= step
-        step *= 2
+        waited += step
+        if step < timeout / 30:
+            step *= 2
 
     raise TimeoutError()
 
