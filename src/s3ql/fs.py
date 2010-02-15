@@ -425,7 +425,7 @@ class Operations(llfuse.Operations):
                             (inode,)) > 0:
                 log.debug("Attempted to remove nonempty directory %s",
                           get_path(name, inode_p, conn))
-                raise llfuse.FUSEError(errno.EINVAL)
+                raise llfuse.FUSEError(errno.ENOTEMPTY)
 
             # Delete
             conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
