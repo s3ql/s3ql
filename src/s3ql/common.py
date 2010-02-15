@@ -51,9 +51,9 @@ def get_parameters(bucket):
     param = pickle.loads(bucket['s3ql_parameters_%d' % seq_no])
     assert seq_no == param['mountcnt']
 
-    if param['revision'] < 2:
+    if param['revision'] < 3:
         raise QuietError('File system revision too old, please run tune.s3ql --upgrade first.')
-    elif param['revision'] > 2:
+    elif param['revision'] > 3:
         raise QuietError('File system revision too new, please update your '
                          'S3QL installation.')
 
