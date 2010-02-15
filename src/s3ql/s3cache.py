@@ -346,7 +346,8 @@ class S3Cache(object):
            amount of transferred data is 1 MB.
         """
 
-        # TODO: We really want to do compression/encryption and upload in parallel.
+        # TODO: Compress/Encrypt and upload in parallel
+        # We really want to do compression/encryption and upload in parallel.
         # This is probably best implemented by moving the entire _expire_parallel
         # function into the dedicated expiration thread. It can then sequentially compress,
         # and upload in a separate thread while compressing the next object, while
