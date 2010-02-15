@@ -134,7 +134,6 @@ def main(args):
         bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
         bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
 
-
     # Remove database
     log.debug("Cleaning up...")
     os.unlink(dbfile)
@@ -178,17 +177,17 @@ def run_server(bucket, cache, dbcm, options):
     operations = fs.Operations(cache, dbcm, not options.atime)
     llfuse.init(operations, options.mountpoint, fuse_opts)
     try:
-        # Switch to background logging if necessary
-        init_logging_from_options(options, daemon=not options.fg)
+        if not options.fg:
+            init_logging_from_options(options, daemon=True)
+            llfuse.daemonize()
 
         if options.profile:
-            prof.runcall(llfuse.main, options.single, options.fg)
+            prof.runcall(llfuse.main, options.single)
         else:
-            llfuse.main(options.single, options.fg)
+            llfuse.main(options.single)
 
-    except:
+    finally:
         llfuse.close()
-        raise
 
     if options.profile:
         tmp = tempfile.NamedTemporaryFile()
