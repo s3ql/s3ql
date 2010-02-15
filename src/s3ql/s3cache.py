@@ -11,7 +11,7 @@ from __future__ import division, print_function
 from contextlib import contextmanager
 from s3ql.multi_lock import MultiLock
 from s3ql.ordered_dict import OrderedDict
-from s3ql.common import (ExceptionStoringThread, sha256_fh, EmbeddedException, retry, retry_exc)
+from s3ql.common import (ExceptionStoringThread, sha256_fh, EmbeddedException, retry_exc)
 import logging
 import os
 import threading
@@ -196,7 +196,7 @@ class S3Cache(object):
                 # Need to download corresponding S3 object
                 else:
                     el = CacheEntry(inode, blockno, s3key, filename, "w+b")
-                    retry_exc(600, [ KeyError ], self.bucket.fetch_fh,
+                    retry_exc(300, [ KeyError ], self.bucket.fetch_fh,
                               's3ql_data_%d' % s3key, el)
 
                     # Update cache size
@@ -324,20 +324,7 @@ class S3Cache(object):
 
         if to_delete:
             log.debug('No references to object %d left, deleting', old_s3key)
-            self._delete_object(old_s3key)
-
-    def _delete_object(self, key):
-        '''Delete object from S3'''
-
-        def doit():
-            try:
-                del self.bucket['s3ql_data_%d' % key]
-            except KeyError:
-                return False
-            else:
-                return True
-
-        retry(600, doit)
+            retry_exc(300, [ KeyError ], self.bucket.delete_key, 's3ql_data_%d' % old_s3key)
 
 
     def _expire_parallel(self):
@@ -359,7 +346,7 @@ class S3Cache(object):
            amount of transferred data is 1 MB.
         """
 
-        # TODO: We really want to do compression/encyption and upload in parallel.
+        # TODO: We really want to do compression/encryption and upload in parallel.
         # This is probably best implemented by moving the entire _expire_parallel
         # function into the dedicated expiration thread. It can then sequentially compress,
         # and upload in a separate thread while compressing the next object, while
@@ -489,7 +476,8 @@ class S3Cache(object):
                 threads.pop(0).join_and_raise()
 
             # Start a removal thread              
-            t = ExceptionStoringThread(self._delete_object, args=(s3key,))
+            t = ExceptionStoringThread(retry_exc,
+                                       args=(self.bucket.delete_key, 's3ql_data_%d' % s3key))
             threads.append(t)
             t.start()
 

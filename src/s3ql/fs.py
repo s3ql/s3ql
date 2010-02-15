@@ -919,7 +919,6 @@ class Operations(llfuse.Operations):
             offset += written
             buf = buf[written:]
 
-
         # Update file size if changed
         # Fuse does not ensure that we do not get concurrent write requests,
         # so we have to be careful not to undo a size extension made by

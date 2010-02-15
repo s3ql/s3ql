@@ -14,7 +14,7 @@ from contextlib import contextmanager
 import boto.exception as bex
 import shutil
 from cStringIO import StringIO
-from s3ql.common import (sha256, ExceptionStoringThread, retry_boto, QuietError)
+from s3ql.common import (sha256, ExceptionStoringThread, TimeoutError, QuietError)
 import tempfile
 import hmac
 import logging
@@ -248,7 +248,7 @@ class Bucket(object):
 
         boto_conn = self.conn._pop_conn()
         try:
-            yield retry_boto(60, [ 'NoSuchBucket' ], boto_conn.get_bucket, self.name)
+            yield retry_boto(boto_conn.get_bucket, self.name)
         finally:
             self.conn._push_conn(boto_conn)
 
@@ -277,7 +277,7 @@ class Bucket(object):
 
     def has_key(self, key):
         with self._get_boto() as boto:
-            bkey = boto.get_key(key)
+            bkey = retry_boto(boto.get_key, key)
 
         return bkey is not None
 
@@ -295,7 +295,7 @@ class Bucket(object):
             raise TypeError('key must be of type str')
 
         with self._get_boto() as boto:
-            bkey = boto.get_key(key)
+            bkey = retry_boto(boto.get_key, key)
 
         if bkey is None:
             raise KeyError('Key does not exist: %s' % key)
@@ -339,10 +339,10 @@ class Bucket(object):
             raise TypeError('key must be of type str')
 
         with self._get_boto() as boto:
-            if not force and boto.get_key(key) is None:
+            if not force and retry_boto(boto.get_key, key) is None:
                 raise KeyError('Key does not exist: %s' % key)
 
-            boto.delete_key(key)
+            retry_boto(boto.delete_key, key)
 
 
     def keys(self, prefix=''):
@@ -416,11 +416,11 @@ class Bucket(object):
             (fh, tmp) = (tmp, fh)
 
         with self._get_boto() as boto:
-            bkey = boto.get_key(key)
+            bkey = retry_boto(boto.get_key, key)
             if bkey is None:
                 raise KeyError('Key does not exist: %s' % key)
             fh.seek(0)
-            bkey.get_contents_to_file(fh)
+            retry_boto(bkey.get_contents_to_file, fh)
 
         if 'encrypted' in bkey.metadata:
             if bkey.metadata['encrypted'] in ('True', 'AES/BZ2'):
@@ -493,7 +493,7 @@ class Bucket(object):
                 bkey.set_metadata('encrypted', 'AES/BZ2')
             else:
                 bkey.set_metadata('encrypted', 'False')
-            retry_boto(600, [ 'RequestTimeout' ], bkey.set_contents_from_file, fh)
+            retry_boto(bkey.set_contents_from_file, fh)
 
         if self.passphrase:
             (fh, tmp) = (tmp, fh)
@@ -510,8 +510,39 @@ class Bucket(object):
             raise TypeError('key must be of type str')
 
         with self._get_boto() as boto:
-            boto.copy_key(dest, self.name, src)
+            retry_boto(boto.copy_key, dest, self.name, src)
 
+
+def retry_boto(fn, *a, **kw):
+    """Wait for fn(*a, **kw) to succeed
+    
+    If `fn(*a, **kw)` raises `boto.exception.S3ResponseError` with errorcode
+    in (`NoSuchBucket`, `RequestTimeout`) or `IOError` with errno 104,
+    the function is called again. If the timeout is reached, 
+    `TimeoutError` is raised.
+    """
+
+    step = 0.2
+    timeout = 300
+    while timeout > 0:
+        try:
+            return fn(*a, **kw)
+        except bex.S3ResponseError as exc:
+            if exc.error_code in ('NoSuchBucket', 'RequestTimeout'):
+                pass
+            else:
+                raise
+        except IOError as exc:
+            if exc.errno == errno.ECONNRESET:
+                pass
+            else:
+                raise
+
+        sleep(step)
+        timeout -= step
+        step *= 2
+
+    raise TimeoutError()
 
 class LocalBucket(Bucket):
     '''A bucket that is stored on the local harddisk'''

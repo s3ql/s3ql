@@ -11,7 +11,6 @@ from getpass import getpass
 from time import sleep
 import hashlib
 import logging.handlers
-import boto.exception
 import os
 import re
 import stat
@@ -22,7 +21,7 @@ import cPickle as pickle
 
 __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_parameters',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
-           "ROOT_INODE", "ExceptionStoringThread", 'retry', 'retry_boto', 'retry_exc',
+           "ROOT_INODE", "ExceptionStoringThread", 'retry', 'retry_exc',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'stacktraces', 'init_logging_from_options', 'QuietError' ]
 
@@ -192,6 +191,12 @@ def init_logging(logfile, stdout_level=logging.INFO, file_level=logging.INFO,
 
         root_logger.setLevel(min(stdout_level, file_level))
 
+    # Make sure that top-level exceptions are logged
+    def log_main(*a):
+        root_logger.error('Uncaught top-level exception',
+                          exc_info=a)
+
+    sys.excepthook = log_main
 
 def inode_for_path(path, conn):
     """Return inode of directory entry at `path`
@@ -331,29 +336,7 @@ def retry(timeout, fn, *a, **kw):
 
     raise TimeoutError()
 
-def retry_boto(timeout, errcodes, fn, *a, **kw):
-    """Wait for fn(*a, **kw) to succeed
-    
-    If `fn(*a, **kw)` raises `boto.exception.S3ResponseError` with errorcode
-    in `errcodes`, the function is called again. If the timeout is reached, 
-    `TimeoutError` is raised.
-    """
 
-    step = 0.2
-    while timeout > 0:
-        try:
-            return fn(*a, **kw)
-        except boto.exception.S3ResponseError as exc:
-            if exc.error_code in errcodes:
-                pass
-            else:
-                raise
-
-        sleep(step)
-        timeout -= step
-        step *= 2
-
-    raise TimeoutError()
 
 def retry_exc(timeout, exc_types, fn, *a, **kw):
     """Wait for fn(*a, **kw) to succeed
