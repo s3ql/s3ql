@@ -116,9 +116,6 @@ class Connection(object):
         since the changes do not propagate instantaneously through AWS.
         """
 
-        # TODO: We should also support buckets in US N. California,
-        # but boto does not know this location yet. This would
-        # also force us to export S3 specific options into mkfs...
         with self._get_boto() as boto:
             # We need an EU bucket for the list-after-put consistency,
             # otherwise it is possible that we read old metadata

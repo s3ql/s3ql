@@ -75,7 +75,6 @@ def main(args):
                              'need to run fsck.s3ql.')
 
         log.info('Recovering old metadata from unclean shutdown..')
-        # TODO: We should run multithreaded at some point
         cache = SynchronizedS3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm,
                                     timeout=options.s3timeout)
         cache.recover()
@@ -101,7 +100,6 @@ def main(args):
             raise RuntimeError('mountcnt_db > mountcnt_s3, this should not happen.')
 
         os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-        # TODO: We should run multithreaded at some point
         cache = SynchronizedS3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm,
                                     timeout=options.s3timeout)
 

@@ -336,8 +336,6 @@ class Operations(llfuse.Operations):
                 time.sleep(1)
                 stamp = time.time()
 
-        # TODO: Invalidate attributes of target_ino
-
     def _copy_tree(self, src_ino, target_ino, queue, ino_cache):
 
         with self.dbcm.transaction() as conn:

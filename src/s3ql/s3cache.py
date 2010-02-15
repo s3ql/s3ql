@@ -221,9 +221,6 @@ class S3Cache(object):
                 newsize = el.tell()
                 self.size = self.size - oldsize + newsize
 
-        # TODO: Instead of calling expire, we should wait for
-        # the permanent expiration thread to have reduced
-        # the cache size sufficiently.
         self.expire(self.maxsize, MAX_CACHE_ENTRIES)
 
 
@@ -345,13 +342,6 @@ class S3Cache(object):
            to upload several objects at the same time, so that the total
            amount of transferred data is 1 MB.
         """
-
-        # TODO: Compress/Encrypt and upload in parallel
-        # We really want to do compression/encryption and upload in parallel.
-        # This is probably best implemented by moving the entire _expire_parallel
-        # function into the dedicated expiration thread. It can then sequentially compress,
-        # and upload in a separate thread while compressing the next object, while
-        # also keeping track of how many uploads we are doing at the same time. 
 
         log.debug('_expire parallel started')
 
