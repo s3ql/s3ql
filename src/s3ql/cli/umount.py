@@ -13,7 +13,7 @@ import sys
 from optparse import OptionParser
 import os
 import logging
-from s3ql.common import init_logging_from_options, CTRL_NAME
+from s3ql.common import init_logging_from_options, CTRL_NAME, QuietError
 import posixpath
 import subprocess
 import time
@@ -114,7 +114,13 @@ def blocking_umount(mountpoint):
 
     found_errors = False
 
-    # TODO: Call fuser -m here to determine if the fs is still busy.
+    fuser = subprocess.Popen(['fuser', '-m', '-v', mountpoint], stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT)
+    (stdout, dummy) = fuser.communicate()
+    if fuser.returncode == 0:
+        print('Cannot umount, the following processes still access the mountpoint:',
+              stdout, sep='\n', end='\n')
+        raise QuietError(1)
 
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
 
