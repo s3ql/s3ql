@@ -77,10 +77,8 @@ def main(args):
     options = parse_args(args)
     init_logging_from_options(options)
 
-    dbfile = get_dbfile(options.bucketname, options.cachedir)
-    cachedir = get_cachedir(options.bucketname, options.cachedir)
-
     if options.bucketname.startswith('local:'):
+        # Canonicalize path, otherwise we don't have a unique dbfile/cachdir for this bucket
         options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
         conn = s3.LocalConnection()
     else:
@@ -95,6 +93,9 @@ def main(args):
         unlock_bucket(bucket)
     except s3.ChecksumError:
         raise QuietError('Checksum error - incorrect password?')
+
+    dbfile = get_dbfile(options.bucketname, options.cachedir)
+    cachedir = get_cachedir(options.bucketname, options.cachedir)
 
     # Get most-recent s3ql_parameters object and check fs revision
     param = get_parameters(bucket)

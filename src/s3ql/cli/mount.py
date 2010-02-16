@@ -43,6 +43,7 @@ def main(args):
         raise QuietError('Mountpoint does not exist.')
 
     if options.bucketname.startswith('local:'):
+        # Canonicalize path, otherwise we don't have a unique dbfile/cachdir for this bucket
         options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
         conn = s3.LocalConnection()
     else:
