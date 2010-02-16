@@ -13,6 +13,7 @@ import shutil
 import logging
 import cPickle as pickle
 import os
+import errno
 
 log = logging.getLogger("backend.local")
 
@@ -70,11 +71,14 @@ class Bucket(AbstractBucket):
 
     def raw_lookup(self, key):
         filename = os.path.join(self.name, escape(key))
-        if os.path.exists(filename + '.dat'):
+        try:
             with open(filename + '.meta', 'rb') as src:
                 return pickle.load(src)
-        else:
-            raise KeyError('Bucket has no object with key %r' % key)
+        except IOError as exc:
+            if exc.errno == errno.ENOENT:
+                raise KeyError('Key %r not in bucket' % key)
+            else:
+                raise
 
     def delete(self, key, force=False):
         """Deletes the specified key
@@ -84,11 +88,18 @@ class Bucket(AbstractBucket):
         """
 
         filename = os.path.join(self.name, escape(key))
-        if os.path.exists(filename + '.dat'):
+        try:
             os.unlink(filename + '.dat')
             os.unlink(filename + '.meta')
-        elif not force:
-            raise KeyError('Bucket has no object with key %r' % key)
+        except IOError as exc:
+            if exc.errno == errno.ENOENT:
+                if force:
+                    pass
+                else:
+                    raise KeyError('Key %r not in bucket' % key)
+            else:
+                raise
+
 
     def list(self, prefix=''):
         """List keys in bucket
@@ -117,11 +128,17 @@ class Bucket(AbstractBucket):
 
     def raw_fetch(self, key, fh):
         filename = os.path.join(self.name, escape(key))
-        with open(filename + '.dat', 'rb') as src:
-            fh.seek(0)
-            shutil.copyfileobj(src, fh)
-        with open(filename + '.meta', 'rb') as src:
-            metadata = pickle.load(src)
+        try:
+            with open(filename + '.dat', 'rb') as src:
+                fh.seek(0)
+                shutil.copyfileobj(src, fh)
+            with open(filename + '.meta', 'rb') as src:
+                metadata = pickle.load(src)
+        except IOError as exc:
+            if exc.errno == errno.ENOENT:
+                raise KeyError('Key %r not in bucket' % key)
+            else:
+                raise
 
         return metadata
 
@@ -131,7 +148,7 @@ class Bucket(AbstractBucket):
         with open(filename + '.dat', 'wb') as dest:
             shutil.copyfileobj(fh, dest)
         with open(filename + '.meta', 'wb') as dest:
-            pickle.dump(self.metadata, dest, 2)
+            pickle.dump(metadata, dest, 2)
 
     def copy(self, src, dest):
         """Copy data stored under `src` to `dest`"""

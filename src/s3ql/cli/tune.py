@@ -146,7 +146,7 @@ def upgrade(conn, bucket):
         raise QuietError(1)
 
     # Upgrade from revision 1 to 2
-    if not list(bucket.keys('s3ql_parameters_')):
+    if not list(bucket.list('s3ql_parameters_')):
         upgrade_rev1(bucket)
 
     # Check that the bucket is in the correct location
@@ -160,7 +160,7 @@ def upgrade(conn, bucket):
             raise QuietError(0)
 
     # Read parameters
-    seq_no = max([ int(x[len('s3ql_parameters_'):]) for x in bucket.keys('s3ql_parameters_') ])
+    seq_no = max([ int(x[len('s3ql_parameters_'):]) for x in bucket.list('s3ql_parameters_') ])
     param = pickle.loads(bucket['s3ql_parameters_%d' % seq_no])
 
     # Upgrade from rev. 2 to rev. 3

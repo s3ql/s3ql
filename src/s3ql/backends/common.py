@@ -86,7 +86,7 @@ class AbstractBucket(object):
         return self.contains(key)
 
     def iteritems(self):
-        for key in self.keys():
+        for key in self.list():
             yield (key, self[key])
 
     def lookup(self, key):
@@ -237,12 +237,14 @@ class AbstractBucket(object):
                 tmp = tempfile.TemporaryFile()
             else:
                 tmp = StringIO()
+            fh.seek(0)
             compress_encrypt_fh(fh, tmp, self.passphrase, nonce)
             (fh, tmp) = (tmp, fh)
             fh.seek(0)
             meta_raw = encrypt(meta_raw, self.passphrase, nonce)
+        else:
+            fh.seek(0)
 
-        fh.seek(0)
         if self.passphrase:
             # LZMA is not yet working
             self.raw_store(key, fh, { 'meta': b64encode(meta_raw),

@@ -12,7 +12,6 @@ from random import randint
 from s3ql import mkfs, fs, fsck
 from s3ql.backends import local
 import time
-from time import sleep
 from s3ql.common import ROOT_INODE, ExceptionStoringThread
 from llfuse import FUSEError
 from s3ql.s3cache import S3Cache
@@ -62,13 +61,10 @@ class fs_api_tests(TestCase):
         self.cache.clear()
         self.dbfile.close()
         shutil.rmtree(self.cachedir)
-        sleep(local.LOCAL_PROP_DELAY * 1.1)
         shutil.rmtree(self.bucket_dir)
-
 
     def fsck(self):
         self.cache.clear()
-        sleep(local.LOCAL_PROP_DELAY * 1.1)
         fsck.fsck(self.dbcm, self.cachedir, self.bucket)
         self.assertFalse(fsck.found_errors)
 
@@ -297,13 +293,6 @@ class fs_api_tests(TestCase):
         self.fsck()
 
     def test_07_unlink(self):
-
-        # We check what happens if we try to delete an object
-        # that has not yet propagated. 
-        bak = local.LOCAL_PROP_DELAY
-        local.LOCAL_PROP_DELAY = 2
-        self.cache.timeout = 3
-
         name1 = self.newname()
         inode_p = self.root_inode
         data = self.random_data(5 * self.blocksize)
@@ -316,8 +305,6 @@ class fs_api_tests(TestCase):
         self.server.unlink(inode_p, name1)
 
         self.fsck()
-
-        local.LOCAL_PROP_DELAY = bak
 
     def test_08_link(self):
         name = self.newname()
@@ -712,12 +699,10 @@ class fs_api_tests(TestCase):
         self.assertTrue(isinstance(self.server.getattr(inode), dict))
         self.assertEquals(len(self.cache), 1)
         self.cache.clear()
-        sleep(local.LOCAL_PROP_DELAY * 1.1)
-        self.assertEquals(len(list(self.bucket.keys())), 1)
+        self.assertEquals(len(list(self.bucket.list())), 1)
         self.server.release(fh)
         self.assertEquals(len(self.cache), 0)
-        sleep(local.LOCAL_PROP_DELAY * 1.1)
-        self.assertEquals(len(list(self.bucket.keys())), 0)
+        self.assertEquals(len(list(self.bucket.list())), 0)
         self.assertRaises(KeyError, self.server.getattr, inode)
         self.fsck()
 
@@ -750,12 +735,11 @@ class fs_api_tests(TestCase):
         for i in range(blocks):
             self.server.write(fh, i * self.blocksize, self.random_data(32 + i))
 
-        self.assertEqual(len(list(self.bucket.keys())), 0)
+        self.assertEqual(len(list(self.bucket.list())), 0)
 
         self.server.fsync(fh, True)
 
-        sleep(local.LOCAL_PROP_DELAY * 1.1)
-        self.assertEqual(len(list(self.bucket.keys())), blocks)
+        self.assertEqual(len(list(self.bucket.list())), blocks)
 
         self.server.flush(fh)
         self.server.release(fh)

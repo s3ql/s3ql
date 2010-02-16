@@ -16,7 +16,7 @@ import tempfile
 from _common import TestCase
 import unittest
 import stat
-from time import time, sleep
+from time import time
 import shutil
 
 # Each test should correspond to exactly one function in the tested
@@ -52,7 +52,6 @@ class s3cache_tests(TestCase):
     def tearDown(self):
         self.cache.clear()
         self.dbfile.close()
-        sleep(local.LOCAL_PROP_DELAY * 1.1)
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
 
@@ -78,7 +77,6 @@ class s3cache_tests(TestCase):
 
         # Case 3: Object needs to be downloaded
         self.cache._expire_parallel()
-        sleep(local.LOCAL_PROP_DELAY * 1.1)
         with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
             self.assertEqual(data, fh.read(len(data)))
@@ -266,7 +264,6 @@ class s3cache_tests(TestCase):
         self.cache.bucket.verify()
         self.cache.bucket = TestBucket(self.bucket, no_del=2)
         # Key errors would cause multiple delete calls
-        sleep(local.LOCAL_PROP_DELAY * 1.1)
         self.cache.remove(inode)
         self.cache.bucket.verify()
 
@@ -332,7 +329,7 @@ class TestBucket(object):
         self.delete(key)
 
     def __iter__(self):
-        return self.bucket.keys()
+        return self.bucket.list()
 
     def  __contains__(self, key):
         return self.bucket.contains(key)

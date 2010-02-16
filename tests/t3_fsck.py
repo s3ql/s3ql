@@ -19,7 +19,6 @@ import os
 import stat
 import tempfile
 import time
-from time import sleep
 import shutil
 
 # TODO: Rewrite this test case
@@ -51,9 +50,7 @@ class fsck_tests(TestCase):
     def tearDown(self):
         self.dbfile.close()
         shutil.rmtree(self.cachedir)
-        sleep(local.LOCAL_PROP_DELAY * 1.1)
         shutil.rmtree(self.bucket_dir)
-
 
     def test_detect(self):
         self.conn.execute('DELETE FROM parameters')
@@ -66,7 +63,6 @@ class fsck_tests(TestCase):
         fn()
         self.assertTrue(fsck.found_errors)
         fsck.found_errors = False
-        sleep(local.LOCAL_PROP_DELAY * 1.1)
         fn()
         self.assertFalse(fsck.found_errors)
 
@@ -83,7 +79,6 @@ class fsck_tests(TestCase):
         fh.close()
 
         self.assert_fsck(fsck.check_cache)
-        sleep(local.LOCAL_PROP_DELAY * 1.1)
         self.assertEquals(self.bucket['s3ql_data_1'], 'somedata')
 
     def test_lof1(self):
@@ -131,10 +126,8 @@ class fsck_tests(TestCase):
 
 
     def test_keylist(self):
-
         # Create an object that only exists in s3
         self.bucket['s3ql_data_4364'] = 'Testdata'
-        sleep(local.LOCAL_PROP_DELAY * 1.1)
         self.assert_fsck(fsck.check_keylist)
 
         # Create an object that does not exist in S3
@@ -148,7 +141,6 @@ class fsck_tests(TestCase):
             return fd.read(len_)
 
     def test_loops(self):
-
         conn = self.conn
 
         # Create some directory inodes  

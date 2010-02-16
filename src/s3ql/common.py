@@ -43,7 +43,7 @@ def get_parameters(bucket):
     If the file system is too old or too new, raises `QuietError`.
     '''
 
-    seq_nos = [ int(x[len('s3ql_parameters_'):]) for x in bucket.keys('s3ql_parameters_') ]
+    seq_nos = [ int(x[len('s3ql_parameters_'):]) for x in bucket.list('s3ql_parameters_') ]
     if not seq_nos:
         raise QuietError('Old file system revision, please run tune.s3ql --upgrade first.')
     seq_no = max(seq_nos)

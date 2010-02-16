@@ -11,7 +11,6 @@ from _common import TestCase
 from cStringIO import StringIO
 from os.path import basename
 from s3ql import libc, common
-from s3ql.backends import local
 from s3ql.common import retry, ExceptionStoringThread
 import filecmp
 import os
@@ -55,7 +54,6 @@ class fuse_tests(TestCase):
         if posixpath.ismount(self.mnt_dir):
             subprocess.call(['fusermount', '-z', '-u', self.mnt_dir])
 
-        time.sleep(local.LOCAL_PROP_DELAY * 1.1)
         shutil.rmtree(self.mnt_dir)
         shutil.rmtree(self.cache_dir)
         shutil.rmtree(self.bucket_dir)
