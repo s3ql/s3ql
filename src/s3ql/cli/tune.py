@@ -107,7 +107,7 @@ def main(args):
 def change_passphrase(bucket):
     '''Change bucket passphrase'''
 
-    if not bucket.has_key('s3ql_passphrase'):
+    if 's3ql_passphrase' not in bucket:
         raise QuietError('Bucket is not encrypted.')
 
     if sys.stdin.isatty():

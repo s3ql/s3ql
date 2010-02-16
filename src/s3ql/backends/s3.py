@@ -158,7 +158,13 @@ class Bucket(AbstractBucket):
         self.passphrase = passphrase
         self.name = name
 
-    def has_key(self, key):
+    def __str__(self):
+        if self.passphrase:
+            return '<encrypted s3 bucket, name=%r>' % self.name
+        else:
+            return '<s3 bucket, name=%r>' % self.name
+
+    def contains(self, key):
         with self._get_boto() as boto:
             bkey = retry_boto(boto.get_key, key)
 
@@ -168,10 +174,10 @@ class Bucket(AbstractBucket):
         with self._get_boto() as boto:
             return retry_boto(boto.get_key, key)
 
-    def delete_key(self, key, force=False):
+    def delete(self, key, force=False):
         """Deletes the specified key
 
-        ``bucket.delete_key(key)`` can also be written as ``del bucket[key]``.
+        ``bucket.delete(key)`` can also be written as ``del bucket[key]``.
         If `force` is true, do not return an error if the key does not exist.
         """
 
@@ -212,7 +218,7 @@ class Bucket(AbstractBucket):
             fh.seek(0)
             retry_boto(bkey.get_contents_to_file, fh)
 
-        return bkey
+        return bkey.metadata
 
     def raw_store(self, key, fh, metadata):
         with self._get_boto() as boto:
@@ -220,7 +226,6 @@ class Bucket(AbstractBucket):
             bkey.metadata.update(metadata)
             retry_boto(bkey.set_contents_from_file, fh)
 
-        return bkey
 
     def copy(self, src, dest):
         """Copy data stored under `src` to `dest`"""

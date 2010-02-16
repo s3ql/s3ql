@@ -125,9 +125,9 @@ def main(args):
     finally:
         log.info("Uploading database..")
         dbcm.execute("VACUUM")
-        if bucket.has_key("s3ql_metadata_bak_2"):
+        if "s3ql_metadata_bak_2" in bucket:
             bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
-        if bucket.has_key("s3ql_metadata_bak_1"):
+        if "s3ql_metadata_bak_1" in bucket:
             bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
         bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
         bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))

@@ -28,7 +28,7 @@ __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_paramete
 def unlock_bucket(bucket):
     '''Ask for passphrase if bucket requires one'''
 
-    if bucket.has_key('s3ql_passphrase'):
+    if 's3ql_passphrase' in bucket:
         if sys.stdin.isatty():
             wrap_pw = getpass("Enter encryption password: ")
         else:

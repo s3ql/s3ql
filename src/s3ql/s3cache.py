@@ -321,7 +321,7 @@ class S3Cache(object):
 
         if to_delete:
             log.debug('No references to object %d left, deleting', old_s3key)
-            retry_exc(300, [ KeyError ], self.bucket.delete_key, 's3ql_data_%d' % old_s3key)
+            retry_exc(300, [ KeyError ], self.bucket.delete, 's3ql_data_%d' % old_s3key)
 
 
     def _expire_parallel(self):
@@ -468,7 +468,7 @@ class S3Cache(object):
 
             # Start a removal thread              
             t = ExceptionStoringThread(retry_exc,
-                                       args=(300, [ KeyError ], self.bucket.delete_key,
+                                       args=(300, [ KeyError ], self.bucket.delete,
                                              's3ql_data_%d' % s3key))
             threads.append(t)
             t.start()

@@ -57,7 +57,7 @@ class AbstractBucket(object):
                 log.info('Deleted %d objects so far..', no)
 
             log.debug('Deleting key %s', s3key)
-            t = ExceptionStoringThread(self.delete_key, args=(s3key,))
+            t = ExceptionStoringThread(self.delete, args=(s3key,))
             t.start()
             threads.append(t)
 
@@ -76,19 +76,19 @@ class AbstractBucket(object):
         self.store(key, value)
 
     def __delitem__(self, key):
-        self.delete_key(key)
+        self.delete(key)
 
     def __iter__(self):
         return self.keys()
 
     def  __contains__(self, key):
-        return self.has_key(key)
+        return self.contains(key)
 
     def iteritems(self):
         for key in self.keys():
             yield (key, self[key])
 
-    def lookup_key(self, key):
+    def lookup(self, key):
         """Return metadata for given key.
 
         If the key does not exist, KeyError is raised.
@@ -178,16 +178,16 @@ class AbstractBucket(object):
             tmp = tempfile.TemporaryFile()
             (fh, tmp) = (tmp, fh)
 
-        bkey = self.raw_fetch(key, fh)
+        meta_raw = self.raw_fetch(key, fh)
 
-        if 'encrypted' in bkey.metadata:
-            if bkey.metadata['encrypted'] in ('True', 'AES/BZ2'):
+        if 'encrypted' in meta_raw:
+            if meta_raw['encrypted'] in ('True', 'AES/BZ2'):
                 decomp = bz2.BZ2Decompressor()
                 encrypted = True
-            elif bkey.metadata['encrypted'] == 'AES/LZMA':
+            elif meta_raw['encrypted'] == 'AES/LZMA':
                 decomp = lzma.LZMADecompressor()
                 encrypted = True
-            elif bkey.metadata['encrypted'] == 'False':
+            elif meta_raw['encrypted'] == 'False':
                 encrypted = False
             else:
                 raise RuntimeError('Unsupported compression/encryption')
@@ -199,11 +199,11 @@ class AbstractBucket(object):
         if not encrypted and self.passphrase:
             raise ChecksumError('Passphrase supplied, but object is not encrypted')
 
-        if 'meta' in bkey.metadata:
-            meta_raw = b64decode(bkey.metadata['meta'])
+        if 'meta' in meta_raw:
+            buf = b64decode(meta_raw['meta'])
             if encrypted:
-                meta_raw = decrypt(meta_raw, self.passphrase)
-            metadata = pickle.loads(meta_raw)
+                buf = decrypt(buf, self.passphrase)
+            metadata = pickle.loads(buf)
         else:
             metadata = dict()
 

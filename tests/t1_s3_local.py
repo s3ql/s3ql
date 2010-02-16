@@ -44,24 +44,24 @@ class s3_tests_local(TestCase):
         self.name_cnt += 1
         return "s3ql_%d" % self.name_cnt
 
-    def tst_01_store_fetch_lookup_delete_key(self):
+    def tst_01_store_fetch_lookup_delete(self):
         # Include special characters
         key = 's3ql_with_/_and_=, foo'
         value = self.newname()
-        self.assertRaises(KeyError, self.bucket.lookup_key, key)
-        self.assertRaises(KeyError, self.bucket.delete_key, key)
+        self.assertRaises(KeyError, self.bucket.lookup, key)
+        self.assertRaises(KeyError, self.bucket.delete, key)
         self.assertRaises(KeyError, self.bucket.fetch, key)
 
         self.bucket.store(key, value)
         sleep(self.delay)
         self.assertEquals(self.bucket[key], value)
-        self.bucket.lookup_key(key)
+        self.bucket.lookup(key)
 
-        self.bucket.delete_key(key)
+        self.bucket.delete(key)
         sleep(self.delay)
-        self.assertFalse(self.bucket.has_key(key))
-        self.assertRaises(KeyError, self.bucket.lookup_key, key)
-        self.assertRaises(KeyError, self.bucket.delete_key, key)
+        self.assertFalse(self.bucket.contains(key))
+        self.assertRaises(KeyError, self.bucket.lookup, key)
+        self.assertRaises(KeyError, self.bucket.delete, key)
         self.assertRaises(KeyError, self.bucket.fetch, key)
 
     def tst_02_meta(self):
@@ -88,7 +88,7 @@ class s3_tests_local(TestCase):
         # Run all tests in same environment, creating and deleting
         # the bucket every time just takes too long.
 
-        self.tst_01_store_fetch_lookup_delete_key()
+        self.tst_01_store_fetch_lookup_delete()
         self.tst_02_meta()
         self.tst_03_list_keys()
         self.tst_04_encryption()
@@ -120,11 +120,11 @@ class s3_tests_local(TestCase):
         value1 = self.newname()
         value2 = self.newname()
 
-        self.assertFalse(self.bucket.has_key(key))
+        self.assertFalse(self.bucket.contains(key))
         self.bucket[key] = value1
-        self.assertFalse(self.bucket.has_key(key))
+        self.assertFalse(self.bucket.contains(key))
         sleep(local.LOCAL_PROP_DELAY * 1.1)
-        self.assertTrue(self.bucket.has_key(key))
+        self.assertTrue(self.bucket.contains(key))
         self.assertEquals(self.bucket[key], value1)
 
         self.bucket[key] = value2
@@ -132,10 +132,10 @@ class s3_tests_local(TestCase):
         sleep(local.LOCAL_PROP_DELAY * 1.1)
         self.assertEquals(self.bucket[key], value2)
 
-        self.bucket.delete_key(key)
+        self.bucket.delete(key)
         self.assertEquals(self.bucket[key], value2)
         sleep(local.LOCAL_PROP_DELAY * 1.1)
-        self.assertFalse(self.bucket.has_key(key))
+        self.assertFalse(self.bucket.contains(key))
 
     def tst_04_encryption(self):
         bucket = self.bucket
@@ -147,17 +147,17 @@ class s3_tests_local(TestCase):
         sleep(self.delay)
         self.assertEquals(bucket['encrypted'], b'testdata')
         self.assertRaises(ChecksumError, bucket.fetch, 'plain')
-        self.assertRaises(ChecksumError, bucket.lookup_key, 'plain')
+        self.assertRaises(ChecksumError, bucket.lookup, 'plain')
 
         bucket.passphrase = None
         self.assertRaises(ChecksumError, bucket.fetch, 'encrypted')
-        self.assertRaises(ChecksumError, bucket.lookup_key, 'encrypted')
+        self.assertRaises(ChecksumError, bucket.lookup, 'encrypted')
 
         bucket.passphrase = self.passphrase
         self.assertRaises(ChecksumError, bucket.fetch, 'encrypted')
-        self.assertRaises(ChecksumError, bucket.lookup_key, 'encrypted')
+        self.assertRaises(ChecksumError, bucket.lookup, 'encrypted')
         self.assertRaises(ChecksumError, bucket.fetch, 'plain')
-        self.assertRaises(ChecksumError, bucket.lookup_key, 'plain')
+        self.assertRaises(ChecksumError, bucket.lookup, 'plain')
 
 
     def tst_05_concurrency(self):
@@ -214,8 +214,8 @@ class s3_tests_local(TestCase):
         key1 = self.newname()
         key2 = self.newname()
         value = self.newname()
-        self.assertRaises(KeyError, self.bucket.lookup_key, key1)
-        self.assertRaises(KeyError, self.bucket.lookup_key, key2)
+        self.assertRaises(KeyError, self.bucket.lookup, key1)
+        self.assertRaises(KeyError, self.bucket.lookup, key2)
 
         self.bucket.store(key1, value)
         sleep(self.delay)

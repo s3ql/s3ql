@@ -314,14 +314,14 @@ class TestBucket(object):
 
         return self.bucket.fetch_fh(*a, **kw)
 
-    def delete_key(self, *a, **kw):
+    def delete(self, *a, **kw):
         self.no_del -= 1
 
         if self.no_del < 0:
             raise RuntimeError('Got too many delete calls')
 
         try:
-            return self.bucket.delete_key(*a, **kw)
+            return self.bucket.delete(*a, **kw)
         except KeyError:
             # Don't count key errors
             self.no_del += 1
@@ -329,13 +329,13 @@ class TestBucket(object):
 
 
     def __delitem__(self, key):
-        self.delete_key(key)
+        self.delete(key)
 
     def __iter__(self):
         return self.bucket.keys()
 
     def  __contains__(self, key):
-        return self.bucket.has_key(key)
+        return self.bucket.contains(key)
 
 def suite():
     return unittest.makeSuite(s3cache_tests)
