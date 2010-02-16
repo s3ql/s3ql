@@ -17,6 +17,7 @@ import pycryptopp
 import cPickle as pickle
 import time
 import hashlib
+import os
 import bz2
 import lzma
 from base64 import b64decode, b64encode
@@ -79,7 +80,7 @@ class AbstractBucket(object):
         self.delete(key)
 
     def __iter__(self):
-        return self.keys()
+        return self.list()
 
     def  __contains__(self, key):
         return self.contains(key)
@@ -97,15 +98,12 @@ class AbstractBucket(object):
         if not isinstance(key, str):
             raise TypeError('key must be of type str')
 
-        bkey = self.raw_lookup(key)
+        meta_raw = self.raw_lookup(key)
 
-        if bkey is None:
-            raise KeyError('Key does not exist: %s' % key)
-
-        if 'encrypted' in bkey.metadata:
-            if bkey.metadata['encrypted'] in ('True', 'AES/BZ2', 'AES/LZMA'):
+        if 'encrypted' in meta_raw:
+            if meta_raw['encrypted'] in ('True', 'AES/BZ2', 'AES/LZMA'):
                 encrypted = True
-            elif bkey.metadata['encrypted'] == 'False':
+            elif meta_raw['encrypted'] == 'False':
                 encrypted = False
             else:
                 raise RuntimeError('Unsupported compression/encryption')
@@ -116,14 +114,14 @@ class AbstractBucket(object):
             raise ChecksumError('Encrypted object and no passphrase supplied')
         if not encrypted and self.passphrase:
             raise ChecksumError('Passphrase supplied, but object is not encrypted')
-        if encrypted and not 'meta' in bkey.metadata:
+        if encrypted and not 'meta' in meta_raw:
             raise ChecksumError('Encrypted object without metadata, unable to verify on lookup.')
 
-        if 'meta' in bkey.metadata:
-            meta_raw = b64decode(bkey.metadata['meta'])
+        if 'meta' in meta_raw:
+            buf = b64decode(meta_raw['meta'])
             if encrypted:
-                meta_raw = decrypt(meta_raw, self.passphrase)
-            metadata = pickle.loads(meta_raw)
+                buf = decrypt(buf, self.passphrase)
+            metadata = pickle.loads(buf)
         else:
             metadata = dict()
 
@@ -226,8 +224,6 @@ class AbstractBucket(object):
         if not isinstance(key, str):
             raise TypeError('key must be of type str')
 
-        fh.seek(0)
-
         # We always store metadata (even if it's just None), so that we can verify that the
         # object has been created by us when we call lookup().
         meta_raw = pickle.dumps(metadata, 2)
@@ -236,13 +232,17 @@ class AbstractBucket(object):
             # We need to generate a temporary copy to determine the
             # size of the object (which needs to transmitted as Content-Length)
             nonce = struct.pack(b'<f', time.time() - time.timezone) + bytes(key)
-            tmp = tempfile.TemporaryFile()
+            fh.seek(0, os.SEEK_END)
+            if fh.tell() > 1024 * 512:
+                tmp = tempfile.TemporaryFile()
+            else:
+                tmp = StringIO()
             compress_encrypt_fh(fh, tmp, self.passphrase, nonce)
             (fh, tmp) = (tmp, fh)
             fh.seek(0)
             meta_raw = encrypt(meta_raw, self.passphrase, nonce)
 
-
+        fh.seek(0)
         if self.passphrase:
             # LZMA is not yet working
             self.raw_store(key, fh, { 'meta': b64encode(meta_raw),

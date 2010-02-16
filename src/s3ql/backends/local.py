@@ -8,24 +8,13 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
-from .common import AbstractConnection
-from . import s3
-from time import sleep
-from contextlib import contextmanager
+from .common import AbstractConnection, AbstractBucket
 import shutil
 import logging
-import threading
-import errno
 import cPickle as pickle
 import os
 
 log = logging.getLogger("backend.local")
-
-# For testing 
-# Don't change randomly, these values are fine tuned
-# for the tests to work without too much time.
-LOCAL_TX_DELAY = 0.1
-LOCAL_PROP_DELAY = 0.4
 
 class Connection(AbstractConnection):
     """A connection that stores buckets on the local disk"""
@@ -58,193 +47,109 @@ class Connection(AbstractConnection):
 
         if not os.path.exists(name):
             raise KeyError('Local bucket directory %s does not exist' % name)
-        return Bucket(self, name, passphrase)
+        return Bucket(name, passphrase)
 
 
-class Bucket(s3.Bucket):
+class Bucket(AbstractBucket):
     '''A bucket that is stored on the local hard disk'''
 
-    def __init__(self, conn, name, passphrase):
-        super(Bucket, self).__init__(conn, name, passphrase)
-        self.bbucket = LocalBotoBucket(name)
-
-    @contextmanager
-    def _get_boto(self):
-        '''Provide boto bucket object'''
-
-        yield self.bbucket
-
-class LocalBotoKey(dict):
-    '''
-    Pretends to be a boto S3 key.
-    '''
-
-    def __init__(self, bucket, name, meta):
-        super(LocalBotoKey, self).__init__()
-        self.bucket = bucket
+    def __init__(self, name, passphrase):
+        super(Bucket, self).__init__()
+        self.passphrase = passphrase
         self.name = name
-        self.metadata = meta
 
-    def get_contents_to_file(self, fh):
-        log.debug("LocalBotoKey: get_contents_to_file() for %s", self.name)
+    def __str__(self):
+        if self.passphrase:
+            return '<encrypted local bucket, name=%r>' % self.name
+        else:
+            return '<local bucket, name=%r>' % self.name
 
-        if self.name in self.bucket.in_transmit:
-            raise ConcurrencyError()
+    def contains(self, key):
+        filename = escape(key) + '.dat'
+        return filename in os.listdir(self.name)
 
-        self.bucket.in_transmit.add(self.name)
-        sleep(LOCAL_TX_DELAY)
-        self.bucket.in_transmit.remove(self.name)
+    def raw_lookup(self, key):
+        filename = os.path.join(self.name, escape(key))
+        if os.path.exists(filename + '.dat'):
+            with open(filename + '.meta', 'rb') as src:
+                return pickle.load(src)
+        else:
+            raise KeyError('Bucket has no object with key %r' % key)
 
-        filename = os.path.join(self.bucket.name, escape(self.name))
-        with open(filename + '.dat', 'rb') as src:
-            fh.seek(0)
-            shutil.copyfileobj(src, fh)
-        with open(filename + '.meta', 'rb') as src:
-            self.metadata = pickle.load(src)
+    def delete(self, key, force=False):
+        """Deletes the specified key
 
-    def set_contents_from_file(self, fh):
-        log.debug("LocalBotoKey: set_contents_from_file() for %s", self.name)
-
-        if self.name in self.bucket.in_transmit:
-            raise ConcurrencyError()
-
-        self.bucket.in_transmit.add(self.name)
-        sleep(LOCAL_TX_DELAY)
-        self.bucket.in_transmit.remove(self.name)
-
-        filename = os.path.join(self.bucket.name, escape(self.name))
-        fh.seek(0)
-        with open(filename + '.tmp', 'wb') as dest:
-            shutil.copyfileobj(fh, dest)
-        with open(filename + '.mtmp', 'wb') as dest:
-            pickle.dump(self.metadata, dest, 2)
-
-        def set_():
-            sleep(LOCAL_PROP_DELAY)
-            log.debug("LocalBotoKey: Committing store for %s", self.name)
-            try:
-                os.rename(filename + '.tmp', filename + '.dat')
-                os.rename(filename + '.mtmp', filename + '.meta')
-            except OSError as e:
-                # Quick successive calls of store may fail, because they
-                # overwrite an existing .tmp file, which is already
-                # renamed by an earlier thread when the current thread tries
-                # to rename.
-                if e.errno == errno.ENOENT:
-                    pass
-                else:
-                    raise
-
-        t = threading.Thread(target=set_)
-        t.start()
-
-    def set_metadata(self, key, val):
-        self.metadata[key] = val
-
-    def get_metadata(self, key):
-        return self.metadata[key]
-
-
-class LocalBotoBucket(object):
-    """
-    Represents a bucket stored on a local directory and emulates an artificial propagation delay and
-    transmit time.
-
-    It tries to raise ConcurrencyError if several threads try to write or read the same object at a time
-    (but it cannot guarantee to catch these cases).
-    
-    The class relies on the keys not including '/' and not ending in .dat or .meta, otherwise strange and
-    dangerous things will happen.
-    """
-
-    def __init__(self, name):
-        super(LocalBotoBucket, self).__init__()
-        self.name = name
-        self.in_transmit = set()
-
-    def delete_key(self, key):
-        log.debug("LocalBotoBucket: Handling delete_key(%s)", key)
-        if key in self.in_transmit:
-            raise ConcurrencyError
-        self.in_transmit.add(key)
-        sleep(LOCAL_TX_DELAY)
-        self.in_transmit.remove(key)
+        ``bucket.delete(key)`` can also be written as ``del bucket[key]``.
+        If `force` is true, do not return an error if the key does not exist.
+        """
 
         filename = os.path.join(self.name, escape(key))
-        if not os.path.exists(filename + '.dat'):
-            raise KeyError('Key does not exist in bucket')
-
-        def set_():
-            sleep(LOCAL_PROP_DELAY)
-            log.debug("LocalBotoBucket: Committing delete_key(%s)", key)
+        if os.path.exists(filename + '.dat'):
             os.unlink(filename + '.dat')
             os.unlink(filename + '.meta')
-
-        threading.Thread(target=set_).start()
+        elif not force:
+            raise KeyError('Bucket has no object with key %r' % key)
 
     def list(self, prefix=''):
-        # We add the size attribute outside init
-        #pylint: disable-msg=W0201
-        log.debug("LocalBotoBucket: Handling list()")
+        """List keys in bucket
+
+        Returns an iterator over all keys in the bucket.
+        """
+
         for name in os.listdir(self.name):
             if not name.endswith('.dat'):
                 continue
             key = unescape(name[:-len('.dat')])
             if not key.startswith(prefix):
                 continue
-            el = LocalBotoKey(self, key, dict())
-            el.size = os.path.getsize(os.path.join(self.name, name))
-            yield el
+            yield key
 
-    def get_key(self, key):
-        log.debug("LocalBotoBucket: Handling get_key(%s)", key)
-        if key in self.in_transmit:
-            raise ConcurrencyError
-        self.in_transmit.add(key)
-        sleep(LOCAL_TX_DELAY)
-        self.in_transmit.remove(key)
+    def get_size(self):
+        """Get total size of bucket"""
+
+        size = 0
+        for name in os.listdir(self.name):
+            if not name.endswith('.dat'):
+                continue
+            size += os.path.getsize(os.path.join(self.name, name))
+
+        return size
+
+    def raw_fetch(self, key, fh):
         filename = os.path.join(self.name, escape(key))
-        if os.path.exists(filename + '.dat'):
-            with open(filename + '.meta', 'rb') as src:
-                metadata = pickle.load(src)
-            return LocalBotoKey(self, key, metadata)
-        else:
-            return None
+        with open(filename + '.dat', 'rb') as src:
+            fh.seek(0)
+            shutil.copyfileobj(src, fh)
+        with open(filename + '.meta', 'rb') as src:
+            metadata = pickle.load(src)
 
-    def new_key(self, key):
-        return LocalBotoKey(self, key, dict())
+        return metadata
 
-    def copy_key(self, dest, src_bucket, src):
-        log.debug("LocalBotoBucket: Received copy from %s to %s", src, dest)
+    def raw_store(self, key, fh, metadata):
+        filename = os.path.join(self.name, escape(key))
+        fh.seek(0)
+        with open(filename + '.dat', 'wb') as dest:
+            shutil.copyfileobj(fh, dest)
+        with open(filename + '.meta', 'wb') as dest:
+            pickle.dump(self.metadata, dest, 2)
 
-        if dest in self.in_transmit or src in self.in_transmit:
-            raise ConcurrencyError
-        self.in_transmit.add(src)
-        self.in_transmit.add(dest)
-        sleep(LOCAL_TX_DELAY)
+    def copy(self, src, dest):
+        """Copy data stored under `src` to `dest`"""
 
-        filename_src = os.path.join(src_bucket, escape(src))
+        if not isinstance(src, str):
+            raise TypeError('key must be of type str')
+
+        if not isinstance(dest, str):
+            raise TypeError('key must be of type str')
+
+        filename_src = os.path.join(self.name, escape(src))
         filename_dest = os.path.join(self.name, escape(dest))
 
         if not os.path.exists(filename_src + '.dat'):
             raise KeyError('source key does not exist')
 
-        def set_():
-            sleep(LOCAL_PROP_DELAY)
-            log.debug("LocalBotoBucket: Committing copy from %s to %s", src, dest)
-            shutil.copyfile(filename_src + '.dat', filename_dest + '.dat')
-            shutil.copyfile(filename_src + '.meta', filename_dest + '.meta')
-
-        threading.Thread(target=set_).start()
-        self.in_transmit.remove(dest)
-        self.in_transmit.remove(src)
-        log.debug("LocalBotoBucket: Returning from copy %s to %s", src, dest)
-
-
-class ConcurrencyError(Exception):
-    """Raised if several threads try to access the same s3 object
-    """
-    pass
+        shutil.copyfile(filename_src + '.dat', filename_dest + '.dat')
+        shutil.copyfile(filename_src + '.meta', filename_dest + '.meta')
 
 
 def escape(s):

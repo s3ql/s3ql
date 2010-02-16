@@ -172,7 +172,12 @@ class Bucket(AbstractBucket):
 
     def raw_lookup(self, key):
         with self._get_boto() as boto:
-            return retry_boto(boto.get_key, key)
+            bkey = retry_boto(boto.get_key, key)
+
+        if bkey is None:
+            raise KeyError('Key does not exist: %s' % key)
+
+        return bkey.metadata
 
     def delete(self, key, force=False):
         """Deletes the specified key
@@ -190,7 +195,7 @@ class Bucket(AbstractBucket):
 
             retry_boto(boto.delete_key, key)
 
-    def keys(self, prefix=''):
+    def list(self, prefix=''):
         """List keys in bucket
 
         Returns an iterator over all keys in the bucket.
