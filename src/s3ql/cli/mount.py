@@ -44,10 +44,6 @@ def main(args):
     if options.bucketname.startswith('local:'):
         options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
         conn = s3.LocalConnection()
-
-        if not options.fg:
-            raise QuietError('Local buckets currently work only with --fg.\n'
-                             'This is bug and will hopefully be fixed very soon.')
     else:
         (awskey, awspass) = get_credentials(options.credfile, options.awskey)
         conn = s3.Connection(awskey, awspass)
