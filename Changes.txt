@@ -1,13 +1,20 @@
 xxxx, beta4
 
     * Buckets are now forced to be located in the EU storage region, which
-      offer stronger consistency guarantees.
+      offers stronger consistency guarantees.
+    
+    * 
 
 
 2010-02-04, beta3
 
-    * Fixed a deadlock that caused umount.s3ql to hang indefinitely.
+    * Fixed a deadlock that caused umount.s3ql to hang indefinitely when
+      mount was called without --fg
+      
     * The '.' and '..' directory entries are no longer explicitly stored
-     in the database.
-
-	   
+      in the database.
+       
+    * Rewrote the mechanism to handle delayed updates. Now it no longer depends
+      on a small object being propagated relatively fast, but is able to handle
+      arbitrary network outages.
+       
