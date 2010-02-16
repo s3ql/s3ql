@@ -19,6 +19,7 @@ import llfuse
 import tempfile
 import os
 import stat
+import threading
 import logging
 import cPickle as pickle
 
@@ -172,6 +173,12 @@ def run_server(bucket, cache, dbcm, options):
     llfuse.init(operations, options.mountpoint, fuse_opts)
     try:
         if not options.fg:
+            me = threading.current_thread()
+            for t in threading.enumerate():
+                if t is me:
+                    continue
+                log.debug('Waiting for thread %s', t)
+                t.join()
             init_logging_from_options(options, daemon=True)
             llfuse.daemonize()
 
