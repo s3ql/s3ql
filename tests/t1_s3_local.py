@@ -44,7 +44,8 @@ class s3_tests_local(TestCase):
         return "s3ql_%d" % self.name_cnt
 
     def tst_01_store_fetch_lookup_delete_key(self):
-        key = self.newname()
+        # Include special characters
+        key = 's3ql_with_/_and_=, foo'
         value = self.newname()
         self.assertRaises(KeyError, self.bucket.lookup_key, key)
         self.assertRaises(KeyError, self.bucket.delete_key, key)

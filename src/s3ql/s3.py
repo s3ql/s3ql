@@ -577,7 +577,7 @@ class LocalBotoKey(dict):
         sleep(LOCAL_TX_DELAY)
         self.bucket.in_transmit.remove(self.name)
 
-        filename = os.path.join(self.bucket.name, b64encode(self.name))
+        filename = os.path.join(self.bucket.name, escape(self.name))
         with open(filename + '.dat', 'rb') as src:
             fh.seek(0)
             shutil.copyfileobj(src, fh)
@@ -594,7 +594,7 @@ class LocalBotoKey(dict):
         sleep(LOCAL_TX_DELAY)
         self.bucket.in_transmit.remove(self.name)
 
-        filename = os.path.join(self.bucket.name, b64encode(self.name))
+        filename = os.path.join(self.bucket.name, escape(self.name))
         fh.seek(0)
         with open(filename + '.tmp', 'wb') as dest:
             shutil.copyfileobj(fh, dest)
@@ -629,11 +629,14 @@ class LocalBotoKey(dict):
 
 class LocalBotoBucket(object):
     """
-    Represents a bucket stored on a local directory and
-    emulates an artificial propagation delay and transmit time. 
+    Represents a bucket stored on a local directory and emulates an artificial propagation delay and
+    transmit time.
 
-    It tries to raise ConcurrencyError if several threads try to write or read
-    the same object at a time (but it cannot guarantee to catch these cases).
+    It tries to raise ConcurrencyError if several threads try to write or read the same object at a time
+    (but it cannot guarantee to catch these cases).
+    
+    The class relies on the keys not including '/' and not ending in .dat or .meta, otherwise strange and
+    dangerous things will happen.
     """
 
     def __init__(self, name):
@@ -649,7 +652,7 @@ class LocalBotoBucket(object):
         sleep(LOCAL_TX_DELAY)
         self.in_transmit.remove(key)
 
-        filename = os.path.join(self.name, b64encode(key))
+        filename = os.path.join(self.name, escape(key))
         if not os.path.exists(filename + '.dat'):
             raise KeyError('Key does not exist in bucket')
 
@@ -668,7 +671,7 @@ class LocalBotoBucket(object):
         for name in os.listdir(self.name):
             if not name.endswith('.dat'):
                 continue
-            key = b64decode(name[:-len('.dat')])
+            key = unescape(name[:-len('.dat')])
             if not key.startswith(prefix):
                 continue
             el = LocalBotoKey(self, key, dict())
@@ -682,11 +685,10 @@ class LocalBotoBucket(object):
         self.in_transmit.add(key)
         sleep(LOCAL_TX_DELAY)
         self.in_transmit.remove(key)
-        filename = os.path.join(self.name, b64encode(key))
+        filename = os.path.join(self.name, escape(key))
         if os.path.exists(filename + '.dat'):
             with open(filename + '.meta', 'rb') as src:
                 metadata = pickle.load(src)
-
             return LocalBotoKey(self, key, metadata)
         else:
             return None
@@ -703,8 +705,8 @@ class LocalBotoBucket(object):
         self.in_transmit.add(dest)
         sleep(LOCAL_TX_DELAY)
 
-        filename_src = os.path.join(src_bucket, b64encode(src))
-        filename_dest = os.path.join(self.name, b64encode(dest))
+        filename_src = os.path.join(src_bucket, escape(src))
+        filename_dest = os.path.join(self.name, escape(dest))
 
         if not os.path.exists(filename_src + '.dat'):
             raise KeyError('source key does not exist')
@@ -751,6 +753,25 @@ def encrypt(buf, passphrase, nonce):
     return b''.join(
                     (struct.pack(b'<B', len(nonce)),
                     nonce, hash_, buf))
+
+def escape(s):
+    '''Escape '/', '=' and '\0' in s'''
+
+    s = s.replace('=', '=3D')
+    s = s.replace('/', '=2F')
+    s = s.replace('\0', '=00')
+
+    return s
+
+def unescape(s):
+    '''Un-Escape '/', '=' and '\0' in s'''
+
+    s = s.replace('=2F', '/')
+    s = s.replace('=00', '\0')
+    s = s.replace('=3D', '=')
+
+    return s
+
 
 def decrypt(buf, passphrase):
     '''Decrypt given string'''
