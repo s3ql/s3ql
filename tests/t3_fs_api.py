@@ -9,7 +9,8 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 from random import randint
-from s3ql import mkfs, s3, fs, fsck
+from s3ql import mkfs, fs, fsck
+from s3ql.backends import local
 import time
 from time import sleep
 from s3ql.common import ROOT_INODE, ExceptionStoringThread
@@ -39,7 +40,7 @@ class fs_api_tests(TestCase):
     def setUp(self):
         self.bucket_dir = tempfile.mkdtemp()
         self.passphrase = 'sdfds'
-        self.bucket = s3.LocalConnection().get_bucket(self.bucket_dir, self.passphrase)
+        self.bucket = local.Connection().get_bucket(self.bucket_dir, self.passphrase)
         self.dbfile = tempfile.NamedTemporaryFile()
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
@@ -61,13 +62,13 @@ class fs_api_tests(TestCase):
         self.cache.clear()
         self.dbfile.close()
         shutil.rmtree(self.cachedir)
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(local.LOCAL_PROP_DELAY * 1.1)
         shutil.rmtree(self.bucket_dir)
 
 
     def fsck(self):
         self.cache.clear()
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(local.LOCAL_PROP_DELAY * 1.1)
         fsck.fsck(self.dbcm, self.cachedir, self.bucket)
         self.assertFalse(fsck.found_errors)
 
@@ -299,8 +300,8 @@ class fs_api_tests(TestCase):
 
         # We check what happens if we try to delete an object
         # that has not yet propagated. 
-        bak = s3.LOCAL_PROP_DELAY
-        s3.LOCAL_PROP_DELAY = 2
+        bak = local.LOCAL_PROP_DELAY
+        local.LOCAL_PROP_DELAY = 2
         self.cache.timeout = 3
 
         name1 = self.newname()
@@ -316,7 +317,7 @@ class fs_api_tests(TestCase):
 
         self.fsck()
 
-        s3.LOCAL_PROP_DELAY = bak
+        local.LOCAL_PROP_DELAY = bak
 
     def test_08_link(self):
         name = self.newname()
@@ -711,11 +712,11 @@ class fs_api_tests(TestCase):
         self.assertTrue(isinstance(self.server.getattr(inode), dict))
         self.assertEquals(len(self.cache), 1)
         self.cache.clear()
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(local.LOCAL_PROP_DELAY * 1.1)
         self.assertEquals(len(list(self.bucket.keys())), 1)
         self.server.release(fh)
         self.assertEquals(len(self.cache), 0)
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(local.LOCAL_PROP_DELAY * 1.1)
         self.assertEquals(len(list(self.bucket.keys())), 0)
         self.assertRaises(KeyError, self.server.getattr, inode)
         self.fsck()
@@ -753,7 +754,7 @@ class fs_api_tests(TestCase):
 
         self.server.fsync(fh, True)
 
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(local.LOCAL_PROP_DELAY * 1.1)
         self.assertEqual(len(list(self.bucket.keys())), blocks)
 
         self.server.flush(fh)

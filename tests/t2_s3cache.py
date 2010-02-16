@@ -8,7 +8,8 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function
 
-from s3ql import mkfs, s3, s3cache
+from s3ql import mkfs, s3cache
+from s3ql.backends import local
 from s3ql.database import ConnectionManager
 import os
 import tempfile
@@ -27,7 +28,7 @@ class s3cache_tests(TestCase):
 
         self.bucket_dir = tempfile.mkdtemp()
         self.passphrase = 'schnupp'
-        self.bucket = s3.LocalConnection().get_bucket(self.bucket_dir, self.passphrase)
+        self.bucket = local.Connection().get_bucket(self.bucket_dir, self.passphrase)
 
         self.dbfile = tempfile.NamedTemporaryFile()
         self.cachedir = tempfile.mkdtemp() + "/"
@@ -51,7 +52,7 @@ class s3cache_tests(TestCase):
     def tearDown(self):
         self.cache.clear()
         self.dbfile.close()
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(local.LOCAL_PROP_DELAY * 1.1)
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
 
@@ -77,7 +78,7 @@ class s3cache_tests(TestCase):
 
         # Case 3: Object needs to be downloaded
         self.cache._expire_parallel()
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(local.LOCAL_PROP_DELAY * 1.1)
         with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
             self.assertEqual(data, fh.read(len(data)))
@@ -265,7 +266,7 @@ class s3cache_tests(TestCase):
         self.cache.bucket.verify()
         self.cache.bucket = TestBucket(self.bucket, no_del=2)
         # Key errors would cause multiple delete calls
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(local.LOCAL_PROP_DELAY * 1.1)
         self.cache.remove(inode)
         self.cache.bucket.verify()
 

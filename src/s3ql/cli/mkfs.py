@@ -14,10 +14,11 @@ from getpass import getpass
 import shutil
 from optparse import OptionParser
 import logging
-from s3ql import mkfs, s3
-from s3ql.common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
+from .. import mkfs
+from ..backends import s3, local
+from ..common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
                          QuietError)
-from s3ql.database import WrappedConnection
+from ..database import WrappedConnection
 import apsw
 import cPickle as pickle
 
@@ -79,7 +80,7 @@ def main(args):
     if options.bucketname.startswith('local:'):
         # Canonicalize path, otherwise we don't have a unique dbfile/cachdir for this bucket
         options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
-        conn = s3.LocalConnection()
+        conn = local.Connection()
     else:
         (awskey, awspass) = get_credentials(options.credfile, options.awskey)
         conn = s3.Connection(awskey, awspass)

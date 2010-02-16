@@ -16,7 +16,8 @@ from ..common import (init_logging_from_options, get_credentials, QuietError, un
                       ExceptionStoringThread)
 from getpass import getpass
 import sys
-from .. import s3
+from ..backends import s3, local
+from ..backends.common import ChecksumError
 import os
 from ..database import ConnectionManager
 import tempfile
@@ -79,7 +80,7 @@ def main(args):
     if options.bucketname.startswith('local:'):
         # Canonicalize path, otherwise we don't have a unique dbfile/cachdir for this bucket
         options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
-        conn = s3.LocalConnection()
+        conn = local.Connection()
     else:
         (awskey, awspass) = get_credentials(options.credfile, options.awskey)
         conn = s3.Connection(awskey, awspass)
@@ -93,7 +94,7 @@ def main(args):
 
     try:
         unlock_bucket(bucket)
-    except s3.ChecksumError:
+    except ChecksumError:
         raise QuietError('Checksum error - incorrect password?')
 
     if options.upgrade:
@@ -149,7 +150,7 @@ def upgrade(conn, bucket):
         upgrade_rev1(bucket)
 
     # Check that the bucket is in the correct location
-    if not isinstance(bucket, s3.LocalBucket):
+    if not isinstance(bucket, local.Bucket):
         with bucket._get_boto() as boto:
             need_move = boto.get_location() != Location.EU
         if need_move:

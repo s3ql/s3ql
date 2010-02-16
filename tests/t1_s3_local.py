@@ -9,7 +9,8 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 import unittest
-from s3ql import s3
+from s3ql.backends import local
+from s3ql.backends.common import ChecksumError
 import tempfile
 import threading
 import os
@@ -25,14 +26,14 @@ from _common import TestCase
 class s3_tests_local(TestCase):
 
     def setUp(self):
-        self.conn = s3.LocalConnection()
+        self.conn = local.Connection()
         self.bucket_dir = tempfile.mkdtemp()
         self.bucketname = os.path.join(self.bucket_dir, 'mybucket')
         self.passphrase = 'flurp'
         self.conn.create_bucket(self.bucketname, self.passphrase)
         self.bucket = self.conn.get_bucket(self.bucketname)
         self.name_cnt = 0
-        self.delay = s3.LOCAL_PROP_DELAY * 1.1
+        self.delay = local.LOCAL_PROP_DELAY * 1.1
 
     def tearDown(self):
         # Wait for pending transactions
@@ -112,8 +113,8 @@ class s3_tests_local(TestCase):
 
     def tst_04_delays(self):
         # Required for test to work
-        assert s3.LOCAL_TX_DELAY > 0
-        assert s3.LOCAL_PROP_DELAY > 3 * s3.LOCAL_TX_DELAY
+        assert local.LOCAL_TX_DELAY > 0
+        assert local.LOCAL_PROP_DELAY > 3 * local.LOCAL_TX_DELAY
 
         key = self.newname()
         value1 = self.newname()
@@ -122,18 +123,18 @@ class s3_tests_local(TestCase):
         self.assertFalse(self.bucket.has_key(key))
         self.bucket[key] = value1
         self.assertFalse(self.bucket.has_key(key))
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(local.LOCAL_PROP_DELAY * 1.1)
         self.assertTrue(self.bucket.has_key(key))
         self.assertEquals(self.bucket[key], value1)
 
         self.bucket[key] = value2
         self.assertEquals(self.bucket[key], value1)
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(local.LOCAL_PROP_DELAY * 1.1)
         self.assertEquals(self.bucket[key], value2)
 
         self.bucket.delete_key(key)
         self.assertEquals(self.bucket[key], value2)
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(local.LOCAL_PROP_DELAY * 1.1)
         self.assertFalse(self.bucket.has_key(key))
 
     def tst_04_encryption(self):
@@ -145,22 +146,22 @@ class s3_tests_local(TestCase):
         bucket.store('encrypted', 'testdata', { 'tag': True })
         sleep(self.delay)
         self.assertEquals(bucket['encrypted'], b'testdata')
-        self.assertRaises(s3.ChecksumError, bucket.fetch, 'plain')
-        self.assertRaises(s3.ChecksumError, bucket.lookup_key, 'plain')
+        self.assertRaises(ChecksumError, bucket.fetch, 'plain')
+        self.assertRaises(ChecksumError, bucket.lookup_key, 'plain')
 
         bucket.passphrase = None
-        self.assertRaises(s3.ChecksumError, bucket.fetch, 'encrypted')
-        self.assertRaises(s3.ChecksumError, bucket.lookup_key, 'encrypted')
+        self.assertRaises(ChecksumError, bucket.fetch, 'encrypted')
+        self.assertRaises(ChecksumError, bucket.lookup_key, 'encrypted')
 
         bucket.passphrase = self.passphrase
-        self.assertRaises(s3.ChecksumError, bucket.fetch, 'encrypted')
-        self.assertRaises(s3.ChecksumError, bucket.lookup_key, 'encrypted')
-        self.assertRaises(s3.ChecksumError, bucket.fetch, 'plain')
-        self.assertRaises(s3.ChecksumError, bucket.lookup_key, 'plain')
+        self.assertRaises(ChecksumError, bucket.fetch, 'encrypted')
+        self.assertRaises(ChecksumError, bucket.lookup_key, 'encrypted')
+        self.assertRaises(ChecksumError, bucket.fetch, 'plain')
+        self.assertRaises(ChecksumError, bucket.lookup_key, 'plain')
 
 
     def tst_05_concurrency(self):
-        tx_delay = s3.LOCAL_TX_DELAY
+        tx_delay = local.LOCAL_TX_DELAY
 
         # Required for tests to work
         assert tx_delay > 0
@@ -173,7 +174,7 @@ class s3_tests_local(TestCase):
         t = threading.Thread(target=async1)
         t.start()
         sleep(tx_delay / 2) # Make sure the other thread is actually running
-        self.assertRaises(s3.ConcurrencyError, self.bucket.store, key, value)
+        self.assertRaises(local.ConcurrencyError, self.bucket.store, key, value)
         t.join()
         self.bucket.store(key, value)
         sleep(self.delay)
@@ -183,7 +184,7 @@ class s3_tests_local(TestCase):
         t = threading.Thread(target=async2)
         t.start()
         sleep(tx_delay / 2) # Make sure the other thread is actually running
-        self.assertRaises(s3.ConcurrencyError, self.bucket.fetch, key)
+        self.assertRaises(local.ConcurrencyError, self.bucket.fetch, key)
         t.join()
         self.assertTrue(self.bucket.fetch(key) is not None)
 
@@ -192,7 +193,7 @@ class s3_tests_local(TestCase):
         t = threading.Thread(target=async3)
         t.start()
         sleep(tx_delay / 2) # Make sure the other thread is actually running
-        self.assertRaises(s3.ConcurrencyError, self.bucket.store, key, value)
+        self.assertRaises(local.ConcurrencyError, self.bucket.store, key, value)
         t.join()
         self.bucket.store(key, value)
 
@@ -201,7 +202,7 @@ class s3_tests_local(TestCase):
         t = threading.Thread(target=async4)
         t.start()
         sleep(tx_delay / 2) # Make sure the other thread is actually running
-        self.assertRaises(s3.ConcurrencyError, self.bucket.fetch, key)
+        self.assertRaises(local.ConcurrencyError, self.bucket.fetch, key)
         t.join()
         self.assertTrue(self.bucket.fetch(key) is not None)
 

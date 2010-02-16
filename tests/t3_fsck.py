@@ -9,7 +9,8 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 import unittest
-from s3ql import mkfs, s3, fsck
+from s3ql import mkfs, fsck
+from s3ql.backends import local
 from s3ql.database import WrappedConnection
 import apsw
 from s3ql.common import ROOT_INODE
@@ -31,7 +32,7 @@ class fsck_tests(TestCase):
     def setUp(self):
         self.bucket_dir = tempfile.mkdtemp()
         self.passphrase = 'schnupp'
-        self.bucket = s3.LocalConnection().get_bucket(self.bucket_dir, self.passphrase)
+        self.bucket = local.Connection().get_bucket(self.bucket_dir, self.passphrase)
         self.dbfile = tempfile.NamedTemporaryFile()
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
@@ -50,7 +51,7 @@ class fsck_tests(TestCase):
     def tearDown(self):
         self.dbfile.close()
         shutil.rmtree(self.cachedir)
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(local.LOCAL_PROP_DELAY * 1.1)
         shutil.rmtree(self.bucket_dir)
 
 
@@ -65,7 +66,7 @@ class fsck_tests(TestCase):
         fn()
         self.assertTrue(fsck.found_errors)
         fsck.found_errors = False
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(local.LOCAL_PROP_DELAY * 1.1)
         fn()
         self.assertFalse(fsck.found_errors)
 
@@ -82,7 +83,7 @@ class fsck_tests(TestCase):
         fh.close()
 
         self.assert_fsck(fsck.check_cache)
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(local.LOCAL_PROP_DELAY * 1.1)
         self.assertEquals(self.bucket['s3ql_data_1'], 'somedata')
 
     def test_lof1(self):
@@ -133,7 +134,7 @@ class fsck_tests(TestCase):
 
         # Create an object that only exists in s3
         self.bucket['s3ql_data_4364'] = 'Testdata'
-        sleep(s3.LOCAL_PROP_DELAY * 1.1)
+        sleep(local.LOCAL_PROP_DELAY * 1.1)
         self.assert_fsck(fsck.check_keylist)
 
         # Create an object that does not exist in S3

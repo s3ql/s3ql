@@ -12,11 +12,13 @@ import os
 import stat
 import time
 from optparse import OptionParser
-from s3ql.common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
+from ..common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
                          unlock_bucket, QuietError, get_parameters)
-from s3ql.database import ConnectionManager
+from ..database import ConnectionManager
 import logging
-from s3ql import s3, fsck
+from .. import fsck
+from ..backends import s3, local
+from ..backends.common import ChecksumError
 import sys
 import shutil
 import cPickle as pickle
@@ -80,7 +82,7 @@ def main(args):
     if options.bucketname.startswith('local:'):
         # Canonicalize path, otherwise we don't have a unique dbfile/cachdir for this bucket
         options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
-        conn = s3.LocalConnection()
+        conn = local.Connection()
     else:
         (awskey, awspass) = get_credentials(options.credfile, options.awskey)
         conn = s3.Connection(awskey, awspass)
@@ -91,7 +93,7 @@ def main(args):
 
     try:
         unlock_bucket(bucket)
-    except s3.ChecksumError:
+    except ChecksumError:
         raise QuietError('Checksum error - incorrect password?')
 
     dbfile = get_dbfile(options.bucketname, options.cachedir)
