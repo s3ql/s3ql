@@ -10,7 +10,7 @@ from __future__ import division, print_function, absolute_import
 
 from .common import AbstractConnection, AbstractBucket
 from time import sleep
-from boto.s3.connection import S3Connection, Location
+from boto.s3.connection import S3Connection
 from contextlib import contextmanager
 import boto.exception as bex
 from s3ql.common import (TimeoutError, QuietError)
@@ -90,7 +90,7 @@ class Connection(AbstractConnection):
         finally:
             self._push_conn(conn)
 
-    def create_bucket(self, name, passphrase=None):
+    def create_bucket(self, name, location, passphrase=None):
         """Create and return an S3 bucket
         
         Note that a call to `get_bucket` right after creation may fail,
@@ -102,7 +102,7 @@ class Connection(AbstractConnection):
             # otherwise it is possible that we read old metadata
             # without noticing it.
             try:
-                boto.create_bucket(name, location=Location.EU)
+                boto.create_bucket(name, location=location)
             except bex.S3ResponseError as exc:
                 if exc.code == 'InvalidBucketName':
                     log.error('Bucket name contains invalid characters.')

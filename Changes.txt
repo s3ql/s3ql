@@ -1,10 +1,15 @@
 xxxx, beta4
 
-    * Buckets are now forced to be located in the EU storage region, which
-      offers stronger consistency guarantees.
+    * tune.s3ql now has a --copy option to copy buckets
     
-    * 
+    * Storage location for new buckets can be specified in mkfs.s3ql and 
+      tune.s3ql with --s3-location
+      
+    * Fixed a deadlock in mount.s3ql when using local buckets without --fg
+    
+    * The local: bucket specifier is no longer artificially slow.
 
+    * mount.s3ql: --allow_other is now working
 
 2010-02-04, beta3
 

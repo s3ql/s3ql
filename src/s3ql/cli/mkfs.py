@@ -19,6 +19,7 @@ from ..backends import s3, local
 from ..common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
                          QuietError)
 from ..database import WrappedConnection
+from boto.s3.connection import Location
 import apsw
 import cPickle as pickle
 
@@ -37,6 +38,11 @@ def parse_args(args):
     parser.add_option("--logfile", type="string",
                       default=os.path.join(os.environ["HOME"], ".s3ql", 'mkfs.log'),
                       help="Write log messages in this file. Default: ~/.s3ql/mkfs.log")
+    parser.add_option("--s3-location", type="string", default='EU',
+                      help="Specify storage location for new bucket. Allowed values: EU,"
+                           'us-west-1, or us-standard. The later is not recommended, see'
+                           'http://code.google.com/p/s3ql/wiki/FAQ#'
+                           'What%27s_wrong_with_having_S3_buckets_in_the_%22US_Standar')
     parser.add_option("--credfile", type="string",
                       default=os.path.join(os.environ["HOME"], ".awssecret"),
                       help='Try to read AWS access key and key id from this file. '
@@ -66,6 +72,12 @@ def parse_args(args):
 
     (options, pps) = parser.parse_args(args)
 
+    if options.s3_location not in ('EU', 'us-west-1', 'us-standard'):
+        parser.error("Invalid S3 storage location. Allowed values: EU, us-west-1, us-standard")
+
+    if options.s3_location == 'us-standard':
+        options.s3_location = Location.DEFAULT
+
     if len(pps) != 1:
         parser.error("Incorrect number of arguments.")
     options.bucketname = pps[0]
@@ -90,7 +102,11 @@ def main(args):
             "Bucket already exists!\n"
             "(you can delete an existing bucket with tune.s3ql --delete)\n")
         raise QuietError(1)
-    bucket = conn.create_bucket(options.bucketname)
+
+    if isinstance(conn, s3.Connection):
+        bucket = conn.create_bucket(options.bucketname, location=options.s3_location)
+    else:
+        bucket = conn.create_bucket(options.bucketname)
 
     if options.encrypt:
         if sys.stdin.isatty():
@@ -134,7 +150,7 @@ def main(args):
 
         log.info('Uploading database...')
         param = dict()
-        param['revision'] = 3
+        param['revision'] = 2
         param['mountcnt'] = 0
         bucket.store('s3ql_parameters_%d' % param['mountcnt'],
                      pickle.dumps(param, 2))
