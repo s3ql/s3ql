@@ -1,4 +1,4 @@
-xxxx, beta4
+2010-02-19, beta4
 
     * tune.s3ql now has a --copy option to copy buckets
     
