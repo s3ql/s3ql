@@ -262,7 +262,7 @@ class run_tests(Command):
 
 
 setup(name='s3ql',
-      version='beta4',
+      version='beta5',
       description='a FUSE filesystem for storing data in Amazon S3',
       author='Nikolaus Rath',
       author_email='Nikolaus@rath.org',
