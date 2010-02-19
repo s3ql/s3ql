@@ -231,12 +231,11 @@ def copy_bucket(conn, options, src_bucket):
         if no != 0 and no % 100 == 0:
             log.info('Copied %d objects so far..', no)
 
-        def cp():
+        def cp(key=key):
             with dest_bucket._get_boto() as boto:
                 boto.copy_key(key, src_bucket.name, key)
 
         t = ExceptionStoringThread(cp)
-        #t = ExceptionStoringThread(boto_new.copy_key, args=(key, src_bucket.name, key))
         t.start()
         threads.append(t)
 

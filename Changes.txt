@@ -1,3 +1,8 @@
+2010-02-19, beta6
+
+ * tune.s3ql --copy is now *really* working properly (brrr)
+ 
+ 
 2010-02-19, beta5
 
  * mkfs.s3ql now makes strict checks on the bucket name
