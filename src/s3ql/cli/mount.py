@@ -53,6 +53,16 @@ def main(args):
         conn = s3.Connection(awskey, awspass)
     bucket = conn.get_bucket(options.bucketname)
 
+    # Check that the bucket is in the correct location
+    if isinstance(bucket, s3.Bucket):
+        with bucket._get_boto() as boto:
+            if boto.get_location() not in ('EU', 'us-west-1'):
+                log.warn('Note: Your bucket is located in the US-Standard storage region.\n'
+                         'Under very rare circumstances this can lead to problems, see\n'
+                         'http://code.google.com/p/s3ql/wiki/FAQ#'
+                         'What%27s_wrong_with_having_S3_buckets_in_the_%22US_Standar\n'
+                         '(you can relocate your bucket with tune.s3ql --copy if desired)')
+
     try:
         unlock_bucket(bucket)
     except ChecksumError:
@@ -148,11 +158,11 @@ def get_fuse_opts(options):
     fuse_opts = [ b"nonempty", b'fsname=%s' % options.bucketname,
                   'subtype=s3ql' ]
 
-    if options.allow_others:
-        fuse_opts.append(b'allow_others')
+    if options.allow_other:
+        fuse_opts.append(b'allow_other')
     if options.allow_root:
         fuse_opts.append(b'allow_root')
-    if options.allow_others or options.allow_root:
+    if options.allow_other or options.allow_root:
         fuse_opts.append(b'default_permissions')
 
     return fuse_opts
@@ -255,14 +265,14 @@ def parse_args(args):
                            "specified multiple times.")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
-    parser.add_option("--allow_others", action="store_true", default=False, help=
+    parser.add_option("--allow_other", action="store_true", default=False, help=
                       "Allow other users to access the filesystem as well and enforce unix permissions. "
-                      "(if neither this option nor --allow_others is specified, only the mounting user "
+                      "(if neither this option nor --allow_other is specified, only the mounting user "
                       "can access the file system, and has full access to every file, independent of "
                       "individual permissions.")
     parser.add_option("--allow_root", action="store_true", default=False,
                       help="Allow root to access the filesystem as well and enforce unix permissions. "
-                      "(if neither this option nor --allow_others is specified, only the mounting user "
+                      "(if neither this option nor --allow_other is specified, only the mounting user "
                       "can access the file system, and has full access to every file, independent of "
                       "individual permissions.")
     parser.add_option("--fg", action="store_true", default=False,
