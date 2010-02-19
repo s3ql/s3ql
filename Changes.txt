@@ -3,6 +3,8 @@ xxx, beta5
  * mkfs.s3ql now makes strict checks on the bucket name
  
  * Removed obsolete mount.s3ql_local from distribution
+ 
+ * tune.s3ql no longer aborts with syntax error
 
 2010-02-19, beta4
 

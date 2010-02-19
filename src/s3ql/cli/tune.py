@@ -113,7 +113,7 @@ def main(args):
         return delete_bucket(conn, options.bucketname)
 
     if options.copy:
-        return copy_bucket(conn, options)
+        return copy_bucket(conn, options, bucket)
 
     try:
         unlock_bucket(bucket)
@@ -223,7 +223,7 @@ def copy_bucket(conn, options, src_bucket):
     if not isinstance(conn, s3.Connection):
         raise QuietError('Can only copy S3 buckets')
 
-    dest_bucket = conn.create_bucket(options.bucketname, location=options.s3_location)
+    dest_bucket = conn.create_bucket(options.dest_name, location=options.s3_location)
 
     with dest_bucket._get_boto() as boto_new:
 
