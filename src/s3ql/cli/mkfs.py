@@ -15,6 +15,7 @@ import shutil
 from optparse import OptionParser
 import logging
 from .. import mkfs
+import re
 from ..backends import s3, local
 from ..common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
                          QuietError)
@@ -94,6 +95,10 @@ def main(args):
         options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
         conn = local.Connection()
     else:
+        if not re.match('^[a-z][a-z0-9-]*$', options.bucketname):
+            raise QuietError('Invalid bucket name. Name must consist only of lowercase letters,\n'
+                             'digits and dashes, and the first character has to be a letter.')
+
         (awskey, awspass) = get_credentials(options.credfile, options.awskey)
         conn = s3.Connection(awskey, awspass)
 

@@ -21,6 +21,7 @@ from ..backends.common import ChecksumError
 import os
 from ..database import ConnectionManager
 import tempfile
+import re
 
 log = logging.getLogger("tune")
 
@@ -210,6 +211,9 @@ def upgrade_rev1(bucket):
 def copy_bucket(conn, options, src_bucket):
     '''Copy bucket to different storage location'''
 
+    if not re.match('^[a-z][a-z0-9-]*$', options.dest_name):
+        raise QuietError('Invalid dest. bucket name. Name must consist only of lowercase letters,\n'
+                         'digits and dashes, and the first character has to be a letter.')
 
     if conn.bucket_exists(options.dest_name):
         print('Destination bucket already exists.')
