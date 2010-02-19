@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function, absolute_import
 
 from cStringIO import StringIO
-from s3ql.common import (sha256, ExceptionStoringThread)
+from s3ql.common import sha256
 import tempfile
 import hmac
 import logging
@@ -46,29 +46,6 @@ class AbstractBucket(object):
     Instances behave more or less like dicts. They raise the
     same exceptions, can be iterated over and indexed into.
     '''
-
-    def clear(self):
-        """Delete all objects in bucket
-        
-        Note that this function starts multiple threads."""
-
-        threads = list()
-        for (no, s3key) in enumerate(self):
-            if no != 0 and no % 1000 == 0:
-                log.info('Deleted %d objects so far..', no)
-
-            log.debug('Deleting key %s', s3key)
-            t = ExceptionStoringThread(self.delete, args=(s3key,))
-            t.start()
-            threads.append(t)
-
-            if len(threads) > 50:
-                log.debug('50 threads reached, waiting..')
-                threads.pop(0).join_and_raise()
-
-        log.debug('Waiting for removal threads')
-        for t in threads:
-            t.join_and_raise()
 
     def __getitem__(self, key):
         return self.fetch(key)[0]

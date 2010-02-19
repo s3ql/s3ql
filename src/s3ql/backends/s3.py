@@ -13,7 +13,7 @@ from time import sleep
 from boto.s3.connection import S3Connection
 from contextlib import contextmanager
 import boto.exception as bex
-from s3ql.common import (TimeoutError, QuietError)
+from s3ql.common import (TimeoutError, QuietError, ExceptionStoringThread)
 import logging
 import errno
 import time
@@ -157,6 +157,29 @@ class Bucket(AbstractBucket):
         self.conn = conn
         self.passphrase = passphrase
         self.name = name
+
+    def clear(self):
+        """Delete all objects in bucket
+        
+        Note that this function starts multiple threads."""
+
+        threads = list()
+        for (no, s3key) in enumerate(self):
+            if no != 0 and no % 1000 == 0:
+                log.info('Deleted %d objects so far..', no)
+
+            log.debug('Deleting key %s', s3key)
+            t = ExceptionStoringThread(self.delete, args=(s3key,))
+            t.start()
+            threads.append(t)
+
+            if len(threads) > 50:
+                log.debug('50 threads reached, waiting..')
+                threads.pop(0).join_and_raise()
+
+        log.debug('Waiting for removal threads')
+        for t in threads:
+            t.join_and_raise()
 
     def __str__(self):
         if self.passphrase:

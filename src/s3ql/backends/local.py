@@ -65,6 +65,16 @@ class Bucket(AbstractBucket):
         else:
             return '<local bucket, name=%r>' % self.name
 
+
+    def clear(self):
+        """Delete all objects in bucket"""
+
+        for name in os.listdir(self.name):
+            if not name.endswith('.dat'):
+                continue
+            os.unlink(os.path.join(self.name, name))
+            os.unlink(os.path.join(self.name, name[:-4]) + '.meta')
+
     def contains(self, key):
         filename = escape(key) + '.dat'
         return filename in os.listdir(self.name)
