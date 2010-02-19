@@ -4,7 +4,7 @@ xxx, beta5
  
  * Removed obsolete mount.s3ql_local from distribution
  
- * tune.s3ql no longer aborts with syntax error
+ * tune.s3ql --copy is now working properly
 
 2010-02-19, beta4
 

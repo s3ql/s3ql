@@ -225,25 +225,28 @@ def copy_bucket(conn, options, src_bucket):
 
     dest_bucket = conn.create_bucket(options.dest_name, location=options.s3_location)
 
-    with dest_bucket._get_boto() as boto_new:
+    log.info('Copying objects into new bucket..')
+    threads = list()
+    for (no, key) in enumerate(src_bucket):
+        if no != 0 and no % 100 == 0:
+            log.info('Copied %d objects so far..', no)
 
-        log.info('Copying objects into new bucket..')
-        threads = list()
-        for (no, key) in enumerate(src_bucket):
-            if no != 0 and no % 100 == 0:
-                log.info('Copied %d objects so far..', no)
+        def cp():
+            with dest_bucket._get_boto() as boto:
+                boto.copy_key(key, src_bucket.name, key)
 
-            t = ExceptionStoringThread(boto_new.copy_key, args=(key, src_bucket.name, key))
-            t.start()
-            threads.append(t)
+        t = ExceptionStoringThread(cp)
+        #t = ExceptionStoringThread(boto_new.copy_key, args=(key, src_bucket.name, key))
+        t.start()
+        threads.append(t)
 
-            if len(threads) > 50:
-                log.debug('50 threads reached, waiting..')
-                threads.pop(0).join_and_raise()
+        if len(threads) > 50:
+            log.debug('50 threads reached, waiting..')
+            threads.pop(0).join_and_raise()
 
-        log.debug('Waiting for copying threads')
-        for t in threads:
-            t.join_and_raise()
+    log.debug('Waiting for copying threads')
+    for t in threads:
+        t.join_and_raise()
 
 
 if __name__ == '__main__':
