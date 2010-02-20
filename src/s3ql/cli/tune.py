@@ -115,16 +115,11 @@ def main(args):
     if options.copy:
         return copy_bucket(conn, options, bucket)
 
-    try:
-        unlock_bucket(bucket)
-    except ChecksumError:
-        raise QuietError('Checksum error - incorrect password?')
+    if options.change_passphrase:
+        return change_passphrase(bucket)
 
     if options.upgrade:
         return upgrade(conn, bucket)
-
-    if options.change_passphrase:
-        return change_passphrase(bucket)
 
 
 def change_passphrase(bucket):
@@ -134,13 +129,19 @@ def change_passphrase(bucket):
         raise QuietError('Bucket is not encrypted.')
 
     if sys.stdin.isatty():
+        wrap_pw = getpass("Enter encryption password: ")
+    else:
+        wrap_pw = sys.stdin.readline().rstrip()
+    bucket.passphrase = wrap_pw
+    data_pw = bucket['s3ql_passphrase']
+
+    if sys.stdin.isatty():
         wrap_pw = getpass("Enter new encryption password: ")
         if not wrap_pw == getpass("Confirm new encryption password: "):
             raise QuietError("Passwords don't match")
     else:
         wrap_pw = sys.stdin.readline().rstrip()
 
-    data_pw = bucket['s3ql_passphrase']
     bucket.passphrase = wrap_pw
     bucket['s3ql_passphrase'] = data_pw
 
@@ -167,6 +168,11 @@ def upgrade(conn, bucket):
 
     if sys.stdin.readline().strip().lower() != 'yes':
         raise QuietError(1)
+
+    try:
+        unlock_bucket(bucket)
+    except ChecksumError:
+        raise QuietError('Checksum error - incorrect password?')
 
     # Upgrade from revision 1 to 2
     if not list(bucket.list('s3ql_parameters_')):

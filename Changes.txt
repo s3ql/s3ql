@@ -1,7 +1,11 @@
+xxxx-xx-xx, beta7
+
+  * tune.s3ql --change-passphrase is working again
+  * Added testcase for tune.s3ql --change-passphrase 
+ 
 2010-02-19, beta6
 
  * tune.s3ql --copy is now *really* working properly (brrr)
- 
  
 2010-02-19, beta5
 
