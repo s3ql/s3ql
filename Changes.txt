@@ -1,6 +1,9 @@
 xxxx-xx-xx, beta7
 
+  * Added example backup script in contrib/backup.py
+  
   * tune.s3ql --change-passphrase is working again
+  
   * Added testcase for tune.s3ql --change-passphrase 
  
 2010-02-19, beta6
