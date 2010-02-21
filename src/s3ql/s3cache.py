@@ -11,7 +11,7 @@ from __future__ import division, print_function
 from contextlib import contextmanager
 from s3ql.multi_lock import MultiLock
 from s3ql.ordered_dict import OrderedDict
-from s3ql.common import (ExceptionStoringThread, sha256_fh, EmbeddedException, retry_exc)
+from s3ql.common import (ExceptionStoringThread, sha256_fh, EmbeddedException, TimeoutError)
 import logging
 import os
 import threading
@@ -587,3 +587,31 @@ class SynchronizedS3Cache(S3Cache):
     def remove(self, *a, **kw):
         with self.lock:
             return super(SynchronizedS3Cache, self).remove(*a, **kw)
+
+def retry_exc(timeout, exc_types, fn, *a, **kw):
+    """Wait for fn(*a, **kw) to succeed
+    
+    If `fn(*a, **kw)` raises an exception in `exc_types`, the function is called again.
+    If the timeout is reached, `TimeoutError` is raised.
+    """
+
+    step = 0.2
+    waited = 0
+    while waited < timeout:
+        try:
+            return fn(*a, **kw)
+        except BaseException as exc:
+            for exc_type in exc_types:
+                if isinstance(exc, exc_type):
+                    log.warn('Encountered %s error when calling %s, retrying...',
+                             exc.__class__.__name__, fn.__name__)
+                    break
+            else:
+                raise exc
+
+        time.sleep(step)
+        waited += step
+        if step < timeout / 30:
+            step *= 2
+
+    raise TimeoutError()

@@ -21,7 +21,7 @@ import cPickle as pickle
 
 __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_parameters',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
-           "ROOT_INODE", "ExceptionStoringThread", 'retry', 'retry_exc',
+           "ROOT_INODE", "ExceptionStoringThread", 'retry',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'stacktraces', 'init_logging_from_options', 'QuietError' ]
 
@@ -334,34 +334,6 @@ def retry(timeout, fn, *a, **kw):
         sleep(step)
         waited += step
         if step < waited / 30:
-            step *= 2
-
-    raise TimeoutError()
-
-
-
-def retry_exc(timeout, exc_types, fn, *a, **kw):
-    """Wait for fn(*a, **kw) to succeed
-    
-    If `fn(*a, **kw)` raises an exception in `exc_types`, the function is called again.
-    If the timeout is reached, `TimeoutError` is raised.
-    """
-
-    step = 0.2
-    waited = 0
-    while waited < timeout:
-        try:
-            return fn(*a, **kw)
-        except BaseException as exc:
-            for exc_type in exc_types:
-                if isinstance(exc, exc_type):
-                    break
-            else:
-                raise exc
-
-        sleep(step)
-        waited += step
-        if step < timeout / 30:
             step *= 2
 
     raise TimeoutError()
