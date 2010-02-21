@@ -283,13 +283,20 @@ def retry_boto(fn, *a, **kw):
         try:
             return fn(*a, **kw)
         except bex.S3ResponseError as exc:
-            if exc.error_code in ('NoSuchBucket', 'RequestTimeout'):
-                pass
+            if exc.error_code in ('NoSuchBucket', 'RequestTimeout', 'InternalError'):
+                log.warn('Encountered %s error when calling %s, retrying...',
+                         exc.error_code, fn.__name__)
             else:
                 raise
         except IOError as exc:
             if exc.errno == errno.ECONNRESET:
                 pass
+            else:
+                raise
+        except bex.S3CopyError as exc:
+            if exc.error_code in ('RequestTimeout', 'InternalError'):
+                log.warn('Encountered %s error when calling %s, retrying...',
+                         exc.error_code, fn.__name__)
             else:
                 raise
 

@@ -239,7 +239,7 @@ def copy_bucket(conn, options, src_bucket):
 
         def cp(key=key):
             with dest_bucket._get_boto() as boto:
-                boto.copy_key(key, src_bucket.name, key)
+                s3.retry_boto(boto.copy_key, key, src_bucket.name, key)
 
         t = ExceptionStoringThread(cp)
         t.start()
