@@ -11,11 +11,12 @@ from __future__ import division, print_function, absolute_import
 import sys
 from optparse import OptionParser
 from s3ql import fs
-from ..backends import s3, local
-from ..backends.common import ChecksumError
+from s3ql.backends import s3, local
+from s3ql.daemonize import daemonize
+from s3ql.backends.common import ChecksumError
 from s3ql.s3cache import SynchronizedS3Cache
 from s3ql.common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
-                         QuietError, unlock_bucket, get_parameters)
+                         QuietError, unlock_bucket, get_parameters, get_stdout_handler)
 from s3ql.database import ConnectionManager
 import llfuse
 import tempfile
@@ -68,7 +69,6 @@ def main(args):
     except ChecksumError:
         raise QuietError('Checksum error - incorrect password?')
 
-    options.cachedir = options.cachedir
     dbfile = get_dbfile(options.bucketname, options.cachedir)
     cachedir = get_cachedir(options.bucketname, options.cachedir)
 
@@ -192,8 +192,9 @@ def run_server(bucket, cache, dbcm, options):
                     continue
                 log.debug('Waiting for thread %s', t)
                 t.join()
-            init_logging_from_options(options, daemon=True)
-            llfuse.daemonize()
+            if get_stdout_handler() is not None:
+                logging.getLogger().removeHandler(get_stdout_handler())
+            daemonize(options.cachedir)
 
         if options.profile:
             prof.runcall(llfuse.main, options.single)
@@ -217,6 +218,7 @@ def run_server(bucket, cache, dbcm, options):
         fh.close()
 
     return operations
+
 
 
 def parse_args(args):

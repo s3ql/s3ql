@@ -1,5 +1,8 @@
 xxxx-xx-xx, beta7
 
+  * mount.s3ql no longer chdirs into / when daemonizing but into the
+    cache directory.
+  
   * Added example backup script in contrib/backup.py
   
   * tune.s3ql --change-passphrase is working again

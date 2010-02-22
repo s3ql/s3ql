@@ -21,7 +21,7 @@ import cPickle as pickle
 
 __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_parameters',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
-           "ROOT_INODE", "ExceptionStoringThread", 'retry',
+           "ROOT_INODE", "ExceptionStoringThread", 'retry', 'get_stdout_handler',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'stacktraces', 'init_logging_from_options', 'QuietError' ]
 
@@ -118,7 +118,7 @@ class Filter(object):
 
         return False
 
-def init_logging_from_options(options, daemon=False):
+def init_logging_from_options(options):
     '''Call init_logging according to command line arguments
     
     `options` should have attributes ``quiet``, ``debug`` and ``logfile``.
@@ -128,9 +128,6 @@ def init_logging_from_options(options, daemon=False):
         stdout_level = logging.WARN
     else:
         stdout_level = logging.INFO
-
-    if daemon:
-        stdout_level = None
 
     if options.debug and 'all' in options.debug:
         file_level = logging.DEBUG
@@ -145,6 +142,8 @@ def init_logging_from_options(options, daemon=False):
     init_logging(options.logfile, stdout_level, file_level, file_loggers)
 
 
+logging_initialized = False
+stdout_handler = None
 def init_logging(logfile, stdout_level=logging.INFO, file_level=logging.INFO,
                  file_loggers=None):
     """Initialize logging
@@ -153,12 +152,13 @@ def init_logging(logfile, stdout_level=logging.INFO, file_level=logging.INFO,
     messages are only written into `logfile` if they come from one of these
     loggers.
     """
-    root_logger = logging.getLogger()
 
-    # Remove existing handlers. We have to copy the list
-    # since it is going to change during iteration
-    for hdlr in list(root_logger.handlers):
-        root_logger.removeHandler(hdlr)
+    global logging_initialized
+    global stdout_handler
+    if logging_initialized:
+        raise RuntimeError('Logging already initialized')
+
+    root_logger = logging.getLogger()
 
     quiet_formatter = logging.Formatter('%(message)s')
     verbose_formatter = logging.Formatter('%(asctime)s,%(msecs)03d %(threadName)s: '
@@ -166,13 +166,13 @@ def init_logging(logfile, stdout_level=logging.INFO, file_level=logging.INFO,
 
     # Add stdout logger
     if stdout_level is not None:
-        handler = logging.StreamHandler()
+        stdout_handler = logging.StreamHandler()
         if stdout_level <= logging.DEBUG:
-            handler.setFormatter(verbose_formatter)
+            stdout_handler.setFormatter(verbose_formatter)
         else:
-            handler.setFormatter(quiet_formatter)
-        handler.setLevel(stdout_level)
-        root_logger.addHandler(handler)
+            stdout_handler.setFormatter(quiet_formatter)
+        stdout_handler.setLevel(stdout_level)
+        root_logger.addHandler(stdout_handler)
         root_logger.setLevel(stdout_level)
 
     # Add file logger
@@ -197,6 +197,10 @@ def init_logging(logfile, stdout_level=logging.INFO, file_level=logging.INFO,
                           exc_info=a)
 
     sys.excepthook = log_main
+    logging_initialized = True
+
+def get_stdout_handler():
+    return stdout_handler
 
 def inode_for_path(path, conn):
     """Return inode of directory entry at `path`

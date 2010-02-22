@@ -12,9 +12,6 @@ import unittest
 import os
 import stat
 import sys
-import logging
-
-from s3ql.common import init_logging
 
 __all__ = [ 'TestCase', 'get_aws_credentials' ]
 
@@ -74,8 +71,3 @@ def get_aws_credentials():
         print('~/.awssecret does not exist. Will skip tests requiring valid AWS credentials.')
         aws_credentials_available = False
         return
-
-# Set some default logging settings (unless logging
-# is already configured)
-if not logging.getLogger().handlers:
-    init_logging(logfile=None, stdout_level=logging.WARN)
