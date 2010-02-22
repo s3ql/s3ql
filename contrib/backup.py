@@ -36,7 +36,8 @@ exclusions = ['.cache/',
 bucketname = "nikratio_43"
 
 # The sub-directory of the S3QL file system for the backups
-backup_dir = "vostro"
+import platform
+backup_dir = platform.node() # Returns the hostname
 
 # The directory where the S3QL file system will be mounted during backup
 mountpoint = "/home/nikratio/tmp/mnt"
@@ -76,6 +77,7 @@ import os
 from datetime import datetime, timedelta
 import logging
 import random
+import re
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
@@ -100,26 +102,30 @@ def main():
         os.mkdir(mountpoint)
 
     # Mount file system
-    print('== Mounting filesystem ==')
+    mount_args = [os.path.join(s3ql_path, 'mount.s3ql'), bucketname, mountpoint]
+    if not verbose:
+        mount_args.append('--quiet')
     with open(passfile, 'r') as pass_fh:
-        subprocess.check_call([os.path.join(s3ql_path, 'mount.s3ql'),
-                               bucketname, mountpoint], stdin=pass_fh.fileno())
+        subprocess.check_call(mount_args, stdin=pass_fh.fileno())
     try:
         if not os.path.exists(os.path.join(mountpoint, backup_dir)):
             os.mkdir(os.path.join(mountpoint, backup_dir))
 
-        all_backups = sorted(os.listdir(os.path.join(mountpoint, backup_dir)))
+        all_backups = sorted([ x for x in os.listdir(os.path.join(mountpoint, backup_dir))
+                              if re.match(r'^\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d$', x) ])
         if all_backups:
             last_backup = all_backups[-1]
 
-            print('== Replicating previous backup (%r) ==' % last_backup)
-            print('...')
+            log.info('Replicating previous backup (%r)', last_backup)
             subprocess.check_call([os.path.join(s3ql_path, 'cp.s3ql'),
                                    os.path.join(mountpoint, backup_dir, last_backup),
                                    os.path.join(mountpoint, backup_dir, current_backup)])
 
-        print('== Creating new backup %r ==' % current_backup)
-        rsync_args = ['rsync', '-aHvxW', '--delete']
+        log.info('Creating new backup %r', current_backup)
+        if verbose:
+            rsync_args = ['rsync', '-aHvxW', '--delete']
+        else:
+            rsync_args = ['rsync', '-aHxW', '--delete']
         for pat in exclusions:
             rsync_args.append('--exclude')
             rsync_args.append(pat)
@@ -131,13 +137,14 @@ def main():
 
         for name in expire_backups(all_backups):
             path = os.path.join(mountpoint, backup_dir, name)
-            print('Removing backup', path)
+            log.info('Removing backup %r', name)
             shutil.rmtree(path)
 
     finally:
-        print('== Unmounting ==')
-        subprocess.check_call([os.path.join(s3ql_path, 'umount.s3ql'),
-                               mountpoint])
+        umount_args = [os.path.join(s3ql_path, 'umount.s3ql'), mountpoint]
+        if not verbose:
+            umount_args.append('--quiet')
+        subprocess.check_call(umount_args)
 
 
 def expire_backups(available_txt):
