@@ -16,7 +16,8 @@ from s3ql.daemonize import daemonize
 from s3ql.backends.common import ChecksumError
 from s3ql.s3cache import S3Cache # SynchronizedS3Cache
 from s3ql.common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
-                         QuietError, unlock_bucket, get_parameters, get_stdout_handler)
+                         QuietError, unlock_bucket, get_parameters, get_stdout_handler,
+                         get_lockfile)
 from s3ql.database import ConnectionManager
 import llfuse
 import tempfile
@@ -71,6 +72,21 @@ def main(args):
 
     dbfile = get_dbfile(options.bucketname, options.cachedir)
     cachedir = get_cachedir(options.bucketname, options.cachedir)
+    lockfile = get_lockfile(options.bucketname, options.cachedir)
+
+    if os.path.exists(lockfile):
+        with open(lockfile, 'r') as fh:
+            pid = int(fh.read().strip())
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            log.debug('Removing stale lock file.')
+        else:
+            raise QuietError('Bucket already mounted by PID %d' % pid)
+
+    # Note that we have to update the PID after daemonizing
+    with open(lockfile, 'w') as fh:
+        fh.write('%d\n' % os.getpid())
 
     # Get most-recent s3ql_parameters object and check fs revision
     log.info('Getting file system parameters..')
@@ -85,7 +101,6 @@ def main(args):
                              'need to run fsck.s3ql.')
 
         log.info('Recovering old metadata from unclean shutdown..')
-        #cache = SynchronizedS3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
         cache = S3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
         cache.recover()
     else:
@@ -101,16 +116,16 @@ def main(args):
         mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
         if mountcnt_db < param['mountcnt']:
             os.unlink(dbfile)
-            raise QuietError('Metadata from most recent mount has not yet propagated through S3, or\n'
-                             'file system has not been unmounted cleanly. In the later case you\n'
-                             'should run fsck.s3ql on the computer where the bucket has been\n'
-                             'mounted most-recently.')
+            raise QuietError('It appears that the file system is still mounted somewhere else, or has\n'
+                             'not been unmounted cleanly. In the later case you should run fsck.s3ql\n'
+                             'on the computer where the file system has been mounted most recently.\n'
+                             'If you are using the S3 backend, it is also possible that updates are\n'
+                             'still propagating through S3 and you just have to wait a while.')
         elif mountcnt_db > param['mountcnt']:
             os.unlink(dbfile)
             raise RuntimeError('mountcnt_db > mountcnt_s3, this should not happen.')
 
         os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-        #cache = SynchronizedS3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
         cache = S3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
 
     # Check that the fs itself is clean
@@ -128,7 +143,7 @@ def main(args):
 
     try:
         try:
-            operations = run_server(bucket, cache, dbcm, options)
+            operations = run_server(bucket, cache, dbcm, options, lockfile)
         finally:
             log.info('Clearing cache...')
             cache.clear()
@@ -146,6 +161,7 @@ def main(args):
     log.debug("Cleaning up...")
     os.unlink(dbfile)
     os.rmdir(cachedir)
+    os.unlink(lockfile)
 
     if operations.encountered_errors:
         raise QuietError('Some errors were encountered while the file system was mounted.\n'
@@ -167,7 +183,7 @@ def get_fuse_opts(options):
 
     return fuse_opts
 
-def run_server(bucket, cache, dbcm, options):
+def run_server(bucket, cache, dbcm, options, lockfile):
     '''Start FUSE server and run main loop
     
     Returns the used `Operations` instance so that the `encountered_errors`
@@ -195,6 +211,10 @@ def run_server(bucket, cache, dbcm, options):
             if get_stdout_handler() is not None:
                 logging.getLogger().removeHandler(get_stdout_handler())
             daemonize(options.cachedir)
+
+            # Update lock file
+            with open(lockfile, 'w') as fh:
+                fh.write('%d\n' % os.getpid())
 
         if options.profile:
             prof.runcall(llfuse.main, options.single)

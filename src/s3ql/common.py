@@ -12,7 +12,6 @@ from time import sleep
 import hashlib
 import logging.handlers
 import os
-import re
 import stat
 import sys
 import threading
@@ -20,7 +19,7 @@ import traceback
 import cPickle as pickle
 
 __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_parameters',
-           "get_credentials", "get_dbfile", "inode_for_path", "get_path",
+           "get_credentials", "get_dbfile", "inode_for_path", "get_path", 'get_lockfile',
            "ROOT_INODE", "ExceptionStoringThread", 'retry', 'get_stdout_handler',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'stacktraces', 'init_logging_from_options', 'QuietError' ]
@@ -251,30 +250,30 @@ def get_path(name, inode_p, conn):
     return b'/'.join(path)
 
 
-def get_cachedir(bucketname, path):
-    """get directory to put cache files in.
-    """
+def _escape(s):
+    '''Escape '/', '=' and '\0' in s'''
 
+    s = s.replace('=', '=3D')
+    s = s.replace('/', '=2F')
+    s = s.replace('\0', '=00')
+
+    return s
+
+def get_cachedir(bucketname, path):
     if not os.path.exists(path):
         os.mkdir(path)
-
-    # Escape backslash
-    bucketname = re.sub('_', '__', bucketname)
-    bucketname = re.sub('/', '_', bucketname)
-    return os.path.join(path, "%s-cache" % bucketname)
+    return os.path.join(path, "%s-cache" % _escape(bucketname))
 
 
 def get_dbfile(bucketname, path):
-    """get filename for metadata db.
-    """
-
     if not os.path.exists(path):
         os.mkdir(path)
+    return os.path.join(path, "%s.db" % _escape(bucketname))
 
-    # Escape backslash
-    bucketname = re.sub('_', '__', bucketname)
-    bucketname = re.sub('/', '_', bucketname)
-    return os.path.join(path, "%s.db" % bucketname)
+def get_lockfile(bucketname, path):
+    if not os.path.exists(path):
+        os.mkdir(path)
+    return os.path.join(path, "%s.lock" % _escape(bucketname))
 
 
 def get_credentials(keyfile, key=None):
