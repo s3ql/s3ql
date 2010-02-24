@@ -14,7 +14,7 @@ from s3ql import fs
 from s3ql.backends import s3, local
 from s3ql.daemonize import daemonize
 from s3ql.backends.common import ChecksumError
-from s3ql.s3cache import SynchronizedS3Cache
+from s3ql.s3cache import S3Cache # SynchronizedS3Cache
 from s3ql.common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
                          QuietError, unlock_bucket, get_parameters, get_stdout_handler)
 from s3ql.database import ConnectionManager
@@ -85,8 +85,8 @@ def main(args):
                              'need to run fsck.s3ql.')
 
         log.info('Recovering old metadata from unclean shutdown..')
-        cache = SynchronizedS3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm,
-                                    timeout=options.s3timeout)
+        #cache = SynchronizedS3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
+        cache = S3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
         cache.recover()
     else:
         if os.path.exists(cachedir):
@@ -110,8 +110,8 @@ def main(args):
             raise RuntimeError('mountcnt_db > mountcnt_s3, this should not happen.')
 
         os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-        cache = SynchronizedS3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm,
-                                    timeout=options.s3timeout)
+        #cache = SynchronizedS3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
+        cache = S3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
 
     # Check that the fs itself is clean
     if dbcm.get_val("SELECT needs_fsck FROM parameters"):
@@ -252,8 +252,6 @@ def parse_args(args):
                       'they are mounted at the same time. '
                       'You should try to always use the same location here, so that S3QL can detect '
                       'and, as far as possible, recover from unclean umounts. Default is ~/.s3ql.')
-    parser.add_option("--s3timeout", type="int", default=120,
-                      help="Maximum time in seconds to wait for propagation in S3 (default: %default)")
     parser.add_option("--cachesize", type="int", default=102400,
                       help="Cache size in kb (default: 102400 (100 MB)). Should be at least 10 times "
                       "the blocksize of the filesystem, otherwise an object may be retrieved and "

@@ -357,27 +357,32 @@ CTRL_NAME = b'.__s3ql__ctrl__'
 CTRL_INODE = 2
 
 class ExceptionStoringThread(threading.Thread):
-    '''Catch all exceptions and store them
-    '''
+    '''Catch all exceptions and store them'''
 
-    def __init__(self, target, args=(), kwargs={}):
+    def __init__(self, target, logger, args=(), kwargs={}, pass_self=False):
         # Default value isn't dangerous
         #pylint: disable-msg=W0102
         super(ExceptionStoringThread, self).__init__()
-        if target is not None:
-            self.target = target
+        self.target = target
         self.exc = None
         self.tb = None
         self.joined = False
         self.args = args
         self.kwargs = kwargs
+        self.pass_self = pass_self
+        self.logger = logger
 
     def run(self):
         try:
-            self.target(*self.args, **self.kwargs)
+            if self.pass_self:
+                self.target(self, *self.args, **self.kwargs)
+            else:
+                self.target(*self.args, **self.kwargs)
         except BaseException as exc:
             self.exc = exc
             self.tb = sys.exc_info()[2] # This creates a circular reference chain
+            if self.logger:
+                self.logger.warn('Thread terminated with exception, saving.', exc_info=True)
 
     def join_get_exc(self):
         self.joined = True
@@ -385,7 +390,7 @@ class ExceptionStoringThread(threading.Thread):
         return self.exc
 
     def join_and_raise(self):
-        '''Wait for the thread to finish, raise any occured exceptions
+        '''Wait for the thread to finish, raise any occurred exceptions
         '''
         self.joined = True
         self.join()

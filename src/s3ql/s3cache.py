@@ -11,14 +11,12 @@ from __future__ import division, print_function
 from contextlib import contextmanager
 from s3ql.multi_lock import MultiLock
 from s3ql.ordered_dict import OrderedDict
-from s3ql.common import (ExceptionStoringThread, sha256_fh, EmbeddedException, TimeoutError)
+from s3ql.common import (ExceptionStoringThread, sha256_fh, TimeoutError)
 import logging
 import os
 import threading
 import time
-import sys
 import re
-
 
 __all__ = [ "S3Cache", 'SynchronizedS3Cache' ]
 
@@ -96,66 +94,56 @@ class S3Cache(object):
     try to acquire any Python lock when it holds a database lock (i.e.,
     is in the middle of a transaction). This has also to be taken
     into account when calling other functions, especially from e.g.
-    S3Cache.
-
-    
-    Attributes:
-    -----------
-    
-    Note: None of the attributes may be accessed from outside the class,
-    since only the instance methods can provide the required synchronization. 
-
-    :cache:       `OrderedDict` of `CacheEntry` instances
-    :mlock:       `MultiLock` instance for locking on ``(inode, blockno)`` tuples
-    :maxsize:     Maximum size to which the cache can grow
-    :size:        Current size of the cache
-    :timeout:     Maximum time to wait for changes in S3 to propagate
-    :dbcm:        ConnectionManager instance, to manage access to the database
-                  from different threads
-    :expiry_lock: Serializes calls to expire()
-                  
-    The `expect_mismatch` attribute is only for unit testing instrumentation
-    and suppresses warnings if a mismatch between local and remote hash
-    is encountered.                   
+    S3Cache.            
     """
 
-    def __init__(self, bucket, cachedir, cachesize, dbcm, timeout=60):
+    def __init__(self, bucket, cachedir, maxsize, dbcm):
         log.debug('Initializing')
         self.cache = OrderedDict()
         self.cachedir = cachedir
-        self.maxsize = cachesize
+        self.maxsize = maxsize
         self.size = 0
         self.bucket = bucket
         self.mlock = MultiLock()
         self.dbcm = dbcm
-        self.timeout = timeout
-        self.expect_mismatch = False
-        self.expiry_lock = threading.Lock()
+
         self.exp_thread = None
+        self.need_expiry = threading.Event()
+        self.ready_to_write = threading.Event()
 
-    def start_background_expiration(self):
-        '''Start background expiration thread.
-        
-        This thread will try to keep the cache size less than
-        85% of the maximum.
-        '''
+    def start_expiration_thread(self):
+        '''Start expiration thread'''
 
-        self.exp_thread = BackgroundExpirationThread(self, int(0.85 * self.maxsize),
-                                                     int(0.85 * MAX_CACHE_ENTRIES))
+        log.debug('Starting background expiration thread')
+        self.exp_thread = ExceptionStoringThread(self._expiry_loop, log, pass_self=True)
+        self.exp_thread.run_flag = True
         self.exp_thread.start()
 
-    def stop_background_expiration(self):
+    def stop_expiration_thread(self):
         '''Stop background expiration thread'''
 
-        t = self.exp_thread
-        t.keep_running = False
         log.debug('Waiting for background expiration thread')
-        t.join()
-        if t.exc is not None:
-            # Break reference chain
-            tb = t.tb
-            del t.tb
-            raise EmbeddedException(t.exc, tb, t.name)
+        self.exp_thread.run_flag = False
+        self.need_expiry.set()
+        self.exp_thread.join_and_raise()
+
+    def _expiry_loop(self, self_t):
+        '''Run cache expiration loop'''
+
+        while self_t.run_flag:
+            log.debug('_expiry_loop: waiting for poke...')
+            self.need_expiry.wait()
+            log.debug('_expiry_loop: need_expiry has been set')
+            while (self.size > 0.85 * self.maxsize or
+                   len(self.cache) > 0.85 * MAX_CACHE_ENTRIES) and len(self.cache) > 0:
+                self._expire_parallel()
+                if self.size <= self.maxsize and len(self.cache) <= MAX_CACHE_ENTRIES:
+                    log.debug('Cache below threshold, setting flag.')
+                    self.ready_to_write.set()
+            self.need_expiry.clear()
+            self.ready_to_write.set()
+
+        log.debug('_expiry_loop: exiting.')
 
     def get_bucket_size(self):
         '''Return total size of the underlying bucket'''
@@ -221,8 +209,17 @@ class S3Cache(object):
                 newsize = el.tell()
                 self.size = self.size - oldsize + newsize
 
-        self.expire(self.maxsize, MAX_CACHE_ENTRIES)
+        # Wait for expiration if required
+        if self.size > self.maxsize or len(self.cache) > MAX_CACHE_ENTRIES:
+            log.debug('Cache size exceeded, waiting for expiration...')
+            self.ready_to_write.clear()
+            self.need_expiry.set()
+            self.ready_to_write.wait()
 
+        # If more than 85% used, start expiration in background
+        elif self.size > 0.85 * self.maxsize or len(self.cache) > 0.85 * MAX_CACHE_ENTRIES:
+            log.debug('Cache 85% full, poking expiration thread.')
+            self.need_expiry.set()
 
     def recover(self):
         '''Register old files in cache directory'''
@@ -251,29 +248,20 @@ class S3Cache(object):
             self.size += el.tell()
             self.cache[(inode, blockno)] = el
 
-    def expire(self, max_size, max_files):
-        '''Expire cache. 
+    def _prepare_upload(self, el):
+        '''Prepare upload of specified cache entry
         
-        Removes entries until the cache size is below `max_size` 
-        Serializes concurrent calls by different threads.
-        '''
-
-        while (self.size > max_size or
-               len(self.cache) > max_files):
-            with self.expiry_lock:
-                # Other threads may have expired enough objects already
-                if (self.size > max_size or
-                    len(self.cache) > max_files):
-                    self._expire_parallel()
-
-
-    def _upload_object(self, el):
-        '''Upload specified cache entry
+        Returns a function that does the required network transactions. Returns
+        None if no network access is required.
         
         Caller has to take care of any necessary locking.
         '''
 
-        log.debug('_upload_object(inode=%d, blockno=%d)', el.inode, el.blockno)
+        log.debug('_prepare_upload(inode=%d, blockno=%d)', el.inode, el.blockno)
+
+        if not el.dirty:
+            return
+
         el.seek(0, 2)
         size = el.tell()
         el.seek(0)
@@ -315,14 +303,24 @@ class S3Cache(object):
                     conn.execute('DELETE FROM s3_objects WHERE id=?', (old_s3key,))
                     to_delete = True
 
-        if need_upload:
-            log.debug('Uploading..')
-            self.bucket.store_fh('s3ql_data_%d' % el.s3key, el)
 
-        if to_delete:
-            log.debug('No references to object %d left, deleting', old_s3key)
-            retry_exc(300, [ KeyError ], self.bucket.delete, 's3ql_data_%d' % old_s3key)
-
+        if need_upload and to_delete:
+            def doit():
+                log.debug('Uploading..')
+                self.bucket.store_fh('s3ql_data_%d' % el.s3key, el)
+                log.debug('No references to object %d left, deleting', old_s3key)
+                retry_exc(300, [ KeyError ], self.bucket.delete, 's3ql_data_%d' % old_s3key)
+        elif need_upload:
+            def doit():
+                log.debug('Uploading..')
+                self.bucket.store_fh('s3ql_data_%d' % el.s3key, el)
+        elif to_delete:
+            def doit():
+                log.debug('No references to object %d left, deleting', old_s3key)
+                retry_exc(300, [ KeyError ], self.bucket.delete, 's3ql_data_%d' % old_s3key)
+        else:
+            return
+        return doit
 
     def _expire_parallel(self):
         """Remove oldest entries from the cache.
@@ -359,34 +357,36 @@ class S3Cache(object):
             log.debug('Least recently used object is %s, obtaining object lock..', el)
             self.mlock.acquire(el.inode, el.blockno)
 
-            try:
-                del self.cache[(el.inode, el.blockno)]
-            except KeyError:
-                log.debug('Object has already been expired in another thread')
+            # Now that we have the lock, check that the object still exists
+            if (el.inode, el.blockno) not in self.cache:
                 self.mlock.release(el.inode, el.blockno)
                 continue
 
+            # Make sure the object is in the db before removing it from the cache
+            fn = self._prepare_upload(el)
             log.debug('Removing s3 object %s from cache..', el)
-            el.seek(0, 2)
+            del self.cache[(el.inode, el.blockno)]
+            el.seek(0, os.SEEK_END)
             freed_size += el.tell()
 
-            if not el.dirty:
+            if fn is None:
+                log.debug('expire_parallel: no network transaction required')
                 el.close()
                 os.unlink(el.name)
                 self.mlock.release(el.inode, el.blockno)
-                continue
+            else:
+                log.debug('expire_parallel: starting new thread for network transaction')
+                # We have to be careful to include the *current*
+                # el in the closure
+                def do_upload(el=el, fn=fn):
+                    fn()
+                    el.close()
+                    os.unlink(el.name)
+                    self.mlock.release(el.inode, el.blockno)
 
-            # We have to be careful to include the *current*
-            # el in the closure
-            def do_upload(el=el):
-                self._upload_object(el)
-                el.close()
-                os.unlink(el.name)
-                self.mlock.release(el.inode, el.blockno)
-
-            t = ExceptionStoringThread(do_upload)
-            threads.append(t)
-            t.start()
+                t = ExceptionStoringThread(do_upload, log)
+                threads.append(t)
+                t.start()
 
         self.size -= freed_size
 
@@ -394,6 +394,7 @@ class S3Cache(object):
         log.debug('Waiting for expiry threads...')
         for t in threads:
             t.join_and_raise()
+            #t.join()
 
         log.debug('_expire_parallel finished')
 
@@ -425,7 +426,7 @@ class S3Cache(object):
                 try:
                     self.cache.pop((el.inode, el.blockno))
                 except KeyError:
-                    log.debug('Already removed by different thread')
+                    log.debug('Object has already been expired.')
                     continue
 
             el.seek(0, 2)
@@ -434,6 +435,8 @@ class S3Cache(object):
             os.unlink(el.name)
 
         # Remove elements from db and S3
+        # TODO: At this point we may miss objects that are in the process of
+        # being uploaded, i.e. already out of the cache but not yet in the db
         log.debug('Deleting from database')
         threads = list()
         while True:
@@ -467,7 +470,7 @@ class S3Cache(object):
                 threads.pop(0).join_and_raise()
 
             # Start a removal thread              
-            t = ExceptionStoringThread(retry_exc,
+            t = ExceptionStoringThread(retry_exc, log,
                                        args=(300, [ KeyError ], self.bucket.delete,
                                              's3ql_data_%d' % s3key))
             threads.append(t)
@@ -495,8 +498,14 @@ class S3Cache(object):
 
             log.debug('Flushing object %s', el)
             with self.mlock(el.inode, el.blockno):
-                self._upload_object(el)
-                el.dirty = False
+                # Now that we have the lock, check that the object still exists
+                if (el.inode, el.blockno) not in self.cache:
+                    continue
+
+                fn = self._prepare_upload(el)
+                if fn:
+                    fn()
+                    el.dirty = False
 
         log.debug('Flushing for inode %d completed.', inode)
 
@@ -514,79 +523,37 @@ class S3Cache(object):
 
             log.debug('Flushing object %s', el)
             with self.mlock(el.inode, el.blockno):
-                self._upload_object(el)
-                el.dirty = False
+                # Now that we have the lock, check that the object still exists
+                if (el.inode, el.blockno) not in self.cache:
+                    continue
 
+                fn = self._prepare_upload(el)
+                if fn:
+                    fn()
+                    el.dirty = False
     def clear(self):
         """Upload all dirty data and clear cache"""
 
         log.debug('Clearing S3Cache')
 
-        while len(self.cache) > 0:
-            self._expire_parallel()
+        if self.exp_thread and self.exp_thread.is_alive():
+            bak = self.maxsize
+            self.maxsize = 0
+            try:
+                self.ready_to_write.clear()
+                self.need_expiry.set()
+                self.ready_to_write.wait()
+            finally:
+                self.maxsize = bak
+        else:
+            while len(self.cache) > 0:
+                self._expire_parallel()
 
 
     def __del__(self):
         if len(self.cache) > 0:
             raise RuntimeError("s3ql.S3Cache instance was destroyed without calling clear()!")
 
-
-class BackgroundExpirationThread(threading.Thread):
-
-    def __init__(self, cache, max_size, max_files):
-        super(BackgroundExpirationThread, self).__init__(name='Expiry-Thread')
-        self.keep_running = True
-        self.cache = cache
-        self.max_size = max_size
-        self.max_files = max_files
-        self.exc = None
-        self.tb = None
-        self.daemon = True #threading.thread attribute
-
-    def run(self):
-        log.debug('Starting background expiration thread')
-        try:
-            while self.keep_running:
-                self.cache.expire(self.max_size, self.max_files)
-                time.sleep(1)
-        except BaseException as exc:
-            self.exc = exc
-            self.tb = sys.exc_info()[2] # This creates a circular reference chain
-
-
-class SynchronizedS3Cache(S3Cache):
-    # Argument number difffers from overridden method
-    #pylint: disable-msg=W0221
-
-    def __init__(self, *a, **kw):
-        super(SynchronizedS3Cache, self).__init__(*a, **kw)
-        self.lock = threading.RLock()
-
-    def clear(self, *a, **kw):
-        with self.lock:
-            return super(SynchronizedS3Cache, self).clear(*a, **kw)
-
-    def expire(self, *a, **kw):
-        with self.lock:
-            return super(SynchronizedS3Cache, self).expire(*a, **kw)
-
-    def flush(self, *a, **kw):
-        with self.lock:
-            return super(SynchronizedS3Cache, self).flush(*a, **kw)
-
-    @contextmanager
-    def get(self, *a, **kw):
-        with self.lock:
-            with super(SynchronizedS3Cache, self).get(*a, **kw) as fh:
-                yield fh
-
-    def get_bucket_size(self, *a, **kw):
-        with self.lock:
-            return super(SynchronizedS3Cache, self).get_bucket_size(*a, **kw)
-
-    def remove(self, *a, **kw):
-        with self.lock:
-            return super(SynchronizedS3Cache, self).remove(*a, **kw)
 
 def retry_exc(timeout, exc_types, fn, *a, **kw):
     """Wait for fn(*a, **kw) to succeed
@@ -615,3 +582,6 @@ def retry_exc(timeout, exc_types, fn, *a, **kw):
             step *= 2
 
     raise TimeoutError()
+
+
+

@@ -142,7 +142,7 @@ class s3cache_tests(TestCase):
         self.assertEquals(len(self.cache), 0)
         self.cache.bucket.verify()
 
-    def test_upload_object(self):
+    def test_prepare_upload(self):
         inode = self.inode
         datalen = int(0.1 * self.cache.maxsize)
         blockno1 = 21
@@ -159,7 +159,7 @@ class s3cache_tests(TestCase):
             fh.seek(0)
             fh.write(data1)
             el1 = fh
-        self.cache._upload_object(el1)
+        self.cache._prepare_upload(el1)()
         self.cache.bucket.verify()
 
         # Case 2: Link new object
@@ -168,14 +168,14 @@ class s3cache_tests(TestCase):
             fh.seek(0)
             fh.write(data1)
             el2 = fh
-        self.cache._upload_object(el2)
+        self.assertIsNone(self.cache._prepare_upload(el2))
 
         # Case 3: Upload old object, still has references
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data2)
-        self.cache._upload_object(el1)
+        self.cache._prepare_upload(el1)()
         self.cache.bucket.verify()
 
         # Case 4: Upload old object, no references left
@@ -183,7 +183,7 @@ class s3cache_tests(TestCase):
         with self.cache.get(inode, blockno2) as fh:
             fh.seek(0)
             fh.write(data3)
-        self.cache._upload_object(el2)
+        self.cache._prepare_upload(el2)()
         self.cache.bucket.verify()
 
         # Case 5: Link old object, no references left
@@ -191,7 +191,7 @@ class s3cache_tests(TestCase):
         with self.cache.get(inode, blockno2) as fh:
             fh.seek(0)
             fh.write(data2)
-        self.cache._upload_object(el2)
+        self.cache._prepare_upload(el2)()
         self.cache.bucket.verify()
 
         # Case 6: Link old object, still has references
@@ -201,14 +201,14 @@ class s3cache_tests(TestCase):
             fh.seek(0)
             fh.write(data1)
             el3 = fh
-        self.cache._upload_object(el3)
+        self.cache._prepare_upload(el3)()
         self.cache.bucket.verify()
 
         self.cache.bucket = TestBucket(self.bucket)
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data1)
-        self.cache._upload_object(el1)
+        self.assertIsNone(self.cache._prepare_upload(el1))
         self.cache.bucket.verify()
 
     def test_recover(self):

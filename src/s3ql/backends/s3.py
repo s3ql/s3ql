@@ -169,7 +169,7 @@ class Bucket(AbstractBucket):
                 log.info('Deleted %d objects so far..', no)
 
             log.debug('Deleting key %s', s3key)
-            t = ExceptionStoringThread(self.delete, args=(s3key,))
+            t = ExceptionStoringThread(self.delete, log, args=(s3key,))
             t.start()
             threads.append(t)
 

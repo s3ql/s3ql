@@ -34,6 +34,8 @@ class TestCase(unittest.TestCase):
         if result.errors or result.failures:
             result.stop()
 
+    def assertIsNone(self, val):
+        self.assertTrue(val is None, '%r is not None' % val)
 
 def get_aws_credentials():
     '''Return AWS credentials if ~/.awssecret exists and is secure.

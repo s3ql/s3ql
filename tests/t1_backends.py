@@ -156,10 +156,9 @@ class BackendTests(object):
 
 # This test just takes too long (because we have to wait really long so that we don't
 # get false errors due to propagation delays)
-@unittest.skip('takes too long')
-@unittest.skipUnless(get_aws_credentials(), 'remote tests disabled')
-class S3Tests(BackendTests, TestCase):
-
+#@unittest.skipUnless(get_aws_credentials(), 'remote tests disabled')
+#class S3Tests(BackendTests, TestCase):
+class S3Tests(BackendTests):
     @staticmethod
     def random_name(prefix=""):
         return "s3ql-" + prefix + str(randrange(1000, 9999, 1))

@@ -92,10 +92,10 @@ class Operations(llfuse.Operations):
         self.blocksize = dbcm.get_val("SELECT blocksize FROM parameters")
 
     def init(self):
-        self.cache.start_background_expiration()
+        self.cache.start_expiration_thread()
 
     def destroy(self):
-        self.cache.stop_background_expiration()
+        self.cache.stop_expiration_thread()
 
     def lookup(self, parent_inode, name):
 
@@ -301,7 +301,7 @@ class Operations(llfuse.Operations):
         if inode == CTRL_INODE:
             if name == b's3ql_flushcache!':
                 # Force all entries out of the cache
-                self.cache.expire(0, 0)
+                self.cache.clear()
                 return
 
             elif name == 'copy':

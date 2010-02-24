@@ -27,8 +27,8 @@ class CommonTests(TestCase):
         def fails():
             raise RuntimeError()
 
-        t1 = ExceptionStoringThread(target=works)
-        t2 = ExceptionStoringThread(target=fails)
+        t1 = ExceptionStoringThread(target=works, logger=None)
+        t2 = ExceptionStoringThread(target=fails, logger=None)
         t1.start()
         t2.start()
 

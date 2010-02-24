@@ -12,7 +12,7 @@ from random import randint
 from s3ql import mkfs, fs, fsck
 from s3ql.backends import local
 import time
-from s3ql.common import ROOT_INODE, ExceptionStoringThread
+from s3ql.common import ROOT_INODE, ExceptionStoringThread, init_logging
 from llfuse import FUSEError
 from s3ql.s3cache import S3Cache
 from s3ql.database import ConnectionManager
@@ -22,6 +22,7 @@ import stat
 import tempfile
 import unittest
 import shutil
+import logging
 
 class Ctx(object):
     def __init__(self):
@@ -49,8 +50,8 @@ class fs_api_tests(TestCase):
             mkfs.setup_db(conn, self.blocksize)
 
         self.cache = S3Cache(self.bucket, self.cachedir, self.blocksize * 5, self.dbcm)
-        self.cache.timeout = 1
         self.server = fs.Operations(self.cache, self.dbcm)
+        self.server.init()
 
         self.root_inode = ROOT_INODE
 
@@ -58,6 +59,7 @@ class fs_api_tests(TestCase):
         self.name_cnt = 0
 
     def tearDown(self):
+        self.server.destroy()
         self.cache.clear()
         self.dbfile.close()
         shutil.rmtree(self.cachedir)
@@ -603,7 +605,7 @@ class fs_api_tests(TestCase):
         self.server.flush(fh)
 
         # Now release and unlink in parallel
-        t1 = ExceptionStoringThread(self.server.unlink, args=(inode_p, name))
+        t1 = ExceptionStoringThread(self.server.unlink, logger=None, args=(inode_p, name))
         t1.start()
         self.server.release(fh)
         t1.join_and_raise()
@@ -751,4 +753,6 @@ def suite():
     return unittest.makeSuite(fs_api_tests)
 
 if __name__ == "__main__":
-    unittest.main()
+    init_logging(None, logging.DEBUG)
+    import sys
+    unittest.main(argv=(sys.argv[0], '--verbose', 'fs_api_tests.test_07_unlink'))
