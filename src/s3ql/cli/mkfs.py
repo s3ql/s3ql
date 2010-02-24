@@ -95,10 +95,14 @@ def main(args):
         options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
         conn = local.Connection()
     else:
-        if not re.match('^[a-z][a-z0-9-]*$', options.bucketname):
-            raise QuietError('Invalid bucket name. Name must consist only of lowercase letters,\n'
-                             'digits and dashes, and the first character has to be a letter.')
+        if (not re.match(r'^[a-z0-9][a-z0-9.-]{1,60}[a-z0-9]$', options.bucketname)
+            or re.match(r'^[0-9.]+$', options.bucketname)
+            or re.search(r'\.-|-\.', options.bucketname)):
+            raise QuietError('Invalid bucket name. Valid names consist only of lowercase letters,\n'
+                             'digits, dots and dashes (but some more restrictions apply, refer to '
+                             'S3 documentation).')
 
+        raise QuietError(0)
         (awskey, awspass) = get_credentials(options.credfile, options.awskey)
         conn = s3.Connection(awskey, awspass)
 
