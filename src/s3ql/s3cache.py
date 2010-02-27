@@ -124,7 +124,8 @@ class S3Cache(object):
 
         log.debug('Waiting for background expiration thread')
         self.exp_thread.run_flag = False
-        self.need_expiry.set()
+        if self.exp_thread.is_alive():
+            self.need_expiry.set()
         self.exp_thread.join_and_raise()
 
     def _expiry_loop(self, self_t):
