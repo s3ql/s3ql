@@ -20,16 +20,7 @@ source_dir = "/home/nikratio"
 # with --exclude
 exclusions = ['.cache/',
               '.s3ql/',
-              '.gconf/',
-              '.gconfd/',
-              '.thunderbird-3.0/',
-              '.local/',
-              '.thumbnails/',
-              '.mozilla/firefox/pw5by90g.default/Cache/',
-              'lib/archive/index.swish-e',
-              'tmp/',
-              'nobackup/',
-              '.eclipse/workspace/.metadata/']
+              '.thumbnails/' ]
 
 
 # The name of the bucket that contains the S3QL file system
@@ -66,7 +57,7 @@ backup_generations = [ '1d', '1d', '7d', '14d', '31d', '150d', '150d' ]
 #
 
 # For more verbose output
-verbose = False
+verbose = True
 
 # === End of configurable section ===
 
@@ -78,6 +69,7 @@ from datetime import datetime, timedelta
 import logging
 import random
 import re
+import shutil
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
@@ -171,13 +163,17 @@ def expire_backups(available_txt):
         log.info('Backup %s is %s old', name, age)
     available.sort(key=lambda x: x[1])
 
+    if available[0][1] < step:
+        log.warn('Most previous backup is %s old, but according to your backup strategy '
+                 'it should be %s old before creating a new backup', available[0][1], step)
+
     # Backups that need to be kept
     keep = dict()
 
     # Go forward in time to see what backups need to be kept
     simulated = timedelta(0)
     while True:
-        log.info('Considering situation on %s', now + simulated)
+        log.debug('Considering situation on %s', now + simulated)
 
         # Go through generations
         cur_age = timedelta(0)
@@ -190,9 +186,11 @@ def expire_backups(available_txt):
             min_age = cur_age + min_rel_age
             for (j, age) in enumerate((a[1] for a in available)):
                 if age >= min_age:
-                    log.info('Keeping backup %s (abs. age %s, rel. age %s) '
-                             'for generation %d (abs. min. age %s, rel. min. age %s)',
-                          available[j][0], age, age - cur_age, i + 1, min_age, min_rel_age)
+                    if j not in keep:
+                        log.info('Keeping backup %s (abs. age %s, rel. age %s) '
+                                 'for generation %d (abs. min. age %s, rel. min. age %s) on %s',
+                                 available[j][0], age, age - cur_age, i + 1, min_age, min_rel_age,
+                                 now + simulated)
                     cur_age = age
                     keep[j] = True
                     break
@@ -234,4 +232,9 @@ def test():
 
 if __name__ == '__main__':
     main()
+    #all_backups = sorted([ x for x in os.listdir(os.path.join(mountpoint, backup_dir))
+    #                          if re.match(r'^\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d$', x) ])
+    #all_backups.pop()
+    #for name in expire_backups(all_backups):
+    #        log.warn('Deleting %s', name)
     #test()
