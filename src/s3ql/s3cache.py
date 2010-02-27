@@ -447,8 +447,6 @@ class S3Cache(object):
             os.unlink(el.name)
 
         # Remove elements from db and S3
-        # TODO: At this point we may miss objects that are in the process of
-        # being uploaded, i.e. already out of the cache but not yet in the db
         log.debug('Deleting from database')
         threads = list()
         while True:
