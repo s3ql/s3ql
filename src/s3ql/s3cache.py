@@ -130,18 +130,29 @@ class S3Cache(object):
     def _expiry_loop(self, self_t):
         '''Run cache expiration loop'''
 
-        while self_t.run_flag:
-            log.debug('_expiry_loop: waiting for poke...')
-            self.need_expiry.wait()
-            log.debug('_expiry_loop: need_expiry has been set')
-            while (self.size > 0.85 * self.maxsize or
-                   len(self.cache) > 0.85 * MAX_CACHE_ENTRIES) and len(self.cache) > 0:
-                self._expire_parallel()
-                if self.size <= self.maxsize and len(self.cache) <= MAX_CACHE_ENTRIES:
-                    log.debug('Cache below threshold, setting flag.')
-                    self.ready_to_write.set()
-            self.need_expiry.clear()
+        try:
+            while self_t.run_flag:
+                log.debug('_expiry_loop: waiting for poke...')
+                self.need_expiry.wait()
+                log.debug('_expiry_loop: need_expiry has been set')
+                while (self.size > 0.85 * self.maxsize or
+                       len(self.cache) > 0.85 * MAX_CACHE_ENTRIES) and len(self.cache) > 0:
+                    self._expire_parallel()
+                    if self.size <= self.maxsize and len(self.cache) <= MAX_CACHE_ENTRIES:
+                        log.debug('Cache below threshold, setting flag.')
+                        self.ready_to_write.set()
+                self.need_expiry.clear()
+                self.ready_to_write.set()
+        except:
+            # Prevent deadlocks
             self.ready_to_write.set()
+
+            def fail():
+                raise RuntimeError('Expiration thread quit unexpectedly')
+            self.ready_to_write.wait = fail
+            self.need_expiry.set = fail
+
+            raise
 
         log.debug('_expiry_loop: exiting.')
 
