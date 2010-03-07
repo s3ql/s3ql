@@ -47,8 +47,11 @@ def parse_args(args):
 
     return options
 
-def main(args):
+def main(args=None):
     '''Efficiently copy a directory tree'''
+
+    if args is None:
+        args = sys.argv[1:]
 
     options = parse_args(args)
     init_logging_from_options(options)

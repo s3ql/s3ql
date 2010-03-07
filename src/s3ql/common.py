@@ -24,6 +24,8 @@ __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_paramete
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'stacktraces', 'init_logging_from_options', 'QuietError' ]
 
+VERSION = '0.8'
+
 def unlock_bucket(bucket):
     '''Ask for passphrase if bucket requires one'''
 

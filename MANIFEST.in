@@ -1,7 +1,7 @@
-recursive-include tests *.py
-recursive-include contrib *
-include src/*.h
-include src/ctypeslib.zip
-include Changes.txt
-include README.txt
+graft doc/html
+prune .settings
+exclude README.SVN
+exclude .project
+exclude .pydevproject
+exclude MANIFEST.in
 

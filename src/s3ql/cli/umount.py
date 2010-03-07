@@ -60,12 +60,15 @@ def parse_args(args):
 
     return options
 
-def main(args):
+def main(args=None):
     '''Umount S3QL file system
     
     This function writes to stdout/stderr and calls `system.exit()` instead
     of returning.
     '''
+
+    if args is None:
+        args = sys.argv[1:]
 
     options = parse_args(args)
     mountpoint = options.mountpoint

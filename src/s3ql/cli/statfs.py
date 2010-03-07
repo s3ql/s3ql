@@ -46,8 +46,11 @@ def parse_args(args):
 
     return options
 
-def main(args):
+def main(args=None):
     '''Print file system statistics to sys.stdout'''
+
+    if args is None:
+        args = sys.argv[1:]
 
     options = parse_args(args)
     mountpoint = options.mountpoint

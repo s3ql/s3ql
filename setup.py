@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function
 
-from distutils.core import setup, Command
+from distutils.core import Command
 import distutils.command.build
 import sys
 import os
@@ -31,6 +31,58 @@ fuse_export_symbols = ['fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
 libc_export_symbols = [ 'setxattr', 'getxattr', 'readdir', 'opendir',
                        'closedir' ]
 
+# Import setuptools
+import ez_setup
+ez_setup.use_setuptools()
+import setuptools
+
+# Add S3QL sources
+basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
+sys.path.insert(0, os.path.join(basedir, 'src'))
+import s3ql.common
+
+def main():
+    with open(os.path.join(basedir, 'doc', 'txt', 'about.txt'), 'r') as fh:
+        long_desc = fh.read()
+
+    setuptools.setup(
+          name='s3ql',
+          zip_safe=True,
+          version=s3ql.common.VERSION,
+          description='a full-featured file system to store data in online storage services',
+          long_description=long_desc,
+          author='Nikolaus Rath',
+          author_email='Nikolaus@rath.org',
+          url='http://code.google.com/p/s3ql/',
+          download_url='http://code.google.com/p/s3ql/downloads/list',
+          license='LGPL',
+          classifiers=['Development Status :: 4 - Beta',
+                       'Environment :: No Input/Output (Daemon)',
+                       'Environment :: Console',
+                       'License :: OSI Approved :: GNU Library or Lesser General Public License (LGPL)',
+                       'Topic :: Internet',
+                       'Operating System :: POSIX',
+                       'Topic :: System :: Archiving'],
+          platforms=[ 'POSIX', 'UNIX', 'Linux' ],
+          keywords=['FUSE', 'backup', 'archival', 'compression', 'encryption',
+                    'deduplication', 'aws', 's3' ],
+          package_dir={'': 'src'},
+          packages=setuptools.find_packages('src'),
+          provides=['s3ql'],
+          entry_points={ 'console_scripts':
+                          ['cp.s3ql = s3ql.cli.cp:main',
+                           'fsck.s3ql = s3ql.cli.fsck:main',
+                           'mkfs.s3ql = s3ql.cli.mkfs:main',
+                           'mount.s3ql = s3ql.cli.mount:main',
+                           'stat.s3ql = s3ql.cli.statfs:main',
+                           'tune.s3ql = s3ql.cli.tune:main',
+                           'umount.s3ql = s3ql.cli.umount:main' ]
+                          },
+          requires=['apsw', 'boto', 'pycryptopp' ],
+          cmdclass={'test': run_tests,
+                    'build_ctypes': build_ctypes, }
+         )
+
 class build_ctypes(Command):
 
     description = "Build ctypes interfaces"
@@ -51,7 +103,6 @@ class build_ctypes(Command):
         '''Create ctypes API to local FUSE headers'''
 
          # Import ctypeslib
-        basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
         sys.path.insert(0, os.path.join(basedir, 'src', 'ctypeslib.zip'))
         from ctypeslib import h2xml, xml2py
         from ctypeslib.codegen import codegenerator as ctypeslib
@@ -102,7 +153,6 @@ class build_ctypes(Command):
         '''Create ctypes API to local libc'''
 
          # Import ctypeslib
-        basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
         sys.path.insert(0, os.path.join(basedir, 'src', 'ctypeslib.zip'))
         from ctypeslib import h2xml, xml2py
         from ctypeslib.codegen import codegenerator as ctypeslib
@@ -202,10 +252,7 @@ class run_tests(Command):
             raise StandardError('SQLite version too old, must be 3.6.17 or newer!\n')
 
         # Add test modules
-        basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
-        sys.path = [os.path.join(basedir, 'src'),
-                    os.path.join(basedir, 'tests')] + sys.path
-
+        sys.path.insert(0, os.path.join(basedir, 'tests'))
         import unittest
         import _common
         from s3ql.common import init_logging
@@ -261,24 +308,7 @@ class run_tests(Command):
             sys.exit(1)
 
 
-setup(name='s3ql',
-      version='beta7',
-      description='a FUSE filesystem for storing data in Amazon S3',
-      author='Nikolaus Rath',
-      author_email='Nikolaus@rath.org',
-      url='http://code.google.com/p/s3ql/',
-      package_dir={'': 'src'},
-      packages=['s3ql', 'llfuse', 's3ql.cli', 's3ql.backends' ],
-      provides=['s3ql'],
-      scripts=[ 'bin/cp.s3ql',
-                'bin/fsck.s3ql',
-                'bin/mkfs.s3ql',
-                'bin/mount.s3ql',
-                'bin/stat.s3ql',
-                'bin/tune.s3ql',
-                'bin/umount.s3ql',
-                 ],
-      requires=['apsw', 'boto', 'pycryptopp' ],
-      cmdclass={'test': run_tests,
-                'build_ctypes': build_ctypes, }
-     )
+if __name__ == '__main__':
+    main()
+
+

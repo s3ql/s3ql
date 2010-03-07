@@ -31,8 +31,11 @@ __all__ = [ 'main' ]
 
 log = logging.getLogger("mount")
 
-def main(args):
+def main(args=None):
     '''Mount S3QL file system'''
+
+    if args is None:
+        args = sys.argv[1:]
 
     try:
         import psyco

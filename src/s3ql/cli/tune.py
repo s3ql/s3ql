@@ -91,8 +91,11 @@ def parse_args(args):
 
     return options
 
-def main(args):
+def main(args=None):
     '''Change or show S3QL file system parameters'''
+
+    if args is None:
+        args = sys.argv[1:]
 
     options = parse_args(args)
     init_logging_from_options(options)
