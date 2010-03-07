@@ -1,3 +1,12 @@
+xx, S3QL 0.8
+
+  * Now uses Python's default unittest.py
+  
+  * Moved most documentation from Wiki into tarball
+  
+  * Use setuptools for installation
+  
+ 
 2010-02-22, beta7
 
   * mount.s3ql no longer chdirs into / when daemonizing but into the
