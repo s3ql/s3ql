@@ -19,7 +19,7 @@ from _common import TestCase
 # other functions that are called by the tested function work perfectly.
 class CommonTests(TestCase):
 
-    def test_02_threading(self):
+    def test_ExceptionStoringThread(self):
         # Test our threading object
         def works():
             pass
