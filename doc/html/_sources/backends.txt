@@ -1,0 +1,58 @@
+.. -*- mode: rst -*-
+
+==================
+ Storage Backends
+==================
+
+S3QL can use different protocols to store the file system data. The
+commands for creating, checking and mounting an S3QL file system
+therefore expect you to specify a *storage URL* of the form
+`<backend>:<path>`. The exact interpretation of `<path>` depends on
+the backend that you use.
+
+Currently, S3QL supports the following backends.
+
+
+Local
+=====
+
+The local backend stores file system data in a directory on your local
+computer. This is mostly used for testing. The storage URL for the
+local backend has the form `local:/path/to/storage`.
+
+SFTP
+====
+
+The SFTP backend is still in development.
+
+FTP
+====
+
+The FTP backend is still in development.
+
+Amazon S3
+=========
+
+To store your file system in an Amazon S3 bucket, use a storage URL of
+the form `s3:<bucketname>`.
+
+Note that the bucket names come from a global pool, so chances are
+that your favorite name has already been taken by another S3 user.
+Usually a longer bucket name containing some random numbers, like
+`19283712_yourname_s3ql`, will work better.
+
+If you do not already have one, you need to obtain an Amazon S3
+account from `Amazon AWS <http://aws.amazon.com/>`_. The account is
+free, you will pay only for the amount of storage that you actually
+use.
+
+You can enter your Amazon AWS access key id and your AWS secret access
+key every time you mount, create or check the filesystem, but it is
+recommended that you write them into the file `.awssecret` in your
+home directory. Separate them by a newline and make sure that the file
+is only readable by the owner, otherwise S3QL will refuse to use it.
+
+Note that the AWS access key id and the AWS secret key are not the
+user id and password that you use to log into the Amazon Webpage, but
+the *access identifiers* shown under `My Account/Access Identifiers
+<https://aws-portal.amazon.com/gp/aws/developer/account/index.html?ie=UTF8&action=access-key>`_.

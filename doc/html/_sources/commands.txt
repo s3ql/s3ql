@@ -1,0 +1,77 @@
+.. -*- mode: rst -*-
+
+=====================
+ Other S3QL Commands
+=====================
+
+Getting file system statistics
+==============================
+
+You can get more information about a mounted S3QL file system with the
+`stat.s3ql` command. It has the following syntax::
+
+  stat.s3ql <mountpoint>
+
+
+Probably the most interesting numbers are the total size of your data,
+the total size after duplication, and the final size after
+de-duplication and compression.
+
+`stat.s3ql` also has some additional options. Run `stat.s3ql --help`
+for a complete list.
+
+Changing the Passphrase
+=======================
+
+To change the passphrase a bucket, use the `tune.s3ql` command::
+
+  tune.s3ql --change-passphrase  <storage url>
+
+The passphrase can only be changed when the bucket is not mounted.
+
+Checking for Errors
+===================
+
+If, for some reason, the filesystem has not been correctly unmounted,
+or if you suspect that there might be errors, you should run the
+`fsck.s3ql` utility. It has the following syntax::
+
+ fsck.s3ql [options] <storage url>
+
+To get a list of all available options, run `fsck.s3ql --help`.
+
+Upgrading the file system
+=========================
+
+If you have installed a new version of S3QL, is usually necessary to
+upgrade your file system metdata. Note that afterwards the file system
+can no longer be accessed with older versions of S3QL. To upgrade the
+file system stored in the bucket `<bucketname>` to the newest
+revision, execute ::
+
+  tune.s3ql --upgrade <storage url>
+
+You should make very sure that this command is not interrupted.
+
+Deleting a file system
+======================
+
+A file system can be deleted with::
+
+  tune.s3ql --delete <storage url>
+
+Copying a file system
+=====================
+
+With ::
+
+  tune.s3ql --copy <source storage url> <target storage url>
+
+you can physically copy an entire filesystem. The two file systems
+will be completely independent and take twice as much storage space.
+
+You can use this command e.g. to relocate S3 buckets to a different
+storage region.
+
+For a complete list of `tune.s3ql` options and operations, run
+`tune.s3ql --help`.

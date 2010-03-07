@@ -1,0 +1,99 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title><no title> &mdash; S3QL v0.8 documentation</title>
+    <link rel="stylesheet" href="_static/sphinxdoc.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '0.8',
+        COLLAPSE_MODINDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="author" title="About these documents" href="about.html" />
+    <link rel="top" title="S3QL v0.8 documentation" href="index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+	  
+          <div id="searchbox" style="display: none">
+            <h3>Quick search</h3>
+              <form class="search" action="search.html" method="get">
+                <input type="text" name="q" size="18" />
+                <input type="submit" value="Go" />
+                <input type="hidden" name="check_keywords" value="yes" />
+                <input type="hidden" name="area" value="default" />
+              </form>
+              <p class="searchtip" style="font-size: 90%">
+              Enter search terms.
+              </p>
+          </div>
+          <script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <p>#summary Related Projects</p>
+<p>= Related Projects =</p>
+<p>If S3QL does not suit your needs, you might be interested in one of the following projects. Note that more information about several of the other S3 file systems is compiled in the [comparison Comparison of S3QL to other S3 File Systems].</p>
+<p>== S3 File Systems ==</p>
+<p>Note that there are several projects named _s3fs_.</p>
+<blockquote>
+<ul class="simple">
+<li>[<a class="reference external" href="https://fedorahosted.org/s3fs/">https://fedorahosted.org/s3fs/</a> s3fs]</li>
+<li>[<a class="reference external" href="http://code.google.com/p/s3fs">http://code.google.com/p/s3fs</a> s3fs]; this one is a free version of [<a class="reference external" href="http://www.subcloud.com/">http://www.subcloud.com/</a> SubCloud], a commercial S3 file system.</li>
+<li>[<a class="reference external" href="http://code.google.com/p/s3backer">http://code.google.com/p/s3backer</a> S3backer] exposes S3 as a virtual block device. You can use it with any filesystem you want.</li>
+<li>[<a class="reference external" href="http://www.persistentfs.com/">http://www.persistentfs.com/</a> PersistentFS] is another commercial S3 filesystem. It is however, still in Alpha stage and free for use until the first release is available.</li>
+<li>[<a class="reference external" href="http://www.elasticdrive.com/">http://www.elasticdrive.com/</a> ElasticDrive]; another commercial product</li>
+<li>[<a class="reference external" href="http://code.google.com/p/s3fs-fuse/">http://code.google.com/p/s3fs-fuse/</a> s3fs-fuse]; seems to be dead</li>
+<li>[<a class="reference external" href="http://www.jungledisk.com/">http://www.jungledisk.com/</a> JungleDisk]; the oldest of the s3 file systems. Commercial.</li>
+<li>With [<a class="reference external" href="http://aws.amazon.com/ebs/">http://aws.amazon.com/ebs/</a> EBS] one can access S3 buckets as block-devices on [<a class="reference external" href="http://aws.amazon.com/ec2/">http://aws.amazon.com/ec2/</a> EC2] instances. Since the block device exists &#8220;within AWS&#8221; on the EC2 instance,  this circumvents many principal problems that [<a class="reference external" href="http://code.google.com/p/s3backer">http://code.google.com/p/s3backer</a> S3backer] faces. From the EC2 instance, a created filesystem can then be exported using any network filesystem (e.g. [<a class="reference external" href="http://fuse.sourceforge.net/sshfs.html">http://fuse.sourceforge.net/sshfs.html</a> sshfs]).</li>
+</ul>
+</blockquote>
+<p>== Online Backup Programs ==</p>
+<blockquote>
+<ul class="simple">
+<li>[<a class="reference external" href="http://code.google.com/p/quillen">http://code.google.com/p/quillen</a> Quillen] is a snapshot-based backup program that stores its data directly in S3.</li>
+<li>[<a class="reference external" href="https://spideroak.com/">https://spideroak.com/</a> SpiderOak] is a commercial online backup solution with reasonable prices also for individuals. It supports encryption and de-duplication and saves the data in a S3-like cloud. Although the concept seems very promising, the  software repeatedly suffered from critical bugs, the service has been plagued by outages and the support is usually responsive but rarely able to correct the problems. Not recommended at this point in time.</li>
+</ul>
+</blockquote>
+<p>Finally, [<a class="reference external" href="http://savannah.nongnu.org/projects/storebackup">http://savannah.nongnu.org/projects/storebackup</a> storeBackup] is a snapshot based backup program that uses hardlinks to avoid data-duplication. S3QL has originally been designed for use with storeBackup.</p>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+      &copy; Copyright 2010, Nikolaus Rath.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.2.
+    </div>
+  </body>
+</html>

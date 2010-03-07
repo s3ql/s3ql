@@ -1,0 +1,200 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Installation &mdash; S3QL v0.8 documentation</title>
+    <link rel="stylesheet" href="_static/sphinxdoc.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '0.8',
+        COLLAPSE_MODINDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="author" title="About these documents" href="about.html" />
+    <link rel="top" title="S3QL v0.8 documentation" href="index.html" />
+    <link rel="next" title="Mounting" href="mount.html" />
+    <link rel="prev" title="About S3QL" href="about.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="mount.html" title="Mounting"
+             accesskey="N">next</a></li>
+        <li class="right" >
+          <a href="about.html" title="About S3QL"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+            <h3><a href="index.html">Table Of Contents</a></h3>
+            <ul class="current">
+<li class="toctree-l1"><a class="reference external" href="about.html">About S3QL</a></li>
+<li class="toctree-l1 current"><a class="current reference external" href="">Installation</a><ul>
+<li class="toctree-l2"><a class="reference external" href="#prerequisites">Prerequisites</a></li>
+<li class="toctree-l2"><a class="reference external" href="#installing-dependencies">Installing Dependencies</a></li>
+<li class="toctree-l2"><a class="reference external" href="#installing-apsw">Installing APSW</a></li>
+<li class="toctree-l2"><a class="reference external" href="#installing-s3ql">Installing S3QL</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference external" href="mount.html">Mounting</a></li>
+<li class="toctree-l1"><a class="reference external" href="umount.html">Unmounting</a></li>
+</ul>
+
+          
+          <div id="searchbox" style="display: none">
+            <h3>Quick search</h3>
+              <form class="search" action="search.html" method="get">
+                <input type="text" name="q" size="18" />
+                <input type="submit" value="Go" />
+                <input type="hidden" name="check_keywords" value="yes" />
+                <input type="hidden" name="area" value="default" />
+              </form>
+              <p class="searchtip" style="font-size: 90%">
+              Enter search terms.
+              </p>
+          </div>
+          <script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="installation">
+<h1>Installation<a class="headerlink" href="#installation" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="prerequisites">
+<h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Permalink to this headline">¶</a></h2>
+<blockquote>
+<ul class="simple">
+<li>Under Linux, make sure that you are using at least kernel 2.6.26.</li>
+</ul>
+</blockquote>
+</div>
+<div class="section" id="installing-dependencies">
+<h2>Installing Dependencies<a class="headerlink" href="#installing-dependencies" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="debian-ubuntu">
+<h3>Debian / Ubuntu<a class="headerlink" href="#debian-ubuntu" title="Permalink to this headline">¶</a></h3>
+<p>If you are using Debian/Ubuntu, most of the prerequisites are already
+packaged, so the following command should take care of all
+dependencies:</p>
+<div class="highlight-sh"><div class="highlight"><pre>aptitude install python-dev libfuse2 libfuse-dev <span class="se">\</span>
+                 gccxml python-pycryptopp libattr1-dev liblzma-dev liblzma0
+</pre></div>
+</div>
+<p>After that, you can continue with <a class="reference internal" href="#installing-apsw">Installing APSW</a>.</p>
+</div>
+<div class="section" id="centos-5">
+<h3>CentOS 5<a class="headerlink" href="#centos-5" title="Permalink to this headline">¶</a></h3>
+<p><a class="reference external" href="http://code.google.com/u/heri16/">heri16</a> has kindly provided
+instructions for [instCentOs installing the prerequisites under CentOS
+5].</p>
+<p>After that, you can continue with <a class="reference internal" href="#installing-apsw">Installing APSW</a>.</p>
+</div>
+<div class="section" id="other-distributions">
+<h3>Other distributions<a class="headerlink" href="#other-distributions" title="Permalink to this headline">¶</a></h3>
+<p>If you are using a different Linux distributions, you should first
+look if your distribution already provides a packages of the following
+programs and use those if available.</p>
+<p>The programs/libraries are required to run S3QL:</p>
+<blockquote>
+<ul class="simple">
+<li>The <em>Python development headers</em> should be included as a
+package in your distribution. The package is typically called
+something like <cite>python-dev</cite>, <cite>python-devel</cite> or <cite>python2.6-devel</cite>.
+To check if this package is installed, try to execute
+<cite>python-config</cite> (it should print out a brief help message).</li>
+<li>The <em>extended attribute headers</em> should be included as a
+package in your distribution. The package is typically called
+something like <cite>libattr-dev</cite>, <cite>libattr1-dev</cite>, <cite>libattr-devel</cite> or
+<cite>libattr1-devel</cite>. To check if this package is installed, verify
+that there is a file called <cite>xattr.h</cite> in either
+<cite>/usr/include/attr/</cite> or <cite>/usr/local/include/attr/</cite>.</li>
+<li>The <em>[http://fuse.sourceforge.net/ FUSE Library]</em> should really
+already be installed on your system. But you should make sure that
+you also have the FUSE headers installed (the package is typically
+called something like <cite>fuse-dev</cite>, <cite>libfuse-dev</cite>, <cite>fuse-devel</cite> or
+<cite>libfuse-devel</cite>).</li>
+<li>The <em>[http://sourceforge.net/projects/lzmautils/ LZMA library]</em>.
+To check if this library is installed, look for a file called
+<cite>lzma.h</cite> in <cite>/usr/include</cite> or <cite>/usr/local/include</cite>.</li>
+<li>The <em>[http://pypi.python.org/pypi/pycryptopp PyCrypto++ Python
+module]</em>. To check if this module is already installed, try to
+execute <cite>python -c &#8216;import pycryptopp&#8217;</cite>. If this succeeds (it
+should not print anything), you&#8217;re all set. Otherwise you can
+install PyCrypto++ from source by downloading it from the website,
+extracting it into a temporary folder and running <cite>python setup.py
+install &#8211;user</cite>.</li>
+<li>The <em>[http://www.gccxml.org GCC-XML]</em> compiler. To check if
+GCC-XML is already installed, try to run <cite>gccxml &#8211;version</cite> (it
+should print the version number). If GCC-XML is not installed,
+refer to the [<a class="reference external" href="http://www.gccxml.org/HTML/Install.html">http://www.gccxml.org/HTML/Install.html</a> GCC-XML
+installation instructions].</li>
+</ul>
+</blockquote>
+<p>After that, you can continue with <a class="reference internal" href="#installing-apsw">Installing APSW</a>.</p>
+</div>
+</div>
+<div class="section" id="installing-apsw">
+<h2>Installing APSW<a class="headerlink" href="#installing-apsw" title="Permalink to this headline">¶</a></h2>
+<p>Finally, S3QL needs at least version 3.6.17 of the [<a class="reference external" href="http://code.google.com/p/apsw/">http://code.google.com/p/apsw/</a> Python APSW module]. This version is probably not yet available as a package for your distribution. To check if it is installed, try to execute</p>
+<blockquote>
+python -c &#8216;import apsw; print apsw.apswversion(), apsw.sqlitelibversion()&#8217;</blockquote>
+<p>If this command suceeds, it should print two version numbers. If the first version is at least 3.6.14 and the second at least 3.6.17 you are all set. Otherwise you need to manually install APSW as follows:</p>
+<blockquote>
+# Download apsw from the [<a class="reference external" href="http://code.google.com/p/apsw/downloads/list">http://code.google.com/p/apsw/downloads/list</a> APSW homepage].
+# Extract the zip file into a temporary folder of your choice.
+# Inside that folder, run {{{python setup.py fetch &#8211;sqlite build}}}.
+# Still in the same folder, run <cite>python setup.py install &#8211;user</cite></blockquote>
+</div>
+<div class="section" id="installing-s3ql">
+<h2>Installing S3QL<a class="headerlink" href="#installing-s3ql" title="Permalink to this headline">¶</a></h2>
+<p>To install S3QL itself, proceed as follows:</p>
+<blockquote>
+# Download the [<a class="reference external" href="http://code.google.com/p/s3ql/downloads/list">http://code.google.com/p/s3ql/downloads/list</a> stable version] or retrieve the [<a class="reference external" href="http://code.google.com/p/s3ql/source/checkout">http://code.google.com/p/s3ql/source/checkout</a> unstable development version]
+# Unpack it into a folder of your choice
+# Run <cite>python setup.py build_ctypes</cite> to generate a Python API for the installed FUSE library.
+# Run <cite>python setup.py test</cite> to run a self-test. If this fails, ask for help on the [<a class="reference external" href="http://groups.google.com/group/s3ql">http://groups.google.com/group/s3ql</a> mailing-list].</blockquote>
+<p>No explicit installation is necessary, you can run all commands from the <cite>bin</cite> directory.</p>
+<p>If you want, you can also install S3QL system wide with <cite>python setup.py install</cite> or into <cite>~/.local</cite> with <cite>python setup.py install &#8211;user</cite>. Note that if you install into <cite>~/.local</cite>, you should make sure that <cite>~/.local/bin</cite> is in <cite>$PATH</cite>.</p>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="mount.html" title="Mounting"
+             >next</a></li>
+        <li class="right" >
+          <a href="about.html" title="About S3QL"
+             >previous</a> |</li>
+        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+      &copy; Copyright 2010, Nikolaus Rath.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.2.
+    </div>
+  </body>
+</html>

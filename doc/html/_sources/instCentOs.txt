@@ -1,0 +1,54 @@
+=============================================
+ Installing the prerequisites under CentOS 5
+=============================================
+
+
+{{{
+yum install libattr-devel fuse-libs fuse-devel fuse gcc-c++ bzip2 unzip
+
+wget http://download.fedora.redhat.com/pub/epel/5/i386/epel-release-5-3.noarch.rpm
+yum --nogpgcheck localinstall epel-release-5-3.noarch.rpm
+yum --enablerepo=epel install libffi
+yum --enablerepo=epel install xz-libs xz-devel xz
+
+wget http://yum.chrislea.com/centos/5/i386/chl-release-5-3.noarch.rpm
+yum --nogpgcheck localinstall chl-release-5-3.noarch.rpm
+yum --enablerepo=chl install python26 python26-devel
+
+wget http://packages.sw.be/rpmforge-release/rpmforge-release-0.5.1-1.el5.rf.i386.rpm
+yum --nogpgcheck localinstall rpmforge-release-0.5.1-1.el5.rf.i386.rpm
+yum --enablerepo=rpmforge install cmake
+}}}
+
+
+GCC-XML needs to be compiled from the CVS sources:
+{{{
+cvs -d :pserver:anoncvs@www.gccxml.org:/cvsroot/GCC_XML login
+#(just press enter when prompted for a password)
+cvs -d :pserver:anoncvs@www.gccxml.org:/cvsroot/GCC_XML co gccxml
+#(this is the slowest step of the whole tutorial. Go get a cup of mocha)
+mkdir gccxml-build
+cd gccxml-build
+cmake ../gccxml
+make
+make test
+make install
+}}}
+
+PyCryptoPP:
+{{{
+wget http://pypi.python.org/packages/source/p/pycryptopp/pycryptopp-0.5.17.tar.gz#md5=b3d19e7203531f8bd241ae58062f99e4
+tar -xf pycryptopp-0.5.17.tar.gz
+cd pycryptopp*
+python26 setup.py build
+python26 setup.py test
+python26 setup.py install
+}}}
+
+For OpenVZ, execute in host the below:
+{{{
+modprobe fuse
+vzctl set 101 --devices c:10:229:rw --save
+vzctl exec 101 mknod /dev/fuse c 10 229
+vzctl exec 101 reboot
+}}}

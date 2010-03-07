@@ -1,0 +1,151 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Storage Backends &mdash; S3QL v0.8 documentation</title>
+    <link rel="stylesheet" href="_static/sphinxdoc.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '0.8',
+        COLLAPSE_MODINDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="author" title="About these documents" href="about.html" />
+    <link rel="top" title="S3QL v0.8 documentation" href="index.html" />
+    <link rel="next" title="File System Creation" href="mkfs.html" />
+    <link rel="prev" title="Installation" href="installation.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="mkfs.html" title="File System Creation"
+             accesskey="N">next</a></li>
+        <li class="right" >
+          <a href="installation.html" title="Installation"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+            <h3><a href="index.html">Table Of Contents</a></h3>
+            <ul class="current">
+<li class="toctree-l1"><a class="reference external" href="about.html">About S3QL</a></li>
+<li class="toctree-l1"><a class="reference external" href="installation.html">Installation</a></li>
+<li class="toctree-l1 current"><a class="current reference external" href="">Storage Backends</a><ul>
+<li class="toctree-l2"><a class="reference external" href="#local">Local</a></li>
+<li class="toctree-l2"><a class="reference external" href="#sftp">SFTP</a></li>
+<li class="toctree-l2"><a class="reference external" href="#ftp">FTP</a></li>
+<li class="toctree-l2"><a class="reference external" href="#amazon-s3">Amazon S3</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference external" href="mkfs.html">File System Creation</a></li>
+<li class="toctree-l1"><a class="reference external" href="mount.html">Mounting</a></li>
+<li class="toctree-l1"><a class="reference external" href="umount.html">Unmounting</a></li>
+<li class="toctree-l1"><a class="reference external" href="snapshotting.html">Creating Snapshots</a></li>
+<li class="toctree-l1"><a class="reference external" href="commands.html">Other S3QL Commands</a></li>
+<li class="toctree-l1"><a class="reference external" href="resources.html">Further Resources / Getting Help</a></li>
+</ul>
+
+          
+          <div id="searchbox" style="display: none">
+            <h3>Quick search</h3>
+              <form class="search" action="search.html" method="get">
+                <input type="text" name="q" size="18" />
+                <input type="submit" value="Go" />
+                <input type="hidden" name="check_keywords" value="yes" />
+                <input type="hidden" name="area" value="default" />
+              </form>
+              <p class="searchtip" style="font-size: 90%">
+              Enter search terms.
+              </p>
+          </div>
+          <script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="storage-backends">
+<h1>Storage Backends<a class="headerlink" href="#storage-backends" title="Permalink to this headline">¶</a></h1>
+<p>S3QL can use different protocols to store the file system data. The
+commands for creating, checking and mounting an S3QL file system
+therefore expect you to specify a <em>storage URL</em> of the form
+<tt class="docutils literal"><span class="pre">&lt;backend&gt;:&lt;path&gt;</span></tt>. The exact interpretation of <tt class="docutils literal"><span class="pre">&lt;path&gt;</span></tt> depends on
+the backend that you use.</p>
+<p>Currently, S3QL supports the following backends.</p>
+<div class="section" id="local">
+<h2>Local<a class="headerlink" href="#local" title="Permalink to this headline">¶</a></h2>
+<p>The local backend stores file system data in a directory on your local
+computer. This is mostly used for testing. The storage URL for the
+local backend has the form <tt class="docutils literal"><span class="pre">local:/path/to/storage</span></tt>.</p>
+</div>
+<div class="section" id="sftp">
+<h2>SFTP<a class="headerlink" href="#sftp" title="Permalink to this headline">¶</a></h2>
+<p>The SFTP backend is still in development.</p>
+</div>
+<div class="section" id="ftp">
+<h2>FTP<a class="headerlink" href="#ftp" title="Permalink to this headline">¶</a></h2>
+<p>The FTP backend is still in development.</p>
+</div>
+<div class="section" id="amazon-s3">
+<h2>Amazon S3<a class="headerlink" href="#amazon-s3" title="Permalink to this headline">¶</a></h2>
+<p>To store your file system in an Amazon S3 bucket, use a storage URL of
+the form <tt class="docutils literal"><span class="pre">s3:&lt;bucketname&gt;</span></tt>.</p>
+<p>Note that the bucket names come from a global pool, so chances are
+that your favorite name has already been taken by another S3 user.
+Usually a longer bucket name containing some random numbers, like
+<tt class="docutils literal"><span class="pre">19283712_yourname_s3ql</span></tt>, will work better.</p>
+<p>If you do not already have one, you need to obtain an Amazon S3
+account from <a class="reference external" href="http://aws.amazon.com/">Amazon AWS</a>. The account is
+free, you will pay only for the amount of storage that you actually
+use.</p>
+<p>You can enter your Amazon AWS access key id and your AWS secret access
+key every time you mount, create or check the filesystem, but it is
+recommended that you write them into the file <tt class="docutils literal"><span class="pre">.awssecret</span></tt> in your
+home directory. Separate them by a newline and make sure that the file
+is only readable by the owner, otherwise S3QL will refuse to use it.</p>
+<p>Note that the AWS access key id and the AWS secret key are not the
+user id and password that you use to log into the Amazon Webpage, but
+the <em>access identifiers</em> shown under <a class="reference external" href="https://aws-portal.amazon.com/gp/aws/developer/account/index.html?ie=UTF8&amp;action=access-key">My Account/Access Identifiers</a>.</p>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="mkfs.html" title="File System Creation"
+             >next</a></li>
+        <li class="right" >
+          <a href="installation.html" title="Installation"
+             >previous</a> |</li>
+        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+      &copy; Copyright 2010, Nikolaus Rath.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.2.
+    </div>
+  </body>
+</html>

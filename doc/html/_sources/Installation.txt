@@ -1,0 +1,114 @@
+.. -*- mode: rst -*-
+
+==============
+ Installation
+==============
+
+
+Prerequisites
+==============
+
+ * Under Linux, make sure that you are using at least kernel 2.6.26.
+
+
+Installing Dependencies
+=======================
+
+Debian / Ubuntu
+---------------
+
+If you are using Debian/Ubuntu, most of the prerequisites are already
+packaged, so the following command should take care of all
+dependencies::
+
+  aptitude install python-dev libfuse2 libfuse-dev \
+                   gccxml python-pycryptopp libattr1-dev liblzma-dev liblzma0
+
+
+After that, you can continue with `Installing APSW`_.
+
+CentOS 5
+--------
+
+`heri16 <http://code.google.com/u/heri16/>`_ has kindly provided
+instructions for [instCentOs installing the prerequisites under CentOS
+5].
+
+After that, you can continue with `Installing APSW`_.
+
+Other distributions
+-------------------
+
+If you are using a different Linux distributions, you should first
+look if your distribution already provides a packages of the following
+programs and use those if available.
+
+The programs/libraries are required to run S3QL:
+
+  * The *Python development headers* should be included as a
+    package in your distribution. The package is typically called
+    something like `python-dev`, `python-devel` or `python2.6-devel`.
+    To check if this package is installed, try to execute
+    `python-config` (it should print out a brief help message).
+
+  * The *extended attribute headers* should be included as a
+    package in your distribution. The package is typically called
+    something like `libattr-dev`, `libattr1-dev`, `libattr-devel` or
+    `libattr1-devel`. To check if this package is installed, verify
+    that there is a file called `xattr.h` in either
+    `/usr/include/attr/` or `/usr/local/include/attr/`.
+
+  * The *[http://fuse.sourceforge.net/ FUSE Library]* should really
+    already be installed on your system. But you should make sure that
+    you also have the FUSE headers installed (the package is typically
+    called something like `fuse-dev`, `libfuse-dev`, `fuse-devel` or
+    `libfuse-devel`).
+
+  * The *[http://sourceforge.net/projects/lzmautils/ LZMA library]*.
+    To check if this library is installed, look for a file called
+    `lzma.h` in `/usr/include` or `/usr/local/include`.
+
+  * The *[http://pypi.python.org/pypi/pycryptopp PyCrypto++ Python
+    module]*. To check if this module is already installed, try to
+    execute `python -c 'import pycryptopp'`. If this succeeds (it
+    should not print anything), you're all set. Otherwise you can
+    install PyCrypto++ from source by downloading it from the website,
+    extracting it into a temporary folder and running `python setup.py
+    install --user`.
+
+  * The *[http://www.gccxml.org GCC-XML]* compiler. To check if
+    GCC-XML is already installed, try to run `gccxml --version` (it
+    should print the version number). If GCC-XML is not installed,
+    refer to the [http://www.gccxml.org/HTML/Install.html GCC-XML
+    installation instructions].
+
+After that, you can continue with `Installing APSW`_.
+
+
+Installing APSW
+===============
+
+Finally, S3QL needs at least version 3.6.17 of the [http://code.google.com/p/apsw/ Python APSW module]. This version is probably not yet available as a package for your distribution. To check if it is installed, try to execute
+
+  python -c 'import apsw; print apsw.apswversion(), apsw.sqlitelibversion()'
+
+If this command suceeds, it should print two version numbers. If the first version is at least 3.6.14 and the second at least 3.6.17 you are all set. Otherwise you need to manually install APSW as follows:
+
+  # Download apsw from the [http://code.google.com/p/apsw/downloads/list APSW homepage].
+  # Extract the zip file into a temporary folder of your choice.
+  # Inside that folder, run {{{python setup.py fetch --sqlite build}}}.
+  # Still in the same folder, run `python setup.py install --user`
+
+Installing S3QL
+===============
+
+To install S3QL itself, proceed as follows:
+
+  # Download the [http://code.google.com/p/s3ql/downloads/list stable version] or retrieve the [http://code.google.com/p/s3ql/source/checkout unstable development version]
+  # Unpack it into a folder of your choice
+  # Run `python setup.py build_ctypes` to generate a Python API for the installed FUSE library.
+  # Run `python setup.py test` to run a self-test. If this fails, ask for help on the [http://groups.google.com/group/s3ql mailing-list].
+
+No explicit installation is necessary, you can run all commands from the `bin` directory.
+
+If you want, you can also install S3QL system wide with `python setup.py install` or into `~/.local` with `python setup.py install --user`. Note that if you install into `~/.local`, you should make sure that `~/.local/bin` is in `$PATH`.

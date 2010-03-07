@@ -1,0 +1,17 @@
+#summary Getting Help
+
+= Getting Help =
+
+== FAQ ==
+
+Your question might already be answered in the [FAQ].
+
+== Mailing List ==
+
+There is a mailing list for discussions about s3ql. You can subscribe by sending a mail to [mailto:s3ql+subscribe@googlegroups.com s3ql+subscribe@googlegroups.com] or simply use the [http://groups.google.com/group/s3ql web interface].
+
+Before asking a question, please look at the [http://groups.google.com/group/s3ql mailing list archive] to check if it has already been answered before.
+
+== Bug Tracker ==
+
+Please report any bugs you may encounter on the Google Issue Tracker at http://code.google.com/p/s3ql/issues/list.

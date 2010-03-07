@@ -1,0 +1,195 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Mounting &mdash; S3QL v0.8 documentation</title>
+    <link rel="stylesheet" href="_static/sphinxdoc.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '0.8',
+        COLLAPSE_MODINDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="author" title="About these documents" href="about.html" />
+    <link rel="top" title="S3QL v0.8 documentation" href="index.html" />
+    <link rel="next" title="Unmounting" href="umount.html" />
+    <link rel="prev" title="File System Creation" href="mkfs.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="umount.html" title="Unmounting"
+             accesskey="N">next</a></li>
+        <li class="right" >
+          <a href="mkfs.html" title="File System Creation"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+            <h3><a href="index.html">Table Of Contents</a></h3>
+            <ul class="current">
+<li class="toctree-l1"><a class="reference external" href="about.html">About S3QL</a></li>
+<li class="toctree-l1"><a class="reference external" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference external" href="backends.html">Storage Backends</a></li>
+<li class="toctree-l1"><a class="reference external" href="mkfs.html">File System Creation</a></li>
+<li class="toctree-l1 current"><a class="current reference external" href="">Mounting</a><ul>
+<li class="toctree-l2"><a class="reference external" href="#test">Test</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference external" href="umount.html">Unmounting</a></li>
+<li class="toctree-l1"><a class="reference external" href="snapshotting.html">Creating Snapshots</a></li>
+<li class="toctree-l1"><a class="reference external" href="commands.html">Other S3QL Commands</a></li>
+<li class="toctree-l1"><a class="reference external" href="resources.html">Further Resources / Getting Help</a></li>
+</ul>
+
+          
+          <div id="searchbox" style="display: none">
+            <h3>Quick search</h3>
+              <form class="search" action="search.html" method="get">
+                <input type="text" name="q" size="18" />
+                <input type="submit" value="Go" />
+                <input type="hidden" name="check_keywords" value="yes" />
+                <input type="hidden" name="area" value="default" />
+              </form>
+              <p class="searchtip" style="font-size: 90%">
+              Enter search terms.
+              </p>
+          </div>
+          <script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="mounting">
+<h1>Mounting<a class="headerlink" href="#mounting" title="Permalink to this headline">¶</a></h1>
+<dl class="docutils">
+<dt>A S3QL file system is mounted with the <tt class="docutils literal"><span class="pre">mount.s3ql</span></tt> command. It has the following syntax::</dt>
+<dd>mount.s3ql [options] &lt;storage url&gt; &lt;mountpoint&gt;</dd>
+</dl>
+<p>Note that S3QL is not a network file system like <a class="reference external" href="http://en.wikipedia.org/wiki/Network_File_System_%28protocol%29">NFS</a> or
+<a class="reference external" href="http://en.wikipedia.org/wiki/CIFS">CIFS</a>, so an S3QL file system
+can only be mounted on one computer at a time.</p>
+<p><tt class="docutils literal"><span class="pre">mount.s3ql</span></tt> accepts the following options:</p>
+<blockquote>
+<table class="docutils option-list" frame="void" rules="none">
+<col class="option" />
+<col class="description" />
+<tbody valign="top">
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">--awskey=<var>AWSKEY</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Amazon Webservices access key to use. If not
+specified, tries to read ~/.awssecret or the file
+given by &#8211;credfile.</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">--credfile=<var>CREDFILE</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Try to read AWS access key and key id from this file.
+The file must be readable only be the owner and should
+contain the key id and the secret key separated by a
+newline. Default: ~/.awssecret</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">--cachedir=<var>CACHEDIR</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Specifies the directory for cache files. Different
+S3QL file systems (i.e. located in different S3
+buckets) can share a cache location, even if they are
+mounted at the same time. You should try to always use
+the same location here, so that S3QL can detect and,
+as far as possible, recover from unclean umounts.
+Default is ~/.s3ql.</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">--cachesize=<var>CACHESIZE</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Cache size in kb (default: 102400 (100 MB)). Should be
+at least 10 times the blocksize of the filesystem,
+otherwise an object may be retrieved and written
+several times during a single write() or read()
+operation.</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">--logfile=<var>LOGFILE</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Write log messages in this file. Default:
+~/.s3ql/mount.log</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">--debug=<var>DEBUG</var></span></kbd></td>
+<td>Activate debugging output from specified module. Use
+&#8216;all&#8217; to get debug messages from all modules. This
+option can be specified multiple times.</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">--quiet</span></kbd></td>
+<td>Be really quiet</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">--allow-other</span></kbd></td>
+<td>Allow other users to access the filesystem as well and
+enforce unix permissions. (if neither this option nor
+&#8211;allow-other is specified, only the mounting user can
+access the file system, and has full access to every
+file, independent of individual permissions.</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">--allow-root</span></kbd></td>
+<td>Allow root to access the filesystem as well and
+enforce unix permissions. (if neither this option nor
+&#8211;allow-other is specified, only the mounting user can
+access the file system, and has full access to every
+file, independent of individual permissions.</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">--fg</span></kbd></td>
+<td>Do not daemonize, stay in foreground</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">--single</span></kbd></td>
+<td>Run in single threaded mode. If you don&#8217;t understand
+this, then you don&#8217;t need it.</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">--atime</span></kbd></td>
+<td>Update directory access time. Will decrease
+performance.</td></tr>
+</tbody>
+</table>
+</blockquote>
+<div class="section" id="test">
+<h2>Test<a class="headerlink" href="#test" title="Permalink to this headline">¶</a></h2>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="umount.html" title="Unmounting"
+             >next</a></li>
+        <li class="right" >
+          <a href="mkfs.html" title="File System Creation"
+             >previous</a> |</li>
+        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+      &copy; Copyright 2010, Nikolaus Rath.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.2.
+    </div>
+  </body>
+</html>

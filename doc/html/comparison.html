@@ -1,0 +1,96 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title><no title> &mdash; S3QL v0.8 documentation</title>
+    <link rel="stylesheet" href="_static/sphinxdoc.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '0.8',
+        COLLAPSE_MODINDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="author" title="About these documents" href="about.html" />
+    <link rel="top" title="S3QL v0.8 documentation" href="index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+	  
+          <div id="searchbox" style="display: none">
+            <h3>Quick search</h3>
+              <form class="search" action="search.html" method="get">
+                <input type="text" name="q" size="18" />
+                <input type="submit" value="Go" />
+                <input type="hidden" name="check_keywords" value="yes" />
+                <input type="hidden" name="area" value="default" />
+              </form>
+              <p class="searchtip" style="font-size: 90%">
+              Enter search terms.
+              </p>
+          </div>
+          <script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <p>#summary Comparison to other S3 file systems</p>
+<p>= Comparison to other S3 File Systems =</p>
+<p>There are quite a number of S3 file systems around. The following table attempts to give an overview. Obviously, it is biased in favor of S3QL, because it mainly lists the reasons why the author chose to write a new file system instead of using one of the existing ones.</p>
+<p>Please don&#8217;t hesitate to submit any corrections or additions, I hope that this table will become less biased over time.</p>
+<p>Some more S3 file systems are also listed under [RelatedProjects Related Projects].</p>
+<p>|| || <em>[http://code.google.com/p/s3ql S3QL]</em> || <em>[http://code.google.com/p/s3fs/ S3FS]</em> || <em>[http://s3backer.googlecode.com S3Backer]</em> || <em>[http://www.persistentfs.com/ PersistentFS]</em> || <em>[http://www.elasticdrive.com/ ElasticDrive]</em> || <em>[http://www.subcloud.com SubCloud]</em> ||
+|| <em>Provides</em> || Full Filesystem || Full Filesystem || Block Device || Full Filesystem || Block Device || Full Filesystem ||
+|| <em>File Size Limit</em> || unlimited || 5 GB || unlimited || ? || unlimited || 5 GB ||
+|| <em>File system size</em> || dynamic || dynamic || fixed  || ? || fixed || unlimited ||
+|| <em>Nature</em> || Open Source || Free version of !SubCloud || Open Source || Commercial || Commercial || Commercial ||
+|| <em>Compression</em> || Yes || No || Yes || No || No || Yes ||
+|| <em>Encryption</em> || Yes || No  || Yes || ? || Via dm-crypt || Yes ||
+|| <em>Snapshots</em> || Yes || No || With LVM || No || Via LVM || No ||
+|| <em>Data De-Duplication</em> || Yes || No || No || No || No || No ||
+|| <em>Download Granularity / Block size</em> || configurable on file system creation || Entire files only ||  configurable || ? || ? || ? ||
+|| <em>Support for UNIX file attributes</em> || Yes || No || Yes || Partial ||  Yes || Partial ||
+|| <em>Full Support for all POSIX operations</em> || Yes || No || Yes || No || Yes || No ||
+|| <em>Data can be accessed directly on S3</em> || No || Yes || No || No || No || Yes ||
+|| <em>Multiple Mounts possible</em> || No || No || No || Yes || No || Yes ||
+|| <em>Protection against S3&#8217;s delayed updates / eventual consistency</em> || Yes || ? || Yes || ? || ? || ? ||
+|| <em>Local caching</em> || Yes || Yes || Yes || ? || ? || Yes ||
+|| <em>Comments</em> || || Cannot rename directories ||  || || Can store in other backends as well, not just S3 || Directory renames depend on number of files in the directory ||</p>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+      &copy; Copyright 2010, Nikolaus Rath.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.2.
+    </div>
+  </body>
+</html>

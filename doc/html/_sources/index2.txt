@@ -1,0 +1,9 @@
+S3QL documentation
+==================
+
+Table of Contents:
+
+.. toctree::
+   :maxdepth: 2
+
+   instCentOs

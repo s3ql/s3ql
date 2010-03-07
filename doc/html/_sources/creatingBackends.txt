@@ -1,0 +1,13 @@
+#summary Creating new Backends
+
+= Creating new Backends =
+
+Implementing a new backend for S3QL is a relatively easy task. A backend only has to provide the following functions:
+
+ # Store an object
+ # Fetch an object
+ # List available objects
+ # Delete an object
+ # Copy an object
+
+The best way to start is to look at [http://code.google.com/p/s3ql/source/browse/trunk/src/s3ql/backends/local.py s3ql/backends/local.py]. The code should be pretty self explanatory. 

@@ -1,0 +1,160 @@
+.. -*- mode: rst -*-
+
+==============
+ Installation
+==============
+
+
+ * Under Linux, make sure that you are using at least kernel 2.6.26.
+
+
+Installing Dependencies
+=======================
+
+Debian / Ubuntu
+---------------
+
+If you are using Debian/Ubuntu, most of the prerequisites are already
+packaged, so the following command should take care of all
+dependencies::
+
+  aptitude install python-dev libfuse2 libfuse-dev \
+                   gccxml python-pycryptopp libattr1-dev liblzma-dev liblzma0
+
+
+After that, you need to manually install the `Python APSW module
+<http://code.google.com/p/apsw/>`_ (since the version required by S3QL
+is not yet available as a package).
+
+#. Download the source from http://code.google.com/p/apsw/downloads/list
+#. Extract the zip file into a temporary folder of your choice
+#. Inside that folder, run `python setup.py fetch --sqlite build`
+#. Still in the same folder, run `python setup.py install --user`
+
+
+CentOS 5
+--------
+
+Under CentOS 5, you can install the required packages with the following commands:
+(thanks to `heri16 <http://code.google.com/u/heri16/>`_)::
+
+  yum install libattr-devel fuse-libs fuse-devel fuse gcc-c++ bzip2 unzip
+
+  wget http://download.fedora.redhat.com/pub/epel/5/i386/epel-release-5-3.noarch.rpm
+  yum --nogpgcheck localinstall epel-release-5-3.noarch.rpm
+  yum --enablerepo=epel install libffi
+  yum --enablerepo=epel install xz-libs xz-devel xz
+
+  wget http://yum.chrislea.com/centos/5/i386/chl-release-5-3.noarch.rpm
+  yum --nogpgcheck localinstall chl-release-5-3.noarch.rpm
+  yum --enablerepo=chl install python26 python26-devel
+
+  wget http://packages.sw.be/rpmforge-release/rpmforge-release-0.5.1-1.el5.rf.i386.rpm
+  yum --nogpgcheck localinstall rpmforge-release-0.5.1-1.el5.rf.i386.rpm
+  yum --enablerepo=rpmforge install cmake
+
+  cvs -d :pserver:anoncvs@www.gccxml.org:/cvsroot/GCC_XML login
+  # (just press enter when prompted for a password)
+  cvs -d :pserver:anoncvs@www.gccxml.org:/cvsroot/GCC_XML co gccxml
+  mkdir gccxml-build
+  cd gccxml-build
+  cmake ../gccxml
+  make
+  make test
+  make install
+  cd ..
+
+  wget http://pypi.python.org/packages/source/p/pycryptopp/pycryptopp-0.5.17.tar.gz#md5=b3d19e7203531f8bd241ae58062f99e4
+  tar -xf pycryptopp-0.5.17.tar.gz
+  cd pycryptopp*
+  python26 setup.py build
+  python26 setup.py test
+  python26 setup.py install
+  cd ..
+
+  wget http://apsw.googlecode.com/files/apsw-3.6.22-r1.zip
+  unzip apsw-3.6.22-r1.zip
+  cd apsw*
+  python26 setup.py fetch --sqlite build
+  python26 setup.py build
+  python26 setup.py test
+  python26 setup.py install
+  cd ..
+
+If you are using OpenVZ, you also need to execute the following in the
+host::
+
+  modprobe fuse
+  vzctl set 101 --devices c:10:229:rw --save
+  vzctl exec 101 mknod /dev/fuse c 10 229
+  vzctl exec 101 reboot
+
+
+Other distributions
+-------------------
+
+The following is a list of the programs and libraries required by
+S3QL. Generally, you should first check if your distribution already
+provides a suitable packages and only install from source if that is not the case.
+
+The programs/libraries are required to run S3QL:
+
+* The **Python development headers** should be available as a
+  package in your distribution. The package is typically called
+  something like `python-dev`, `python-devel` or `python2.6-devel`.
+  To check if this package is installed, try to execute
+  `python-config` (it should print out a brief help message).
+
+* The **extended attribute headers** should be available as a
+  package in your distribution. The package is typically called
+  something like `libattr-dev`, `libattr1-dev`, `libattr-devel` or
+  `libattr1-devel`. To see if this package is installed, check for a
+  file called `xattr.h` in either `/usr/include/attr/` or
+  `/usr/local/include/attr/`.
+
+* The `FUSE Library <http://fuse.sourceforge.net/>`_ should
+  already be installed on your system. But you should make sure that
+  you also have the FUSE headers installed (the package is typically
+  called something like `fuse-dev`, `libfuse-dev`, `fuse-devel` or
+  `libfuse-devel`).
+
+* The `PyCrypto++ Python Module <http://pypi.python.org/pypi/pycryptopp>`_
+  may or may not be available as a package. To check if this module
+  is already installed, try to execute `python -c 'import
+  pycryptopp'`. If this succeeds (it should not print anything),
+  you're all set. Otherwise you can install PyCrypto++ from source
+  by downloading it from the website, extracting it into a temporary
+  folder and running `python setup.py install --user`.
+
+* The `GCC-XML compiler <http://www.gccxml.org>`_ compiler may or may
+  not be available as a package. To check if GCC-XML is installed,
+  try to run `gccxml --version` (it should print the version
+  number). If GCC-XML is not installed, refer to the `GCC-XML
+  installation instructions
+  <http://www.gccxml.org/HTML/Install.html>`_.
+
+  nmpf.
+
+
+
+Installing S3QL
+===============
+
+To install S3QL itself, proceed as follows:
+
+1. Download S3QL from http://code.google.com/p/s3ql/downloads/list
+2. Unpack it into a folder of your choice
+3. Run `python setup.py build_ctypes` to generate a Python API for
+   the installed FUSE library.
+4. Run `python setup.py test` to run a self-test. If this fails, ask
+   for help on the `mailing list
+   <http://groups.google.com/group/s3ql>`_ or report a bug in the
+   `issue tracker <http://code.google.com/p/s3ql/issues/list>`_.
+
+No explicit installation is necessary, you can run all commands from
+the `bin` directory.
+
+If you want, you can also install S3QL system wide with `python
+setup.py install` or into `~/.local` with `python setup.py install
+--user`:command:. Note that if you install into `~/.local`, you should make
+sure that `~/.local/bin` is in `$PATH`.

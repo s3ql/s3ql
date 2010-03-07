@@ -1,0 +1,4 @@
+.. -*- mode: rst -*-
+
+Blafasel
+========

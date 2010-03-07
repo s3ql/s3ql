@@ -1,0 +1,7 @@
+#summary Usage Example
+
+= S3QL Usage Example =
+
+This page gives an example of how S3QL can be used together with rsync as a backup solution.
+
+It still has to be written, though.

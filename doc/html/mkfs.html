@@ -1,0 +1,160 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>File System Creation &mdash; S3QL v0.8 documentation</title>
+    <link rel="stylesheet" href="_static/sphinxdoc.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '0.8',
+        COLLAPSE_MODINDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="author" title="About these documents" href="about.html" />
+    <link rel="top" title="S3QL v0.8 documentation" href="index.html" />
+    <link rel="next" title="Mounting" href="mount.html" />
+    <link rel="prev" title="Storage Backends" href="backends.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="mount.html" title="Mounting"
+             accesskey="N">next</a></li>
+        <li class="right" >
+          <a href="backends.html" title="Storage Backends"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+          
+          <div id="searchbox" style="display: none">
+            <h3>Quick search</h3>
+              <form class="search" action="search.html" method="get">
+                <input type="text" name="q" size="18" />
+                <input type="submit" value="Go" />
+                <input type="hidden" name="check_keywords" value="yes" />
+                <input type="hidden" name="area" value="default" />
+              </form>
+              <p class="searchtip" style="font-size: 90%">
+              Enter search terms.
+              </p>
+          </div>
+          <script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="file-system-creation">
+<h1>File System Creation<a class="headerlink" href="#file-system-creation" title="Permalink to this headline">¶</a></h1>
+<p>A S3QL file system is created with the <tt class="docutils literal"><span class="pre">mkfs.s3ql</span></tt> command. It has the following syntax:</p>
+<div class="highlight-sh"><div class="highlight"><pre>mkfs.s3ql <span class="o">[</span>options<span class="o">]</span> &lt;storage url&gt;
+</pre></div>
+</div>
+<p>If you want to overwrite an existing bucket, you have to delete the
+bucket with <tt class="docutils literal"><span class="pre">tune.s3ql</span> <span class="pre">--delete</span></tt> first.</p>
+<p>You can specify the following options:</p>
+<blockquote>
+<table class="docutils option-list" frame="void" rules="none">
+<col class="option" />
+<col class="description" />
+<tbody valign="top">
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">--awskey=<var>AWSKEY</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Amazon Webservices access key to use. If not
+specified, tries to read ~/.awssecret or the file
+given by &#8211;credfile.</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">--logfile=<var>LOGFILE</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Write log messages in this file. Default:
+~/.s3ql/mkfs.log</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">--s3-location=<var>S3_LOCATION</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Specify storage location for new bucket.
+Allowed values: EU,us-west-1, or us-standard.
+The later is not recommended.</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">--credfile=<var>CREDFILE</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Try to read AWS access key and key id from this file.
+The file must be readable only be the owner
+and should contain the key id and the secret
+key separated by a newline. Default:
+~/.awssecret</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">--cachedir=<var>CACHEDIR</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Specifies the directory for cache files. Different
+S3QL file systems (i.e. located in different
+S3 buckets) can share a cache location, even
+if they are mounted at the same time. You
+should try to always use the same location
+here, so that S3QL can detect and, as far as
+possible, recover from unclean unmounts.
+Default is ~/.s3ql.</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">-L <var>LABEL</var></span></kbd></td>
+<td>Filesystem label</td></tr>
+<tr><td class="option-group" colspan="2">
+<kbd><span class="option">--blocksize=<var>BLOCKSIZE</var></span></kbd></td>
+</tr>
+<tr><td>&nbsp;</td><td>Maximum size of s3 objects in KB (default: 10240)</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">--encrypt</span></kbd></td>
+<td>Create an AES encrypted filesystem</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">--debug=<var>DEBUG</var></span></kbd></td>
+<td>Activate debugging output from specified module. Use
+&#8216;all&#8217; to get debug messages from all modules. This
+option can be specified multiple times.</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">--quiet</span></kbd></td>
+<td>Be really quiet</td></tr>
+</tbody>
+</table>
+</blockquote>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="mount.html" title="Mounting"
+             >next</a></li>
+        <li class="right" >
+          <a href="backends.html" title="Storage Backends"
+             >previous</a> |</li>
+        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+      &copy; Copyright 2010, Nikolaus Rath.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.2.
+    </div>
+  </body>
+</html>

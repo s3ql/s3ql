@@ -1,0 +1,61 @@
+.. -*- mode: rst -*-
+
+==========
+ Mounting
+==========
+
+
+A S3QL file system is mounted with the `mount.s3ql` command. It has the following syntax::
+ mount.s3ql [options] <storage url> <mountpoint>
+
+Note that S3QL is not a network file system like `NFS
+<http://en.wikipedia.org/wiki/Network_File_System_%28protocol%29>`_ or
+`CIFS <http://en.wikipedia.org/wiki/CIFS>`_, so an S3QL file system
+can only be mounted on one computer at a time.
+
+`mount.s3ql` accepts the following options:
+
+  --awskey=AWSKEY       Amazon Webservices access key to use. If not
+                        specified, tries to read ~/.awssecret or the file
+                        given by --credfile.
+  --credfile=CREDFILE   Try to read AWS access key and key id from this file.
+                        The file must be readable only be the owner and should
+                        contain the key id and the secret key separated by a
+                        newline. Default: ~/.awssecret
+  --cachedir=CACHEDIR   Specifies the directory for cache files. Different
+                        S3QL file systems (i.e. located in different S3
+                        buckets) can share a cache location, even if they are
+                        mounted at the same time. You should try to always use
+                        the same location here, so that S3QL can detect and,
+                        as far as possible, recover from unclean umounts.
+                        Default is ~/.s3ql.
+  --cachesize=CACHESIZE
+                        Cache size in kb (default: 102400 (100 MB)). Should be
+                        at least 10 times the blocksize of the filesystem,
+                        otherwise an object may be retrieved and written
+                        several times during a single write() or read()
+                        operation.
+  --logfile=LOGFILE     Write log messages in this file. Default:
+                        ~/.s3ql/mount.log
+  --debug=DEBUG         Activate debugging output from specified module. Use
+                        'all' to get debug messages from all modules. This
+                        option can be specified multiple times.
+  --quiet               Be really quiet
+  --allow-other         Allow other users to access the filesystem as well and
+                        enforce unix permissions. (if neither this option nor
+                        --allow-other is specified, only the mounting user can
+                        access the file system, and has full access to every
+                        file, independent of individual permissions.
+  --allow-root          Allow root to access the filesystem as well and
+                        enforce unix permissions. (if neither this option nor
+                        --allow-other is specified, only the mounting user can
+                        access the file system, and has full access to every
+                        file, independent of individual permissions.
+  --fg                  Do not daemonize, stay in foreground
+  --single              Run in single threaded mode. If you don't understand
+                        this, then you don't need it.
+  --atime               Update directory access time. Will decrease
+                        performance.
+
+Test
+====
