@@ -10,30 +10,79 @@ from __future__ import division, print_function
 
 import unittest
 from s3ql.multi_lock import MultiLock
+import time
 from s3ql.common import ExceptionStoringThread
 from _common import TestCase
 
-# TODO: Rewrite this test case
+BASE_DELAY = 0.02
 
-# Each test should correspond to exactly one function in the tested
-# module, and testing should be done under the assumption that any
-# other functions that are called by the tested function work perfectly.
 class MultiLockTests(TestCase):
 
-    def test_acquire(self):
+    def test_lock(self):
         mlock = MultiLock()
+        key = (22, 'bar')
 
         def hold():
-            mlock.acquire()
+            mlock.acquire(key)
+            time.sleep(2 * BASE_DELAY)
+            mlock.release(key)
+
         t = ExceptionStoringThread(hold, logger=None)
         t.start()
+        time.sleep(BASE_DELAY)
 
-        with mlock('foo', 32):
+        stamp = time.time()
+        with mlock(key):
             pass
+        self.assertTrue(time.time() - stamp > BASE_DELAY)
 
-        mlock.acquire(43, 'bar')
-        mlock.release(43, 'bar')
+        t.join_and_raise()
 
+    def test_nolock(self):
+        mlock = MultiLock()
+        key1 = (22, 'bar')
+        key2 = (23, 'bar')
+
+        def hold():
+            mlock.acquire(key1)
+            time.sleep(2 * BASE_DELAY)
+            mlock.release(key1)
+
+        t = ExceptionStoringThread(hold, logger=None)
+        t.start()
+        time.sleep(BASE_DELAY)
+
+        stamp = time.time()
+        with mlock(key2):
+            pass
+        self.assertTrue(time.time() - stamp < BASE_DELAY)
+
+        t.join_and_raise()
+
+    def test_multi(self):
+        mlock = MultiLock()
+        key = (22, 'bar')
+
+        def lock():
+            mlock.acquire(key)
+
+        def unlock():
+            time.sleep(2 * BASE_DELAY)
+            mlock.release(45)
+
+        t1 = ExceptionStoringThread(lock, logger=None)
+        t1.start()
+        t1.join_and_raise()
+
+        t2 = ExceptionStoringThread(unlock, logger=None)
+        t2.start()
+
+        stamp = time.time()
+        with mlock(key):
+            pass
+        self.assertTrue(time.time() - stamp > BASE_DELAY)
+
+        t2.join_and_raise()
 
 def suite():
     return unittest.makeSuite(MultiLockTests)
