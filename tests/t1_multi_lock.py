@@ -10,6 +10,7 @@ from __future__ import division, print_function
 
 import unittest
 from s3ql.multi_lock import MultiLock
+from s3ql.common import ExceptionStoringThread
 from _common import TestCase
 
 # TODO: Rewrite this test case
@@ -19,8 +20,13 @@ from _common import TestCase
 # other functions that are called by the tested function work perfectly.
 class MultiLockTests(TestCase):
 
-    def test_tuple(self):
+    def test_acquire(self):
         mlock = MultiLock()
+
+        def hold():
+            mlock.acquire()
+        t = ExceptionStoringThread(hold, logger=None)
+        t.start()
 
         with mlock('foo', 32):
             pass
