@@ -68,7 +68,7 @@ class MultiLockTests(TestCase):
 
         def unlock():
             time.sleep(2 * BASE_DELAY)
-            mlock.release(45)
+            mlock.release(key)
 
         t1 = ExceptionStoringThread(lock, logger=None)
         t1.start()
