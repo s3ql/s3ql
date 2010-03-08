@@ -49,7 +49,7 @@ def main():
           name='s3ql',
           zip_safe=True,
           version=s3ql.common.VERSION,
-          description='a full-featured file system to store data in online storage services',
+          description='a full-featured file system for online data storage',
           long_description=long_desc,
           author='Nikolaus Rath',
           author_email='Nikolaus@rath.org',
