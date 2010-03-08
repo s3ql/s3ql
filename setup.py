@@ -78,7 +78,7 @@ def main():
                            'tune.s3ql = s3ql.cli.tune:main',
                            'umount.s3ql = s3ql.cli.umount:main' ]
                           },
-          requires=['apsw', 'boto', 'pycryptopp' ],
+          requires=['apsw', 'pycryptopp' ],
           cmdclass={'test': run_tests,
                     'build_ctypes': build_ctypes, }
          )
