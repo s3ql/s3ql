@@ -105,7 +105,6 @@ def main(args=None):
                              'digits, dots and dashes (but some more restrictions apply, refer to '
                              'S3 documentation).')
 
-        raise QuietError(0)
         (awskey, awspass) = get_credentials(options.credfile, options.awskey)
         conn = s3.Connection(awskey, awspass)
 
