@@ -62,7 +62,7 @@ def parse_args(args):
     parser.add_option("--blocksize", type="int", default=10240,
                       help="Maximum size of s3 objects in KB (default: %default)")
     parser.add_option("--encrypt", action="store_true", default=None,
-                      help="Create an AES encrypted filesystem")
+                      help="Create an encrypted and compressed filesystem")
     parser.add_option("--debug", action="append",
                       help="Activate debugging output from specified module. Use 'all' "
                            "to get debug messages from all modules. This option can be "
