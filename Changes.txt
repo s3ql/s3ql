@@ -1,11 +1,14 @@
 xx, S3QL 0.8
 
-  * Now uses Python's default unittest.py
+  * S3QL now uses Python's default unittest.py instead of shipping its own.
   
-  * Moved most documentation from Wiki into tarball
+  * Most documentation has been moved from the Wiki into the tarball, so that
+    it always corresponds to the correct version.
   
-  * Use setuptools for installation
-  
+  * setuptools is now used for installation. This allows .egg creation, dependency
+    resolution and generation of the HTML documentation.
+
+  * The S3 part of boto has been integrated into S3QL.  
  
 2010-02-22, beta7
 

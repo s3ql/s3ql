@@ -19,7 +19,7 @@ import time
 import hashlib
 import os
 import bz2
-import lzma
+#import lzma
 from base64 import b64decode, b64encode
 import struct
 

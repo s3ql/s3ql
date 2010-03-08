@@ -20,7 +20,7 @@ from ..backends import s3, local
 from ..common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
                          QuietError)
 from ..database import WrappedConnection
-from boto.s3.connection import Location
+from ..backends.boto.s3.connection import Location
 import apsw
 import cPickle as pickle
 

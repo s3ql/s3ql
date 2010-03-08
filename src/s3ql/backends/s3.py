@@ -10,9 +10,9 @@ from __future__ import division, print_function, absolute_import
 
 from .common import AbstractConnection, AbstractBucket
 from time import sleep
-from boto.s3.connection import S3Connection
+from .boto.s3.connection import S3Connection
 from contextlib import contextmanager
-import boto.exception as bex
+from .boto import exception as bex
 from s3ql.common import (TimeoutError, QuietError, ExceptionStoringThread)
 import logging
 import errno

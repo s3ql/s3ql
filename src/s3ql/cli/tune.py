@@ -16,7 +16,7 @@ from ..common import (init_logging_from_options, get_credentials, QuietError, un
 from getpass import getpass
 import sys
 from ..backends import s3, local
-from boto.s3.connection import Location
+from ..backends.boto.s3.connection import Location
 from ..backends.common import ChecksumError
 import os
 from ..database import ConnectionManager
