@@ -123,7 +123,6 @@ is offered by programs like <a class="reference external" href="http://www.samba
 These programs can create a hardlink instead of copying a file if an
 identical file already exists in the backup. However, using hardlinks
 has two large disadvantages:</p>
-<blockquote>
 <ul class="simple">
 <li>backups and restores always have to be made with a special program
 that takes care of the hardlinking. The backup must not be touched
@@ -133,7 +132,6 @@ affect other hardlinked files)</li>
 hardlinked (the restore program needs to know that the hardlink was
 not just introduced by the backup program to safe space)</li>
 </ul>
-</blockquote>
 <p>S3QL snapshots do not have these problems, and they can be used with
 any backup program.</p>
 </div>

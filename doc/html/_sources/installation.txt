@@ -118,23 +118,29 @@ The programs/libraries are required to run S3QL:
   called something like `fuse-dev`, `libfuse-dev`, `fuse-devel` or
   `libfuse-devel`).
 
-* The `PyCrypto++ Python Module <http://pypi.python.org/pypi/pycryptopp>`_
-  may or may not be available as a package. To check if this module
-  is already installed, try to execute `python -c 'import
-  pycryptopp'`. If this succeeds (it should not print anything),
-  you're all set. Otherwise you can install PyCrypto++ from source
-  by downloading it from the website, extracting it into a temporary
-  folder and running `python setup.py install --user`.
-
 * The `GCC-XML compiler <http://www.gccxml.org>`_ compiler may or may
   not be available as a package. To check if GCC-XML is installed,
-  try to run `gccxml --version` (it should print the version
-  number). If GCC-XML is not installed, refer to the `GCC-XML
-  installation instructions
-  <http://www.gccxml.org/HTML/Install.html>`_.
+  try to run `gccxml --version`. If you need to install GCC-XML manually,
+  please refer to the `GCC-XML installation instructions <http://www.gccxml.org/HTML/Install.html>`_.
 
-  nmpf.
+* The `PyCrypto++ Python Module <http://pypi.python.org/pypi/pycryptopp>`_
+  may or may not be available as a package. To check if this module
+  is installed, try to execute `python -c 'import
+  pycryptopp'`. To manually install PyCrypto++, download it
+  from the website, extract it into a temporary folder and run
+  `python setup.py install --user` in that folder.
 
+* The `APSW Python Module <http://code.google.com/p/apsw/>`_
+  may be available as a package, but most likely the version of the package
+  will not be recent enough. To check which version of APWS is installed,
+  enter ::
+    
+    python -c 'import apsw; print apsw.apswversion(), apsw.sqlitelibversion()'
+ 
+  in a terminal. If this command suceeds, it should print two version numbers 
+  which both have to be at least 3.6.17. To install APSW manually, download it
+  from the website, extract it into a temporary folder and run
+  `python setup.py install --user` in that folder.
 
 
 Installing S3QL
@@ -154,7 +160,7 @@ To install S3QL itself, proceed as follows:
 No explicit installation is necessary, you can run all commands from
 the `bin` directory.
 
-If you want, you can also install S3QL system wide with `python
-setup.py install` or into `~/.local` with `python setup.py install
---user`:command:. Note that if you install into `~/.local`, you should make
-sure that `~/.local/bin` is in `$PATH`.
+If you want, you can also install S3QL system wide by executing `python
+setup.py install` or into `~/.local` by executing `python setup.py install
+--user`. In the later case you should make sure that `~/.local/bin` is in 
+your `$PATH` environment variable.

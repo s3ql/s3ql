@@ -188,20 +188,29 @@ you also have the FUSE headers installed (the package is typically
 called something like <tt class="docutils literal"><span class="pre">fuse-dev</span></tt>, <tt class="docutils literal"><span class="pre">libfuse-dev</span></tt>, <tt class="docutils literal"><span class="pre">fuse-devel</span></tt> or
 <tt class="docutils literal"><span class="pre">libfuse-devel</span></tt>).</p>
 </li>
-<li><p class="first">The <a class="reference external" href="http://pypi.python.org/pypi/pycryptopp">PyCrypto++ Python Module</a>
-may or may not be available as a package. To check if this module
-is already installed, try to execute <tt class="docutils literal"><span class="pre">python</span> <span class="pre">-c</span> <span class="pre">'import</span>
-<span class="pre">pycryptopp'</span></tt>. If this succeeds (it should not print anything),
-you&#8217;re all set. Otherwise you can install PyCrypto++ from source
-by downloading it from the website, extracting it into a temporary
-folder and running <tt class="docutils literal"><span class="pre">python</span> <span class="pre">setup.py</span> <span class="pre">install</span> <span class="pre">--user</span></tt>.</p>
-</li>
 <li><p class="first">The <a class="reference external" href="http://www.gccxml.org">GCC-XML compiler</a> compiler may or may
 not be available as a package. To check if GCC-XML is installed,
-try to run <tt class="docutils literal"><span class="pre">gccxml</span> <span class="pre">--version</span></tt> (it should print the version
-number). If GCC-XML is not installed, refer to the <a class="reference external" href="http://www.gccxml.org/HTML/Install.html">GCC-XML
-installation instructions</a>.</p>
-<p>nmpf.</p>
+try to run <tt class="docutils literal"><span class="pre">gccxml</span> <span class="pre">--version</span></tt>. If you need to install GCC-XML manually,
+please refer to the <a class="reference external" href="http://www.gccxml.org/HTML/Install.html">GCC-XML installation instructions</a>.</p>
+</li>
+<li><p class="first">The <a class="reference external" href="http://pypi.python.org/pypi/pycryptopp">PyCrypto++ Python Module</a>
+may or may not be available as a package. To check if this module
+is installed, try to execute <tt class="docutils literal"><span class="pre">python</span> <span class="pre">-c</span> <span class="pre">'import</span>
+<span class="pre">pycryptopp'</span></tt>. To manually install PyCrypto++, download it
+from the website, extract it into a temporary folder and run
+<tt class="docutils literal"><span class="pre">python</span> <span class="pre">setup.py</span> <span class="pre">install</span> <span class="pre">--user</span></tt> in that folder.</p>
+</li>
+<li><p class="first">The <a class="reference external" href="http://code.google.com/p/apsw/">APSW Python Module</a>
+may be available as a package, but most likely the version of the package
+will not be recent enough. To check which version of APWS is installed,
+enter</p>
+<div class="highlight-sh"><div class="highlight"><pre>python -c <span class="s1">&#39;import apsw; print apsw.apswversion(), apsw.sqlitelibversion()&#39;</span>
+</pre></div>
+</div>
+<p>in a terminal. If this command suceeds, it should print two version numbers
+which both have to be at least 3.6.17. To install APSW manually, download it
+from the website, extract it into a temporary folder and run
+<tt class="docutils literal"><span class="pre">python</span> <span class="pre">setup.py</span> <span class="pre">install</span> <span class="pre">--user</span></tt> in that folder.</p>
 </li>
 </ul>
 </div>
@@ -220,10 +229,10 @@ for help on the <a class="reference external" href="http://groups.google.com/gro
 </ol>
 <p>No explicit installation is necessary, you can run all commands from
 the <tt class="docutils literal"><span class="pre">bin</span></tt> directory.</p>
-<p>If you want, you can also install S3QL system wide with <tt class="docutils literal"><span class="pre">python</span>
-<span class="pre">setup.py</span> <span class="pre">install</span></tt> or into <tt class="docutils literal"><span class="pre">~/.local</span></tt> with <strong>python setup.py install
-&#8211;user</strong>. Note that if you install into <tt class="docutils literal"><span class="pre">~/.local</span></tt>, you should make
-sure that <tt class="docutils literal"><span class="pre">~/.local/bin</span></tt> is in <tt class="docutils literal"><span class="pre">$PATH</span></tt>.</p>
+<p>If you want, you can also install S3QL system wide by executing <tt class="docutils literal"><span class="pre">python</span>
+<span class="pre">setup.py</span> <span class="pre">install</span></tt> or into <tt class="docutils literal"><span class="pre">~/.local</span></tt> by executing <tt class="docutils literal"><span class="pre">python</span> <span class="pre">setup.py</span> <span class="pre">install</span>
+<span class="pre">--user</span></tt>. In the later case you should make sure that <tt class="docutils literal"><span class="pre">~/.local/bin</span></tt> is in
+your <tt class="docutils literal"><span class="pre">$PATH</span></tt> environment variable.</p>
 </div>
 </div>
 
