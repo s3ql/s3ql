@@ -1,7 +1,8 @@
 '''
 $Id: __init__.py 832 2010-02-16 16:28:18Z nikratio $
 
-Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
+Copyright (C) 2010 Nikolaus Rath <Nikolaus@rath.org>
+Copyright (C) 2010 Ron Knapp <ron.siesta@gmail.com>
 
 This program can be distributed under the terms of the GNU LGPL.
 '''
@@ -261,7 +262,6 @@ class Bucket(AbstractBucket):
         filename_dest = os.path.join(self.name, escape(dest)) + '.meta'
         cpy_cmd = 'cp ' + filename_src + ' ' + filename_dest
         self.conn._client.exec_command(cpy_cmd)
-
 
 
 def escape(s):
