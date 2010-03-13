@@ -37,9 +37,10 @@ def parse_args(args):
         'occuring during the unmount (e.g. a failure to upload the metadata) can not '
         'be detected and appear only in the logging messages of the mount program.')
 
-    parser.add_option("--logfile", type="string",
-                      default=os.path.join(os.environ["HOME"], ".s3ql", 'umount.log'),
-                      help="Write log messages in this file. Default: ~/.s3ql/umount.log")
+    parser.add_option("--homedir", type="string",
+                      default=os.path.join(os.environ["HOME"], ".s3ql"),
+                      help='Directory for log files, cache and authentication info.'
+                      'Default: ~/.s3ql')
     parser.add_option("--debug", action="append",
                       help="Activate debugging output from specified module. Use 'all' "
                            "to get debug messages from all modules. This option can be "
@@ -72,7 +73,7 @@ def main(args=None):
 
     options = parse_args(args)
     mountpoint = options.mountpoint
-    init_logging_from_options(options)
+    init_logging_from_options(options, 'umount.log')
 
     # Check if it's a mount point
     if not posixpath.ismount(mountpoint):

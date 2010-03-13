@@ -12,7 +12,7 @@ from .common import AbstractConnection, AbstractBucket
 from time import sleep
 from .boto.s3.connection import S3Connection
 from contextlib import contextmanager
-from .boto import exception as bex
+from .boto import exception
 from s3ql.common import (TimeoutError, QuietError, ExceptionStoringThread)
 import logging
 import errno
@@ -67,7 +67,7 @@ class Connection(AbstractConnection):
             while waited < 600:
                 try:
                     boto.delete_bucket(name)
-                except bex.S3ResponseError as exc:
+                except exception.S3ResponseError as exc:
                     if exc.code != 'BucketNotEmpty':
                         raise
                 else:
@@ -103,7 +103,7 @@ class Connection(AbstractConnection):
             # without noticing it.
             try:
                 boto.create_bucket(name, location=location)
-            except bex.S3ResponseError as exc:
+            except exception.S3ResponseError as exc:
                 if exc.code == 'InvalidBucketName':
                     log.error('Bucket name contains invalid characters.')
                     raise QuietError(1)
@@ -121,7 +121,7 @@ class Connection(AbstractConnection):
         with self._get_boto() as boto:
             try:
                 boto.get_bucket(name)
-            except bex.S3ResponseError as e:
+            except exception.S3ResponseError as e:
                 if e.status == 404:
                     raise KeyError("Bucket %r does not exist." % name)
                 else:
@@ -282,7 +282,7 @@ def retry_boto(fn, *a, **kw):
     while waited < timeout:
         try:
             return fn(*a, **kw)
-        except bex.S3ResponseError as exc:
+        except exception.S3ResponseError as exc:
             if exc.error_code in ('NoSuchBucket', 'RequestTimeout', 'InternalError'):
                 log.warn('Encountered %s error when calling %s, retrying...',
                          exc.error_code, fn.__name__)
@@ -293,7 +293,7 @@ def retry_boto(fn, *a, **kw):
                 pass
             else:
                 raise
-        except bex.S3CopyError as exc:
+        except exception.S3CopyError as exc:
             if exc.error_code in ('RequestTimeout', 'InternalError'):
                 log.warn('Encountered %s error when calling %s, retrying...',
                          exc.error_code, fn.__name__)

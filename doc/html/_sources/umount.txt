@@ -12,10 +12,10 @@ To unmount an S3QL file system, use the command::
 This will block until all data has been committed to the storage
 backend.
 
-`umount.s3ql` accepts the following options:
+You can specify the following options:
 
-  --logfile=LOGFILE  Write log messages in this file. Default:
-                     ~/.s3ql/umount.log
+  --homedir=HOMEDIR  Directory for log files, cache and authentication
+                     info.Default: ~/.s3ql
   --debug=DEBUG      Activate debugging output from specified module. Use
                      'all' to get debug messages from all modules. This option
                      can be specified multiple times.

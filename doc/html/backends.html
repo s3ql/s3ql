@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Storage Backends &mdash; S3QL v0.8 documentation</title>
+    <title>Storage Backends &mdash; S3QL v0.9 documentation</title>
     <link rel="stylesheet" href="_static/sphinxdoc.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '0.8',
+        VERSION:     '0.9',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -20,7 +20,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
     <link rel="author" title="About these documents" href="about.html" />
-    <link rel="top" title="S3QL v0.8 documentation" href="index.html" />
+    <link rel="top" title="S3QL v0.9 documentation" href="index.html" />
     <link rel="next" title="File System Creation" href="mkfs.html" />
     <link rel="prev" title="Installation" href="installation.html" /> 
   </head>
@@ -34,7 +34,7 @@
         <li class="right" >
           <a href="installation.html" title="Installation"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+        <li><a href="index.html">S3QL v0.9 documentation</a> &raquo;</li> 
       </ul>
     </div>
       <div class="sphinxsidebar">
@@ -45,7 +45,7 @@
 <li class="toctree-l1"><a class="reference external" href="installation.html">Installation</a></li>
 <li class="toctree-l1 current"><a class="current reference external" href="">Storage Backends</a><ul>
 <li class="toctree-l2"><a class="reference external" href="#local">Local</a></li>
-<li class="toctree-l2"><a class="reference external" href="#sftp">SFTP</a></li>
+<li class="toctree-l2"><a class="reference external" href="#sftp-ssh">SFTP / SSH</a></li>
 <li class="toctree-l2"><a class="reference external" href="#ftp">FTP</a></li>
 <li class="toctree-l2"><a class="reference external" href="#amazon-s3">Amazon S3</a></li>
 </ul>
@@ -82,30 +82,62 @@
             
   <div class="section" id="storage-backends">
 <h1>Storage Backends<a class="headerlink" href="#storage-backends" title="Permalink to this headline">¶</a></h1>
-<p>S3QL can use different protocols to store the file system data. The
-commands for creating, checking and mounting an S3QL file system
-therefore expect you to specify a <em>storage URL</em> of the form
-<tt class="docutils literal"><span class="pre">&lt;backend&gt;:&lt;path&gt;</span></tt>. The exact interpretation of <tt class="docutils literal"><span class="pre">&lt;path&gt;</span></tt> depends on
-the backend that you use.</p>
-<p>Currently, S3QL supports the following backends.</p>
+<p>S3QL can use different protocols to store the file system data.
+Independent of the backend that you use, the place where your file
+system data is being stored is called a <em>bucket</em>. (This is mostly for
+historical reasons, since initially S3QL supported only the Amazon S3
+backend).</p>
+<p>Most backends first try to read the file <tt class="docutils literal"><span class="pre">~/.s3ql/authinfo</span></tt> to determine
+the username and password for connecting to the remote host. If this
+fails, both username and password are read from the terminal.</p>
+<p>The <tt class="docutils literal"><span class="pre">authinfo</span></tt> file has to contain entries of the form</p>
+<div class="highlight-sh"><div class="highlight"><pre>backend &lt;backend&gt; machine &lt;host&gt; login &lt;user&gt; password &lt;password&gt;
+</pre></div>
+</div>
+<p>So to use the login <tt class="docutils literal"><span class="pre">joe</span></tt> with password <tt class="docutils literal"><span class="pre">jibbadup</span></tt> when using the FTP
+backend to connect to the host <tt class="docutils literal"><span class="pre">backups.joesdomain.com</span></tt>, you would
+specify</p>
+<div class="highlight-sh"><div class="highlight"><pre>backend ftp machine backups.joesdomain.com login joe password jibbadup
+</pre></div>
+</div>
+<p>Currently, S3QL supports the following backends:</p>
 <div class="section" id="local">
 <h2>Local<a class="headerlink" href="#local" title="Permalink to this headline">¶</a></h2>
 <p>The local backend stores file system data in a directory on your local
 computer. This is mostly used for testing. The storage URL for the
-local backend has the form <tt class="docutils literal"><span class="pre">local:/path/to/storage</span></tt>.</p>
+local backend has the form <tt class="docutils literal"><span class="pre">local://&lt;path&gt;</span></tt>. Note that you have to
+write three consecutive slashes to specify an absolute path, e.g.
+<tt class="docutils literal"><span class="pre">local:///var/archive</span></tt>.</p>
 </div>
-<div class="section" id="sftp">
-<h2>SFTP<a class="headerlink" href="#sftp" title="Permalink to this headline">¶</a></h2>
-<p>The SFTP backend is still in development.</p>
+<div class="section" id="sftp-ssh">
+<h2>SFTP / SSH<a class="headerlink" href="#sftp-ssh" title="Permalink to this headline">¶</a></h2>
+<p>The SFTP backend uses the SFTP protocol, which is a file transfer
+protocol similar to ftp, but uses an encrypted SSH connection.
+The storage URL for SFTP connections has the form</p>
+<div class="highlight-sh"><div class="highlight"><pre>sftp://&lt;host&gt;<span class="o">[</span>:port<span class="o">]</span>/&lt;path&gt;
+</pre></div>
+</div>
 </div>
 <div class="section" id="ftp">
 <h2>FTP<a class="headerlink" href="#ftp" title="Permalink to this headline">¶</a></h2>
-<p>The FTP backend is still in development.</p>
+<p>This backend provides support for the standard FTP and FTP over TLS
+protocols. The store url has the form</p>
+<div class="highlight-sh"><div class="highlight"><pre>ftp://&lt;host&gt;<span class="o">[</span>:port<span class="o">]</span>/&lt;path&gt;
+</pre></div>
+</div>
+<p>for unencrypted FTP or</p>
+<div class="highlight-sh"><div class="highlight"><pre>ftps://&lt;host&gt;<span class="o">[</span>:port<span class="o">]</span>/&lt;path&gt;
+</pre></div>
+</div>
+<p>for FTP over TLS.</p>
 </div>
 <div class="section" id="amazon-s3">
 <h2>Amazon S3<a class="headerlink" href="#amazon-s3" title="Permalink to this headline">¶</a></h2>
 <p>To store your file system in an Amazon S3 bucket, use a storage URL of
-the form <tt class="docutils literal"><span class="pre">s3:&lt;bucketname&gt;</span></tt>.</p>
+the form <tt class="docutils literal"><span class="pre">s3://&lt;bucketname&gt;</span></tt>.</p>
+<p>When reading the authentication information for the S3 backend from
+the <tt class="docutils literal"><span class="pre">authinfo</span></tt> file, the <tt class="docutils literal"><span class="pre">host</span></tt> field is ignored, i.e. the first entry
+with <tt class="docutils literal"><span class="pre">s3</span></tt> as a backend will be used.</p>
 <p>Note that the bucket names come from a global pool, so chances are
 that your favorite name has already been taken by another S3 user.
 Usually a longer bucket name containing some random numbers, like
@@ -114,14 +146,10 @@ Usually a longer bucket name containing some random numbers, like
 account from <a class="reference external" href="http://aws.amazon.com/">Amazon AWS</a>. The account is
 free, you will pay only for the amount of storage that you actually
 use.</p>
-<p>You can enter your Amazon AWS access key id and your AWS secret access
-key every time you mount, create or check the filesystem, but it is
-recommended that you write them into the file <tt class="docutils literal"><span class="pre">.awssecret</span></tt> in your
-home directory. Separate them by a newline and make sure that the file
-is only readable by the owner, otherwise S3QL will refuse to use it.</p>
-<p>Note that the AWS access key id and the AWS secret key are not the
-user id and password that you use to log into the Amazon Webpage, but
-the <em>access identifiers</em> shown under <a class="reference external" href="https://aws-portal.amazon.com/gp/aws/developer/account/index.html?ie=UTF8&amp;action=access-key">My Account/Access Identifiers</a>.</p>
+<p>Note that the login and password for accessing S3 are not the user id
+and password that you use to log into the Amazon Webpage, but the &#8220;AWS
+access key id&#8221; and &#8220;AWS secret access key&#8221; shown under <a class="reference external" href="https://aws-portal.amazon.com/gp/aws/developer/account/index.html?ie=UTF8&amp;action=access-key">My
+Account/Access Identifiers</a>.</p>
 </div>
 </div>
 
@@ -140,7 +168,7 @@ the <em>access identifiers</em> shown under <a class="reference external" href="
         <li class="right" >
           <a href="installation.html" title="Installation"
              >previous</a> |</li>
-        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+        <li><a href="index.html">S3QL v0.9 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

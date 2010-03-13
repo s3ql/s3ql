@@ -1,4 +1,16 @@
-xx, S3QL 0.8
+xxx, S3QL 0.9
+
+  * The --cachedir, --logfile, --awskey and --credfile options are gone and
+    have been replaced by --homedir.
+    
+  * ~/.awssecret is no longer read, instead there is a common file with 
+    authentication data for all backends in ~/.s3ql/authinfo
+    
+  * The syntax for mounting S3 buckets is now s3://bucketname instead of
+    just the bucket name
+     
+
+2010-03-07, S3QL 0.8
 
   * S3QL now uses Python's default unittest.py instead of shipping its own.
   

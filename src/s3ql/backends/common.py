@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function, absolute_import
 
 from cStringIO import StringIO
-from s3ql.common import sha256
+from ..common import sha256
 import tempfile
 import hmac
 import logging
@@ -39,6 +39,9 @@ class AbstractConnection(object):
             return False
         else:
             return True
+
+    def __contains__(self, name):
+        return self.bucket_exists(name)
 
 class AbstractBucket(object):
     '''This class contains functionality shared between all backends.
@@ -159,9 +162,9 @@ class AbstractBucket(object):
             if meta_raw['encrypted'] in ('True', 'AES/BZ2'):
                 decomp = bz2.BZ2Decompressor()
                 encrypted = True
-            elif meta_raw['encrypted'] == 'AES/LZMA':
-                decomp = lzma.LZMADecompressor()
-                encrypted = True
+            #elif meta_raw['encrypted'] == 'AES/LZMA':
+            #    decomp = lzma.LZMADecompressor()
+            #    encrypted = True
             elif meta_raw['encrypted'] == 'False':
                 encrypted = False
             else:
@@ -372,3 +375,5 @@ def encrypt(buf, passphrase, nonce):
     return b''.join(
                     (struct.pack(b'<B', len(nonce)),
                     nonce, hash_, buf))
+
+

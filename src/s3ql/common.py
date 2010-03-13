@@ -16,15 +16,46 @@ import stat
 import sys
 import threading
 import traceback
+import re
 import cPickle as pickle
 
 __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_parameters',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path", 'get_lockfile',
            "ROOT_INODE", "ExceptionStoringThread", 'retry', 'get_stdout_handler',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
-           'stacktraces', 'init_logging_from_options', 'QuietError' ]
+           'stacktraces', 'init_logging_from_options', 'QuietError', 'get_backend' ]
 
-VERSION = '0.8'
+VERSION = '0.9'
+
+log = logging.getLogger('common')
+
+def get_backend(options):
+    from .backends import s3, local, ftp, sftp
+    storage_url = options.storage_url
+
+    if storage_url.startswith('local://'):
+        return (local.Connection(), storage_url[len('local://'):])
+
+    if storage_url.startswith('s3://'):
+        (login, password) = get_credentials(options.homedir, 's3', None)
+        return (s3.Connection(login, password), storage_url[len('s3://'):])
+
+    pat = r'^([a-z]+)://([a-zA-Z0-9.-]+)(:[0-9]+)(/[a-zA-Z0-9./_-]+)$'
+    match = re.match(pat, storage_url)
+    if not match:
+        raise QuietError('Invalid storage url: %r' % storage_url)
+    (backend, port, host, bucketname) = match.groups()
+    (login, password) = get_credentials(options.homedir, backend, host)
+
+    if backend == 'ftp':
+        return (ftp.Connection(host, port, login, password), bucketname)
+    elif backend == 'ftps':
+        return (ftp.TLSConnection(host, port, login, password), bucketname)
+    elif backend == 'sftp':
+        return (sftp.Connection(host, port, login, password), bucketname)
+
+    raise QuietError('Unknown backend: %s' % backend)
+
 
 def unlock_bucket(bucket):
     '''Ask for passphrase if bucket requires one'''
@@ -119,10 +150,10 @@ class Filter(object):
 
         return False
 
-def init_logging_from_options(options):
+def init_logging_from_options(options, logfile):
     '''Call init_logging according to command line arguments
     
-    `options` should have attributes ``quiet``, ``debug`` and ``logfile``.
+    `options` should have attributes ``quiet`` and ``debug``.
     '''
 
     if options.quiet:
@@ -140,7 +171,7 @@ def init_logging_from_options(options):
         file_level = logging.INFO
         file_loggers = None
 
-    init_logging(options.logfile, stdout_level, file_level, file_loggers)
+    init_logging(os.path.join(options.homedir, logfile), stdout_level, file_level, file_loggers)
 
 
 logging_initialized = False
@@ -261,63 +292,55 @@ def _escape(s):
 
     return s
 
-def get_cachedir(bucketname, path):
-    if not os.path.exists(path):
-        os.mkdir(path)
-    return os.path.join(path, "%s-cache" % _escape(bucketname))
+def get_cachedir(storage_url, homedir):
+    if not os.path.exists(homedir):
+        os.mkdir(homedir)
+    return os.path.join(homedir, "%s-cache" % _escape(storage_url))
+
+def get_dbfile(storage_url, homedir):
+    if not os.path.exists(homedir):
+        os.mkdir(homedir)
+    return os.path.join(homedir, "%s.db" % _escape(storage_url))
+
+def get_lockfile(storage_url, homedir):
+    if not os.path.exists(homedir):
+        os.mkdir(homedir)
+    return os.path.join(homedir, "%s.lock" % _escape(storage_url))
 
 
-def get_dbfile(bucketname, path):
-    if not os.path.exists(path):
-        os.mkdir(path)
-    return os.path.join(path, "%s.db" % _escape(bucketname))
+def get_credentials(homedir, backend, host):
+    """Get credentials for given backend and protocol"""
 
-def get_lockfile(bucketname, path):
-    if not os.path.exists(path):
-        os.mkdir(path)
-    return os.path.join(path, "%s.lock" % _escape(bucketname))
+    # Try to read from file
+    keyfile = os.path.join(homedir, 'authinfo')
+    pattern = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(\S+)$'
+    if os.path.isfile(keyfile):
+        mode = os.stat(keyfile).st_mode
+        if mode & (stat.S_IRGRP | stat.S_IROTH):
+            raise QuietError("%s has insecure permissions, aborting." % keyfile)
 
+        fh = open(keyfile, "r")
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            res = re.match(pattern, line)
+            if not res:
+                log.warn('Cannot parse line in %s:\n %s', keyfile, line)
+                continue
 
-def get_credentials(keyfile, key=None):
-    """Get AWS credentials.
+            if backend == res.group(1) and (host is None or host == res.group(2)):
+                return res.group(3, 4)
 
-    If `key` has been specified, use this as access key and
-    read the password from stdin. Otherwise, tries to read
-    ~/.awssecret.
-    """
+    # Otherwise from stdin
+    if sys.stdin.isatty():
+        print("Enter login for %s: " % host, end='')
+    key = sys.stdin.readline().rstrip()
 
-    pw = None
-
-    if key:
-        if sys.stdin.isatty():
-            pw = getpass("Enter AWS password: ")
-        else:
-            pw = sys.stdin.readline().rstrip()
-
+    if sys.stdin.isatty():
+        pw = getpass("Enter password for %s: " % host)
     else:
-
-        if os.path.isfile(keyfile):
-            mode = os.stat(keyfile).st_mode
-            kfile = open(keyfile, "r")
-            key = kfile.readline().rstrip()
-
-            if mode & (stat.S_IRGRP | stat.S_IROTH):
-                sys.stderr.write("~/.awssecret has insecure permissions, "
-                                 "reading password from terminal instead!\n")
-            else:
-                pw = kfile.readline().rstrip()
-            kfile.close()
-
-        if not key:
-            if sys.stdin.isatty():
-                print("Enter AWS access key: ", end='')
-            key = sys.stdin.readline().rstrip()
-
-        if not pw:
-            if sys.stdin.isatty():
-                pw = getpass("Enter AWS password: ")
-            else:
-                pw = sys.stdin.readline().rstrip()
+        pw = sys.stdin.readline().rstrip()
 
     return (key, pw)
 

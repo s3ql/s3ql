@@ -27,9 +27,10 @@ def parse_args(args):
               "       %prog --help",
         description="Efficiently copy directory trees.")
 
-    parser.add_option("--logfile", type="string",
-                      default=os.path.join(os.environ["HOME"], ".s3ql", 'cp.log'),
-                      help="Write log messages in this file. Default: ~/.s3ql/cp.log")
+    parser.add_option("--homedir", type="string",
+                      default=os.path.join(os.environ["HOME"], ".s3ql"),
+                      help='Directory for log files, cache and authentication info.'
+                      'Default: ~/.s3ql')
     parser.add_option("--debug", action="append",
                       help="Activate debugging output from specified module. Use 'all' "
                            "to get debug messages from all modules. This option can be "
@@ -54,7 +55,7 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-    init_logging_from_options(options)
+    init_logging_from_options(options, 'cp.log')
 
     if not os.path.exists(options.source):
         log.error('Source directory %r does not exist', options.source)

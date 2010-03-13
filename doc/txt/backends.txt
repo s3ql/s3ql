@@ -4,37 +4,72 @@
  Storage Backends
 ==================
 
-S3QL can use different protocols to store the file system data. The
-commands for creating, checking and mounting an S3QL file system
-therefore expect you to specify a *storage URL* of the form
-`<backend>:<path>`. The exact interpretation of `<path>` depends on
-the backend that you use.
+S3QL can use different protocols to store the file system data.
+Independent of the backend that you use, the place where your file
+system data is being stored is called a *bucket*. (This is mostly for
+historical reasons, since initially S3QL supported only the Amazon S3
+backend).
 
-Currently, S3QL supports the following backends.
+Most backends first try to read the file `~/.s3ql/authinfo` to determine
+the username and password for connecting to the remote host. If this
+fails, both username and password are read from the terminal.
 
+The `authinfo` file has to contain entries of the form ::
+
+  backend <backend> machine <host> login <user> password <password>
+
+So to use the login `joe` with password `jibbadup` when using the FTP
+backend to connect to the host `backups.joesdomain.com`, you would
+specify ::
+
+  backend ftp machine backups.joesdomain.com login joe password jibbadup
+
+
+Currently, S3QL supports the following backends:
 
 Local
 =====
 
 The local backend stores file system data in a directory on your local
 computer. This is mostly used for testing. The storage URL for the
-local backend has the form `local:/path/to/storage`.
+local backend has the form `local://<path>`. Note that you have to
+write three consecutive slashes to specify an absolute path, e.g.
+`local:///var/archive`.
 
-SFTP
-====
+SFTP / SSH
+==========
 
-The SFTP backend is still in development.
+The SFTP backend uses the SFTP protocol, which is a file transfer
+protocol similar to ftp, but uses an encrypted SSH connection.
+The storage URL for SFTP connections has the form ::
+
+  sftp://<host>[:port]/<path>
+
 
 FTP
 ====
 
-The FTP backend is still in development.
+This backend provides support for the standard FTP and FTP over TLS
+protocols. The store url has the form ::
+
+  ftp://<host>[:port]/<path>
+
+for unencrypted FTP or ::
+
+  ftps://<host>[:port]/<path>
+
+for FTP over TLS.
+
 
 Amazon S3
 =========
 
 To store your file system in an Amazon S3 bucket, use a storage URL of
-the form `s3:<bucketname>`.
+the form `s3://<bucketname>`.
+
+When reading the authentication information for the S3 backend from
+the `authinfo` file, the `host` field is ignored, i.e. the first entry
+with `s3` as a backend will be used.
 
 Note that the bucket names come from a global pool, so chances are
 that your favorite name has already been taken by another S3 user.
@@ -46,13 +81,8 @@ account from `Amazon AWS <http://aws.amazon.com/>`_. The account is
 free, you will pay only for the amount of storage that you actually
 use.
 
-You can enter your Amazon AWS access key id and your AWS secret access
-key every time you mount, create or check the filesystem, but it is
-recommended that you write them into the file `.awssecret` in your
-home directory. Separate them by a newline and make sure that the file
-is only readable by the owner, otherwise S3QL will refuse to use it.
-
-Note that the AWS access key id and the AWS secret key are not the
-user id and password that you use to log into the Amazon Webpage, but
-the *access identifiers* shown under `My Account/Access Identifiers
+Note that the login and password for accessing S3 are not the user id
+and password that you use to log into the Amazon Webpage, but the "AWS
+access key id" and "AWS secret access key" shown under `My
+Account/Access Identifiers
 <https://aws-portal.amazon.com/gp/aws/developer/account/index.html?ie=UTF8&action=access-key>`_.

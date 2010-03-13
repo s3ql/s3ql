@@ -35,7 +35,7 @@
 #  affiliates.
 
 #pylint: disable-all
-#@PydevCodeAnalysisIgnore
+#@PydevCodeAnalysisIgnore 
 
 """
 Handles basic connections to AWS

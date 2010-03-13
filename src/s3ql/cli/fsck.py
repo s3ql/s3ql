@@ -12,12 +12,11 @@ import os
 import stat
 import time
 from optparse import OptionParser
-from ..common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
-                         unlock_bucket, QuietError, get_parameters)
+from ..common import (init_logging_from_options, get_cachedir, get_dbfile,
+                         unlock_bucket, QuietError, get_parameters, get_backend)
 from ..database import ConnectionManager
 import logging
 from .. import fsck
-from ..backends import s3, local
 from ..backends.common import ChecksumError
 import sys
 import shutil
@@ -28,29 +27,14 @@ log = logging.getLogger("fsck")
 def parse_args(args):
 
     parser = OptionParser(
-        usage="%prog  [options] <bucketname>\n"
+        usage="%prog  [options] <storage-url>\n"
         "%prog --help",
-        description="Checks and repairs an s3ql filesystem.")
+        description="Checks and repairs an S3QL filesystem.")
 
-    parser.add_option("--awskey", type="string",
-                      help="Amazon Webservices access key to use. If not "
-                      "specified, tries to read ~/.awssecret or the file given by --credfile.")
-    parser.add_option("--logfile", type="string",
-                      default=os.path.join(os.environ["HOME"], ".s3ql", 'fsck.log'),
-                      help="Write log messages in this file. Default: ~/.s3ql/fsck.log")
-    parser.add_option("--credfile", type="string",
-                      default=os.path.join(os.environ["HOME"], ".awssecret"),
-                      help='Try to read AWS access key and key id from this file. '
-                      'The file must be readable only be the owner and should contain '
-                      'the key id and the secret key separated by a newline. '
-                      'Default: ~/.awssecret')
-    parser.add_option("--cachedir", type="string",
+    parser.add_option("--homedir", type="string",
                       default=os.path.join(os.environ["HOME"], ".s3ql"),
-                      help="Specifies the directory for cache files. Different S3QL file systems "
-                      '(i.e. located in different S3 buckets) can share a cache location, even if '
-                      'they are mounted at the same time. '
-                      'You should try to always use the same location here, so that S3QL can detect '
-                      'and, as far as possible, recover from unclean umounts. Default is ~/.s3ql.')
+                      help='Directory for log files, cache and authentication info.'
+                      'Default: ~/.s3ql')
     parser.add_option("--debug", action="append",
                       help="Activate debugging output from specified module. Use 'all' "
                            "to get debug messages from all modules. This option can be "
@@ -63,7 +47,7 @@ def parse_args(args):
     if len(pps) != 1:
         parser.error("Incorrect number of arguments.")
 
-    options.bucketname = pps[0]
+    options.storage_url = pps[0]
 
     return options
 
@@ -80,27 +64,19 @@ def main(args=None):
         pass
 
     options = parse_args(args)
-    init_logging_from_options(options)
-
-    if options.bucketname.startswith('local:'):
-        # Canonicalize path, otherwise we don't have a unique dbfile/cachdir for this bucket
-        options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
-        conn = local.Connection()
-    else:
-        (awskey, awspass) = get_credentials(options.credfile, options.awskey)
-        conn = s3.Connection(awskey, awspass)
-    if not conn.bucket_exists(options.bucketname):
-        log.error("Bucket does not exist.")
-        sys.exit(1)
-    bucket = conn.get_bucket(options.bucketname)
+    init_logging_from_options(options, 'fsck.log')
+    (conn, bucketname) = get_backend(options)
+    if not bucketname in conn:
+        raise QuietError("Bucket does not exist.")
+    bucket = conn.get_bucket(bucketname)
 
     try:
         unlock_bucket(bucket)
     except ChecksumError:
         raise QuietError('Checksum error - incorrect password?')
 
-    dbfile = get_dbfile(options.bucketname, options.cachedir)
-    cachedir = get_cachedir(options.bucketname, options.cachedir)
+    dbfile = get_dbfile(options.storage_url, options.homedir)
+    cachedir = get_cachedir(options.storage_url, options.homedir)
 
     # Get most-recent s3ql_parameters object and check fs revision
     param = get_parameters(bucket)

@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Mounting &mdash; S3QL v0.8 documentation</title>
+    <title>Mounting &mdash; S3QL v0.9 documentation</title>
     <link rel="stylesheet" href="_static/sphinxdoc.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '0.8',
+        VERSION:     '0.9',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -20,7 +20,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
     <link rel="author" title="About these documents" href="about.html" />
-    <link rel="top" title="S3QL v0.8 documentation" href="index.html" />
+    <link rel="top" title="S3QL v0.9 documentation" href="index.html" />
     <link rel="next" title="Unmounting" href="umount.html" />
     <link rel="prev" title="File System Creation" href="mkfs.html" /> 
   </head>
@@ -34,7 +34,7 @@
         <li class="right" >
           <a href="mkfs.html" title="File System Creation"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+        <li><a href="index.html">S3QL v0.9 documentation</a> &raquo;</li> 
       </ul>
     </div>
       <div class="sphinxsidebar">
@@ -70,35 +70,17 @@
 <p>Note that S3QL is not a network file system like <a class="reference external" href="http://en.wikipedia.org/wiki/Network_File_System_%28protocol%29">NFS</a> or
 <a class="reference external" href="http://en.wikipedia.org/wiki/CIFS">CIFS</a>, so an S3QL file system
 can only be mounted on one computer at a time.</p>
-<p><tt class="docutils literal"><span class="pre">mount.s3ql</span></tt> accepts the following options:</p>
+<p>You can specify the following options:</p>
 <blockquote>
 <table class="docutils option-list" frame="void" rules="none">
 <col class="option" />
 <col class="description" />
 <tbody valign="top">
 <tr><td class="option-group" colspan="2">
-<kbd><span class="option">--awskey=<var>AWSKEY</var></span></kbd></td>
+<kbd><span class="option">--homedir=<var>HOMEDIR</var></span></kbd></td>
 </tr>
-<tr><td>&nbsp;</td><td>Amazon Webservices access key to use. If not
-specified, tries to read ~/.awssecret or the file
-given by &#8211;credfile.</td></tr>
-<tr><td class="option-group" colspan="2">
-<kbd><span class="option">--credfile=<var>CREDFILE</var></span></kbd></td>
-</tr>
-<tr><td>&nbsp;</td><td>Try to read AWS access key and key id from this file.
-The file must be readable only be the owner and should
-contain the key id and the secret key separated by a
-newline. Default: ~/.awssecret</td></tr>
-<tr><td class="option-group" colspan="2">
-<kbd><span class="option">--cachedir=<var>CACHEDIR</var></span></kbd></td>
-</tr>
-<tr><td>&nbsp;</td><td>Specifies the directory for cache files. Different
-S3QL file systems (i.e. located in different S3
-buckets) can share a cache location, even if they are
-mounted at the same time. You should try to always use
-the same location here, so that S3QL can detect and,
-as far as possible, recover from unclean umounts.
-Default is ~/.s3ql.</td></tr>
+<tr><td>&nbsp;</td><td>Directory for log files, cache and authentication
+info.Default: ~/.s3ql</td></tr>
 <tr><td class="option-group" colspan="2">
 <kbd><span class="option">--cachesize=<var>CACHESIZE</var></span></kbd></td>
 </tr>
@@ -107,11 +89,6 @@ at least 10 times the blocksize of the filesystem,
 otherwise an object may be retrieved and written
 several times during a single write() or read()
 operation.</td></tr>
-<tr><td class="option-group" colspan="2">
-<kbd><span class="option">--logfile=<var>LOGFILE</var></span></kbd></td>
-</tr>
-<tr><td>&nbsp;</td><td>Write log messages in this file. Default:
-~/.s3ql/mount.log</td></tr>
 <tr><td class="option-group">
 <kbd><span class="option">--debug=<var>DEBUG</var></span></kbd></td>
 <td>Activate debugging output from specified module. Use
@@ -124,14 +101,14 @@ option can be specified multiple times.</td></tr>
 <kbd><span class="option">--allow-other</span></kbd></td>
 <td>Allow other users to access the filesystem as well and
 enforce unix permissions. (if neither this option nor
-&#8211;allow-other is specified, only the mounting user can
+&#8211;allow_other is specified, only the mounting user can
 access the file system, and has full access to every
 file, independent of individual permissions.</td></tr>
 <tr><td class="option-group">
 <kbd><span class="option">--allow-root</span></kbd></td>
 <td>Allow root to access the filesystem as well and
 enforce unix permissions. (if neither this option nor
-&#8211;allow-other is specified, only the mounting user can
+&#8211;allow_other is specified, only the mounting user can
 access the file system, and has full access to every
 file, independent of individual permissions.</td></tr>
 <tr><td class="option-group">
@@ -145,6 +122,10 @@ this, then you don&#8217;t need it.</td></tr>
 <kbd><span class="option">--atime</span></kbd></td>
 <td>Update directory access time. Will decrease
 performance.</td></tr>
+<tr><td class="option-group">
+<kbd><span class="option">--profile</span></kbd></td>
+<td>Create profiling information. If you don&#8217;t understand
+this, then you don&#8217;t need it.</td></tr>
 </tbody>
 </table>
 </blockquote>
@@ -165,7 +146,7 @@ performance.</td></tr>
         <li class="right" >
           <a href="mkfs.html" title="File System Creation"
              >previous</a> |</li>
-        <li><a href="index.html">S3QL v0.8 documentation</a> &raquo;</li> 
+        <li><a href="index.html">S3QL v0.9 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

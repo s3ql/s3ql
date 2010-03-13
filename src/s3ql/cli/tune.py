@@ -11,11 +11,11 @@ from __future__ import division, print_function, absolute_import
 from optparse import OptionParser
 import logging
 import cPickle as pickle
-from ..common import (init_logging_from_options, get_credentials, QuietError, unlock_bucket,
+from ..common import (init_logging_from_options, get_backend, QuietError, unlock_bucket,
                       ExceptionStoringThread)
 from getpass import getpass
 import sys
-from ..backends import s3, local
+from ..backends import s3
 from ..backends.boto.s3.connection import Location
 from ..backends.common import ChecksumError
 import os
@@ -29,14 +29,11 @@ def parse_args(args):
     '''Parse command line'''
 
     parser = OptionParser(
-        usage="%prog [options] <bucketname>\n"
-              "       %prog --copy <src_bucket> <dest_bucket>\n"
+        usage="%prog [options] <storage-url>\n"
+              "       %prog --copy <source-url> <dest-url>\n"
               "       %prog --help",
         description="Change or show S3QL file system parameters.")
 
-    parser.add_option("--logfile", type="string",
-                      default=os.path.join(os.environ["HOME"], ".s3ql", 'tune.log'),
-                      help="Write log messages in this file. Default: ~/.s3ql/tune.log")
     parser.add_option("--debug", action="append",
                       help="Activate debugging output from specified module. Use 'all' "
                            "to get debug messages from all modules. This option can be "
@@ -51,15 +48,10 @@ def parse_args(args):
                       help="Completely delete a bucket with all contents.")
     parser.add_option("--copy", action="store_true", default=False,
                       help="Copy a bucket. The destination bucket must not exist.")
-    parser.add_option("--awskey", type="string",
-                      help="Amazon Webservices access key to use. If not "
-                      "specified, tries to read ~/.awssecret or the file given by --credfile.")
-    parser.add_option("--credfile", type="string", default=os.environ["HOME"].rstrip("/")
-                       + "/.awssecret",
-                      help='Try to read AWS access key and key id from this file. '
-                      'The file must be readable only be the owner and should contain '
-                      'the key id and the secret key separated by a newline. '
-                      'Default: ~/.awssecret')
+    parser.add_option("--homedir", type="string",
+                      default=os.path.join(os.environ["HOME"], ".s3ql"),
+                      help='Directory for log files, cache and authentication info.'
+                      'Default: ~/.s3ql')
     parser.add_option("--s3-location", type="string", default='EU',
                       help="Specify storage location for new bucket. Allowed values: EU,"
                            'us-west-1, or us-standard. The later is not recommended, see'
@@ -82,12 +74,12 @@ def parse_args(args):
     if options.copy:
         if len(pps) != 2:
             parser.error("Incorrect number of arguments.")
-        options.bucketname = pps[0]
-        options.dest_name = pps[1]
+        options.storage_url = pps[0]
+        options.dest_url = pps[1]
     else:
         if len(pps) != 1:
             parser.error("Incorrect number of arguments.")
-        options.bucketname = pps[0]
+        options.storage_url = pps[0]
 
     return options
 
@@ -98,19 +90,16 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-    init_logging_from_options(options)
-
-    if options.bucketname.startswith('local:'):
-        # Canonicalize path, otherwise we don't have a unique dbfile/cachdir for this bucket
-        options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
-        conn = local.Connection()
-    else:
-        (awskey, awspass) = get_credentials(options.credfile, options.awskey)
-        conn = s3.Connection(awskey, awspass)
-
-    if not conn.bucket_exists(options.bucketname):
+    init_logging_from_options(options, 'tune.log')
+    (conn, bucketname) = get_backend(options)
+    if not bucketname in conn:
         raise QuietError("Bucket does not exist.")
-    bucket = conn.get_bucket(options.bucketname)
+    bucket = conn.get_bucket(bucketname)
+
+    try:
+        unlock_bucket(bucket)
+    except ChecksumError:
+        raise QuietError('Checksum error - incorrect password?')
 
     if options.delete:
         return delete_bucket(conn, options.bucketname)

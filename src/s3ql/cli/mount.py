@@ -11,11 +11,11 @@ from __future__ import division, print_function, absolute_import
 import sys
 from optparse import OptionParser
 from s3ql import fs
-from s3ql.backends import s3, local
+from s3ql.backends import s3
 from s3ql.daemonize import daemonize
 from s3ql.backends.common import ChecksumError
 from s3ql.s3cache import S3Cache # SynchronizedS3Cache
-from s3ql.common import (init_logging_from_options, get_credentials, get_cachedir, get_dbfile,
+from s3ql.common import (init_logging_from_options, get_backend, get_cachedir, get_dbfile,
                          QuietError, unlock_bucket, get_parameters, get_stdout_handler,
                          get_lockfile)
 from s3ql.database import ConnectionManager
@@ -44,19 +44,17 @@ def main(args=None):
         pass
 
     options = parse_args(args)
-    init_logging_from_options(options)
+    init_logging_from_options(options, 'mount.log')
 
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.')
 
-    if options.bucketname.startswith('local:'):
-        # Canonicalize path, otherwise we don't have a unique dbfile/cachdir for this bucket
-        options.bucketname = os.path.abspath(options.bucketname[len('local:'):])
-        conn = local.Connection()
-    else:
-        (awskey, awspass) = get_credentials(options.credfile, options.awskey)
-        conn = s3.Connection(awskey, awspass)
-    bucket = conn.get_bucket(options.bucketname)
+    (conn, bucketname) = get_backend(options)
+    if not bucketname in conn:
+        raise QuietError("Bucket does not exist.")
+    bucket = conn.get_bucket(bucketname)
+
+
 
     # Check that the bucket is in the correct location
     if isinstance(bucket, s3.Bucket):
@@ -73,9 +71,9 @@ def main(args=None):
     except ChecksumError:
         raise QuietError('Checksum error - incorrect password?')
 
-    dbfile = get_dbfile(options.bucketname, options.cachedir)
-    cachedir = get_cachedir(options.bucketname, options.cachedir)
-    lockfile = get_lockfile(options.bucketname, options.cachedir)
+    dbfile = get_dbfile(options.storage_url, options.homedir)
+    cachedir = get_cachedir(options.storage_url, options.homedir)
+    lockfile = get_lockfile(options.storage_url, options.homedir)
 
     if os.path.exists(lockfile):
         with open(lockfile, 'r') as fh:
@@ -174,7 +172,7 @@ def main(args=None):
 def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
 
-    fuse_opts = [ b"nonempty", b'fsname=%s' % options.bucketname,
+    fuse_opts = [ b"nonempty", b'fsname=%s' % options.storage_url,
                   'subtype=s3ql' ]
 
     if options.allow_other:
@@ -213,7 +211,7 @@ def run_server(bucket, cache, dbcm, options, lockfile):
                 t.join()
             if get_stdout_handler() is not None:
                 logging.getLogger().removeHandler(get_stdout_handler())
-            daemonize(options.cachedir)
+            daemonize(options.homedir)
 
             # Update lock file
             with open(lockfile, 'w') as fh:
@@ -255,45 +253,30 @@ def parse_args(args):
     #pylint: disable-msg=R0912
 
     parser = OptionParser(
-        usage="%prog  [options] <bucketname> <mountpoint>\n"
+        usage="%prog  [options] <storage-url> <mountpoint>\n"
               "       %prog --help",
-        description="Mounts an amazon S3 bucket as a filesystem.")
+        description="Mount an S3QL file system.")
 
-    parser.add_option("--awskey", type="string",
-                      help="Amazon Webservices access key to use. If not "
-                      "specified, tries to read ~/.awssecret or the file given by --credfile.")
-    parser.add_option("--credfile", type="string",
-                      default=os.path.join(os.environ["HOME"], ".awssecret"),
-                      help='Try to read AWS access key and key id from this file. '
-                      'The file must be readable only be the owner and should contain '
-                      'the key id and the secret key separated by a newline. '
-                      'Default: ~/.awssecret')
-    parser.add_option("--cachedir", type="string",
+    parser.add_option("--homedir", type="string",
                       default=os.path.join(os.environ["HOME"], ".s3ql"),
-                      help="Specifies the directory for cache files. Different S3QL file systems "
-                      '(i.e. located in different S3 buckets) can share a cache location, even if '
-                      'they are mounted at the same time. '
-                      'You should try to always use the same location here, so that S3QL can detect '
-                      'and, as far as possible, recover from unclean umounts. Default is ~/.s3ql.')
+                      help='Directory for log files, cache and authentication info.'
+                      'Default: ~/.s3ql')
     parser.add_option("--cachesize", type="int", default=102400,
                       help="Cache size in kb (default: 102400 (100 MB)). Should be at least 10 times "
                       "the blocksize of the filesystem, otherwise an object may be retrieved and "
                       "written several times during a single write() or read() operation.")
-    parser.add_option("--logfile", type="string",
-                      default=os.path.join(os.environ["HOME"], ".s3ql", 'mount.log'),
-                      help="Write log messages in this file. Default: ~/.s3ql/mount.log")
     parser.add_option("--debug", action="append",
                       help="Activate debugging output from specified module. Use 'all' "
                            "to get debug messages from all modules. This option can be "
                            "specified multiple times.")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
-    parser.add_option("--allow_other", action="store_true", default=False, help=
+    parser.add_option("--allow-other", action="store_true", default=False, help=
                       "Allow other users to access the filesystem as well and enforce unix permissions. "
                       "(if neither this option nor --allow_other is specified, only the mounting user "
                       "can access the file system, and has full access to every file, independent of "
                       "individual permissions.")
-    parser.add_option("--allow_root", action="store_true", default=False,
+    parser.add_option("--allow-root", action="store_true", default=False,
                       help="Allow root to access the filesystem as well and enforce unix permissions. "
                       "(if neither this option nor --allow_other is specified, only the mounting user "
                       "can access the file system, and has full access to every file, independent of "
@@ -316,7 +299,7 @@ def parse_args(args):
     #
     if len(pps) != 2:
         parser.error("Incorrect number of arguments.")
-    options.bucketname = pps[0]
+    options.storage_url = pps[0]
     options.mountpoint = pps[1]
 
     if options.profile:
