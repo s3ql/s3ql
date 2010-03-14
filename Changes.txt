@@ -8,6 +8,9 @@ xxx, S3QL 0.9
     
   * The syntax for mounting S3 buckets is now s3://bucketname instead of
     just the bucket name
+    
+  * There is now an SFTP backend. Thanks to Ron Knapp <ron.siesta@gmail.com> for
+    most of the code.
      
 
 2010-03-07, S3QL 0.8

@@ -17,7 +17,7 @@ from s3ql.backends.common import ChecksumError
 from s3ql.s3cache import S3Cache # SynchronizedS3Cache
 from s3ql.common import (init_logging_from_options, get_backend, get_cachedir, get_dbfile,
                          QuietError, unlock_bucket, get_parameters, get_stdout_handler,
-                         get_lockfile)
+                         get_lockfile, cycle_metadata)
 from s3ql.database import ConnectionManager
 import llfuse
 import tempfile
@@ -49,114 +49,108 @@ def main(args=None):
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.')
 
-    (conn, bucketname) = get_backend(options)
-    if not bucketname in conn:
-        raise QuietError("Bucket does not exist.")
-    bucket = conn.get_bucket(bucketname)
+    with get_backend(options) as (conn, bucketname):
+        if not bucketname in conn:
+            raise QuietError("Bucket does not exist.")
+        bucket = conn.get_bucket(bucketname)
 
+        # Check that the bucket is in the correct location
+        if isinstance(bucket, s3.Bucket):
+            with bucket._get_boto() as boto:
+                if boto.get_location() not in ('EU', 'us-west-1'):
+                    log.warn('Note: Your bucket is located in the US-Standard storage region.\n'
+                             'Under very rare circumstances this can lead to problems, see\n'
+                             'http://code.google.com/p/s3ql/wiki/FAQ#'
+                             'What%27s_wrong_with_having_S3_buckets_in_the_%22US_Standar\n'
+                             '(you can relocate your bucket with tune.s3ql --copy if desired)')
 
-
-    # Check that the bucket is in the correct location
-    if isinstance(bucket, s3.Bucket):
-        with bucket._get_boto() as boto:
-            if boto.get_location() not in ('EU', 'us-west-1'):
-                log.warn('Note: Your bucket is located in the US-Standard storage region.\n'
-                         'Under very rare circumstances this can lead to problems, see\n'
-                         'http://code.google.com/p/s3ql/wiki/FAQ#'
-                         'What%27s_wrong_with_having_S3_buckets_in_the_%22US_Standar\n'
-                         '(you can relocate your bucket with tune.s3ql --copy if desired)')
-
-    try:
-        unlock_bucket(bucket)
-    except ChecksumError:
-        raise QuietError('Checksum error - incorrect password?')
-
-    dbfile = get_dbfile(options.storage_url, options.homedir)
-    cachedir = get_cachedir(options.storage_url, options.homedir)
-    lockfile = get_lockfile(options.storage_url, options.homedir)
-
-    if os.path.exists(lockfile):
-        with open(lockfile, 'r') as fh:
-            pid = int(fh.read().strip())
         try:
-            os.kill(pid, 0)
-        except OSError:
-            log.debug('Removing stale lock file.')
+            unlock_bucket(bucket)
+        except ChecksumError:
+            raise QuietError('Checksum error - incorrect password?')
+
+        dbfile = get_dbfile(options.storage_url, options.homedir)
+        cachedir = get_cachedir(options.storage_url, options.homedir)
+        lockfile = get_lockfile(options.storage_url, options.homedir)
+
+        if os.path.exists(lockfile):
+            with open(lockfile, 'r') as fh:
+                pid = int(fh.read().strip())
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                log.debug('Removing stale lock file.')
+            else:
+                raise QuietError('Bucket already mounted by PID %d' % pid)
+
+        # Note that we have to update the PID after daemonizing
+        with open(lockfile, 'w') as fh:
+            fh.write('%d\n' % os.getpid())
+
+        # Get most-recent s3ql_parameters object and check fs revision
+        log.info('Getting file system parameters..')
+        param = get_parameters(bucket)
+
+        if os.path.exists(dbfile):
+            dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
+            mountcnt = dbcm.get_val('SELECT mountcnt FROM parameters')
+            if mountcnt != param['mountcnt']:
+                raise QuietError('Local cache files exist, but file system appears to have\n'
+                                 'been mounted elsewhere after the unclean shutdown. You\n'
+                                 'need to run fsck.s3ql.')
+
+            log.info('Recovering old metadata from unclean shutdown..')
+            cache = S3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
+            cache.recover()
         else:
-            raise QuietError('Bucket already mounted by PID %d' % pid)
+            if os.path.exists(cachedir):
+                raise RuntimeError('cachedir exists, but no local metadata.'
+                                   'This should not happen.')
 
-    # Note that we have to update the PID after daemonizing
-    with open(lockfile, 'w') as fh:
-        fh.write('%d\n' % os.getpid())
+            log.info("Downloading metadata...")
+            os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
+            bucket.fetch_fh("s3ql_metadata", open(dbfile, 'wb'))
+            dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
 
-    # Get most-recent s3ql_parameters object and check fs revision
-    log.info('Getting file system parameters..')
-    param = get_parameters(bucket)
+            mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
+            if mountcnt_db < param['mountcnt']:
+                os.unlink(dbfile)
+                raise QuietError('It appears that the file system is still mounted somewhere else, or has\n'
+                                 'not been unmounted cleanly. In the later case you should run fsck.s3ql\n'
+                                 'on the computer where the file system has been mounted most recently.\n'
+                                 'If you are using the S3 backend, it is also possible that updates are\n'
+                                 'still propagating through S3 and you just have to wait a while.')
+            elif mountcnt_db > param['mountcnt']:
+                os.unlink(dbfile)
+                raise RuntimeError('mountcnt_db > mountcnt_s3, this should not happen.')
 
-    if os.path.exists(dbfile):
-        dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
-        mountcnt = dbcm.get_val('SELECT mountcnt FROM parameters')
-        if mountcnt != param['mountcnt']:
-            raise QuietError('Local cache files exist, but file system appears to have\n'
-                             'been mounted elsewhere after the unclean shutdown. You\n'
-                             'need to run fsck.s3ql.')
+            os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+            cache = S3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
 
-        log.info('Recovering old metadata from unclean shutdown..')
-        cache = S3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
-        cache.recover()
-    else:
-        if os.path.exists(cachedir):
-            raise RuntimeError('cachedir exists, but no local metadata.'
-                               'This should not happen.')
+        # Check that the fs itself is clean
+        if dbcm.get_val("SELECT needs_fsck FROM parameters"):
+            raise QuietError("File system damaged, run fsck!")
 
-        log.info("Downloading metadata...")
-        os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
-        bucket.fetch_fh("s3ql_metadata", open(dbfile, 'wb'))
-        dbcm = ConnectionManager(dbfile, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
+        # Start server
+        log.info('Analyzing metadata...')
+        dbcm.execute('ANALYZE')
 
-        mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
-        if mountcnt_db < param['mountcnt']:
-            os.unlink(dbfile)
-            raise QuietError('It appears that the file system is still mounted somewhere else, or has\n'
-                             'not been unmounted cleanly. In the later case you should run fsck.s3ql\n'
-                             'on the computer where the file system has been mounted most recently.\n'
-                             'If you are using the S3 backend, it is also possible that updates are\n'
-                             'still propagating through S3 and you just have to wait a while.')
-        elif mountcnt_db > param['mountcnt']:
-            os.unlink(dbfile)
-            raise RuntimeError('mountcnt_db > mountcnt_s3, this should not happen.')
+        param['mountcnt'] += 1
+        dbcm.execute('UPDATE parameters SET mountcnt=mountcnt+1')
+        bucket.store('s3ql_parameters_%d' % param['mountcnt'],
+                     pickle.dumps(param, 2))
 
-        os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-        cache = S3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
-
-    # Check that the fs itself is clean
-    if dbcm.get_val("SELECT needs_fsck FROM parameters"):
-        raise QuietError("File system damaged, run fsck!")
-
-    # Start server
-    log.info('Analyzing metadata...')
-    dbcm.execute('ANALYZE')
-
-    param['mountcnt'] += 1
-    dbcm.execute('UPDATE parameters SET mountcnt=mountcnt+1')
-    bucket.store('s3ql_parameters_%d' % param['mountcnt'],
-                 pickle.dumps(param, 2))
-
-    try:
         try:
-            operations = run_server(bucket, cache, dbcm, options, lockfile)
+            try:
+                operations = run_server(conn, bucket, cache, dbcm, options, lockfile)
+            finally:
+                log.info('Clearing cache...')
+                cache.clear()
         finally:
-            log.info('Clearing cache...')
-            cache.clear()
-    finally:
-        log.info("Uploading database..")
-        dbcm.execute("VACUUM")
-        if "s3ql_metadata_bak_2" in bucket:
-            bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
-        if "s3ql_metadata_bak_1" in bucket:
-            bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
-        bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
-        bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
+            log.info("Uploading database..")
+            dbcm.execute("VACUUM")
+            cycle_metadata(bucket)
+            bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
 
     # Remove database
     log.debug("Cleaning up...")
@@ -184,7 +178,7 @@ def get_fuse_opts(options):
 
     return fuse_opts
 
-def run_server(bucket, cache, dbcm, options, lockfile):
+def run_server(conn, bucket, cache, dbcm, options, lockfile):
     '''Start FUSE server and run main loop
     
     Returns the used `Operations` instance so that the `encountered_errors`
@@ -203,15 +197,17 @@ def run_server(bucket, cache, dbcm, options, lockfile):
     llfuse.init(operations, options.mountpoint, fuse_opts)
     try:
         if not options.fg:
+            conn.prepare_fork()
             me = threading.current_thread()
             for t in threading.enumerate():
                 if t is me:
                     continue
-                log.debug('Waiting for thread %s', t)
+                log.warn('Waiting for thread %s', t)
                 t.join()
             if get_stdout_handler() is not None:
                 logging.getLogger().removeHandler(get_stdout_handler())
             daemonize(options.homedir)
+            conn.finish_fork()
 
             # Update lock file
             with open(lockfile, 'w') as fh:

@@ -44,10 +44,10 @@
 <li class="toctree-l1"><a class="reference external" href="about.html">About S3QL</a></li>
 <li class="toctree-l1"><a class="reference external" href="installation.html">Installation</a></li>
 <li class="toctree-l1 current"><a class="current reference external" href="">Storage Backends</a><ul>
+<li class="toctree-l2"><a class="reference external" href="#amazon-s3">Amazon S3</a></li>
 <li class="toctree-l2"><a class="reference external" href="#local">Local</a></li>
 <li class="toctree-l2"><a class="reference external" href="#sftp-ssh">SFTP / SSH</a></li>
 <li class="toctree-l2"><a class="reference external" href="#ftp">FTP</a></li>
-<li class="toctree-l2"><a class="reference external" href="#amazon-s3">Amazon S3</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference external" href="mkfs.html">File System Creation</a></li>
@@ -101,36 +101,6 @@ specify</p>
 </pre></div>
 </div>
 <p>Currently, S3QL supports the following backends:</p>
-<div class="section" id="local">
-<h2>Local<a class="headerlink" href="#local" title="Permalink to this headline">¶</a></h2>
-<p>The local backend stores file system data in a directory on your local
-computer. This is mostly used for testing. The storage URL for the
-local backend has the form <tt class="docutils literal"><span class="pre">local://&lt;path&gt;</span></tt>. Note that you have to
-write three consecutive slashes to specify an absolute path, e.g.
-<tt class="docutils literal"><span class="pre">local:///var/archive</span></tt>.</p>
-</div>
-<div class="section" id="sftp-ssh">
-<h2>SFTP / SSH<a class="headerlink" href="#sftp-ssh" title="Permalink to this headline">¶</a></h2>
-<p>The SFTP backend uses the SFTP protocol, which is a file transfer
-protocol similar to ftp, but uses an encrypted SSH connection.
-The storage URL for SFTP connections has the form</p>
-<div class="highlight-sh"><div class="highlight"><pre>sftp://&lt;host&gt;<span class="o">[</span>:port<span class="o">]</span>/&lt;path&gt;
-</pre></div>
-</div>
-</div>
-<div class="section" id="ftp">
-<h2>FTP<a class="headerlink" href="#ftp" title="Permalink to this headline">¶</a></h2>
-<p>This backend provides support for the standard FTP and FTP over TLS
-protocols. The store url has the form</p>
-<div class="highlight-sh"><div class="highlight"><pre>ftp://&lt;host&gt;<span class="o">[</span>:port<span class="o">]</span>/&lt;path&gt;
-</pre></div>
-</div>
-<p>for unencrypted FTP or</p>
-<div class="highlight-sh"><div class="highlight"><pre>ftps://&lt;host&gt;<span class="o">[</span>:port<span class="o">]</span>/&lt;path&gt;
-</pre></div>
-</div>
-<p>for FTP over TLS.</p>
-</div>
 <div class="section" id="amazon-s3">
 <h2>Amazon S3<a class="headerlink" href="#amazon-s3" title="Permalink to this headline">¶</a></h2>
 <p>To store your file system in an Amazon S3 bucket, use a storage URL of
@@ -150,6 +120,45 @@ use.</p>
 and password that you use to log into the Amazon Webpage, but the &#8220;AWS
 access key id&#8221; and &#8220;AWS secret access key&#8221; shown under <a class="reference external" href="https://aws-portal.amazon.com/gp/aws/developer/account/index.html?ie=UTF8&amp;action=access-key">My
 Account/Access Identifiers</a>.</p>
+</div>
+<div class="section" id="local">
+<h2>Local<a class="headerlink" href="#local" title="Permalink to this headline">¶</a></h2>
+<p>The local backend stores file system data in a directory on your local
+computer. This is mostly used for testing. The storage URL for the
+local backend has the form <tt class="docutils literal"><span class="pre">local://&lt;path&gt;</span></tt>. Note that you have to
+write three consecutive slashes to specify an absolute path, e.g.
+<tt class="docutils literal"><span class="pre">local:///var/archive</span></tt>.</p>
+</div>
+<div class="section" id="sftp-ssh">
+<h2>SFTP / SSH<a class="headerlink" href="#sftp-ssh" title="Permalink to this headline">¶</a></h2>
+<p>The SFTP backend uses the SFTP protocol, which is a file transfer
+protocol similar to ftp, but uses an encrypted SSH connection.
+The storage URL for SFTP connections has the form</p>
+<div class="highlight-sh"><div class="highlight"><pre>sftp://&lt;host&gt;<span class="o">[</span>:port<span class="o">]</span>/&lt;path&gt;
+</pre></div>
+</div>
+<p>The SFTP backend will always ask you for a password if you haven&#8217;t
+defined one in <tt class="docutils literal"><span class="pre">~/.s3ql/authinfo</span></tt>. However, public key authentication
+is tried first and the password will only be used if the public key
+authentication fails.</p>
+<p>The public and private keys will be read from the standard files in
+<tt class="docutils literal"><span class="pre">~/.ssh/</span></tt>. Note that S3QL will refuse to connect to a computer with
+unknown host key; to add the key to your local keyring you have to
+establish a connection to that computer with the standard SSH command
+line programs first.</p>
+</div>
+<div class="section" id="ftp">
+<h2>FTP<a class="headerlink" href="#ftp" title="Permalink to this headline">¶</a></h2>
+<p>This backend provides support for the standard FTP and FTP over TLS
+protocols. The store url has the form</p>
+<div class="highlight-sh"><div class="highlight"><pre>ftp://&lt;host&gt;<span class="o">[</span>:port<span class="o">]</span>/&lt;path&gt;
+</pre></div>
+</div>
+<p>for unencrypted FTP or</p>
+<div class="highlight-sh"><div class="highlight"><pre>ftps://&lt;host&gt;<span class="o">[</span>:port<span class="o">]</span>/&lt;path&gt;
+</pre></div>
+</div>
+<p>for FTP over TLS.</p>
 </div>
 </div>
 

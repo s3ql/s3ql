@@ -14,12 +14,12 @@ from getpass import getpass
 import shutil
 from optparse import OptionParser
 import logging
-from .. import mkfs
-from ..common import (init_logging_from_options, get_backend, get_cachedir, get_dbfile,
+from s3ql import mkfs
+from s3ql.common import (init_logging_from_options, get_backend, get_cachedir, get_dbfile,
                          QuietError)
-from ..database import WrappedConnection
-from ..backends.boto.s3.connection import Location
-from ..backends import s3
+from s3ql.database import WrappedConnection
+from s3ql.backends.boto.s3.connection import Location
+from s3ql.backends import s3
 import apsw
 import cPickle as pickle
 
@@ -75,69 +75,63 @@ def main(args=None):
 
     options = parse_args(args)
     init_logging_from_options(options, 'mkfs.log')
-    (conn, bucketname) = get_backend(options)
 
-    if conn.bucket_exists(bucketname):
-        log.error(
-            "Bucket already exists!\n"
-            "(you can delete an existing bucket with tune.s3ql --delete)\n")
-        raise QuietError(1)
+    with get_backend(options) as (conn, bucketname):
+        if conn.bucket_exists(bucketname):
+            raise QuietError("Bucket already exists!\n"
+                             "(you can delete an existing bucket with tune.s3ql --delete)\n")
 
-    if isinstance(conn, s3.Connection):
-        bucket = conn.create_bucket(bucketname, location=options.s3_location)
-    else:
-        bucket = conn.create_bucket(bucketname)
-
-    if options.encrypt:
-        if sys.stdin.isatty():
-            wrap_pw = getpass("Enter encryption password: ")
-            if not wrap_pw == getpass("Confirm encryption password: "):
-                sys.stderr.write("Passwords don't match\n.")
-                sys.exit(1)
+        if isinstance(conn, s3.Connection):
+            bucket = conn.create_bucket(bucketname, location=options.s3_location)
         else:
-            wrap_pw = sys.stdin.readline().rstrip()
+            bucket = conn.create_bucket(bucketname)
 
-        # Generate data encryption passphrase
-        log.info('Generating random encryption key...')
-        fh = open('/dev/random', "rb", 0) # No buffering
-        data_pw = fh.read(32)
-        fh.close()
+        if options.encrypt:
+            if sys.stdin.isatty():
+                wrap_pw = getpass("Enter encryption password: ")
+                if not wrap_pw == getpass("Confirm encryption password: "):
+                    raise QuietError("Passwords don't match.")
+            else:
+                wrap_pw = sys.stdin.readline().rstrip()
 
-        bucket.passphrase = wrap_pw
-        bucket['s3ql_passphrase'] = data_pw
-        bucket.passphrase = data_pw
+            # Generate data encryption passphrase
+            log.info('Generating random encryption key...')
+            fh = open('/dev/random', "rb", 0) # No buffering
+            data_pw = fh.read(32)
+            fh.close()
 
+            bucket.passphrase = wrap_pw
+            bucket['s3ql_passphrase'] = data_pw
+            bucket.passphrase = data_pw
 
-    #
-    # Setup database
-    #
-    dbfile = get_dbfile(options.storage_url, options.homedir)
-    cachedir = get_cachedir(options.storage_url, options.homedir)
-
-
-    # There can't be a corresponding bucket, so we can safely delete
-    # these files.
-    if os.path.exists(dbfile):
-        os.unlink(dbfile)
-    if os.path.exists(cachedir):
-        shutil.rmtree(cachedir)
+        # Setup database
+        dbfile = get_dbfile(options.storage_url, options.homedir)
+        cachedir = get_cachedir(options.storage_url, options.homedir)
 
 
-    try:
-        log.info('Creating metadata tables...')
-        mkfs.setup_db(WrappedConnection(apsw.Connection(dbfile), retrytime=0),
-                      options.blocksize * 1024, options.label)
+        # There can't be a corresponding bucket, so we can safely delete
+        # these files.
+        if os.path.exists(dbfile):
+            os.unlink(dbfile)
+        if os.path.exists(cachedir):
+            shutil.rmtree(cachedir)
 
-        log.info('Uploading database...')
-        param = dict()
-        param['revision'] = 2
-        param['mountcnt'] = 0
-        bucket.store('s3ql_parameters_%d' % param['mountcnt'],
-                     pickle.dumps(param, 2))
-        bucket.store_fh('s3ql_metadata', open(dbfile, 'r'))
+        try:
+            log.info('Creating metadata tables...')
+            mkfs.setup_db(WrappedConnection(apsw.Connection(dbfile), retrytime=0),
+                          options.blocksize * 1024, options.label)
 
-    finally:
-        os.unlink(dbfile)
+            log.info('Uploading database...')
+            param = dict()
+            param['revision'] = 2
+            param['mountcnt'] = 0
+            bucket.store('s3ql_parameters_%d' % param['mountcnt'],
+                         pickle.dumps(param, 2))
+            bucket.store_fh('s3ql_metadata', open(dbfile, 'r'))
+
+        finally:
+            os.unlink(dbfile)
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])

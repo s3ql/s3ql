@@ -27,40 +27,6 @@ specify ::
 
 Currently, S3QL supports the following backends:
 
-Local
-=====
-
-The local backend stores file system data in a directory on your local
-computer. This is mostly used for testing. The storage URL for the
-local backend has the form `local://<path>`. Note that you have to
-write three consecutive slashes to specify an absolute path, e.g.
-`local:///var/archive`.
-
-SFTP / SSH
-==========
-
-The SFTP backend uses the SFTP protocol, which is a file transfer
-protocol similar to ftp, but uses an encrypted SSH connection.
-The storage URL for SFTP connections has the form ::
-
-  sftp://<host>[:port]/<path>
-
-
-FTP
-====
-
-This backend provides support for the standard FTP and FTP over TLS
-protocols. The store url has the form ::
-
-  ftp://<host>[:port]/<path>
-
-for unencrypted FTP or ::
-
-  ftps://<host>[:port]/<path>
-
-for FTP over TLS.
-
-
 Amazon S3
 =========
 
@@ -86,3 +52,46 @@ and password that you use to log into the Amazon Webpage, but the "AWS
 access key id" and "AWS secret access key" shown under `My
 Account/Access Identifiers
 <https://aws-portal.amazon.com/gp/aws/developer/account/index.html?ie=UTF8&action=access-key>`_.
+
+Local
+=====
+
+The local backend stores file system data in a directory on your local
+computer. This is mostly used for testing. The storage URL for the
+local backend has the form `local://<path>`. Note that you have to
+write three consecutive slashes to specify an absolute path, e.g.
+`local:///var/archive`.
+
+SFTP / SSH
+==========
+
+The SFTP backend uses the SFTP protocol, which is a file transfer
+protocol similar to ftp, but uses an encrypted SSH connection.
+The storage URL for SFTP connections has the form ::
+
+  sftp://<host>[:port]/<path>
+
+The SFTP backend will always ask you for a password if you haven't
+defined one in `~/.s3ql/authinfo`. However, public key authentication
+is tried first and the password will only be used if the public key
+authentication fails.
+
+The public and private keys will be read from the standard files in
+`~/.ssh/`. Note that S3QL will refuse to connect to a computer with
+unknown host key; to add the key to your local keyring you have to
+establish a connection to that computer with the standard SSH command
+line programs first.
+
+FTP
+====
+
+This backend provides support for the standard FTP and FTP over TLS
+protocols. The store url has the form ::
+
+  ftp://<host>[:port]/<path>
+
+for unencrypted FTP or ::
+
+  ftps://<host>[:port]/<path>
+
+for FTP over TLS.

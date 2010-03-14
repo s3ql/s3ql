@@ -91,27 +91,28 @@ def main(args=None):
 
     options = parse_args(args)
     init_logging_from_options(options, 'tune.log')
-    (conn, bucketname) = get_backend(options)
-    if not bucketname in conn:
-        raise QuietError("Bucket does not exist.")
-    bucket = conn.get_bucket(bucketname)
 
-    try:
-        unlock_bucket(bucket)
-    except ChecksumError:
-        raise QuietError('Checksum error - incorrect password?')
+    with get_backend(options) as (conn, bucketname):
+        if not bucketname in conn:
+            raise QuietError("Bucket does not exist.")
+        bucket = conn.get_bucket(bucketname)
 
-    if options.delete:
-        return delete_bucket(conn, options.bucketname)
+        try:
+            unlock_bucket(bucket)
+        except ChecksumError:
+            raise QuietError('Checksum error - incorrect password?')
 
-    if options.copy:
-        return copy_bucket(conn, options, bucket)
+        if options.delete:
+            return delete_bucket(conn, bucketname)
 
-    if options.change_passphrase:
-        return change_passphrase(bucket)
+        if options.copy:
+            return copy_bucket(conn, options, bucket)
 
-    if options.upgrade:
-        return upgrade(conn, bucket)
+        if options.change_passphrase:
+            return change_passphrase(bucket)
+
+        if options.upgrade:
+            return upgrade(conn, bucket)
 
 
 def change_passphrase(bucket):

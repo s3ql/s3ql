@@ -18,48 +18,76 @@ import threading
 import traceback
 import re
 import cPickle as pickle
+from contextlib import contextmanager
 
 __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_parameters',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path", 'get_lockfile',
            "ROOT_INODE", "ExceptionStoringThread", 'retry', 'get_stdout_handler',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
-           'stacktraces', 'init_logging_from_options', 'QuietError', 'get_backend' ]
+           'stacktraces', 'init_logging_from_options', 'QuietError', 'get_backend',
+           'cycle_metadata' ]
 
 VERSION = '0.9'
 
 log = logging.getLogger('common')
 
+@contextmanager
 def get_backend(options):
     from .backends import s3, local, ftp, sftp
     storage_url = options.storage_url
 
     if storage_url.startswith('local://'):
-        return (local.Connection(), storage_url[len('local://'):])
+        conn = local.Connection()
+        bucketname = storage_url[len('local://'):]
 
-    if storage_url.startswith('s3://'):
+    elif storage_url.startswith('s3://'):
         (login, password) = get_credentials(options.homedir, 's3', None)
-        return (s3.Connection(login, password), storage_url[len('s3://'):])
+        conn = s3.Connection(login, password)
+        bucketname = storage_url[len('s3://'):]
 
-    pat = r'^([a-z]+)://([a-zA-Z0-9.-]+)(:[0-9]+)(/[a-zA-Z0-9./_-]+)$'
-    match = re.match(pat, storage_url)
-    if not match:
-        raise QuietError('Invalid storage url: %r' % storage_url)
-    (backend, port, host, bucketname) = match.groups()
-    (login, password) = get_credentials(options.homedir, backend, host)
+    else:
+        pat = r'^([a-z]+)://([a-zA-Z0-9.-]+)(?::([0-9]+))?(/[a-zA-Z0-9./_-]+)$'
+        match = re.match(pat, storage_url)
+        if not match:
+            raise QuietError('Invalid storage url: %r' % storage_url)
+        (backend, host, port, bucketname) = match.groups()
+        (login, password) = get_credentials(options.homedir, backend, host)
 
-    if backend == 'ftp':
-        return (ftp.Connection(host, port, login, password), bucketname)
-    elif backend == 'ftps':
-        return (ftp.TLSConnection(host, port, login, password), bucketname)
-    elif backend == 'sftp':
-        return (sftp.Connection(host, port, login, password), bucketname)
+        if backend == 'ftp':
+            conn = ftp.Connection(host, port, login, password)
+        elif backend == 'ftps':
+            conn = ftp.TLSConnection(host, port, login, password)
+        elif backend == 'sftp':
+            conn = sftp.Connection(host, port, login, password)
+        else:
+            raise QuietError('Unknown backend: %s' % backend)
 
-    raise QuietError('Unknown backend: %s' % backend)
+    try:
+        yield (conn, bucketname)
+    finally:
+        conn.close()
 
+def cycle_metadata(bucket):
+    from .backends.common import UnsupportedError
+    if "s3ql_metadata_bak_2" in bucket:
+        try:
+            bucket.rename("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
+        except UnsupportedError:
+            bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
+    if "s3ql_metadata_bak_1" in bucket:
+        try:
+            bucket.rename("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
+        except UnsupportedError:
+            bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
+    try:
+        bucket.rename("s3ql_metadata", "s3ql_metadata_bak_1")
+    except UnsupportedError:
+        bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
 
 def unlock_bucket(bucket):
     '''Ask for passphrase if bucket requires one'''
 
+    # TODO: Read passphrase from .s3ql/authinfo
     if 's3ql_passphrase' in bucket:
         if sys.stdin.isatty():
             wrap_pw = getpass("Enter encryption password: ")

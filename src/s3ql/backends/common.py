@@ -22,13 +22,15 @@ import bz2
 #import lzma
 from base64 import b64decode, b64encode
 import struct
+from abc import ABCMeta, abstractmethod
 
 log = logging.getLogger("backend")
 
-__all__ = [ 'AbstractConnection', 'AbstractBucket', 'ChecksumError' ]
+__all__ = [ 'AbstractConnection', 'AbstractBucket', 'ChecksumError', 'UnsupportedError' ]
 
 class AbstractConnection(object):
     '''This class contains functionality shared between all backends.'''
+    __metaclass__ = ABCMeta
 
     def bucket_exists(self, name):
         """Check if the bucket `name` exists"""
@@ -43,12 +45,65 @@ class AbstractConnection(object):
     def __contains__(self, name):
         return self.bucket_exists(name)
 
+    def close(self):
+        '''Close connection.
+        
+        Make sure that this method is called before caller terminates,
+        otherwise the interpreter may be kept alive by background 
+        threads initiated by the connection.
+        '''
+        pass
+
+    def prepare_fork(self):
+        '''Prepare connection for forking
+        
+        This method must be called before the process is forked, so that
+        the connection can properly terminate any threads that it uses.
+        
+        The connection (or any of its bucket objects) can not be used
+        between the calls to `prepare_fork()` and `finish_fork()`.
+        '''
+        pass
+
+    def finish_fork(self):
+        '''Re-initalize connection after forking
+        
+        This method must be called after the process has forked, so that
+        the connection can properly restart any threads that it may
+        have stopped for the fork.
+        
+        The connection (or any of its bucket objects) can not be used
+        between the calls to `prepare_fork()` and `finish_fork()`.
+        '''
+        pass
+
+    @abstractmethod
+    def create_bucket(self, name, passphrase=None):
+        """Create bucket and return `Bucket` instance"""
+        pass
+
+    @abstractmethod
+    def get_bucket(self, name, passphrase=None):
+        """Get `Bucket` instance for bucket `name`"""
+        pass
+
+    @abstractmethod
+    def delete_bucket(self, name, recursive=False):
+        """Delete bucket
+        
+        If `recursive` is False and the bucket still contains
+        objects, the call will fail.
+        """
+        pass
+
+
 class AbstractBucket(object):
     '''This class contains functionality shared between all backends.
     
     Instances behave more or less like dicts. They raise the
     same exceptions, can be iterated over and indexed into.
     '''
+    __metaclass__ = ABCMeta
 
     def __getitem__(self, key):
         return self.fetch(key)[0]
@@ -237,6 +292,81 @@ class AbstractBucket(object):
             (fh, tmp) = (tmp, fh)
             tmp.close()
 
+    @abstractmethod
+    def __str__(self):
+        pass
+
+    @abstractmethod
+    def clear(self):
+        """Delete all objects in bucket"""
+        pass
+
+    @abstractmethod
+    def contains(self, key):
+        '''Check if `key` is in bucket'''
+        pass
+
+    @abstractmethod
+    def raw_lookup(self, key):
+        '''Return meta data for `key`'''
+        pass
+
+    @abstractmethod
+    def delete(self, key, force=False):
+        """Delete object stored under `key`
+
+        ``bucket.delete(key)`` can also be written as ``del bucket[key]``.
+        If `force` is true, do not return an error if the key does not exist.
+        """
+        pass
+
+    @abstractmethod
+    def list(self, prefix=''):
+        '''List keys in bucket
+
+        Returns an iterator over all keys in the bucket.
+        '''
+        pass
+
+    @abstractmethod
+    def get_size(self):
+        """Get total size of bucket"""
+        pass
+
+    @abstractmethod
+    def raw_fetch(self, key, fh):
+        '''Fetch contents stored under `key` and write them into `fh`'''
+        pass
+
+    @abstractmethod
+    def raw_store(self, key, fh, metadata):
+        '''Store contents of `fh` in `key` with meta data'''
+        pass
+
+
+    def copy(self, src, dest):
+        """Copy data stored under key `src` to key `dest`
+        
+        If `dest` already exists, it will be overwritten. The copying
+        is done on the remote side. If the backend does not support
+        this operation, raises `UnsupportedError`.
+        """
+        raise UnsupportedError('Backend does not support remote copy')
+
+    def rename(self, src, dest):
+        """Rename key `src` to `dest`
+        
+        If `dest` already exists, it will be overwritten. The rename
+        is done on the remote side. If the backend does not support
+        this operation, raises `UnsupportedError`.
+        """
+        raise UnsupportedError('Backend does not support remote rename')
+
+
+class UnsupportedError(Exception):
+    '''Raised if a backend does not support a particular operation'''
+
+    pass
 
 
 def decrypt_uncompress_fh(ifh, ofh, passphrase, decomp):
