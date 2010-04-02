@@ -59,11 +59,9 @@ def main(args=None):
             with bucket._get_boto() as boto:
                 if boto.get_location() not in ('EU', 'us-west-1'):
                     log.warn('Note: Your bucket is located in the US-Standard storage region.\n'
-                             'Under very rare circumstances this can lead to problems, see\n'
-                             'http://code.google.com/p/s3ql/wiki/FAQ#'
-                             'What%27s_wrong_with_having_S3_buckets_in_the_%22US_Standar\n'
+                             'Under very rare circumstances this can lead to problems, please\n'
+                             'refer to the FAQ at http://code.google.com/p/s3ql/ for details.\n'
                              '(you can relocate your bucket with tune.s3ql --copy if desired)')
-
         try:
             unlock_bucket(bucket)
         except ChecksumError:
