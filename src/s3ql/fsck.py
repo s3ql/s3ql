@@ -1,5 +1,5 @@
 '''
-$Id$
+$Id: fsck.py 798 2010-02-13 22:51:37Z nikratio $
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

@@ -1,5 +1,5 @@
 '''
-$Id$
+$Id: mkfs.py 971 2010-04-02 15:48:35Z nikratio $
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

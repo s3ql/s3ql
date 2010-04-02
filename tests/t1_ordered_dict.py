@@ -1,5 +1,5 @@
 '''
-$Id$
+$Id: t1_ordered_dict.py 762 2010-02-06 22:37:05Z nikratio $
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

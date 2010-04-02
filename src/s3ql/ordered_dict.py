@@ -1,5 +1,5 @@
 '''
-$Id$
+$Id: ordered_dict.py 785 2010-02-08 20:02:01Z nikratio $
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

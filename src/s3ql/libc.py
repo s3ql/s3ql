@@ -1,5 +1,5 @@
 '''
-$Id$
+$Id: libc.py 667 2010-01-24 18:17:42Z nikratio $
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

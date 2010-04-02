@@ -1,5 +1,5 @@
 '''
-$Id$
+$Id: t4_tune.py 890 2010-02-20 12:49:42Z nikratio $
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

@@ -1,5 +1,5 @@
 '''
-$Id$
+$Id: database.py 713 2010-01-26 01:15:12Z nikratio $
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

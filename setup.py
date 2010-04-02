@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 '''
-$Id$
+$Id: setup.py 960 2010-03-08 02:01:54Z nikratio $
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

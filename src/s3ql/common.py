@@ -1,5 +1,5 @@
 '''
-$Id$
+$Id: common.py 965 2010-03-14 00:36:36Z nikratio $
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

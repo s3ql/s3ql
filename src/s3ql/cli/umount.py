@@ -1,5 +1,5 @@
 '''
-$Id$
+$Id: umount.py 963 2010-03-13 20:25:14Z nikratio $
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

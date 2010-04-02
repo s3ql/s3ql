@@ -1,5 +1,5 @@
 '''
-$Id$
+$Id: t3_fsck.py 839 2010-02-16 21:32:35Z nikratio $
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

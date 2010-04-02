@@ -1,5 +1,5 @@
 '''
-$Id$
+$Id: multi_lock.py 490 2010-01-14 23:13:08Z nikratio $
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

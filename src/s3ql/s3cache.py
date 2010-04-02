@@ -1,5 +1,5 @@
 '''
-$Id$
+$Id: s3cache.py 912 2010-02-27 04:24:09Z nikratio $
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 
