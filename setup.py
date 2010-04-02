@@ -31,15 +31,15 @@ fuse_export_symbols = ['fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
 libc_export_symbols = [ 'setxattr', 'getxattr', 'readdir', 'opendir',
                        'closedir' ]
 
-# Import setuptools
-import ez_setup
-ez_setup.use_setuptools()
-import setuptools
-
 # Add S3QL sources
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
 sys.path.insert(0, os.path.join(basedir, 'src'))
 import s3ql.common
+
+# Import setuptools
+import ez_setup
+ez_setup.use_setuptools()
+import setuptools
 
 def main():
     with open(os.path.join(basedir, 'doc', 'txt', 'about.txt'), 'r') as fh:

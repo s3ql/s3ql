@@ -1,7 +1,7 @@
 graft doc/html
-prune .settings
-exclude README.SVN
-exclude .project
-exclude .pydevproject
+graft doc/txt
+include src/*.py src/*.h src/*.zip
+include Changes.txt 
+exclude src/llfuse/ctypes_api.py
+exclude src/s3ql/libc_api.py
 exclude MANIFEST.in
-
