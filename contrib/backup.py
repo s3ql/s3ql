@@ -18,9 +18,9 @@ source_dir = "/home/nikratio"
 
 # A list of exclusion patterns that will be passed to rsync
 # with --exclude
-exclusions = ['.cache/',
-              '.s3ql/',
-              '.thumbnails/' ]
+exclusions = ['/.cache/',
+              '/.s3ql/',
+              '/.thumbnails/' ]
 
 
 # The name of the bucket that contains the S3QL file system
@@ -114,10 +114,10 @@ def main():
                                    os.path.join(mountpoint, backup_dir, current_backup)])
 
         log.info('Creating new backup %r', current_backup)
+        rsync_args = ['rsync', '-aHxW', '--delete-during', '--delete-excluded',
+                      '--partial']
         if verbose:
-            rsync_args = ['rsync', '-aHvxW', '--delete']
-        else:
-            rsync_args = ['rsync', '-aHxW', '--delete']
+            rsync_args.append('-v')
         for pat in exclusions:
             rsync_args.append('--exclude')
             rsync_args.append(pat)
