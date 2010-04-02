@@ -80,7 +80,8 @@ def main():
                           },
           requires=['apsw', 'pycryptopp' ],
           cmdclass={'test': run_tests,
-                    'build_ctypes': build_ctypes, }
+                    'build_ctypes': build_ctypes,
+                    'upload_docs': upload_docs, }
          )
 
 class build_ctypes(Command):
@@ -307,6 +308,20 @@ class run_tests(Command):
         if not result.wasSuccessful():
             sys.exit(1)
 
+class upload_docs(Command):
+    user_options = []
+    boolean_options = []
+    description = "Upload documentation"
+
+    def initialize_options(self):
+        pass
+
+    def finalize_options(self):
+       pass
+
+    def run(self):
+        subprocess.check_call(['rsync', '-aH', '--del', os.path.join(basedir, 'doc', 'html') + '/',
+                               'ebox.rath.org:/var/www/s3ql-docs/'])
 
 if __name__ == '__main__':
     main()
