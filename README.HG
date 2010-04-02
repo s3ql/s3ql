@@ -1,5 +1,5 @@
 Please note that you are using a bleeding edge, unstable development version of
-S3QL that has been downloaded from the SVN trunk. File systems created with this
+S3QL that has been cloned from the Mercurial repository. File systems created with this
 version may not work with any other version of S3QL (including the forthcoming
 release). tune.s3ql may not be able to upgrade file systems either to or from
 this version. You have been warned.
