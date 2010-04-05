@@ -50,6 +50,7 @@ def main(args=None):
         raise QuietError('Mountpoint does not exist.')
 
     with get_backend(options) as (conn, bucketname):
+
         if not bucketname in conn:
             raise QuietError("Bucket does not exist.")
         bucket = conn.get_bucket(bucketname)

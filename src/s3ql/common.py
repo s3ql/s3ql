@@ -33,12 +33,20 @@ log = logging.getLogger('common')
 
 @contextmanager
 def get_backend(options):
+    '''Get backend connection and bucket name
+    
+    This is a context manager, since some connections need to be cleaned 
+    up properly. For the local backend, this function also canonicalizes
+    the path stored in options.storage_url
+    '''
+
     from .backends import s3, local, ftp, sftp
     storage_url = options.storage_url
 
     if storage_url.startswith('local://'):
         conn = local.Connection()
-        bucketname = storage_url[len('local://'):]
+        bucketname = os.path.abspath(storage_url[len('local://'):])
+        options.storage_url = 'local://%s' % bucketname
 
     elif storage_url.startswith('s3://'):
         (login, password) = get_credentials(options.homedir, 's3', None)
