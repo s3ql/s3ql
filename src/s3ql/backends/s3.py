@@ -159,9 +159,8 @@ class Bucket(AbstractBucket):
             self.conn._push_conn(boto_conn)
 
     def __init__(self, conn, name, passphrase):
-        super(Bucket, self).__init__()
+        super(Bucket, self).__init__(passphrase)
         self.conn = conn
-        self.passphrase = passphrase
         self.name = name
 
     def clear(self):
