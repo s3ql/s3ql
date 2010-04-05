@@ -15,7 +15,7 @@ import tempfile
 import os
 import time
 from _common import TestCase
-from _common import get_aws_credentials
+import _common
 from random import randrange
 
 # Each test should correspond to exactly one function in the tested
@@ -156,7 +156,7 @@ class BackendTests(object):
 
 # This test just takes too long (because we have to wait really long so that we don't
 # get false errors due to propagation delays)
-#@unittest.skipUnless(get_aws_credentials(), 'remote tests disabled')
+#@unittest.skipUnless(_common.aws_credentials, 'remote tests disabled')
 #class S3Tests(BackendTests, TestCase):
 class S3Tests(BackendTests):
     @staticmethod
@@ -165,8 +165,7 @@ class S3Tests(BackendTests):
 
     def setUp(self):
         self.name_cnt = 0
-        (awskey, awspass) = get_aws_credentials()
-        self.conn = s3.Connection(awskey, awspass)
+        self.conn = s3.Connection(*_common.aws_credentials)
 
         self.bucketname = self.random_name()
         tries = 10

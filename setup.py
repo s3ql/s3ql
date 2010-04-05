@@ -216,9 +216,9 @@ class run_tests(Command):
     description = "Run self-tests"
     user_options = [('debug=', None, 'Activate debugging for specified modules '
                                     '(separated by commas, specify "all" for all modules)'),
-                    ('awskey=', None, 'Specify AWS access key to use, secret key will be asked for'),
-                    ('credfile=', None, 'Try to read AWS access key and secret key from specified '
-                                       'file (instead of ~/.awssecret)'),
+                    ('awskey=', None, 'Specify AWS access key to use, secret key will be asked for. '
+                                      'If this option is not specified, tests requiring access '
+                                      'to Amazon Web Services will be skipped.'),
                     ('tests=', None, 'Run only the specified tests (separated by commas)')
                 ]
     boolean_options = []
@@ -226,7 +226,6 @@ class run_tests(Command):
     def initialize_options(self):
         self.debug = None
         self.awskey = None
-        self.credfile = None
         self.tests = None
 
     def finalize_options(self):
@@ -256,6 +255,7 @@ class run_tests(Command):
         sys.path.insert(0, os.path.join(basedir, 'tests'))
         import unittest
         import _common
+        import s3ql.common
         from s3ql.common import init_logging
         from getpass import getpass
 
@@ -274,23 +274,18 @@ class run_tests(Command):
         init_logging(logfile, stdout_level, file_level, file_loggers)
 
         # Init AWS
-        if self.credfile:
-            _common.keyfile = self.credfile
         if self.awskey:
             if sys.stdin.isatty():
                 pw = getpass("Enter AWS password: ")
             else:
                 pw = sys.stdin.readline().rstrip()
-            _common.aws_credentials_available = True
             _common.aws_credentials = (self.awskey, pw)
-        _common.get_aws_credentials()
 
         # Find and import all tests
         testdir = os.path.join(basedir, 'tests')
         modules_to_test = [ name[:-3] for name in os.listdir(testdir)
                             if name.endswith(".py") and name.startswith('t') ]
         modules_to_test.sort()
-        #modules_to_test = [ __import__(name) for name in modules_to_test ]
 
         base_module = sys.modules[__name__]
         for name in modules_to_test:

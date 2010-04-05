@@ -15,7 +15,6 @@ import os
 from cStringIO import StringIO
 import shutil
 import s3ql.cli.mkfs
-import s3ql.common
 import s3ql.cli.tune
 from s3ql.backends import local
 
