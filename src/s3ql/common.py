@@ -87,7 +87,6 @@ def cycle_metadata(bucket):
 def unlock_bucket(bucket):
     '''Ask for passphrase if bucket requires one'''
 
-    # TODO: Read passphrase from .s3ql/authinfo
     if 's3ql_passphrase' in bucket:
         if sys.stdin.isatty():
             wrap_pw = getpass("Enter encryption password: ")
