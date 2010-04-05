@@ -1,5 +1,7 @@
 graft doc/html
 graft doc/txt
+graft contrib
+graft tests
 include src/*.py src/*.h src/*.zip
 include Changes.txt 
 exclude src/llfuse/ctypes_api.py
