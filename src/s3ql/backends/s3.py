@@ -8,6 +8,10 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
+# Python boto uses several deprecated modules, deactivate warnings for them
+import warnings
+warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
+
 from .common import AbstractConnection, AbstractBucket
 from time import sleep
 from .boto.s3.connection import S3Connection
