@@ -1,4 +1,4 @@
-xxx, S3QL 0.9
+2010-04-04, S3QL 0.9
 
   * The --cachedir, --logfile, --awskey and --credfile options are gone and
     have been replaced by --homedir.
