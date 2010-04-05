@@ -96,6 +96,8 @@ class Connection(AbstractConnection):
         Note that a call to `get_bucket` right after creation may fail,
         since the changes do not propagate instantaneously through AWS.
         """
+        # Argument number deliberately differs from base class
+        #pylint: disable-msg=W0221
 
         with self._get_boto() as boto:
             # We need an EU bucket for the list-after-put consistency,
@@ -169,7 +171,9 @@ class Bucket(AbstractBucket):
                 log.info('Deleted %d objects so far..', no)
 
             log.debug('Deleting key %s', s3key)
-            t = ExceptionStoringThread(self.delete, log, args=(s3key,))
+
+            # Ignore KeyError when clearing bucket
+            t = ExceptionStoringThread(self.delete, log, args=(s3key, True))
             t.start()
             threads.append(t)
 

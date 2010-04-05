@@ -19,7 +19,7 @@ import re
 import logging
 import ctypes.util
 
-# These are the definitions that we need 
+# These are the definitions that we need
 fuse_export_regex = ['^FUSE_SET_.*', '^XATTR_.*', 'fuse_reply_.*' ]
 fuse_export_symbols = ['fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
                        'fuse_set_signal_handlers', 'fuse_session_add_chan',
@@ -247,7 +247,7 @@ class run_tests(Command):
         if apsw_ver < (3, 6, 14):
             raise StandardError('APSW version too old, must be 3.6.14 or newer!\n')
 
-        # Enforce correct SQLite version    
+        # Enforce correct SQLite version
         sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
         if sqlite_ver < (3, 6, 17):
             raise StandardError('SQLite version too old, must be 3.6.17 or newer!\n')
@@ -320,10 +320,8 @@ class upload_docs(Command):
        pass
 
     def run(self):
-        subprocess.check_call(['rsync', '-aH', '--del', os.path.join(basedir, 'doc', 'html') + '/',
+        subprocess.check_call(['rsync', '-aHv', '--del', os.path.join(basedir, 'doc', 'html') + '/',
                                'ebox.rath.org:/var/www/s3ql-docs/'])
 
 if __name__ == '__main__':
     main()
-
-
