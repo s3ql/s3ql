@@ -101,6 +101,15 @@ def main(args=None):
             log.info('Recovering old metadata from unclean shutdown..')
             cache = S3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
             cache.recover()
+
+            log.info('Uploading old cache files...')
+            cache.flush_all()
+
+            log.info('Uploading old metadata...')
+            dbcm.execute("VACUUM")
+            cycle_metadata(bucket)
+            bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
+
         else:
             if os.path.exists(cachedir):
                 raise RuntimeError('cachedir exists, but no local metadata.'

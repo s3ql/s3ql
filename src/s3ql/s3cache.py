@@ -250,7 +250,7 @@ class S3Cache(object):
 
             try:
                 s3key = self.dbcm.get_val('SELECT s3key FROM blocks WHERE inode=? AND blockno=?',
-                                              (inode, blockno))
+                                          (inode, blockno))
             except KeyError:
                 s3key = None
 
