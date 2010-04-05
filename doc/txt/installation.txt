@@ -16,11 +16,16 @@ Debian / Ubuntu
 
 If you are using Debian/Ubuntu, most of the prerequisites are already
 packaged, so the following command should take care of all
-dependencies::
+dependencies (if you want, you can remove `gccxml` and the packages
+ending in `-dev` again when the installation is complete)::
 
   aptitude install python-dev libfuse2 libfuse-dev \
                    gccxml python-pycryptopp libattr1-dev liblzma-dev liblzma0
 
+If you want to use the SFTP backend, you also need the Python Paramiko
+module::
+
+  aptitude install python-paramiko
 
 After that, you need to manually install the `Python APSW module
 <http://code.google.com/p/apsw/>`_ (since the version required by S3QL
@@ -134,13 +139,21 @@ The programs/libraries are required to run S3QL:
   may be available as a package, but most likely the version of the package
   will not be recent enough. To check which version of APWS is installed,
   enter ::
-    
+
     python -c 'import apsw; print apsw.apswversion(), apsw.sqlitelibversion()'
- 
-  in a terminal. If this command suceeds, it should print two version numbers 
+
+  in a terminal. If this command suceeds, it should print two version numbers
   which both have to be at least 3.6.17. To install APSW manually, download it
   from the website, extract it into a temporary folder and run
   `python setup.py install --user` in that folder.
+
+* If you want to use the SFTP backend, then you also need the
+  `Paramiko Python Module <http://www.lag.net/paramiko/>`_. It may or may
+  not be available as a package. To check if this module is installed,
+  try to execute `python -c 'import paramiko'`. To manually install
+  Paramiko, download it from the website, extract it into a
+  temporary folder and run `python setup.py install --user` in that
+  folder.
 
 
 Installing S3QL
@@ -162,5 +175,5 @@ the `bin` directory.
 
 If you want, you can also install S3QL system wide by executing `python
 setup.py install` or into `~/.local` by executing `python setup.py install
---user`. In the later case you should make sure that `~/.local/bin` is in 
+--user`. In the later case you should make sure that `~/.local/bin` is in
 your `$PATH` environment variable.
