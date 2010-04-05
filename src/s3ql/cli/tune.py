@@ -121,12 +121,7 @@ def change_passphrase(bucket):
     if 's3ql_passphrase' not in bucket:
         raise QuietError('Bucket is not encrypted.')
 
-    if sys.stdin.isatty():
-        wrap_pw = getpass("Enter encryption password: ")
-    else:
-        wrap_pw = sys.stdin.readline().rstrip()
-    bucket.passphrase = wrap_pw
-    data_pw = bucket['s3ql_passphrase']
+    data_pw = bucket.passphrase
 
     if sys.stdin.isatty():
         wrap_pw = getpass("Enter new encryption password: ")
