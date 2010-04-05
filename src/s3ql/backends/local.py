@@ -55,8 +55,7 @@ class Bucket(AbstractBucket):
     '''A bucket that is stored on the local hard disk'''
 
     def __init__(self, name, passphrase):
-        super(Bucket, self).__init__()
-        self.passphrase = passphrase
+        super(Bucket, self).__init__(passphrase)
         self.name = name
 
     def __str__(self):

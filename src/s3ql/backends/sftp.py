@@ -101,8 +101,7 @@ class Connection(AbstractConnection):
 class Bucket(AbstractBucket):
 
     def __init__(self, conn, name, passphrase):
-        super(Bucket, self).__init__()
-        self.passphrase = passphrase
+        super(Bucket, self).__init__(passphrase)
         self.conn = conn
         self.name = name
 
