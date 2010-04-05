@@ -20,10 +20,8 @@
           {%- endif %}
           {%- endblock %}
           {%- block sidebartoc %}
-          {%- if display_toc %}
             <h3><a href="{{ pathto(master_doc) }}">{{ _('Table Of Contents') }}</a></h3>
             {{ toctree() }}
-          {%- endif %}
           {%- endblock %}
           {%- block sidebarrel %}
           {#
