@@ -12,4 +12,5 @@ from __future__ import division, print_function
 # Export all modules
 import os
 testdir = os.path.dirname(__file__)
-__all__  =  [ name[:-3] for name in os.listdir(testdir) if name.endswith(".py") ]
+__all__ = [ name[:-3] for name in os.listdir(testdir) if name.endswith(".py") and
+            name != '__init__.py' ]
