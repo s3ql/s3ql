@@ -39,7 +39,7 @@ class fuse_tests(TestCase):
         self.cache_dir = tempfile.mkdtemp()
         self.bucket_dir = tempfile.mkdtemp()
 
-        self.bucketname = 'local:' + os.path.join(self.bucket_dir, 'mybucket')
+        self.bucketname = 'local://' + os.path.join(self.bucket_dir, 'mybucket')
         self.passphrase = 'oeut3d'
 
         # Make sure that the mount thread does not mess with the
@@ -62,13 +62,13 @@ class fuse_tests(TestCase):
         sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
         try:
             s3ql.cli.mkfs.main(['-L', 'test fs', '--blocksize', '10',
-                                '--encrypt', '--cachedir', self.cache_dir, self.bucketname ])
+                                '--encrypt', '--homedir', self.cache_dir, self.bucketname ])
         except SystemExit as exc:
             self.fail("mkfs.s3ql failed: %s" % exc)
 
         sys.stdin = StringIO('%s\n' % self.passphrase)
         self.mount_thread = ExceptionStoringThread(s3ql.cli.mount.main, logger=None,
-                                       args=(["--fg", '--cachedir', self.cache_dir, self.bucketname,
+                                       args=(["--fg", '--homedir', self.cache_dir, self.bucketname,
                                               self.mnt_dir],))
         self.mount_thread.start()
 
@@ -95,7 +95,7 @@ class fuse_tests(TestCase):
         # Now run an fsck
         sys.stdin = StringIO('%s\n' % self.passphrase)
         try:
-            s3ql.cli.fsck.main(['--cachedir', self.cache_dir, self.bucketname])
+            s3ql.cli.fsck.main(['--homedir', self.cache_dir, self.bucketname])
         except SystemExit as exc:
             self.fail("fsck failed: %s" % exc)
 

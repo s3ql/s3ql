@@ -15,6 +15,7 @@ import os
 from cStringIO import StringIO
 import shutil
 import s3ql.cli.mkfs
+import s3ql.common
 import s3ql.cli.tune
 from s3ql.backends import local
 
@@ -24,8 +25,11 @@ class TuneTests(TestCase):
         self.cache_dir = tempfile.mkdtemp()
         self.bucket_dir = tempfile.mkdtemp()
 
-        self.bucketname = 'local:' + os.path.join(self.bucket_dir, 'mybucket')
+        self.bucketname = 'local://' + os.path.join(self.bucket_dir, 'mybucket')
         self.passphrase = 'oeut3d'
+
+        # Make sure that the logging settings remain unchanged
+        s3ql.common.init_logging = lambda * a, **kw: None
 
     def tearDown(self):
         shutil.rmtree(self.cache_dir)
@@ -34,7 +38,7 @@ class TuneTests(TestCase):
     def mkfs(self):
         sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
         try:
-            s3ql.cli.mkfs.main(['--encrypt', '--cachedir', self.cache_dir, self.bucketname ])
+            s3ql.cli.mkfs.main(['--encrypt', '--homedir', self.cache_dir, self.bucketname ])
         except SystemExit as exc:
             self.fail("mkfs.s3ql failed: %s" % exc)
 
