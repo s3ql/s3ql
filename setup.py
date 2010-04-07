@@ -27,7 +27,8 @@ fuse_export_symbols = ['fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
                        'fuse_remove_signal_handlers', 'fuse_session_destroy',
                        'fuse_unmount', 'fuse_req_ctx', 'fuse_lowlevel_ops',
                        'fuse_session_loop', 'ENOATTR', 'ENOTSUP',
-                       'fuse_version' ]
+                       'fuse_version', 'fuse_lowlevel_notify_inval_inode',
+                       'fuse_lowlevel_notify_inval_entry' ]
 libc_export_symbols = [ 'setxattr', 'getxattr', 'readdir', 'opendir',
                        'closedir' ]
 
