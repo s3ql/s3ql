@@ -12,7 +12,7 @@ from optparse import OptionParser
 import logging
 import cPickle as pickle
 from ..common import (init_logging_from_options, get_backend, QuietError, unlock_bucket,
-                      ExceptionStoringThread)
+                      ExceptionStoringThread, cycle_metadata)
 from getpass import getpass
 import sys
 from ..backends import s3
@@ -162,30 +162,51 @@ def upgrade(conn, bucket):
     except ChecksumError:
         raise QuietError('Checksum error - incorrect password?')
 
-    # Upgrade from revision 1 to 2
-    if not list(bucket.list('s3ql_parameters_')):
-        upgrade_rev1(bucket)
-
-    # Read parameters
-    #seq_no = max([ int(x[len('s3ql_parameters_'):]) for x in bucket.list('s3ql_parameters_') ])
-    #param = pickle.loads(bucket['s3ql_parameters_%d' % seq_no])
-
-    # Upgrade from rev. 2 to rev. 3
-    #if param['revision'] == 2:
-    #    upgrade_rev2(bucket)
-
-def upgrade_rev1(bucket):
-    '''Upgrade file system from revision 1 to 2'''
-
-    log.info('Updating file system from revision 1 to 2.')
-
     log.info('Downloading metadata...')
     dbfile = tempfile.NamedTemporaryFile()
     bucket.fetch_fh('s3ql_metadata', dbfile)
     dbfile.flush()
-
-    log.info('Updating metadata...')
     dbcm = ConnectionManager(dbfile.name, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
+
+    # Upgrade from revision 1 to 2
+    if not list(bucket.list('s3ql_parameters_')):
+        param = upgrade_rev1(dbcm, bucket)
+    else:
+        # Read parameters
+        seq_no = max([ int(x[len('s3ql_parameters_'):]) for x in bucket.list('s3ql_parameters_') ])
+        param = pickle.loads(bucket['s3ql_parameters_%d' % seq_no])
+
+    # Check consistency
+    mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
+    if mountcnt_db < param['mountcnt']:
+        raise QuietError('It appears that the file system is still mounted somewhere else, or has\n'
+                         'not been unmounted cleanly. In the later case you should run fsck.s3ql\n'
+                         'on the computer where the file system has been mounted most recently.\n'
+                         'If you are using the S3 backend, it is also possible that updates are\n'
+                         'still propagating through S3 and you just have to wait a while.')
+    elif mountcnt_db > param['mountcnt']:
+        raise RuntimeError('mountcnt_db > mountcnt_s3, this should not happen.')
+
+    # Update mountcnt    
+    param['mountcnt'] += 1
+    dbcm.execute('UPDATE parameters SET mountcnt=mountcnt+1')
+    bucket.store('s3ql_parameters_%d' % param['mountcnt'],
+                 pickle.dumps(param, 2))
+
+    # Upgrade from rev. 2 to rev. 3
+    if param['revision'] == 2:
+        upgrade_rev2(dbcm)
+
+    # Upload parameters and metadata
+    log.info("Uploading database..")
+    dbcm.execute("VACUUM")
+    cycle_metadata(bucket)
+    bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
+
+def upgrade_rev1(dbcm, bucket):
+    '''Upgrade file system from revision 1 to 2'''
+
+    log.info('Updating file system from revision 1 to 2.')
 
     # Remove . and .. from database
     dbcm.execute('DELETE FROM contents WHERE name=? OR name=?', ('.', '..'))
@@ -197,10 +218,18 @@ def upgrade_rev1(bucket):
     param['revision'] = 2
     param['mountcnt'] = dbcm.get_val('SELECT mountcnt FROM parameters')
 
-    log.info('Uploading metadata')
     bucket.store('s3ql_parameters_%d' % param['mountcnt'],
                  pickle.dumps(param, 2))
-    bucket.store_fh('s3ql_metadata', dbfile)
+
+    return param
+
+
+def upgrade_rev2(dbcm):
+    '''Upgrade file system from revision 2 to 3'''
+
+    log.info('Updating file system from revision 2 to 3.')
+    dbcm.execute('CREATE INDEX ix_blocks_s3key ON blocks(s3key)')
+
 
 def copy_bucket(conn, options, src_bucket):
     '''Copy bucket to different storage location'''

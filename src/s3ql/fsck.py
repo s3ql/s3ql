@@ -203,6 +203,7 @@ def check_loops():
     log.info('Checking directory reachability...')
 
     conn.execute("CREATE TEMPORARY TABLE loopcheck AS SELECT * FROM contents")
+    conn.execute('CREATE INDEX ix_loopcheck_parent_inode ON loopcheck(parent_inode)')
 
     def delete_tree(inode_p):
         subdirs = list()

@@ -16,7 +16,7 @@ from optparse import OptionParser
 import logging
 from s3ql import mkfs
 from s3ql.common import (init_logging_from_options, get_backend, get_cachedir, get_dbfile,
-                         QuietError)
+                         QuietError, CURRENT_FS_REV)
 from s3ql.database import WrappedConnection
 from s3ql.backends.boto.s3.connection import Location
 from s3ql.backends import s3
@@ -123,7 +123,7 @@ def main(args=None):
 
             log.info('Uploading database...')
             param = dict()
-            param['revision'] = 2
+            param['revision'] = CURRENT_FS_REV
             param['mountcnt'] = 0
             bucket.store('s3ql_parameters_%d' % param['mountcnt'],
                          pickle.dumps(param, 2))

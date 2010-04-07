@@ -25,9 +25,10 @@ __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_paramete
            "ROOT_INODE", "ExceptionStoringThread", 'retry', 'get_stdout_handler',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'stacktraces', 'init_logging_from_options', 'QuietError', 'get_backend',
-           'cycle_metadata' ]
+           'cycle_metadata', 'CURRENT_FS_REV', 'VERSION' ]
 
 VERSION = '0.9'
+CURRENT_FS_REV = 3
 
 log = logging.getLogger('common')
 
@@ -117,9 +118,9 @@ def get_parameters(bucket):
     param = pickle.loads(bucket['s3ql_parameters_%d' % seq_no])
     assert seq_no == param['mountcnt']
 
-    if param['revision'] < 2:
+    if param['revision'] < CURRENT_FS_REV:
         raise QuietError('File system revision too old, please run tune.s3ql --upgrade first.')
-    elif param['revision'] > 2:
+    elif param['revision'] > CURRENT_FS_REV:
         raise QuietError('File system revision too new, please update your '
                          'S3QL installation.')
 

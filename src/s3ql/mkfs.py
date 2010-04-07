@@ -206,6 +206,7 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
  
         PRIMARY KEY (inode, blockno)
     )
+    CREATE INDEX ix_blocks_s3key ON blocks(s3key);
     """)
     conn.execute(trigger_cmd.format(**{ "src_table": "blocks",
                                        "src_key": "inode",
