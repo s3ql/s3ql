@@ -319,6 +319,23 @@ def init(operations_, mountpoint_, args):
         libfuse.fuse_unmount(mountpoint, channel)
         raise
 
+def invalidate_inode(inode, attr_only=False):
+    '''Invalidate cache for `inode`
+    
+    Tells the FUSE kernel module to forgot cached attributes and
+    data (unless `attr_only` is True) for `inode.
+    '''
+
+    if attr_only:
+        libfuse.fuse_lowlevel_notify_inval_inode(channel, inode, -1, 0)
+    else:
+        libfuse.fuse_lowlevel_notify_inval_inode(channel, inode, 0, 0)
+
+def invalidate_entry(inode_p, name):
+    '''Invalidate directory entry `name` in directory `inode_p`'''
+
+    libfuse.fuse_lowlevel_notify_inval_entry(channel, inode_p, name, len(name))
+
 def make_fuse_args(args):
     '''Create fuse_args Structure for given mount options'''
 
