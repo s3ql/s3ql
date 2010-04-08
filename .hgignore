@@ -6,7 +6,7 @@ syntax: regexp
 syntax: regexp
 ^doc/doctrees$
 syntax: regexp
-^doc/html$
+^doc/html
 syntax: regexp
 ^dist$
 syntax: regexp
