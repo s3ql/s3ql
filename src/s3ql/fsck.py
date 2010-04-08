@@ -202,28 +202,34 @@ def check_loops():
     global found_errors
     log.info('Checking directory reachability...')
 
-    conn.execute("CREATE TEMPORARY TABLE loopcheck AS SELECT * FROM contents")
+    # Figure out mask for entry typ
+    S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK |
+              stat.S_IFCHR | stat.S_IFIFO | stat.S_IFLNK)
+
+    conn.execute('CREATE TEMPORARY TABLE loopcheck (inode INTEGER PRIMARY KEY, '
+                 'parent_inode INTEGER)')
     conn.execute('CREATE INDEX ix_loopcheck_parent_inode ON loopcheck(parent_inode)')
+    conn.execute('INSERT INTO loopcheck (inode, parent_inode) '
+                 'SELECT inode, parent_inode FROM contents JOIN inodes ON inode == id '
+                 'WHERE mode & ? == ?', (S_IFMT, stat.S_IFDIR))
+    conn.execute('CREATE TEMPORARY TABLE loopcheck2 (inode INTEGER PRIMARY KEY)')
+    conn.execute('INSERT INTO loopcheck2 (inode) SELECT inode FROM loopcheck')
 
     def delete_tree(inode_p):
-        subdirs = list()
-        for (inode, mode) in conn.query("SELECT inode, mode FROM contents JOIN inodes "
-                                        "ON inode == id WHERE parent_inode=?",
-                                        (inode_p,)):
-            if stat.S_ISDIR(mode):
-                subdirs.append(inode)
-        conn.execute("DELETE FROM loopcheck WHERE parent_inode=?", (inode_p,))
-        for inode in subdirs:
+        for (inode,) in conn.query("SELECT inode FROM loopcheck WHERE parent_inode=?",
+                                   (inode_p,)):
             delete_tree(inode)
+        conn.execute('DELETE FROM loopcheck2 WHERE inode=?', (inode_p,))
 
     delete_tree(ROOT_INODE)
 
-    if conn.get_val("SELECT COUNT(inode) FROM loopcheck") > 0:
+    if conn.get_val("SELECT COUNT(inode) FROM loopcheck2") > 0:
         found_errors = True
         log_error("Found unreachable filesystem entries!\n"
                   "This problem cannot be corrected automatically yet.")
 
     conn.execute("DROP TABLE loopcheck")
+    conn.execute("DROP TABLE loopcheck2")
 
 def check_inode_refcount():
     """Check inode reference counters"""

@@ -157,7 +157,6 @@ class fsck_tests(TestCase):
                          (bytes(inode), inode, last))
             last = inode
 
-
         fsck.found_errors = False
         fsck.check_inode_refcount()
         self.assertFalse(fsck.found_errors)
