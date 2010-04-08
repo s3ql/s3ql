@@ -62,7 +62,7 @@ import sys
 
 
 __all__ = [ 'FUSEError', 'ENOATTR', 'ENOTSUP', 'init', 'main', 'close',
-            'fuse_version' ]
+            'fuse_version', 'invalidate_entry', 'invalidate_inode' ]
 
 
 # These should really be defined in the errno module, but
@@ -326,6 +326,7 @@ def invalidate_inode(inode, attr_only=False):
     data (unless `attr_only` is True) for `inode.
     '''
 
+    log.debug('Invalidating inode %d', inode)
     if attr_only:
         libfuse.fuse_lowlevel_notify_inval_inode(channel, inode, -1, 0)
     else:
@@ -334,6 +335,7 @@ def invalidate_inode(inode, attr_only=False):
 def invalidate_entry(inode_p, name):
     '''Invalidate directory entry `name` in directory `inode_p`'''
 
+    log.debug('Invalidating entry %r for inode %d', name, inode_p)
     libfuse.fuse_lowlevel_notify_inval_entry(channel, inode_p, name, len(name))
 
 def make_fuse_args(args):
