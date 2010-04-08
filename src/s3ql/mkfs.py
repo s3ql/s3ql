@@ -205,7 +205,7 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
         s3key     INTEGER NOT NULL REFERENCES s3_objects(id),
  
         PRIMARY KEY (inode, blockno)
-    )
+    );
     CREATE INDEX ix_blocks_s3key ON blocks(s3key);
     """)
     conn.execute(trigger_cmd.format(**{ "src_table": "blocks",
