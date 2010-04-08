@@ -195,13 +195,13 @@ def upgrade(conn, bucket):
 
     # Upgrade from rev. 2 to rev. 3
     if param['revision'] == 2:
-        upgrade_rev2(dbcm)
+        upgrade_rev2(dbcm, param)
 
     # Upload parameters and metadata
     log.info("Uploading database..")
     dbcm.execute("VACUUM")
     cycle_metadata(bucket)
-    bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
+    bucket.store_fh("s3ql_metadata", open(dbfile.name, 'rb'))
 
 def upgrade_rev1(dbcm, bucket):
     '''Upgrade file system from revision 1 to 2'''
@@ -224,11 +224,12 @@ def upgrade_rev1(dbcm, bucket):
     return param
 
 
-def upgrade_rev2(dbcm):
+def upgrade_rev2(dbcm, param):
     '''Upgrade file system from revision 2 to 3'''
 
     log.info('Updating file system from revision 2 to 3.')
     dbcm.execute('CREATE INDEX ix_blocks_s3key ON blocks(s3key)')
+    param['revision'] = 3
 
 
 def copy_bucket(conn, options, src_bucket):
