@@ -187,7 +187,7 @@ def upgrade(conn, bucket):
     elif mountcnt_db > param['mountcnt']:
         raise RuntimeError('mountcnt_db > mountcnt_s3, this should not happen.')
 
-    # Update mountcnt    
+    # Lock the bucket   
     param['mountcnt'] += 1
     dbcm.execute('UPDATE parameters SET mountcnt=mountcnt+1')
     bucket.store('s3ql_parameters_%d' % param['mountcnt'],
@@ -197,7 +197,13 @@ def upgrade(conn, bucket):
     if param['revision'] == 2:
         upgrade_rev2(dbcm, param)
 
-    # Upload parameters and metadata
+    # Upload parameters
+    param['mountcnt'] += 1
+    dbcm.execute('UPDATE parameters SET mountcnt=mountcnt+1')
+    bucket.store('s3ql_parameters_%d' % param['mountcnt'],
+                 pickle.dumps(param, 2))
+
+    # Upload and metadata
     log.info("Uploading database..")
     dbcm.execute("VACUUM")
     cycle_metadata(bucket)
