@@ -318,13 +318,13 @@ class Operations(llfuse.Operations):
         if changes == 0:
             raise llfuse.FUSEError(llfuse.ENOATTR)
 
-    def copy_tree(self, src_ino, target_ino):
+    def copy_tree(self, src_ino_top, target_ino_top):
         '''Efficiently copy directory tree'''
 
         # First we have to flush the cache
         self.cache.flush_all()
 
-        queue = [ (src_ino, target_ino) ]
+        queue = [ (src_ino_top, target_ino_top) ]
         ino_cache = dict()
         stamp = time.time()
         while queue:
@@ -335,6 +335,8 @@ class Operations(llfuse.Operations):
             if time.time() - stamp > 5:
                 time.sleep(1)
                 stamp = time.time()
+
+        llfuse.invalidate_inode(target_ino_top, True)
 
     def _copy_tree(self, src_ino, target_ino, queue, ino_cache):
 
