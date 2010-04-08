@@ -1,3 +1,12 @@
+xx, S3QL 0.10
+
+  * fsck.s3ql is now several orders of magnitude faster.
+  
+  * When running cp.s3ql, the attributes of the target directory are
+    now immediately refreshed (so that e.g. ls immediately shows the
+    correct number of hard links).
+    
+    
 2010-04-04, S3QL 0.9
 
   * The --cachedir, --logfile, --awskey and --credfile options are gone and
