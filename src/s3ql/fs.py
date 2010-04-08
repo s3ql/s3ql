@@ -336,7 +336,7 @@ class Operations(llfuse.Operations):
                 time.sleep(1)
                 stamp = time.time()
 
-        llfuse.invalidate_inode(target_ino_top, True)
+        llfuse.invalidate_inode(target_ino_top)
 
     def _copy_tree(self, src_ino, target_ino, queue, ino_cache):
 
