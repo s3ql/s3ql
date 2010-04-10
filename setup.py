@@ -9,7 +9,6 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function
 
-from distutils.core import Command
 import distutils.command.build
 import sys
 import os
@@ -18,6 +17,7 @@ import subprocess
 import re
 import logging
 import ctypes.util
+
 
 # These are the definitions that we need
 fuse_export_regex = ['^FUSE_SET_.*', '^XATTR_.*', 'fuse_reply_.*' ]
@@ -32,6 +32,15 @@ fuse_export_symbols = ['fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
 libc_export_symbols = [ 'setxattr', 'getxattr', 'readdir', 'opendir',
                        'closedir' ]
 
+# C components
+cflags = ['-std=c99', '-Wall', '-Wextra', '-pedantic', '-Wswitch-enum',
+          '-Wswitch-default']
+lzma_c_files = list()
+for file_ in ['liblzma.c', 'liblzma_compressobj.c', 'liblzma_decompressobj.c',
+              'liblzma_file.c', 'liblzma_fileobj.c', 'liblzma_options.c',
+              'liblzma_util.c']:
+    lzma_c_files.append(os.path.join('src', 's3ql', 'lzma', file_))
+
 # Add S3QL sources
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
 sys.path.insert(0, os.path.join(basedir, 'src'))
@@ -45,6 +54,14 @@ import setuptools
 def main():
     with open(os.path.join(basedir, 'doc', 'txt', 'about.txt'), 'r') as fh:
         long_desc = fh.read()
+
+    version_define = [('VERSION', '"%s"' % '0.5.2')]
+    compile_args = list()
+    compile_args.extend(cflags)
+    compile_args.extend(get_cflags('liblzma'))
+    extens = [setuptools.Extension('s3ql.lzma', lzma_c_files, extra_compile_args=compile_args,
+                                 extra_link_args=get_cflags('liblzma', False, True),
+                                 define_macros=version_define)]
 
     setuptools.setup(
           name='s3ql',
@@ -80,12 +97,13 @@ def main():
                            'umount.s3ql = s3ql.cli.umount:main' ]
                           },
           requires=['apsw', 'pycryptopp' ],
+          ext_modules=extens,
           cmdclass={'test': run_tests,
                     'build_ctypes': build_ctypes,
                     'upload_docs': upload_docs, }
          )
 
-class build_ctypes(Command):
+class build_ctypes(setuptools.Command):
 
     description = "Build ctypes interfaces"
     user_options = []
@@ -111,7 +129,7 @@ class build_ctypes(Command):
 
         print('Creating ctypes API from local fuse headers...')
 
-        cflags = self.get_cflags()
+        cflags = get_cflags('fuse')
         print('Using cflags: %s' % ' '.join(cflags))
 
         fuse_path = 'fuse'
@@ -195,24 +213,32 @@ class build_ctypes(Command):
         print('Code generation complete.')
 
 
-    def get_cflags(self):
-        '''Get cflags required to compile with fuse library'''
+def get_cflags(pkg, cflags=True, ldflags=False):
+    '''Get cflags required to compile with fuse library'''
 
-        proc = subprocess.Popen(['pkg-config', 'fuse', '--cflags'], stdout=subprocess.PIPE)
-        cflags = proc.stdout.readline().rstrip()
-        proc.stdout.close()
-        if proc.wait() != 0:
-            sys.stderr.write('Failed to execute pkg-config. Exit code: %d.\n'
-                             % proc.returncode)
-            sys.stderr.write('Check that the FUSE development package been installed properly.\n')
-            sys.exit(1)
-        return cflags.split()
+    cmd = ['pkg-config', pkg ]
+    if cflags:
+        cmd.append('--cflags')
+    if ldflags:
+        cmd.append('--libs')
+
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    cflags = proc.stdout.readline().rstrip()
+    proc.stdout.close()
+    if proc.wait() != 0:
+        sys.stderr.write('Failed to execute pkg-config. Exit code: %d.\n'
+                         % proc.returncode)
+        sys.stderr.write('Check that the %s development package been installed properly.\n'
+                         % pkg)
+        sys.exit(1)
+
+    return cflags.split()
 
 
 # Add as subcommand of build
 distutils.command.build.build.sub_commands.insert(0, ('build_ctypes', None))
 
-class run_tests(Command):
+class run_tests(setuptools.Command):
 
     description = "Run self-tests"
     user_options = [('debug=', None, 'Activate debugging for specified modules '
@@ -251,6 +277,10 @@ class run_tests(Command):
         sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
         if sqlite_ver < (3, 6, 17):
             raise StandardError('SQLite version too old, must be 3.6.17 or newer!\n')
+
+        # Build extensions in-place
+        self.reinitialize_command('build_ext', inplace=1)
+        self.run_command('build_ext')
 
         # Add test modules
         sys.path.insert(0, os.path.join(basedir, 'tests'))
@@ -304,7 +334,7 @@ class run_tests(Command):
         if not result.wasSuccessful():
             sys.exit(1)
 
-class upload_docs(Command):
+class upload_docs(setuptools.Command):
     user_options = []
     boolean_options = []
     description = "Upload documentation"

@@ -1,4 +1,5 @@
-#Sun Apr 04 20:18:08 EST 2010
+#Sat Apr 10 18:08:53 EST 2010
 eclipse.preferences.version=1
 encoding//doc/txt/conf.py=utf-8
 encoding//src/s3ql/daemonize.py=utf-8
+encoding//tests/t1_lzma.py=utf-8

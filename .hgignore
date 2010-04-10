@@ -11,3 +11,8 @@ syntax: regexp
 ^dist$
 syntax: regexp
 ^src/s3ql\.egg-info$
+
+syntax: regexp
+^build$
+syntax: regexp
+^src/s3ql/lzma\.so$
