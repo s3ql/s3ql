@@ -123,6 +123,10 @@ The programs/libraries are required to run S3QL:
   called something like `fuse-dev`, `libfuse-dev`, `fuse-devel` or
   `libfuse-devel`).
 
+  To test if the FUSE library is installed with development headers,
+  run the command `pkg-config --modversion fuse`. It should print a
+  version number.
+
 * The `XZ Utils <http://tukaani.org/xz/>`_ (formerly known as LZMA Utils)
   are probably available as a package for your system. Make sure that
   you also install the development headers, which may be in a separate
