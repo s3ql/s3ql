@@ -157,11 +157,6 @@ def upgrade(conn, bucket):
     if sys.stdin.readline().strip().lower() != 'yes':
         raise QuietError(1)
 
-    try:
-        unlock_bucket(bucket)
-    except ChecksumError:
-        raise QuietError('Checksum error - incorrect password?')
-
     log.info('Downloading metadata...')
     dbfile = tempfile.NamedTemporaryFile()
     bucket.fetch_fh('s3ql_metadata', dbfile)
