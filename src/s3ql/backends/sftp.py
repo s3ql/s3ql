@@ -1,5 +1,5 @@
 '''
-$Id: __init__.py 832 2010-02-16 16:28:18Z nikratio $
+__init__.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2010 Nikolaus Rath <Nikolaus@rath.org>
 Copyright (C) 2010 Ron Knapp <ron.siesta@gmail.com>

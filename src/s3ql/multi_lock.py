@@ -1,5 +1,5 @@
 '''
-$Id: multi_lock.py 490 2010-01-14 23:13:08Z nikratio $
+multi_lock.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

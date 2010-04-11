@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 '''
-$Id: daemonize.py 895 2010-02-22 23:22:45Z nikratio $
+daemonize.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

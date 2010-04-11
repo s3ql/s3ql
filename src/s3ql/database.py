@@ -1,5 +1,5 @@
 '''
-$Id: database.py 713 2010-01-26 01:15:12Z nikratio $
+database.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

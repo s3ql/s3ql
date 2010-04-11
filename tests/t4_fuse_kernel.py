@@ -1,5 +1,5 @@
 '''
-$Id: t4_fuse.py 372 2009-12-29 16:36:39Z nikratio $
+t4_fuse.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

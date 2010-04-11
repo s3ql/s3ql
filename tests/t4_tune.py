@@ -1,5 +1,5 @@
 '''
-$Id: t4_tune.py 890 2010-02-20 12:49:42Z nikratio $
+t4_tune.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

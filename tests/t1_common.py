@@ -1,5 +1,5 @@
 '''
-$Id: t1_ordered_dict.py 478 2010-01-12 23:12:54Z nikratio $
+t1_ordered_dict.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

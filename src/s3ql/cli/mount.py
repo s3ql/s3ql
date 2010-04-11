@@ -1,5 +1,5 @@
 '''
-$Id: mount.py 971 2010-04-02 15:48:35Z nikratio $
+mount.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

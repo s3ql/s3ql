@@ -1,5 +1,5 @@
 '''
-$Id: umount.py 662 2010-01-22 22:38:12Z nikratio $
+umount.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

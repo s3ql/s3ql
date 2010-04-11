@@ -1,5 +1,5 @@
 '''
-$Id: operations.py 47 2010-01-29 17:11:23Z nikratio $
+operations.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (c) 2010, Nikolaus Rath <Nikolaus@rath.org>
 All rights reserved.
