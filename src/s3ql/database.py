@@ -20,9 +20,9 @@ from random import randrange
 
 __all__ = [ "ConnectionManager", 'WrappedConnection', 'NoUniqueValueError' ]
 
-log = logging.getLogger("database") 
+log = logging.getLogger("database")
 
-   
+
 class ConnectionManager(object):
     """Manage access to database.
     
@@ -64,11 +64,11 @@ class ConnectionManager(object):
         self.retrytime = retrytime
         self.pool = list()
         self.provided = dict()
-        
+
         # http://code.google.com/p/apsw/issues/detail?id=59
         apsw.enablesharedcache(False)
-             
-    @contextmanager    
+
+    @contextmanager
     def __call__(self):
         '''Provide a WrappedConnection instance.
         
@@ -77,7 +77,7 @@ class ConnectionManager(object):
         called again by the same thread in the managed block, it will
         always return the same WrappedConnection instance. 
         '''
-        
+
         try:
             wconn = self.provided[thread.get_ident()]
         except KeyError:
@@ -85,9 +85,9 @@ class ConnectionManager(object):
         else:
             yield wconn
             return
-        
+
         conn = self._pop_conn()
-        try: 
+        try:
             wconn = WrappedConnection(conn, self.retrytime)
             self.provided[thread.get_ident()] = wconn
             try:
@@ -96,7 +96,7 @@ class ConnectionManager(object):
                 del self.provided[thread.get_ident()]
         finally:
             self._push_conn(conn)
-   
+
     @contextmanager
     def transaction(self):
         '''Provide WrappedConnection and initiate transaction.
@@ -112,60 +112,67 @@ class ConnectionManager(object):
         always return the same WrappedConnection instance, but still
         start a new, inner transaction. 
         '''
-        
+
         with self() as wconn:
             with wconn.transaction():
-                yield wconn 
-            
-      
+                yield wconn
+
+
     def _pop_conn(self):
         '''Return database connection from the pool
         '''
-        
+
         try:
             conn = self.pool.pop()
         except IndexError:
             # Need to create a new connection
-            log.debug("Creating new db connection (active conns: %d", 
+            log.debug("Creating new db connection (active conns: %d",
                       len(self.provided))
             conn = apsw.Connection(self.dbfile)
             conn.setbusytimeout(self.retrytime)
             if self.initsql:
                 conn.cursor().execute(self.initsql)
-                   
+
         return conn
-    
+
     def _push_conn(self, conn):
         '''Put a database connection back into the pool'''
-        
+
         self.pool.append(conn)
-        
+
     def get_val(self, *a, **kw):
         """Acquire WrappedConnection and run its get_val method.
         """
-        
+
         with self() as conn:
             return conn.get_val(*a, **kw)
-        
+
+    def has_val(self, *a, **kw):
+        """Acquire WrappedConnection and run its has_val method.
+        """
+
+        with self() as conn:
+            return conn.has_val(*a, **kw)
+
     def get_row(self, *a, **kw):
         """"Acquire WrappedConnection and run its get_row method.
         """
-        
+
         with self() as conn:
-            return conn.get_row(*a, **kw)                
+            return conn.get_row(*a, **kw)
 
     def execute(self, *a, **kw):
         """"Acquire WrappedConnection and run its execute method.
         """
-        
+
         with self() as conn:
-            return conn.execute(*a, **kw)   
-        
+            return conn.execute(*a, **kw)
+
     def get_db_size(self):
         '''Return size of database file'''
-        
+
         return os.path.getsize(self.dbfile)
-    
+
 class WrappedConnection(object):
     '''This class wraps an APSW connection object. It should be
     used instead of any native APSW cursors. 
@@ -197,13 +204,13 @@ class WrappedConnection(object):
                 the address of a local object so that the apsw statement
                 cache does not overflow.
     '''
-    
+
     def __init__(self, conn, retrytime):
         self.conn = conn
         self.cur = conn.cursor()
         self.retrytime = retrytime
         self.savepoint_cnt = 0
-        
+
     @contextmanager
     def transaction(self):
         '''Initiate a transaction
@@ -226,19 +233,19 @@ class WrappedConnection(object):
         # any further attempts to set SAVEPOINTS have to produce errors.        
         if self.savepoint_cnt == 1:
             self._execute(self.cur, 'BEGIN IMMEDIATE')
-            
+
         self._execute(self.cur, "SAVEPOINT '%s'" % name)
         # pylint bug
         #pylint: disable-msg=C0321
         try:
-            yield 
+            yield
         except:
             self._execute(self.cur, "ROLLBACK TO '%s'" % name)
             raise
         finally:
             self._execute(self.cur, "RELEASE '%s'" % name)
             self.savepoint_cnt -= 1
-            
+
             if self.savepoint_cnt == 0:
                 self._execute(self.cur, 'COMMIT')
 
@@ -250,33 +257,33 @@ class WrappedConnection(object):
         should delete the `ResultSet` object has soon as 
         possible to terminate the SQL statement.
         '''
-        
+
         return ResultSet(self._execute(self.conn.cursor(), *a, **kw))
-         
+
     def execute(self, *a, **kw):
         '''Execute the given SQL statement. Return number of affected rows.
         '''
-    
+
         self._execute(self.cur, *a, **kw)
         return self.changes()
 
     def rowid(self, *a, **kw):
         """Execute SQL statement and return last inserted rowid"""
-        
+
         self._execute(self.cur, *a, **kw)
         return self.conn.last_insert_rowid()
-                       
-    def _execute(self, cur, statement, bindings=None):         
+
+    def _execute(self, cur, statement, bindings=None):
         '''Execute the given SQL statement with the given cursor
         
         Note that in shared cache mode we may get an SQLITE_LOCKED 
         error, which is not handled by the busy handler. Therefore
         we have to emulate this behavior.
         '''
-                
+
         # There really aren't too many branches in this method
         #pylint: disable-msg=R0912
-        
+
         # Convert bytes to buffer
         if isinstance(bindings, dict):
             newbindings = dict()
@@ -286,12 +293,12 @@ class WrappedConnection(object):
                 else:
                     newbindings[key] = bindings[key]
         elif isinstance(bindings, (list, tuple)):
-            newbindings = [ ( val if not isinstance(val, bytes) else buffer(val) ) 
-                           for val in bindings ] 
+            newbindings = [ (val if not isinstance(val, bytes) else buffer(val))
+                           for val in bindings ]
         else:
             newbindings = bindings
-            
-            
+
+
         waited = 0
         step = 1
         #log.debug(statement)
@@ -307,9 +314,9 @@ class WrappedConnection(object):
                     raise # We don't wait any longer 
                 time.sleep(step / 1000)
                 waited += step
-                step = randrange(step+1, 2*(step+1), 1)
+                step = randrange(step + 1, 2 * (step + 1), 1)
             except apsw.BusyError:
-                if time.time() - curtime < self.retrytime/1000:
+                if time.time() - curtime < self.retrytime / 1000:
                     log.warn('SQLite detected deadlock condition!')
                 # Print stack trace
                 log.warn('BusyError - writing stack trace to ./s3ql_stack_trace.txt:')
@@ -324,10 +331,20 @@ class WrappedConnection(object):
                 fh.write('Enough fds...')
                 fh.close()
                 raise
-            
-            
+
+    def has_val(self, *a, **kw):
+        '''Execute statement and check if it gives result rows'''
+
+        res = self._execute(self.cur, *a, **kw)
+        try:
+            res.next()
+        except StopIteration:
+            return False
+        else:
+            return True
+
     def get_val(self, *a, **kw):
-        """Execute select statement and return first element of first row.
+        """Execute statement and return first element of first result row.
         
         If there is no result row, raises `KeyError`. If there is more
         than one row, raises `NoUniqueValueError`.
@@ -338,7 +355,7 @@ class WrappedConnection(object):
     def get_list(self, *a, **kw):
         """Execute select statement and returns result list"""
 
-        return list(self.query(*a, **kw))    
+        return list(self.query(*a, **kw))
 
     def get_row(self, *a, **kw):
         """Execute select statement and return first row.
@@ -361,45 +378,44 @@ class WrappedConnection(object):
             # Finish the active SQL statement
             del res
             raise NoUniqueValueError()
-        
+
         return row
-     
+
     def last_rowid(self):
         """Return rowid most recently inserted in the current thread"""
-        
+
         return self.conn.last_insert_rowid()
-    
+
     def changes(self):
         """Return number of rows affected by most recent sql statement in current thread"""
-        
-        return self.conn.changes()        
+
+        return self.conn.changes()
 
 
-class NoUniqueValueError(Exception):       
+class NoUniqueValueError(Exception):
     '''Raised if get_val or get_row was called with a query 
     that generated more than one result row.
     '''
-    
+
     def __str__(self):
         return 'Query generated more than 1 result row'
-    
-         
+
+
 class ResultSet(object):
     '''Iterator over the result of an SQL query
     
-    This class automatically converts back from buffer() to bytes().''' 
-    
+    This class automatically converts back from buffer() to bytes().'''
+
     def __init__(self, cur):
         self.cur = cur
-        
+
     def __iter__(self):
         return self
-    
+
     def next(self):
-        return [ ( col if not isinstance(col, buffer) else bytes(col) ) 
+        return [ (col if not isinstance(col, buffer) else bytes(col))
                   for col in self.cur.next() ]
 
     # Once the ResultSet goes out of scope, the cursor goes out of scope
     # too (because query() uses a fresh cursor), so we don't have to
     # take any special precautions to finish the active SQL statement.  
-    
