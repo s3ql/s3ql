@@ -1,73 +1,75 @@
 xx, S3QL 0.10
 
+  * S3QL now finally uses LZMA compression.
+
   * fsck.s3ql is now several orders of magnitude faster.
-  
+
   * When running cp.s3ql, the attributes of the target directory are
     now immediately refreshed (so that e.g. ls immediately shows the
     correct number of hard links).
-    
-    
+
+
 2010-04-04, S3QL 0.9
 
   * The --cachedir, --logfile, --awskey and --credfile options are gone and
     have been replaced by --homedir.
-    
-  * ~/.awssecret is no longer read, instead there is a common file with 
+
+  * ~/.awssecret is no longer read, instead there is a common file with
     authentication data for all backends in ~/.s3ql/authinfo
-    
+
   * The syntax for mounting S3 buckets is now s3://bucketname instead of
     just the bucket name
-    
+
   * There is now an SFTP backend. Thanks to Ron Knapp <ron.siesta@gmail.com> for
     most of the code.
-     
+
 
 2010-03-07, S3QL 0.8
 
   * S3QL now uses Python's default unittest.py instead of shipping its own.
-  
+
   * Most documentation has been moved from the Wiki into the tarball, so that
     it always corresponds to the correct version.
-  
+
   * setuptools is now used for installation. This allows .egg creation, dependency
     resolution and generation of the HTML documentation.
 
-  * The S3 part of boto has been integrated into S3QL.  
- 
+  * The S3 part of boto has been integrated into S3QL.
+
 2010-02-22, beta7
 
   * mount.s3ql no longer chdirs into / when daemonizing but into the
     cache directory.
-  
+
   * Added example backup script in contrib/backup.py
-  
+
   * tune.s3ql --change-passphrase is working again
-  
-  * Added testcase for tune.s3ql --change-passphrase 
-  
+
+  * Added testcase for tune.s3ql --change-passphrase
+
   * Internal S3 errors are now handled properly by retrying the upload.
- 
+
 2010-02-19, beta6
 
  * tune.s3ql --copy is now *really* working properly (brrr)
- 
+
 2010-02-19, beta5
 
  * mkfs.s3ql now makes strict checks on the bucket name
- 
+
  * Removed obsolete mount.s3ql_local from distribution
- 
+
  * tune.s3ql --copy is now working properly
 
 2010-02-19, beta4
 
     * tune.s3ql now has a --copy option to copy buckets
-    
-    * Storage location for new buckets can be specified in mkfs.s3ql and 
+
+    * Storage location for new buckets can be specified in mkfs.s3ql and
       tune.s3ql with --s3-location
-      
+
     * Fixed a deadlock in mount.s3ql when using local buckets without --fg
-    
+
     * The local: bucket specifier is no longer artificially slow.
 
     * mount.s3ql: --allow_other is now working
@@ -76,11 +78,10 @@ xx, S3QL 0.10
 
     * Fixed a deadlock that caused umount.s3ql to hang indefinitely when
       mount was called without --fg
-      
+
     * The '.' and '..' directory entries are no longer explicitly stored
       in the database.
-       
+
     * Rewrote the mechanism to handle delayed updates. Now it no longer depends
       on a small object being propagated relatively fast, but is able to handle
       arbitrary network outages.
-       
