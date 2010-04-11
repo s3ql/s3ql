@@ -184,9 +184,10 @@ def dict_to_stat(attr):
         get_timespec_key = False
 
     # Raises exception if there are any unknown keys
-    for (key, val) in attr.iteritems():
-        if val is None: # do not set undefined items
-            continue
+    for key in ('st_ino', 'st_mode', 'st_nlink', 'st_uid', 'st_gid',
+                'st_rdev', 'st_size', 'st_blksize', 'st_blocks',
+                'st_atime', 'st_mtime', 'st_ctime'):
+        val = attr[key]
         if get_timespec_key and key in  ('st_atime', 'st_mtime', 'st_ctime'):
             key = get_timespec_key(key)
             spec = libfuse.timespec()
