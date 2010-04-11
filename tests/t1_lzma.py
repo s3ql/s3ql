@@ -75,7 +75,7 @@ class TestLZMA(unittest.TestCase):
         for i in xrange(18):
             size = 1 << i
             original = generate_random(size)
-            # FIXME:
+            # TO FIX:
             """
             result = lzma.decompress(lzma.compress(original, options={'dict_size':dict_size, 'format':'alone'}))
             self.assertEqual(len(result), size)
