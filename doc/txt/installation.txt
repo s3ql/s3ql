@@ -183,10 +183,14 @@ To install S3QL itself, proceed as follows:
    <http://groups.google.com/group/s3ql>`_ or report a bug in the
    `issue tracker <http://code.google.com/p/s3ql/issues/list>`_.
 
-No explicit installation is necessary, you can run all commands from
-the `bin` directory.
+Now you have three options to complete the installation:
 
-If you want, you can also install S3QL system wide by executing `python
-setup.py install` or into `~/.local` by executing `python setup.py install
---user`. In the later case you should make sure that `~/.local/bin` is in
-your `$PATH` environment variable.
+* You can run the S3QL commands from the `bin/` directory. For that,
+  you have to execute `python setup.py build_ext --inplace` first.
+
+* You can install S3QL system-wide for all users. To do that, you
+  have to run `python setup.py install`.
+
+* You can install S3QL into `~/.local` by executing `python
+  setup.py install --user`. In this case you should make sure that
+  `~/.local/bin` is in your `$PATH` environment variable.
