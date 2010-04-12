@@ -1,5 +1,5 @@
 '''
-$Id: interface.py 54 2010-02-22 02:33:10Z nikratio $
+interface.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (c) 2010, Nikolaus Rath <Nikolaus@rath.org>
 All rights reserved.

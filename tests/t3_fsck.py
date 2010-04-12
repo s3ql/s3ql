@@ -1,5 +1,5 @@
 '''
-$Id: t3_fsck.py 839 2010-02-16 21:32:35Z nikratio $
+t3_fsck.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

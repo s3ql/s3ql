@@ -1,5 +1,5 @@
 '''
-$Id: libc.py 667 2010-01-24 18:17:42Z nikratio $
+libc.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

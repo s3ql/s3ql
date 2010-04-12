@@ -1,5 +1,5 @@
 '''
-$Id: common.py 965 2010-03-14 00:36:36Z nikratio $
+common.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

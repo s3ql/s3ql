@@ -1,5 +1,5 @@
 '''
-$Id: local.py 883 2010-02-19 21:31:29Z nikratio $
+local.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 

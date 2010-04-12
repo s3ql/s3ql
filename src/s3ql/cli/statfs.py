@@ -1,5 +1,5 @@
 '''
-$Id: statfs.py 963 2010-03-13 20:25:14Z nikratio $
+statfs.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 
