@@ -32,33 +32,6 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
         ifmt |= i
     types["S_IFMT"] = ifmt
 
-    # This command creates triggers that ensure referential integrity
-    trigger_cmd = """
-    CREATE TRIGGER fki_{src_table}_{src_key}
-      BEFORE INSERT ON {src_table}
-      FOR EACH ROW BEGIN
-          SELECT RAISE(ABORT, 'insert in column {src_key} of table {src_table} violates foreign key constraint')
-          WHERE NEW.{src_key} IS NOT NULL AND
-                (SELECT {ref_key} FROM {ref_table} WHERE {ref_key} = NEW.{src_key}) IS NULL;
-      END;
-
-    CREATE TRIGGER fku_{src_table}_{src_key}
-      BEFORE UPDATE ON {src_table}
-      FOR EACH ROW BEGIN
-          SELECT RAISE(ABORT, 'update in column {src_key} of table {src_table} violates foreign key constraint')
-          WHERE NEW.{src_key} IS NOT NULL AND
-                (SELECT {ref_key} FROM {ref_table} WHERE {ref_key} = NEW.{src_key}) IS NULL;
-      END;
-
-
-    CREATE TRIGGER fkd_{src_table}_{src_key}
-      BEFORE DELETE ON {ref_table}
-      FOR EACH ROW BEGIN
-          SELECT RAISE(ABORT, 'delete on table {ref_table} violates foreign key constraint of column {src_key} in table {src_table}')
-          WHERE (SELECT {src_key} FROM {src_table} WHERE {src_key} = OLD.{ref_key}) IS NOT NULL;
-      END;
-    """
-
     # Filesystem parameters
     conn.execute("""
     CREATE TABLE parameters (
@@ -77,38 +50,6 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
         VALUES(?,?,?,?,?)
     """, (unicode(label), blocksize, time.time() - time.timezone, 0, False))
 
-    # Table of filesystem objects
-    conn.execute("""
-    CREATE TABLE contents (
-        name      BLOB(256) NOT NULL CONSTRAINT name_type
-                  CHECK( typeof(name) == 'blob' AND name NOT LIKE '%/%' ),
-        inode     INT NOT NULL REFERENCES inodes(id),
-        parent_inode INT NOT NULL REFERENCES inodes(id),
-        
-        PRIMARY KEY (name, parent_inode)
-    );
-    CREATE INDEX ix_contents_parent_inode ON contents(parent_inode);
-    CREATE INDEX ix_contents_inode ON contents(inode);
-    """)
-
-    # Make sure that parent inodes are directories
-    conn.execute("""
-    CREATE TRIGGER contents_check_parent_inode_insert
-      BEFORE INSERT ON contents
-      FOR EACH ROW BEGIN
-          SELECT RAISE(ABORT, 'parent_inode does not refer to a directory')
-          WHERE (SELECT mode FROM inodes WHERE id = NEW.parent_inode) & {S_IFMT} != {S_IFDIR};
-      END;
-
-    CREATE TRIGGER contents_check_parent_inode_update
-      BEFORE UPDATE ON contents
-      FOR EACH ROW BEGIN
-          SELECT RAISE(ABORT, 'parent_inode does not refer to a directory')
-          WHERE (SELECT mode FROM inodes WHERE id = NEW.parent_inode) & {S_IFMT} != {S_IFDIR};
-      END;  
-    """.format(**types))
-
-
     # Table with filesystem metadata
     # The number of links `refcount` to an inode can in theory
     # be determined from the `contents` table. However, managing
@@ -122,62 +63,62 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
         -- rowid. Also, as long as we don't store a separate generation no,
         -- we can't reuse old rowids. Therefore we will run out of inodes after
         -- 49 days if we insert 1000 rows per second. 
-        id        INTEGER PRIMARY KEY CHECK (id < 4294967296),
-        uid       INT NOT NULL,
-        gid       INT NOT NULL,
-
-        mode      INT NOT NULL,
-        mtime     REAL NOT NULL,
-        atime     REAL NOT NULL,
-        ctime     REAL NOT NULL,
-        refcount  INT NOT NULL CONSTRAINT refcount_type
-                  CHECK ( typeof(refcount) == 'integer' AND refcount > 0),
-
-        -- for symlinks only
-        target    BLOB(256),
-
-        -- for files only
-        size      INT NOT NULL DEFAULT 0 
-                  CHECK(typeof(size) == 'integer' AND size >= 0),
-
-        -- device nodes
-        rdev      INT 
+        id        INTEGER PRIMARY KEY 
+                  CHECK (id < 4294967296),
+        uid       INT NOT NULL 
+                  CHECK (typeof(uid) == 'integer'),
+        gid       INT NOT NULL 
+                  CHECK (typeof(gid) == 'integer'),
+        mode      INT NOT NULL 
+                  CHECK (typeof(mode) == 'integer'),
+        mtime     REAL NOT NULL 
+                  CHECK (typeof(mtime) == 'real' AND mtime >= 0),
+        atime     REAL NOT NULL 
+                  CHECK (typeof(atime) == 'real' AND atime >= 0),
+        ctime     REAL NOT NULL 
+                  CHECK (typeof(ctime) == 'real' AND ctime >= 0),
+        refcount  INT NOT NULL
+                  CHECK (typeof(refcount) == 'integer' AND refcount > 0),
+        target    BLOB(256) 
+                  CHECK (typeof(target) IN ('blob', 'null')),
+        size      INT NOT NULL DEFAULT 0
+                  CHECK (typeof(size) == 'integer' AND size >= 0),
+        rdev      INT NOT NULL DEFAULT 0
+                  CHECK (typeof(rdev) == 'integer'),
+                                    
+        -- Correction term to add to refcount to get st_nlink
+        nlink_off INT NOT NULL DEFAULT 0
+                  CHECK (typeof(nlink_off) == 'integer')
     )
     """.format(**types))
-    conn.execute(trigger_cmd.format(**{ "src_table": "contents",
-                                         "src_key": "inode",
-                                         "ref_table": "inodes",
-                                         "ref_key": "id" }))
-    conn.execute(trigger_cmd.format(**{ "src_table": "contents",
-                                         "src_key": "parent_inode",
-                                         "ref_table": "inodes",
-                                         "ref_key": "id" }))
 
-    # Make sure that we cannot change a directory into something
-    # else as long as it has entries
-    conn.execute("""  
-    CREATE TRIGGER inodes_check_parent_inode_update
-      BEFORE UPDATE ON inodes
-      FOR EACH ROW BEGIN
-          SELECT RAISE(ABORT, 'cannot change directory into something else')
-          WHERE NEW.mode & {S_IFMT} != OLD.mode & {S_IFMT};
-      END;      
-    """.format(**types))
+    # Table of filesystem objects
+    conn.execute("""
+    CREATE TABLE contents (
+        name      BLOB(256) NOT NULL
+                  CHECK (typeof(name) == 'blob'),
+        inode     INT NOT NULL REFERENCES inodes(id),
+        parent_inode INT NOT NULL REFERENCES inodes(id),
+        
+        PRIMARY KEY (name, parent_inode)
+    );
+    CREATE INDEX ix_contents_parent_inode ON contents(parent_inode);
+    CREATE INDEX ix_contents_inode ON contents(inode);
+    """)
 
     # Extended attributes
     conn.execute("""
     CREATE TABLE ext_attributes (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
-        name      TEXT NOT NULL,
-        value     BLOB NOT NULL,
+        name      BLOB NOT NULL
+                  CHECK (typeof(name) == 'blob'),
+        value     BLOB NOT NULL
+                  CHECK (typeof(value) == 'blob'),
  
         PRIMARY KEY (inode, name)               
     );
+    CREATE INDEX ix_ext_attributes_inode ON ext_attributes(inode);
     """)
-    conn.execute(trigger_cmd.format(**{ "src_table": "ext_attributes",
-                                       "src_key": "inode",
-                                       "ref_table": "inodes",
-                                       "ref_key": "id" }))
 
     # Maps file data chunks to S3 objects
     # Refcount is included for performance reasons, for directories, the
@@ -185,14 +126,14 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     conn.execute("""
     CREATE TABLE s3_objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
-        refcount  INT NOT NULL CONSTRAINT refcount_type
-                  CHECK ( typeof(refcount) == 'integer' AND refcount > 0),
+        refcount  INT NOT NULL
+                  CHECK (typeof(refcount) == 'integer' AND refcount > 0),
                   
         -- hash and size is only updated when the object is committed
-        hash      BLOB(16) UNIQUE CONSTRAINT hash_type
-                  CHECK ( typeof(hash) IN ('blob', 'null') ),
-        size      INT NOT NULL CONSTRAINT size_type
-                  CHECK ( typeof(size) == 'integer' AND size >= 0)                  
+        hash      BLOB(16) UNIQUE
+                  CHECK (typeof(hash) IN ('blob', 'null')),
+        size      INT NOT NULL
+                  CHECK (typeof(size) == 'integer' AND size >= 0)                  
     );
     CREATE INDEX ix_s3_objects_hash ON s3_objects(hash);
     """)
@@ -201,30 +142,23 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     conn.execute("""
     CREATE TABLE blocks (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
-        blockno   INT NOT NULL CHECK (typeof(blockno) == 'integer' AND blockno >= 0),
+        blockno   INT NOT NULL
+                  CHECK (typeof(blockno) == 'integer' AND blockno >= 0),
         s3key     INTEGER NOT NULL REFERENCES s3_objects(id),
  
         PRIMARY KEY (inode, blockno)
     );
     CREATE INDEX ix_blocks_s3key ON blocks(s3key);
+    CREATE INDEX ix_blocks_inode ON blocks(inode);
     """)
-    conn.execute(trigger_cmd.format(**{ "src_table": "blocks",
-                                       "src_key": "inode",
-                                       "ref_table": "inodes",
-                                       "ref_key": "id" }))
-    conn.execute(trigger_cmd.format(**{ "src_table": "blocks",
-                                       "src_key": "s3key",
-                                       "ref_table": "s3_objects",
-                                       "ref_key": "id" }))
-
 
     # Insert root directory
     timestamp = time.time() - time.timezone
-    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
-                   "VALUES (?,?,?,?,?,?,?,?)",
+    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,nlink_off) "
+                   "VALUES (?,?,?,?,?,?,?,?,?)",
                    (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
-                    os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 3))
+                    os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1, 2))
 
     # Insert control inode, the actual values don't matter that much 
     conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
@@ -233,10 +167,10 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
                   0, 0, timestamp, timestamp, timestamp, 42))
 
     # Insert lost+found directory
-    inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
-                       "VALUES (?,?,?,?,?,?,?)",
+    inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,nlink_off) "
+                       "VALUES (?,?,?,?,?,?,?,?)",
                        (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 2))
+                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1, 1))
     conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                  (b"lost+found", inode, ROOT_INODE))
 

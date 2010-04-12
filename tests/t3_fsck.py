@@ -87,7 +87,6 @@ class fsck_tests(TestCase):
         inode = self.conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
                                 (b"lost+found", ROOT_INODE))
         self.conn.execute('DELETE FROM contents WHERE parent_inode=?', (inode,))
-        self.conn.execute('DROP TRIGGER inodes_check_parent_inode_update')
         self.conn.execute('UPDATE inodes SET mode=?, size=? WHERE id=?',
                         (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR, 0, inode))
 
@@ -144,10 +143,10 @@ class fsck_tests(TestCase):
         conn = self.conn
 
         # Create some directory inodes  
-        inodes = [ conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
-                              "VALUES (?,?,?,?,?,?,?)",
+        inodes = [ conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,nlink_off) "
+                              "VALUES (?,?,?,?,?,?,?,?)",
                               (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR,
-                               0, 0, time.time(), time.time(), time.time(), 3))
+                               0, 0, time.time(), time.time(), time.time(), 1, 1))
                    for dummy in range(3) ]
 
         inodes.append(inodes[0])
@@ -163,7 +162,6 @@ class fsck_tests(TestCase):
         fsck.check_loops()
         self.assertTrue(fsck.found_errors)
         # We can't fix loops yet
-
 
     def test_s3_refcounts(self):
         conn = self.conn
@@ -188,6 +186,121 @@ class fsck_tests(TestCase):
         conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
                      (inode, 3, s3key))
         self.assert_fsck(fsck.check_s3_refcounts)
+
+    def test_unix_nlink_file(self):
+        conn = self.conn
+        inode = 42
+        conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                     "VALUES (?,?,?,?,?,?,?,?,?)",
+                     (inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
+                      os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 0))
+
+        fsck.found_errors = False
+        fsck.check_inode_unix()
+        self.assertFalse(fsck.found_errors)
+
+        conn.execute('UPDATE inodes SET nlink_off = 1 WHERE id=?', (inode,))
+        fsck.check_inode_unix()
+        self.assertTrue(fsck.found_errors)
+
+
+    def test_unix_nlink_dir(self):
+        conn = self.conn
+        inode = 42
+        conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount,size,nlink_off) "
+                     "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                     (inode, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR,
+                      os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 0, 1))
+
+        fsck.found_errors = False
+        fsck.check_inode_unix()
+        self.assertFalse(fsck.found_errors)
+
+        conn.execute('UPDATE inodes SET nlink_off = 2 WHERE id=?', (inode,))
+        fsck.check_inode_unix()
+        self.assertTrue(fsck.found_errors)
+
+    def test_unix_size(self):
+        conn = self.conn
+        inode = 42
+        conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                     "VALUES (?,?,?,?,?,?,?,?,?)",
+                     (inode, stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR,
+                      os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 0))
+
+        fsck.found_errors = False
+        fsck.check_inode_unix()
+        self.assertFalse(fsck.found_errors)
+
+        conn.execute('UPDATE inodes SET size = 1 WHERE id=?', (inode,))
+        fsck.check_inode_unix()
+        self.assertTrue(fsck.found_errors)
+
+    def test_unix_target(self):
+        conn = self.conn
+        inode = 42
+        conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount) "
+                     "VALUES (?,?,?,?,?,?,?,?)",
+                     (inode, stat.S_IFCHR | stat.S_IRUSR | stat.S_IWUSR,
+                      os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1))
+
+        fsck.found_errors = False
+        fsck.check_inode_unix()
+        self.assertFalse(fsck.found_errors)
+
+        conn.execute('UPDATE inodes SET target = ? WHERE id=?', ('foo', inode))
+        fsck.check_inode_unix()
+        self.assertTrue(fsck.found_errors)
+
+    def test_unix_rdev(self):
+        conn = self.conn
+        inode = 42
+        conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount) "
+                     "VALUES (?,?,?,?,?,?,?,?)",
+                     (inode, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
+                      os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1))
+
+        fsck.found_errors = False
+        fsck.check_inode_unix()
+        self.assertFalse(fsck.found_errors)
+
+        conn.execute('UPDATE inodes SET rdev=? WHERE id=?', (42, inode))
+        fsck.check_inode_unix()
+        self.assertTrue(fsck.found_errors)
+
+    def test_unix_child(self):
+        conn = self.conn
+        inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                   "VALUES (?,?,?,?,?,?,?)",
+                   (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
+                    os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1))
+
+        fsck.found_errors = False
+        fsck.check_inode_unix()
+        self.assertFalse(fsck.found_errors)
+        conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
+                     ('foo', ROOT_INODE, inode))
+        fsck.check_inode_unix()
+        self.assertTrue(fsck.found_errors)
+
+    def test_unix_blocks(self):
+        conn = self.conn
+        s3key = 87
+        inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                   "VALUES (?,?,?,?,?,?,?)",
+                   (stat.S_IFSOCK | stat.S_IRUSR | stat.S_IWUSR,
+                    os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1))
+        fsck.found_errors = False
+        fsck.check_inode_unix()
+        self.assertFalse(fsck.found_errors)
+
+        conn.execute('INSERT INTO s3_objects (id, refcount, size) VALUES(?, ?, ?)',
+                     (s3key, 2, 0))
+        conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
+                     (inode, 1, s3key))
+        fsck.check_inode_unix()
+        self.assertTrue(fsck.found_errors)
+
 
 # Somehow important according to pyunit documentation
 def suite():

@@ -275,7 +275,7 @@ class run_tests(setuptools.Command):
 
         # Enforce correct SQLite version
         sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
-        if sqlite_ver < (3, 6, 17):
+        if sqlite_ver < (3, 6, 19):
             raise StandardError('SQLite version too old, must be 3.6.17 or newer!\n')
 
         # Build extensions in-place

@@ -657,7 +657,7 @@ class fs_api_tests(TestCase):
         if stat.S_ISBLK(type_) or stat.S_ISCHR(type_):
             rdev = randint(0, 2 ** 32)
         else:
-            rdev = None
+            rdev = 0
 
         self.assert_entry_doesnt_exist(inode_p, name)
         attr_p_old = self.server.getattr(inode_p)

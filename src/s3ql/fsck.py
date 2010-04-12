@@ -30,6 +30,8 @@ bucket = None
 expect_errors = False
 found_errors = False
 
+S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK |
+          stat.S_IFCHR | stat.S_IFIFO | stat.S_IFLNK)
 
 def fsck(dbcm, cachedir_, bucket_):
     """Check file system
@@ -55,6 +57,7 @@ def fsck(dbcm, cachedir_, bucket_):
         check_lof()
         check_loops()
         check_inode_refcount()
+        check_inode_unix()
         check_s3_refcounts()
         check_keylist()
 
@@ -202,10 +205,6 @@ def check_loops():
     global found_errors
     log.info('Checking directory reachability...')
 
-    # Figure out mask for entry typ
-    S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK |
-              stat.S_IFCHR | stat.S_IFIFO | stat.S_IFLNK)
-
     conn.execute('CREATE TEMPORARY TABLE loopcheck (inode INTEGER PRIMARY KEY, '
                  'parent_inode INTEGER)')
     conn.execute('CREATE INDEX ix_loopcheck_parent_inode ON loopcheck(parent_inode)')
@@ -236,27 +235,15 @@ def check_inode_refcount():
 
     global found_errors
 
-    log.info('Checking inodes...')
+    log.info('Checking inodes (refcounts)...')
 
-    for (inode, refcount_cached, mode) in conn.query("SELECT id, refcount, mode FROM inodes"):
+    for (inode, refcount_cached) in conn.query("SELECT id, refcount FROM inodes"):
 
         # No checks for root and control
         if inode in (ROOT_INODE, CTRL_INODE):
             continue
 
         refcount_actual = conn.get_val("SELECT COUNT(name) FROM contents WHERE inode=?", (inode,))
-
-        # Directory
-        if stat.S_ISDIR(mode):
-            # Add implicit '.' reference
-            refcount_actual += 1
-
-            # Add implicit '..' references in sub directories
-            for (inode_s,) in conn.query('SELECT inode FROM contents WHERE parent_inode=?',
-                                         (inode,)):
-                mode_s = conn.get_val("SELECT mode FROM inodes WHERE id=?", (inode_s,))
-                if stat.S_ISDIR(mode_s):
-                    refcount_actual += 1
 
         if refcount_actual == 0:
             found_errors = True
@@ -272,6 +259,78 @@ def check_inode_refcount():
             log_error("Inode %d has wrong reference count, setting from %d to %d",
                       inode, refcount_cached, refcount_actual)
             conn.execute("UPDATE inodes SET refcount=? WHERE id=?", (refcount_actual, inode))
+
+
+def check_inode_unix():
+    """Check inode attributes for agreement with UNIX conventions
+    
+    This means:
+    - Only directories should have child entries
+    - Only regular files should have data blocks and a size
+    - Only symlinks should have a target
+    - Only devices should have a device number
+    - nlink_off should correspond to the number of child directories + 1
+    
+    Note that none of this is enforced by S3QL. However, as long
+    as S3QL only communicates with the UNIX FUSE module, none of
+    the above should happen (and if it does, it would probably 
+    confuse the system quite a lot).
+    """
+
+    global found_errors
+
+    log.info('Checking inodes (types)...')
+
+    for (inode, mode, size, target, nlink_off,
+         rdev) in conn.query("SELECT id, mode, size, target, nlink_off, rdev FROM inodes"):
+
+        if stat.S_ISDIR(mode):
+            # Count sub directories
+            subdir_cnt = conn.get_val('SELECT COUNT(name) FROM contents JOIN inodes '
+                                      'ON inode == id WHERE mode & ? == ? AND parent_inode = ?',
+                                      (S_IFMT, stat.S_IFDIR, inode))
+            if nlink_off != subdir_cnt + 1:
+                found_errors = True
+                log_error("Inode %d has wrong nlink_off, setting from %d to %d",
+                          inode, nlink_off, subdir_cnt + 1)
+                conn.execute("UPDATE inodes SET nlink_off=? WHERE id=?",
+                             (subdir_cnt + 1, inode))
+
+        else:
+            if nlink_off != 0:
+                found_errors = True
+                log_error("Inode %d has wrong nlink_off, fixing.", inode)
+                conn.execute("UPDATE inodes SET nlink_off=? WHERE id=?",
+                             (0, inode))
+
+        if size != 0 and not stat.S_ISREG(mode):
+            found_errors = True
+            log_error('Inode %d is not regular file but has non-zero size. '
+                      'Don\'t know what to do.', inode)
+
+        if target is not None and not stat.S_ISLNK(mode):
+            found_errors = True
+            log_error('Inode %d is not symlink but has symlink target. '
+                      'Don\'t know what to do.', inode)
+
+        if rdev != 0 and not (stat.S_ISBLK(mode) or stat.S_ISCHR(mode)):
+            found_errors = True
+            log_error('Inode %d is not device but has device number. '
+                      'Don\'t know what to do.', inode)
+
+        has_children = conn.has_val('SELECT 1 FROM contents WHERE parent_inode=? LIMIT 1',
+                                    (inode,))
+        if has_children and not stat.S_ISDIR(mode):
+            found_errors = True
+            log_error('Inode %d is not a directory but has child entries. '
+                      'Don\'t know what to do.', inode)
+
+        has_blocks = conn.has_val('SELECT 1 FROM blocks WHERE inode=? LIMIT 1',
+                                  (inode,))
+        if has_blocks and not stat.S_ISREG(mode):
+            found_errors = True
+            log_error('Inode %d is not a regualr file but has data blocks. '
+                      'Don\'t know what to do.', inode)
 
 
 def check_s3_refcounts():

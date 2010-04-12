@@ -10,9 +10,10 @@ from __future__ import division, print_function, absolute_import
 
 from optparse import OptionParser
 import logging
+import stat
 import cPickle as pickle
 from ..common import (init_logging_from_options, get_backend, QuietError, unlock_bucket,
-                      ExceptionStoringThread, cycle_metadata)
+                      ExceptionStoringThread, cycle_metadata, ROOT_INODE, CTRL_INODE)
 from getpass import getpass
 import sys
 from ..backends import s3
@@ -161,7 +162,7 @@ def upgrade(conn, bucket):
     dbfile = tempfile.NamedTemporaryFile()
     bucket.fetch_fh('s3ql_metadata', dbfile)
     dbfile.flush()
-    dbcm = ConnectionManager(dbfile.name, initsql='PRAGMA temp_store = 2; PRAGMA synchronous = off')
+    dbcm = ConnectionManager(dbfile.name)
 
     # Upgrade from revision 1 to 2
     if not list(bucket.list('s3ql_parameters_')):
@@ -229,7 +230,96 @@ def upgrade_rev2(dbcm, param):
     '''Upgrade file system from revision 2 to 3'''
 
     log.info('Updating file system from revision 2 to 3.')
+
+    dbcm.execute('CREATE INDEX ix_blocks_inode ON blocks(inode)')
     dbcm.execute('CREATE INDEX ix_blocks_s3key ON blocks(s3key)')
+    dbcm.execute('CREATE INDEX ix_ext_attributes_inode ON ext_attributes(inode)')
+
+    dbcm.execute('DROP TRIGGER fki_contents_inode')
+    dbcm.execute('DROP TRIGGER fku_contents_inode')
+    dbcm.execute('DROP TRIGGER fkd_contents_inode')
+
+    dbcm.execute('DROP TRIGGER fki_contents_parent_inode')
+    dbcm.execute('DROP TRIGGER fku_contents_parent_inode')
+    dbcm.execute('DROP TRIGGER fkd_contents_parent_inode')
+
+    dbcm.execute('DROP TRIGGER fki_ext_attributes_inode')
+    dbcm.execute('DROP TRIGGER fku_ext_attributes_inode')
+    dbcm.execute('DROP TRIGGER fkd_ext_attributes_inode')
+
+    dbcm.execute('DROP TRIGGER fki_blocks_inode')
+    dbcm.execute('DROP TRIGGER fku_blocks_inode')
+    dbcm.execute('DROP TRIGGER fkd_blocks_inode')
+
+    dbcm.execute('DROP TRIGGER fki_blocks_s3key')
+    dbcm.execute('DROP TRIGGER fku_blocks_s3key')
+    dbcm.execute('DROP TRIGGER fkd_blocks_s3key')
+
+    dbcm.execute('DROP TRIGGER contents_check_parent_inode_insert')
+    dbcm.execute('DROP TRIGGER contents_check_parent_inode_update')
+    dbcm.execute('DROP TRIGGER inodes_check_parent_inode_update')
+
+    dbcm.execute('PRAGMA foreign_keys = OFF')
+    dbcm.execute('ALTER TABLE inodes RENAME TO tmp')
+    dbcm.execute('UPDATE tmp SET rdev=0 WHERE rdev IS NULL')
+    dbcm.execute('''
+        CREATE TABLE inodes (
+        id        INTEGER PRIMARY KEY 
+                  CHECK (id < 4294967296),
+        uid       INT NOT NULL 
+                  CHECK (typeof(uid) == 'integer'),
+        gid       INT NOT NULL 
+                  CHECK (typeof(gid) == 'integer'),
+        mode      INT NOT NULL 
+                  CHECK (typeof(mode) == 'integer'),
+        mtime     REAL NOT NULL 
+                  CHECK (typeof(mtime) == 'real' AND mtime >= 0),
+        atime     REAL NOT NULL 
+                  CHECK (typeof(atime) == 'real' AND atime >= 0),
+        ctime     REAL NOT NULL 
+                  CHECK (typeof(ctime) == 'real' AND ctime >= 0),
+        refcount  INT NOT NULL
+                  CHECK (typeof(refcount) == 'integer' AND refcount > 0),
+        target    BLOB(256) 
+                  CHECK (typeof(target) IN ('blob', 'null')),
+        size      INT NOT NULL DEFAULT 0
+                  CHECK (typeof(size) == 'integer' AND size >= 0),
+        rdev      INT NOT NULL DEFAULT 0
+                  CHECK (typeof(rdev) == 'integer'),
+        nlink_off INT NOT NULL DEFAULT 0
+                  CHECK (typeof(nlink_off) == 'integer')
+    )
+    ''')
+    columns = 'id, uid, gid, mode, mtime, atime, ctime, refcount, target, size, rdev'
+    dbcm.execute('INSERT INTO inodes (%s) SELECT %s FROM tmp' % (columns, columns))
+    dbcm.execute('DROP TABLE tmp')
+
+    # Fix up refcounts 
+    S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK |
+              stat.S_IFCHR | stat.S_IFIFO | stat.S_IFLNK)
+    with dbcm.transaction() as conn:
+        for (inode, mode) in conn.query("SELECT id, mode FROM inodes"):
+            refcount = conn.get_val("SELECT COUNT(name) FROM contents WHERE inode=?",
+                                    (inode,))
+
+            if inode == ROOT_INODE:
+                conn.execute("UPDATE inodes SET nlink_off=?, refcount=? WHERE id=?",
+                             (2, 1, inode))
+
+            elif inode == CTRL_INODE:
+                conn.execute("UPDATE inodes SET nlink_off=?, refcount=? WHERE id=?",
+                             (0, 42, inode))
+
+            elif stat.S_ISDIR(mode):
+                subdir_cnt = conn.get_val('SELECT COUNT(name) FROM contents JOIN inodes '
+                                          'ON inode == id WHERE mode & ? == ? AND parent_inode = ?',
+                                          (S_IFMT, stat.S_IFDIR, inode))
+                conn.execute("UPDATE inodes SET nlink_off=?, refcount=? WHERE id=?",
+                             (subdir_cnt + 1, refcount, inode))
+            else:
+                conn.execute("UPDATE inodes SET refcount=? WHERE id=?",
+                             (refcount, inode))
+
     param['revision'] = 3
 
 
