@@ -27,7 +27,7 @@ __all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_paramete
            'stacktraces', 'init_logging_from_options', 'QuietError', 'get_backend',
            'cycle_metadata', 'CURRENT_FS_REV', 'VERSION' ]
 
-VERSION = '0.9'
+VERSION = '0.10'
 CURRENT_FS_REV = 3
 
 log = logging.getLogger('common')
