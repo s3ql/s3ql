@@ -44,9 +44,8 @@ class Operations(llfuse.Operations):
     :cache:       Holds information about cached blocks
     :noatime:     Do not update directory access time
     :encountered_errors: Is set to true if a request handler raised an exception
-    :inode_lock:    MultiLock for synchronizing updates to `open_files`
-    :open_files: A dict of the currently opened file inodes. The value is another
-                dict with keys ``cached_attrs`` and ``open count``
+    :inode_lock:    MultiLock for synchronizing updates to `attr_cache`
+    :attr_cache: A cache for the attributes of the currently opened inodes.
 
  
     Notes
@@ -85,7 +84,6 @@ class Operations(llfuse.Operations):
     checks the st_mode attribute.
     """
 
-    # TODO: Rename open_files to attr_cache
     # TODO: Make attr_cache execute db calls if inode is not in cache
     # TODO: Make sure that attr_cache is *always* used, even if we are modifying directory inodes
     # TODO: Remove distinction between files and directories whereever possible (e.g. rename)
@@ -111,7 +109,7 @@ class Operations(llfuse.Operations):
         self.noatime = noatime
         self.cache = cache
         self.encountered_errors = False
-        self.open_files = dict()
+        self.attr_cache = dict()
         self.inode_lock = MultiLock()
         self.blocksize = dbcm.get_val("SELECT blocksize FROM parameters")
 
@@ -165,9 +163,9 @@ class Operations(llfuse.Operations):
         '''
 
         # Check cache first
-        if inode in self.open_files:
+        if inode in self.attr_cache:
             try:
-                return self.open_files[inode]['cached_attrs'].copy()
+                return self.attr_cache[inode]
             except KeyError:
                 # File has just been closed, continue with fetching
                 pass
@@ -217,9 +215,9 @@ class Operations(llfuse.Operations):
         if not self.noatime:
             timestamp = time.time()
             with self.inode_lock(inode):
-                if inode in self.open_files:
-                    self.open_files[inode]['cached_attrs']['st_atime'] = timestamp
-                    self.open_files[inode]['cached_attrs']['st_ctime'] = timestamp
+                if inode in self.attr_cache:
+                    self.attr_cache[inode]['st_atime'] = timestamp
+                    self.attr_cache[inode]['st_ctime'] = timestamp
                 else:
                     timestamp -= time.timezone
                     self.dbcm.execute("UPDATE inodes SET atime=?, ctime=? WHERE id=?",
@@ -257,7 +255,6 @@ class Operations(llfuse.Operations):
             # .
             if off == 0:
                 fstat = self.getattr(fh)
-                del fstat['attr_timeout']
                 yield ('.', fstat)
 
             # ..
@@ -267,7 +264,6 @@ class Operations(llfuse.Operations):
                 else:
                     inode = conn.get_val('SELECT parent_inode FROM contents WHERE inode=?', (fh,))
                 fstat = self.getattr(inode)
-                del fstat['attr_timeout']
                 yield ('..', fstat)
 
             # The ResultSet is automatically deleted
@@ -275,7 +271,6 @@ class Operations(llfuse.Operations):
             for (name, inode) in conn.query("SELECT name, inode FROM contents WHERE parent_inode=? "
                                             "LIMIT -1 OFFSET ?", (fh, off - 2)):
                 fstat = self.getattr(inode)
-                del fstat['attr_timeout']
                 yield (name, fstat)
 
     def getxattr(self, inode, name):
@@ -431,12 +426,12 @@ class Operations(llfuse.Operations):
                              (name, inode_p))
 
                 # No more links and not open
-                if attr["refcount"] == 1 and inode not in self.open_files:
+                if attr["refcount"] == 1 and inode not in self.attr_cache:
                     remove = True
-                elif inode in self.open_files:
-                    self.open_files[inode]['cached_attrs']['st_nlink'] -= 1
-                    self.open_files[inode]['cached_attrs']['refcount'] -= 1
-                    self.open_files[inode]['cached_attrs']['st_ctime'] = time.time()
+                elif inode in self.attr_cache:
+                    self.attr_cache[inode]['st_nlink'] -= 1
+                    self.attr_cache[inode]['refcount'] -= 1
+                    self.attr_cache[inode]['st_ctime'] = time.time()
                     remove = False
                 else:
                     conn.execute("UPDATE inodes SET refcount=refcount-1, ctime=? WHERE id=?",
@@ -606,12 +601,12 @@ class Operations(llfuse.Operations):
                 nlink = conn.get_val('SELECT refcount FROM inodes WHERE id=?', (inode_new,))
 
                 # No more links and not open
-                if nlink == 1 and inode_new not in self.open_files:
+                if nlink == 1 and inode_new not in self.attr_cache:
                     remove = True
-                elif inode_new in self.open_files:
-                    self.open_files[inode_new]['cached_attrs']['st_nlink'] -= 1
-                    self.open_files[inode_new]['cached_attrs']['refcount'] -= 1
-                    self.open_files[inode_new]['cached_attrs']['st_ctime'] = time.time()
+                elif inode_new in self.attr_cache:
+                    self.attr_cache[inode_new]['st_nlink'] -= 1
+                    self.attr_cache[inode_new]['refcount'] -= 1
+                    self.attr_cache[inode_new]['st_ctime'] = time.time()
                     remove = False
                 else:
                     conn.execute("UPDATE inodes SET refcount=refcount-1, ctime=? WHERE id=?",
@@ -644,10 +639,10 @@ class Operations(llfuse.Operations):
                 conn.execute("INSERT INTO contents (name,inode,parent_inode) VALUES(?,?,?)",
                          (new_name, inode, new_inode_p))
 
-                if inode in self.open_files:
-                    self.open_files[inode]['cached_attrs']['st_nlink'] += 1
-                    self.open_files[inode]['cached_attrs']['refcount'] += 1
-                    self.open_files[inode]['cached_attrs']['st_ctime'] = time.time()
+                if inode in self.attr_cache:
+                    self.attr_cache[inode]['st_nlink'] += 1
+                    self.attr_cache[inode]['refcount'] += 1
+                    self.attr_cache[inode]['st_ctime'] = time.time()
                 else:
                     conn.execute("UPDATE inodes SET refcount=refcount+1, ctime=? WHERE id=?",
                                  (time.time() - time.timezone, inode))
@@ -675,9 +670,9 @@ class Operations(llfuse.Operations):
 
         with self.inode_lock(inode):
             # Update metadata in cache if possible
-            if inode in self.open_files:
-                self.open_files[inode]['cached_attrs'].update(attr)
-                return self.open_files[inode]['cached_attrs'].copy()
+            if inode in self.attr_cache:
+                self.attr_cache[inode].update(attr)
+                return self.attr_cache[inode]
 
             # Otherwise write metadata update to db
             else:
@@ -806,11 +801,11 @@ class Operations(llfuse.Operations):
         for the same inode.
         """
         with self.inode_lock(inode):
-            if inode in self.open_files:
-                self.open_files[inode]['open_count'] += 1
+            if inode in self.attr_cache:
+                self.attr_cache[inode]['open_count'] += 1
             else:
-                self.open_files[inode] = { 'open_count': 1,
-                                          'cached_attrs': self.getattr(inode) }
+                self.attr_cache[inode] = self.getattr(inode)
+                self.attr_cache[inode]['open_count'] = 1
 
         return inode
 
@@ -860,8 +855,8 @@ class Operations(llfuse.Operations):
 
         attrs = self.getattr(inode)
         with self.inode_lock(inode):
-            self.open_files[inode] = { 'open_count': 1,
-                                       'cached_attrs': attrs.copy() }
+            self.attr_cache[inode] = attrs
+            self.attr_cache[inode]['open_count'] = 1
 
         return (inode, attrs)
 
@@ -886,7 +881,7 @@ class Operations(llfuse.Operations):
             offset += len(tmp)
 
         with self.inode_lock(inode):
-            self.open_files[fh]['cached_attrs']['st_atime'] = time.time()
+            self.attr_cache[fh]['st_atime'] = time.time()
 
         return buf.getvalue()
 
@@ -930,7 +925,7 @@ class Operations(llfuse.Operations):
         # a concurrent write.
         timestamp = time.time()
         with self.inode_lock(fh):
-            tmp = self.open_files[fh]['cached_attrs']
+            tmp = self.attr_cache[fh]
             tmp['st_size'] = max(tmp['st_size'], minsize)
             tmp['st_mtime'] = timestamp
             tmp['st_atime'] = timestamp
@@ -961,7 +956,7 @@ class Operations(llfuse.Operations):
 
     def fsync(self, fh, datasync):
         if not datasync:
-            self._setattr(fh, self.open_files[fh]['cached_attrs'])
+            self._setattr(fh, self.attr_cache[fh])
 
         self.cache.flush(fh)
 
@@ -971,20 +966,20 @@ class Operations(llfuse.Operations):
     def release(self, fh):
 
         with self.inode_lock(fh):
-            tmp = self.open_files[fh]
+            tmp = self.attr_cache[fh]
             tmp['open_count'] -= 1
 
             if tmp['open_count'] == 0:
-                if tmp['cached_attrs']['refcount'] == 0:
+                if tmp['refcount'] == 0:
                     self.cache.remove(fh)
                     self.dbcm.execute("DELETE FROM inodes WHERE id=?", (fh,))
                 else:
-                    self._setattr(fh, tmp['cached_attrs'])
+                    self._setattr(fh, tmp)
 
                 # We must delete the cache only after having
                 # committed to db to prevent a race condition with
                 # getattr().  
-                del self.open_files[fh]
+                del self.attr_cache[fh]
 
     # Called for close() calls. 
     def flush(self, fh):
@@ -992,5 +987,5 @@ class Operations(llfuse.Operations):
 
     def fsyncdir(self, fh, datasync):
         if not datasync:
-            self._setattr(fh, self.open_files[fh]['cached_attrs'])
+            self._setattr(fh, self.attr_cache[fh])
 
