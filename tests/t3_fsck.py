@@ -165,7 +165,7 @@ class fsck_tests(TestCase):
 
     def test_s3_refcounts(self):
         conn = self.conn
-        s3key = 42
+        obj_id = 42
         inode = 42
         conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount,size) "
                      "VALUES (?,?,?,?,?,?,?,?,?)",
@@ -173,18 +173,18 @@ class fsck_tests(TestCase):
                       os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 0))
 
         conn.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
-                     (s3key, 2, 0))
-        conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
-                     (inode, 1, s3key))
-        conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
-                     (inode, 2, s3key))
+                     (obj_id, 2, 0))
+        conn.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
+                     (inode, 1, obj_id))
+        conn.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
+                     (inode, 2, obj_id))
 
         fsck.found_errors = False
         fsck.check_s3_refcounts()
         self.assertFalse(fsck.found_errors)
 
-        conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
-                     (inode, 3, s3key))
+        conn.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
+                     (inode, 3, obj_id))
         self.assert_fsck(fsck.check_s3_refcounts)
 
     def test_unix_nlink_file(self):
@@ -285,7 +285,7 @@ class fsck_tests(TestCase):
 
     def test_unix_blocks(self):
         conn = self.conn
-        s3key = 87
+        obj_id = 87
         inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                    "VALUES (?,?,?,?,?,?,?)",
                    (stat.S_IFSOCK | stat.S_IRUSR | stat.S_IWUSR,
@@ -295,9 +295,9 @@ class fsck_tests(TestCase):
         self.assertFalse(fsck.found_errors)
 
         conn.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
-                     (s3key, 2, 0))
-        conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
-                     (inode, 1, s3key))
+                     (obj_id, 2, 0))
+        conn.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
+                     (inode, 1, obj_id))
         fsck.check_inode_unix()
         self.assertTrue(fsck.found_errors)
 

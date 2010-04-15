@@ -34,14 +34,14 @@ MAX_CACHE_ENTRIES = 768
 class CacheEntry(file):
     """An element in the block cache
     
-    If `s3key` is `None`, then the object has not yet been
+    If `obj_id` is `None`, then the object has not yet been
     uploaded to S3. 
     """
 
-    def __init__(self, inode, blockno, s3key, filename, mode):
+    def __init__(self, inode, blockno, obj_id, filename, mode):
         super(CacheEntry, self).__init__(filename, mode)
         self.dirty = False
-        self.s3key = s3key
+        self.obj_id = obj_id
         self.inode = inode
         self.blockno = blockno
 
@@ -58,8 +58,8 @@ class CacheEntry(file):
         return super(CacheEntry, self).writelines(*a, **kw)
 
     def __str__(self):
-        return ('<CacheEntry, inode=%d, blockno=%d, dirty=%s, s3key=%r>' %
-                (self.inode, self.blockno, self.dirty, self.s3key))
+        return ('<CacheEntry, inode=%d, blockno=%d, dirty=%s, obj_id=%r>' %
+                (self.inode, self.blockno, self.dirty, self.obj_id))
 
 class BlockCache(object):
     """Manages access to file blocks
@@ -185,7 +185,7 @@ class BlockCache(object):
             except KeyError:
                 filename = os.path.join(self.cachedir, 'inode_%d_block_%d' % (inode, blockno))
                 try:
-                    s3key = self.dbcm.get_val("SELECT s3key FROM blocks WHERE inode=? AND blockno=?",
+                    obj_id = self.dbcm.get_val("SELECT obj_id FROM blocks WHERE inode=? AND blockno=?",
                                          (inode, blockno))
 
                 # No corresponding object
@@ -195,9 +195,9 @@ class BlockCache(object):
 
                 # Need to download corresponding object
                 else:
-                    el = CacheEntry(inode, blockno, s3key, filename, "w+b")
+                    el = CacheEntry(inode, blockno, obj_id, filename, "w+b")
                     retry_exc(300, [ KeyError ], self.bucket.fetch_fh,
-                              's3ql_data_%d' % s3key, el)
+                              's3ql_data_%d' % obj_id, el)
 
                     # Update cache size
                     el.seek(0, 2)
@@ -243,18 +243,18 @@ class BlockCache(object):
             match = re.match('^inode_(\\d+)_block_(\\d+)$', filename)
             if match:
                 (inode, blockno) = [ int(match.group(i)) for i in (1, 2) ]
-                s3key = None
+                obj_id = None
 
             else:
                 raise RuntimeError('Strange file in cache directory: %s' % filename)
 
             try:
-                s3key = self.dbcm.get_val('SELECT s3key FROM blocks WHERE inode=? AND blockno=?',
+                obj_id = self.dbcm.get_val('SELECT obj_id FROM blocks WHERE inode=? AND blockno=?',
                                           (inode, blockno))
             except KeyError:
-                s3key = None
+                obj_id = None
 
-            el = CacheEntry(inode, blockno, s3key, os.path.join(self.cachedir, filename), "r+b")
+            el = CacheEntry(inode, blockno, obj_id, os.path.join(self.cachedir, filename), "r+b")
             el.dirty = True
             el.seek(0, 2)
             self.size += el.tell()
@@ -279,57 +279,57 @@ class BlockCache(object):
         el.seek(0)
         hash_ = sha256_fh(el)
 
-        old_s3key = el.s3key
+        old_obj_id = el.obj_id
         with self.dbcm.transaction() as conn:
             try:
-                el.s3key = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
+                el.obj_id = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
 
             except KeyError:
                 need_upload = True
-                el.s3key = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
+                el.obj_id = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
                                       (1, hash_, size))
-                log.debug('No matching hash, will upload to new object %s', el.s3key)
+                log.debug('No matching hash, will upload to new object %s', el.obj_id)
 
             else:
                 need_upload = False
-                log.debug('Object %d has identical hash, relinking', el.s3key)
+                log.debug('Object %d has identical hash, relinking', el.obj_id)
                 conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
-                             (el.s3key,))
+                             (el.obj_id,))
 
-            if old_s3key is None:
+            if old_obj_id is None:
                 log.debug('Not associated with any object previously.')
-                conn.execute('INSERT INTO blocks (s3key, inode, blockno) VALUES(?,?,?)',
-                             (el.s3key, el.inode, el.blockno))
+                conn.execute('INSERT INTO blocks (obj_id, inode, blockno) VALUES(?,?,?)',
+                             (el.obj_id, el.inode, el.blockno))
                 to_delete = False
             else:
-                log.debug('Decreasing reference count for previous object %d', old_s3key)
-                conn.execute('UPDATE blocks SET s3key=? WHERE inode=? AND blockno=?',
-                             (el.s3key, el.inode, el.blockno))
+                log.debug('Decreasing reference count for previous object %d', old_obj_id)
+                conn.execute('UPDATE blocks SET obj_id=? WHERE inode=? AND blockno=?',
+                             (el.obj_id, el.inode, el.blockno))
                 refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?',
-                                        (old_s3key,))
+                                        (old_obj_id,))
                 if refcount > 1:
                     conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
-                                 (old_s3key,))
+                                 (old_obj_id,))
                     to_delete = False
                 else:
-                    conn.execute('DELETE FROM objects WHERE id=?', (old_s3key,))
+                    conn.execute('DELETE FROM objects WHERE id=?', (old_obj_id,))
                     to_delete = True
 
 
         if need_upload and to_delete:
             def doit():
                 log.debug('Uploading..')
-                self.bucket.store_fh('s3ql_data_%d' % el.s3key, el)
-                log.debug('No references to object %d left, deleting', old_s3key)
-                retry_exc(300, [ KeyError ], self.bucket.delete, 's3ql_data_%d' % old_s3key)
+                self.bucket.store_fh('s3ql_data_%d' % el.obj_id, el)
+                log.debug('No references to object %d left, deleting', old_obj_id)
+                retry_exc(300, [ KeyError ], self.bucket.delete, 's3ql_data_%d' % old_obj_id)
         elif need_upload:
             def doit():
                 log.debug('Uploading..')
-                self.bucket.store_fh('s3ql_data_%d' % el.s3key, el)
+                self.bucket.store_fh('s3ql_data_%d' % el.obj_id, el)
         elif to_delete:
             def doit():
-                log.debug('No references to object %d left, deleting', old_s3key)
-                retry_exc(300, [ KeyError ], self.bucket.delete, 's3ql_data_%d' % old_s3key)
+                log.debug('No references to object %d left, deleting', old_obj_id)
+                retry_exc(300, [ KeyError ], self.bucket.delete, 's3ql_data_%d' % old_obj_id)
         else:
             return
         return doit
@@ -452,22 +452,22 @@ class BlockCache(object):
         while True:
             with self.dbcm.transaction() as conn:
                 try:
-                    (s3key, cur_block) = conn.get_row('SELECT s3key, blockno FROM blocks '
+                    (obj_id, cur_block) = conn.get_row('SELECT obj_id, blockno FROM blocks '
                                                       'WHERE inode=? AND blockno >= ? LIMIT 1',
                                                       (inode, blockno))
                 except KeyError:
                     break
 
-                log.debug('Deleting block %d, object %d', cur_block, s3key)
+                log.debug('Deleting block %d, object %d', cur_block, obj_id)
                 conn.execute('DELETE FROM blocks WHERE inode=? AND blockno=?', (inode, cur_block))
-                refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?', (s3key,))
+                refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?', (obj_id,))
                 if refcount > 1:
-                    log.debug('Decreasing refcount for object %d', s3key)
-                    conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?', (s3key,))
+                    log.debug('Decreasing refcount for object %d', obj_id)
+                    conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?', (obj_id,))
                     continue
 
-                log.debug('Deleting object %d', s3key)
-                conn.execute('DELETE FROM objects WHERE id=?', (s3key,))
+                log.debug('Deleting object %d', obj_id)
+                conn.execute('DELETE FROM objects WHERE id=?', (obj_id,))
 
             # Note that at this point we must make sure that any new objects 
             # don't reuse the key that we have just deleted from the DB. This
@@ -482,7 +482,7 @@ class BlockCache(object):
             # Start a removal thread              
             t = ExceptionStoringThread(retry_exc, log,
                                        args=(300, [ KeyError ], self.bucket.delete,
-                                             's3ql_data_%d' % s3key))
+                                             's3ql_data_%d' % obj_id))
             threads.append(t)
             t.start()
 

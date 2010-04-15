@@ -143,11 +143,11 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
         inode     INTEGER NOT NULL REFERENCES inodes(id),
         blockno   INT NOT NULL
                   CHECK (typeof(blockno) == 'integer' AND blockno >= 0),
-        s3key     INTEGER NOT NULL REFERENCES objects(id),
+        obj_id    INTEGER NOT NULL REFERENCES objects(id),
  
         PRIMARY KEY (inode, blockno)
     );
-    CREATE INDEX ix_blocks_s3key ON blocks(s3key);
+    CREATE INDEX ix_blocks_obj_id ON blocks(obj_id);
     CREATE INDEX ix_blocks_inode ON blocks(inode);
     """)
 

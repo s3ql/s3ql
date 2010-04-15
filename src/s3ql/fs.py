@@ -375,11 +375,11 @@ class Operations(llfuse.Operations):
                         ino_cache[ino] = ino_new
                         conn.execute('UPDATE inodes SET refcount=1 WHERE id=?', (ino_new,))
 
-                    for (s3key, blockno) in conn.query('SELECT s3key, blockno FROM blocks WHERE inode=?',
+                    for (obj_id, blockno) in conn.query('SELECT obj_id, blockno FROM blocks WHERE inode=?',
                                                        (ino,)):
-                        conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
-                                     (ino_new, blockno, s3key))
-                        conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?', (s3key,))
+                        conn.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
+                                     (ino_new, blockno, obj_id))
+                        conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?', (obj_id,))
                     queue.append((ino, ino_new))
                 else:
                     ino_new = ino_cache[ino]

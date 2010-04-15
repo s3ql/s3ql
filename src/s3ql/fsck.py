@@ -127,32 +127,32 @@ def check_cache():
         hash_ = sha256_fh(fh)
 
         try:
-            s3key = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
+            obj_id = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
 
         except KeyError:
-            s3key = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
+            obj_id = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
                                (1, hash_, size))
-            bucket.store_fh('s3ql_data_%d' % s3key, fh)
+            bucket.store_fh('s3ql_data_%d' % obj_id, fh)
 
         else:
             conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
-                         (s3key,))
+                         (obj_id,))
 
         try:
-            old_s3key = conn.get_val('SELECT s3key FROM blocks WHERE inode=? AND blockno=?',
+            old_obj_id = conn.get_val('SELECT obj_id FROM blocks WHERE inode=? AND blockno=?',
                                      (inode, blockno))
         except KeyError:
-            conn.execute('INSERT INTO blocks (s3key, inode, blockno) VALUES(?,?,?)',
-                         (s3key, inode, blockno))
+            conn.execute('INSERT INTO blocks (obj_id, inode, blockno) VALUES(?,?,?)',
+                         (obj_id, inode, blockno))
         else:
-            conn.execute('UPDATE blocks SET s3key=? WHERE inode=? AND blockno=?',
-                         (s3key, inode, blockno))
+            conn.execute('UPDATE blocks SET obj_id=? WHERE inode=? AND blockno=?',
+                         (obj_id, inode, blockno))
 
             refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?',
-                                    (old_s3key,))
+                                    (old_obj_id,))
             if refcount > 1:
                 conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
-                             (old_s3key,))
+                             (old_obj_id,))
             else:
                 # Don't delete yet, maybe it's still referenced
                 pass
@@ -341,7 +341,7 @@ def check_s3_refcounts():
 
     for (key, refcount) in conn.query("SELECT id, refcount FROM objects"):
 
-        refcount2 = conn.get_val("SELECT COUNT(inode) FROM blocks WHERE s3key=?",
+        refcount2 = conn.get_val("SELECT COUNT(inode) FROM blocks WHERE obj_id=?",
                                  (key,))
         if refcount != refcount2:
             log_error("Object %s has invalid refcount, setting from %d to %d",
@@ -367,55 +367,55 @@ def check_keylist():
     log.info('Checking object list...')
     global found_errors
 
-    # We use this table to keep track of the s3keys that we have
+    # We use this table to keep track of the object that we have
     # seen
-    conn.execute("CREATE TEMP TABLE s3keys AS SELECT id FROM objects")
+    conn.execute("CREATE TEMP TABLE obj_ids AS SELECT id FROM objects")
 
     to_delete = list() # We can't delete the object during iteration
-    for (i, s3key) in enumerate(bucket):
+    for (i, obj_name) in enumerate(bucket):
 
         if i % 5000 == 0:
             log.info('..processed %d objects so far..', i)
 
         # We only bother with data objects
-        if not s3key.startswith("s3ql_data_"):
+        if not obj_name.startswith("s3ql_data_"):
             continue
         else:
-            s3key = int(s3key[len('s3ql_data_'):])
+            obj_id = int(obj_name[len('s3ql_data_'):])
 
         # Retrieve object information from database
         try:
-            conn.get_val("SELECT hash FROM objects WHERE id=?", (s3key,))
+            conn.get_val("SELECT hash FROM objects WHERE id=?", (obj_id,))
 
         # Handle object that exists only in S3
         except KeyError:
             found_errors = True
-            name = unused_filename('s3-object-%s' % s3key)
+            name = unused_filename('object-%s' % obj_id)
             log_error("object %s not referenced in objects table, saving locally as ./%s",
-                      s3key, name)
+                      obj_id, name)
             if not expect_errors:
-                bucket.fetch_fh('s3ql_data_%d' % s3key, open(name, 'wb'))
-            to_delete.append(s3key)
+                bucket.fetch_fh('s3ql_data_%d' % obj_id, open(name, 'wb'))
+            to_delete.append(obj_id)
             continue
 
         # Mark object as seen
-        conn.execute("DELETE FROM s3keys WHERE id=?", (s3key,))
+        conn.execute("DELETE FROM obj_ids WHERE id=?", (obj_id,))
 
 
     # Carry out delete
     if to_delete:
         log.info('Performing deferred object removals...')
-    for s3key in to_delete:
-        del bucket['s3ql_data_%d' % s3key]
+    for obj_id in to_delete:
+        del bucket['s3ql_data_%d' % obj_id]
 
     # Now handle objects that only exist in objects
-    for (s3key,) in conn.query("SELECT id FROM s3keys"):
+    for (obj_id,) in conn.query("SELECT id FROM obj_ids"):
         found_errors = True
-        log_error("object %s only exists in table but not on s3, deleting", s3key)
-        conn.execute("DELETE FROM blocks WHERE s3key=?", (s3key,))
-        conn.execute("DELETE FROM objects WHERE id=?", (s3key,))
+        log_error("object %s only exists in table but not on s3, deleting", obj_id)
+        conn.execute("DELETE FROM blocks WHERE obj_id=?", (obj_id,))
+        conn.execute("DELETE FROM objects WHERE id=?", (obj_id,))
 
-    conn.execute('DROP TABLE s3keys')
+    conn.execute('DROP TABLE obj_ids')
 
 def unused_filename(path):
     '''Append numeric suffix to (local) path until it does not exist'''

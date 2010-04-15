@@ -259,7 +259,10 @@ def upgrade_rev2(dbcm, param):
     dbcm.execute('DROP TRIGGER contents_check_parent_inode_update')
     dbcm.execute('DROP TRIGGER inodes_check_parent_inode_update')
 
+    # We need to disable foreign key support to recreate the inode table
+    # without affecting refernces
     dbcm.execute('PRAGMA foreign_keys = OFF')
+
     dbcm.execute('ALTER TABLE inodes RENAME TO tmp')
     dbcm.execute('UPDATE tmp SET rdev=0 WHERE rdev IS NULL')
     dbcm.execute('''
@@ -293,7 +296,7 @@ def upgrade_rev2(dbcm, param):
     columns = 'id, uid, gid, mode, mtime, atime, ctime, refcount, target, size, rdev'
     dbcm.execute('INSERT INTO inodes (%s) SELECT %s FROM tmp' % (columns, columns))
     dbcm.execute('DROP TABLE tmp')
-    dbcm.execute('PRAGMA foreign_keys = ON')
+
 
     # Fix up refcounts 
     S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK |
@@ -325,7 +328,29 @@ def upgrade_rev2(dbcm, param):
     dbcm.execute('DROP INDEX ix_s3_objects_hash')
     dbcm.execute('CREATE INDEX ix_objects_hash ON objects(hash)')
 
+
+    dbcm.execute('ALTER TABLE blocks RENAME TO tmp')
+    dbcm.execute('DROP INDEX ix_blocks_s3key')
+    dbcm.execute('DROP INDEX ix_blocks_inode')
+    conn.execute("""
+    CREATE TABLE blocks (
+        inode     INTEGER NOT NULL REFERENCES inodes(id),
+        blockno   INT NOT NULL
+                  CHECK (typeof(blockno) == 'integer' AND blockno >= 0),
+        obj_id    INTEGER NOT NULL REFERENCES objects(id),
+ 
+        PRIMARY KEY (inode, blockno)
+    );
+    CREATE INDEX ix_blocks_obj_id ON blocks(obj_id);
+    CREATE INDEX ix_blocks_inode ON blocks(inode);
+    """)
+    dbcm.execute('INSERT INTO blocks (inode, blockno, obj_id) '
+                 'SELECT inode, blockno, s3key FROM tmp' % (columns, columns))
+    dbcm.execute('DROP TABLE tmp')
+
     param['revision'] = 3
+
+    dbcm.execute('PRAGMA foreign_keys = ON')
 
 
 def copy_bucket(conn, options, src_bucket):
