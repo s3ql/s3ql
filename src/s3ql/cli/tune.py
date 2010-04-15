@@ -293,6 +293,7 @@ def upgrade_rev2(dbcm, param):
     columns = 'id, uid, gid, mode, mtime, atime, ctime, refcount, target, size, rdev'
     dbcm.execute('INSERT INTO inodes (%s) SELECT %s FROM tmp' % (columns, columns))
     dbcm.execute('DROP TABLE tmp')
+    dbcm.execute('PRAGMA foreign_keys = ON')
 
     # Fix up refcounts 
     S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK |
@@ -319,6 +320,10 @@ def upgrade_rev2(dbcm, param):
             else:
                 conn.execute("UPDATE inodes SET refcount=? WHERE id=?",
                              (refcount, inode))
+
+    dbcm.execute('ALTER TABLE s3_objects RENAME TO objects')
+    dbcm.execute('DROP INDEX ix_s3_objects_hash')
+    dbcm.execute('CREATE INDEX ix_objects_hash ON objects(hash)')
 
     param['revision'] = 3
 

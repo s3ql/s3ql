@@ -379,7 +379,7 @@ class Operations(llfuse.Operations):
                                                        (ino,)):
                         conn.execute('INSERT INTO blocks (inode, blockno, s3key) VALUES(?, ?, ?)',
                                      (ino_new, blockno, s3key))
-                        conn.execute('UPDATE s3_objects SET refcount=refcount+1 WHERE id=?', (s3key,))
+                        conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?', (s3key,))
                     queue.append((ino, ino_new))
                 else:
                     ino_new = ino_cache[ino]
@@ -746,10 +746,10 @@ class Operations(llfuse.Operations):
 
         with self.dbcm() as conn:
             entries = conn.get_val("SELECT COUNT(rowid) FROM contents")
-            blocks = conn.get_val("SELECT COUNT(id) FROM s3_objects")
+            blocks = conn.get_val("SELECT COUNT(id) FROM objects")
             inodes = conn.get_val("SELECT COUNT(id) FROM inodes")
             size_1 = conn.get_val('SELECT SUM(size) FROM inodes')
-            size_2 = conn.get_val('SELECT SUM(size) FROM s3_objects')
+            size_2 = conn.get_val('SELECT SUM(size) FROM objects')
 
         if not size_1:
             size_1 = 1
@@ -765,9 +765,9 @@ class Operations(llfuse.Operations):
 
         # Get number of blocks & inodes
         with self.dbcm() as conn:
-            blocks = conn.get_val("SELECT COUNT(id) FROM s3_objects")
+            blocks = conn.get_val("SELECT COUNT(id) FROM objects")
             inodes = conn.get_val("SELECT COUNT(id) FROM inodes")
-            size = conn.get_val('SELECT SUM(size) FROM s3_objects')
+            size = conn.get_val('SELECT SUM(size) FROM objects')
 
         if size is None:
             size = 0

@@ -123,7 +123,7 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     # Refcount is included for performance reasons, for directories, the
     # refcount also includes the implicit '.' entry
     conn.execute("""
-    CREATE TABLE s3_objects (
+    CREATE TABLE objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
         refcount  INT NOT NULL
                   CHECK (typeof(refcount) == 'integer' AND refcount > 0),
@@ -134,7 +134,7 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
         size      INT NOT NULL
                   CHECK (typeof(size) == 'integer' AND size >= 0)                  
     );
-    CREATE INDEX ix_s3_objects_hash ON s3_objects(hash);
+    CREATE INDEX ix_objects_hash ON objects(hash);
     """)
 
     # Maps blocks to objects
@@ -143,7 +143,7 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
         inode     INTEGER NOT NULL REFERENCES inodes(id),
         blockno   INT NOT NULL
                   CHECK (typeof(blockno) == 'integer' AND blockno >= 0),
-        s3key     INTEGER NOT NULL REFERENCES s3_objects(id),
+        s3key     INTEGER NOT NULL REFERENCES objects(id),
  
         PRIMARY KEY (inode, blockno)
     );

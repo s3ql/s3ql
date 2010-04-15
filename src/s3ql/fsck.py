@@ -127,15 +127,15 @@ def check_cache():
         hash_ = sha256_fh(fh)
 
         try:
-            s3key = conn.get_val('SELECT id FROM s3_objects WHERE hash=?', (hash_,))
+            s3key = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
 
         except KeyError:
-            s3key = conn.rowid('INSERT INTO s3_objects (refcount, hash, size) VALUES(?, ?, ?)',
+            s3key = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
                                (1, hash_, size))
             bucket.store_fh('s3ql_data_%d' % s3key, fh)
 
         else:
-            conn.execute('UPDATE s3_objects SET refcount=refcount+1 WHERE id=?',
+            conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
                          (s3key,))
 
         try:
@@ -148,10 +148,10 @@ def check_cache():
             conn.execute('UPDATE blocks SET s3key=? WHERE inode=? AND blockno=?',
                          (s3key, inode, blockno))
 
-            refcount = conn.get_val('SELECT refcount FROM s3_objects WHERE id=?',
+            refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?',
                                     (old_s3key,))
             if refcount > 1:
-                conn.execute('UPDATE s3_objects SET refcount=refcount-1 WHERE id=?',
+                conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
                              (old_s3key,))
             else:
                 # Don't delete yet, maybe it's still referenced
@@ -339,7 +339,7 @@ def check_s3_refcounts():
     global found_errors
     log.info('Checking object reference counts...')
 
-    for (key, refcount) in conn.query("SELECT id, refcount FROM s3_objects"):
+    for (key, refcount) in conn.query("SELECT id, refcount FROM objects"):
 
         refcount2 = conn.get_val("SELECT COUNT(inode) FROM blocks WHERE s3key=?",
                                  (key,))
@@ -348,11 +348,11 @@ def check_s3_refcounts():
                       key, refcount, refcount2)
             found_errors = True
             if refcount2 != 0:
-                conn.execute("UPDATE s3_objects SET refcount=? WHERE id=?",
+                conn.execute("UPDATE objects SET refcount=? WHERE id=?",
                              (refcount2, key))
             else:
                 # Orphaned object will be picked up by check_keylist
-                conn.execute('DELETE FROM s3_objects WHERE id=?', (key,))
+                conn.execute('DELETE FROM objects WHERE id=?', (key,))
 
 
 def check_keylist():
@@ -369,7 +369,7 @@ def check_keylist():
 
     # We use this table to keep track of the s3keys that we have
     # seen
-    conn.execute("CREATE TEMP TABLE s3keys AS SELECT id FROM s3_objects")
+    conn.execute("CREATE TEMP TABLE s3keys AS SELECT id FROM objects")
 
     to_delete = list() # We can't delete the object during iteration
     for (i, s3key) in enumerate(bucket):
@@ -385,7 +385,7 @@ def check_keylist():
 
         # Retrieve object information from database
         try:
-            conn.get_val("SELECT hash FROM s3_objects WHERE id=?", (s3key,))
+            conn.get_val("SELECT hash FROM objects WHERE id=?", (s3key,))
 
         # Handle object that exists only in S3
         except KeyError:
@@ -408,12 +408,12 @@ def check_keylist():
     for s3key in to_delete:
         del bucket['s3ql_data_%d' % s3key]
 
-    # Now handle objects that only exist in s3_objects
+    # Now handle objects that only exist in objects
     for (s3key,) in conn.query("SELECT id FROM s3keys"):
         found_errors = True
         log_error("object %s only exists in table but not on s3, deleting", s3key)
         conn.execute("DELETE FROM blocks WHERE s3key=?", (s3key,))
-        conn.execute("DELETE FROM s3_objects WHERE id=?", (s3key,))
+        conn.execute("DELETE FROM objects WHERE id=?", (s3key,))
 
     conn.execute('DROP TABLE s3keys')
 

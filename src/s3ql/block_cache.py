@@ -282,18 +282,18 @@ class BlockCache(object):
         old_s3key = el.s3key
         with self.dbcm.transaction() as conn:
             try:
-                el.s3key = conn.get_val('SELECT id FROM s3_objects WHERE hash=?', (hash_,))
+                el.s3key = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
 
             except KeyError:
                 need_upload = True
-                el.s3key = conn.rowid('INSERT INTO s3_objects (refcount, hash, size) VALUES(?, ?, ?)',
+                el.s3key = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
                                       (1, hash_, size))
                 log.debug('No matching hash, will upload to new object %s', el.s3key)
 
             else:
                 need_upload = False
                 log.debug('Object %d has identical hash, relinking', el.s3key)
-                conn.execute('UPDATE s3_objects SET refcount=refcount+1 WHERE id=?',
+                conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
                              (el.s3key,))
 
             if old_s3key is None:
@@ -305,14 +305,14 @@ class BlockCache(object):
                 log.debug('Decreasing reference count for previous object %d', old_s3key)
                 conn.execute('UPDATE blocks SET s3key=? WHERE inode=? AND blockno=?',
                              (el.s3key, el.inode, el.blockno))
-                refcount = conn.get_val('SELECT refcount FROM s3_objects WHERE id=?',
+                refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?',
                                         (old_s3key,))
                 if refcount > 1:
-                    conn.execute('UPDATE s3_objects SET refcount=refcount-1 WHERE id=?',
+                    conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
                                  (old_s3key,))
                     to_delete = False
                 else:
-                    conn.execute('DELETE FROM s3_objects WHERE id=?', (old_s3key,))
+                    conn.execute('DELETE FROM objects WHERE id=?', (old_s3key,))
                     to_delete = True
 
 
@@ -460,14 +460,14 @@ class BlockCache(object):
 
                 log.debug('Deleting block %d, object %d', cur_block, s3key)
                 conn.execute('DELETE FROM blocks WHERE inode=? AND blockno=?', (inode, cur_block))
-                refcount = conn.get_val('SELECT refcount FROM s3_objects WHERE id=?', (s3key,))
+                refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?', (s3key,))
                 if refcount > 1:
                     log.debug('Decreasing refcount for object %d', s3key)
-                    conn.execute('UPDATE s3_objects SET refcount=refcount-1 WHERE id=?', (s3key,))
+                    conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?', (s3key,))
                     continue
 
                 log.debug('Deleting object %d', s3key)
-                conn.execute('DELETE FROM s3_objects WHERE id=?', (s3key,))
+                conn.execute('DELETE FROM objects WHERE id=?', (s3key,))
 
             # Note that at this point we must make sure that any new objects 
             # don't reuse the key that we have just deleted from the DB. This
