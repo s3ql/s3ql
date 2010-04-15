@@ -41,7 +41,7 @@ class Operations(llfuse.Operations):
     -----------
 
     :dbcm:        `DBConnectionManager` instance
-    :cache:       Holds information about cached s3 objects
+    :cache:       Holds information about cached blocks
     :noatime:     Do not update directory access time
     :encountered_errors: Is set to true if a request handler raised an exception
     :inode_lock:    MultiLock for synchronizing updates to `open_files`
@@ -663,7 +663,7 @@ class Operations(llfuse.Operations):
         if 'st_size' in attr:
             len_ = attr['st_size']
 
-            # Delete all truncated s3 objects
+            # Delete all truncated blocks
             blockno = len_ // self.blocksize
             self.cache.remove(inode, blockno + 1)
 
@@ -780,7 +780,7 @@ class Operations(llfuse.Operations):
         stat_['f_frsize'] = self.blocksize
 
         # size of fs in f_frsize units 
-        # (since S3 is unlimited, always return a half-full filesystem,
+        # (since backend is supposed to be unlimited, always return a half-full filesystem,
         # but at least 50 GB)
         if stat_['f_bsize'] != 0:
             total_blocks = int(max(2 * blocks, 50 * 1024 ** 3 // stat_['f_bsize']))

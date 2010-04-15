@@ -168,14 +168,14 @@ class BlockCache(object):
 
     @contextmanager
     def get(self, inode, blockno):
-        """Get file handle for s3 object backing `inode` at block `blockno`
+        """Get file handle for block `blockno` of `inode`
         
         This may cause other blocks to be expired from the cache in
         separate threads. The caller should therefore not hold any
         database locks when calling `get`.
         """
 
-        # Get s3 key    
+        # Get object key    
         log.debug('Getting file handle for inode %i, block %i', inode, blockno)
         with self.mlock(inode, blockno):
             try:
@@ -188,12 +188,12 @@ class BlockCache(object):
                     s3key = self.dbcm.get_val("SELECT s3key FROM blocks WHERE inode=? AND blockno=?",
                                          (inode, blockno))
 
-                # No corresponding S3 object
+                # No corresponding object
                 except KeyError:
                     el = CacheEntry(inode, blockno, None, filename, "w+b")
                     oldsize = 0
 
-                # Need to download corresponding S3 object
+                # Need to download corresponding object
                 else:
                     el = CacheEntry(inode, blockno, s3key, filename, "w+b")
                     retry_exc(300, [ KeyError ], self.bucket.fetch_fh,
@@ -297,12 +297,12 @@ class BlockCache(object):
                              (el.s3key,))
 
             if old_s3key is None:
-                log.debug('Not associated with any S3 object previously.')
+                log.debug('Not associated with any object previously.')
                 conn.execute('INSERT INTO blocks (s3key, inode, blockno) VALUES(?,?,?)',
                              (el.s3key, el.inode, el.blockno))
                 to_delete = False
             else:
-                log.debug('Decreasing reference count for previous s3 object %d', old_s3key)
+                log.debug('Decreasing reference count for previous object %d', old_s3key)
                 conn.execute('UPDATE blocks SET s3key=? WHERE inode=? AND blockno=?',
                              (el.s3key, el.inode, el.blockno))
                 refcount = conn.get_val('SELECT refcount FROM s3_objects WHERE id=?',
@@ -376,7 +376,7 @@ class BlockCache(object):
 
             # Make sure the object is in the db before removing it from the cache
             fn = self._prepare_upload(el)
-            log.debug('Removing s3 object %s from cache..', el)
+            log.debug('Removing object %s from cache..', el)
             del self.cache[(el.inode, el.blockno)]
             el.seek(0, os.SEEK_END)
             freed_size += el.tell()
@@ -414,12 +414,12 @@ class BlockCache(object):
     def remove(self, inode, blockno=0):
         """Unlink blocks of given inode.
         
-        If `blockno` is specified, unlinks only s3 objects for blocks
-        >= `blockno`. If no other blocks reference the s3 objects,
+        If `blockno` is specified, unlinks only objects for blocks
+        >= `blockno`. If no other blocks reference the objects,
         they are completely removed.
         
-        As long as no s3 objects need to be removed, blocks are processed
-        sequentially. If an s3 object needs to be removed, a new thread
+        As long as no objects need to be removed, blocks are processed
+        sequentially. If an object needs to be removed, a new thread
         continues to process the remaining blocks in parallel.
         """
 
@@ -458,18 +458,18 @@ class BlockCache(object):
                 except KeyError:
                     break
 
-                log.debug('Deleting block %d, s3 key %d', cur_block, s3key)
+                log.debug('Deleting block %d, object %d', cur_block, s3key)
                 conn.execute('DELETE FROM blocks WHERE inode=? AND blockno=?', (inode, cur_block))
                 refcount = conn.get_val('SELECT refcount FROM s3_objects WHERE id=?', (s3key,))
                 if refcount > 1:
-                    log.debug('Decreasing refcount for s3 object %d', s3key)
+                    log.debug('Decreasing refcount for object %d', s3key)
                     conn.execute('UPDATE s3_objects SET refcount=refcount-1 WHERE id=?', (s3key,))
                     continue
 
-                log.debug('Deleting s3 object %d', s3key)
+                log.debug('Deleting object %d', s3key)
                 conn.execute('DELETE FROM s3_objects WHERE id=?', (s3key,))
 
-            # Note that at this point we must make sure that any new s3 objects 
+            # Note that at this point we must make sure that any new objects 
             # don't reuse the key that we have just deleted from the DB. This
             # is ensured by using AUTOINCREMENT on the id column.
 

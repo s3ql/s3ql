@@ -16,13 +16,13 @@ import time
 __all__ = [ "MultiLock" ]
 
 log = logging.getLogger("MultiLock")
-        
-     
+
+
 # For debugging, can be set to impose an artifical delay when
 # obtaining the lock. Introduced to debug a very
 # timing-critical bug.
 FAKEDELAY = False
-            
+
 class MultiLock(object):
     """Provides locking for multiple objects.
     
@@ -42,12 +42,12 @@ class MultiLock(object):
     that has been obtained by a different thread. This is not a bug,
     but a feature used in  `S3Cache._expire_parallel`.
     """
-    
+
     def __init__(self):
         self.locked_keys = set()
         self.cond = threading.Condition()
-         
-      
+
+
     @contextmanager
     def __call__(self, *key):
         self.acquire(*key)
@@ -55,17 +55,17 @@ class MultiLock(object):
             yield
         finally:
             self.release(*key)
-            
+
     def acquire(self, *key):
         '''Acquire lock for given key'''
-        
+
         if FAKEDELAY:
-            time.sleep(FAKEDELAY)  
-            
+            time.sleep(FAKEDELAY)
+
         # Lock set of lockedkeys (global lock)
         with self.cond:
-            
-            # Wait for given s3 key becoming unused
+
+            # Wait for given key becoming unused
             while key in self.locked_keys:
                 self.cond.wait()
 

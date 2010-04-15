@@ -43,7 +43,7 @@ def parse_args(args):
     parser.add_option("-L", type="string", default='', help="Filesystem label",
                       dest="label")
     parser.add_option("--blocksize", type="int", default=10240,
-                      help="Maximum size of s3 objects in KB (default: %default)")
+                      help="Maximum block size in KB (default: %default)")
     parser.add_option("--encrypt", action="store_true", default=None,
                       help="Create an encrypted and compressed file system")
     parser.add_option("--debug", action="append",

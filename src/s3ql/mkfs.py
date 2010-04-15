@@ -120,7 +120,6 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     CREATE INDEX ix_ext_attributes_inode ON ext_attributes(inode);
     """)
 
-    # Maps file data chunks to S3 objects
     # Refcount is included for performance reasons, for directories, the
     # refcount also includes the implicit '.' entry
     conn.execute("""
@@ -138,7 +137,7 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     CREATE INDEX ix_s3_objects_hash ON s3_objects(hash);
     """)
 
-    # Maps file data chunks to S3 objects
+    # Maps blocks to objects
     conn.execute("""
     CREATE TABLE blocks (
         inode     INTEGER NOT NULL REFERENCES inodes(id),

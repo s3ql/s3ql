@@ -32,7 +32,7 @@ class Connection(AbstractConnection):
             os.rmdir(name)
 
     def create_bucket(self, name, passphrase=None):
-        """Create and return an S3 bucket"""
+        """Create and return a bucket"""
 
         if os.path.exists(name):
             raise RuntimeError('Bucket already exists')

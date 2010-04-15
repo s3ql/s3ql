@@ -334,17 +334,17 @@ def check_inode_unix():
 
 
 def check_s3_refcounts():
-    """Check s3 object reference counts"""
+    """Check object reference counts"""
 
     global found_errors
-    log.info('Checking S3 object reference counts...')
+    log.info('Checking object reference counts...')
 
     for (key, refcount) in conn.query("SELECT id, refcount FROM s3_objects"):
 
         refcount2 = conn.get_val("SELECT COUNT(inode) FROM blocks WHERE s3key=?",
                                  (key,))
         if refcount != refcount2:
-            log_error("S3 object %s has invalid refcount, setting from %d to %d",
+            log_error("Object %s has invalid refcount, setting from %d to %d",
                       key, refcount, refcount2)
             found_errors = True
             if refcount2 != 0:
@@ -356,15 +356,15 @@ def check_s3_refcounts():
 
 
 def check_keylist():
-    """Check the list of S3 objects.
+    """Check the list of objects.
 
     Checks that:
-    - all s3 objects are referred in the s3 table
-    - all objects in the s3 table exist
+    - all objects are referred in the object table
+    - all objects in the object table exist
     - object has correct hash
     """
 
-    log.info('Checking S3 key list...')
+    log.info('Checking object list...')
     global found_errors
 
     # We use this table to keep track of the s3keys that we have
@@ -391,7 +391,7 @@ def check_keylist():
         except KeyError:
             found_errors = True
             name = unused_filename('s3-object-%s' % s3key)
-            log_error("object %s not referenced in s3 objects table, saving locally as ./%s",
+            log_error("object %s not referenced in objects table, saving locally as ./%s",
                       s3key, name)
             if not expect_errors:
                 bucket.fetch_fh('s3ql_data_%d' % s3key, open(name, 'wb'))
@@ -404,7 +404,7 @@ def check_keylist():
 
     # Carry out delete
     if to_delete:
-        log.info('Performing deferred S3 removals...')
+        log.info('Performing deferred object removals...')
     for s3key in to_delete:
         del bucket['s3ql_data_%d' % s3key]
 
