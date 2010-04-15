@@ -176,7 +176,6 @@ def upgrade(conn, bucket):
     # Check consistency
     mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
     if mountcnt_db < param['mountcnt']:
-        os.unlink(dbfile)
         if isinstance(bucket, s3.Bucket):
             raise QuietError(textwrap.fill(textwrap.dedent('''
                 It appears that the file system is still mounted somewhere else. If this is not
@@ -192,7 +191,6 @@ def upgrade(conn, bucket):
                 to run fsck on the computer where the file system has been mounted most recently.
                 ''')))
     elif mountcnt_db > param['mountcnt']:
-        os.unlink(dbfile)
         raise RuntimeError('mountcnt_db > param[mountcnt], this should not happen.')
 
     # Lock the bucket   
@@ -357,7 +355,7 @@ def upgrade_rev2(dbcm, param):
     CREATE INDEX ix_blocks_inode ON blocks(inode);
     """)
     dbcm.execute('INSERT INTO blocks (inode, blockno, obj_id) '
-                 'SELECT inode, blockno, s3key FROM tmp' % (columns, columns))
+                 'SELECT inode, blockno, s3key FROM tmp')
     dbcm.execute('DROP TABLE tmp')
 
     param['revision'] = 3
