@@ -14,7 +14,7 @@ from s3ql.backends import local
 import time
 from s3ql.common import ROOT_INODE, ExceptionStoringThread, init_logging
 from llfuse import FUSEError
-from s3ql.s3cache import S3Cache
+from s3ql.block_cache import BlockCache
 from s3ql.database import ConnectionManager
 from _common import TestCase
 import os
@@ -49,7 +49,7 @@ class fs_api_tests(TestCase):
         with self.dbcm() as conn:
             mkfs.setup_db(conn, self.blocksize)
 
-        self.cache = S3Cache(self.bucket, self.cachedir, self.blocksize * 5, self.dbcm)
+        self.cache = BlockCache(self.bucket, self.cachedir, self.blocksize * 5, self.dbcm)
         self.server = fs.Operations(self.cache, self.dbcm)
         self.server.init()
 
@@ -448,7 +448,7 @@ class fs_api_tests(TestCase):
 
 
     def test_11_truncate_expire(self):
-        '''Check that setattr() releases db lock before calling s3cache.get'''
+        '''Check that setattr() releases db lock before calling cache.get'''
 
         inode_p = self.root_inode
         name = self.newname()

@@ -14,7 +14,7 @@ from s3ql import fs
 from s3ql.backends import s3
 from s3ql.daemonize import daemonize
 from s3ql.backends.common import ChecksumError
-from s3ql.s3cache import S3Cache # SynchronizedS3Cache
+from s3ql.block_cache import BlockCache
 from s3ql.common import (init_logging_from_options, get_backend, get_cachedir, get_dbfile,
                          QuietError, unlock_bucket, get_parameters, get_stdout_handler,
                          get_lockfile, cycle_metadata)
@@ -99,7 +99,7 @@ def main(args=None):
                                  'need to run fsck.s3ql.')
 
             log.info('Recovering old metadata from unclean shutdown..')
-            cache = S3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
+            cache = BlockCache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
             cache.recover()
 
             log.info('Uploading old cache files...')
@@ -133,7 +133,7 @@ def main(args=None):
                 raise RuntimeError('mountcnt_db > mountcnt_s3, this should not happen.')
 
             os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-            cache = S3Cache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
+            cache = BlockCache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
 
         # Check that the fs itself is clean
         if dbcm.get_val("SELECT needs_fsck FROM parameters"):

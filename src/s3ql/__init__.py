@@ -9,4 +9,4 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 __all__ = [ "common", 'daemonize', 'database', 'fs', 'fsck', 'libc_api',
-            "mkfs", 'multi_lock', 'ordered_dict', 's3cache' ]
+            "mkfs", 'multi_lock', 'ordered_dict', 'block_cache' ]

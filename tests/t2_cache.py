@@ -1,5 +1,5 @@
 '''
-t2_s3cache.py - this file is part of S3QL (http://s3ql.googlecode.com)
+t2_cache.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 
@@ -8,7 +8,8 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function
 
-from s3ql import mkfs, s3cache
+from s3ql import mkfs
+from s3ql.block_cache import BlockCache
 from s3ql.backends import local
 from s3ql.database import ConnectionManager
 import os
@@ -22,7 +23,7 @@ import shutil
 # Each test should correspond to exactly one function in the tested
 # module, and testing should be done under the assumption that any
 # other functions that are called by the tested function work perfectly.
-class s3cache_tests(TestCase):
+class cache_tests(TestCase):
 
     def setUp(self):
 
@@ -47,7 +48,7 @@ class s3cache_tests(TestCase):
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                     os.getuid(), os.getgid(), time(), time(), time(), 1, 32))
 
-        self.cache = s3cache.S3Cache(self.bucket, self.cachedir, cachesize, self.dbcm)
+        self.cache = BlockCache(self.bucket, self.cachedir, cachesize, self.dbcm)
 
     def tearDown(self):
         self.cache.clear()
@@ -225,7 +226,7 @@ class s3cache_tests(TestCase):
 
         # Fake cache crash
         self.cache.cache.clear()
-        self.cache = s3cache.S3Cache(self.bucket, self.cachedir, self.cache.maxsize, self.dbcm)
+        self.cache = BlockCache(self.bucket, self.cachedir, self.cache.maxsize, self.dbcm)
         self.cache.recover()
 
         with self.cache.get(inode, 1) as fh:
@@ -335,7 +336,7 @@ class TestBucket(object):
         return self.bucket.contains(key)
 
 def suite():
-    return unittest.makeSuite(s3cache_tests)
+    return unittest.makeSuite(cache_tests)
 
 if __name__ == "__main__":
     unittest.main()

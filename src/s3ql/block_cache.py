@@ -1,5 +1,5 @@
 '''
-s3cache.py - this file is part of S3QL (http://s3ql.googlecode.com)
+block_cache.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 
@@ -18,10 +18,10 @@ import threading
 import time
 import re
 
-__all__ = [ "S3Cache", 'SynchronizedS3Cache' ]
+__all__ = [ "BlockCache" ]
 
 # standard logger for this module
-log = logging.getLogger("S3Cache")
+log = logging.getLogger("BlockCache")
 
 
 # This is an additional limit on the cache, in addition to the cache size. It prevents that we
@@ -32,7 +32,7 @@ MAX_CACHE_ENTRIES = 768
 
 
 class CacheEntry(file):
-    """An element in the s3 object cache
+    """An element in the block cache
     
     If `s3key` is `None`, then the object has not yet been
     uploaded to S3. 
@@ -61,10 +61,10 @@ class CacheEntry(file):
         return ('<CacheEntry, inode=%d, blockno=%d, dirty=%s, s3key=%r>' %
                 (self.inode, self.blockno, self.dirty, self.s3key))
 
-class S3Cache(object):
-    """Manages access to s3 objects
+class BlockCache(object):
+    """Manages access to file blocks
     
-    Operations on s3 objects need to be synchronized between different threads,
+    Operations on blocks need to be synchronized between different threads,
     since otherwise we may
     
     * write into an object that is currently being expired and 
@@ -77,12 +77,12 @@ class S3Cache(object):
     * read or write at the wrong position, if a different thread has
       moved the file cursor.
  
-    For this reason, all operations on s3 files are mediated by
-    an S3Cache object. Whenever the file system needs to write or read
-    from an s3 object, it uses the `S3Cache.get()` context manager 
-    which provides a file handle to the s3 object. The S3Cache retrieves
-    and stores objects on S3 as necessary. Moreover, it provides
-    methods to delete and create s3 objects, once again taking care
+    For this reason, all operations on blocks are mediated by
+    a BlockCache object. Whenever the file system needs to write or read
+    from an block, it uses the `BlockCache.get()` context manager 
+    which provides a file handle to the block. The block cache retrieves
+    and stores blocks on the backend as necessary. Moreover, it provides
+    methods to delete and create blocks, once again taking care
     of the necessary locking.
 
     
@@ -94,7 +94,7 @@ class S3Cache(object):
     try to acquire any Python lock when it holds a database lock (i.e.,
     is in the middle of a transaction). This has also to be taken
     into account when calling other functions, especially from e.g.
-    S3Cache.            
+    BlockCache.            
     """
 
     def __init__(self, bucket, cachedir, maxsize, dbcm):
@@ -544,7 +544,7 @@ class S3Cache(object):
     def clear(self):
         """Upload all dirty data and clear cache"""
 
-        log.debug('Clearing S3Cache')
+        log.debug('Clearing block cache')
 
         if self.exp_thread and self.exp_thread.is_alive():
             bak = self.maxsize
@@ -562,7 +562,7 @@ class S3Cache(object):
 
     def __del__(self):
         if len(self.cache) > 0:
-            raise RuntimeError("s3ql.S3Cache instance was destroyed without calling clear()!")
+            raise RuntimeError("BlockCache instance was destroyed without calling clear()!")
 
 
 def retry_exc(timeout, exc_types, fn, *a, **kw):
