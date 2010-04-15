@@ -521,7 +521,7 @@ class Operations(llfuse.Operations):
                 self._rename_file(inode_p_old, name_old, inode_p_new, name_new)
         else:
             if stat.S_IFMT(fstat_old['st_mode']) != stat.S_IFMT(fstat_new['st_mode']):
-                log.warn('Cannot rename file to directory (or vice versa).')
+                log.info('Cannot rename file to directory (or vice versa).')
                 raise llfuse.FUSEError(errno.EINVAL)
 
             if stat.S_ISDIR(fstat_old['st_mode']):
@@ -569,7 +569,7 @@ class Operations(llfuse.Operations):
         with self.dbcm.transaction() as conn:
             if conn.get_val("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
                             (inode_new,)) > 0:
-                log.warn("Attempted to overwrite entry with children: %s",
+                log.info("Attempted to overwrite entry with children: %s",
                           get_path(name_new, inode_p_new, conn))
                 raise llfuse.FUSEError(errno.EINVAL)
 
