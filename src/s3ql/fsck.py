@@ -222,7 +222,7 @@ def check_loops():
 
     delete_tree(ROOT_INODE)
 
-    if conn.get_val("SELECT COUNT(inode) FROM loopcheck2") > 0:
+    if conn.has_val("SELECT 1 FROM loopcheck2"):
         found_errors = True
         log_error("Found unreachable filesystem entries!\n"
                   "This problem cannot be corrected automatically yet.")

@@ -88,7 +88,6 @@ class Operations(llfuse.Operations):
     # TODO: Rename open_files to attr_cache
     # TODO: Make attr_cache execute db calls if inode is not in cache
     # TODO: Make sure that attr_cache is *always* used, even if we are modifying directory inodes
-    # TODO: Replace COUNT(..) has_val with LIMIT 1
     # TODO: Remove distinction between files and directories whereever possible (e.g. rename)
 
     def handle_exc(self, exc):
@@ -423,8 +422,7 @@ class Operations(llfuse.Operations):
             with self.dbcm.transaction() as conn:
 
                 # Check there are no child entries
-                if conn.get_val("SELECT COUNT(name) FROM contents WHERE parent_inode=? LIMIT 1",
-                                (inode,)) > 0:
+                if conn.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (inode,)):
                     log.debug("Attempted to remove entry with children: %s",
                               get_path(name, inode_p, conn))
                     raise llfuse.FUSEError(errno.ENOTEMPTY)
@@ -567,8 +565,7 @@ class Operations(llfuse.Operations):
         timestamp = time.time() - time.timezone
 
         with self.dbcm.transaction() as conn:
-            if conn.get_val("SELECT COUNT(name) FROM contents WHERE parent_inode=?",
-                            (inode_new,)) > 0:
+            if conn.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (inode_new,)):
                 log.info("Attempted to overwrite entry with children: %s",
                           get_path(name_new, inode_p_new, conn))
                 raise llfuse.FUSEError(errno.EINVAL)
