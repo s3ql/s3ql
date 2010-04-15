@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function
 
-import unittest
+import unittest2 as unittest
 from _common import TestCase
 
 class fuse_kernel_tests(TestCase):

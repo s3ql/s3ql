@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function
 
-import unittest
+import unittest2 as unittest
 from s3ql import mkfs, fsck
 from s3ql.backends import local
 from s3ql.database import WrappedConnection

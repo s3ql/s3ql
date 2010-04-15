@@ -14,7 +14,7 @@ from s3ql.database import ConnectionManager
 import os
 import tempfile
 from _common import TestCase
-import unittest
+import unittest2 as unittest
 import stat
 from time import time
 import shutil

@@ -84,7 +84,6 @@ def main():
           package_dir={'': 'src'},
           packages=setuptools.find_packages('src'),
           provides=['s3ql', 'llfuse'],
-          zip_safe=True,
           entry_points={ 'console_scripts':
                           ['cp.s3ql = s3ql.cli.cp:main',
                            'fsck.s3ql = s3ql.cli.fsck:main',
@@ -97,7 +96,7 @@ def main():
           install_requires=['apsw >= 3.6.19',
                             'pycryptopp',
                             'pyliblzma >= 0.5.3' ],
-          tests_require=['apsw >= 3.6.19',
+          tests_require=['apsw >= 3.6.19', 'unittest2'
                          'pycryptopp',
                          'pyliblzma >= 0.5.3' ],
           #ext_modules=extens,
@@ -269,6 +268,7 @@ class run_tests(setuptools.Command):
     def run(self):
 
         # Enforce correct SQLite version
+        import apsw
         sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
         if sqlite_ver < (3, 6, 19):
             raise StandardError('SQLite version too old, must be 3.6.19 or newer!\n')
@@ -279,7 +279,7 @@ class run_tests(setuptools.Command):
 
         # Add test modules
         sys.path.insert(0, os.path.join(basedir, 'tests'))
-        import unittest
+        import unittest2 as unittest
         import _common
         import s3ql.common
         from s3ql.common import init_logging

@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function
 from _common import TestCase
-import unittest
+import unittest2 as unittest
 import tempfile
 import sys
 import os

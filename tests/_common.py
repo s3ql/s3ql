@@ -12,16 +12,23 @@ for authentication data that may be required for some test cases.
 
 from __future__ import division, print_function
 
-import unittest
+import unittest2 as unittest
+import os
+import logging
+import sys
 
 __all__ = [ 'TestCase' ]
 
-aws_credentials = None
+log = logging.getLogger()
 
 class TestCase(unittest.TestCase):
 
     def __init__(self, *a, **kw):
         super(TestCase, self).__init__(*a, **kw)
+
+        # Init logging with default settings if not yet done
+        if not log.handlers:
+            logging.basicConfig(level=logging.WARN, stream=sys.stderr)
 
     def run(self, result=None):
         if result is None:
@@ -33,5 +40,22 @@ class TestCase(unittest.TestCase):
         if result.errors or result.failures:
             result.stop()
 
-    def assertIsNone(self, val):
-        self.assertTrue(val is None, '%r is not None' % val)
+# Try to read credentials from file. Meant for developer use only,  
+# so that we can run individual tests without the setup.py
+# initialization.
+def init_credentials():
+    keyfile = os.path.join(os.environ['HOME'], '.awssecret')
+
+    if not os.path.isfile(keyfile):
+        return None
+
+    with open(keyfile, "r") as fh:
+        key = fh.readline().rstrip()
+        pw = fh.readline().rstrip()
+
+    return (key, pw)
+
+aws_credentials = init_credentials()
+
+
+

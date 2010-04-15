@@ -25,7 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
-import unittest
+import unittest2 as unittest
 
 class fuse_tests(TestCase):
 

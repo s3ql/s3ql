@@ -20,7 +20,7 @@ from _common import TestCase
 import os
 import stat
 import tempfile
-import unittest
+import unittest2 as unittest
 import shutil
 import logging
 

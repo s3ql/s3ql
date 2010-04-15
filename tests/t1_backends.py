@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function
 
-import unittest
+import unittest2 as unittest
 from s3ql.backends import local, s3
 from s3ql.backends.common import ChecksumError
 import tempfile
@@ -156,9 +156,9 @@ class BackendTests(object):
 
 # This test just takes too long (because we have to wait really long so that we don't
 # get false errors due to propagation delays)
-#@unittest.skipUnless(_common.aws_credentials, 'remote tests disabled')
-#class S3Tests(BackendTests, TestCase):
-class S3Tests(BackendTests):
+@unittest.skipUnless(_common.aws_credentials, 'no AWS credentials available')
+@unittest.skip('takes too long')
+class S3Tests(BackendTests, TestCase):
     @staticmethod
     def random_name(prefix=""):
         return "s3ql-" + prefix + str(randrange(1000, 9999, 1))
@@ -181,7 +181,7 @@ class S3Tests(BackendTests):
 
         # This is the time in which we expect S3 changes to propagate. It may
         # be much longer for larger objects, but for tests this is usually enough.
-        self.delay = 5
+        self.delay = 8
         time.sleep(self.delay)
 
     def tearDown(self):
