@@ -163,9 +163,9 @@ def dict_to_entry(attr):
     entry = libfuse.fuse_entry_param()
 
     entry.ino = attr['st_ino']
-    entry.generation = attr.pop('generation')
-    entry.entry_timeout = attr.pop('entry_timeout')
-    entry.attr_timeout = attr.pop('attr_timeout')
+    entry.generation = attr['generation']
+    entry.entry_timeout = attr['entry_timeout']
+    entry.attr_timeout = attr['attr_timeout']
 
     entry.attr = dict_to_stat(attr)
 
@@ -425,7 +425,7 @@ def fuse_getattr(req, ino, _unused):
 
     attr = operations.getattr(ino)
 
-    attr_timeout = attr.pop('attr_timeout')
+    attr_timeout = attr['attr_timeout']
     stat = dict_to_stat(attr)
 
     log.debug('Calling fuse_reply_attr')
@@ -831,7 +831,7 @@ def fuse_setattr(req, inode, stat, to_set, fi):
 
     attr = operations.setattr(inode, attr)
 
-    attr_timeout = attr.pop('attr_timeout')
+    attr_timeout = attr['attr_timeout']
     stat = dict_to_stat(attr)
 
     log.debug('Calling fuse_reply_attr')
