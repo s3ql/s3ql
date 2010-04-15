@@ -20,7 +20,7 @@ import re
 import cPickle as pickle
 from contextlib import contextmanager
 
-__all__ = [ "get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_parameters',
+__all__ = ["get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_parameters',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path", 'get_lockfile',
            "ROOT_INODE", "ExceptionStoringThread", 'retry', 'get_stdout_handler',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',

@@ -1,5 +1,8 @@
 2010-04-14, S3QL 0.10
 
+  * The setup script now automatically checks and, if necessary, installs
+    the Python module dependencies.
+
   * S3QL now finally uses LZMA compression.
 
   * fsck.s3ql is now several orders of magnitude faster.

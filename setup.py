@@ -18,7 +18,6 @@ import re
 import logging
 import ctypes.util
 
-
 # These are the definitions that we need
 fuse_export_regex = ['^FUSE_SET_.*', '^XATTR_.*', 'fuse_reply_.*' ]
 fuse_export_symbols = ['fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
@@ -33,13 +32,13 @@ libc_export_symbols = [ 'setxattr', 'getxattr', 'readdir', 'opendir',
                        'closedir' ]
 
 # C components
-cflags = ['-std=c99', '-Wall', '-Wextra', '-pedantic', '-Wswitch-enum',
-          '-Wswitch-default']
-lzma_c_files = list()
-for file_ in ['liblzma.c', 'liblzma_compressobj.c', 'liblzma_decompressobj.c',
-              'liblzma_file.c', 'liblzma_fileobj.c', 'liblzma_options.c',
-              'liblzma_util.c']:
-    lzma_c_files.append(os.path.join('src', 's3ql', 'lzma', file_))
+#cflags = ['-std=c99', '-Wall', '-Wextra', '-pedantic', '-Wswitch-enum',
+#          '-Wswitch-default']
+#lzma_c_files = list()
+#for file_ in ['liblzma.c', 'liblzma_compressobj.c', 'liblzma_decompressobj.c',
+#              'liblzma_file.c', 'liblzma_fileobj.c', 'liblzma_options.c',
+#              'liblzma_util.c']:
+#    lzma_c_files.append(os.path.join('src', 's3ql', 'lzma', file_))
 
 # Add S3QL sources
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
@@ -55,13 +54,11 @@ def main():
     with open(os.path.join(basedir, 'doc', 'txt', 'about.txt'), 'r') as fh:
         long_desc = fh.read()
 
-    version_define = [('VERSION', '"%s"' % '0.5.2')]
-    compile_args = list()
-    compile_args.extend(cflags)
-    compile_args.extend(get_cflags('liblzma'))
-    extens = [setuptools.Extension('s3ql.lzma', lzma_c_files, extra_compile_args=compile_args,
-                                 extra_link_args=get_cflags('liblzma', False, True),
-                                 define_macros=version_define)]
+    #compile_args = list()
+    #compile_args.extend(cflags)
+    #compile_args.extend(get_cflags('liblzma'))
+    #extens = [setuptools.Extension('s3ql.lzma', lzma_c_files, extra_compile_args=compile_args,
+    #                             extra_link_args=get_cflags('liblzma', False, True))
 
     setuptools.setup(
           name='s3ql',
@@ -86,7 +83,8 @@ def main():
                     'deduplication', 'aws', 's3' ],
           package_dir={'': 'src'},
           packages=setuptools.find_packages('src'),
-          provides=['s3ql'],
+          provides=['s3ql', 'llfuse'],
+          zip_safe=True,
           entry_points={ 'console_scripts':
                           ['cp.s3ql = s3ql.cli.cp:main',
                            'fsck.s3ql = s3ql.cli.fsck:main',
@@ -96,8 +94,13 @@ def main():
                            'tune.s3ql = s3ql.cli.tune:main',
                            'umount.s3ql = s3ql.cli.umount:main' ]
                           },
-          requires=['apsw', 'pycryptopp' ],
-          ext_modules=extens,
+          install_requires=['apsw >= 3.6.19',
+                            'pycryptopp',
+                            'pyliblzma >= 0.5.3' ],
+          tests_require=['apsw >= 3.6.19',
+                         'pycryptopp',
+                         'pyliblzma >= 0.5.3' ],
+          #ext_modules=extens,
           cmdclass={'test': run_tests,
                     'build_ctypes': build_ctypes,
                     'upload_docs': upload_docs, }
@@ -110,7 +113,7 @@ class build_ctypes(setuptools.Command):
     boolean_options = []
 
     def initialize_options(self):
-         pass
+        pass
 
     def finalize_options(self):
         pass
@@ -265,18 +268,10 @@ class run_tests(setuptools.Command):
 
     def run(self):
 
-        # Enforce correct APSW version
-        import apsw
-        tmp = apsw.apswversion()
-        tmp = tmp[:tmp.index('-')]
-        apsw_ver = tuple([ int(x) for x in tmp.split('.') ])
-        if apsw_ver < (3, 6, 14):
-            raise StandardError('APSW version too old, must be 3.6.14 or newer!\n')
-
         # Enforce correct SQLite version
         sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
         if sqlite_ver < (3, 6, 19):
-            raise StandardError('SQLite version too old, must be 3.6.17 or newer!\n')
+            raise StandardError('SQLite version too old, must be 3.6.19 or newer!\n')
 
         # Build extensions in-place
         self.reinitialize_command('build_ext', inplace=1)

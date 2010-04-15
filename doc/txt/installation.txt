@@ -32,16 +32,26 @@ After that, you need to manually install the `Python APSW module
 is not yet available as a package).
 
 #. Download the source from http://code.google.com/p/apsw/downloads/list
-#. Extract the zip file into a temporary folder of your choice
-#. Inside that folder, run `python setup.py fetch --sqlite build`
-#. Still in the same folder, run `python setup.py install --user`
+#. Extract the zip file and change into the new directory
+#. Run `python setup.py fetch --sqlite build install --user` to
+   install the module into `~/.local` or run `python setup.py fetch
+   --sqlite build install` to install system-wide.
 
+Similarly, you need to download and install the `Python LZMA module
+<http://pypi.python.org/pypi/pyliblzma>`_:
+
+#. Download the source from http://pypi.python.org/pypi/pyliblzma
+#. Extract the zip file and change into the new directory
+#. Run `python setup.py build install --user` to
+   install the module into `~/.local` or run `python setup.py build
+   install` to install system-wide.
 
 CentOS 5
 --------
 
-Under CentOS 5, you can install the required packages with the following commands:
-(thanks to `heri16 <http://code.google.com/u/heri16/>`_)::
+Under CentOS 5, you can install most of the required packages with the
+following commands: (thanks to `heri16
+<http://code.google.com/u/heri16/>`_)::
 
   yum install libattr-devel fuse-libs fuse-devel fuse gcc-c++ bzip2 unzip
 
@@ -142,32 +152,41 @@ The programs/libraries are required to run S3QL:
   please refer to the `GCC-XML installation instructions
   <http://www.gccxml.org/HTML/Install.html>`_.
 
-* The `PyCrypto++ Python Module <http://pypi.python.org/pypi/pycryptopp>`_
-  may or may not be available as a package. To check if this module is
-  installed, try to execute `python -c 'import pycryptopp'`. To
-  manually install PyCrypto++, download it from the website, extract
-  it into a temporary folder and run `python setup.py install --user`
-  in that folder.
+* The `PyCrypto++ Python Module
+  <http://pypi.python.org/pypi/pycryptopp>`_ may or may not be
+  available as a package. To check if this module is installed, try to
+  execute `python -c 'import pycryptopp'`. To manually install
+  PyCrypto++, download it from the website, extract it and run `python
+  setup.py install --user`.
 
-* The `APSW Python Module <http://code.google.com/p/apsw/>`_
-  may be available as a package, but most likely the version of the
-  package will not be recent enough. To check which version of APWS is
-  installed, enter ::
+* The `APSW Python Module <http://code.google.com/p/apsw/>`_ may be
+  available as a package, but most likely the version of the package
+  will not be recent enough. To check which version of APWS is
+  installed, run the command ::
 
     python -c 'import apsw; print apsw.apswversion(), apsw.sqlitelibversion()'
 
-  in a terminal. If this command suceeds, it should print two version
-  numbers which both have to be at least 3.6.17. To install APSW
-  manually, download it from the website, extract it into a temporary
-  folder and run `python setup.py install --user` in that folder.
+  If APSW is installed, this should print two version numbers which
+  both have to be at least 3.6.19. To install APSW manually, download
+  it from the website, extract it and run `python setup.py install
+  --user`.
+
+* The `Python LZMA Module <http://pypi.python.org/pypi/pyliblzma>`_ is
+  probably not yet available as a package. To install it manually,
+  download it from the website, extract it and run `python setup.py
+  build install --user`. To check if the module is installed, try
+  to execute ::
+
+    python -c 'import lzma; print lzma.__version__'
+
+  This should print a version number. You need at least version 0.5.3.
 
 * If you want to use the SFTP backend, then you also need the
   `Paramiko Python Module <http://www.lag.net/paramiko/>`_. It may or
   may not be available as a package. To check if this module is
   installed, try to execute `python -c 'import paramiko'`. To manually
-  install Paramiko, download it from the website, extract it into a
-  temporary folder and run `python setup.py install --user` in that
-  folder.
+  install Paramiko, download it from the website, extract it and run
+  `python setup.py install --user`.
 
 
 Installing S3QL
