@@ -59,7 +59,7 @@ from functools import partial
 import errno
 import logging
 import sys
-import stat
+import stat as fstat
 
 
 __all__ = [ 'FUSEError', 'ENOATTR', 'ENOTSUP', 'init', 'main', 'close',
@@ -476,7 +476,7 @@ def fuse_create(req, ino_parent, name, mode, fi):
     log.debug('Handling create(%d, %s, %o)', ino_parent, string_at(name), mode)
 
     # FUSE doesn't set any type information
-    mode = (mode & ~stat.S_IFMT(mode)) | stat.S_IFREG
+    mode = (mode & ~fstat.S_IFMT(mode)) | fstat.S_IFREG
 
     (fh, attr) = operations.create(ino_parent, string_at(name), mode,
                                    libfuse.fuse_req_ctx(req).contents)
@@ -609,7 +609,7 @@ def fuse_mkdir(req, inode_parent, name, mode):
     log.debug('Handling mkdir(%d, %s, %o)', inode_parent, string_at(name), mode)
 
     # FUSE doesn't set any type information
-    mode = (mode & ~stat.S_IFMT(mode)) | stat.S_IFDIR
+    mode = (mode & ~fstat.S_IFMT(mode)) | fstat.S_IFDIR
 
     attr = operations.mkdir(inode_parent, string_at(name), mode,
                             libfuse.fuse_req_ctx(req).contents)
