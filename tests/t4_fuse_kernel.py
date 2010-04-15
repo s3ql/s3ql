@@ -14,6 +14,14 @@ from _common import TestCase
 class fuse_kernel_tests(TestCase):
     pass
 
+    # We require guarantees from FUSE that:
+    #
+    # - Only one directory entry creating function (symlink, mkdir, create
+    #   etc.) must be allowed to run for a name, parent inode pair at a time.
+    # 
+    # 
+    # 
+
     # FIXME: Check if FUSE does not allow us to move a directory inside
     # itself.
 
