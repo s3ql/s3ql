@@ -149,6 +149,13 @@ class ConnectionManager(object):
         with self() as conn:
             return conn.get_val(*a, **kw)
 
+    def rowid(self, *a, **kw):
+        """Acquire WrappedConnection and run its rowid method.
+        """
+
+        with self() as conn:
+            return conn.rowid(*a, **kw)
+
     def has_val(self, *a, **kw):
         """Acquire WrappedConnection and run its has_val method.
         """
