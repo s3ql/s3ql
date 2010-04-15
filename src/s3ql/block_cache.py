@@ -35,7 +35,7 @@ class CacheEntry(file):
     """An element in the block cache
     
     If `obj_id` is `None`, then the object has not yet been
-    uploaded to S3. 
+    uploaded to the backend. 
     """
 
     def __init__(self, inode, blockno, obj_id, filename, mode):
@@ -446,7 +446,7 @@ class BlockCache(object):
             el.close()
             os.unlink(el.name)
 
-        # Remove elements from db and S3
+        # Remove elements from db and backend
         log.debug('Deleting from database')
         threads = list()
         while True:

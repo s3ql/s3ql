@@ -125,11 +125,11 @@ class fsck_tests(TestCase):
 
 
     def test_keylist(self):
-        # Create an object that only exists in s3
+        # Create an object that only exists in the bucket
         self.bucket['s3ql_data_4364'] = 'Testdata'
         self.assert_fsck(fsck.check_keylist)
 
-        # Create an object that does not exist in S3
+        # Create an object that does not exist in the bucket
         self.conn.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
                           (34, 1, 0))
         self.assert_fsck(fsck.check_keylist)
@@ -163,7 +163,7 @@ class fsck_tests(TestCase):
         self.assertTrue(fsck.found_errors)
         # We can't fix loops yet
 
-    def test_s3_refcounts(self):
+    def test_obj_refcounts(self):
         conn = self.conn
         obj_id = 42
         inode = 42
@@ -180,12 +180,12 @@ class fsck_tests(TestCase):
                      (inode, 2, obj_id))
 
         fsck.found_errors = False
-        fsck.check_s3_refcounts()
+        fsck.check_obj_refcounts()
         self.assertFalse(fsck.found_errors)
 
         conn.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
                      (inode, 3, obj_id))
-        self.assert_fsck(fsck.check_s3_refcounts)
+        self.assert_fsck(fsck.check_obj_refcounts)
 
     def test_unix_nlink_file(self):
         conn = self.conn

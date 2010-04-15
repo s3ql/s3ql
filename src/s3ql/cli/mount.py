@@ -21,6 +21,7 @@ from s3ql.common import (init_logging_from_options, get_backend, get_cachedir, g
 from s3ql.database import ConnectionManager
 import llfuse
 import tempfile
+import textwrap
 import os
 import stat
 import threading
@@ -123,14 +124,23 @@ def main(args=None):
             mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
             if mountcnt_db < param['mountcnt']:
                 os.unlink(dbfile)
-                raise QuietError('It appears that the file system is still mounted somewhere else, or has\n'
-                                 'not been unmounted cleanly. In the later case you should run fsck.s3ql\n'
-                                 'on the computer where the file system has been mounted most recently.\n'
-                                 'If you are using the S3 backend, it is also possible that updates are\n'
-                                 'still propagating through S3 and you just have to wait a while.')
+                if isinstance(bucket, s3.Bucket):
+                    raise QuietError(textwrap.fill(textwrap.dedent('''
+                        It appears that the file system is still mounted somewhere else. If this is not
+                        the case, the file system may have not been unmounted cleanly or the data from
+                        the most-recent mount may have not yet propagated through S3. In the later case,
+                        waiting for a while should fix the problem, in the former case you should try to
+                        run fsck on the computer where the file system has been mounted most recently.
+                        ''')))
+                else:
+                    raise QuietError(textwrap.fill(textwrap.dedent('''
+                        It appears that the file system is still mounted somewhere else. If this is not
+                        the case, the file system may have not been unmounted cleanly and you should try
+                        to run fsck on the computer where the file system has been mounted most recently.
+                        ''')))
             elif mountcnt_db > param['mountcnt']:
                 os.unlink(dbfile)
-                raise RuntimeError('mountcnt_db > mountcnt_s3, this should not happen.')
+                raise RuntimeError('mountcnt_db > param[mountcnt], this should not happen.')
 
             os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
             cache = BlockCache(bucket, cachedir, int(options.cachesize * 1024), dbcm)

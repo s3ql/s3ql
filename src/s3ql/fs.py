@@ -26,7 +26,7 @@ log = logging.getLogger("fs")
 
 
 class Operations(llfuse.Operations):
-    """FUSE filesystem that stores its data on Amazon S3
+    """A full-featured file system for online data storage
 
     This class implements low-level FUSE operations and is meant to be
     passed to llfuse.init().
@@ -62,7 +62,7 @@ class Operations(llfuse.Operations):
     try to acquire any Python lock when it holds a database lock (i.e.,
     is in the middle of a transaction). This has also to be taken
     into account when calling other functions, especially from e.g.
-    S3Cache.
+    BlockCache.
     
     S3QL is quite agnostic when it comes to directory entry types. 
     Every directory entry can contain other entries *and* have a

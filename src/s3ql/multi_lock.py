@@ -40,7 +40,7 @@ class MultiLock(object):
         
     Note that it is actually possible for one thread to release a lock
     that has been obtained by a different thread. This is not a bug,
-    but a feature used in  `S3Cache._expire_parallel`.
+    but a feature used in  `BlockCache._expire_parallel`.
     """
 
     def __init__(self):

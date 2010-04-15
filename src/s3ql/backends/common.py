@@ -505,8 +505,7 @@ def decrypt(buf, passphrase):
 
 class ChecksumError(Exception):
     """
-    Raised if there is a checksum error in the data that we received 
-    from S3.
+    Raised if there is a checksum error in the data that we received.
     """
     pass
 

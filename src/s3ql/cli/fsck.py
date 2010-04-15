@@ -17,10 +17,12 @@ from ..common import (init_logging_from_options, get_cachedir, get_dbfile, cycle
 from ..database import ConnectionManager
 import logging
 from .. import fsck
+from .. import backends
 from ..backends.common import ChecksumError
 import sys
 import shutil
 import cPickle as pickle
+import textwrap
 
 log = logging.getLogger("fsck")
 
@@ -107,7 +109,7 @@ def main(args=None):
                     do_download = False
 
             elif mountcnt_db > param['mountcnt']:
-                raise RuntimeError('mountcnt_db > mountcnt_s3, this should not happen.')
+                raise RuntimeError('mountcnt_db > param[mountcnt], this should not happen.')
             else:
                 do_download = False
         else:
@@ -124,8 +126,20 @@ def main(args=None):
             mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
 
             if mountcnt_db < param['mountcnt']:
-                print('Metadata from most recent mount has not yet propagated through S3, or\n'
-                      'file system has not been unmounted cleanly.')
+                if isinstance(bucket, backends.s3.Bucket):
+                    print(textwrap.fill(textwrap.dedent('''
+                          Up to date metadata is not available. Either the file system has not
+                          been unmounted cleanly or the data has not yet propagated through S3.
+                          In the later case, waiting for a while should fix the problem, in
+                          the former case you should try to run fsck on the computer where
+                          the file system has been mounted most recently
+                          ''')))
+                else:
+                    print(textwrap.fill(textwrap.dedent('''
+                          Up to date metadata is not available. Probably the file system has not
+                          been unmounted and you should try to run fsck on the computer where
+                          the file system has been mounted most recently.
+                          ''')))
                 print('Enter "continue" to use the outdated data anyway:',
                       '> ', sep='\n', end='')
                 if sys.stdin.readline().strip() != 'continue':
@@ -134,7 +148,7 @@ def main(args=None):
 
             elif mountcnt_db > param['mountcnt']:
                 os.unlink(dbfile)
-                raise RuntimeError('mountcnt_db > mountcnt_s3, this should not happen.')
+                raise RuntimeError('mountcnt_db > param[mountcnt], this should not happen.')
 
         mountcnt = max(mountcnt_db, param['mountcnt']) + 1
         param['mountcnt'] = mountcnt
@@ -147,7 +161,7 @@ def main(args=None):
 
         fsck.fsck(dbcm, cachedir, bucket)
 
-        log.info("Committing data to S3...")
+        log.info("Committing data to backend...")
         dbcm.execute("UPDATE parameters SET needs_fsck=?, last_fsck=?",
                      (False, time.time() - time.timezone))
 

@@ -58,7 +58,7 @@ def fsck(dbcm, cachedir_, bucket_):
         check_loops()
         check_inode_refcount()
         check_inode_unix()
-        check_s3_refcounts()
+        check_obj_refcounts()
         check_keylist()
 
 
@@ -333,7 +333,7 @@ def check_inode_unix():
                       'Don\'t know what to do.', inode)
 
 
-def check_s3_refcounts():
+def check_obj_refcounts():
     """Check object reference counts"""
 
     global found_errors
@@ -387,7 +387,7 @@ def check_keylist():
         try:
             conn.get_val("SELECT hash FROM objects WHERE id=?", (obj_id,))
 
-        # Handle object that exists only in S3
+        # Handle object that exists only in the backend
         except KeyError:
             found_errors = True
             name = unused_filename('object-%s' % obj_id)
@@ -411,7 +411,7 @@ def check_keylist():
     # Now handle objects that only exist in objects
     for (obj_id,) in conn.query("SELECT id FROM obj_ids"):
         found_errors = True
-        log_error("object %s only exists in table but not on s3, deleting", obj_id)
+        log_error("object %s only exists in table but not in bucket, deleting", obj_id)
         conn.execute("DELETE FROM blocks WHERE obj_id=?", (obj_id,))
         conn.execute("DELETE FROM objects WHERE id=?", (obj_id,))
 

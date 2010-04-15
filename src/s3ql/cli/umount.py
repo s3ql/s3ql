@@ -32,7 +32,7 @@ def parse_args(args):
         usage="%prog  [options] <mountpoint>\n"
               "       %prog --help",
         description="Unmounts an S3QL file system. The command returns only after "
-        'all data has been uploaded to S3. If any file system errors occurred while '
+        'all data has been uploaded to the backend. If any file system errors occurred while '
         'the file system was mounted, a warning message is printed. Note that errors '
         'occuring during the unmount (e.g. a failure to upload the metadata) can not '
         'be detected and appear only in the logging messages of the mount program.')
