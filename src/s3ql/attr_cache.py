@@ -11,7 +11,60 @@ from __future__ import division, print_function
 import threading
 import time
 
-CACHE_SIZE = 50
+# TODO: Rename to InodeCache
+
+__all__ = [ 'AttrCache' ]
+
+CACHE_SIZE = 100
+ATTRIBUTES = ('mode', 'refcount', 'nlink_off', 'uid', 'gid', 'size',
+              'rdev', 'target', 'atime', 'mtime', 'ctime', 'id')
+ATTRIBUTE_STR = ', '.join(ATTRIBUTES)
+SET_ATTRS = tuple(x for x in ATTRIBUTES if x != 'id')
+SET_ATTRS_STR = ', '.join(SET_ATTRS)
+ASSIGN_STR = ', '.join('%s=?' % x for x in SET_ATTRS)
+
+class _Inode(object):
+    '''An inode with its attributes'''
+
+    __slots__ = ATTRIBUTES
+
+    # This allows access to all st_* attributes, even if they're
+    # not defined in the table
+    def __getattr__(self, key):
+        if key == 'st_nlink':
+            return self.refcount + self.nlink_off
+
+        elif key == 'st_blocks':
+            return self.size // 512
+
+        # Timeout, can effectively be infinite since attribute changes
+        # are only triggered by the kernel's own requests
+        elif key == 'attr_timeout' or key == 'entry_timeout':
+            return 3600
+
+        # We want our blocksize for IO as large as possible to get large
+        # write requests
+        elif key == 'st_blksize':
+            return 128 * 1024
+
+        # Our inodes are already unique
+        elif key == 'generation':
+            return 1
+
+        elif key.startswith('st_'):
+            return getattr(self, key[3:])
+
+    def __eq__(self, other):
+        if not isinstance(other, _Inode):
+            return NotImplemented
+
+        for attr in ATTRIBUTES:
+            if getattr(self, attr) != getattr(other, attr):
+                return False
+
+        return True
+
+
 
 class AttrCache(object):
     '''
@@ -38,9 +91,8 @@ class AttrCache(object):
 
         # Fill the cache with dummy data, so that we don't have to
         # check if the cache is full or not (it will always be full)        
-        for i in ('dummy_%d' % x for x in xrange(CACHE_SIZE)):
-            self.attrs[i] = None
-            self.cached_rows.append(i)
+        for _ in xrange(CACHE_SIZE):
+            self.cached_rows.append(None)
 
         self.pos = 0
 
@@ -61,78 +113,49 @@ class AttrCache(object):
                 old_inode = self.cached_rows[self.pos]
                 self.cached_rows[self.pos] = inode
                 self.pos = (self.pos + 1) % CACHE_SIZE
-                if isinstance(old_inode, int):
+                if old_inode is not None:
                     self.setattr(old_inode)
-                del self.attrs[old_inode]
+                    del self.attrs[old_inode]
                 self.attrs[inode] = attr
                 return attr
 
-    def getattr(self, inode):
-        fstat = dict()
+    def getattr(self, id_):
+        attrs = self.dbcm.get_row("SELECT %s FROM inodes WHERE id=? " % ATTRIBUTE_STR,
+                                  (id_,))
+        inode = _Inode()
 
-        (fstat["st_mode"],
-         fstat['refcount'],
-         fstat['nlink_off'],
-         fstat["st_uid"],
-         fstat["st_gid"],
-         fstat["st_size"],
-         fstat["st_ino"],
-         fstat["st_rdev"],
-         fstat["target"],
-         fstat["st_atime"],
-         fstat["st_mtime"],
-         fstat["st_ctime"]) = self.dbcm.get_row("SELECT mode, refcount, nlink_off, uid, gid, size, id, "
-                                                "rdev, target, atime, mtime, ctime FROM inodes "
-                                                "WHERE id=? ", (inode,))
+        for (i, id_) in enumerate(ATTRIBUTES):
+            setattr(inode, id_, attrs[i])
 
         # Convert to local time
-        fstat['st_mtime'] += time.timezone
-        fstat['st_atime'] += time.timezone
-        fstat['st_ctime'] += time.timezone
+        inode.atime += time.timezone
+        inode.mtime += time.timezone
+        inode.ctime += time.timezone
 
-        return fstat
+        return inode
 
-    def create_inode(self, st_mode, refcount, nlink_off, st_uid, st_gid, st_size,
-                     st_rdev, st_atime, st_mtime, target):
+    def create_inode(self, **kw):
 
-        timestamp = time.time()
-        inode = self.dbcm.rowid('INSERT INTO inodes (mode, refcount, nlink_off, uid, gid,'
-                                'size, rdev, atime, mtime, ctime, target) '
-                                'VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-                                (st_mode, refcount, nlink_off, st_uid, st_gid, st_size,
-                                 st_rdev, st_atime - time.timezone, st_mtime - time.timezone,
-                                 timestamp - time.timezone, target))
+        inode = _Inode()
 
-        return {'st_ino': inode,
-                'st_mode': st_mode,
-                'refcount': refcount,
-                'nlink_off': nlink_off,
-                'st_uid': st_uid,
-                'st_gid': st_gid,
-                'st_size': st_size,
-                'st_rdev': st_rdev,
-                'st_atime': st_atime,
-                'st_mtime': st_mtime,
-                'target': target,
-                'st_ctime': timestamp}
+        for (key, val) in kw.iteritems():
+            setattr(inode, key, val)
+
+        for i in ('atime', 'ctime', 'mtime'):
+            kw[i] -= time.timezone
+
+        # _Inode.id is not explicitly defined
+        #pylint: disable-msg=W0201
+        inode.id = self.dbcm.rowid('INSERT INTO inodes (%s) VALUES(%s)'
+                                   % (SET_ATTRS_STR, ','.join('?' for _ in SET_ATTRS)),
+                                   (kw[x] for x in SET_ATTRS))
+        return inode
 
 
-    def setattr(self, inode):
-        fstat = self.attrs[inode]
-        self.dbcm.execute("UPDATE inodes SET mode=?, refcount=?, nlink_off=?, uid=?, gid=?, size=?, "
-                          "rdev=?, atime=?, mtime=?, ctime=?, target=? WHERE id=?",
-                           (fstat["st_mode"],
-                            fstat['refcount'],
-                            fstat['nlink_off'],
-                            fstat["st_uid"],
-                            fstat["st_gid"],
-                            fstat["st_size"],
-                            fstat["st_rdev"],
-                            fstat["st_atime"] - time.timezone,
-                            fstat["st_mtime"] - time.timezone,
-                            fstat["st_ctime"] - time.timezone,
-                            fstat['target'],
-                            fstat["st_ino"]))
+    def setattr(self, id_):
+        inode = self.attrs[id_]
+        self.dbcm.execute("UPDATE inodes SET %s WHERE id=?" % ASSIGN_STR,
+                          [getattr(inode, x) for x in SET_ATTRS] + [id_])
 
     def flush(self):
         '''Flush all cached entries to database'''
@@ -140,14 +163,12 @@ class AttrCache(object):
         with self.lock:
             for i in xrange(len(self.cached_rows)):
                 inode = self.cached_rows[i]
-                if isinstance(inode, int):
+                if inode is not None:
                     self.setattr(inode)
-                del self.attrs[inode]
-                self.attrs['dummy_%d' % i] = None
-                self.cached_rows[i] = 'dummy_%d' % i
+                    del self.attrs[inode]
+                self.cached_rows[i] = None
 
     def __del__(self):
-        for i in self.attrs.itervalues():
-            if i is not None:
-                raise RuntimeError('AttrCache instance was destroyed without flushing all entries')
+        if self.attrs:
+            raise RuntimeError('AttrCache instance was destroyed without flushing all entries')
 
