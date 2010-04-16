@@ -15,6 +15,7 @@ import tempfile
 import apsw
 import time
 import os
+import types
 import thread
 from random import randrange
 
@@ -301,7 +302,7 @@ class WrappedConnection(object):
                     newbindings[key] = buffer(bindings[key])
                 else:
                     newbindings[key] = bindings[key]
-        elif isinstance(bindings, (list, tuple)):
+        elif isinstance(bindings, (list, tuple, types.GeneratorType)):
             newbindings = [ (val if not isinstance(val, bytes) else buffer(val))
                            for val in bindings ]
         else:
