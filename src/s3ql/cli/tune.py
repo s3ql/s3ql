@@ -277,7 +277,7 @@ def upgrade_rev2(dbcm, param):
     dbcm.execute('UPDATE tmp SET rdev=0 WHERE rdev IS NULL')
     dbcm.execute('''
         CREATE TABLE inodes (
-        id        INTEGER PRIMARY KEY 
+        id        INTEGER PRIMARY KEY AUTOINCREMENT
                   CHECK (id < 4294967296),
         uid       INT NOT NULL 
                   CHECK (typeof(uid) == 'integer'),

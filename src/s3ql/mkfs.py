@@ -63,7 +63,7 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
         -- rowid. Also, as long as we don't store a separate generation no,
         -- we can't reuse old rowids. Therefore we will run out of inodes after
         -- 49 days if we insert 1000 rows per second. 
-        id        INTEGER PRIMARY KEY 
+        id        INTEGER PRIMARY KEY AUTOINCREMENT
                   CHECK (id < 4294967296),
         uid       INT NOT NULL 
                   CHECK (typeof(uid) == 'integer'),
