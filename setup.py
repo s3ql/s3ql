@@ -271,11 +271,16 @@ class run_tests(setuptools.Command):
         import apsw
         sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
         if sqlite_ver < (3, 6, 19):
-            raise StandardError('SQLite version too old, must be 3.6.19 or newer!\n')
+            raise QuietError('SQLite version too old, must be 3.6.19 or newer!\n')
 
         # Build extensions in-place
         self.reinitialize_command('build_ext', inplace=1)
         self.run_command('build_ext')
+
+        # Check FUSE version
+        import llfuse
+        if llfuse.fuse_version() < 28:
+            raise QuietError('FUSE version too old, must be 2.8 or newer!\n')
 
         # Add test modules
         sys.path.insert(0, os.path.join(basedir, 'tests'))
