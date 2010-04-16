@@ -17,7 +17,6 @@ from s3ql.common import (get_path, CTRL_NAME, CTRL_INODE, ROOT_INODE)
 import time
 from cStringIO import StringIO
 import struct
-from s3ql.multi_lock import MultiLock
 from .multi_lock import MultiLock
 
 __all__ = [ "Server" ]
