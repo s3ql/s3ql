@@ -79,6 +79,7 @@ fuse_ops = None
 mountpoint = None
 session = None
 channel = None
+handler_lock = None
 
 class DiscardedRequest(Exception):
     '''Request was interrupted and reply discarded.
@@ -223,6 +224,9 @@ def stat_to_dict(stat):
 def op_wrapper(func, req, *args):
     '''Catch all exceptions and call fuse_reply_err instead'''
 
+    if handler_lock:
+        handler_lock.acquire()
+
     try:
         func(req, *args)
     except FUSEError as e:
@@ -246,6 +250,9 @@ def op_wrapper(func, req, *args):
         if not isinstance(exc, ReplyError):
             log.debug('Calling fuse_reply_err(EIO)')
             libfuse.fuse_reply_err(req, errno.EIO)
+    finally:
+        if handler_lock:
+            handler_lock.release()
 
 def fuse_version():
     '''Return version of loaded fuse library'''
@@ -253,7 +260,7 @@ def fuse_version():
     return libfuse.fuse_version()
 
 
-def init(operations_, mountpoint_, args):
+def init(operations_, mountpoint_, args, lock=None):
     '''Initialize and mount FUSE file system
             
     `operations_` has to be an instance of the `Operations` class (or another
@@ -261,6 +268,12 @@ def init(operations_, mountpoint_, args):
     
     `args` has to be a list of strings. Valid options are listed in struct fuse_opt fuse_mount_opts[]
     (mount.c:68) and struct fuse_opt fuse_ll_opts[] (fuse_lowlevel_c:1526).
+    
+    If `lock` is specified (it has to be a `Lock` instance), this lock is 
+    acquired before a request handler is called. This can be used to
+    serialize request handling by default. Concurrency can still be achieved
+    for parts of the code by releasing and reacquiring the lock in the
+    request handlers.
     '''
 
     log.debug('Initializing llfuse')
@@ -270,12 +283,14 @@ def init(operations_, mountpoint_, args):
     global mountpoint
     global session
     global channel
+    global handler_lock
 
     # Give operations instance a chance to check and change
     # the FUSE options
     operations_.check_args(args)
 
     mountpoint = mountpoint_
+    handler_lock = lock
     operations = operations_
     fuse_ops = libfuse.fuse_lowlevel_ops()
     fuse_args = make_fuse_args(args)

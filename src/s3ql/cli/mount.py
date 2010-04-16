@@ -209,10 +209,11 @@ def run_server(conn, bucket, cache, dbcm, options, lockfile):
         prof = cProfile.Profile()
 
     log.info('Mounting filesystem...')
+    lock = threading.Lock()
     fuse_opts = get_fuse_opts(options)
 
     operations = fs.Operations(cache, dbcm, not options.atime)
-    llfuse.init(operations, options.mountpoint, fuse_opts)
+    llfuse.init(operations, options.mountpoint, fuse_opts, lock)
     try:
         if not options.fg:
             conn.prepare_fork()
