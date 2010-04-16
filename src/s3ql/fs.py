@@ -13,7 +13,7 @@ import errno
 import stat
 import llfuse
 import logging
-from .attr_cache import AttrCache
+from .inode_cache import InodeCache
 from .common import (get_path, CTRL_NAME, CTRL_INODE, ROOT_INODE)
 import time
 from cStringIO import StringIO
@@ -110,7 +110,7 @@ class Operations(llfuse.Operations):
         self.noatime = noatime
         self.cache = cache
         self.encountered_errors = False
-        self.attr_cache = AttrCache(dbcm)
+        self.attr_cache = InodeCache(dbcm)
         self.inode_lock = MultiLock()
         self.blocksize = dbcm.get_val("SELECT blocksize FROM parameters")
 
