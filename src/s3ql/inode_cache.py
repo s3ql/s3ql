@@ -1,5 +1,5 @@
 '''
-attr_cache.py - this file is part of S3QL (http://s3ql.googlecode.com)
+inode_cache.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2010 Nikolaus Rath <Nikolaus@rath.org>
 
@@ -11,9 +11,8 @@ from __future__ import division, print_function
 import threading
 import time
 
-# TODO: Rename to InodeCache
 
-__all__ = [ 'AttrCache' ]
+__all__ = [ 'InodeCache' ]
 
 CACHE_SIZE = 100
 ATTRIBUTES = ('mode', 'refcount', 'nlink_off', 'uid', 'gid', 'size',
@@ -66,7 +65,7 @@ class _Inode(object):
 
 
 
-class AttrCache(object):
+class InodeCache(object):
     '''
     This class maps the `inode` SQL table to a dict, caching the rows.
     
