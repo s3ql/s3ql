@@ -71,17 +71,19 @@ class AttrCache(object):
         fstat = dict()
 
         (fstat["st_mode"],
-         fstat['refcount'], fstat['nlink_off'],
+         fstat['refcount'],
+         fstat['nlink_off'],
          fstat["st_uid"],
          fstat["st_gid"],
          fstat["st_size"],
          fstat["st_ino"],
          fstat["st_rdev"],
+         fstat["target"],
          fstat["st_atime"],
          fstat["st_mtime"],
          fstat["st_ctime"]) = self.dbcm.get_row("SELECT mode, refcount, nlink_off, uid, gid, size, id, "
-                                                "rdev, atime, mtime, ctime FROM inodes WHERE id=? ",
-                                                (inode,))
+                                                "rdev, target, atime, mtime, ctime FROM inodes "
+                                                "WHERE id=? ", (inode,))
 
         # Convert to local time
         fstat['st_mtime'] += time.timezone
@@ -91,15 +93,15 @@ class AttrCache(object):
         return fstat
 
     def create_inode(self, st_mode, refcount, nlink_off, st_uid, st_gid, st_size,
-                     st_rdev, st_atime, st_mtime):
+                     st_rdev, st_atime, st_mtime, target):
 
         timestamp = time.time()
         inode = self.dbcm.rowid('INSERT INTO inodes (mode, refcount, nlink_off, uid, gid,'
-                                'size, rdev, atime, mtime, ctime) '
-                                'VALUES(?,?,?,?,?,?,?,?,?,?)',
+                                'size, rdev, atime, mtime, ctime, target) '
+                                'VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                                 (st_mode, refcount, nlink_off, st_uid, st_gid, st_size,
                                  st_rdev, st_atime - time.timezone, st_mtime - time.timezone,
-                                 timestamp - time.timezone))
+                                 timestamp - time.timezone, target))
 
         return {'st_ino': inode,
                 'st_mode': st_mode,
@@ -111,13 +113,14 @@ class AttrCache(object):
                 'st_rdev': st_rdev,
                 'st_atime': st_atime,
                 'st_mtime': st_mtime,
+                'target': target,
                 'st_ctime': timestamp}
 
 
     def setattr(self, inode):
         fstat = self.attrs[inode]
         self.dbcm.execute("UPDATE inodes SET mode=?, refcount=?, nlink_off=?, uid=?, gid=?, size=?, "
-                          "rdev=?, atime=?, mtime=?, ctime=? WHERE id=?",
+                          "rdev=?, atime=?, mtime=?, ctime=?, target=? WHERE id=?",
                            (fstat["st_mode"],
                             fstat['refcount'],
                             fstat['nlink_off'],
@@ -128,6 +131,7 @@ class AttrCache(object):
                             fstat["st_atime"] - time.timezone,
                             fstat["st_mtime"] - time.timezone,
                             fstat["st_ctime"] - time.timezone,
+                            fstat['target'],
                             fstat["st_ino"]))
 
     def flush(self):

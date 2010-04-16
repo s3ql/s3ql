@@ -38,6 +38,7 @@ class attr_cache_tests(TestCase):
                 'st_uid': 7,
                 'st_gid': 2,
                 'st_size': 34674,
+                'target': 'foobar',
                 'st_rdev': 11,
                 'st_atime': time.time(),
                 'st_mtime': time.time() }
@@ -56,6 +57,7 @@ class attr_cache_tests(TestCase):
                 'refcount': 3,
                 'nlink_off': 1,
                 'st_uid': 7,
+                'target': 'foobar',
                 'st_gid': 2,
                 'st_size': 34674,
                 'st_rdev': 11,
@@ -72,6 +74,7 @@ class attr_cache_tests(TestCase):
                 'nlink_off': 1,
                 'st_uid': 7,
                 'st_gid': 2,
+                'target': 'foobar',
                 'st_size': 34674,
                 'st_rdev': 11,
                 'st_atime': time.time(),
