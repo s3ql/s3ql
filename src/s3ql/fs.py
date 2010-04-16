@@ -13,12 +13,11 @@ import errno
 import stat
 import llfuse
 import logging
-from .attr_cache import AttrCache
-from .common import (get_path, CTRL_NAME, CTRL_INODE, ROOT_INODE)
+from s3ql.common import (get_path, CTRL_NAME, CTRL_INODE, ROOT_INODE)
 import time
 from cStringIO import StringIO
 import struct
-from .multi_lock import MultiLock
+from s3ql.multi_lock import MultiLock
 
 __all__ = [ "Server" ]
 
@@ -110,7 +109,7 @@ class Operations(llfuse.Operations):
         self.noatime = noatime
         self.cache = cache
         self.encountered_errors = False
-        self.attr_cache = AttrCache(dbcm)
+        self.attr_cache = dict()
         self.inode_lock = MultiLock()
         self.blocksize = dbcm.get_val("SELECT blocksize FROM parameters")
 
@@ -119,9 +118,7 @@ class Operations(llfuse.Operations):
 
     def destroy(self):
         self.cache.stop_expiration_thread()
-        self.attr_cache.flush()
 
-    # TODO: Don't call this internally
     def lookup(self, parent_inode, name):
 
         with self.dbcm() as conn:
@@ -157,7 +154,7 @@ class Operations(llfuse.Operations):
                     raise(llfuse.FUSEError(errno.ENOENT))
                 return self.getattr(inode)
 
-    # TODO: Don't call this internally
+
     def getattr(self, inode):
         '''Get entry attributes for `inode`
         
@@ -165,9 +162,35 @@ class Operations(llfuse.Operations):
         ``entry_timeout``, ``generation`` and ``refcount``
         '''
 
-        fstat = self.attr_cache[inode].copy()
+        # Check cache first
+        if inode in self.attr_cache:
+            try:
+                return self.attr_cache[inode]
+            except KeyError:
+                # File has just been closed, continue with fetching
+                pass
+
+        fstat = dict()
+
+        (fstat["st_mode"],
+         fstat['refcount'], fstat['nlink_off'],
+         fstat["st_uid"],
+         fstat["st_gid"],
+         fstat["st_size"],
+         fstat["st_ino"],
+         fstat["st_rdev"],
+         fstat["st_atime"],
+         fstat["st_mtime"],
+         fstat["st_ctime"]) = self.dbcm.get_row("SELECT mode, refcount, nlink_off, uid, gid, size, id, "
+                                                "rdev, atime, mtime, ctime FROM inodes WHERE id=? ",
+                                                (inode,))
 
         fstat['st_nlink'] = fstat['refcount'] + fstat['nlink_off']
+
+        # Convert to local time
+        fstat['st_mtime'] += time.timezone
+        fstat['st_atime'] += time.timezone
+        fstat['st_ctime'] += time.timezone
 
         # This is the number of 512 blocks allocated for the file
         fstat["st_blocks"] = fstat['st_size'] // 512
