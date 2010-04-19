@@ -212,7 +212,7 @@ def run_server(conn, bucket, cache, dbcm, options, lockfile):
     lock = threading.Lock()
     fuse_opts = get_fuse_opts(options)
 
-    operations = fs.Operations(cache, dbcm, not options.atime)
+    operations = fs.Operations(cache, dbcm, lock)
     llfuse.init(operations, options.mountpoint, fuse_opts, lock)
     try:
         if not options.fg:
@@ -301,8 +301,6 @@ def parse_args(args):
     parser.add_option("--single", action="store_true", default=False,
                       help="Run in single threaded mode. If you don't understand this, "
                            "then you don't need it.")
-    parser.add_option("--atime", action="store_true", default=False,
-                      help="Update directory access time. Will decrease performance.")
     parser.add_option("--profile", action="store_true", default=False,
                       help="Create profiling information. If you don't understand this, "
                            "then you don't need it.")

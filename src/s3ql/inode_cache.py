@@ -8,7 +8,6 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function
 
-import threading
 import time
 
 
@@ -18,9 +17,7 @@ CACHE_SIZE = 100
 ATTRIBUTES = ('mode', 'refcount', 'nlink_off', 'uid', 'gid', 'size',
               'rdev', 'target', 'atime', 'mtime', 'ctime', 'id')
 ATTRIBUTE_STR = ', '.join(ATTRIBUTES)
-SET_ATTRS = tuple(x for x in ATTRIBUTES if x != 'id')
-SET_ATTRS_STR = ', '.join(SET_ATTRS)
-ASSIGN_STR = ', '.join('%s=?' % x for x in SET_ATTRS)
+UPDATE_STR = ', '.join('%s=?' % x for x in ATTRIBUTES)
 
 class _Inode(object):
     '''An inode with its attributes'''
@@ -35,6 +32,9 @@ class _Inode(object):
 
         elif key == 'st_blocks':
             return self.size // 512
+
+        elif key == 'st_ino':
+            return self.id
 
         # Timeout, can effectively be infinite since attribute changes
         # are only triggered by the kernel's own requests
@@ -64,6 +64,13 @@ class _Inode(object):
         return True
 
 
+    def copy(self):
+        copy = _Inode()
+
+        for attr in ATTRIBUTES:
+            setattr(copy, attr, getattr(self, attr))
+
+        return copy
 
 class InodeCache(object):
     '''
@@ -79,6 +86,11 @@ class InodeCache(object):
     :cached_rows: list of the inodes that are in cache
     :pos:    position of the most recently retrieved inode in 
              'cached_rows'.
+             
+    Notes
+    -----
+    
+    This class is not thread-safe.
     '''
 
     def __init__(self, dbcm):
@@ -86,7 +98,6 @@ class InodeCache(object):
         self.dbcm = dbcm
         self.attrs = dict()
         self.cached_rows = list()
-        self.lock = threading.Lock()
 
         # Fill the cache with dummy data, so that we don't have to
         # check if the cache is full or not (it will always be full)        
@@ -103,20 +114,25 @@ class InodeCache(object):
         except KeyError:
             pass
 
-    def __getitem__(self, inode):
-        with self.lock:
-            try:
-                return self.attrs[inode]
-            except KeyError:
-                attr = self.getattr(inode)
-                old_inode = self.cached_rows[self.pos]
-                self.cached_rows[self.pos] = inode
-                self.pos = (self.pos + 1) % CACHE_SIZE
-                if old_inode is not None:
+    def __getitem__(self, id_):
+        try:
+            return self.attrs[id_]
+        except KeyError:
+            inode = self.getattr(id_)
+            old_id = self.cached_rows[self.pos]
+            self.cached_rows[self.pos] = id_
+            self.pos = (self.pos + 1) % CACHE_SIZE
+            if old_id is not None:
+                try:
+                    old_inode = self.attrs[old_id]
+                except KeyError:
+                    # We may have deleted that inode
+                    pass
+                else:
+                    del self.attrs[old_id]
                     self.setattr(old_inode)
-                    del self.attrs[old_inode]
-                self.attrs[inode] = attr
-                return attr
+            self.attrs[id_] = inode
+            return inode
 
     def getattr(self, id_):
         attrs = self.dbcm.get_row("SELECT %s FROM inodes WHERE id=? " % ATTRIBUTE_STR,
@@ -143,31 +159,43 @@ class InodeCache(object):
         for i in ('atime', 'ctime', 'mtime'):
             kw[i] -= time.timezone
 
+        init_attrs = [ x for x in ATTRIBUTES if x in kw ]
+
         # _Inode.id is not explicitly defined
         #pylint: disable-msg=W0201
         inode.id = self.dbcm.rowid('INSERT INTO inodes (%s) VALUES(%s)'
-                                   % (SET_ATTRS_STR, ','.join('?' for _ in SET_ATTRS)),
-                                   (kw[x] for x in SET_ATTRS))
-        return inode
+                                   % (', '.join(init_attrs),
+                                      ','.join('?' for _ in init_attrs)),
+                                   (kw[x] for x in init_attrs))
+        return self[inode.id]
 
 
-    def setattr(self, id_):
-        inode = self.attrs[id_]
-        self.dbcm.execute("UPDATE inodes SET %s WHERE id=?" % ASSIGN_STR,
-                          [getattr(inode, x) for x in SET_ATTRS] + [id_])
+    def setattr(self, inode):
+        self.dbcm.execute("UPDATE inodes SET %s WHERE id=?" % UPDATE_STR,
+                          [getattr(inode, x) for x in ATTRIBUTES] + [inode.id])
+
+    def flush_id(self, id_):
+        if id_ in self.attrs:
+            self.setattr(id_)
 
     def flush(self):
         '''Flush all cached entries to database'''
 
-        with self.lock:
-            for i in xrange(len(self.cached_rows)):
-                inode = self.cached_rows[i]
-                if inode is not None:
+        for i in xrange(len(self.cached_rows)):
+            id_ = self.cached_rows[i]
+            self.cached_rows[i] = None
+            if id_ is not None:
+                try:
+                    inode = self.attrs[id_]
+                except KeyError:
+                    # We may have deleted that inode
+                    pass
+                else:
+                    del self.attrs[id_]
                     self.setattr(inode)
-                    del self.attrs[inode]
-                self.cached_rows[i] = None
+
 
     def __del__(self):
         if self.attrs:
-            raise RuntimeError('AttrCache instance was destroyed without flushing all entries')
+            raise RuntimeError('InodeCache instance was destroyed without flushing all entries')
 

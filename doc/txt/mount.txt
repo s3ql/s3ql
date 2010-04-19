@@ -40,7 +40,5 @@ You can specify the following options:
   --fg                  Do not daemonize, stay in foreground
   --single              Run in single threaded mode. If you don't understand
                         this, then you don't need it.
-  --atime               Update directory access time. Will decrease
-                        performance.
   --profile             Create profiling information. If you don't understand
                         this, then you don't need it.

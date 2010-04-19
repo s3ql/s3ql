@@ -31,16 +31,16 @@ class cache_tests(TestCase):
 
     def test_create(self):
         attrs = {'mode': 784,
-                'refcount': 3,
-                'nlink_off': 1,
-                'uid': 7,
-                'gid': 2,
-                'size': 34674,
-                'target': 'foobar',
-                'rdev': 11,
-                'atime': time.time(),
-                'ctime': time.time(),
-                'mtime': time.time() }
+                 'refcount': 3,
+                 'nlink_off': 1,
+                 'uid': 7,
+                 'gid': 2,
+                 'size': 34674,
+                 'target': 'foobar',
+                 'rdev': 11,
+                 'atime': time.time(),
+                 'ctime': time.time(),
+                 'mtime': time.time() }
 
         inode = self.cache.create_inode(**attrs)
 
