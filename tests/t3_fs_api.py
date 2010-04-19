@@ -612,6 +612,7 @@ class fs_api_tests(TestCase):
 
         # Check subdir1
         self.assertEqual(self.server.getattr(d1_inode_c.id).nlink_off, 2)
+        self.assertNotEqual(d2_inode.id, d2_inode_c.id)
 
         # Check file2
         self.assertEqual(f2_h_inode_c.id, f2_inode_c.id)
