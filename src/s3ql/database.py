@@ -181,7 +181,10 @@ class ConnectionManager(object):
     def get_db_size(self):
         '''Return size of database file'''
 
-        return os.path.getsize(self.dbfile)
+        if self.dbfile and self.dbfile != ':memory:':
+            return os.path.getsize(self.dbfile)
+        else:
+            return 0
 
 class WrappedConnection(object):
     '''This class wraps an APSW connection object. It should be
