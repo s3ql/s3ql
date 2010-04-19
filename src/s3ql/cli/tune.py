@@ -366,6 +366,9 @@ def upgrade_rev2(dbcm, param):
 def copy_bucket(conn, options, src_bucket):
     '''Copy bucket to different storage location'''
 
+    if not isinstance(conn, s3.Connection):
+        raise QuietError('Can only copy S3 buckets')
+
     if not re.match('^[a-z][a-z0-9-]*$', options.dest_name):
         raise QuietError('Invalid dest. bucket name. Name must consist only of lowercase letters,\n'
                          'digits and dashes, and the first character has to be a letter.')
@@ -373,10 +376,6 @@ def copy_bucket(conn, options, src_bucket):
     if conn.bucket_exists(options.dest_name):
         print('Destination bucket already exists.')
         raise QuietError(1)
-
-    # This creates the bucket in the new location
-    if not isinstance(conn, s3.Connection):
-        raise QuietError('Can only copy S3 buckets')
 
     dest_bucket = conn.create_bucket(options.dest_name, location=options.s3_location)
 
