@@ -491,7 +491,10 @@ class Operations(llfuse.Operations):
         return inode
 
     def setattr(self, id_, attr):
-        """Handles FUSE setattr() requests"""
+        """Handles FUSE setattr() requests
+        
+        This method may release the global lock while it is running.
+        """
 
         inode = self.inodes[id_]
         timestamp = time.time()
@@ -505,7 +508,7 @@ class Operations(llfuse.Operations):
 
             # Get last object before truncation
             if len != 0:
-                with self.cache.get(id_, blockno) as fh:
+                with self.cache.get(id_, blockno, self.lock) as fh:
                     fh.truncate(len_ - self.blocksize * blockno)
             inode.size = len_
 
@@ -649,6 +652,8 @@ class Operations(llfuse.Operations):
         '''Read `size` bytes from `fh` at position `off`
         
         Unless EOF is reached, returns exactly `size` bytes. 
+        
+        This method releases the global lock while it is running.
         '''
         buf = StringIO()
         inode = self.inodes[fh]
@@ -677,6 +682,8 @@ class Operations(llfuse.Operations):
         This method may return less than `length` bytes if a blocksize
         boundary is encountered. It may also read beyond the end of
         the file, filling the buffer with additional null bytes.
+        
+        This method releases the global lock while it is running.
         """
 
         # Calculate required block
@@ -687,7 +694,7 @@ class Operations(llfuse.Operations):
         if offset_rel + length > self.blocksize:
             length = self.blocksize - offset_rel
 
-        with self.cache.get(id_, blockno) as fh:
+        with self.cache.get(id_, blockno, self.lock) as fh:
             fh.seek(offset_rel)
             buf = fh.read(length)
 
@@ -698,6 +705,10 @@ class Operations(llfuse.Operations):
                 return buf + b"\0" * (length - len(buf))
 
     def write(self, fh, offset, buf):
+        '''Handle FUSE write requests.
+        
+        This method releases the global lock while it is running.
+        '''
         total = len(buf)
         minsize = offset + total
         while buf:
@@ -723,6 +734,8 @@ class Operations(llfuse.Operations):
 
         May write less bytes than given in `buf`, returns
         the number of bytes written.
+        
+        This method releases the global lock while it is running.
         """
 
         # Calculate required block
@@ -733,7 +746,7 @@ class Operations(llfuse.Operations):
         if offset_rel + len(buf) > self.blocksize:
             buf = buf[:self.blocksize - offset_rel]
 
-        with self.cache.get(id_, blockno) as fh:
+        with self.cache.get(id_, blockno, self.lock) as fh:
             fh.seek(offset_rel)
             fh.write(buf)
 

@@ -42,11 +42,14 @@ class fs_api_tests(TestCase):
             mkfs.setup_db(conn, self.blocksize)
 
         self.cache = BlockCache(self.bucket, self.cachedir, self.blocksize * 5, self.dbcm)
-        self.server = fs.Operations(self.cache, self.dbcm, threading.Lock())
+        self.lock = threading.Lock()
+        self.server = fs.Operations(self.cache, self.dbcm, self.lock)
         self.server.init()
 
         # Keep track of unused filenames
         self.name_cnt = 0
+
+        self.lock.acquire()
 
     def tearDown(self):
         self.server.destroy()

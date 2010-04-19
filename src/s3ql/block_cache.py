@@ -62,39 +62,15 @@ class CacheEntry(file):
                 (self.inode, self.blockno, self.dirty, self.obj_id))
 
 class BlockCache(object):
-    """Manages access to file blocks
+    """Provides access to file blocks
     
-    Operations on blocks need to be synchronized between different threads,
-    since otherwise we may
+    This class manages access to file blocks. It takes care of creation,
+    uploading, downloading and deduplication.
     
-    * write into an object that is currently being expired and 
-      uploaded and loose the changes
-    
-    * retrieve the same object twice, where data from the retrieval
-      that runs longer overwrites data written after the end of the
-      first retrieval.
-      
-    * read or write at the wrong position, if a different thread has
-      moved the file cursor.
- 
-    For this reason, all operations on blocks are mediated by
-    a BlockCache object. Whenever the file system needs to write or read
-    from an block, it uses the `BlockCache.get()` context manager 
-    which provides a file handle to the block. The block cache retrieves
-    and stores blocks on the backend as necessary. Moreover, it provides
-    methods to delete and create blocks, once again taking care
-    of the necessary locking.
-
-    
-    Locking Procedure
-    -----------------
-    
-    Threads may block when acquiring a Python lock and when trying to
-    access the database. To prevent deadlocks, a function must not
-    try to acquire any Python lock when it holds a database lock (i.e.,
-    is in the middle of a transaction). This has also to be taken
-    into account when calling other functions, especially from e.g.
-    BlockCache.            
+    In order for S3QL not to block entirely when objects need to be
+    downloaded or uploaded, this class releases the global lock for
+    network transactions. In these cases, a separate lock on inode and
+    block number is used to prevent simultaneous access to the same block.
     """
 
     def __init__(self, bucket, cachedir, maxsize, dbcm):
@@ -134,14 +110,11 @@ class BlockCache(object):
         try:
             while self_t.run_flag:
                 log.debug('_expiry_loop: waiting for poke...')
-                self.need_expiry.wait()
+                self.need_expiry.wait(5)
                 log.debug('_expiry_loop: need_expiry has been set')
-                while (self.size > 0.85 * self.maxsize or
-                       len(self.cache) > 0.85 * MAX_CACHE_ENTRIES) and len(self.cache) > 0:
+                while (self.size > self.maxsize or
+                       len(self.cache) > MAX_CACHE_ENTRIES) and len(self.cache) > 0:
                     self._expire_parallel()
-                    if self.size <= self.maxsize and len(self.cache) <= MAX_CACHE_ENTRIES:
-                        log.debug('Cache below threshold, setting flag.')
-                        self.ready_to_write.set()
                 self.need_expiry.clear()
                 self.ready_to_write.set()
         except:
@@ -167,71 +140,73 @@ class BlockCache(object):
         return len(self.cache)
 
     @contextmanager
-    def get(self, inode, blockno):
+    def get(self, inode, blockno, lock):
         """Get file handle for block `blockno` of `inode`
         
-        This may cause other blocks to be expired from the cache in
-        separate threads. The caller should therefore not hold any
-        database locks when calling `get`.
+        This method releases `lock' for the managed context, so the caller must
+        not hold any prior database locks and must not try to acquire any
+        database locks in the managed context.
         """
 
         # Get object key    
         log.debug('Getting file handle for inode %i, block %i', inode, blockno)
-        with self.mlock(inode, blockno):
-            try:
-                el = self.cache[(inode, blockno)]
-
-            # Not in cache
-            except KeyError:
-                filename = os.path.join(self.cachedir, 'inode_%d_block_%d' % (inode, blockno))
-                try:
-                    obj_id = self.dbcm.get_val("SELECT obj_id FROM blocks WHERE inode=? AND blockno=?",
-                                         (inode, blockno))
-
-                # No corresponding object
-                except KeyError:
-                    el = CacheEntry(inode, blockno, None, filename, "w+b")
-                    oldsize = 0
-
-                # Need to download corresponding object
-                else:
-                    el = CacheEntry(inode, blockno, obj_id, filename, "w+b")
-                    retry_exc(300, [ KeyError ], self.bucket.fetch_fh,
-                              's3ql_data_%d' % obj_id, el)
-
-                    # Update cache size
-                    el.seek(0, 2)
-                    oldsize = el.tell()
-                    self.size += oldsize
-
-                self.cache[(inode, blockno)] = el
-
-            # In Cache
-            else:
-                self.cache.to_head((inode, blockno))
-                el.seek(0, 2)
-                oldsize = el.tell()
+        self.mlock.acquire(inode, blockno)
+        lock.release()
+        try:
+            el = self._get(inode, blockno)
+            oldsize = os.fstat(el.fileno()).st_size
 
             # Provide fh to caller
             try:
                 yield el
             finally:
                 # Update cachesize
-                el.seek(0, 2)
-                newsize = el.tell()
-                self.size = self.size - oldsize + newsize
+                el.flush()
+                newsize = os.fstat(el.fileno()).st_size
+                self.size += newsize - oldsize
 
-        # Wait for expiration if required
-        if self.size > self.maxsize or len(self.cache) > MAX_CACHE_ENTRIES:
-            log.debug('Cache size exceeded, waiting for expiration...')
-            self.ready_to_write.clear()
-            self.need_expiry.set()
-            self.ready_to_write.wait()
+            # Wait for expiration if required
+            if self.size > self.maxsize or len(self.cache) > MAX_CACHE_ENTRIES:
+                log.debug('Cache size exceeded, waiting for expiration...')
+                self.ready_to_write.clear()
+                self.need_expiry.set()
+                self.ready_to_write.wait()
 
-        # If more than 85% used, start expiration in background
-        elif self.size > 0.85 * self.maxsize or len(self.cache) > 0.85 * MAX_CACHE_ENTRIES:
-            log.debug('Cache 85% full, poking expiration thread.')
-            self.need_expiry.set()
+        finally:
+            self.mlock.release(inode, blockno)
+            lock.acquire()
+
+
+    def _get(self, inode, blockno):
+        try:
+            el = self.cache[(inode, blockno)]
+
+        # Not in cache
+        except KeyError:
+            filename = os.path.join(self.cachedir,
+                                    'inode_%d_block_%d' % (inode, blockno))
+            try:
+                obj_id = self.dbcm.get_val("SELECT obj_id FROM blocks WHERE inode=? AND blockno=?",
+                                           (inode, blockno))
+
+            # No corresponding object
+            except KeyError:
+                el = CacheEntry(inode, blockno, None, filename, "w+b")
+
+            # Need to download corresponding object
+            else:
+                el = CacheEntry(inode, blockno, obj_id, filename, "w+b")
+                retry_exc(300, [ KeyError ], self.bucket.fetch_fh,
+                          's3ql_data_%d' % obj_id, el)
+                self.size += os.fstat(el.fileno()).st_size
+
+            self.cache[(inode, blockno)] = el
+
+        # In Cache
+        else:
+            self.cache.to_head((inode, blockno))
+
+        return el
 
     def recover(self):
         '''Register old files in cache directory'''
@@ -242,9 +217,8 @@ class BlockCache(object):
         for filename in os.listdir(self.cachedir):
             match = re.match('^inode_(\\d+)_block_(\\d+)$', filename)
             if match:
+                log.debug('Recovering cache file %s', filename)
                 (inode, blockno) = [ int(match.group(i)) for i in (1, 2) ]
-                obj_id = None
-
             else:
                 raise RuntimeError('Strange file in cache directory: %s' % filename)
 
@@ -253,11 +227,14 @@ class BlockCache(object):
                                           (inode, blockno))
             except KeyError:
                 obj_id = None
+                log.debug('Cache file does not belong to any object')
+            else:
+                log.debug('Cache file belongs to object %d', obj_id)
 
-            el = CacheEntry(inode, blockno, obj_id, os.path.join(self.cachedir, filename), "r+b")
+            el = CacheEntry(inode, blockno, obj_id,
+                            os.path.join(self.cachedir, filename), "r+b")
             el.dirty = True
-            el.seek(0, 2)
-            self.size += el.tell()
+            self.size += os.fstat(el.fileno()).st_size
             self.cache[(inode, blockno)] = el
 
     def _prepare_upload(self, el):
@@ -274,8 +251,7 @@ class BlockCache(object):
         if not el.dirty:
             return
 
-        el.seek(0, 2)
-        size = el.tell()
+        size = os.fstat(el.fileno()).st_size
         el.seek(0)
         hash_ = sha256_fh(el)
 

@@ -17,19 +17,16 @@ import tempfile
 from _common import TestCase
 import unittest2 as unittest
 import stat
+import threading
 from time import time
 import shutil
 
-# Each test should correspond to exactly one function in the tested
-# module, and testing should be done under the assumption that any
-# other functions that are called by the tested function work perfectly.
 class cache_tests(TestCase):
 
     def setUp(self):
 
         self.bucket_dir = tempfile.mkdtemp()
-        self.passphrase = 'schnupp'
-        self.bucket = local.Connection().get_bucket(self.bucket_dir, self.passphrase)
+        self.bucket = local.Connection().get_bucket(self.bucket_dir)
 
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
@@ -41,13 +38,15 @@ class cache_tests(TestCase):
 
         # Create an inode we can work with
         self.inode = 42
-        self.dbcm.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount, size) "
-                   "VALUES (?,?,?,?,?,?,?,?,?)",
-                   (self.inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
-                   | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
-                    os.getuid(), os.getgid(), time(), time(), time(), 1, 32))
+        self.dbcm.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                          "VALUES (?,?,?,?,?,?,?,?,?)",
+                          (self.inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
+                           | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
+                           os.getuid(), os.getgid(), time(), time(), time(), 1, 32))
 
         self.cache = BlockCache(self.bucket, self.cachedir, cachesize, self.dbcm)
+        self.lock = threading.Lock()
+        self.lock.acquire()
 
     def tearDown(self):
         self.cache.clear()
@@ -65,18 +64,18 @@ class cache_tests(TestCase):
         data = self.random_data(int(0.5 * self.cache.maxsize))
 
         # Case 1: Object does not exist yet
-        with self.cache.get(inode, blockno) as fh:
+        with self.cache.get(inode, blockno, self.lock) as fh:
             fh.seek(0)
             fh.write(data)
 
         # Case 2: Object is in cache
-        with self.cache.get(inode, blockno) as fh:
+        with self.cache.get(inode, blockno, self.lock) as fh:
             fh.seek(0)
             self.assertEqual(data, fh.read(len(data)))
 
         # Case 3: Object needs to be downloaded
         self.cache._expire_parallel()
-        with self.cache.get(inode, blockno) as fh:
+        with self.cache.get(inode, blockno, self.lock) as fh:
             fh.seek(0)
             self.assertEqual(data, fh.read(len(data)))
 
@@ -88,7 +87,7 @@ class cache_tests(TestCase):
 
         self.cache.bucket = TestBucket(self.bucket)
         self.assertEqual(len(self.cache), 0)
-        with self.cache.get(inode, blockno) as fh:
+        with self.cache.get(inode, blockno, self.lock) as fh:
             fh.seek(0)
             fh.write(data)
         self.assertEqual(len(self.cache), 1)
@@ -106,7 +105,7 @@ class cache_tests(TestCase):
 
         self.cache.bucket = TestBucket(self.bucket)
         self.assertEqual(len(self.cache), 0)
-        with self.cache.get(inode, blockno) as fh:
+        with self.cache.get(inode, blockno, self.lock) as fh:
             fh.seek(0)
             fh.write(data)
         self.assertEqual(len(self.cache), 1)
@@ -122,7 +121,7 @@ class cache_tests(TestCase):
 
         # This object will not be dirty
         self.cache.bucket = TestBucket(self.bucket)
-        with self.cache.get(inode, 1) as fh:
+        with self.cache.get(inode, 1, self.lock) as fh:
             fh.seek(0)
             fh.write(data1)
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
@@ -131,7 +130,7 @@ class cache_tests(TestCase):
 
         # This one will be
         self.cache.bucket = TestBucket(self.bucket)
-        with self.cache.get(inode, 2) as fh:
+        with self.cache.get(inode, 2, self.lock) as fh:
             fh.seek(0)
             fh.write(data2)
 
@@ -154,7 +153,7 @@ class cache_tests(TestCase):
 
         # Case 1: Upload new object
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
-        with self.cache.get(inode, blockno1) as fh:
+        with self.cache.get(inode, blockno1, self.lock) as fh:
             fh.seek(0)
             fh.write(data1)
             el1 = fh
@@ -163,7 +162,7 @@ class cache_tests(TestCase):
 
         # Case 2: Link new object
         self.cache.bucket = TestBucket(self.bucket)
-        with self.cache.get(inode, blockno2) as fh:
+        with self.cache.get(inode, blockno2, self.lock) as fh:
             fh.seek(0)
             fh.write(data1)
             el2 = fh
@@ -171,7 +170,7 @@ class cache_tests(TestCase):
 
         # Case 3: Upload old object, still has references
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
-        with self.cache.get(inode, blockno1) as fh:
+        with self.cache.get(inode, blockno1, self.lock) as fh:
             fh.seek(0)
             fh.write(data2)
         self.cache._prepare_upload(el1)()
@@ -179,7 +178,7 @@ class cache_tests(TestCase):
 
         # Case 4: Upload old object, no references left
         self.cache.bucket = TestBucket(self.bucket, no_del=1, no_store=1)
-        with self.cache.get(inode, blockno2) as fh:
+        with self.cache.get(inode, blockno2, self.lock) as fh:
             fh.seek(0)
             fh.write(data3)
         self.cache._prepare_upload(el2)()
@@ -187,7 +186,7 @@ class cache_tests(TestCase):
 
         # Case 5: Link old object, no references left
         self.cache.bucket = TestBucket(self.bucket, no_del=1)
-        with self.cache.get(inode, blockno2) as fh:
+        with self.cache.get(inode, blockno2, self.lock) as fh:
             fh.seek(0)
             fh.write(data2)
         self.cache._prepare_upload(el2)()
@@ -196,7 +195,7 @@ class cache_tests(TestCase):
         # Case 6: Link old object, still has references
         # (Need to create another object first)
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
-        with self.cache.get(inode, blockno3) as fh:
+        with self.cache.get(inode, blockno3, self.lock) as fh:
             fh.seek(0)
             fh.write(data1)
             el3 = fh
@@ -204,7 +203,7 @@ class cache_tests(TestCase):
         self.cache.bucket.verify()
 
         self.cache.bucket = TestBucket(self.bucket)
-        with self.cache.get(inode, blockno1) as fh:
+        with self.cache.get(inode, blockno1, self.lock) as fh:
             fh.seek(0)
             fh.write(data1)
         self.assertIsNone(self.cache._prepare_upload(el1))
@@ -215,10 +214,10 @@ class cache_tests(TestCase):
         data1 = self.random_data(int(0.4 * self.blocksize))
         data2 = self.random_data(int(0.4 * self.blocksize))
 
-        with self.cache.get(inode, 1) as fh:
+        with self.cache.get(inode, 1, self.lock) as fh:
             fh.seek(0)
             fh.write(data1)
-        with self.cache.get(inode, 2) as fh:
+        with self.cache.get(inode, 2, self.lock) as fh:
             fh.seek(0)
             fh.write(data2)
 
@@ -227,11 +226,11 @@ class cache_tests(TestCase):
         self.cache = BlockCache(self.bucket, self.cachedir, self.cache.maxsize, self.dbcm)
         self.cache.recover()
 
-        with self.cache.get(inode, 1) as fh:
+        with self.cache.get(inode, 1, self.lock) as fh:
             fh.seek(0)
             self.assertTrue(data1 == fh.read(len(data1)))
 
-        with self.cache.get(inode, 2) as fh:
+        with self.cache.get(inode, 2, self.lock) as fh:
             fh.seek(0)
             self.assertTrue(data2 == fh.read(len(data2)))
 
@@ -241,10 +240,10 @@ class cache_tests(TestCase):
         data2 = self.random_data(int(0.4 * self.blocksize))
 
         # Case 1: Elements only in cache
-        with self.cache.get(inode, 1) as fh:
+        with self.cache.get(inode, 1, self.lock) as fh:
             fh.seek(0)
             fh.write(data1)
-        with self.cache.get(inode, 2) as fh:
+        with self.cache.get(inode, 2, self.lock) as fh:
             fh.seek(0)
             fh.write(data2)
         self.cache.bucket = TestBucket(self.bucket)
@@ -252,10 +251,10 @@ class cache_tests(TestCase):
         self.cache.bucket.verify()
 
         # Case 2: Elements in cache and db and not referenced
-        with self.cache.get(inode, 1) as fh:
+        with self.cache.get(inode, 1, self.lock) as fh:
             fh.seek(0)
             fh.write(data1)
-        with self.cache.get(inode, 2) as fh:
+        with self.cache.get(inode, 2, self.lock) as fh:
             fh.seek(0)
             fh.write(data2)
         self.cache.bucket = TestBucket(self.bucket, no_store=2)
@@ -267,10 +266,10 @@ class cache_tests(TestCase):
         self.cache.bucket.verify()
 
         # Case 3: Elements not in cache and still referenced
-        with self.cache.get(inode, 1) as fh:
+        with self.cache.get(inode, 1, self.lock) as fh:
             fh.seek(0)
             fh.write(data1)
-        with self.cache.get(inode, 2) as fh:
+        with self.cache.get(inode, 2, self.lock) as fh:
             fh.seek(0)
             fh.write(data1)
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
