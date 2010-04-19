@@ -60,11 +60,6 @@ class TuneTests(TestCase):
         self.assertTrue(isinstance(bucket['s3ql_parameters_0'], str))
 
 
-    # TODO: test tune.s3ql --copy
-
-    # TODO: test tune.s3ql --delete
-
-
 # Somehow important according to pyunit documentation
 def suite():
     return unittest.makeSuite(TuneTests)

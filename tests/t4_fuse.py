@@ -256,8 +256,6 @@ class fuse_tests(TestCase):
         os.close(fd)
         os.unlink(filename)
 
-    # TODO: test_stat.s3ql
-
     # TODO: test cp.s3ql
 
 
