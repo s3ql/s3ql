@@ -35,7 +35,7 @@ def parse_args(args):
 
     parser.add_option("--homedir", type="string",
                       default=os.path.join(os.environ["HOME"], ".s3ql"),
-                      help='Directory for log files, cache and authentication info.'
+                      help='Directory for log files, cache and authentication info. '
                       'Default: ~/.s3ql')
     parser.add_option("--debug", action="append",
                       help="Activate debugging output from specified module. Use 'all' "

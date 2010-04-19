@@ -274,7 +274,7 @@ def parse_args(args):
 
     parser.add_option("--homedir", type="string",
                       default=os.path.join(os.environ["HOME"], ".s3ql"),
-                      help='Directory for log files, cache and authentication info.'
+                      help='Directory for log files, cache and authentication info. '
                       'Default: ~/.s3ql')
     parser.add_option("--cachesize", type="int", default=102400,
                       help="Cache size in kb (default: 102400 (100 MB)). Should be at least 10 times "
@@ -287,15 +287,14 @@ def parse_args(args):
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
     parser.add_option("--allow-other", action="store_true", default=False, help=
-                      "Allow other users to access the filesystem as well and enforce unix permissions. "
-                      "(if neither this option nor --allow_other is specified, only the mounting user "
-                      "can access the file system, and has full access to every file, independent of "
-                      "individual permissions.")
+                      'Normally, only the user who called `mount.s3ql` can access the mount '
+                      'point. This user then also has full access to it, independent of '
+                      'individual file permissions. If the `--allow-other` option is '
+                      'specified, other users can access the mount point as well and '
+                      'individual file permissions are taken into account for all users.')
     parser.add_option("--allow-root", action="store_true", default=False,
-                      help="Allow root to access the filesystem as well and enforce unix permissions. "
-                      "(if neither this option nor --allow_other is specified, only the mounting user "
-                      "can access the file system, and has full access to every file, independent of "
-                      "individual permissions.")
+                      help='Like `--allow_other`, but also allow the root user '
+                           'to access the mount point.')
     parser.add_option("--fg", action="store_true", default=False,
                       help="Do not daemonize, stay in foreground")
     parser.add_option("--single", action="store_true", default=False,

@@ -52,7 +52,7 @@ def parse_args(args):
                       help="Copy a bucket. The destination bucket must not exist.")
     parser.add_option("--homedir", type="string",
                       default=os.path.join(os.environ["HOME"], ".s3ql"),
-                      help='Directory for log files, cache and authentication info.'
+                      help='Directory for log files, cache and authentication info. '
                       'Default: ~/.s3ql')
     parser.add_option("--s3-location", type="string", default='EU',
                       help="Specify storage location for new bucket. Allowed values: EU,"

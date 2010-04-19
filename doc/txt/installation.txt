@@ -5,11 +5,11 @@
 ==============
 
 
- * Under Linux, make sure that you are using at least kernel 2.6.26.
-
-
 Installing Dependencies
 =======================
+
+Under Linux, you will need at least kernel 2.6.26 and FUSE 2.8.
+
 
 Debian / Ubuntu
 ---------------
@@ -37,14 +37,10 @@ is not yet available as a package).
    install the module into `~/.local` or run `python setup.py fetch
    --sqlite build install` to install system-wide.
 
-Similarly, you need to download and install the `Python LZMA module
-<http://pypi.python.org/pypi/pyliblzma>`_:
+You also need at least version 0.5.3 of the `Python LZMA module
+<http://pypi.python.org/pypi/pyliblzma>`_. This module will be
+installed automatically during the S3QL installation if required.
 
-#. Download the source from http://pypi.python.org/pypi/pyliblzma
-#. Extract the zip file and change into the new directory
-#. Run `python setup.py build install --user` to
-   install the module into `~/.local` or run `python setup.py build
-   install` to install system-wide.
 
 CentOS 5
 --------
@@ -127,11 +123,11 @@ The programs/libraries are required to run S3QL:
   file called `xattr.h` in either `/usr/include/attr/` or
   `/usr/local/include/attr/`.
 
-* The `FUSE Library <http://fuse.sourceforge.net/>`_ should
-  already be installed on your system. But you should make sure that
-  you also have the FUSE headers installed (the package is typically
-  called something like `fuse-dev`, `libfuse-dev`, `fuse-devel` or
-  `libfuse-devel`).
+* The `FUSE Library <http://fuse.sourceforge.net/>`_ should already be
+  installed on your system. However, you have to make sure that you
+  have at least version 2.8 and that you also have the FUSE headers
+  installed (the package is typically called something like
+  `fuse-dev`, `libfuse-dev`, `fuse-devel` or `libfuse-devel`).
 
   To test if the FUSE library is installed with development headers,
   run the command `pkg-config --modversion fuse`. It should print a
@@ -172,14 +168,13 @@ The programs/libraries are required to run S3QL:
   --user`.
 
 * The `Python LZMA Module <http://pypi.python.org/pypi/pyliblzma>`_ is
-  probably not yet available as a package. To install it manually,
-  download it from the website, extract it and run `python setup.py
-  build install --user`. To check if the module is installed, try
-  to execute ::
+  probably not yet available as a package. It will, however, be
+  automatically downloaded and installed during the S3QL installation
+  if required.
 
-    python -c 'import lzma; print lzma.__version__'
-
-  This should print a version number. You need at least version 0.5.3.
+  If you want to check if the module is installed, try to execute
+  `python -c 'import lzma; print lzma.__version__'`. This should print
+  a version number. You need at least version 0.5.3.
 
 * If you want to use the SFTP backend, then you also need the
   `Paramiko Python Module <http://www.lag.net/paramiko/>`_. It may or

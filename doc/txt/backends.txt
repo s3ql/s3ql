@@ -56,11 +56,10 @@ Account/Access Identifiers
 Local
 =====
 
-The local backend stores file system data in a directory on your local
-computer. This is mostly used for testing. The storage URL for the
-local backend has the form `local://<path>`. Note that you have to
-write three consecutive slashes to specify an absolute path, e.g.
-`local:///var/archive`.
+The local backend stores file system data in a directory on your
+computer. The storage URL for the local backend has the form
+`local://<path>`. Note that you have to write three consecutive
+slashes to specify an absolute path, e.g. `local:///var/archive`.
 
 SFTP / SSH
 ==========

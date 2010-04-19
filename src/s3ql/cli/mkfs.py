@@ -38,7 +38,7 @@ def parse_args(args):
                            'refer to the FAQ at http://code.google.com/p/s3ql/ for more information.')
     parser.add_option("--homedir", type="string",
                       default=os.path.join(os.environ["HOME"], ".s3ql"),
-                      help='Directory for log files, cache and authentication info.'
+                      help='Directory for log files, cache and authentication info. '
                       'Default: ~/.s3ql')
     parser.add_option("-L", type="string", default='', help="Filesystem label",
                       dest="label")

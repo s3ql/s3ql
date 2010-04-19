@@ -4,7 +4,8 @@
 File System Creation
 ====================
 
-A S3QL file system is created with the `mkfs.s3ql` command. It has the following syntax::
+A S3QL file system is created with the `mkfs.s3ql` command. It has the
+following syntax::
 
   mkfs.s3ql [options] <storage url>
 
@@ -14,17 +15,17 @@ bucket with `tune.s3ql --delete` first.
 You can specify the following options:
 
   --s3-location=S3_LOCATION
-                        Specify storage location for new bucket. Allowed
-                        values: EU,us-west-1, or us-standard. The later is not
-                        recommended, please refer to the FAQ for more
-                        information.
+                        Specify storage location for new bucket.
+                        Allowed values: `EU`, `us-west-1`, or
+                        `us-standard`. The later is not recommended,
+                        please refer to the FAQ for more information.
   --homedir=HOMEDIR     Directory for log files, cache and authentication
-                        info.Default: ~/.s3ql
+                        info.Default: `~/.s3ql`
   -L LABEL              Filesystem label
   --blocksize=BLOCKSIZE
                         Maximum size of s3 objects in KB (default: 10240)
   --encrypt             Create an encrypted and compressed file system
   --debug=DEBUG         Activate debugging output from specified module. Use
-                        'all' to get debug messages from all modules. This
+                        `all` to get debug messages from all modules. This
                         option can be specified multiple times.
   --quiet               Be really quiet

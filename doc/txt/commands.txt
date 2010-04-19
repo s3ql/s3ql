@@ -45,9 +45,8 @@ Upgrading the file system
 
 If you have installed a new version of S3QL, is usually necessary to
 upgrade your file system metdata. Note that afterwards the file system
-can no longer be accessed with older versions of S3QL. To upgrade the
-file system stored in the bucket `<bucketname>` to the newest
-revision, execute ::
+can no longer be accessed with older versions of S3QL. To upgrade a
+file system to the newest revision, execute ::
 
   tune.s3ql --upgrade <storage url>
 
@@ -59,6 +58,8 @@ Deleting a file system
 A file system can be deleted with::
 
   tune.s3ql --delete <storage url>
+
+This physically deletes all the data and file system structures.
 
 Copying a file system
 =====================

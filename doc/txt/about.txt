@@ -4,7 +4,7 @@
  About S3QL
 ============
 
-S3QL is a file system that stores all its data online. It supports 
+S3QL is a file system that stores all its data online. It supports
 online storage services like `Amazon S3 <http://aws.amazon.com/s3 Amazon S3>`_ as
 well as arbitrary FTP or SFTP servers. It effectively provides you with a hard disk
 of infinite capacity that can be accessed from any computer with internet access.
@@ -42,14 +42,13 @@ Features
   files stored in the file system, and also if only some parts of the
   files are identical while other parts differ.
 
-* **Writable Snapshots.** Inside an S3QL file system, you can duplicate
+* **Copy-on-Write** Inside an S3QL file system, you can duplicate
   entire directory trees without using any additional storage space.
   Only if one of the copies is modified, the part of the data that
-  has been modified will take up additional storage space (*Copy on
-  Write*).
+  has been modified will take up additional storage space.
 
-  This feature can be used to create *snapshots* of the contents of a
-  given directory at a given point in time.
+  This feature can be used to create **snapshots** that efficiently
+  save the state of a given directory at a fixed point in time.
 
 * **Support for high latency, low bandwidth connections.** S3QL saves
   the file and directory structure in a database that is downloaded
@@ -60,9 +59,9 @@ Features
   creation, moving and renaming files, changing permissions, etc).
 
   File contents are cached, so reading or writing to a file requires
-  network access only if the data is not yet in the cache. Each file
-  is also split into small blocks that are stored separately, and if
-  data is needs to be transferred over the network, only the required
-  block is written or retrieved. Therefore *making a small change (or
-  reading a small part) in a large file does not require the entire
-  file to be transferred*.
+  network access only if the data is not yet in the cache.
+  Additionally, each file is split into small blocks that are stored
+  separately, and if data is needs to be transferred over the network,
+  only the required block is written or retrieved. Therefore *making a
+  small change (or reading a small part) in a large file does not
+  require the entire file to be transferred*.
