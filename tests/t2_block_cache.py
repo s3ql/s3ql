@@ -31,12 +31,11 @@ class cache_tests(TestCase):
         self.passphrase = 'schnupp'
         self.bucket = local.Connection().get_bucket(self.bucket_dir, self.passphrase)
 
-        self.dbfile = tempfile.NamedTemporaryFile()
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
         cachesize = int(1.5 * self.blocksize)
 
-        self.dbcm = ConnectionManager(self.dbfile.name)
+        self.dbcm = ConnectionManager('')
         with self.dbcm() as conn:
             mkfs.setup_db(conn, self.blocksize)
 
@@ -52,7 +51,6 @@ class cache_tests(TestCase):
 
     def tearDown(self):
         self.cache.clear()
-        self.dbfile.close()
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
 

@@ -32,12 +32,10 @@ class fsck_tests(TestCase):
         self.bucket_dir = tempfile.mkdtemp()
         self.passphrase = 'schnupp'
         self.bucket = local.Connection().get_bucket(self.bucket_dir, self.passphrase)
-        self.dbfile = tempfile.NamedTemporaryFile()
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
 
-        self.conn = WrappedConnection(apsw.Connection(self.dbfile.name),
-                                      retrytime=0)
+        self.conn = WrappedConnection(apsw.Connection(''), retrytime=0)
         mkfs.setup_db(self.conn, self.blocksize)
 
         fsck.conn = self.conn
@@ -48,7 +46,6 @@ class fsck_tests(TestCase):
         fsck.found_errors = False
 
     def tearDown(self):
-        self.dbfile.close()
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
 
