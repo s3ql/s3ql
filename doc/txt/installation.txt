@@ -1,29 +1,28 @@
 .. -*- mode: rst -*-
 
+
 ==============
  Installation
 ==============
 
+S3QL depends on several other programs and libraries that have to be
+installed first. The best method to satisfy these dependencies depends
+on your distribution.
 
-Installing Dependencies
-=======================
+Ubuntu/Debian
+=============
 
-Under Linux, you will need at least kernel 2.6.26 and FUSE 2.8.
-
-
-Ubuntu 9.10 (Karmic) and Newer
-------------------------------
-
-Starting with version 9.10 (Karmic), most of the prerequisites are
-already packaged and can be installed with following command (if you
-want, you can remove `gccxml` and the packages ending in `-dev` again
-when the installation is complete)::
+Starting with Ubuntu 9.10 (Karmic), most of S3QL's dependencies are
+already available as packages and can be installed with following
+command (if you want, you can remove `gccxml` and the packages ending
+in `-dev` again when the installation is complete)::
 
   aptitude install python-dev libfuse2 libfuse-dev python-paramiko \
                    gccxml python-pycryptopp libattr1-dev liblzma-dev liblzma0
 
-The `Python APSW module <http://code.google.com/p/apsw/>`_ needs to be
-installed from source as follows:
+Additionally, The `Python APSW module
+<http://code.google.com/p/apsw/>`_ needs to be installed from source
+as follows:
 
 #. Download the source from http://code.google.com/p/apsw/downloads/list
 #. Extract the zip file and change into the new directory
@@ -31,21 +30,26 @@ installed from source as follows:
    install the module into `~/.local` or run `python setup.py fetch
    --sqlite build install` to install system-wide.
 
-The `Python LZMA module <http://pypi.python.org/pypi/pyliblzma>`_ will
-be installed automatically during the S3QL installation if required
-(you need at least version 0.5.3).
+The `Python LZMA module <http://pypi.python.org/pypi/pyliblzma>`_ is
+also required, but this module will be installed automatically during
+the S3QL installation if necessary (you need at least version 0.5.3).
 
+Once all the dependencies have been satisfied as described, you can
+continue with :ref:`inst-s3ql`.
 
-Fedora 12 and Newer
--------------------
+Fedora
+======
 
-Most of the prerequisites are already packaged and can be installed with
-the command ::
+Starting with Fedora 12, most of S3QL's dependencies are
+already available as packages and can be installed with following
+command (if you want, you can remove packages ending
+in `-devel` again when the installation is complete)::
 
   yum install python-devel libattr-devel fuse-devel cmake \
               pycryptopp python-paramiko lzma-devel
 
-GCC-XML needs to be compiled from source as follows:
+In addition to that, the GCC-XML compiler needs to be compiled from
+source as follows:
 
 #. Retrieve the sources from the CVS tree with the command ::
 
@@ -70,8 +74,8 @@ GCC-XML needs to be compiled from source as follows:
      make
      make install
 
-The `Python APSW module <http://code.google.com/p/apsw/>`_ needs to be
-installed from source as follows:
+After that, you also have to install the `Python APSW module
+<http://code.google.com/p/apsw/>`_:
 
 #. Download the source from http://code.google.com/p/apsw/downloads/list
 #. Extract the zip file and change into the new directory
@@ -79,16 +83,20 @@ installed from source as follows:
    install the module into `~/.local` or run `python setup.py fetch
    --sqlite build install` to install system-wide.
 
-The `Python LZMA module <http://pypi.python.org/pypi/pyliblzma>`_ will
-be installed automatically during the S3QL installation if required
-(you need at least version 0.5.3).
+Finally, the `Python LZMA module
+<http://pypi.python.org/pypi/pyliblzma>`_ is required as well, but
+this module will be installed automatically during the S3QL
+installation if necessary (you need at least version 0.5.3).
+
+Once all the dependencies have been satisfied as described, you can
+continue with :ref:`inst-s3ql`.
 
 Thanks to Cliff Stanford for helping with these instructions.
 
-CentOS 5
---------
+CentOs
+======
 
-Under CentOS 5, you can install most of the required packages with the
+Under CentOS 5, you can install most of S3QL's dependencies with the
 following commands: (thanks to `heri16
 <http://code.google.com/u/heri16/>`_)::
 
@@ -118,7 +126,7 @@ following commands: (thanks to `heri16
   make install
   cd ..
 
-  wget http://pypi.python.org/packages/source/p/pycryptopp/pycryptopp-0.5.17.tar.gz#md5=b3d19e7203531f8bd241ae58062f99e4
+  wget http://pypi.python.org/packages/source/p/pycryptopp/pycryptopp-0.5.17.tar.gz
   tar -xf pycryptopp-0.5.17.tar.gz
   cd pycryptopp*
   python26 setup.py build
@@ -126,32 +134,27 @@ following commands: (thanks to `heri16
   python26 setup.py install
   cd ..
 
-  wget http://apsw.googlecode.com/files/apsw-3.6.22-r1.zip
-  unzip apsw-3.6.22-r1.zip
-  cd apsw*
-  python26 setup.py fetch --sqlite build
-  python26 setup.py build
-  python26 setup.py test
-  python26 setup.py install
-  cd ..
+CentOS specific installation instructions for the `Python APSW module
+<http://code.google.com/p/apsw/>`_, the `Paramiko Python Module
+<http://www.lag.net/paramiko/>`_ and the `XZ Utils
+<http://tukaani.org/xz/>`_ are not yet available. Please refer to the
+instructions for other distributions and post your results to the
+mailing list, so that this documentation can be extended.
 
-If you are using OpenVZ, you also need to execute the following in the
-host::
-
-  modprobe fuse
-  vzctl set 101 --devices c:10:229:rw --save
-  vzctl exec 101 mknod /dev/fuse c 10 229
-  vzctl exec 101 reboot
-
+Once all the dependencies have been satisfied as described, you can
+continue with :ref:`inst-s3ql`.
 
 Other distributions
--------------------
+===================
 
 The following is a list of the programs and libraries required by
 S3QL. Generally, you should first check if your distribution already
-provides a suitable packages and only install from source if that is not the case.
+provides a suitable packages and only install from source if that is
+not the case.
 
 The programs/libraries are required to run S3QL:
+
+* Kernel version 2.6.26 or newer.
 
 * The **Python development headers** should be available as a
   package in your distribution. The package is typically called
@@ -227,6 +230,10 @@ The programs/libraries are required to run S3QL:
   install Paramiko, download it from the website, extract it and run
   `python setup.py install --user`.
 
+Once all the dependencies have been satisfied as described, you can
+continue with :ref:`inst-s3ql`.
+
+.. _inst-s3ql:
 
 Installing S3QL
 ===============
