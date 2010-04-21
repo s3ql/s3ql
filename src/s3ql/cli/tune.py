@@ -99,13 +99,13 @@ def main(args=None):
             raise QuietError("Bucket does not exist.")
         bucket = conn.get_bucket(bucketname)
 
+        if options.delete:
+            return delete_bucket(conn, bucketname)
+
         try:
             unlock_bucket(bucket)
         except ChecksumError:
             raise QuietError('Checksum error - incorrect password?')
-
-        if options.delete:
-            return delete_bucket(conn, bucketname)
 
         if options.copy:
             return copy_bucket(conn, options, bucket)
