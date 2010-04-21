@@ -119,10 +119,10 @@ class Operations(llfuse.Operations):
         self.inodes[CTRL_INODE].gid = os.getgid()
 
     def init(self):
-        self.cache.start_expiration_thread()
+        self.cache.start_io_thread()
 
     def destroy(self):
-        self.cache.stop_expiration_thread()
+        self.cache.stop_io_thread()
         self.inodes.flush()
 
     def lookup(self, id_p, name):
@@ -181,7 +181,7 @@ class Operations(llfuse.Operations):
             # The ResultSet is automatically deleted
             # when yield raises GeneratorExit.
             for (name, cid_) in conn.query("SELECT name, inode FROM contents WHERE parent_inode=? "
-                                          "LIMIT -1 OFFSET ?", (id_, off - 2)):
+                                           "LIMIT -1 OFFSET ?", (id_, off - 2)):
                 yield (name, self.inodes[cid_])
 
     def getxattr(self, id_, name):
@@ -221,7 +221,11 @@ class Operations(llfuse.Operations):
         if id_ == CTRL_INODE:
             if name == b's3ql_flushcache!':
                 # Force all entries out of the cache
-                self.cache.clear()
+                self.lock.release()
+                try:
+                    self.cache.clear()
+                finally:
+                    self.lock.acquire()
                 return
 
             elif name == 'copy':
@@ -546,21 +550,26 @@ class Operations(llfuse.Operations):
     def extstat(self):
         '''Return extended file system statistics'''
 
-        with self.dbcm() as conn:
-            entries = conn.get_val("SELECT COUNT(rowid) FROM contents")
-            blocks = conn.get_val("SELECT COUNT(id) FROM objects")
-            inodes = conn.get_val("SELECT COUNT(id) FROM inodes")
-            size_1 = conn.get_val('SELECT SUM(size) FROM inodes')
-            size_2 = conn.get_val('SELECT SUM(size) FROM objects')
+        self.inodes.flush()
+        self.lock.release()
+        try:
+            with self.dbcm() as conn:
+                entries = conn.get_val("SELECT COUNT(rowid) FROM contents")
+                blocks = conn.get_val("SELECT COUNT(id) FROM objects")
+                inodes = conn.get_val("SELECT COUNT(id) FROM inodes")
+                size_1 = conn.get_val('SELECT SUM(size) FROM inodes')
+                size_2 = conn.get_val('SELECT SUM(size) FROM objects')
 
-        if not size_1:
-            size_1 = 1
-        if not size_2:
-            size_2 = 1
+            if not size_1:
+                size_1 = 1
+            if not size_2:
+                size_2 = 1
 
-        return struct.pack('QQQQQQQ', entries, blocks, inodes, size_1, size_2,
-                           self.cache.get_bucket_size(),
-                           self.dbcm.get_db_size())
+            return struct.pack('QQQQQQQ', entries, blocks, inodes, size_1, size_2,
+                               self.cache.get_bucket_size(),
+                               self.dbcm.get_db_size())
+        finally:
+            self.lock.acquire()
 
     def statfs(self):
         stat_ = dict()

@@ -103,9 +103,6 @@ def main(args=None):
             cache = BlockCache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
             cache.recover()
 
-            log.info('Uploading old cache files...')
-            cache.flush_all()
-
             log.info('Uploading old metadata...')
             dbcm.execute("VACUUM")
             cycle_metadata(bucket)

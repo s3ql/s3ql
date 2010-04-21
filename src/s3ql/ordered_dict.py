@@ -121,6 +121,13 @@ class OrderedDict(collections.MutableMapping):
             yield cur.key
             cur = cur.prev
 
+    def values_rev(self):
+        '''Iterator over all values, starting from tail'''
+        cur = self.tail.prev
+        while cur is not self.head:
+            yield cur.value
+            cur = cur.prev
+
     def __contains__(self, key):
         return key in self.data
 

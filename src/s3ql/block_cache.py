@@ -38,12 +38,15 @@ class CacheEntry(file):
     uploaded to the backend. 
     """
 
+    __slots__ = [ 'dirty', 'obj_id', 'inode', 'blockno', 'last_access' ]
+
     def __init__(self, inode, blockno, obj_id, filename, mode):
         super(CacheEntry, self).__init__(filename, mode)
         self.dirty = False
         self.obj_id = obj_id
         self.inode = inode
         self.blockno = blockno
+        self.last_access = 0
 
     def truncate(self, *a, **kw):
         self.dirty = True
@@ -83,52 +86,63 @@ class BlockCache(object):
         self.mlock = MultiLock()
         self.dbcm = dbcm
 
-        self.exp_thread = None
-        self.need_expiry = threading.Event()
-        self.ready_to_write = threading.Event()
+        self.io_thread = None
+        self.expiry_lock = threading.Lock()
 
-    def start_expiration_thread(self):
-        '''Start expiration thread'''
+    def start_io_thread(self):
+        '''Start IO thread'''
 
-        log.debug('Starting background expiration thread')
-        self.exp_thread = ExceptionStoringThread(self._expiry_loop, log, pass_self=True)
-        self.exp_thread.run_flag = True
-        self.exp_thread.start()
+        log.debug('Starting background IO thread')
+        self.io_thread = ExceptionStoringThread(self._io_loop, log, pass_self=True)
+        self.io_thread.stop_event = threading.Event()
+        self.io_thread.start()
 
-    def stop_expiration_thread(self):
-        '''Stop background expiration thread'''
+    def stop_io_thread(self):
+        '''Stop background IO thread'''
 
-        log.debug('Waiting for background expiration thread')
-        self.exp_thread.run_flag = False
-        if self.exp_thread.is_alive():
-            self.need_expiry.set()
-        self.exp_thread.join_and_raise()
+        log.debug('Waiting for background IO thread')
+        if self.io_thread.is_alive():
+            self.io_thread.stop_event.set()
+        self.io_thread.join_and_raise()
 
-    def _expiry_loop(self, self_t):
-        '''Run cache expiration loop'''
+    def _io_loop(self, self_t):
+        '''Run IO loop'''
 
-        try:
-            while self_t.run_flag:
-                log.debug('_expiry_loop: waiting for poke...')
-                self.need_expiry.wait(5)
-                log.debug('_expiry_loop: need_expiry has been set')
-                while (self.size > self.maxsize or
-                       len(self.cache) > MAX_CACHE_ENTRIES) and len(self.cache) > 0:
-                    self._expire_parallel()
-                self.need_expiry.clear()
-                self.ready_to_write.set()
-        except:
-            # Prevent deadlocks
-            self.ready_to_write.set()
+        while not self_t.stop_event.is_set():
+            log.debug('_io_loop: Looking for blocks to flush')
+            self._do_io()
+            log.debug('_io_loop: sleeping...')
+            self_t.stop_event.wait(5)
 
-            def fail():
-                raise RuntimeError('Expiration thread quit unexpectedly')
-            self.ready_to_write.wait = fail
-            self.need_expiry.set = fail
+        log.debug('_io_loop: exiting.')
 
-            raise
+    def _do_io(self):
+        '''Flush all objects that have not been accessed in the last 10 seconds'''
 
-        log.debug('_expiry_loop: exiting.')
+        did_something = True
+        while did_something:
+            did_something = False
+            stamp = time.time()
+            for el in self.cache.values_rev():
+                if stamp - el.last_access < 10:
+                    break
+                if not el.dirty:
+                    continue
+
+                with self.mlock(el.inode, el.blockno):
+                    # Now that we have the lock, check that the object still exists
+                    if (el.inode, el.blockno) not in self.cache:
+                        continue
+                    if not el.dirty:
+                        continue
+
+                    log.debug('Flushing object %s', el)
+                    fn = self._prepare_upload(el)
+                    if fn:
+                        fn()
+                    el.dirty = False
+                    did_something = True
+
 
     def get_bucket_size(self):
         '''Return total size of the underlying bucket'''
@@ -167,10 +181,10 @@ class BlockCache(object):
 
             # Wait for expiration if required
             if self.size > self.maxsize or len(self.cache) > MAX_CACHE_ENTRIES:
-                log.debug('Cache size exceeded, waiting for expiration...')
-                self.ready_to_write.clear()
-                self.need_expiry.set()
-                self.ready_to_write.wait()
+                with self.expiry_lock:
+                    while (len(self.cache) > MAX_CACHE_ENTRIES or
+                           (len(self.cache) > 0  and self.size > self.maxsize)):
+                        self._expire_parallel()
 
         finally:
             self.mlock.release(inode, blockno)
@@ -206,6 +220,7 @@ class BlockCache(object):
         else:
             self.cache.to_head((inode, blockno))
 
+        el.last_access = time.time()
         return el
 
     def recover(self):
@@ -247,9 +262,6 @@ class BlockCache(object):
         '''
 
         log.debug('_prepare_upload(inode=%d, blockno=%d)', el.inode, el.blockno)
-
-        if not el.dirty:
-            return
 
         size = os.fstat(el.fileno()).st_size
         el.seek(0)
@@ -345,36 +357,49 @@ class BlockCache(object):
             log.debug('Least recently used object is %s, obtaining object lock..', el)
             self.mlock.acquire(el.inode, el.blockno)
 
-            # Now that we have the lock, check that the object still exists
-            if (el.inode, el.blockno) not in self.cache:
-                self.mlock.release(el.inode, el.blockno)
-                continue
+            mlock_released = False
+            try:
+                # Now that we have the lock, check that the object still exists
+                if (el.inode, el.blockno) not in self.cache:
+                    self.mlock.release(el.inode, el.blockno)
+                    mlock_released = True
+                    continue
 
-            # Make sure the object is in the db before removing it from the cache
-            fn = self._prepare_upload(el)
-            log.debug('Removing object %s from cache..', el)
-            del self.cache[(el.inode, el.blockno)]
-            el.seek(0, os.SEEK_END)
-            freed_size += el.tell()
+                # Make sure the object is in the db before removing it from the cache
+                if el.dirty:
+                    fn = self._prepare_upload(el)
+                else:
+                    fn = None
+                log.debug('Removing object %s from cache..', el)
+                del self.cache[(el.inode, el.blockno)]
+                freed_size += os.fstat(el.fileno()).st_size
 
-            if fn is None:
-                log.debug('expire_parallel: no network transaction required')
-                el.close()
-                os.unlink(el.name)
-                self.mlock.release(el.inode, el.blockno)
-            else:
-                log.debug('expire_parallel: starting new thread for network transaction')
-                # We have to be careful to include the *current*
-                # el in the closure
-                def do_upload(el=el, fn=fn):
-                    fn()
+                if fn is None:
+                    log.debug('expire_parallel: no network transaction required')
                     el.close()
                     os.unlink(el.name)
                     self.mlock.release(el.inode, el.blockno)
+                    mlock_released = True
+                else:
+                    log.debug('expire_parallel: starting new thread for network transaction')
+                    # We have to be careful to include the *current*
+                    # el in the closure
+                    def do_upload(el=el, fn=fn):
+                        try:
+                            fn()
+                            el.close()
+                            os.unlink(el.name)
+                        finally:
+                            self.mlock.release(el.inode, el.blockno)
 
-                t = ExceptionStoringThread(do_upload, log)
-                threads.append(t)
-                t.start()
+                    t = ExceptionStoringThread(do_upload, log)
+                    threads.append(t)
+                    t.start()
+                    mlock_released = True
+            except:
+                if not mlock_released:
+                    self.mlock.release((el.inode, el.blockno))
+                raise
 
         self.size -= freed_size
 
@@ -417,8 +442,7 @@ class BlockCache(object):
                     log.debug('Object has already been expired.')
                     continue
 
-            el.seek(0, 2)
-            self.size -= el.tell()
+            self.size -= os.fstat(el.fileno()).st_size
             el.close()
             os.unlink(el.name)
 
@@ -491,7 +515,7 @@ class BlockCache(object):
                 fn = self._prepare_upload(el)
                 if fn:
                     fn()
-                    el.dirty = False
+                el.dirty = False
 
         log.debug('Flushing for inode %d completed.', inode)
 
@@ -516,24 +540,15 @@ class BlockCache(object):
                 fn = self._prepare_upload(el)
                 if fn:
                     fn()
-                    el.dirty = False
+                el.dirty = False
+
     def clear(self):
         """Upload all dirty data and clear cache"""
 
         log.debug('Clearing block cache')
 
-        if self.exp_thread and self.exp_thread.is_alive():
-            bak = self.maxsize
-            self.maxsize = 0
-            try:
-                self.ready_to_write.clear()
-                self.need_expiry.set()
-                self.ready_to_write.wait()
-            finally:
-                self.maxsize = bak
-        else:
-            while len(self.cache) > 0:
-                self._expire_parallel()
+        while len(self.cache) > 0:
+            self._expire_parallel()
 
 
     def __del__(self):
