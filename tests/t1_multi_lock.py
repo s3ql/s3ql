@@ -14,7 +14,7 @@ import time
 from s3ql.common import ExceptionStoringThread
 from _common import TestCase
 
-BASE_DELAY = 0.05
+BASE_DELAY = 0.1
 
 class MultiLockTests(TestCase):
 
