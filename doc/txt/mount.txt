@@ -43,3 +43,40 @@ You can specify the following options:
                         this, then you don't need it.
   --profile             Create profiling information. If you don't understand
                         this, then you don't need it.
+
+
+Notes about Caching
+===================
+
+S3QL maintains a local cache of the file system data to speed up
+access. The cache is block based, so it is possible that only parts of
+a file are in the cache.
+
+Maximum Number of Cache Entries
+-------------------------------
+
+The maximum size of the cache can be configured with the `--cachesize`
+option when the file system is mounted. However, there is also a
+second limitation: the maximum number of objects in the cache is
+limited to 768. It is therefore possible that the cache may actually
+never grow up to the maximum cache size, because the maximum number of
+cache elements has been reached. The reason for this limit is that, by
+default, Linux limits the number of open files per process to about
+one thousand and S3QL requires an open file for each cache entry.
+
+If you are bothered by this limitation, you have to configure your
+system to increase the maximum number of open file handles and then
+edit the `MAX_CACHE_ENTRIES` line in `src/s3ql/block_cache.py`. At
+some point, this may become a command line option as well (see `issue
+112 <http://code.google.com/p/s3ql/issues/detail?id=112>`_).
+
+Cache Flushing and Expiration
+-----------------------------
+
+S3QL flushes changed blocks in the cache to the backend whenever a block
+has not been accessed for at least 10 seconds. Note that when a block is
+flushed, it still remains in the cache.
+
+Cache expiration (i.e., removal of blocks from the cache) is only done
+when the maximum cache size is reached. S3QL always expires the least
+recently used blocks first.
