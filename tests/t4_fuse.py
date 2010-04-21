@@ -62,7 +62,7 @@ class fuse_tests(TestCase):
         sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
         try:
             s3ql.cli.mkfs.main(['-L', 'test fs', '--blocksize', '10',
-                                '--encrypt', '--homedir', self.cache_dir, self.bucketname ])
+                                '--homedir', self.cache_dir, self.bucketname ])
         except SystemExit as exc:
             self.fail("mkfs.s3ql failed: %s" % exc)
 

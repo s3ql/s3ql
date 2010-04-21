@@ -44,8 +44,8 @@ def parse_args(args):
                       dest="label")
     parser.add_option("--blocksize", type="int", default=10240,
                       help="Maximum block size in KB (default: %default)")
-    parser.add_option("--encrypt", action="store_true", default=None,
-                      help="Create an encrypted and compressed file system")
+    parser.add_option("--plain", action="store_true", default=False,
+                      help="Create file system without encryption and compression.")
     parser.add_option("--debug", action="append",
                       help="Activate debugging output from specified module. Use 'all' "
                            "to get debug messages from all modules. This option can be "
@@ -86,7 +86,7 @@ def main(args=None):
         else:
             bucket = conn.create_bucket(bucketname)
 
-        if options.encrypt:
+        if not options.plain:
             if sys.stdin.isatty():
                 wrap_pw = getpass("Enter encryption password: ")
                 if not wrap_pw == getpass("Confirm encryption password: "):

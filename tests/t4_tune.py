@@ -37,7 +37,7 @@ class TuneTests(TestCase):
     def mkfs(self):
         sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
         try:
-            s3ql.cli.mkfs.main(['--encrypt', '--homedir', self.cache_dir, self.bucketname ])
+            s3ql.cli.mkfs.main(['--homedir', self.cache_dir, self.bucketname ])
         except SystemExit as exc:
             self.fail("mkfs.s3ql failed: %s" % exc)
 
