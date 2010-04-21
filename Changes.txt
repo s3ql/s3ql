@@ -1,4 +1,9 @@
-2010-04-14, S3QL 0.10
+2010-04-21, S3QL 0.10
+
+  * S3QL now depends on FUSE version 2.8
+
+  * Cached blocks are now flushed to the backend as soon as they have not
+    been accessed for more than 10 seconds.
 
   * The setup script now automatically checks and, if necessary, installs
     the Python module dependencies.
