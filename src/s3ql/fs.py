@@ -162,7 +162,9 @@ class Operations(llfuse.Operations):
     def readdir(self, id_, off):
         timestamp = time.time()
 
-        with self.dbcm() as conn:
+        # The inode cache may need to write to the database 
+        # while our SELECT query is running
+        with self.dbcm.transaction() as conn:
             inode = self.inodes[id_]
             inode.atime = timestamp
 
