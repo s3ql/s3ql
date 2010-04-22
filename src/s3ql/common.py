@@ -41,7 +41,7 @@ def get_backend(options):
     the path stored in options.storage_url
     '''
 
-    from .backends import s3, local, ftp, sftp
+    from .backends import s3, local, ftp
     storage_url = options.storage_url
 
     if storage_url.startswith('local://'):
@@ -67,6 +67,7 @@ def get_backend(options):
         elif backend == 'ftps':
             conn = ftp.TLSConnection(host, port, login, password)
         elif backend == 'sftp':
+            from .backends import sftp
             conn = sftp.Connection(host, port, login, password)
         else:
             raise QuietError('Unknown backend: %s' % backend)
