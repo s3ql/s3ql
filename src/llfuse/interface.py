@@ -608,8 +608,13 @@ def fuse_listxattr(req, inode, size):
     if not all([ isinstance(name, bytes) for name in names]):
         raise TypeError("listxattr return value must be list of bytes")
 
-    # Size of the \0 separated buffer 
-    act_size = (len(names) - 1) + sum([ len(name) for name in names ])
+    if names:
+        # Size of the \0 separated buffer 
+        buf_size = (len(names) - 1) + sum([ len(name) for name in names ])
+        buf = b'\0'.join(names)
+    else:
+        buf_size = 0
+        buf = ''
 
     if size == 0:
         try:
@@ -618,13 +623,13 @@ def fuse_listxattr(req, inode, size):
         except DiscardedRequest:
             pass
 
-    elif act_size > size:
+    elif buf_size > size:
         raise FUSEError(errno.ERANGE)
 
     else:
         try:
             log.debug('Calling fuse_reply_buf')
-            libfuse.fuse_reply_buf(req, b'\0'.join(names), act_size)
+            libfuse.fuse_reply_buf(req, buf, buf_size)
         except DiscardedRequest:
             pass
 
