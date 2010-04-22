@@ -333,7 +333,6 @@ class BlockCache(object):
         log.debug('_expire: start')
 
         queue = UploadQueue(self)
-        flushed = dict()
 
         with self.expiry_lock:
             while (len(self.cache) > MAX_CACHE_ENTRIES or
@@ -347,7 +346,6 @@ class BlockCache(object):
                         break
 
                     log.debug('_expire: adding %s to queue', el)
-                    flushed[el] = True
                     if el.dirty:
                         need_size -= queue.add(el)
                     else:
@@ -358,11 +356,11 @@ class BlockCache(object):
                 log.debug('_expire: waiting for queue')
                 queue.wait()
 
-                for el in flushed:
+                for el in self.cache.values_rev():
                     with self.mlock(el.inode, el.blockno):
                         if el.dirty:
                             log.debug('_expire: %s is dirty again, skipping', el)
-                            continue
+                            break
 
                         log.debug('_expire: removing %s from cache', el)
                         del self.cache[(el.inode, el.blockno)]
