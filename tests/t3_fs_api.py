@@ -18,10 +18,11 @@ from s3ql.database import ConnectionManager
 from _common import TestCase
 import os
 import stat
-import tempfile
+import time
 import unittest2 as unittest
 import shutil
 import threading
+import tempfile
 
 class Ctx(object):
     def __init__(self):
@@ -37,7 +38,8 @@ class fs_api_tests(TestCase):
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
 
-        self.dbcm = ConnectionManager('')
+        self.dbfile = tempfile.NamedTemporaryFile()
+        self.dbcm = ConnectionManager(self.dbfile.name)
         with self.dbcm() as conn:
             mkfs.setup_db(conn, self.blocksize)
 
@@ -387,8 +389,8 @@ class fs_api_tests(TestCase):
                 'st_uid': randint(0, 2 ** 32),
                 'st_gid': randint(0, 2 ** 32),
                 'st_rdev': randint(0, 2 ** 32),
-                'st_atime': randint(0, 2 ** 32) / 10 ** 6,
-                'st_mtime': randint(0, 2 ** 32) / 10 ** 6
+                'st_atime': time.timezone + randint(0, 2 ** 32) / 10 ** 6,
+                'st_mtime': time.timezone + randint(0, 2 ** 32) / 10 ** 6
                 }
 
         self.server.setattr(inode.id, attr)
