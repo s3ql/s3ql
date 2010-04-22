@@ -91,56 +91,38 @@ def main(args=None):
         log.info('Getting file system parameters..')
         param = get_parameters(bucket)
 
-        if os.path.exists(dbfile):
-            dbcm = ConnectionManager(dbfile)
-            mountcnt = dbcm.get_val('SELECT mountcnt FROM parameters')
-            if mountcnt != param['mountcnt']:
-                raise QuietError('Local cache files exist, but file system appears to have\n'
-                                 'been mounted elsewhere after the unclean shutdown. You\n'
-                                 'need to run fsck.s3ql.')
+        if os.path.exists(dbfile) or os.path.exists(cachedir):
+            raise QuietError('Local cache files exist, file system has not been unmounted\n'
+                             'cleanly. You need to run fsck.s3ql.')
 
-            log.info('Recovering old metadata from unclean shutdown..')
-            cache = BlockCache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
-            cache.recover()
+        log.info("Downloading metadata...")
+        os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
+        bucket.fetch_fh("s3ql_metadata", open(dbfile, 'wb'))
+        dbcm = ConnectionManager(dbfile)
 
-            log.info('Uploading old metadata...')
-            dbcm.execute("VACUUM")
-            cycle_metadata(bucket)
-            bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
+        mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
+        if mountcnt_db < param['mountcnt']:
+            os.unlink(dbfile)
+            if isinstance(bucket, s3.Bucket):
+                raise QuietError(textwrap.fill(textwrap.dedent('''
+                    It appears that the file system is still mounted somewhere else. If this is not
+                    the case, the file system may have not been unmounted cleanly or the data from
+                    the most-recent mount may have not yet propagated through S3. In the later case,
+                    waiting for a while should fix the problem, in the former case you should try to
+                    run fsck on the computer where the file system has been mounted most recently.
+                    ''')))
+            else:
+                raise QuietError(textwrap.fill(textwrap.dedent('''
+                    It appears that the file system is still mounted somewhere else. If this is not
+                    the case, the file system may have not been unmounted cleanly and you should try
+                    to run fsck on the computer where the file system has been mounted most recently.
+                    ''')))
+        elif mountcnt_db > param['mountcnt']:
+            os.unlink(dbfile)
+            raise RuntimeError('mountcnt_db > param[mountcnt], this should not happen.')
 
-        else:
-            if os.path.exists(cachedir):
-                raise RuntimeError('cachedir exists, but no local metadata.'
-                                   'This should not happen.')
-
-            log.info("Downloading metadata...")
-            os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
-            bucket.fetch_fh("s3ql_metadata", open(dbfile, 'wb'))
-            dbcm = ConnectionManager(dbfile)
-
-            mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
-            if mountcnt_db < param['mountcnt']:
-                os.unlink(dbfile)
-                if isinstance(bucket, s3.Bucket):
-                    raise QuietError(textwrap.fill(textwrap.dedent('''
-                        It appears that the file system is still mounted somewhere else. If this is not
-                        the case, the file system may have not been unmounted cleanly or the data from
-                        the most-recent mount may have not yet propagated through S3. In the later case,
-                        waiting for a while should fix the problem, in the former case you should try to
-                        run fsck on the computer where the file system has been mounted most recently.
-                        ''')))
-                else:
-                    raise QuietError(textwrap.fill(textwrap.dedent('''
-                        It appears that the file system is still mounted somewhere else. If this is not
-                        the case, the file system may have not been unmounted cleanly and you should try
-                        to run fsck on the computer where the file system has been mounted most recently.
-                        ''')))
-            elif mountcnt_db > param['mountcnt']:
-                os.unlink(dbfile)
-                raise RuntimeError('mountcnt_db > param[mountcnt], this should not happen.')
-
-            os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-            cache = BlockCache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
+        os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+        cache = BlockCache(bucket, cachedir, int(options.cachesize * 1024), dbcm)
 
         # Check that the fs itself is clean
         if dbcm.get_val("SELECT needs_fsck FROM parameters"):

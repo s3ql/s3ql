@@ -9,9 +9,12 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 import time
-
+import common
+import logging
+import threading
 
 __all__ = [ 'InodeCache' ]
+log = logging.getLogger('inode_cache')
 
 CACHE_SIZE = 100
 ATTRIBUTES = ('mode', 'refcount', 'nlink_off', 'uid', 'gid', 'size',
@@ -105,6 +108,11 @@ class InodeCache(object):
             self.cached_rows.append(None)
 
         self.pos = 0
+        self.flush_thread = common.ExceptionStoringThread(self.flush_loop, log, pass_self=True)
+        self.flush_thread.setName('inode flush thread')
+        self.flush_thread.daemon = True
+        self.flush_thread.stop_event = threading.Event()
+        self.flush_thread.start()
 
     def __delitem__(self, inode):
         if self.dbcm.execute('DELETE FROM inodes WHERE id=?', (inode,)) != 1:
@@ -178,8 +186,11 @@ class InodeCache(object):
         if id_ in self.attrs:
             self.setattr(id_)
 
-    def flush(self):
-        '''Flush all cached entries to database'''
+    def close(self):
+        '''Finalize cache'''
+
+        self.flush_thread.stop_event.set()
+        self.flush_thread.join_and_raise()
 
         for i in xrange(len(self.cached_rows)):
             id_ = self.cached_rows[i]
@@ -194,8 +205,28 @@ class InodeCache(object):
                     del self.attrs[id_]
                     self.setattr(inode)
 
+    def flush(self):
+        '''Flush all entries to database'''
+
+        # We don't want to use dict.itervalues() since
+        # the dict may change while we iterate
+        for i in xrange(len(self.cached_rows)):
+            id_ = self.cached_rows[i]
+            if id_ is not None:
+                try:
+                    inode = self.attrs[id_]
+                except KeyError:
+                    # We may have deleted that inode
+                    pass
+                else:
+                    self.setattr(inode)
+
+    def flush_loop(self, self_t):
+        while not self_t.stop_event.is_set():
+            self.flush()
+            self_t.stop_event.wait(5)
 
     def __del__(self):
         if self.attrs:
-            raise RuntimeError('InodeCache instance was destroyed without flushing all entries')
+            raise RuntimeError('InodeCache instance was destroyed without calling close()')
 

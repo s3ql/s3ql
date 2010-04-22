@@ -259,6 +259,15 @@ class AbstractBucket(object):
         `metadata` can be a dict of additional attributes to 
         store with the object.
         """
+        return self.prep_store_fh(key, fh, metadata)()
+
+    def prep_store_fh(self, key, fh, metadata=None):
+        """Store data in `fh` under `key`
+        
+        `metadata` can be a dict of additional attributes to 
+        store with the object. Returns a function that does the
+        actual network transaction.
+        """
 
         if not isinstance(key, str):
             raise TypeError('key must be of type str')
@@ -278,22 +287,15 @@ class AbstractBucket(object):
                 tmp = StringIO()
             fh.seek(0)
             compress_encrypt_fh(fh, tmp, self.passphrase, nonce)
-            (fh, tmp) = (tmp, fh)
-            fh.seek(0)
             meta_raw = encrypt(meta_raw, self.passphrase, nonce)
+            tmp.seek(0)
+            return lambda: self.raw_store(key, tmp, {'meta': b64encode(meta_raw),
+                                                    'encrypted': 'AES/LZMA' })
         else:
             fh.seek(0)
 
-        if self.passphrase:
-            self.raw_store(key, fh, {'meta': b64encode(meta_raw),
-                                     'encrypted': 'AES/LZMA' })
-        else:
-            self.raw_store(key, fh, {'meta': b64encode(meta_raw),
-                                     'encrypted': 'False' })
-
-        if self.passphrase:
-            (fh, tmp) = (tmp, fh)
-            tmp.close()
+            return lambda : self.raw_store(key, fh, {'meta': b64encode(meta_raw),
+                                                     'encrypted': 'False' })
 
     @abstractmethod
     def __str__(self):

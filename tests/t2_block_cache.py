@@ -49,6 +49,7 @@ class cache_tests(TestCase):
         self.lock.acquire()
 
     def tearDown(self):
+        self.cache.bucket = self.bucket
         self.cache.clear()
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
@@ -74,7 +75,7 @@ class cache_tests(TestCase):
             self.assertEqual(data, fh.read(len(data)))
 
         # Case 3: Object needs to be downloaded
-        self.cache._expire_parallel()
+        self.cache.clear()
         with self.cache.get(inode, blockno, self.lock) as fh:
             fh.seek(0)
             self.assertEqual(data, fh.read(len(data)))
@@ -114,7 +115,7 @@ class cache_tests(TestCase):
         self.assertEqual(len(self.cache), 1)
         self.cache.bucket.verify()
 
-    def test_expire_parallel(self):
+    def test_expire(self):
         inode = self.inode
         data1 = self.random_data(int(0.5 * self.blocksize))
         data2 = self.random_data(int(0.5 * self.blocksize))
@@ -136,9 +137,10 @@ class cache_tests(TestCase):
 
         self.assertEqual(len(self.cache), 2)
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
-        self.cache._expire_parallel()
+        self.cache.clear()
         self.assertEquals(len(self.cache), 0)
         self.cache.bucket.verify()
+
 
     def test_prepare_upload(self):
         inode = self.inode
@@ -151,7 +153,7 @@ class cache_tests(TestCase):
         data2 = self.random_data(datalen)
         data3 = self.random_data(datalen)
 
-        # Case 1: Upload new object
+        # Case 1: create new object
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
         with self.cache.get(inode, blockno1, self.lock) as fh:
             fh.seek(0)
@@ -209,73 +211,97 @@ class cache_tests(TestCase):
         self.assertIsNone(self.cache._prepare_upload(el1))
         self.cache.bucket.verify()
 
-    def test_recover(self):
+    def test_prepare_upload_del_no_ref(self):
+        inode = self.inode
+        datalen = int(0.1 * self.cache.maxsize)
+        blockno = 21
+        data = self.random_data(datalen)
+
+        # Delete object, no references left
+        self.cache.bucket = TestBucket(self.bucket, no_store=1)
+        with self.cache.get(inode, blockno, self.lock) as fh:
+            fh.seek(0)
+            fh.write(data)
+        self.cache.clear()
+        self.cache.bucket.verify()
+
+        self.cache.bucket = TestBucket(self.bucket, no_del=1)
+        self.cache.remove(inode, blockno, self.lock)
+        el = self.cache.cache.get_last()
+        self.assertEquals(el.inode, -1)
+        self.cache._prepare_upload(el)()
+        self.cache.bucket.verify()
+
+    def test_prepare_upload_del_ref(self):
+        inode = self.inode
+        datalen = int(0.1 * self.cache.maxsize)
+        blockno1 = 21
+        blockno2 = 24
+        data = self.random_data(datalen)
+
+        # Delete object, no references left
+        self.cache.bucket = TestBucket(self.bucket, no_store=1)
+        with self.cache.get(inode, blockno1, self.lock) as fh:
+            fh.seek(0)
+            fh.write(data)
+        with self.cache.get(inode, blockno2, self.lock) as fh:
+            fh.seek(0)
+            fh.write(data)
+        self.cache.clear()
+        self.cache.bucket.verify()
+
+        self.cache.bucket = TestBucket(self.bucket)
+        self.cache.remove(inode, blockno1, self.lock)
+        el = self.cache.cache.get_last()
+        self.assertEquals(el.inode, -1)
+        self.assertIsNone(self.cache._prepare_upload(el))
+        self.cache.bucket.verify()
+
+
+    def test_remove_cache(self):
         inode = self.inode
         data1 = self.random_data(int(0.4 * self.blocksize))
-        data2 = self.random_data(int(0.4 * self.blocksize))
-
-        with self.cache.get(inode, 1, self.lock) as fh:
-            fh.seek(0)
-            fh.write(data1)
-        with self.cache.get(inode, 2, self.lock) as fh:
-            fh.seek(0)
-            fh.write(data2)
-
-        # Fake cache crash
-        self.cache.cache.clear()
-        self.cache = BlockCache(self.bucket, self.cachedir, self.cache.maxsize, self.dbcm)
-        self.cache.recover()
-
-        with self.cache.get(inode, 1, self.lock) as fh:
-            fh.seek(0)
-            self.assertTrue(data1 == fh.read(len(data1)))
-
-        with self.cache.get(inode, 2, self.lock) as fh:
-            fh.seek(0)
-            self.assertTrue(data2 == fh.read(len(data2)))
-
-    def test_remove(self):
-        inode = self.inode
-        data1 = self.random_data(int(0.4 * self.blocksize))
-        data2 = self.random_data(int(0.4 * self.blocksize))
 
         # Case 1: Elements only in cache
         with self.cache.get(inode, 1, self.lock) as fh:
             fh.seek(0)
             fh.write(data1)
-        with self.cache.get(inode, 2, self.lock) as fh:
-            fh.seek(0)
-            fh.write(data2)
-        self.cache.bucket = TestBucket(self.bucket)
-        self.cache.remove(inode)
-        self.cache.bucket.verify()
-
-        # Case 2: Elements in cache and db and not referenced
+        self.cache.remove(inode, 1, self.lock)
         with self.cache.get(inode, 1, self.lock) as fh:
             fh.seek(0)
-            fh.write(data1)
-        with self.cache.get(inode, 2, self.lock) as fh:
-            fh.seek(0)
-            fh.write(data2)
-        self.cache.bucket = TestBucket(self.bucket, no_store=2)
-        self.cache.flush(inode)
-        self.cache.bucket.verify()
-        self.cache.bucket = TestBucket(self.bucket, no_del=2)
-        # Key errors would cause multiple delete calls
-        self.cache.remove(inode)
-        self.cache.bucket.verify()
+            self.assertTrue(fh.read(42) == '')
 
-        # Case 3: Elements not in cache and still referenced
+    def test_remove_cache_db(self):
+        inode = self.inode
+        data1 = self.random_data(int(0.4 * self.blocksize))
+
+        # Case 2: Element in cache and db 
         with self.cache.get(inode, 1, self.lock) as fh:
-            fh.seek(0)
-            fh.write(data1)
-        with self.cache.get(inode, 2, self.lock) as fh:
             fh.seek(0)
             fh.write(data1)
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
-        self.cache._expire_parallel()
-        self.cache.remove(inode, 2)
+        self.cache.flush(inode)
         self.cache.bucket.verify()
+        self.cache.remove(inode, 1, self.lock)
+        with self.cache.get(inode, 1, self.lock) as fh:
+            fh.seek(0)
+            self.assertTrue(fh.read(42) == '')
+
+    def test_remove_db(self):
+        inode = self.inode
+        data1 = self.random_data(int(0.4 * self.blocksize))
+
+        # Case 3: Element only in DB
+        with self.cache.get(inode, 1, self.lock) as fh:
+            fh.seek(0)
+            fh.write(data1)
+        self.cache.bucket = TestBucket(self.bucket, no_store=1)
+        self.cache.clear()
+        self.cache.bucket.verify()
+        self.cache.remove(inode, 1, self.lock)
+        with self.cache.get(inode, 1, self.lock) as fh:
+            fh.seek(0)
+            self.assertTrue(fh.read(42) == '')
 
 
 class TestBucket(object):
@@ -292,6 +318,9 @@ class TestBucket(object):
             raise RuntimeError('Got too few store calls')
         if self.no_del != 0:
             raise RuntimeError('Got too few delete calls')
+
+    def prep_store_fh(self, *a, **kw):
+        return lambda: self.store_fh(*a, **kw)
 
     def store_fh(self, *a, **kw):
         self.no_store -= 1

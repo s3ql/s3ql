@@ -7,15 +7,27 @@
 
   * The setup script now automatically checks and, if necessary, installs
     the Python module dependencies.
+    
+  * mkfs.s3ql now creates compressed and encrypted file systems by default.
 
-  * S3QL now finally uses LZMA compression.
+  * Data is now compressed with LZMA instead of Bzip2.
+  
+  * Data compression and data upload is now done in parallel, so the full network
+    can bandwidth is continuously without breaks for data compression.
 
-  * fsck.s3ql is now several orders of magnitude faster.
+  * fsck.s3ql is now several orders of magnitude faster. The code has been
+    optimized and some special database indices are now precalculated.
 
   * When running cp.s3ql, the attributes of the target directory are
     now immediately refreshed (so that e.g. ls immediately shows the
     correct number of hard links).
 
+  * File removal is now significantly faster, since the network transactions
+    are carried out asynchronously as part of the cache expiration.  
+  
+  * This releases includes a lot of new code, so it may be slightly
+    more beta-ish than usual.
+    
 
 2010-04-04, S3QL 0.9
 

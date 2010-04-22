@@ -123,7 +123,7 @@ class Operations(llfuse.Operations):
 
     def destroy(self):
         self.cache.stop_io_thread()
-        self.inodes.flush()
+        self.inodes.close()
 
     def lookup(self, id_p, name):
         with self.dbcm() as conn:
@@ -351,7 +351,10 @@ class Operations(llfuse.Operations):
             inode.ctime -= timestamp
 
             if inode.refcount == 0 and self.open_inodes[inode.id] == 0:
-                self.cache.remove(inode.id)
+                for blockno in xrange(inode.size // self.blocksize + 1):
+                    self.cache.remove(inode.id, blockno, self.lock)
+                # Since the inode is not open, it's not possible that new blocks
+                # get created at this point and we can safely delete the inode
                 del self.inodes[inode.id]
 
             inode_p = self.inodes[id_p]
@@ -458,7 +461,10 @@ class Operations(llfuse.Operations):
             inode_new.ctime = timestamp
 
             if inode_new.refcount == 0 and self.open_inodes[inode_new.id] == 0:
-                self.cache.remove(inode_new.id)
+                for blockno in xrange(inode_new.size // self.blocksize + 1):
+                    self.cache.remove(inode_new.id, blockno, self.lock)
+                # Since the inode is not open, it's not possible that new blocks
+                # get created at this point and we can safely delete the inode
                 del self.inodes[inode_new.id]
 
             inode_p_old.ctime = timestamp
@@ -507,13 +513,15 @@ class Operations(llfuse.Operations):
             len_ = attr['st_size']
 
             # Delete all truncated blocks
-            blockno = len_ // self.blocksize
-            self.cache.remove(id_, blockno + 1)
+            last_block = len_ // self.blocksize
+            total_blocks = inode.size // self.blocksize + 1
+            for blockno in xrange(last_block + 1, total_blocks):
+                self.cache.remove(id_, blockno, self.lock)
 
             # Get last object before truncation
             if len != 0:
-                with self.cache.get(id_, blockno, self.lock) as fh:
-                    fh.truncate(len_ - self.blocksize * blockno)
+                with self.cache.get(id_, last_block, self.lock) as fh:
+                    fh.truncate(len_ - self.blocksize * last_block)
             inode.size = len_
 
         if 'st_mode' in attr:
@@ -776,8 +784,12 @@ class Operations(llfuse.Operations):
         if self.open_inodes[fh] == 0:
             del self.open_inodes[fh]
 
-            if self.inodes[fh].refcount == 0:
-                self.cache.remove(fh)
+            inode = self.inodes[fh]
+            if inode.refcount == 0:
+                for blockno in xrange(inode.size // self.blocksize + 1):
+                    self.cache.remove(fh, blockno, self.lock)
+                # Since the inode is not open, it's not possible that new blocks
+                # get created at this point and we can safely delete the in
                 del self.inodes[fh]
 
 
