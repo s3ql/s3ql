@@ -320,6 +320,8 @@ class TestBucket(object):
             raise RuntimeError('Got too few delete calls')
 
     def prep_store_fh(self, *a, **kw):
+        # Lambda is required here
+        #pylint: disable-msg=W0108
         return lambda: self.store_fh(*a, **kw)
 
     def store_fh(self, *a, **kw):
