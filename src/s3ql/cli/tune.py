@@ -317,10 +317,9 @@ def upgrade_rev2(dbcm, param):
                                     (inode,))
 
             if inode == ROOT_INODE:
-                conn.execute("UPDATE inodes SET nlink_off=?, refcount=? WHERE id=?",
-                             (2, 1, inode))
+                refcount += 1 # parent when mounted
 
-            elif inode == CTRL_INODE:
+            if inode == CTRL_INODE:
                 conn.execute("UPDATE inodes SET nlink_off=?, refcount=? WHERE id=?",
                              (0, 42, inode))
 
@@ -333,6 +332,10 @@ def upgrade_rev2(dbcm, param):
             else:
                 conn.execute("UPDATE inodes SET refcount=? WHERE id=?",
                              (refcount, inode))
+
+            # Fix size
+            if not stat.S_ISREG(mode):
+                conn.execute("UPDATE inodes SET size=0 WHERE id=?", (inode,))
 
     dbcm.execute('ALTER TABLE s3_objects RENAME TO objects')
     dbcm.execute('DROP INDEX ix_s3_objects_hash')
