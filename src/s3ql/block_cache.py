@@ -578,7 +578,7 @@ class UploadQueue(object):
                 if (len(self.threads) > self.max_threads or
                     (self.transit_size > self.max_transit and len(self.threads) > 1)):
                     log.debug('UploadQueue.add(%s): waiting for upload thread', el)
-                    self.wait_for_threads()
+                    self.wait_for_thread()
 
                 log.debug('UploadQueue.add(%s): starting upload thread', el)
                 def _do():
