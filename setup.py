@@ -96,7 +96,7 @@ def main():
           install_requires=['apsw >= 3.6.19',
                             'pycryptopp',
                             'pyliblzma >= 0.5.3' ],
-          tests_require=['apsw >= 3.6.19', 'unittest2'
+          tests_require=['apsw >= 3.6.19', 'unittest2',
                          'pycryptopp',
                          'pyliblzma >= 0.5.3' ],
           #ext_modules=extens,
