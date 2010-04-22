@@ -108,6 +108,11 @@ class InodeCache(object):
             self.cached_rows.append(None)
 
         self.pos = 0
+        self.flush_thread = None
+
+    def init(self):
+        '''Initialize background flush thread'''
+
         self.flush_thread = common.ExceptionStoringThread(self.flush_loop, log, pass_self=True)
         self.flush_thread.setName('inode flush thread')
         self.flush_thread.daemon = True

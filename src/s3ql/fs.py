@@ -120,6 +120,7 @@ class Operations(llfuse.Operations):
 
     def init(self):
         self.cache.start_io_thread()
+        self.inodes.init()
 
     def destroy(self):
         self.cache.stop_io_thread()
