@@ -32,7 +32,8 @@ class cache_tests(TestCase):
         self.blocksize = 1024
         cachesize = int(1.5 * self.blocksize)
 
-        self.dbcm = ConnectionManager('')
+        self.dbfile = tempfile.NamedTemporaryFile()
+        self.dbcm = ConnectionManager(self.dbfile.name)
         with self.dbcm() as conn:
             mkfs.setup_db(conn, self.blocksize)
 

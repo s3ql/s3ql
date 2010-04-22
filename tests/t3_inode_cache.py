@@ -15,12 +15,13 @@ from s3ql.database import ConnectionManager
 from _common import TestCase
 import unittest2 as unittest
 import time
-
+import tempfile
 
 class cache_tests(TestCase):
 
     def setUp(self):
-        self.dbcm = ConnectionManager('')
+        self.dbfile = tempfile.NamedTemporaryFile()
+        self.dbcm = ConnectionManager(self.dbfile.name)
         with self.dbcm() as conn:
             mkfs.setup_db(conn, 1024)
 

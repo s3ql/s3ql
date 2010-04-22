@@ -49,6 +49,7 @@ import s3ql.common
 import ez_setup
 ez_setup.use_setuptools()
 import setuptools
+import setuptools.command.test as setuptools_test
 
 def main():
     with open(os.path.join(basedir, 'doc', 'txt', 'about.txt'), 'r') as fh:
@@ -99,8 +100,9 @@ def main():
           tests_require=['apsw >= 3.6.19', 'unittest2',
                          'pycryptopp',
                          'pyliblzma >= 0.5.3' ],
+          test_suite='tests',
           #ext_modules=extens,
-          cmdclass={'test': run_tests,
+          cmdclass={'test': test,
                     'build_ctypes': build_ctypes,
                     'upload_docs': upload_docs, }
          )
@@ -240,29 +242,26 @@ def get_cflags(pkg, cflags=True, ldflags=False):
 # Add as subcommand of build
 distutils.command.build.build.sub_commands.insert(0, ('build_ctypes', None))
 
-class run_tests(setuptools.Command):
+class test(setuptools_test.test):
 
     description = "Run self-tests"
-    user_options = [('debug=', None, 'Activate debugging for specified modules '
+    user_options = (setuptools_test.test.user_options +
+                    [('debug=', None, 'Activate debugging for specified modules '
                                     '(separated by commas, specify "all" for all modules)'),
                     ('awskey=', None, 'Specify AWS access key to use, secret key will be asked for. '
                                       'If this option is not specified, tests requiring access '
-                                      'to Amazon Web Services will be skipped.'),
-                    ('tests=', None, 'Run only the specified tests (separated by commas)')
-                ]
-    boolean_options = []
+                                      'to Amazon Web Services will be skipped.')])
+
 
     def initialize_options(self):
+        setuptools_test.test.initialize_options(self)
         self.debug = None
         self.awskey = None
-        self.tests = None
 
     def finalize_options(self):
+        setuptools_test.test.finalize_options(self)
         if self.debug:
             self.debug = [ x.strip() for x  in self.debug.split(',') ]
-
-        if self.tests:
-            self.tests = [ x.strip() for x  in self.tests.split(',') ]
 
 
     def run(self):
@@ -272,10 +271,6 @@ class run_tests(setuptools.Command):
         sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
         if sqlite_ver < (3, 6, 19):
             raise QuietError('SQLite version too old, must be 3.6.19 or newer!\n')
-
-        # Build extensions in-place
-        self.reinitialize_command('build_ext', inplace=1)
-        self.run_command('build_ext')
 
         # Check FUSE version
         import llfuse
@@ -312,27 +307,10 @@ class run_tests(setuptools.Command):
                 pw = sys.stdin.readline().rstrip()
             _common.aws_credentials = (self.awskey, pw)
 
-        # Find and import all tests
-        testdir = os.path.join(basedir, 'tests')
-        modules_to_test = [ name[:-3] for name in os.listdir(testdir)
-                            if name.endswith(".py") and name.startswith('t') ]
-        modules_to_test.sort()
-
-        base_module = sys.modules[__name__]
-        for name in modules_to_test:
-            # Note that __import__ itself does not add the modules to the namespace
-            module = __import__(name)
-            setattr(base_module, name, module)
-
-        if self.tests:
-            modules_to_test = self.tests
 
         # Run tests
-        runner = unittest.TextTestRunner(verbosity=2)
-        tests = unittest.defaultTestLoader.loadTestsFromNames(modules_to_test, module=base_module)
-        result = runner.run(tests)
-        if not result.wasSuccessful():
-            sys.exit(1)
+        setuptools_test.test.run(self)
+
 
 class upload_docs(setuptools.Command):
     user_options = []
