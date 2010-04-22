@@ -189,7 +189,7 @@ class InodeCache(object):
 
     def flush_id(self, id_):
         if id_ in self.attrs:
-            self.setattr(id_)
+            self.setattr(self.attrs[id_])
 
     def close(self):
         '''Finalize cache'''
