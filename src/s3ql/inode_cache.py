@@ -203,8 +203,9 @@ class InodeCache(object):
     def close(self):
         '''Finalize cache'''
 
-        self.flush_thread.stop_event.set()
-        self.flush_thread.join_and_raise()
+        if self.flush_thread:
+            self.flush_thread.stop_event.set()
+            self.flush_thread.join_and_raise()
 
         for i in xrange(len(self.cached_rows)):
             id_ = self.cached_rows[i]
