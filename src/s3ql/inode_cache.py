@@ -20,7 +20,10 @@ CACHE_SIZE = 100
 ATTRIBUTES = ('mode', 'refcount', 'nlink_off', 'uid', 'gid', 'size',
               'rdev', 'target', 'atime', 'mtime', 'ctime', 'id')
 ATTRIBUTE_STR = ', '.join(ATTRIBUTES)
-UPDATE_STR = ', '.join('%s=?' % x for x in ATTRIBUTES)
+UPDATE_ATTRS = ('mode', 'refcount', 'nlink_off', 'uid', 'gid', 'size',
+              'rdev', 'target', 'atime', 'mtime', 'ctime')
+UPDATE_STR = ', '.join('%s=?' % x for x in UPDATE_ATTRS)
+TIMEZONE = time.timezone
 
 class _Inode(object):
     '''An inode with its attributes'''
@@ -156,9 +159,9 @@ class InodeCache(object):
             setattr(inode, id_, attrs[i])
 
         # Convert to local time
-        inode.atime += time.timezone
-        inode.mtime += time.timezone
-        inode.ctime += time.timezone
+        inode.atime += TIMEZONE
+        inode.mtime += TIMEZONE
+        inode.ctime += TIMEZONE
 
         return inode
 
@@ -170,7 +173,7 @@ class InodeCache(object):
             setattr(inode, key, val)
 
         for i in ('atime', 'ctime', 'mtime'):
-            kw[i] -= time.timezone
+            kw[i] -= TIMEZONE
 
         init_attrs = [ x for x in ATTRIBUTES if x in kw ]
 
@@ -184,8 +187,14 @@ class InodeCache(object):
 
 
     def setattr(self, inode):
+        inode = inode.copy()
+
+        inode.atime -= TIMEZONE
+        inode.mtime -= TIMEZONE
+        inode.ctime -= TIMEZONE
+
         self.dbcm.execute("UPDATE inodes SET %s WHERE id=?" % UPDATE_STR,
-                          [getattr(inode, x) for x in ATTRIBUTES] + [inode.id])
+                          [ getattr(inode, x) for x in UPDATE_ATTRS ] + [inode.id])
 
     def flush_id(self, id_):
         if id_ in self.attrs:
