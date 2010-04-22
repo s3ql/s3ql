@@ -136,6 +136,8 @@ class BlockCache(object):
                 if stamp - el.last_access < 10:
                     break
                 if not el.dirty:
+                    if el.inode == DELETED_INODE:
+                        self._remove_entry(el, deleted_only=True)
                     continue
 
                 self_t.queue.add(el)
@@ -146,6 +148,39 @@ class BlockCache(object):
                     break
 
         log.debug('_do_io: end')
+
+    def _remove_entry(self, el, deleted_only=False):
+        '''Try to remove `el' from cache
+        
+        The entry is only removed if it is not dirty. If `deleted_only`
+        is set, only entries with inode == DELETED_INODE are removed.
+        
+        Both conditions are checked after the block has been locked and
+        retrieved again from the cache. 
+        '''
+
+        with self.mlock(el.inode, el.blockno):
+            try:
+                el = self.cache[(el.inode, el.blockno)]
+            except KeyError:
+                log.debug('_remove_entry(%s): end (vanished)', el)
+                return
+            if el.dirty:
+                log.debug('_remove_entry(%s): end (dirty)', el)
+                return
+
+            if deleted_only and el.inode != DELETED_INODE:
+                log.debug('_remove_entry(%s): end (not deleted)', el)
+                return
+
+            log.debug('_remove_entry(%s): removing from cache', el)
+            del self.cache[(el.inode, el.blockno)]
+            self.size -= os.fstat(el.fileno()).st_size
+            el.close()
+            os.unlink(el.name)
+
+        log.debug('_remove_entry(%s): end', el)
+
 
     def get_bucket_size(self):
         '''Return total size of the underlying bucket'''
@@ -338,7 +373,15 @@ class BlockCache(object):
             while (len(self.cache) > MAX_CACHE_ENTRIES or
                    (len(self.cache) > 0  and self.size > self.maxsize)):
 
-                # First we try to flush entries
+                # Try to expire entries that are not dirty
+                for el in self.cache.values_rev():
+                    if el.dirty:
+                        log.debug('_expire: %s is dirty, trying to flush', el)
+                        break
+                    self._remove_entry(el)
+
+                # If this did not work, then we try to flush just
+                # enough entries
                 need_size = self.size - self.maxsize
                 need_entries = len(self.cache) - MAX_CACHE_ENTRIES
                 for el in self.cache.values_rev():
@@ -352,21 +395,8 @@ class BlockCache(object):
                         need_size -= os.fstat(el.fileno()).st_size
                     need_entries -= 1
 
-                # Then we try to expire them
                 log.debug('_expire: waiting for queue')
                 queue.wait()
-
-                for el in self.cache.values_rev():
-                    with self.mlock(el.inode, el.blockno):
-                        if el.dirty:
-                            log.debug('_expire: %s is dirty again, skipping', el)
-                            break
-
-                        log.debug('_expire: removing %s from cache', el)
-                        del self.cache[(el.inode, el.blockno)]
-                        self.size -= os.fstat(el.fileno()).st_size
-                        el.close()
-                        os.unlink(el.name)
 
         log.debug('_expire: end')
 
