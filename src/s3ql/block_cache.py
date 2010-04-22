@@ -587,6 +587,7 @@ class UploadQueue(object):
                         fn()
                         el.dirty = False
                         self.transit_size -= size
+                        log.debug('UploadQueue.add(%s): upload complete.', el)
                     finally:
                         mlock.release(el.inode, el.blockno)
                 self.transit_size += size
