@@ -96,8 +96,11 @@ def main(args=None):
                              'cleanly. You need to run fsck.s3ql.')
 
         log.info("Downloading metadata...")
-        os.mknod(dbfile, stat.S_IRUSR | stat.S_IWUSR | stat.S_IFREG)
-        bucket.fetch_fh("s3ql_metadata", open(dbfile, 'wb'))
+        fh = os.fdopen(os.open(dbfile, os.O_RDWR | os.O_CREAT,
+                              stat.S_IRUSR | stat.S_IWUSR), 'w+b')
+        bucket.fetch_fh("s3ql_metadata", fh)
+        fh.close()
+
         dbcm = ConnectionManager(dbfile)
 
         mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
@@ -233,8 +236,6 @@ def run_server(conn, bucket, cache, dbcm, options, lockfile):
         fh.close()
 
     return operations
-
-
 
 def parse_args(args):
     '''Parse command line

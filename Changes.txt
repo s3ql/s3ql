@@ -23,7 +23,10 @@
     correct number of hard links).
 
   * File removal is now significantly faster, since the network transactions
-    are carried out asynchronously as part of the cache expiration.  
+    are carried out asynchronously as part of the cache expiration. 
+    
+  * mount.s3ql no longer tries to create files with mknod(), since that
+    lead to errors on NFS mounted volumes under Fedora. 
   
   * This releases includes a lot of new code, so it may be slightly
     more beta-ish than usual.
