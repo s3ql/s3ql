@@ -28,7 +28,7 @@ class cache_tests(TestCase):
         self.cache = inode_cache.InodeCache(self.dbcm)
 
     def tearDown(self):
-        self.cache.flush()
+        self.cache.close()
 
     def test_create(self):
         attrs = {'mode': 784,
