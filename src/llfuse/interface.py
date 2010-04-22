@@ -89,9 +89,12 @@ class DiscardedRequest(Exception):
     pass
 
 class ReplyError(Exception):
-    '''Unable to send reply to fuse kernel module.
+    '''Unable to send reply to fuse kernel module'''
 
-    '''
+    pass
+
+class ReplyErrError(ReplyError):
+    '''Unable to send even error reply to fuse kernel module'''
 
     pass
 
@@ -135,12 +138,17 @@ def check_reply_result(result, func, *args):
     elif result == -errno.ENOENT:
         raise DiscardedRequest()
 
-    elif result > 0:
-        raise ReplyError('Foreign function %s returned unexpected value %d'
-                         % (func.name, result))
-    elif result < 0:
-        raise ReplyError('Foreign function %s returned error %s'
-                         % (func.name, errno.errorcode.get(-result, str(-result))))
+    else:
+        if func.name == 'fuse_reply_err':
+            exc_type = ReplyErrError
+        else:
+            exc_type = ReplyError
+        if result > 0:
+            raise exc_type('Foreign function %s returned unexpected value %d'
+                             % (func.name, result))
+        elif result < 0:
+            raise exc_type('Foreign function %s returned error %s'
+                             % (func.name, errno.errorcode.get(-result, str(-result))))
 
 
 #
@@ -247,9 +255,12 @@ def op_wrapper(func, req, *args):
                 pass
 
         # Send error reply, unless the error occured when replying
-        if not isinstance(exc, ReplyError):
+        if not isinstance(exc, ReplyErrError):
             log.debug('Calling fuse_reply_err(EIO)')
-            libfuse.fuse_reply_err(req, errno.EIO)
+            try:
+                libfuse.fuse_reply_err(req, errno.EIO)
+            except DiscardedRequest:
+                pass
     finally:
         if handler_lock:
             handler_lock.release()
