@@ -264,7 +264,7 @@ class test(setuptools_test.test):
             self.debug = [ x.strip() for x  in self.debug.split(',') ]
 
 
-    def run(self):
+    def run_tests(self):
 
         # Enforce correct SQLite version
         import apsw
@@ -309,7 +309,12 @@ class test(setuptools_test.test):
 
 
         # Run tests
-        setuptools_test.test.run(self)
+        loader_ep = setuptools_test.EntryPoint.parse("x=" + self.test_loader)
+        loader_class = loader_ep.load(require=False)
+        unittest.main(
+            None, None, [unittest.__file__] + self.test_args,
+            testLoader=loader_class()
+        )
 
 
 class upload_docs(setuptools.Command):
