@@ -17,8 +17,8 @@ already available as packages and can be installed with following
 command (if you want, you can remove `gccxml` and the packages ending
 in `-dev` again when the installation is complete)::
 
-  aptitude install python-dev libfuse2 libfuse-dev python-paramiko \
-                   gccxml python-pycryptopp libattr1-dev liblzma-dev liblzma0
+  sudo aptitude install python-dev libfuse2 libfuse-dev python-paramiko \
+                        gccxml python-pycryptopp libattr1-dev liblzma-dev liblzma0
 
 Additionally, The `Python APSW module
 <http://code.google.com/p/apsw/>`_ needs to be installed from source
@@ -27,12 +27,22 @@ as follows:
 #. Download the source from http://code.google.com/p/apsw/downloads/list
 #. Extract the zip file and change into the new directory
 #. Run `python setup.py fetch --sqlite build install --user` to
-   install the module into `~/.local` or run `python setup.py fetch
+   install the module into `~/.local` or run `sudo python setup.py fetch
    --sqlite build install` to install system-wide.
 
-The `Python LZMA module <http://pypi.python.org/pypi/pyliblzma>`_ is
-also required, but this module will be installed automatically during
-the S3QL installation if necessary (you need at least version 0.5.3).
+After that, you need to upgrade your FUSE packages. You can
+download and install updated packages from the S3QL website
+with the commands::
+
+  wget http://s3ql.googlecode.com/files/{libfuse-dev,libfuse2,fuse-utils}_2.8.1_i386.deb
+  sudo dpkg -i {libfuse-dev,libfuse2,fuse-utils}_2.8.1_i386.deb
+
+Finally, S3QL also requires the `PyLibLZMA
+<http://pypi.python.org/pypi/pyliblzma>`_ and `unittest2
+<http://pypi.python.org/pypi/unittest2>`_ Python modules. However,
+these modules will be downloaded and installed automatically during
+the S3QL installation if necessary (the PyLibLZMA module needs to
+be version 0.5.3 or newer).
 
 Once all the dependencies have been satisfied as described, you can
 continue with :ref:`inst-s3ql`.
@@ -45,7 +55,7 @@ already available as packages and can be installed with following
 command (if you want, you can remove packages ending
 in `-devel` again when the installation is complete)::
 
-  yum install python-devel libattr-devel fuse-devel cmake \
+  sudo yum install python-devel libattr-devel fuse-devel cmake \
               pycryptopp python-paramiko lzma-devel
 
 In addition to that, the GCC-XML compiler needs to be compiled from
@@ -72,7 +82,7 @@ source as follows:
      cd gccxml-build
      cmake ..
      make
-     make install
+     sudo make install
 
 After that, you also have to install the `Python APSW module
 <http://code.google.com/p/apsw/>`_:
@@ -80,13 +90,15 @@ After that, you also have to install the `Python APSW module
 #. Download the source from http://code.google.com/p/apsw/downloads/list
 #. Extract the zip file and change into the new directory
 #. Run `python setup.py fetch --sqlite build install --user` to
-   install the module into `~/.local` or run `python setup.py fetch
+   install the module into `~/.local` or run `sudo python setup.py fetch
    --sqlite build install` to install system-wide.
 
-Finally, the `Python LZMA module
-<http://pypi.python.org/pypi/pyliblzma>`_ is required as well, but
-this module will be installed automatically during the S3QL
-installation if necessary (you need at least version 0.5.3).
+Finally, S3QL also requires the `PyLibLZMA
+<http://pypi.python.org/pypi/pyliblzma>`_ and `unittest2
+<http://pypi.python.org/pypi/unittest2>`_ Python modules. However,
+these modules will be downloaded and installed automatically during
+the S3QL installation if necessary (the PyLibLZMA module needs to
+be version 0.5.3 or newer).
 
 Once all the dependencies have been satisfied as described, you can
 continue with :ref:`inst-s3ql`.
@@ -97,7 +109,7 @@ CentOs
 ======
 
 Under CentOS 5, you can install most of S3QL's dependencies with the
-following commands: (thanks to `heri16
+following commands, to be run as root: (thanks to `heri16
 <http://code.google.com/u/heri16/>`_)::
 
   yum install libattr-devel fuse-libs fuse-devel fuse gcc-c++ bzip2 unzip
@@ -214,14 +226,23 @@ The programs/libraries are required to run S3QL:
   it from the website, extract it and run `python setup.py install
   --user`.
 
-* The `Python LZMA Module <http://pypi.python.org/pypi/pyliblzma>`_ is
+* The `PyLibLZMA Python module
+  <http://pypi.python.org/pypi/pyliblzma>`_ is probably not yet
+  available as a package. It will, however, be automatically
+  downloaded and installed during the S3QL installation if required.
+
+  If you want to check if the module is installed, try to execute
+  `python -c 'import lzma; print lzma.__version__'`. This should print
+  a version number. You need at least version 0.5.3.
+
+* The `unittest2 Python module <http://pypi.python.org/pypi/pyliblzma>`_ is
   probably not yet available as a package. It will, however, be
   automatically downloaded and installed during the S3QL installation
   if required.
 
   If you want to check if the module is installed, try to execute
-  `python -c 'import lzma; print lzma.__version__'`. This should print
-  a version number. You need at least version 0.5.3.
+  `python -c 'import unittest2`. The command should succeed without
+  printing anything.
 
 * If you want to use the SFTP backend, then you also need the
   `Paramiko Python Module <http://www.lag.net/paramiko/>`_. It may or
@@ -254,7 +275,7 @@ Now you have three options to complete the installation:
   you have to execute `python setup.py build_ext --inplace` first.
 
 * You can install S3QL system-wide for all users. To do that, you
-  have to run `python setup.py install`.
+  have to run `sudo python setup.py install`.
 
 * You can install S3QL into `~/.local` by executing `python
   setup.py install --user`. In this case you should make sure that
