@@ -243,35 +243,38 @@ def upgrade_rev2(dbcm, param):
     dbcm.execute('CREATE INDEX ix_blocks_s3key ON blocks(s3key)')
     dbcm.execute('CREATE INDEX ix_ext_attributes_inode ON ext_attributes(inode)')
 
-    dbcm.execute('DROP TRIGGER fki_contents_inode')
-    dbcm.execute('DROP TRIGGER fku_contents_inode')
-    dbcm.execute('DROP TRIGGER fkd_contents_inode')
+    dbcm.execute('DROP TRIGGER IF EXISTS fki_contents_inode')
+    dbcm.execute('DROP TRIGGER IF EXISTS fku_contents_inode')
+    dbcm.execute('DROP TRIGGER IF EXISTS fkd_contents_inode')
 
-    dbcm.execute('DROP TRIGGER fki_contents_parent_inode')
-    dbcm.execute('DROP TRIGGER fku_contents_parent_inode')
-    dbcm.execute('DROP TRIGGER fkd_contents_parent_inode')
+    dbcm.execute('DROP TRIGGER IF EXISTS fki_contents_parent_inode')
+    dbcm.execute('DROP TRIGGER IF EXISTS fku_contents_parent_inode')
+    dbcm.execute('DROP TRIGGER IF EXISTS fkd_contents_parent_inode')
 
-    dbcm.execute('DROP TRIGGER fki_ext_attributes_inode')
-    dbcm.execute('DROP TRIGGER fku_ext_attributes_inode')
-    dbcm.execute('DROP TRIGGER fkd_ext_attributes_inode')
+    dbcm.execute('DROP TRIGGER IF EXISTS fki_ext_attributes_inode')
+    dbcm.execute('DROP TRIGGER IF EXISTS fku_ext_attributes_inode')
+    dbcm.execute('DROP TRIGGER IF EXISTS fkd_ext_attributes_inode')
 
-    dbcm.execute('DROP TRIGGER fki_blocks_inode')
-    dbcm.execute('DROP TRIGGER fku_blocks_inode')
-    dbcm.execute('DROP TRIGGER fkd_blocks_inode')
+    dbcm.execute('DROP TRIGGER IF EXISTS fki_blocks_inode')
+    dbcm.execute('DROP TRIGGER IF EXISTS fku_blocks_inode')
+    dbcm.execute('DROP TRIGGER IF EXISTS fkd_blocks_inode')
 
-    dbcm.execute('DROP TRIGGER fki_blocks_s3key')
-    dbcm.execute('DROP TRIGGER fku_blocks_s3key')
-    dbcm.execute('DROP TRIGGER fkd_blocks_s3key')
+    dbcm.execute('DROP TRIGGER IF EXISTS fki_blocks_s3key')
+    dbcm.execute('DROP TRIGGER IF EXISTS fku_blocks_s3key')
+    dbcm.execute('DROP TRIGGER IF EXISTS fkd_blocks_s3key')
 
-    dbcm.execute('DROP TRIGGER contents_check_parent_inode_insert')
-    dbcm.execute('DROP TRIGGER contents_check_parent_inode_update')
-    dbcm.execute('DROP TRIGGER inodes_check_parent_inode_update')
+    dbcm.execute('DROP TRIGGER IF EXISTS contents_check_parent_inode_insert')
+    dbcm.execute('DROP TRIGGER IF EXISTS contents_check_parent_inode_update')
+    dbcm.execute('DROP TRIGGER IF EXISTS inodes_check_parent_inode_update')
 
     # We need to disable foreign key support to recreate the inode table
     # without affecting refernces
     dbcm.execute('PRAGMA foreign_keys = OFF')
 
     dbcm.execute('ALTER TABLE inodes RENAME TO tmp')
+    dbcm.execute('UPDATE tmp SET atime=0 WHERE atime < 0')
+    dbcm.execute('UPDATE tmp SET mtime=0 WHERE mtime < 0')
+    dbcm.execute('UPDATE tmp SET ctime=0 WHERE ctime < 0')
     dbcm.execute('UPDATE tmp SET rdev=0 WHERE rdev IS NULL')
     dbcm.execute('''
         CREATE TABLE inodes (
