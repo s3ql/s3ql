@@ -193,15 +193,13 @@ def upgrade(conn, bucket):
     elif mountcnt_db > param['mountcnt']:
         raise RuntimeError('mountcnt_db > param[mountcnt], this should not happen.')
 
-    # Lock the bucket   
-    param['mountcnt'] += 1
-    dbcm.execute('UPDATE parameters SET mountcnt=mountcnt+1')
-    bucket.store('s3ql_parameters_%d' % param['mountcnt'],
-                 pickle.dumps(param, 2))
-
     # Upgrade from rev. 2 to rev. 3
     if param['revision'] == 2:
         upgrade_rev2(dbcm, param)
+
+    # Upgrade from rev. 3 to rev. 4
+    if param['revision'] == 3:
+        upgrade_rev3(dbcm, param)
 
     # Upload parameters
     param['mountcnt'] += 1
@@ -304,7 +302,7 @@ def upgrade_rev2(dbcm, param):
     )
     ''')
     columns = 'id, uid, gid, mode, mtime, atime, ctime, refcount, target, size, rdev'
-    dbcm.execute('INSERT INTO inodes (%s) SELECT %s FROM tmp' % (columns, columns))
+    dbcm.execute('INSERT INTO inodes (%s) SELECT %s FROM tmp ORDER BY id ASC' % (columns, columns))
     dbcm.execute('DROP TABLE tmp')
 
 
@@ -360,10 +358,56 @@ def upgrade_rev2(dbcm, param):
     dbcm.execute('INSERT INTO blocks (inode, blockno, obj_id) '
                  'SELECT inode, blockno, s3key FROM tmp')
     dbcm.execute('DROP TABLE tmp')
+    dbcm.execute('PRAGMA foreign_keys = ON')
 
     param['revision'] = 3
 
+
+
+def upgrade_rev3(dbcm, param):
+    '''Upgrade file system from revision 3 to 4'''
+
+    log.info('Updating file system from revision 3 to 4.')
+
+    # We need to disable foreign key support to recreate the inode table
+    # without affecting refernces
+    dbcm.execute('PRAGMA foreign_keys = OFF')
+    dbcm.execute('ALTER TABLE inodes RENAME TO tmp')
+    dbcm.execute('''
+        CREATE TABLE inodes (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT
+                  CHECK (id < 4294967296),
+        uid       INT NOT NULL 
+                  CHECK (typeof(uid) == 'integer'),
+        gid       INT NOT NULL 
+                  CHECK (typeof(gid) == 'integer'),
+        mode      INT NOT NULL 
+                  CHECK (typeof(mode) == 'integer'),
+        mtime     REAL NOT NULL 
+                  CHECK (typeof(mtime) == 'real'),
+        atime     REAL NOT NULL 
+                  CHECK (typeof(atime) == 'real'),
+        ctime     REAL NOT NULL 
+                  CHECK (typeof(ctime) == 'real'),
+        refcount  INT NOT NULL
+                  CHECK (typeof(refcount) == 'integer' AND refcount > 0),
+        target    BLOB(256) 
+                  CHECK (typeof(target) IN ('blob', 'null')),
+        size      INT NOT NULL DEFAULT 0
+                  CHECK (typeof(size) == 'integer' AND size >= 0),
+        rdev      INT NOT NULL DEFAULT 0
+                  CHECK (typeof(rdev) == 'integer'),
+        nlink_off INT NOT NULL DEFAULT 0
+                  CHECK (typeof(nlink_off) == 'integer')
+    )
+    ''')
+    columns = 'id, uid, gid, mode, mtime, atime, ctime, refcount, target, size, rdev'
+    dbcm.execute('INSERT INTO inodes (%s) SELECT %s FROM tmp ORDER BY id ASC' % (columns, columns))
+    dbcm.execute('DROP TABLE tmp')
     dbcm.execute('PRAGMA foreign_keys = ON')
+
+    param['revision'] = 4
+
 
 
 def copy_bucket(conn, options, src_bucket):

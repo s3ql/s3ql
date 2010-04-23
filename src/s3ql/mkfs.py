@@ -72,11 +72,11 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
         mode      INT NOT NULL 
                   CHECK (typeof(mode) == 'integer'),
         mtime     REAL NOT NULL 
-                  CHECK (typeof(mtime) == 'real' AND mtime >= 0),
+                  CHECK (typeof(mtime) == 'real'),
         atime     REAL NOT NULL 
-                  CHECK (typeof(atime) == 'real' AND atime >= 0),
+                  CHECK (typeof(atime) == 'real'),
         ctime     REAL NOT NULL 
-                  CHECK (typeof(ctime) == 'real' AND ctime >= 0),
+                  CHECK (typeof(ctime) == 'real'),
         refcount  INT NOT NULL
                   CHECK (typeof(refcount) == 'integer' AND refcount > 0),
         target    BLOB(256) 

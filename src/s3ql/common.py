@@ -28,7 +28,7 @@ __all__ = ["get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_parameter
            'cycle_metadata', 'CURRENT_FS_REV', 'VERSION' ]
 
 VERSION = '0.11'
-CURRENT_FS_REV = 3
+CURRENT_FS_REV = 4
 
 log = logging.getLogger('common')
 

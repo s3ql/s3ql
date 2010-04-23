@@ -2,6 +2,9 @@ xxx, S3QL 0.11
 
   * fsck.s3ql no longer uses mknod(3) , since that lead to errors on e.g.
     NFS mounted volumes under Fedora. 
+    
+  * File access, modification and inode change times before 1972 are
+    now supported.
   
 
 2010-04-21, S3QL 0.10
