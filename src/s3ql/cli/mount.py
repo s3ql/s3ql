@@ -244,8 +244,28 @@ def parse_args(args):
     of throwing an exception if it encounters errors.
     '''
 
-    # Not too many branches
-    #pylint: disable-msg=R0912
+    # Parse fstab-style -o options
+    if '--' in args:
+        max_idx = args.index('--')
+    else:
+        max_idx = len(args)
+    if '-o' in args[:max_idx]:
+        pos = args.index('-o')
+        val = args[pos + 1]
+        del args[pos]
+        del args[pos]
+        for opt in reversed(val.split(',')):
+            if '=' in opt:
+                (key, val) = opt.split('=')
+                args.insert(pos, val)
+                args.insert(pos, '--' + key)
+            else:
+                args.insert(pos, '--' + opt)
+
+    if 'HOME' in os.environ:
+        default_home = os.path.join(os.environ["HOME"], ".s3ql")
+    else:
+        default_home = None
 
     parser = OptionParser(
         usage="%prog  [options] <storage-url> <mountpoint>\n"
@@ -253,7 +273,7 @@ def parse_args(args):
         description="Mount an S3QL file system.")
 
     parser.add_option("--homedir", type="string",
-                      default=os.path.join(os.environ["HOME"], ".s3ql"),
+                      default=default_home,
                       help='Directory for log files, cache and authentication info. '
                       'Default: ~/.s3ql')
     parser.add_option("--cachesize", type="int", default=102400,
@@ -296,6 +316,10 @@ def parse_args(args):
 
     if options.profile:
         options.single = True
+
+    if options.homedir is None:
+        raise QuietError('--homedir not specified and $HOME environment variable not set,\n'
+                         'can not come up with a sensible default.')
 
     return options
 

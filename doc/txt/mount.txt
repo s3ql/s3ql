@@ -80,3 +80,30 @@ flushed, it still remains in the cache.
 Cache expiration (i.e., removal of blocks from the cache) is only done
 when the maximum cache size is reached. S3QL always expires the least
 recently used blocks first.
+
+Mounting in `/etc/fstab`
+========================
+
+It is also possible to mount an S3QL file system automatically in
+`/etc/fstab`. For that, S3QL has to be installed system-wide (see
+:ref:`inst-s3ql`) and you have to place a copy of the `mount.s3ql`
+command in the `/sbin` directory.
+
+A sample entry for S3QL in `/etc/fstab` would look like
+this::
+
+  s3://my_s3ql_bucket     /mnt/s3     s3ql    homedir=/var/s3ql,allow-other,allow_root  0  0
+
+Note that most likely you will have to specify the `homedir` option
+when mounting from fstab because the `$HOME` environment variable is
+not set in this case (and `mount.s3ql` cannot figure out a sensible
+default for `--homedir` without it).
+
+Note also that you should make sure that the file system is unmounted
+every once in a while. S3QL flushes the file system metadata only when
+the file system is unmounted, so if you had an S3QL file system
+mounted for several days and then your harddisk crashes (so that
+`fsck.s3ql` cannot recover the local metadata), you will loose all the
+changes that you have made since the last successful unmount. Your
+data will still be stored on the backend, but without the metadata it
+will not be linked to any directory entries.
