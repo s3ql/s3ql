@@ -307,14 +307,9 @@ class test(setuptools_test.test):
                 pw = sys.stdin.readline().rstrip()
             _common.aws_credentials = (self.awskey, pw)
 
-
-        # Run tests
-        loader_ep = setuptools_test.EntryPoint.parse("x=" + self.test_loader)
-        loader_class = loader_ep.load(require=False)
-        unittest.main(
-            None, None, [unittest.__file__] + self.test_args,
-            testLoader=loader_class()
-        )
+        # Force setuptools to use unittest2
+        sys.modules['unittest'] = unittest
+        setuptools_test.test.run_tests(self)
 
 
 class upload_docs(setuptools.Command):
