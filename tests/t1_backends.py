@@ -156,8 +156,8 @@ class BackendTests(object):
 
 # This test just takes too long (because we have to wait really long so that we don't
 # get false errors due to propagation delays)
-@unittest.skipUnless(_common.aws_credentials, 'no AWS credentials available')
 @unittest.skip('takes too long')
+@unittest.skipUnless(_common.aws_credentials, 'no AWS credentials available')
 class S3Tests(BackendTests, TestCase):
     @staticmethod
     def random_name(prefix=""):
