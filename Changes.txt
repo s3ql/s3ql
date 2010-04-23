@@ -1,3 +1,9 @@
+xxx, S3QL 0.11
+
+  * fsck.s3ql no longer uses mknod(3) , since that lead to errors on e.g.
+    NFS mounted volumes under Fedora. 
+  
+
 2010-04-21, S3QL 0.10
 
   * S3QL now depends on FUSE version 2.8
