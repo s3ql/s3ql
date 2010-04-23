@@ -56,7 +56,7 @@ command (if you want, you can remove packages ending
 in `-devel` again when the installation is complete)::
 
   sudo yum install python-devel libattr-devel fuse-devel cmake \
-              pycryptopp python-paramiko lzma-devel
+              pycryptopp python-paramiko xz-devel
 
 In addition to that, the GCC-XML compiler needs to be compiled from
 source as follows:
