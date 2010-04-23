@@ -406,6 +406,10 @@ class BlockCache(object):
         
         The block will be unlinked from the inode and removed physically as part of the normal cache
         expiration. 
+        
+        This method releases `lock' for the managed context, so the caller must
+        not hold any prior database locks and must not try to acquire any
+        database locks in the managed context.
         """
 
         log.debug('remove(inode=%d, blockno=%d): start', inode, blockno)

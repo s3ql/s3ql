@@ -340,7 +340,7 @@ class Operations(llfuse.Operations):
 
         timestamp = time.time()
 
-        with self.dbcm.transaction() as conn:
+        with self.dbcm() as conn:
 
             # Check that there are no child entries
             if conn.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (inode.id,)):
@@ -436,7 +436,7 @@ class Operations(llfuse.Operations):
 
         timestamp = time.time()
 
-        with self.dbcm.transaction() as conn:
+        with self.dbcm() as conn:
             if conn.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (inode_new.id,)):
                 log.info("Attempted to overwrite entry with children: %s",
                           get_path(name_new, id_p_new, conn))
