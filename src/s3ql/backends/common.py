@@ -105,10 +105,9 @@ class AbstractBucket(object):
     '''
     __metaclass__ = ABCMeta
 
-    def __init__(self, passphrase, bzip2):
+    def __init__(self, passphrase):
         super(AbstractBucket, self).__init__()
         self.passphrase = passphrase
-        self.bzip2 = bzip2
 
     def __getitem__(self, key):
         return self.fetch(key)[0]
