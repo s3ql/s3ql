@@ -17,7 +17,7 @@ import pycryptopp
 import cPickle as pickle
 import time
 import hashlib
-import os
+import zlib
 import bz2
 import lzma
 from base64 import b64decode, b64encode
@@ -26,7 +26,12 @@ from abc import ABCMeta, abstractmethod
 
 log = logging.getLogger("backend")
 
-__all__ = [ 'AbstractConnection', 'AbstractBucket', 'ChecksumError', 'UnsupportedError' ]
+__all__ = [ 'AbstractConnection', 'AbstractBucket', 'ChecksumError', 'UnsupportedError',
+           'COMPRESS_ZLIB', 'COMPRESS_BZIP2', 'COMPRESS_LZMA' ]
+
+COMPRESS_ZLIB = 1
+COMPRESS_BZIP2 = 2
+COMPRESS_LZMA = 3
 
 class AbstractConnection(object):
     '''This class contains functionality shared between all backends.'''
@@ -83,7 +88,7 @@ class AbstractConnection(object):
         pass
 
     @abstractmethod
-    def get_bucket(self, name, passphrase=None):
+    def get_bucket(self, name, passphrase=None, compression=COMPRESS_ZLIB):
         """Get `Bucket` instance for bucket `name`"""
         pass
 
@@ -105,10 +110,23 @@ class AbstractBucket(object):
     '''
     __metaclass__ = ABCMeta
 
-    def __init__(self, passphrase, bzip2):
-        super(AbstractBucket, self).__init__()
+    def __init__(self, passphrase, compression):
+        if compression == COMPRESS_ZLIB:
+            self.compr_factory = lambda: zlib.compressobj(9)
+            self.decomp_factory = zlib.decompressobj
+            self.compr_str = 'AES/ZLIB'
+        elif compression == COMPRESS_BZIP2:
+            self.compr_factory = lambda: bz2.BZ2Compressor(9)
+            self.decomp_factory = bz2.BZ2Decompressor
+            self.compr_str = 'AES/BZ2'
+        elif compression == COMPRESS_LZMA:
+            self.compr_factory = lambda: lzma.LZMACompressor(options={ 'level': 9 })
+            self.decomp_factory = lzma.LZMADecompressor
+            self.compr_str = 'AES/LZMA'
+        else:
+            raise ValueError('Invalid compression algorithm')
         self.passphrase = passphrase
-        self.bzip2 = bzip2
+        super(AbstractBucket, self).__init__()
 
     def __getitem__(self, key):
         return self.fetch(key)[0]
@@ -141,7 +159,7 @@ class AbstractBucket(object):
         meta_raw = self.raw_lookup(key)
 
         if 'encrypted' in meta_raw:
-            if meta_raw['encrypted'] in ('True', 'AES/BZ2', 'AES/LZMA'):
+            if meta_raw['encrypted'] in ('True', 'AES/BZ2', 'AES/LZMA', 'AES/ZLIB'):
                 encrypted = True
             elif meta_raw['encrypted'] == 'False':
                 encrypted = False
@@ -225,6 +243,9 @@ class AbstractBucket(object):
             elif meta_raw['encrypted'] == 'AES/LZMA':
                 decomp = lzma.LZMADecompressor()
                 encrypted = True
+            elif meta_raw['encrypted'] == 'AES/ZLIB':
+                decomp = zlib.decompressobj()
+                encrypted = True
             elif meta_raw['encrypted'] == 'False':
                 encrypted = False
             else:
@@ -281,17 +302,19 @@ class AbstractBucket(object):
             # We need to generate a temporary copy to determine the
             # size of the object (which needs to transmitted as Content-Length)
             nonce = struct.pack(b'<f', time.time() - time.timezone) + bytes(key)
-            fh.seek(0, os.SEEK_END)
-            if fh.tell() > 1024 * 512:
-                tmp = tempfile.TemporaryFile()
-            else:
-                tmp = StringIO()
+            tmp = tempfile.TemporaryFile()
             fh.seek(0)
-            compress_encrypt_fh(fh, tmp, self.passphrase, nonce)
+            compress_encrypt_fh(fh, tmp, self.passphrase, nonce, self.compr_factory())
             meta_raw = encrypt(meta_raw, self.passphrase, nonce)
             tmp.seek(0)
+
+            # We don't trust the LZMA module, so decompress again to check the HMAC
+            decrypt_uncompress_fh(tmp, open('/dev/null', 'r+b'),
+                                  self.passphrase, self.decomp_factory())
+
+            tmp.seek(0)
             return lambda: self.raw_store(key, tmp, {'meta': b64encode(meta_raw),
-                                                    'encrypted': 'AES/LZMA' })
+                                                     'encrypted': self.compr_str })
         else:
             fh.seek(0)
 
@@ -416,14 +439,13 @@ def decrypt_uncompress_fh(ifh, ofh, passphrase, decomp):
         raise ChecksumError('HMAC mismatch')
 
 
-def compress_encrypt_fh(ifh, ofh, passphrase, nonce):
+def compress_encrypt_fh(ifh, ofh, passphrase, nonce, compr):
     '''Read `ifh` and write compressed, encrypted data to `ofh`'''
 
     if isinstance(nonce, unicode):
         nonce = nonce.encode('utf-8')
 
-    compr = lzma.LZMACompressor(options={ 'level': 9 })
-    bs = 256 * 1024
+    bs = 1024 * 1024
     key = sha256(passphrase + nonce)
     cipher = pycryptopp.cipher.aes.AES(key)
     hmac_ = hmac.new(key, digestmod=hashlib.sha256)
@@ -436,16 +458,10 @@ def compress_encrypt_fh(ifh, ofh, passphrase, nonce):
     # Reserve space for hmac
     ofh.write(b'0' * 32)
 
-    # We don't trust the LZMA module, so we keep a copy of
-    # the compressed data and compare again at the end
-    tfh = tempfile.TemporaryFile()
-    decomp = lzma.LZMADecompressor()
-
     while True:
         buf = ifh.read(bs)
         if not buf:
             buf = compr.flush()
-            tfh.write(buf)
             buf = cipher.process(buf)
             ofh.write(buf)
             break
@@ -453,7 +469,6 @@ def compress_encrypt_fh(ifh, ofh, passphrase, nonce):
         hmac_.update(buf)
         buf = compr.compress(buf)
         if buf:
-            tfh.write(buf)
             buf = cipher.process(buf)
             ofh.write(buf)
 
@@ -461,22 +476,6 @@ def compress_encrypt_fh(ifh, ofh, passphrase, nonce):
     buf = cipher.process(buf)
     ofh.seek(off)
     ofh.write(buf)
-
-    # Check compression
-    ifh.seek(0)
-    tfh.seek(0)
-    while True:
-        buf = tfh.read(bs)
-        if not buf:
-            break
-        buf = decomp.decompress(buf)
-
-        if buf:
-            if buf != ifh.read(len(buf)):
-                raise RuntimeError('Compression failed -- Bug in LZMA Library?')
-
-    if decomp.unused_data or ifh.read(1) != '':
-        raise RuntimeError('Compression failed -- Bug in LZMA Library?')
 
 
 def decrypt(buf, passphrase):

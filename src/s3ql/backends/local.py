@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
-from .common import AbstractConnection, AbstractBucket
+from .common import AbstractConnection, AbstractBucket, COMPRESS_ZLIB
 import shutil
 import logging
 import cPickle as pickle
@@ -40,7 +40,7 @@ class Connection(AbstractConnection):
 
         return self.get_bucket(name, passphrase)
 
-    def get_bucket(self, name, passphrase=None):
+    def get_bucket(self, name, passphrase=None, compression=COMPRESS_ZLIB):
         """Return a bucket instance for the bucket `name`
         
         Raises `KeyError` if the bucket does not exist.
@@ -48,14 +48,14 @@ class Connection(AbstractConnection):
 
         if not os.path.exists(name):
             raise KeyError('Local bucket directory %s does not exist' % name)
-        return Bucket(name, passphrase)
+        return Bucket(name, passphrase, compression)
 
 
 class Bucket(AbstractBucket):
     '''A bucket that is stored on the local hard disk'''
 
-    def __init__(self, name, passphrase):
-        super(Bucket, self).__init__(passphrase)
+    def __init__(self, name, passphrase, compression):
+        super(Bucket, self).__init__(passphrase, compression)
         self.name = name
 
     def __str__(self):

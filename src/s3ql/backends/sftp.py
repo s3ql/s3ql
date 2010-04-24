@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
-from .common import AbstractConnection, AbstractBucket
+from .common import AbstractConnection, AbstractBucket, COMPRESS_LZMA
 import logging
 import errno
 import shutil
@@ -21,7 +21,6 @@ log = logging.getLogger("backend.sftp")
 
 
 class Connection(AbstractConnection):
-
 
     def __init__(self, host, port, login, password):
         super(Connection, self).__init__()
@@ -79,7 +78,7 @@ class Connection(AbstractConnection):
         self.sftp.mkdir(name)
         return self.get_bucket(name, passphrase)
 
-    def get_bucket(self, name, passphrase=None):
+    def get_bucket(self, name, passphrase=None, compression=COMPRESS_LZMA):
         """Return Bucket instance for the bucket `name`
         
         Raises `KeyError` if the bucket does not exist.
@@ -87,7 +86,7 @@ class Connection(AbstractConnection):
         if name not in self:
             raise KeyError('Bucket %s does not exist' % name)
 
-        return Bucket(self, name, passphrase)
+        return Bucket(self, name, passphrase, compression)
 
     def close(self):
         self._client.close()
@@ -100,8 +99,8 @@ class Connection(AbstractConnection):
 
 class Bucket(AbstractBucket):
 
-    def __init__(self, conn, name, passphrase):
-        super(Bucket, self).__init__(passphrase)
+    def __init__(self, conn, name, passphrase, compression):
+        super(Bucket, self).__init__(passphrase, compression)
         self.conn = conn
         self.name = name
 

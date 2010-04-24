@@ -43,6 +43,39 @@ You can specify the following options:
                         this, then you don't need it.
   --profile             Create profiling information. If you don't understand
                         this, then you don't need it.
+  --bzip2               Use bzip2 instead of LZMA algorithm for compressing
+                        new blocks.
+  --zlib                Use zlib instead of LZMA algorithm for compressing new
+                        blocks.
+
+
+Compression Algorithms
+======================
+
+S3QL supports three compression algorithms, LZMA, Bzip2 and zlib (with
+LZMA being the default). The compression algorithm can be specified
+freely whenever the file system is mounted, since it affects only the
+compression of new data blocks.
+
+Roughly speaking, LZMA is slower but achieves better compression
+ratios than Bzip2, while Bzip2 in turn is slower but achieves better
+compression ratios than zlib.
+
+For maximum file system performance, the best algorithm therefore
+depends on your network connection speed: the compression algorithm
+should be fast enough to saturate your network connection.
+
+To find the optimal algorithm for your system, S3QL ships with a
+program called `benchmark.py` in the `contrib` directory. You should
+run this program on a file that has a size that is roughly equal to
+the block size of your file system and has similar contents. It will
+then determine the compression speeds for the different algorithms and
+the upload speeds for the specified backend and recommend the best
+algorithm that is fast enough to saturate your network connection.
+
+Obviously you should make sure that there is little other system load
+when you run `benchmark.py` (i.e., don't compile software or encode
+videos at the same time).
 
 
 Notes about Caching

@@ -12,7 +12,7 @@ from __future__ import division, print_function, absolute_import
 import warnings
 warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 
-from .common import AbstractConnection, AbstractBucket
+from .common import AbstractConnection, AbstractBucket, COMPRESS_LZMA
 from time import sleep
 from .boto.s3.connection import S3Connection
 from contextlib import contextmanager
@@ -118,7 +118,7 @@ class Connection(AbstractConnection):
 
         return Bucket(self, name, passphrase)
 
-    def get_bucket(self, name, passphrase=None):
+    def get_bucket(self, name, passphrase=None, compression=COMPRESS_LZMA):
         """Return a bucket instance for the bucket `name`
         
         Raises `KeyError` if the bucket does not exist.
@@ -132,7 +132,7 @@ class Connection(AbstractConnection):
                     raise KeyError("Bucket %r does not exist." % name)
                 else:
                     raise
-        return Bucket(self, name, passphrase)
+        return Bucket(self, name, passphrase, compression)
 
 class Bucket(AbstractBucket):
     """Represents a bucket stored in Amazon S3.
@@ -158,8 +158,8 @@ class Bucket(AbstractBucket):
         finally:
             self.conn._push_conn(boto_conn)
 
-    def __init__(self, conn, name, passphrase):
-        super(Bucket, self).__init__(passphrase)
+    def __init__(self, conn, name, passphrase, compression):
+        super(Bucket, self).__init__(passphrase, compression)
         self.conn = conn
         self.name = name
 

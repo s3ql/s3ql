@@ -1,4 +1,10 @@
 xxx, S3QL 0.11
+  
+  * It is now possible to choose between zlib, BZip2 and LZMA compression
+    every time the file system is mounted.
+  
+  * Added contrib/benchmark.py to find out optimal compression method
+    for given network bandwidth.
 
   * fsck.s3ql no longer uses mknod(3) , since that lead to errors on e.g.
     NFS mounted volumes under Fedora. 
