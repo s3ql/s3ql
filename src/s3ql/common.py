@@ -79,20 +79,14 @@ def get_backend(options):
 
 def cycle_metadata(bucket):
     from .backends.common import UnsupportedError
-    if "s3ql_metadata_bak_2" in bucket:
-        try:
-            bucket.rename("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
-        except UnsupportedError:
-            bucket.copy("s3ql_metadata_bak_2", "s3ql_metadata_bak_3")
-    if "s3ql_metadata_bak_1" in bucket:
-        try:
-            bucket.rename("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
-        except UnsupportedError:
-            bucket.copy("s3ql_metadata_bak_1", "s3ql_metadata_bak_2")
-    try:
-        bucket.rename("s3ql_metadata", "s3ql_metadata_bak_1")
-    except UnsupportedError:
-        bucket.copy("s3ql_metadata", "s3ql_metadata_bak_1")
+
+    for i in reversed(range(5)):
+        if "s3ql_metadata_bak_%d" % i in bucket:
+            try:
+                bucket.rename("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
+            except UnsupportedError:
+                bucket.copy("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
+
 
 def unlock_bucket(bucket):
     '''Ask for passphrase if bucket requires one'''
@@ -127,7 +121,7 @@ def get_parameters(bucket):
 
     # Delete old parameter objects 
     for i in seq_nos:
-        if i < seq_no:
+        if i < seq_no - 5:
             del bucket['s3ql_parameters_%d' % i ]
 
     return param
