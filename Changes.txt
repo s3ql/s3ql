@@ -6,7 +6,8 @@ xxx, S3QL 0.11
   * File access, modification and inode change times before 1972 are
     now supported.
   
-
+  * Fixed a deadlock when removing or overwriting files.
+  
 2010-04-21, S3QL 0.10
 
   * S3QL now depends on FUSE version 2.8
