@@ -260,6 +260,10 @@ def parse_args(args):
                 args.insert(pos, val)
                 args.insert(pos, '--' + key)
             else:
+                if opt == 'rw':
+                    continue
+                elif opt == 'ro':
+                    raise QuietError('Read-only mounting not supported.')
                 args.insert(pos, '--' + opt)
 
     if 'HOME' in os.environ:
@@ -303,7 +307,6 @@ def parse_args(args):
     parser.add_option("--profile", action="store_true", default=False,
                       help="Create profiling information. If you don't understand this, "
                            "then you don't need it.")
-
     (options, pps) = parser.parse_args(args)
 
     #
