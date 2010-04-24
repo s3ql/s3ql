@@ -59,12 +59,6 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
-    try:
-        import psyco
-        psyco.profile()
-    except ImportError:
-        pass
-
     options = parse_args(args)
     init_logging_from_options(options, 'fsck.log')
 
