@@ -330,9 +330,9 @@ class WrappedConnection(object):
                 step = randrange(step + 1, 2 * (step + 1), 1)
             except apsw.BusyError:
                 if time.time() - curtime < self.retrytime / 1000:
-                    log.warn('SQLite detected deadlock condition!')
+                    log.error('SQLite detected deadlock condition!')
                 # Print stack trace
-                log.warn('BusyError - writing stack trace to ./s3ql_stack_trace.txt:')
+                log.error('BusyError - writing stack trace to ./s3ql_stack_trace.txt:')
                 fh = open('s3ql_stack_trace.txt', 'w')
                 fh.write(stacktraces())
                 fh.close()
@@ -344,6 +344,11 @@ class WrappedConnection(object):
                 fh.write('Enough fds...')
                 fh.close()
                 raise
+            except apsw.ConstraintError:
+                log.error('Constraint error when executing %r with bindings %r',
+                          statement, newbindings)
+                raise
+
 
     def has_val(self, *a, **kw):
         '''Execute statement and check if it gives result rows'''
