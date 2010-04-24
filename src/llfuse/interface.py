@@ -610,8 +610,8 @@ def fuse_listxattr(req, inode, size):
 
     if names:
         # Size of the \0 separated buffer 
-        buf_size = (len(names) - 1) + sum([ len(name) for name in names ])
-        buf = b'\0'.join(names)
+        buf_size = len(names) + sum([ len(name) for name in names ])
+        buf = b'\0'.join(names) + b'\0'
     else:
         buf_size = 0
         buf = ''
