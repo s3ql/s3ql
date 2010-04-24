@@ -358,6 +358,7 @@ class Operations(llfuse.Operations):
                     self.cache.remove(inode.id, blockno, self.lock)
                 # Since the inode is not open, it's not possible that new blocks
                 # get created at this point and we can safely delete the inode
+                conn.execute('DELETE FROM ext_attributes WHERE inode=?', (inode.id,))
                 del self.inodes[inode.id]
 
             inode_p = self.inodes[id_p]
@@ -468,6 +469,7 @@ class Operations(llfuse.Operations):
                     self.cache.remove(inode_new.id, blockno, self.lock)
                 # Since the inode is not open, it's not possible that new blocks
                 # get created at this point and we can safely delete the inode
+                conn.execute('DELETE FROM ext_attributes WHERE inode=?', (inode_new.id,))
                 del self.inodes[inode_new.id]
 
             inode_p_old.ctime = timestamp

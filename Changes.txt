@@ -1,5 +1,7 @@
 xxx, S3QL 0.11
   
+  * Files with extended attributes can now be deleted.
+  
   * It is now possible to choose between zlib, BZip2 and LZMA compression
     every time the file system is mounted.
   

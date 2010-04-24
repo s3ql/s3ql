@@ -314,6 +314,7 @@ class fs_api_tests(TestCase):
         (fh, inode) = self.server.create(ROOT_INODE, oldname, self.file_mode(), Ctx())
         self.server.write(fh, 0, 'some data to deal with')
         self.server.release(fh)
+        self.server.setxattr(inode.id, 'test_xattr', '42*8')
 
         inode_p_new = self.server.mkdir(ROOT_INODE, self.newname(), self.dir_mode(), Ctx())
         inode_p_new_before = self.server.getattr(inode_p_new.id).copy()
@@ -322,6 +323,7 @@ class fs_api_tests(TestCase):
         (fh, inode2) = self.server.create(inode_p_new.id, newname, self.file_mode(), Ctx())
         self.server.write(fh, 0, 'even more data to deal with')
         self.server.release(fh)
+        self.server.setxattr(inode2.id, 'test_xattr', '42*8')
 
         self.server.rename(ROOT_INODE, oldname, inode_p_new.id, newname)
 
@@ -467,6 +469,9 @@ class fs_api_tests(TestCase):
         (fh, inode) = self.server.create(ROOT_INODE, name, self.file_mode(), Ctx())
         self.server.write(fh, 0, 'some data to deal with')
         self.server.release(fh)
+
+        # Add extended attributes
+        self.server.setxattr(inode.id, 'test_xattr', '42*8')
 
         inode_p_before = self.server.getattr(ROOT_INODE).copy()
         self.server.unlink(ROOT_INODE, name)
