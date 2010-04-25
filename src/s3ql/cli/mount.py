@@ -8,16 +8,18 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
+# We can't use relative imports because this file may
+# be directly executed.
 import sys
 from optparse import OptionParser
-from s3ql import fs
+from s3ql import fs, mkfs
 from s3ql.backends import s3
 from s3ql.daemonize import daemonize
 from s3ql.backends.common import ChecksumError, COMPRESS_BZIP2, COMPRESS_LZMA, COMPRESS_ZLIB
 from s3ql.block_cache import BlockCache
 from s3ql.common import (init_logging_from_options, get_backend, get_cachedir, get_dbfile,
                          QuietError, unlock_bucket, get_parameters, get_stdout_handler,
-                         get_lockfile, cycle_metadata)
+                         get_lockfile, cycle_metadata, dump_metadata, restore_metadata)
 from s3ql.database import ConnectionManager
 import llfuse
 import tempfile
@@ -92,10 +94,14 @@ def main(args=None):
         log.info("Downloading metadata...")
         fh = os.fdopen(os.open(dbfile, os.O_RDWR | os.O_CREAT,
                               stat.S_IRUSR | stat.S_IWUSR), 'w+b')
-        bucket.fetch_fh("s3ql_metadata", fh)
         fh.close()
-
         dbcm = ConnectionManager(dbfile)
+        mkfs.setup_tables(dbcm)
+        fh = tempfile.TemporaryFile()
+        bucket.fetch_fh("s3ql_metadata", fh)
+        fh.seek(0)
+        restore_metadata(dbcm, fh)
+        fh.close()
 
         mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
         if mountcnt_db < param['mountcnt']:
@@ -141,10 +147,13 @@ def main(args=None):
                 log.info('Clearing cache...')
                 cache.clear()
         finally:
+            fh = tempfile.TemporaryFile()
+            dump_metadata(dbcm, fh)
+            fh.seek(0)
             log.info("Uploading database..")
-            dbcm.execute("VACUUM")
             cycle_metadata(bucket)
-            bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
+            bucket.store_fh("s3ql_metadata", fh)
+            fh.close()
 
     # Remove database
     log.debug("Cleaning up...")

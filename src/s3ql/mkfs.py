@@ -14,12 +14,9 @@ import time
 
 from s3ql.common import ROOT_INODE, CTRL_INODE
 
-__all__ = [ "setup_db" ]
+__all__ = [ "setup_tables", 'init_tables' ]
 
-def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
-    """Creates the metadata tables
-    """
-
+def init_tables(conn, blocksize, label=u"unnamed s3qlfs"):
     # Create a list of valid inode types
     types = {"S_IFDIR": stat.S_IFDIR, "S_IFREG": stat.S_IFREG,
              "S_IFSOCK": stat.S_IFSOCK, "S_IFBLK": stat.S_IFBLK,
@@ -31,6 +28,35 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     for i in types.itervalues():
         ifmt |= i
     types["S_IFMT"] = ifmt
+
+    conn.execute("""
+    INSERT INTO parameters(label,blocksize,last_fsck,mountcnt,needs_fsck)
+           VALUES(?,?,?,?,?)
+    """, (unicode(label), blocksize, time.time() - time.timezone, 0, False))
+
+    # Insert root directory
+    timestamp = time.time() - time.timezone
+    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,nlink_off) "
+                   "VALUES (?,?,?,?,?,?,?,?,?)",
+                   (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
+                   | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
+                    os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1, 2))
+
+    # Insert control inode, the actual values don't matter that much 
+    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
+                 "VALUES (?,?,?,?,?,?,?,?)",
+                 (CTRL_INODE, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
+                  0, 0, timestamp, timestamp, timestamp, 42))
+
+    # Insert lost+found directory
+    inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,nlink_off) "
+                       "VALUES (?,?,?,?,?,?,?,?)",
+                       (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
+                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1, 1))
+    conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+                 (b"lost+found", inode, ROOT_INODE))
+
+def setup_tables(conn):
 
     # Filesystem parameters
     conn.execute("""
@@ -45,10 +71,8 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
                     CHECK (typeof(mountcnt) == 'integer'),
         needs_fsck  BOOLEAN NOT NULL
                     CHECK (typeof(needs_fsck) == 'integer')
-    );
-    INSERT INTO parameters(label,blocksize,last_fsck,mountcnt,needs_fsck)
-        VALUES(?,?,?,?,?)
-    """, (unicode(label), blocksize, time.time() - time.timezone, 0, False))
+    )""")
+
 
     # Table with filesystem metadata
     # The number of links `refcount` to an inode can in theory
@@ -90,7 +114,7 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
         nlink_off INT NOT NULL DEFAULT 0
                   CHECK (typeof(nlink_off) == 'integer')
     )
-    """.format(**types))
+    """)
 
     # Table of filesystem objects
     conn.execute("""
@@ -151,26 +175,6 @@ def setup_db(conn, blocksize, label=u"unnamed s3qlfs"):
     CREATE INDEX ix_blocks_inode ON blocks(inode);
     """)
 
-    # Insert root directory
-    timestamp = time.time() - time.timezone
-    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,nlink_off) "
-                   "VALUES (?,?,?,?,?,?,?,?,?)",
-                   (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
-                   | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
-                    os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1, 2))
 
-    # Insert control inode, the actual values don't matter that much 
-    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
-                 "VALUES (?,?,?,?,?,?,?,?)",
-                 (CTRL_INODE, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
-                  0, 0, timestamp, timestamp, timestamp, 42))
-
-    # Insert lost+found directory
-    inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,nlink_off) "
-                       "VALUES (?,?,?,?,?,?,?,?)",
-                       (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1, 1))
-    conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                 (b"lost+found", inode, ROOT_INODE))
 
 

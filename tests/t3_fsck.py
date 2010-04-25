@@ -36,7 +36,8 @@ class fsck_tests(TestCase):
         self.blocksize = 1024
 
         self.conn = WrappedConnection(apsw.Connection(''), retrytime=0)
-        mkfs.setup_db(self.conn, self.blocksize)
+        mkfs.setup_tables(self.conn)
+        mkfs.init_tables(self.conn, self.blocksize)
 
         fsck.conn = self.conn
         fsck.cachedir = self.cachedir

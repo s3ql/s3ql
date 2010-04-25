@@ -25,7 +25,8 @@ __all__ = ["get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_parameter
            "ROOT_INODE", "ExceptionStoringThread", 'retry', 'get_stdout_handler',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'stacktraces', 'init_logging_from_options', 'QuietError', 'get_backend',
-           'cycle_metadata', 'CURRENT_FS_REV', 'VERSION' ]
+           'cycle_metadata', 'CURRENT_FS_REV', 'VERSION', 'restore_metadata',
+           'dump_metadata' ]
 
 VERSION = '0.11'
 CURRENT_FS_REV = 4
@@ -125,6 +126,51 @@ def get_parameters(bucket):
             del bucket['s3ql_parameters_%d' % i ]
 
     return param
+
+def dump_metadata(dbcm, ofh):
+    bufsize = 500
+    buf = range(bufsize)
+    pickler = pickle.Pickler(ofh, 2)
+
+    with dbcm() as conn:
+        for table in ('parameters', 'inodes', 'contents', 'ext_attributes',
+                      'objects', 'blocks'):
+            log.info('Dumping %s' % table)
+            res = conn.query('SELECT * FROM %s ORDER BY rowid ASC' % table)
+            while True:
+                pickler.clear_memo()
+                pickler.dump(table)
+                i = 0
+                for row in res:
+                    buf[i] = row
+                    i += 1
+                    if i == bufsize:
+                        break
+
+                if i != bufsize:
+                    pickler.dump(buf[:i])
+                    break
+
+                pickler.dump(buf)
+
+    pickler.dump('EOF')
+
+def restore_metadata(conn, ifh):
+    unpickler = pickle.Unpickler(ifh)
+
+    while True:
+        table = unpickler.load()
+        if table == 'EOF':
+            break
+        buf = unpickler.load()
+        if not buf:
+            continue
+        sql = 'INSERT INTO %s VALUES(%s)' % (table,
+                                             ','.join('?' for _ in range(len(buf[0]))))
+        with conn.transaction():
+            for row in buf:
+                conn.execute(sql, row)
+
 
 class QuietError(SystemExit):
     '''QuietError is an exception that should not result in a

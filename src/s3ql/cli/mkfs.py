@@ -16,12 +16,12 @@ from optparse import OptionParser
 import logging
 from s3ql import mkfs
 from s3ql.common import (init_logging_from_options, get_backend, get_cachedir, get_dbfile,
-                         QuietError, CURRENT_FS_REV)
-from s3ql.database import WrappedConnection
+                         QuietError, CURRENT_FS_REV, dump_metadata)
+from s3ql.database import ConnectionManager
 from s3ql.backends.boto.s3.connection import Location
 from s3ql.backends import s3
-import apsw
 import cPickle as pickle
+import tempfile
 
 log = logging.getLogger("mkfs")
 
@@ -118,16 +118,22 @@ def main(args=None):
 
         try:
             log.info('Creating metadata tables...')
-            mkfs.setup_db(WrappedConnection(apsw.Connection(dbfile), retrytime=0),
-                          options.blocksize * 1024, options.label)
+            dbcm = ConnectionManager(dbfile)
+            mkfs.setup_tables(dbcm)
+            mkfs.init_tables(dbcm, options.blocksize * 1024, options.label)
 
-            log.info('Uploading database...')
             param = dict()
             param['revision'] = CURRENT_FS_REV
             param['mountcnt'] = 0
             bucket.store('s3ql_parameters_%d' % param['mountcnt'],
                          pickle.dumps(param, 2))
-            bucket.store_fh('s3ql_metadata', open(dbfile, 'r'))
+
+            fh = tempfile.TemporaryFile()
+            dump_metadata(dbcm, fh)
+            fh.seek(0)
+            log.info("Uploading database..")
+            bucket.store_fh("s3ql_metadata", fh)
+            fh.close()
 
         finally:
             os.unlink(dbfile)

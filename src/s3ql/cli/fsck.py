@@ -13,14 +13,16 @@ import stat
 import time
 from optparse import OptionParser
 from ..common import (init_logging_from_options, get_cachedir, get_dbfile, cycle_metadata,
-                      unlock_bucket, QuietError, get_parameters, get_backend)
+                      unlock_bucket, QuietError, get_parameters, get_backend, dump_metadata,
+                      restore_metadata)
 from ..database import ConnectionManager
 import logging
-from .. import fsck
+from .. import fsck, mkfs
 from .. import backends
 from ..backends.common import ChecksumError
 import sys
 import shutil
+import tempfile
 import cPickle as pickle
 import textwrap
 
@@ -115,10 +117,15 @@ def main(args=None):
         if do_download:
             log.info("Downloading metadata...")
             fh = os.fdopen(os.open(dbfile, os.O_RDWR | os.O_CREAT,
-                              stat.S_IRUSR | stat.S_IWUSR), 'w+b')
-            bucket.fetch_fh("s3ql_metadata", fh)
+                                  stat.S_IRUSR | stat.S_IWUSR), 'w+b')
             fh.close()
             dbcm = ConnectionManager(dbfile)
+            mkfs.setup_tables(dbcm)
+            fh = tempfile.TemporaryFile()
+            bucket.fetch_fh("s3ql_metadata", fh)
+            fh.seek(0)
+            restore_metadata(dbcm, fh)
+            fh.close()
             mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
 
             if mountcnt_db < param['mountcnt']:
@@ -161,10 +168,13 @@ def main(args=None):
         dbcm.execute("UPDATE parameters SET needs_fsck=?, last_fsck=?",
                      (False, time.time() - time.timezone))
 
-        dbcm.execute("VACUUM")
-        log.debug("Uploading database..")
+        fh = tempfile.TemporaryFile()
+        dump_metadata(dbcm, fh)
+        fh.seek(0)
+        log.info("Uploading database..")
         cycle_metadata(bucket)
-        bucket.store_fh("s3ql_metadata", open(dbfile, 'r'))
+        bucket.store_fh("s3ql_metadata", fh)
+        fh.close()
 
         os.unlink(dbfile)
         os.rmdir(cachedir)

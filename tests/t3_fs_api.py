@@ -41,7 +41,8 @@ class fs_api_tests(TestCase):
         self.dbfile = tempfile.NamedTemporaryFile()
         self.dbcm = ConnectionManager(self.dbfile.name)
         with self.dbcm() as conn:
-            mkfs.setup_db(conn, self.blocksize)
+            mkfs.setup_tables(conn)
+            mkfs.init_tables(conn, self.blocksize)
 
         self.cache = BlockCache(self.bucket, self.cachedir, self.blocksize * 5, self.dbcm)
         self.lock = threading.Lock()

@@ -1,4 +1,6 @@
 xxx, S3QL 0.11
+
+  * Metadata now takes significantly less space.
   
   * Files with extended attributes can now be deleted.
   
