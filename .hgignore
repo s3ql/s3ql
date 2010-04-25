@@ -2,10 +2,11 @@ syntax: regexp
 ^src/llfuse/ctypes_api\.py$
 ^src/s3ql/libc_api\.py$
 ^doc/doctrees$
-^doc/html
+^doc/html$
 ^dist$
 ^src/s3ql\.egg-info$
 ^build$
 ^src/s3ql/lzma\.so$
 ^.pydevproject$
 ^.project$
+^.settings$
