@@ -61,8 +61,7 @@ class ConnectionManager(object):
         set specific pragmas for all connections).
         '''
         self.dbfile = dbfile
-        self.initsql = ('PRAGMA temp_store = 2;'
-                        'PRAGMA synchronous = off;'
+        self.initsql = ('PRAGMA synchronous = off;'
                         'PRAGMA foreign_keys = ON;')
         self.retrytime = retrytime
         self.pool = list()
