@@ -1,18 +1,11 @@
-
 syntax: regexp
 ^src/llfuse/ctypes_api\.py$
-syntax: regexp
 ^src/s3ql/libc_api\.py$
-syntax: regexp
 ^doc/doctrees$
-syntax: regexp
 ^doc/html
-syntax: regexp
 ^dist$
-syntax: regexp
 ^src/s3ql\.egg-info$
-
-syntax: regexp
 ^build$
-syntax: regexp
 ^src/s3ql/lzma\.so$
+^.pydevproject$
+^.project$
