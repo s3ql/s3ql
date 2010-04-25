@@ -1,5 +1,7 @@
-xxx, S3QL 0.11
+2010-04-24, S3QL 0.11
 
+  * S3QL file system can now be mounted from /etc/fstab
+  
   * Metadata now takes significantly less space.
   
   * Files with extended attributes can now be deleted.
