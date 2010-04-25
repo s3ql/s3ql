@@ -31,6 +31,9 @@ __all__ = ["get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_parameter
 VERSION = '0.11'
 CURRENT_FS_REV = 4
 
+AUTHINFO_BACKEND_PATTERN = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(\S+)$'
+AUTHINFO_BUCKET_PATTERN = r'^storage-url\s+(\S+)\s+password\s+(\S+)$'
+    
 log = logging.getLogger('common')
 
 @contextmanager
@@ -51,7 +54,7 @@ def get_backend(options):
         options.storage_url = 'local://%s' % bucketname
 
     elif storage_url.startswith('s3://'):
-        (login, password) = get_credentials(options.homedir, 's3', None)
+        (login, password) = get_backend_credentials(options.homedir, 's3', None)
         conn = s3.Connection(login, password)
         bucketname = storage_url[len('s3://'):]
 
@@ -61,7 +64,7 @@ def get_backend(options):
         if not match:
             raise QuietError('Invalid storage url: %r' % storage_url)
         (backend, host, port, bucketname) = match.groups()
-        (login, password) = get_credentials(options.homedir, backend, host)
+        (login, password) = get_backend_credentials(options.homedir, backend, host)
 
         if backend == 'ftp':
             conn = ftp.Connection(host, port, login, password)
@@ -89,17 +92,48 @@ def cycle_metadata(bucket):
                 bucket.copy("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
 
 
-def unlock_bucket(bucket):
+def unlock_bucket(options, bucket):
     '''Ask for passphrase if bucket requires one'''
 
-    if 's3ql_passphrase' in bucket:
+    if 's3ql_passphrase' not in bucket:
+        return
+    
+    # Try to read from file
+    keyfile = os.path.join(options.homedir, 'authinfo')
+    wrap_pw = None
+    
+    if os.path.isfile(keyfile):
+        mode = os.stat(keyfile).st_mode
+        if mode & (stat.S_IRGRP | stat.S_IROTH):
+            raise QuietError("%s has insecure permissions, aborting." % keyfile)
+
+        fh = open(keyfile, "r")
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if re.match(AUTHINFO_BACKEND_PATTERN, line):
+                continue
+            res = re.match(AUTHINFO_BUCKET_PATTERN, line)
+            if not res:
+                log.warn('Cannot parse line in %s:\n %s', keyfile, line)
+                continue
+
+            if options.storage_url == res.group(1):
+                wrap_pw = res.group(2)
+                log.info('Using encryption password from %s', keyfile)
+                break
+
+    # Otherwise from stdin
+    if wrap_pw is None:
         if sys.stdin.isatty():
             wrap_pw = getpass("Enter encryption password: ")
         else:
             wrap_pw = sys.stdin.readline().rstrip()
-        bucket.passphrase = wrap_pw
-        data_pw = bucket['s3ql_passphrase']
-        bucket.passphrase = data_pw
+        
+    bucket.passphrase = wrap_pw
+    data_pw = bucket['s3ql_passphrase']
+    bucket.passphrase = data_pw
 
 def get_parameters(bucket):
     '''Return file system parameters.
@@ -385,12 +419,12 @@ def get_lockfile(storage_url, homedir):
     return os.path.join(homedir, "%s.lock" % _escape(storage_url))
 
 
-def get_credentials(homedir, backend, host):
-    """Get credentials for given backend and protocol"""
+def get_backend_credentials(homedir, backend, host):
+    """Get credentials for given backend and host"""
 
     # Try to read from file
     keyfile = os.path.join(homedir, 'authinfo')
-    pattern = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(\S+)$'
+
     if os.path.isfile(keyfile):
         mode = os.stat(keyfile).st_mode
         if mode & (stat.S_IRGRP | stat.S_IROTH):
@@ -401,12 +435,15 @@ def get_credentials(homedir, backend, host):
             line = line.strip()
             if not line or line.startswith('#'):
                 continue
-            res = re.match(pattern, line)
+            if re.match(AUTHINFO_BUCKET_PATTERN, line):
+                continue
+            res = re.match(AUTHINFO_BACKEND_PATTERN, line)
             if not res:
                 log.warn('Cannot parse line in %s:\n %s', keyfile, line)
                 continue
 
             if backend == res.group(1) and (host is None or host == res.group(2)):
+                log.info('Using backend credentials from %s', keyfile)
                 return res.group(3, 4)
 
     # Otherwise from stdin

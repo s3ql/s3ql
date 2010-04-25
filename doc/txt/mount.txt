@@ -49,6 +49,32 @@ You can specify the following options:
                         blocks.
 
 
+.. _bucket_pw:
+
+Storing Bucket Passwords
+========================
+
+If you are trying to mount an encrypted bucket, `mount.s3ql` will first
+try to read the password from the `.s3ql/authinfo` file (the same file
+that is used to read the backend authentication data) and prompt the
+user to enter the password only if this fails.
+
+The `.authinfo` entries to specify bucket passwords are of the form ::
+
+  storage-url <storage-url> password <password>
+
+So to always use the password `topsecret` when mounting `s3://joes_bucket`,
+the entry would be ::
+
+  storage-url s3://joes_bucket password topsecret
+
+**Note**: if you are using the local backend, the storage url will
+always be converted to an absolute path. So if you are in the
+`/home/john` directory and try to mount `local://bucket`, the matching
+`.authinfo` entry has to have a storage url of
+`local:///home/john/bucket`.
+
+
 Compression Algorithms
 ======================
 

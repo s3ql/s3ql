@@ -20,7 +20,7 @@ You can specify the following options:
                         `us-standard`. The later is not recommended,
                         please refer to the FAQ for more information.
   --homedir=HOMEDIR     Directory for log files, cache and authentication
-                        info.Default: `~/.s3ql`
+                        info. Default: `~/.s3ql`
   -L LABEL              Filesystem label
   --blocksize=BLOCKSIZE
                         Maximum size of s3 objects in KB (default: 10240)
@@ -29,3 +29,9 @@ You can specify the following options:
                         `all` to get debug messages from all modules. This
                         option can be specified multiple times.
   --quiet               Be really quiet
+
+
+Unless you have specified the `--plain` option, `mkfs.s3ql` will ask you
+to enter an encryption password. If you do not want to enter this
+password every time that you mount the file system, you can store it
+in the `~/.s3ql/authinfo` file, see :ref:`bucket_pw`.

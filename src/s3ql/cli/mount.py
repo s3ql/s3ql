@@ -61,7 +61,7 @@ def main(args=None):
                              'refer to the FAQ at http://code.google.com/p/s3ql/ for details.\n'
                              '(you can relocate your bucket with tune.s3ql --copy if desired)')
         try:
-            unlock_bucket(bucket)
+            unlock_bucket(options, bucket)
         except ChecksumError:
             raise QuietError('Checksum error - incorrect password?')
 
