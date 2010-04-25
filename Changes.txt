@@ -1,3 +1,9 @@
+xxx, S3QL 0.12
+  
+  * mount.s3ql doesn't complain any more if it receives any of the standard
+    mount(8) mount options.
+  
+  
 2010-04-24, S3QL 0.11
 
   * S3QL file system can now be mounted from /etc/fstab
