@@ -263,7 +263,7 @@ def parse_args(args):
                 args.insert(pos, val)
                 args.insert(pos, '--' + key)
             else:
-                if opt == 'rw':
+                if opt in ('rw', 'defaults', 'auto', 'noauto', 'user', 'nouser'):
                     continue
                 elif opt == 'ro':
                     raise QuietError('Read-only mounting not supported.')
