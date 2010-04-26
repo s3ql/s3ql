@@ -255,7 +255,9 @@ def op_wrapper(func, req, *args):
                 pass
 
         # Send error reply, unless the error occured when replying
-        if not isinstance(exc, ReplyErrError):
+        if (not isinstance(exc, ReplyErrError) 
+            and func is not fuse_destroy 
+            and func is not fuse_init):
             log.debug('Calling fuse_reply_err(EIO)')
             try:
                 libfuse.fuse_reply_err(req, errno.EIO)
