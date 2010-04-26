@@ -9,15 +9,12 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 import logging
-from s3ql.common import stacktraces
 from contextlib import contextmanager
 import tempfile
 import apsw
-import time
 import os
 import types
 import thread
-from random import randrange
 
 __all__ = [ "ConnectionManager", 'WrappedConnection', 'NoUniqueValueError' ]
 
@@ -310,43 +307,22 @@ class WrappedConnection(object):
         else:
             newbindings = bindings
 
-
-        waited = 0
-        step = 1
-        #log.debug(statement)
-        while True:
-            curtime = time.time()
-            try:
-                if bindings is not None:
-                    return cur.execute(statement, newbindings)
-                else:
-                    return cur.execute(statement)
-            except apsw.LockedError:
-                if waited > self.retrytime:
-                    raise # We don't wait any longer 
-                time.sleep(step / 1000)
-                waited += step
-                step = randrange(step + 1, 2 * (step + 1), 1)
-            except apsw.BusyError:
-                if time.time() - curtime < self.retrytime / 1000:
-                    log.error('SQLite detected deadlock condition!')
-                # Print stack trace
-                log.error('BusyError - writing stack trace to ./s3ql_stack_trace.txt:')
-                fh = open('s3ql_stack_trace.txt', 'w')
-                fh.write(stacktraces())
-                fh.close()
-                raise
-            except apsw.CantOpenError:
-                # Try to open a file, this should give us a better error
-                # in case we have run out of FDs
-                fh = tempfile.NamedTemporaryFile()
-                fh.write('Enough fds...')
-                fh.close()
-                raise
-            except apsw.ConstraintError:
-                log.error('Constraint error when executing %r with bindings %r',
-                          statement, newbindings)
-                raise
+        try:
+            if bindings is not None:
+                return cur.execute(statement, newbindings)
+            else:
+                return cur.execute(statement)
+        except apsw.CantOpenError:
+            # Try to open a file, this should give us a better error
+            # in case we have run out of FDs
+            fh = tempfile.NamedTemporaryFile()
+            fh.write('Enough fds...')
+            fh.close()
+            raise
+        except apsw.ConstraintError:
+            log.error('Constraint error when executing %r with bindings %r',
+                      statement, bindings)
+            raise
 
 
     def has_val(self, *a, **kw):
