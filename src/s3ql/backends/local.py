@@ -76,7 +76,14 @@ class Bucket(AbstractBucket):
 
     def contains(self, key):
         filename = escape(key) + '.dat'
-        return filename in os.listdir(self.name)
+        try:
+            os.lstat(os.path.join(self.name, filename))
+        except IOError as exc:
+            if exc.errno == errno.ENOENT:
+                return False
+            raise
+        return True
+
 
     def raw_lookup(self, key):
         filename = os.path.join(self.name, escape(key))
