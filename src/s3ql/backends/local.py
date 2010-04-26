@@ -78,7 +78,7 @@ class Bucket(AbstractBucket):
         filename = escape(key) + '.dat'
         try:
             os.lstat(os.path.join(self.name, filename))
-        except IOError as exc:
+        except OSError as exc:
             if exc.errno == errno.ENOENT:
                 return False
             raise
