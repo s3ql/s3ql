@@ -31,8 +31,6 @@ bucket = None
 expect_errors = False
 found_errors = False
 
-# TODO: Check for files with more data than size
-
 S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK |
           stat.S_IFCHR | stat.S_IFIFO | stat.S_IFLNK)
 
@@ -114,70 +112,51 @@ def check_cache():
     for filename in os.listdir(cachedir):
         found_errors = True
 
-        match = re.match('^inode_(-?\\d+)_block_(\\d+)$', filename)
+        match = re.match('^inode_(\\d+)_block_(\\d+)$', filename)
         if match:
             (inode, blockno) = [ int(match.group(i)) for i in (1, 2) ]
         else:
             raise RuntimeError('Strange file in cache directory: %s' % filename)
 
-        if inode == block_cache.DELETED_INODE:
-            old_obj_id = blockno
-            log_error('Deleting orphaned block %d', old_obj_id)
+        log_error("Committing (potentially changed) cache for inode %d, block %d",
+                  inode, blockno)
 
-            # Object should still be in table, but if it is not, we shouldn't fail
-            try:
-                refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?',
-                                        (old_obj_id,))
-            except KeyError:
-                refcount = 0
+        fh = open(os.path.join(cachedir, filename), "rb")
+        fh.seek(0, 2)
+        size = fh.tell()
+        fh.seek(0)
+        hash_ = sha256_fh(fh)
 
+        try:
+            obj_id = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
+
+        except KeyError:
+            obj_id = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
+                               (1, hash_, size))
+            bucket.store_fh('s3ql_data_%d' % obj_id, fh)
+
+        else:
+            conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
+                         (obj_id,))
+
+        try:
+            old_obj_id = conn.get_val('SELECT obj_id FROM blocks WHERE inode=? AND blockno=?',
+                                     (inode, blockno))
+        except KeyError:
+            conn.execute('INSERT INTO blocks (obj_id, inode, blockno) VALUES(?,?,?)',
+                         (obj_id, inode, blockno))
+        else:
+            conn.execute('UPDATE blocks SET obj_id=? WHERE inode=? AND blockno=?',
+                         (obj_id, inode, blockno))
+
+            refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?',
+                                    (old_obj_id,))
             if refcount > 1:
                 conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
                              (old_obj_id,))
             else:
-                # Don't delete yet, maybe block is still referenced
+                # Don't delete yet, maybe it's still referenced
                 pass
-
-        else:
-            log_error("Committing (potentially changed) cache for inode %d, block %d",
-                      inode, blockno)
-
-            fh = open(os.path.join(cachedir, filename), "rb")
-            fh.seek(0, 2)
-            size = fh.tell()
-            fh.seek(0)
-            hash_ = sha256_fh(fh)
-
-            try:
-                obj_id = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
-
-            except KeyError:
-                obj_id = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
-                                   (1, hash_, size))
-                bucket.store_fh('s3ql_data_%d' % obj_id, fh)
-
-            else:
-                conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
-                             (obj_id,))
-
-            try:
-                old_obj_id = conn.get_val('SELECT obj_id FROM blocks WHERE inode=? AND blockno=?',
-                                         (inode, blockno))
-            except KeyError:
-                conn.execute('INSERT INTO blocks (obj_id, inode, blockno) VALUES(?,?,?)',
-                             (obj_id, inode, blockno))
-            else:
-                conn.execute('UPDATE blocks SET obj_id=? WHERE inode=? AND blockno=?',
-                             (obj_id, inode, blockno))
-
-                refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?',
-                                        (old_obj_id,))
-                if refcount > 1:
-                    conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
-                                 (old_obj_id,))
-                else:
-                    # Don't delete yet, maybe it's still referenced
-                    pass
 
 
             fh.close()

@@ -1,5 +1,8 @@
 xxx, S3QL 0.12
   
+  * Fixed a problem with running out of file descriptors when lots of
+    objects are deleted.
+    
   * Bucket encryption passwords can now also be stored in
     the ~/.s3ql/authinfo file.
    

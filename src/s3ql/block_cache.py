@@ -29,10 +29,6 @@ log = logging.getLogger("BlockCache")
 # Standard file descriptor limit per process is 1024
 MAX_CACHE_ENTRIES = 768
 
-# Blocks that have been deleted are stored in the cache
-# under this inode, with the blockno set to the object id
-DELETED_INODE = -1
-
 class CacheEntry(file):
     """An element in the block cache
     
@@ -49,7 +45,6 @@ class CacheEntry(file):
         self.inode = inode
         self.blockno = blockno
         self.last_access = 0
-        self.removed = False
 
     def truncate(self, *a, **kw):
         self.dirty = True
@@ -88,27 +83,25 @@ class BlockCache(object):
         self.bucket = bucket
         self.mlock = MultiLock()
         self.dbcm = dbcm
-
+        self.removal_queue = RemovalQueue(self)
         self.io_thread = None
         self.expiry_lock = threading.Lock()
 
-    def start_io_thread(self):
-        '''Start IO thread'''
-
-        log.debug('start_io_thread: start')
+    def init(self):
+        log.debug('init: start')
         self.io_thread = ExceptionStoringThread(self._io_loop, log, pass_self=True)
         self.io_thread.stop_event = threading.Event()
         self.io_thread.start()
-        log.debug('start_io_thread: end')
+        log.debug('init: end')
 
-    def stop_io_thread(self):
-        '''Stop background IO thread'''
-
-        log.debug('stop_io_thread: start')
+    def close(self):
+        log.debug('close: start')
         if self.io_thread.is_alive():
             self.io_thread.stop_event.set()
         self.io_thread.join_and_raise()
-        log.debug('stop_io_thread: end')
+        self.removal_queue.wait()
+        self.clear()
+        log.debug('close: end')
 
     def _io_loop(self, self_t):
         '''Run IO loop'''
@@ -136,8 +129,6 @@ class BlockCache(object):
                 if stamp - el.last_access < 10:
                     break
                 if not el.dirty:
-                    if el.inode == DELETED_INODE:
-                        self._remove_entry(el, deleted_only=True)
                     continue
 
                 self_t.queue.add(el)
@@ -149,11 +140,10 @@ class BlockCache(object):
 
         log.debug('_do_io: end')
 
-    def _remove_entry(self, el, deleted_only=False):
+    def _remove_entry(self, el):
         '''Try to remove `el' from cache
         
-        The entry is only removed if it is not dirty. If `deleted_only`
-        is set, only entries with inode == DELETED_INODE are removed.
+        The entry is only removed if it is not dirty.
         
         Both conditions are checked after the block has been locked and
         retrieved again from the cache. 
@@ -167,10 +157,6 @@ class BlockCache(object):
                 return
             if el.dirty:
                 log.debug('_remove_entry(%s): end (dirty)', el)
-                return
-
-            if deleted_only and el.inode != DELETED_INODE:
-                log.debug('_remove_entry(%s): end (not deleted)', el)
                 return
 
             log.debug('_remove_entry(%s): removing from cache', el)
@@ -310,10 +296,7 @@ class BlockCache(object):
 
 
     def remove(self, inode, blockno, lock):
-        """Mark block for removal
-        
-        The block will be unlinked from the inode and removed physically as part of the normal cache
-        expiration. 
+        """Remove block
         
         This method releases `lock' for the managed context, so the caller must
         not hold any prior database locks and must not try to acquire any
@@ -353,14 +336,9 @@ class BlockCache(object):
 
                     log.debug('remove(inode=%d, blockno=%d): block only in db ', inode, blockno)
 
-                filename = os.path.join(self.cachedir,
-                                        'inode_%d_block_%d' % (DELETED_INODE, obj_id))
-                el = CacheEntry(DELETED_INODE, obj_id, obj_id, filename, "w+b")
-                el.dirty = True
-                self.cache[(DELETED_INODE, obj_id)] = el
-                self.cache.to_tail((DELETED_INODE, obj_id))
                 self.dbcm.execute('DELETE FROM blocks WHERE inode=? AND blockno=?',
                                   (inode, blockno))
+            self.removal_queue.add(obj_id)
 
         finally:
             lock.acquire()
@@ -404,8 +382,7 @@ class BlockCache(object):
 
         log.debug('clear: start')
         bak = self.maxsize
-        # maxsize=0 is not sufficient, that would keep entries
-        # marked for deletion
+        # maxsize=0 is not sufficient, that would keep entries with 0 size
         self.maxsize = -1
         self._expire()
         self.maxsize = bak
@@ -413,7 +390,7 @@ class BlockCache(object):
 
     def __del__(self):
         if len(self.cache) > 0:
-            raise RuntimeError("BlockCache instance was destroyed without calling clear()!")
+            raise RuntimeError("BlockCache instance was destroyed without calling close()!")
 
 
 def retry_exc(timeout, exc_types, fn, *a, **kw):
@@ -550,48 +527,36 @@ class UploadQueue(object):
 
         size = os.fstat(el.fileno()).st_size
 
-        # If the inode is None, the block is marked for removal
-        if el.inode != DELETED_INODE:
-            el.seek(0)
-            hash_ = sha256_fh(el)
-        else:
-            log.debug('UploadQueue._prepare_upload(inode=%d, blockno=%d): marked for removal',
-                      el.inode, el.blockno)
-
+        el.seek(0)
+        hash_ = sha256_fh(el)
         old_obj_id = el.obj_id
         with self.bcache.dbcm.transaction() as conn:
-            if el.inode == DELETED_INODE:
-                need_upload = False
-                el.obj_id = None
+            try:
+                el.obj_id = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
+
+            except KeyError:
+                need_upload = True
+                el.obj_id = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
+                                      (1, hash_, size))
+                log.debug('UploadQueue._prepare_upload(inode=%d, blockno=%d): created new object %d',
+                          el.inode, el.blockno, el.obj_id)
+
             else:
-                try:
-                    el.obj_id = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
-
-                except KeyError:
-                    need_upload = True
-                    el.obj_id = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
-                                          (1, hash_, size))
-                    log.debug('UploadQueue._prepare_upload(inode=%d, blockno=%d): created new object %d',
-                              el.inode, el.blockno, el.obj_id)
-
-                else:
-                    need_upload = False
-                    log.debug('UploadQueue._prepare_upload(inode=%d, blockno=%d): (re)linking to %d',
-                              el.inode, el.blockno, el.obj_id)
-                    conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
-                                 (el.obj_id,))
+                need_upload = False
+                log.debug('UploadQueue._prepare_upload(inode=%d, blockno=%d): (re)linking to %d',
+                          el.inode, el.blockno, el.obj_id)
+                conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
+                             (el.obj_id,))
 
             if old_obj_id is None:
                 log.debug('UploadQueue._prepare_upload(inode=%d, blockno=%d): no previous object',
                           el.inode, el.blockno)
-                if el.inode != DELETED_INODE:
-                    conn.execute('INSERT INTO blocks (obj_id, inode, blockno) VALUES(?,?,?)',
-                                 (el.obj_id, el.inode, el.blockno))
+                conn.execute('INSERT INTO blocks (obj_id, inode, blockno) VALUES(?,?,?)',
+                             (el.obj_id, el.inode, el.blockno))
                 to_delete = False
             else:
-                if el.inode != DELETED_INODE:
-                    conn.execute('UPDATE blocks SET obj_id=? WHERE inode=? AND blockno=?',
-                                 (el.obj_id, el.inode, el.blockno))
+                conn.execute('UPDATE blocks SET obj_id=? WHERE inode=? AND blockno=?',
+                             (el.obj_id, el.inode, el.blockno))
                 refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?',
                                         (old_obj_id,))
                 if refcount > 1:
@@ -627,3 +592,85 @@ class UploadQueue(object):
         log.debug('UploadQueue._prepare_upload(inode=%d, blockno=%d): end',
                   el.inode, el.blockno)
         return doit
+    
+    
+class RemovalQueue(object):
+    '''
+    Schedules and executes object removals to make optimum usage network
+    bandwith.
+    '''
+
+    def __init__(self, bcache):
+        self.threads = list()
+        self.bcache = bcache
+        self.max_threads = 25
+
+    def add(self, obj_id):
+        '''Remove object obj_id
+        
+        This function may block if the queue is already full, otherwise it
+        returns immediately while the removal proceeds in the background.
+        '''
+
+        log.debug('RemovalQueue.add(%s): start', obj_id)
+
+ 
+        fn = self._prepare_removal(obj_id)
+        
+        if fn:
+            if len(self.threads) > self.max_threads:
+                log.debug('RemovalQueue.add(%s): waiting for removal thread', obj_id)
+                self.wait_for_thread()
+
+            log.debug('RemovalQueue.add(%s): starting removal thread', obj_id)
+            t = ExceptionStoringThread(fn, log)
+            self.threads.append(t)
+            t.start()
+        else:
+            log.debug('RemovalQueue.add(%s): no retwork transaction required', obj_id)
+
+        log.debug('RemovalQueue.add(%s): end', obj_id)
+
+    def wait_for_thread(self):
+        while True:
+            for t in self.threads:
+                t.join(1)
+                if not t.is_alive():
+                    self.threads.remove(t)
+                    t.join_and_raise()
+                    return
+
+    def wait(self):
+        while len(self.threads) > 0:
+            self.wait_for_thread()
+
+    def _prepare_removal(self, obj_id):
+        '''Prepare removal of specified object
+        
+        Returns a function that does the required network transactions. Returns
+        None if no network access is required.
+        '''
+
+        log.debug('RemovalQueue._prepare_remval(%d): start', obj_id)
+
+        with self.bcache.dbcm.transaction() as conn:
+            refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?',
+                                    (obj_id,))
+            if refcount > 1:
+                log.debug('RemovalQueue._prepare_removal(%d): decreased refcount', obj_id)
+                conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
+                             (obj_id,))
+                to_delete = False
+            else:
+                log.debug('RemovalQueue._prepare_remval(%d): refcount reached 0', obj_id)
+                conn.execute('DELETE FROM objects WHERE id=?', (obj_id,))
+                to_delete = True
+
+        if to_delete:
+            doit = lambda : retry_exc(300, [ KeyError ], self.bcache.bucket.delete,
+                                      's3ql_data_%d' % obj_id)
+        else:
+            doit = None
+
+        log.debug('RemovalQueue._prepare_remval(%d): end', obj_id)
+        return doit    

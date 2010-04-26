@@ -119,11 +119,11 @@ class Operations(llfuse.Operations):
         self.inodes[CTRL_INODE].gid = os.getgid()
 
     def init(self):
-        self.cache.start_io_thread()
+        self.cache.init()
         self.inodes.init()
 
     def destroy(self):
-        self.cache.stop_io_thread()
+        self.cache.close()
         self.inodes.close()
 
     def lookup(self, id_p, name):

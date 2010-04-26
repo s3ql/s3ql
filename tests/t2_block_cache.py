@@ -215,39 +215,14 @@ class cache_tests(TestCase):
         self.assertIsNone(queue._prepare_upload(el1))
         self.cache.bucket.verify()
 
-    def test_prepare_upload_del_no_ref(self):
-        inode = self.inode
-        datalen = int(0.1 * self.cache.maxsize)
-        blockno = 21
-        data = self.random_data(datalen)
 
-        queue = UploadQueue(self.cache)
-        
-        # Delete object, no references left
-        self.cache.bucket = TestBucket(self.bucket, no_store=1)
-        with self.cache.get(inode, blockno, self.lock) as fh:
-            fh.seek(0)
-            fh.write(data)
-        self.cache.clear()
-        self.cache.bucket.verify()
-
-        self.cache.bucket = TestBucket(self.bucket, no_del=1)
-        self.cache.remove(inode, blockno, self.lock)
-        el = self.cache.cache.get_last()
-        self.assertEquals(el.inode, -1)
-        queue._prepare_upload(el)()
-        self.cache.bucket.verify()
-
-    def test_prepare_upload_del_ref(self):
+    def test_remove_referenced(self):
         inode = self.inode
         datalen = int(0.1 * self.cache.maxsize)
         blockno1 = 21
         blockno2 = 24
         data = self.random_data(datalen)
-
-        queue = UploadQueue(self.cache)
         
-        # Delete object, no references left
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
         with self.cache.get(inode, blockno1, self.lock) as fh:
             fh.seek(0)
@@ -260,9 +235,6 @@ class cache_tests(TestCase):
 
         self.cache.bucket = TestBucket(self.bucket)
         self.cache.remove(inode, blockno1, self.lock)
-        el = self.cache.cache.get_last()
-        self.assertEquals(el.inode, -1)
-        self.assertIsNone(queue._prepare_upload(el))
         self.cache.bucket.verify()
 
     def test_remove_cache(self):
@@ -289,6 +261,7 @@ class cache_tests(TestCase):
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
         self.cache.flush(inode)
         self.cache.bucket.verify()
+        self.cache.bucket = TestBucket(self.bucket, no_del=1)
         self.cache.remove(inode, 1, self.lock)
         with self.cache.get(inode, 1, self.lock) as fh:
             fh.seek(0)
@@ -305,6 +278,7 @@ class cache_tests(TestCase):
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
         self.cache.clear()
         self.cache.bucket.verify()
+        self.cache.bucket = TestBucket(self.bucket, no_del=1)
         self.cache.remove(inode, 1, self.lock)
         with self.cache.get(inode, 1, self.lock) as fh:
             fh.seek(0)
