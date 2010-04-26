@@ -312,13 +312,6 @@ class WrappedConnection(object):
                 return cur.execute(statement, newbindings)
             else:
                 return cur.execute(statement)
-        except apsw.CantOpenError:
-            # Try to open a file, this should give us a better error
-            # in case we have run out of FDs
-            fh = tempfile.NamedTemporaryFile()
-            fh.write('Enough fds...')
-            fh.close()
-            raise
         except apsw.ConstraintError:
             log.error('Constraint error when executing %r with bindings %r',
                       statement, bindings)
