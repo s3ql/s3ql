@@ -267,98 +267,6 @@ class BlockCache(object):
         log.debug('get(inode=%d, block=%d): end', inode, blockno)
         return el
 
-    def _prepare_upload(self, el):
-        '''Prepare upload of specified cache entry
-        
-        Returns a function that does the required network transactions. Returns
-        None if no network access is required.
-        
-        Caller has to take care of any necessary locking.
-        '''
-
-        log.debug('_prepare_upload(inode=%d, blockno=%d): start',
-                  el.inode, el.blockno)
-
-        size = os.fstat(el.fileno()).st_size
-
-        # If the inode is None, the block is marked for removal
-        if el.inode != DELETED_INODE:
-            el.seek(0)
-            hash_ = sha256_fh(el)
-        else:
-            log.debug('_prepare_upload(inode=%d, blockno=%d): marked for removal',
-                      el.inode, el.blockno)
-
-        old_obj_id = el.obj_id
-        with self.dbcm.transaction() as conn:
-            if el.inode == DELETED_INODE:
-                need_upload = False
-                el.obj_id = None
-            else:
-                try:
-                    el.obj_id = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
-
-                except KeyError:
-                    need_upload = True
-                    el.obj_id = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
-                                          (1, hash_, size))
-                    log.debug('_prepare_upload(inode=%d, blockno=%d): created new object %d',
-                              el.inode, el.blockno, el.obj_id)
-
-                else:
-                    need_upload = False
-                    log.debug('_prepare_upload(inode=%d, blockno=%d): (re)linking to %d',
-                              el.inode, el.blockno, el.obj_id)
-                    conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
-                                 (el.obj_id,))
-
-            if old_obj_id is None:
-                log.debug('_prepare_upload(inode=%d, blockno=%d): no previous object',
-                          el.inode, el.blockno)
-                if el.inode != DELETED_INODE:
-                    conn.execute('INSERT INTO blocks (obj_id, inode, blockno) VALUES(?,?,?)',
-                                 (el.obj_id, el.inode, el.blockno))
-                to_delete = False
-            else:
-                if el.inode != DELETED_INODE:
-                    conn.execute('UPDATE blocks SET obj_id=? WHERE inode=? AND blockno=?',
-                                 (el.obj_id, el.inode, el.blockno))
-                refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?',
-                                        (old_obj_id,))
-                if refcount > 1:
-                    log.debug('_prepare_upload(inode=%d, blockno=%d): '
-                              'decreased refcount for prev. obj: %d',
-                              el.inode, el.blockno, old_obj_id)
-                    conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
-                                 (old_obj_id,))
-                    to_delete = False
-                else:
-                    log.debug('_prepare_upload(inode=%d, blockno=%d): '
-                              'prev. obj %d marked for removal',
-                              el.inode, el.blockno, old_obj_id)
-                    conn.execute('DELETE FROM objects WHERE id=?', (old_obj_id,))
-                    to_delete = True
-
-
-        if need_upload:
-            fn = self.bucket.prep_store_fh('s3ql_data_%d' % el.obj_id, el)
-            if to_delete:
-                def doit():
-                    fn()
-                    retry_exc(300, [ KeyError ], self.bucket.delete,
-                              's3ql_data_%d' % old_obj_id)
-            else:
-                doit = fn
-        elif to_delete:
-            doit = lambda : retry_exc(300, [ KeyError ], self.bucket.delete,
-                                      's3ql_data_%d' % old_obj_id)
-        else:
-            doit = None
-
-        log.debug('_prepare_upload(inode=%d, blockno=%d): end',
-                  el.inode, el.blockno)
-        return doit
-
     def _expire(self):
         """Perform cache expiry"""
 
@@ -553,7 +461,9 @@ class UploadQueue(object):
     def add(self, el):
         '''Upload cache entry `el`
         
-        Returns size of cache entry
+        Returns size of cache entry. This function may block if the
+        queue is already full, otherwise it returns immediately after
+        compression while the upload proceeds in the background.
         '''
 
         log.debug('UploadQueue.add(%s): start', el)
@@ -577,7 +487,7 @@ class UploadQueue(object):
                 return size
 
             log.debug('UploadQueue.add(%s): preparing upload', el)
-            fn = self.bcache._prepare_upload(el)
+            fn = self._prepare_upload(el)
             if fn:
                 if (len(self.threads) > self.max_threads or
                     (self.transit_size > self.max_transit and len(self.threads) > 1)):
@@ -625,3 +535,95 @@ class UploadQueue(object):
     def wait(self):
         while len(self.threads) > 0:
             self.wait_for_thread()
+
+    def _prepare_upload(self, el):
+        '''Prepare upload of specified cache entry
+        
+        Returns a function that does the required network transactions. Returns
+        None if no network access is required.
+        
+        Caller has to take care of any necessary locking.
+        '''
+
+        log.debug('UploadQueue._prepare_upload(inode=%d, blockno=%d): start',
+                  el.inode, el.blockno)
+
+        size = os.fstat(el.fileno()).st_size
+
+        # If the inode is None, the block is marked for removal
+        if el.inode != DELETED_INODE:
+            el.seek(0)
+            hash_ = sha256_fh(el)
+        else:
+            log.debug('UploadQueue._prepare_upload(inode=%d, blockno=%d): marked for removal',
+                      el.inode, el.blockno)
+
+        old_obj_id = el.obj_id
+        with self.bcache.dbcm.transaction() as conn:
+            if el.inode == DELETED_INODE:
+                need_upload = False
+                el.obj_id = None
+            else:
+                try:
+                    el.obj_id = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
+
+                except KeyError:
+                    need_upload = True
+                    el.obj_id = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
+                                          (1, hash_, size))
+                    log.debug('UploadQueue._prepare_upload(inode=%d, blockno=%d): created new object %d',
+                              el.inode, el.blockno, el.obj_id)
+
+                else:
+                    need_upload = False
+                    log.debug('UploadQueue._prepare_upload(inode=%d, blockno=%d): (re)linking to %d',
+                              el.inode, el.blockno, el.obj_id)
+                    conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
+                                 (el.obj_id,))
+
+            if old_obj_id is None:
+                log.debug('UploadQueue._prepare_upload(inode=%d, blockno=%d): no previous object',
+                          el.inode, el.blockno)
+                if el.inode != DELETED_INODE:
+                    conn.execute('INSERT INTO blocks (obj_id, inode, blockno) VALUES(?,?,?)',
+                                 (el.obj_id, el.inode, el.blockno))
+                to_delete = False
+            else:
+                if el.inode != DELETED_INODE:
+                    conn.execute('UPDATE blocks SET obj_id=? WHERE inode=? AND blockno=?',
+                                 (el.obj_id, el.inode, el.blockno))
+                refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?',
+                                        (old_obj_id,))
+                if refcount > 1:
+                    log.debug('_UploadQueue.prepare_upload(inode=%d, blockno=%d): '
+                              'decreased refcount for prev. obj: %d',
+                              el.inode, el.blockno, old_obj_id)
+                    conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
+                                 (old_obj_id,))
+                    to_delete = False
+                else:
+                    log.debug('UploadQueue._prepare_upload(inode=%d, blockno=%d): '
+                              'prev. obj %d marked for removal',
+                              el.inode, el.blockno, old_obj_id)
+                    conn.execute('DELETE FROM objects WHERE id=?', (old_obj_id,))
+                    to_delete = True
+
+
+        if need_upload:
+            fn = self.bcache.bucket.prep_store_fh('s3ql_data_%d' % el.obj_id, el)
+            if to_delete:
+                def doit():
+                    fn()
+                    retry_exc(300, [ KeyError ], self.bcache.bucket.delete,
+                              's3ql_data_%d' % old_obj_id)
+            else:
+                doit = fn
+        elif to_delete:
+            doit = lambda : retry_exc(300, [ KeyError ], self.bcache.bucket.delete,
+                                      's3ql_data_%d' % old_obj_id)
+        else:
+            doit = None
+
+        log.debug('UploadQueue._prepare_upload(inode=%d, blockno=%d): end',
+                  el.inode, el.blockno)
+        return doit

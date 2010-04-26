@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 from s3ql import mkfs
-from s3ql.block_cache import BlockCache
+from s3ql.block_cache import BlockCache, UploadQueue
 from s3ql.backends import local
 from s3ql.database import ConnectionManager
 import os
@@ -154,6 +154,8 @@ class cache_tests(TestCase):
         data1 = self.random_data(datalen)
         data2 = self.random_data(datalen)
         data3 = self.random_data(datalen)
+        
+        queue = UploadQueue(self.cache)
 
         # Case 1: create new object
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
@@ -161,7 +163,7 @@ class cache_tests(TestCase):
             fh.seek(0)
             fh.write(data1)
             el1 = fh
-        self.cache._prepare_upload(el1)()
+        queue._prepare_upload(el1)()
         self.cache.bucket.verify()
 
         # Case 2: Link new object
@@ -170,14 +172,14 @@ class cache_tests(TestCase):
             fh.seek(0)
             fh.write(data1)
             el2 = fh
-        self.assertIsNone(self.cache._prepare_upload(el2))
+        self.assertIsNone(queue._prepare_upload(el2))
 
         # Case 3: Upload old object, still has references
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
         with self.cache.get(inode, blockno1, self.lock) as fh:
             fh.seek(0)
             fh.write(data2)
-        self.cache._prepare_upload(el1)()
+        queue._prepare_upload(el1)()
         self.cache.bucket.verify()
 
         # Case 4: Upload old object, no references left
@@ -185,7 +187,7 @@ class cache_tests(TestCase):
         with self.cache.get(inode, blockno2, self.lock) as fh:
             fh.seek(0)
             fh.write(data3)
-        self.cache._prepare_upload(el2)()
+        queue._prepare_upload(el2)()
         self.cache.bucket.verify()
 
         # Case 5: Link old object, no references left
@@ -193,7 +195,7 @@ class cache_tests(TestCase):
         with self.cache.get(inode, blockno2, self.lock) as fh:
             fh.seek(0)
             fh.write(data2)
-        self.cache._prepare_upload(el2)()
+        queue._prepare_upload(el2)()
         self.cache.bucket.verify()
 
         # Case 6: Link old object, still has references
@@ -203,14 +205,14 @@ class cache_tests(TestCase):
             fh.seek(0)
             fh.write(data1)
             el3 = fh
-        self.cache._prepare_upload(el3)()
+        queue._prepare_upload(el3)()
         self.cache.bucket.verify()
 
         self.cache.bucket = TestBucket(self.bucket)
         with self.cache.get(inode, blockno1, self.lock) as fh:
             fh.seek(0)
             fh.write(data1)
-        self.assertIsNone(self.cache._prepare_upload(el1))
+        self.assertIsNone(queue._prepare_upload(el1))
         self.cache.bucket.verify()
 
     def test_prepare_upload_del_no_ref(self):
@@ -219,6 +221,8 @@ class cache_tests(TestCase):
         blockno = 21
         data = self.random_data(datalen)
 
+        queue = UploadQueue(self.cache)
+        
         # Delete object, no references left
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
         with self.cache.get(inode, blockno, self.lock) as fh:
@@ -231,7 +235,7 @@ class cache_tests(TestCase):
         self.cache.remove(inode, blockno, self.lock)
         el = self.cache.cache.get_last()
         self.assertEquals(el.inode, -1)
-        self.cache._prepare_upload(el)()
+        queue._prepare_upload(el)()
         self.cache.bucket.verify()
 
     def test_prepare_upload_del_ref(self):
@@ -241,6 +245,8 @@ class cache_tests(TestCase):
         blockno2 = 24
         data = self.random_data(datalen)
 
+        queue = UploadQueue(self.cache)
+        
         # Delete object, no references left
         self.cache.bucket = TestBucket(self.bucket, no_store=1)
         with self.cache.get(inode, blockno1, self.lock) as fh:
@@ -256,9 +262,8 @@ class cache_tests(TestCase):
         self.cache.remove(inode, blockno1, self.lock)
         el = self.cache.cache.get_last()
         self.assertEquals(el.inode, -1)
-        self.assertIsNone(self.cache._prepare_upload(el))
+        self.assertIsNone(queue._prepare_upload(el))
         self.cache.bucket.verify()
-
 
     def test_remove_cache(self):
         inode = self.inode
