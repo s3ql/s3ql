@@ -188,19 +188,24 @@ def upgrade(conn, bucket):
             tmp.seek(0)
             unpickler = pickle.Unpickler(tmp)
         
-            while True:
-                table = unpickler.load()
-                if table == 'EOF':
-                    break
-                buf = unpickler.load()
-                if not buf:
-                    continue
-                sql = 'INSERT INTO %s VALUES(%s)' % (table,
-                                                     ','.join('?' for _ in range(len(buf[0]))))
-                with dbcm.transaction() as conn:
-                    for row in buf:
-                        conn.execute(sql, row)
-
+            with dbcm() as conn:
+                conn.execute('PRAGMA foreign_keys = OFF')
+                try:
+                    with conn.transaction(): 
+                        while True:
+                            table = unpickler.load()
+                            if table == 'EOF':
+                                break
+                            buf = unpickler.load()
+                            if not buf:
+                                continue
+                            sql = 'INSERT INTO %s VALUES(%s)' % (table,
+                                                                 ','.join('?' for _ in range(len(buf[0]))))
+                            for row in buf:
+                                conn.execute(sql, row)
+                finally:
+                    conn.execute('PRAGMA foreign_keys = ON')  
+            
     # Check consistency
     mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
     if mountcnt_db < param['mountcnt']:
