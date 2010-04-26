@@ -14,7 +14,7 @@ import time
 
 from s3ql.common import ROOT_INODE, CTRL_INODE
 
-__all__ = [ "setup_tables", 'init_tables' ]
+__all__ = [ "setup_tables", 'init_tables', 'create_indices' ]
 
 def init_tables(conn, blocksize, label=u"unnamed s3qlfs"):
     # Create a list of valid inode types
@@ -87,94 +87,71 @@ def setup_tables(conn):
         -- rowid. Also, as long as we don't store a separate generation no,
         -- we can't reuse old rowids. Therefore we will run out of inodes after
         -- 49 days if we insert 1000 rows per second. 
-        id        INTEGER PRIMARY KEY AUTOINCREMENT
-                  CHECK (id < 4294967296),
-        uid       INT NOT NULL 
-                  CHECK (typeof(uid) == 'integer'),
-        gid       INT NOT NULL 
-                  CHECK (typeof(gid) == 'integer'),
-        mode      INT NOT NULL 
-                  CHECK (typeof(mode) == 'integer'),
-        mtime     REAL NOT NULL 
-                  CHECK (typeof(mtime) == 'real'),
-        atime     REAL NOT NULL 
-                  CHECK (typeof(atime) == 'real'),
-        ctime     REAL NOT NULL 
-                  CHECK (typeof(ctime) == 'real'),
-        refcount  INT NOT NULL
-                  CHECK (typeof(refcount) == 'integer' AND refcount > 0),
-        target    BLOB(256) 
-                  CHECK (typeof(target) IN ('blob', 'null')),
-        size      INT NOT NULL DEFAULT 0
-                  CHECK (typeof(size) == 'integer' AND size >= 0),
-        rdev      INT NOT NULL DEFAULT 0
-                  CHECK (typeof(rdev) == 'integer'),
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        uid       INT NOT NULL,
+        gid       INT NOT NULL,
+        mode      INT NOT NULL,
+        mtime     REAL NOT NULL,
+        atime     REAL NOT NULL,
+        ctime     REAL NOT NULL,
+        refcount  INT NOT NULL,
+        target    BLOB(256) ,
+        size      INT NOT NULL DEFAULT 0,
+        rdev      INT NOT NULL DEFAULT 0,
                                     
         -- Correction term to add to refcount to get st_nlink
         nlink_off INT NOT NULL DEFAULT 0
-                  CHECK (typeof(nlink_off) == 'integer')
     )
     """)
 
     # Table of filesystem objects
     conn.execute("""
     CREATE TABLE contents (
-        name      BLOB(256) NOT NULL
-                  CHECK (typeof(name) == 'blob'),
+        name      BLOB(256) NOT NULL,
         inode     INT NOT NULL REFERENCES inodes(id),
         parent_inode INT NOT NULL REFERENCES inodes(id),
         
         PRIMARY KEY (name, parent_inode)
-    );
-    CREATE INDEX ix_contents_parent_inode ON contents(parent_inode);
-    CREATE INDEX ix_contents_inode ON contents(inode);
-    """)
-
+    )""")
+    
     # Extended attributes
     conn.execute("""
     CREATE TABLE ext_attributes (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
-        name      BLOB NOT NULL
-                  CHECK (typeof(name) == 'blob'),
-        value     BLOB NOT NULL
-                  CHECK (typeof(value) == 'blob'),
+        name      BLOB NOT NULL,
+        value     BLOB NOT NULL,
  
         PRIMARY KEY (inode, name)               
-    );
-    CREATE INDEX ix_ext_attributes_inode ON ext_attributes(inode);
-    """)
+    )""")
 
     # Refcount is included for performance reasons, for directories, the
     # refcount also includes the implicit '.' entry
     conn.execute("""
     CREATE TABLE objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
-        refcount  INT NOT NULL
-                  CHECK (typeof(refcount) == 'integer' AND refcount > 0),
+        refcount  INT NOT NULL,
                   
         -- hash and size is only updated when the object is committed
-        hash      BLOB(16) UNIQUE
-                  CHECK (typeof(hash) IN ('blob', 'null')),
-        size      INT NOT NULL
-                  CHECK (typeof(size) == 'integer' AND size >= 0)                  
-    );
-    CREATE INDEX ix_objects_hash ON objects(hash);
-    """)
+        hash      BLOB(16) UNIQUE,
+        size      INT NOT NULL                 
+    )""")
+
 
     # Maps blocks to objects
     conn.execute("""
     CREATE TABLE blocks (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
-        blockno   INT NOT NULL
-                  CHECK (typeof(blockno) == 'integer' AND blockno >= 0),
+        blockno   INT NOT NULL,
         obj_id    INTEGER NOT NULL REFERENCES objects(id),
  
         PRIMARY KEY (inode, blockno)
-    );
-    CREATE INDEX ix_blocks_obj_id ON blocks(obj_id);
-    CREATE INDEX ix_blocks_inode ON blocks(inode);
-    """)
+    )""")
 
-
-
+def create_indices(conn):
+    conn.execute('CREATE INDEX ix_contents_parent_inode ON contents(parent_inode)')
+    conn.execute('CREATE INDEX ix_contents_inode ON contents(inode)')
+    conn.execute('CREATE INDEX ix_ext_attributes_inode ON ext_attributes(inode)')
+    conn.execute('CREATE INDEX ix_objects_hash ON objects(hash)')
+    conn.execute('CREATE INDEX ix_blocks_obj_id ON blocks(obj_id)')
+    conn.execute('CREATE INDEX ix_blocks_inode ON blocks(inode)')             
 

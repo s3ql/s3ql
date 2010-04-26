@@ -28,8 +28,8 @@ __all__ = ["get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_parameter
            'cycle_metadata', 'CURRENT_FS_REV', 'VERSION', 'restore_metadata',
            'dump_metadata' ]
 
-VERSION = '0.11'
-CURRENT_FS_REV = 4
+VERSION = '0.12'
+CURRENT_FS_REV = 5
 
 AUTHINFO_BACKEND_PATTERN = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(\S+)$'
 AUTHINFO_BUCKET_PATTERN = r'^storage-url\s+(\S+)\s+password\s+(\S+)$'
@@ -161,49 +161,86 @@ def get_parameters(bucket):
 
     return param
 
+
 def dump_metadata(dbcm, ofh):
-    bufsize = 500
-    buf = range(bufsize)
     pickler = pickle.Pickler(ofh, 2)
+    data_start = 2048
+    bufsize = 256
+    buf = range(bufsize)
+    
+    to_dump = [('parameters', 'rowid'),
+               ('inodes', 'id'),
+               ('contents', 'name, parent_inode'),
+               ('ext_attributes', 'inode, name'),
+               ('objects', 'id'),
+               ('blocks', 'inode, blockno')]
 
     with dbcm() as conn:
-        for table in ('parameters', 'inodes', 'contents', 'ext_attributes',
-                      'objects', 'blocks'):
-            log.info('Dumping %s' % table)
-            res = conn.query('SELECT * FROM %s ORDER BY rowid ASC' % table)
-            while True:
-                pickler.clear_memo()
-                pickler.dump(table)
-                i = 0
-                for row in res:
-                    buf[i] = row
-                    i += 1
-                    if i == bufsize:
-                        break
 
-                if i != bufsize:
-                    pickler.dump(buf[:i])
-                    break
+        columns = dict()
+        for (table, _) in to_dump:
+            columns[table] = list()
+            for row in conn.query('PRAGMA table_info(%s)' % table):
+                columns[table].append(row[1])            
+          
+        ofh.seek(data_start)  
+        sizes = dict()
+        for (table, order) in to_dump:
+            log.info('Saving %s' % table)
+            pickler.clear_memo()
+            sizes[table] = 0
+            i=0
+            for row in conn.query('SELECT * FROM %s ORDER BY %s' % (table, order)):
+                buf[i] = row
+                i += 1
+                if i == bufsize:
+                    pickler.dump(buf)
+                    pickler.clear_memo()
+                    sizes[table] += 1
+                    i = 0
+                    
+            if i != 0:
+                pickler.dump(buf[:i])
+                sizes[table] += 1
 
-                pickler.dump(buf)
+            
+    ofh.seek(0)
+    pickler.dump((data_start, to_dump, sizes, columns))       
+    assert ofh.tell() < data_start
 
-    pickler.dump('EOF')
+    
 
-def restore_metadata(conn, ifh):
+def restore_metadata(dbcm, ifh):
+    from . import mkfs
+    
     unpickler = pickle.Unpickler(ifh)
 
-    while True:
-        table = unpickler.load()
-        if table == 'EOF':
-            break
-        buf = unpickler.load()
-        if not buf:
-            continue
-        sql = 'INSERT INTO %s VALUES(%s)' % (table,
-                                             ','.join('?' for _ in range(len(buf[0]))))
-        with conn.transaction():
-            for row in buf:
-                conn.execute(sql, row)
+    (data_start, to_dump, sizes, columns) = unpickler.load()
+    ifh.seek(data_start)
+    
+    with dbcm() as conn:
+        mkfs.setup_tables(conn)
+        
+        # Speed things up
+        conn.execute('PRAGMA foreign_keys = OFF')
+        try:
+            with conn.transaction(): 
+                for (table, _) in to_dump:
+                    log.info('Loading %s', table)
+                    col_str = ', '.join(columns[table])
+                    val_str = ', '.join('?' for _ in columns[table])
+                    sql_str = 'INSERT INTO %s (%s) VALUES(%s)' % (table, col_str, val_str)
+                    for _ in xrange(sizes[table]):
+                        buf = unpickler.load()
+                        for row in buf:
+                            conn.execute(sql_str, row)
+        finally:
+            conn.execute('PRAGMA foreign_keys = ON')     
+    
+        log.info('Creating indices...')
+        mkfs.create_indices(conn)
+        
+        conn.execute('ANALYZE')
 
 
 class QuietError(SystemExit):

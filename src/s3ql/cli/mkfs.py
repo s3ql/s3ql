@@ -120,6 +120,7 @@ def main(args=None):
             log.info('Creating metadata tables...')
             dbcm = ConnectionManager(dbfile)
             mkfs.setup_tables(dbcm)
+            mkfs.create_indices(dbcm)
             mkfs.init_tables(dbcm, options.blocksize * 1024, options.label)
 
             param = dict()

@@ -17,7 +17,7 @@ from ..common import (init_logging_from_options, get_cachedir, get_dbfile, cycle
                       restore_metadata)
 from ..database import ConnectionManager
 import logging
-from .. import fsck, mkfs
+from .. import fsck
 from .. import backends
 from ..backends.common import ChecksumError
 import sys
@@ -120,7 +120,6 @@ def main(args=None):
                                   stat.S_IRUSR | stat.S_IWUSR), 'w+b')
             fh.close()
             dbcm = ConnectionManager(dbfile)
-            mkfs.setup_tables(dbcm)
             fh = tempfile.TemporaryFile()
             bucket.fetch_fh("s3ql_metadata", fh)
             fh.seek(0)

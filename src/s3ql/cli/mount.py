@@ -12,7 +12,7 @@ from __future__ import division, print_function, absolute_import
 # be directly executed.
 import sys
 from optparse import OptionParser
-from s3ql import fs, mkfs
+from s3ql import fs
 from s3ql.backends import s3
 from s3ql.daemonize import daemonize
 from s3ql.backends.common import ChecksumError, COMPRESS_BZIP2, COMPRESS_LZMA, COMPRESS_ZLIB
@@ -96,7 +96,6 @@ def main(args=None):
                               stat.S_IRUSR | stat.S_IWUSR), 'w+b')
         fh.close()
         dbcm = ConnectionManager(dbfile)
-        mkfs.setup_tables(dbcm)
         fh = tempfile.TemporaryFile()
         bucket.fetch_fh("s3ql_metadata", fh)
         fh.seek(0)

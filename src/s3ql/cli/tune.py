@@ -20,6 +20,7 @@ import sys
 from ..backends import s3
 from ..backends.boto.s3.connection import Location
 from ..backends.common import ChecksumError
+from .. import mkfs
 import os
 from ..database import ConnectionManager
 import tempfile
@@ -160,19 +161,45 @@ def upgrade(conn, bucket):
     if sys.stdin.readline().strip().lower() != 'yes':
         raise QuietError(1)
 
-    log.info('Downloading metadata...')
-    dbfile = tempfile.NamedTemporaryFile()
-    bucket.fetch_fh('s3ql_metadata', dbfile)
-    dbfile.flush()
-    dbcm = ConnectionManager(dbfile.name)
-
     # Upgrade from revision 1 to 2
     if not list(bucket.list('s3ql_parameters_')):
+        dbfile = tempfile.NamedTemporaryFile()
+        bucket.fetch_fh('s3ql_metadata', dbfile)
+        dbfile.flush()
+        dbcm = ConnectionManager(dbfile.name)        
         param = upgrade_rev1(dbcm, bucket)
     else:
         # Read parameters
         seq_no = max([ int(x[len('s3ql_parameters_'):]) for x in bucket.list('s3ql_parameters_') ])
         param = pickle.loads(bucket['s3ql_parameters_%d' % seq_no])
+        
+        log.info('Downloading metadata...')
+        if param['revision'] <= 3: 
+            dbfile = tempfile.NamedTemporaryFile()
+            bucket.fetch_fh('s3ql_metadata', dbfile)
+            dbfile.flush()
+            dbcm = ConnectionManager(dbfile.name)
+        elif param['revision'] >= 4:
+            tmp = tempfile.TemporaryFile()
+            bucket.fetch_fh('s3ql_metadata', tmp)
+            dbfile = tempfile.NamedTemporaryFile()
+            dbcm = ConnectionManager(dbfile.name)
+            mkfs.setup_tables(dbcm)
+            tmp.seek(0)
+            unpickler = pickle.Unpickler(tmp)
+        
+            while True:
+                table = unpickler.load()
+                if table == 'EOF':
+                    break
+                buf = unpickler.load()
+                if not buf:
+                    continue
+                sql = 'INSERT INTO %s VALUES(%s)' % (table,
+                                                     ','.join('?' for _ in range(len(buf[0]))))
+                with dbcm.transaction() as conn:
+                    for row in buf:
+                        conn.execute(sql, row)
 
     # Check consistency
     mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
@@ -198,10 +225,16 @@ def upgrade(conn, bucket):
     if param['revision'] == 2:
         upgrade_rev2(dbcm, param)
 
-    # Upgrade from rev. 3 to rev. 4
+    # Upgrade from rev. 3 to rev. 4 
     if param['revision'] == 3:
+        # metadata format only
         param['revision'] = 4
 
+    # Upgrade from rev. 4 to rev. 5
+    if param['revision'] == 4:
+        # metadata format only
+        param['revision'] = 5
+        
     # Upload parameters
     param['mountcnt'] += 1
     dbcm.execute('UPDATE parameters SET mountcnt=mountcnt+1')
