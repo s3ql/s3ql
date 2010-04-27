@@ -145,12 +145,14 @@ def check_lof():
     except KeyError:
         found_errors = True
         log_error("Recreating missing lost+found directory")
-        inode_l = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
-                             "VALUES (?,?,?,?,?,?,?)",
+        inode_l = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount, nlink_off) "
+                             "VALUES (?,?,?,?,?,?,?, ?)",
                              (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                              os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 2))
+                              os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1, 1))
         conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                      (b"lost+found", inode_l, ROOT_INODE))
+        conn.execute('UPDATE inodes SET nlink_off=nlink_off+1 WHERE id=? AND nlink_off != 0',
+                     (ROOT_INODE,))
 
 
     mode = conn.get_val('SELECT mode FROM inodes WHERE id=?', (inode_l,))
