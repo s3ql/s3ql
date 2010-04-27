@@ -1,4 +1,6 @@
 xxx, S3QL 0.12
+
+  * fsck.s3ql has been even more optimized.
   
   * Fixed a problem with running out of file descriptors when lots of
     objects are deleted.

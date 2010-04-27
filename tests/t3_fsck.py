@@ -185,6 +185,9 @@ class fsck_tests(TestCase):
                      (inode, 3, obj_id))
         self.assert_fsck(fsck.check_obj_refcounts)
 
+        conn.execute('DELETE FROM blocks WHERE obj_id=?', (obj_id,))
+        self.assert_fsck(fsck.check_obj_refcounts)
+        
     def test_unix_nlink_file(self):
         conn = self.conn
         inode = 42

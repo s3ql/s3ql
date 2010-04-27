@@ -238,28 +238,39 @@ def check_inode_refcount():
 
     log.info('Checking inodes (refcounts)...')
 
-    for (inode, refcount_cached) in conn.query("SELECT id, refcount FROM inodes"):
-
-        # No checks for root and control
-        if inode in (ROOT_INODE, CTRL_INODE):
-            continue
-
-        refcount_actual = conn.get_val("SELECT COUNT(name) FROM contents WHERE inode=?", (inode,))
-
-        if refcount_actual == 0:
+    conn.execute('CREATE TEMPORARY TABLE refcounts '
+                 '(id INTEGER PRIMARY KEY, refcount INTEGER NOT NULL)')
+    try:
+        conn.execute('INSERT INTO refcounts (id, refcount) '
+                     'SELECT inode, COUNT(name) FROM contents GROUP BY inode')
+        
+        conn.execute('''
+           CREATE TEMPORARY TABLE wrong_refcounts AS 
+           SELECT id, refcounts.refcount, inodes.refcount 
+             FROM inodes LEFT JOIN refcounts USING (id) 
+            WHERE inodes.refcount != refcounts.refcount 
+               OR refcounts.refcount IS NULL''')
+        
+        for (id_, cnt, cnt_old) in conn.query('SELECT * FROM wrong_refcounts'):
+            # No checks for root and control
+            if id_ in (ROOT_INODE, CTRL_INODE):
+                continue
+            
             found_errors = True
-            (inode_p, name) = resolve_free(b"/lost+found", b"inode-%d" % inode)
-            log_error("Inode %d not referenced, adding as /lost+found/%s", inode, name)
-            conn.execute("INSERT INTO contents (name, inode, parent_inode) "
-                         "VALUES (?,?,?)", (basename(name), inode, inode_p))
-            conn.execute("UPDATE inodes SET refcount=? WHERE id=?",
-                         (1, inode))
-
-        elif refcount_cached != refcount_actual:
-            found_errors = True
-            log_error("Inode %d has wrong reference count, setting from %d to %d",
-                      inode, refcount_cached, refcount_actual)
-            conn.execute("UPDATE inodes SET refcount=? WHERE id=?", (refcount_actual, inode))
+            if cnt is None:
+                (id_p, name) = resolve_free(b"/lost+found", b"inode-%d" % id_)
+                log_error("Inode %d not referenced, adding as /lost+found/%s", id_, name)
+                conn.execute("INSERT INTO contents (name, inode, parent_inode) "
+                             "VALUES (?,?,?)", (basename(name), id_, id_p))
+                conn.execute("UPDATE inodes SET refcount=? WHERE id=?", (1, id_))
+    
+            else: 
+                log_error("Inode %d has wrong reference count, setting from %d to %d",
+                          id_, cnt_old, cnt)
+                conn.execute("UPDATE inodes SET refcount=? WHERE id=?", (cnt, id_))
+    finally:
+        conn.execute('DROP TABLE refcounts')
+        conn.execute('DROP TABLE IF EXISTS wrong_refcounts')
 
 
 def check_inode_unix():
@@ -339,22 +350,33 @@ def check_obj_refcounts():
 
     global found_errors
     log.info('Checking object reference counts...')
-
-    for (key, refcount) in conn.query("SELECT id, refcount FROM objects"):
-
-        refcount2 = conn.get_val("SELECT COUNT(inode) FROM blocks WHERE obj_id=?",
-                                 (key,))
-        if refcount != refcount2:
+    
+    conn.execute('CREATE TEMPORARY TABLE refcounts '
+                 '(id INTEGER PRIMARY KEY, refcount INTEGER NOT NULL)')
+    try:
+        conn.execute('INSERT INTO refcounts (id, refcount) '
+                     'SELECT obj_id, COUNT(inode) FROM blocks GROUP BY obj_id')
+        
+        conn.execute('''
+           CREATE TEMPORARY TABLE wrong_refcounts AS 
+           SELECT id, refcounts.refcount, objects.refcount 
+             FROM objects LEFT JOIN refcounts USING (id) 
+            WHERE objects.refcount != refcounts.refcount 
+               OR refcounts.refcount IS NULL''')
+        
+        for (id_, cnt, cnt_old) in conn.query('SELECT * FROM wrong_refcounts'):
             log_error("Object %s has invalid refcount, setting from %d to %d",
-                      key, refcount, refcount2)
+                        id_, cnt_old, cnt)
             found_errors = True
-            if refcount2 != 0:
+            if cnt is not None:
                 conn.execute("UPDATE objects SET refcount=? WHERE id=?",
-                             (refcount2, key))
+                             (cnt, id_))
             else:
                 # Orphaned object will be picked up by check_keylist
-                conn.execute('DELETE FROM objects WHERE id=?', (key,))
-
+                conn.execute('DELETE FROM objects WHERE id=?', (id_,))
+    finally:
+        conn.execute('DROP TABLE refcounts')
+        conn.execute('DROP TABLE IF EXISTS wrong_refcounts')
 
 def check_keylist():
     """Check the list of objects.
@@ -370,53 +392,41 @@ def check_keylist():
 
     # We use this table to keep track of the object that we have
     # seen
-    conn.execute("CREATE TEMP TABLE obj_ids AS SELECT id FROM objects")
-
-    to_delete = list() # We can't delete the object during iteration
-    for (i, obj_name) in enumerate(bucket):
-
-        if i % 5000 == 0:
-            log.info('..processed %d objects so far..', i)
-
-        # We only bother with data objects
-        if not obj_name.startswith("s3ql_data_"):
-            continue
-        else:
-            obj_id = int(obj_name[len('s3ql_data_'):])
-
-        # Retrieve object information from database
-        try:
-            conn.get_val("SELECT hash FROM objects WHERE id=?", (obj_id,))
-
-        # Handle object that exists only in the backend
-        except KeyError:
+    conn.execute("CREATE TEMP TABLE obj_ids (id INTEGER PRIMARY KEY)")
+    try:
+        for (i, obj_name) in enumerate(bucket):
+    
+            if i % 5000 == 0:
+                log.info('..processed %d objects so far..', i)
+    
+            # We only bother with data objects
+            if not obj_name.startswith("s3ql_data_"):
+                continue
+            else:
+                obj_id = int(obj_name[len('s3ql_data_'):])
+    
+            conn.execute('INSERT INTO obj_ids VALUES(?)', (obj_id,))
+        
+        for (obj_id,) in conn.query('SELECT id FROM obj_ids '
+                                    'EXCEPT SELECT id FROM objects'):
             found_errors = True
             name = unused_filename('object-%s' % obj_id)
             log_error("object %s not referenced in objects table, saving locally as ./%s",
                       obj_id, name)
             if not expect_errors:
                 bucket.fetch_fh('s3ql_data_%d' % obj_id, open(name, 'wb'))
-            to_delete.append(obj_id)
-            continue
-
-        # Mark object as seen
-        conn.execute("DELETE FROM obj_ids WHERE id=?", (obj_id,))
-
-
-    # Carry out delete
-    if to_delete:
-        log.info('Performing deferred object removals...')
-    for obj_id in to_delete:
-        del bucket['s3ql_data_%d' % obj_id]
-
-    # Now handle objects that only exist in objects
-    for (obj_id,) in conn.query("SELECT id FROM obj_ids"):
-        found_errors = True
-        log_error("object %s only exists in table but not in bucket, deleting", obj_id)
-        conn.execute("DELETE FROM blocks WHERE obj_id=?", (obj_id,))
-        conn.execute("DELETE FROM objects WHERE id=?", (obj_id,))
-
-    conn.execute('DROP TABLE obj_ids')
+            del bucket['s3ql_data_%d' % obj_id]
+    
+        conn.execute('CREATE TEMPORARY TABLE missing AS '
+                     'SELECT id FROM objects EXCEPT SELECT id FROM obj_ids')
+        for (obj_id,) in conn.query('SELECT * FROM missing'):
+            found_errors = True
+            log_error("object %s only exists in table but not in bucket, deleting", obj_id)
+            conn.execute("DELETE FROM blocks WHERE obj_id=?", (obj_id,))
+            conn.execute("DELETE FROM objects WHERE id=?", (obj_id,))
+    finally:
+        conn.execute('DROP TABLE obj_ids')
+        conn.execute('DROP TABLE IF EXISTS missing')
 
 def unused_filename(path):
     '''Append numeric suffix to (local) path until it does not exist'''
