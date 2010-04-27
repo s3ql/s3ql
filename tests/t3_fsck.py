@@ -37,7 +37,7 @@ class fsck_tests(TestCase):
 
         self.conn = WrappedConnection(apsw.Connection(''), retrytime=0)
         mkfs.setup_tables(self.conn)
-        mkfs.init_tables(self.conn, self.blocksize)
+        mkfs.init_tables(self.conn)
 
         fsck.conn = self.conn
         fsck.cachedir = self.cachedir
@@ -49,10 +49,6 @@ class fsck_tests(TestCase):
     def tearDown(self):
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
-
-    def test_detect(self):
-        self.conn.execute('DELETE FROM parameters')
-        self.assertRaises(fsck.FatalFsckError, fsck.detect_fs)
 
     def assert_fsck(self, fn):
         '''Check that fn detects and corrects an error'''

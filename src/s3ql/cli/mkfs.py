@@ -15,12 +15,12 @@ import shutil
 from optparse import OptionParser
 import logging
 from s3ql import mkfs
-from s3ql.common import (init_logging_from_options, get_backend, get_cachedir, get_dbfile,
+from s3ql.common import (init_logging_from_options, get_backend, get_bucket_home,
                          QuietError, CURRENT_FS_REV, dump_metadata)
 from s3ql.database import ConnectionManager
 from s3ql.backends.boto.s3.connection import Location
 from s3ql.backends import s3
-import cPickle as pickle
+import time
 import tempfile
 
 log = logging.getLogger("mkfs")
@@ -105,39 +105,40 @@ def main(args=None):
             bucket.passphrase = data_pw
 
         # Setup database
-        dbfile = get_dbfile(options.storage_url, options.homedir)
-        cachedir = get_cachedir(options.storage_url, options.homedir)
-
+        home = get_bucket_home(options.storage_url, options.homedir)
 
         # There can't be a corresponding bucket, so we can safely delete
         # these files.
-        if os.path.exists(dbfile):
-            os.unlink(dbfile)
-        if os.path.exists(cachedir):
-            shutil.rmtree(cachedir)
+        if os.path.exists(home + '.db'):
+            os.unlink(home + '.db')
+        if os.path.exists(home + '-cache'):
+            shutil.rmtree(home + '-cache')
 
         try:
             log.info('Creating metadata tables...')
-            dbcm = ConnectionManager(dbfile)
+            dbcm = ConnectionManager(home + '.db')
             mkfs.setup_tables(dbcm)
             mkfs.create_indices(dbcm)
-            mkfs.init_tables(dbcm, options.blocksize * 1024, options.label)
+            mkfs.init_tables(dbcm)
 
             param = dict()
             param['revision'] = CURRENT_FS_REV
-            param['mountcnt'] = 0
-            bucket.store('s3ql_parameters_%d' % param['mountcnt'],
-                         pickle.dumps(param, 2))
+            param['seq_no'] = 0
+            param['label'] = options.label
+            param['blocksize'] = options.blocksize * 1024
+            param['needs_fsck'] = False
+            param['last_fsck'] = time.time() - time.timezone
+            bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
 
             fh = tempfile.TemporaryFile()
             dump_metadata(dbcm, fh)
             fh.seek(0)
             log.info("Uploading database..")
-            bucket.store_fh("s3ql_metadata", fh)
+            bucket.store_fh("s3ql_metadata", fh, param)
             fh.close()
 
         finally:
-            os.unlink(dbfile)
+            os.unlink(home + '.db')
 
 
 if __name__ == '__main__':

@@ -16,24 +16,7 @@ from s3ql.common import ROOT_INODE, CTRL_INODE
 
 __all__ = [ "setup_tables", 'init_tables', 'create_indices' ]
 
-def init_tables(conn, blocksize, label=u"unnamed s3qlfs"):
-    # Create a list of valid inode types
-    types = {"S_IFDIR": stat.S_IFDIR, "S_IFREG": stat.S_IFREG,
-             "S_IFSOCK": stat.S_IFSOCK, "S_IFBLK": stat.S_IFBLK,
-             "S_IFCHR": stat.S_IFCHR, "S_IFIFO": stat.S_IFIFO,
-             "S_IFLNK": stat.S_IFLNK }
-    # Note that we cannot just use sum(types.itervalues()), because 
-    # e.g. S_IFDIR | S_IFREG == S_IFSOCK  
-    ifmt = 0
-    for i in types.itervalues():
-        ifmt |= i
-    types["S_IFMT"] = ifmt
-
-    conn.execute("""
-    INSERT INTO parameters(label,blocksize,last_fsck,mountcnt,needs_fsck)
-           VALUES(?,?,?,?,?)
-    """, (unicode(label), blocksize, time.time() - time.timezone, 0, False))
-
+def init_tables(conn):
     # Insert root directory
     timestamp = time.time() - time.timezone
     conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,nlink_off) "
@@ -57,23 +40,6 @@ def init_tables(conn, blocksize, label=u"unnamed s3qlfs"):
                  (b"lost+found", inode, ROOT_INODE))
 
 def setup_tables(conn):
-
-    # Filesystem parameters
-    conn.execute("""
-    CREATE TABLE parameters (
-        label       TEXT NOT NULL
-                    CHECK (typeof(label) == 'text'),
-        blocksize   INT NOT NULL
-                    CHECK (typeof(blocksize) == 'integer'),
-        last_fsck   REAL NOT NULL
-                    CHECK (typeof(last_fsck) == 'real'),
-        mountcnt    INT NOT NULL
-                    CHECK (typeof(mountcnt) == 'integer'),
-        needs_fsck  BOOLEAN NOT NULL
-                    CHECK (typeof(needs_fsck) == 'integer')
-    )""")
-
-
     # Table with filesystem metadata
     # The number of links `refcount` to an inode can in theory
     # be determined from the `contents` table. However, managing

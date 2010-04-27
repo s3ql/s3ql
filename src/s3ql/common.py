@@ -20,11 +20,11 @@ import re
 import cPickle as pickle
 from contextlib import contextmanager
 
-__all__ = ["get_cachedir", "init_logging", 'sha256', 'sha256_fh', 'get_parameters',
-           "get_credentials", "get_dbfile", "inode_for_path", "get_path", 'get_lockfile',
+__all__ = ["get_bucket_home", "init_logging", 'sha256', 'sha256_fh', 
+           "get_credentials", "get_dbfile", "inode_for_path", "get_path", 
            "ROOT_INODE", "ExceptionStoringThread", 'retry', 'get_stdout_handler',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
-           'stacktraces', 'init_logging_from_options', 'QuietError', 'get_backend',
+           'init_logging_from_options', 'QuietError', 'get_backend',
            'cycle_metadata', 'CURRENT_FS_REV', 'VERSION', 'restore_metadata',
            'dump_metadata' ]
 
@@ -135,41 +135,13 @@ def unlock_bucket(options, bucket):
     data_pw = bucket['s3ql_passphrase']
     bucket.passphrase = data_pw
 
-def get_parameters(bucket):
-    '''Return file system parameters.
-    
-    If the file system is too old or too new, raises `QuietError`.
-    '''
-
-    seq_nos = [ int(x[len('s3ql_parameters_'):]) for x in bucket.list('s3ql_parameters_') ]
-    if not seq_nos:
-        raise QuietError('Old file system revision, please run tune.s3ql --upgrade first.')
-    seq_no = max(seq_nos)
-    param = pickle.loads(bucket['s3ql_parameters_%d' % seq_no])
-    assert seq_no == param['mountcnt']
-
-    if param['revision'] < CURRENT_FS_REV:
-        raise QuietError('File system revision too old, please run tune.s3ql --upgrade first.')
-    elif param['revision'] > CURRENT_FS_REV:
-        raise QuietError('File system revision too new, please update your '
-                         'S3QL installation.')
-
-    # Delete old parameter objects 
-    for i in seq_nos:
-        if i < seq_no - 5:
-            del bucket['s3ql_parameters_%d' % i ]
-
-    return param
-
-
 def dump_metadata(dbcm, ofh):
     pickler = pickle.Pickler(ofh, 2)
     data_start = 2048
     bufsize = 256
     buf = range(bufsize)
     
-    to_dump = [('parameters', 'rowid'),
-               ('inodes', 'id'),
+    to_dump = [('inodes', 'id'),
                ('contents', 'name, parent_inode'),
                ('ext_attributes', 'inode, name'),
                ('objects', 'id'),
@@ -253,19 +225,6 @@ class QuietError(SystemExit):
     '''
     pass
 
-
-def stacktraces():
-    '''Return stack trace for every running thread'''
-
-    code = []
-    for threadId, frame in sys._current_frames().items():
-        code.append("\n# ThreadID: %s" % threadId)
-        for filename, lineno, name, line in traceback.extract_stack(frame):
-            code.append('%s:%d, in %s' % (os.path.basename(filename), lineno, name))
-            if line:
-                code.append("    %s" % (line.strip()))
-
-    return "\n".join(code)
 
 class Filter(object):
     """
@@ -440,20 +399,10 @@ def _escape(s):
 
     return s
 
-def get_cachedir(storage_url, homedir):
+def get_bucket_home(storage_url, homedir):
     if not os.path.exists(homedir):
         os.mkdir(homedir)
-    return os.path.join(homedir, "%s-cache" % _escape(storage_url))
-
-def get_dbfile(storage_url, homedir):
-    if not os.path.exists(homedir):
-        os.mkdir(homedir)
-    return os.path.join(homedir, "%s.db" % _escape(storage_url))
-
-def get_lockfile(storage_url, homedir):
-    if not os.path.exists(homedir):
-        os.mkdir(homedir)
-    return os.path.join(homedir, "%s.lock" % _escape(storage_url))
+    return os.path.join(homedir, _escape(storage_url))
 
 
 def get_backend_credentials(homedir, backend, host):

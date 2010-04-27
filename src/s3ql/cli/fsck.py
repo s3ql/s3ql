@@ -12,8 +12,8 @@ import os
 import stat
 import time
 from optparse import OptionParser
-from s3ql.common import (init_logging_from_options, get_cachedir, get_dbfile, cycle_metadata,
-                      unlock_bucket, QuietError, get_parameters, get_backend, dump_metadata,
+from s3ql.common import (init_logging_from_options, get_bucket_home, cycle_metadata,
+                      unlock_bucket, QuietError, CURRENT_FS_REV, get_backend, dump_metadata,
                       restore_metadata)
 from s3ql.database import ConnectionManager
 import logging
@@ -74,16 +74,20 @@ def main(args=None):
         except ChecksumError:
             raise QuietError('Checksum error - incorrect password?')
 
-        dbfile = get_dbfile(options.storage_url, options.homedir)
-        cachedir = get_cachedir(options.storage_url, options.homedir)
+        home = get_bucket_home(options.storage_url, options.homedir)
 
-        # Get most-recent s3ql_parameters object and check fs revision
-        param = get_parameters(bucket)
+        # Get file system parameters
+        log.info('Getting file system parameters..')
+        seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
+        if not seq_nos:
+            raise QuietError('Old file system revision, please run tune.s3ql --upgrade first.')
+        seq_no = max(seq_nos)
 
-        if os.path.exists(dbfile):
-            dbcm = ConnectionManager(dbfile)
-            mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
-            if mountcnt_db < param['mountcnt']:
+        param = None
+        dbcm = None
+        if os.path.exists(home + '.params'):
+            param = pickle.load(open(home + '.params', 'rb'))
+            if param['seq_no'] < seq_no:
                 choice = None
                 print('Local cache files exist, but file system appears to have \n'
                       'been mounted elsewhere after the unclean shutdown.\n'
@@ -97,87 +101,104 @@ def main(args=None):
 
                 if choice == 'a':
                     log.info('Removing local cache files..')
-                    os.unlink(dbfile)
-                    shutil.rmtree(cachedir)
-                    do_download = True
+                    os.unlink(home + '.db')
+                    os.unlink(home + '.params')
+                    shutil.rmtree(home + '-cache')
+                    param =  None
                 else:
                     log.info('Using local cache files.')
-                    do_download = False
+                    param['seq_no'] = seq_no
+                    dbcm = ConnectionManager(home + '.db')
 
-            elif mountcnt_db > param['mountcnt']:
-                raise RuntimeError('mountcnt_db > param[mountcnt], this should not happen.')
+            elif param['seq_no'] > seq_no:
+                raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
             else:
-                do_download = False
                 log.info('Using locally cached metadata.')
+                dbcm = ConnectionManager(home + '.db')
         else:
-            if os.path.exists(cachedir):
+            if os.path.exists(home + '-cache') or os.path.exists(home + '.db'):
                 raise RuntimeError('cachedir exists, but no local metadata.'
                                    'This should not happen.')
-            do_download = True
 
-        if do_download:
-            log.info("Downloading metadata...")
-            fh = os.fdopen(os.open(dbfile, os.O_RDWR | os.O_CREAT,
+        if param is None:
+            param = bucket.lookup('s3ql_metadata')
+             
+        # Check revision
+        if param['revision'] < CURRENT_FS_REV:
+            raise QuietError('File system revision too old, please run tune.s3ql --upgrade first.')
+        elif param['revision'] > CURRENT_FS_REV:
+            raise QuietError('File system revision too new, please update your '
+                             'S3QL installation.')
+            
+        if param['seq_no'] < seq_no:
+            if isinstance(bucket, backends.s3.Bucket):
+                print(textwrap.fill(textwrap.dedent('''
+                      Up to date metadata is not available. Either the file system has not
+                      been unmounted cleanly or the data has not yet propagated through S3.
+                      In the later case, waiting for a while should fix the problem, in
+                      the former case you should try to run fsck on the computer where
+                      the file system has been mounted most recently
+                      ''')))
+            else:
+                print(textwrap.fill(textwrap.dedent('''
+                      Up to date metadata is not available. Probably the file system has not
+                      been unmounted and you should try to run fsck on the computer where
+                      the file system has been mounted most recently.
+                      ''')))
+            print('Enter "continue" to use the outdated data anyway:',
+                  '> ', sep='\n', end='')
+            if sys.stdin.readline().strip() != 'continue':
+                raise QuietError(1)
+            param['seq_no'] = seq_no
+            
+        elif param['seq_no'] > seq_no:
+            raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
+
+        # Download metadata
+        if dbcm is None:
+            log.info("Downloading & uncompressing metadata...")
+            fh = os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
                                   stat.S_IRUSR | stat.S_IWUSR), 'w+b')
             fh.close()
-            dbcm = ConnectionManager(dbfile)
+            dbcm = ConnectionManager(home + '.db')
             fh = tempfile.TemporaryFile()
             bucket.fetch_fh("s3ql_metadata", fh)
             fh.seek(0)
+            log.info('Reading metadata...')
             restore_metadata(dbcm, fh)
             fh.close()
-            mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
+    
+        # Increase metadata sequence no
+        param['seq_no'] += 1
+        bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
+        for i in seq_nos:
+            if i < param['seq_no'] - 5:
+                del bucket['s3ql_seq_no_%d' % i ]
+                
+        # Save parameters
+        pickle.dump(param, open(home + '.params', 'wb'), 2)
 
-            if mountcnt_db < param['mountcnt']:
-                if isinstance(bucket, backends.s3.Bucket):
-                    print(textwrap.fill(textwrap.dedent('''
-                          Up to date metadata is not available. Either the file system has not
-                          been unmounted cleanly or the data has not yet propagated through S3.
-                          In the later case, waiting for a while should fix the problem, in
-                          the former case you should try to run fsck on the computer where
-                          the file system has been mounted most recently
-                          ''')))
-                else:
-                    print(textwrap.fill(textwrap.dedent('''
-                          Up to date metadata is not available. Probably the file system has not
-                          been unmounted and you should try to run fsck on the computer where
-                          the file system has been mounted most recently.
-                          ''')))
-                print('Enter "continue" to use the outdated data anyway:',
-                      '> ', sep='\n', end='')
-                if sys.stdin.readline().strip() != 'continue':
-                    os.unlink(dbfile)
-                    raise QuietError(1)
+        if not os.path.exists(home + '-cache'):
+            os.mkdir(home + '-cache', stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
-            elif mountcnt_db > param['mountcnt']:
-                os.unlink(dbfile)
-                raise RuntimeError('mountcnt_db > param[mountcnt], this should not happen.')
+        fsck.fsck(dbcm, home + '-cache', bucket)
 
-        mountcnt = max(mountcnt_db, param['mountcnt']) + 1
-        param['mountcnt'] = mountcnt
-        dbcm.execute('UPDATE parameters SET mountcnt=?', (mountcnt,))
-        bucket.store('s3ql_parameters_%d' % param['mountcnt'],
-                     pickle.dumps(param, 2))
-
-        if not os.path.exists(cachedir):
-            os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-
-        fsck.fsck(dbcm, cachedir, bucket)
-
-        log.info("Committing data to backend...")
-        dbcm.execute("UPDATE parameters SET needs_fsck=?, last_fsck=?",
-                     (False, time.time() - time.timezone))
-
+        log.info("Saving metadata...")
         fh = tempfile.TemporaryFile()
         dump_metadata(dbcm, fh)
         fh.seek(0)
-        log.info("Uploading database..")
+        log.info("Compressing & uploading metadata..")
         cycle_metadata(bucket)
-        bucket.store_fh("s3ql_metadata", fh)
+        param['needs_fsck'] = False
+        param['last_fsck'] = time.time() - time.timezone
+        bucket.store_fh("s3ql_metadata", fh, param)
         fh.close()
 
-        os.unlink(dbfile)
-        os.rmdir(cachedir)
+        # Remove database
+        log.debug("Cleaning up...")
+        os.unlink(home + '.db')
+        os.unlink(home + '.params')
+        os.rmdir(home + '-cache')
 
 if __name__ == '__main__':
     main(sys.argv[1:])

@@ -42,11 +42,11 @@ class fs_api_tests(TestCase):
         self.dbcm = ConnectionManager(self.dbfile.name)
         with self.dbcm() as conn:
             mkfs.setup_tables(conn)
-            mkfs.init_tables(conn, self.blocksize)
+            mkfs.init_tables(conn)
 
         self.cache = BlockCache(self.bucket, self.cachedir, self.blocksize * 5, self.dbcm)
         self.lock = threading.Lock()
-        self.server = fs.Operations(self.cache, self.dbcm, self.lock)
+        self.server = fs.Operations(self.dbcm, self.cache, self.lock, self.blocksize)
         self.server.init()
 
         # Keep track of unused filenames

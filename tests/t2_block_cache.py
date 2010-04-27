@@ -36,7 +36,7 @@ class cache_tests(TestCase):
         self.dbcm = ConnectionManager(self.dbfile.name)
         with self.dbcm() as conn:
             mkfs.setup_tables(conn)
-            mkfs.init_tables(conn, self.blocksize)
+            mkfs.init_tables(conn)
 
         # Create an inode we can work with
         self.inode = 42

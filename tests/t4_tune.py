@@ -57,7 +57,7 @@ class TuneTests(TestCase):
         bucket.passphrase = passphrase_new
 
         bucket.passphrase = bucket['s3ql_passphrase']
-        self.assertTrue(isinstance(bucket['s3ql_parameters_0'], str))
+        self.assertTrue(isinstance(bucket['s3ql_seq_no_0'], str))
 
 
 # Somehow important according to pyunit documentation

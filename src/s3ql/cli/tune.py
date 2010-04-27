@@ -179,12 +179,12 @@ def upgrade(conn, bucket):
             bucket.fetch_fh('s3ql_metadata', dbfile)
             dbfile.flush()
             dbcm = ConnectionManager(dbfile.name)
-        elif param['revision'] >= 4:
+        elif param['revision'] == 4:
             tmp = tempfile.TemporaryFile()
             bucket.fetch_fh('s3ql_metadata', tmp)
             dbfile = tempfile.NamedTemporaryFile()
             dbcm = ConnectionManager(dbfile.name)
-            mkfs.setup_tables(dbcm)
+            setup_rev4_tables(dbcm)
             tmp.seek(0)
             unpickler = pickle.Unpickler(tmp)
         
@@ -204,7 +204,9 @@ def upgrade(conn, bucket):
                             for row in buf:
                                 conn.execute(sql, row)
                 finally:
-                    conn.execute('PRAGMA foreign_keys = ON')  
+                    conn.execute('PRAGMA foreign_keys = ON')         
+                    
+            
             
     # Check consistency
     mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
@@ -233,18 +235,23 @@ def upgrade(conn, bucket):
     # Upgrade from rev. 3 to rev. 4 
     if param['revision'] == 3:
         # metadata format only
+        log.info('Updating file system from revision 3 to 4.')
         param['revision'] = 4
 
     # Upgrade from rev. 4 to rev. 5
     if param['revision'] == 4:
         # metadata format only
+        log.info('Updating file system from revision 4 to 5.')
         param['revision'] = 5
+        param['seq_no'] = mountcnt_db
+        param['label'] = dbcm.get_val('SELECT label FROM parameters')
+        param['blocksize'] = dbcm.get_val('SELECT blocksize FROM parameters')
+        param['needs_fsck'] = dbcm.get_val('SELECT needs_fsck FROM parameters')
+        param['last_fsck'] = dbcm.get_val('SELECT last_fsck FROM parameters')  
         
     # Upload parameters
-    param['mountcnt'] += 1
-    dbcm.execute('UPDATE parameters SET mountcnt=mountcnt+1')
-    bucket.store('s3ql_parameters_%d' % param['mountcnt'],
-                 pickle.dumps(param, 2))
+    param['seq_no'] += 1
+    bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
 
     # Upload and metadata
     fh = tempfile.TemporaryFile()
@@ -252,7 +259,7 @@ def upgrade(conn, bucket):
     fh.seek(0)
     log.info("Uploading database..")
     cycle_metadata(bucket)
-    bucket.store_fh("s3ql_metadata", fh)
+    bucket.store_fh("s3ql_metadata", fh, param)
     fh.close()
 
 def upgrade_rev1(dbcm, bucket):
@@ -448,3 +455,123 @@ def copy_bucket(conn, options, src_bucket):
 
 if __name__ == '__main__':
     main(sys.argv[1:])
+
+def setup_rev4_tables(conn):
+
+    # Filesystem parameters
+    conn.execute("""
+    CREATE TABLE parameters (
+        label       TEXT NOT NULL
+                    CHECK (typeof(label) == 'text'),
+        blocksize   INT NOT NULL
+                    CHECK (typeof(blocksize) == 'integer'),
+        last_fsck   REAL NOT NULL
+                    CHECK (typeof(last_fsck) == 'real'),
+        mountcnt    INT NOT NULL
+                    CHECK (typeof(mountcnt) == 'integer'),
+        needs_fsck  BOOLEAN NOT NULL
+                    CHECK (typeof(needs_fsck) == 'integer')
+    )""")
+
+
+    # Table with filesystem metadata
+    # The number of links `refcount` to an inode can in theory
+    # be determined from the `contents` table. However, managing
+    # this separately should be significantly faster (the information
+    # is required for every getattr!)
+    conn.execute("""
+    CREATE TABLE inodes (
+        -- id has to specified *exactly* as follows to become
+        -- an alias for the rowid.
+        -- inode_t may be restricted to 32 bits, so we need to constrain the
+        -- rowid. Also, as long as we don't store a separate generation no,
+        -- we can't reuse old rowids. Therefore we will run out of inodes after
+        -- 49 days if we insert 1000 rows per second. 
+        id        INTEGER PRIMARY KEY AUTOINCREMENT
+                  CHECK (id < 4294967296),
+        uid       INT NOT NULL 
+                  CHECK (typeof(uid) == 'integer'),
+        gid       INT NOT NULL 
+                  CHECK (typeof(gid) == 'integer'),
+        mode      INT NOT NULL 
+                  CHECK (typeof(mode) == 'integer'),
+        mtime     REAL NOT NULL 
+                  CHECK (typeof(mtime) == 'real'),
+        atime     REAL NOT NULL 
+                  CHECK (typeof(atime) == 'real'),
+        ctime     REAL NOT NULL 
+                  CHECK (typeof(ctime) == 'real'),
+        refcount  INT NOT NULL
+                  CHECK (typeof(refcount) == 'integer' AND refcount > 0),
+        target    BLOB(256) 
+                  CHECK (typeof(target) IN ('blob', 'null')),
+        size      INT NOT NULL DEFAULT 0
+                  CHECK (typeof(size) == 'integer' AND size >= 0),
+        rdev      INT NOT NULL DEFAULT 0
+                  CHECK (typeof(rdev) == 'integer'),
+                                    
+        -- Correction term to add to refcount to get st_nlink
+        nlink_off INT NOT NULL DEFAULT 0
+                  CHECK (typeof(nlink_off) == 'integer')
+    )
+    """)
+
+    # Table of filesystem objects
+    conn.execute("""
+    CREATE TABLE contents (
+        name      BLOB(256) NOT NULL
+                  CHECK (typeof(name) == 'blob'),
+        inode     INT NOT NULL REFERENCES inodes(id),
+        parent_inode INT NOT NULL REFERENCES inodes(id),
+        
+        PRIMARY KEY (name, parent_inode)
+    );
+    CREATE INDEX ix_contents_parent_inode ON contents(parent_inode);
+    CREATE INDEX ix_contents_inode ON contents(inode);
+    """)
+
+    # Extended attributes
+    conn.execute("""
+    CREATE TABLE ext_attributes (
+        inode     INTEGER NOT NULL REFERENCES inodes(id),
+        name      BLOB NOT NULL
+                  CHECK (typeof(name) == 'blob'),
+        value     BLOB NOT NULL
+                  CHECK (typeof(value) == 'blob'),
+ 
+        PRIMARY KEY (inode, name)               
+    );
+    CREATE INDEX ix_ext_attributes_inode ON ext_attributes(inode);
+    """)
+
+    # Refcount is included for performance reasons, for directories, the
+    # refcount also includes the implicit '.' entry
+    conn.execute("""
+    CREATE TABLE objects (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        refcount  INT NOT NULL
+                  CHECK (typeof(refcount) == 'integer' AND refcount > 0),
+                  
+        -- hash and size is only updated when the object is committed
+        hash      BLOB(16) UNIQUE
+                  CHECK (typeof(hash) IN ('blob', 'null')),
+        size      INT NOT NULL
+                  CHECK (typeof(size) == 'integer' AND size >= 0)                  
+    );
+    CREATE INDEX ix_objects_hash ON objects(hash);
+    """)
+
+    # Maps blocks to objects
+    conn.execute("""
+    CREATE TABLE blocks (
+        inode     INTEGER NOT NULL REFERENCES inodes(id),
+        blockno   INT NOT NULL
+                  CHECK (typeof(blockno) == 'integer' AND blockno >= 0),
+        obj_id    INTEGER NOT NULL REFERENCES objects(id),
+ 
+        PRIMARY KEY (inode, blockno)
+    );
+    CREATE INDEX ix_blocks_obj_id ON blocks(obj_id);
+    CREATE INDEX ix_blocks_inode ON blocks(inode);
+    """)
+

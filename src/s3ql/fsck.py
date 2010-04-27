@@ -10,14 +10,10 @@ from __future__ import division, print_function
 
 import os
 from os.path import basename
-import types
 import stat
 import time
-import numbers
 import logging
 import re
-from .database import NoUniqueValueError
-from . import block_cache
 from .common import (ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh)
 
 __all__ = [ "fsck" ]
@@ -53,7 +49,6 @@ def fsck(dbcm, cachedir_, bucket_):
     with dbcm.transaction() as conn_:
         conn = conn_
 
-        detect_fs()
         check_cache()
         check_lof()
         check_loops()
@@ -75,32 +70,6 @@ class FatalFsckError(Exception):
     """
 
     pass
-
-
-def detect_fs():
-    """Check that we have a valid filesystem
-
-    Raises FatalFsckError() if no fs can be found.
-    """
-
-    log.info('Looking for valid filesystem...')
-    try:
-        (label, blocksize, last_fsck, mountcnt, needs_fsck) \
- = conn.get_row("SELECT label, blocksize, last_fsck, mountcnt, "
-                           "needs_fsck FROM parameters")
-    except (KeyError, NoUniqueValueError):
-        log_error("Cannot read filesystem parameters. "
-                  "This does not appear to be a valid S3QL filesystem.")
-        raise FatalFsckError()
-
-    if not (isinstance(label, types.StringTypes)
-         and isinstance(blocksize, numbers.Integral)
-         and isinstance(last_fsck, numbers.Real)
-         and isinstance(mountcnt, numbers.Integral)
-         and isinstance(needs_fsck, numbers.Integral)):
-        log_error("Cannot read filesystem parameters. "
-                  "This does not appear to be a valid S3QL filesystem.")
-        raise FatalFsckError()
 
 
 def check_cache():

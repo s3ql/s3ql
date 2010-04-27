@@ -24,7 +24,7 @@ class cache_tests(TestCase):
         self.dbcm = ConnectionManager(self.dbfile.name)
         with self.dbcm() as conn:
             mkfs.setup_tables(conn)
-            mkfs.init_tables(conn, 45)
+            mkfs.init_tables(conn)
 
         self.cache = inode_cache.InodeCache(self.dbcm)
 

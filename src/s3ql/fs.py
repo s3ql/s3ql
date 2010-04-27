@@ -98,11 +98,10 @@ class Operations(llfuse.Operations):
         log.error("Unexpected internal filesystem error.\n"
                   "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n"
                   "Please report this bug on http://code.google.com/p/s3ql/.")
-        self.mark_damaged()
         self.encountered_errors = True
 
 
-    def __init__(self, cache, dbcm, lock):
+    def __init__(self, dbcm, cache, lock, blocksize):
         super(Operations, self).__init__()
 
         self.dbcm = dbcm
@@ -111,19 +110,18 @@ class Operations(llfuse.Operations):
         self.inodes = InodeCache(dbcm)
         self.lock = lock
         self.open_inodes = collections.defaultdict(lambda: 0)
-        self.blocksize = dbcm.get_val("SELECT blocksize FROM parameters")
+        self.blocksize = blocksize
 
         # Make sure the control file is only writable by the user
         # who mounted the file system
         self.inodes[CTRL_INODE].uid = os.getuid()
         self.inodes[CTRL_INODE].gid = os.getgid()
-
+          
     def init(self):
         self.cache.init()
         self.inodes.init()
 
     def destroy(self):
-        self.cache.close()
         self.inodes.close()
 
     def lookup(self, id_p, name):
@@ -366,11 +364,6 @@ class Operations(llfuse.Operations):
             inode_p.ctime = timestamp
             if adj_nlink_off and inode_p.nlink_off != 0:
                 inode_p.nlink_off -= 1
-
-    def mark_damaged(self):
-        """Mark the filesystem as being damaged and needing fsck"""
-
-        self.dbcm.execute("UPDATE parameters SET needs_fsck=?", (True,))
 
     def symlink(self, id_p, name, target, ctx):
         mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
