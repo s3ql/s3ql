@@ -20,7 +20,6 @@ import sys
 from ..backends import s3
 from ..backends.boto.s3.connection import Location
 from ..backends.common import ChecksumError
-from .. import mkfs
 import os
 from ..database import ConnectionManager
 import tempfile
