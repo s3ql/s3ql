@@ -12,14 +12,14 @@ import os
 import stat
 import time
 from optparse import OptionParser
-from ..common import (init_logging_from_options, get_cachedir, get_dbfile, cycle_metadata,
+from s3ql.common import (init_logging_from_options, get_cachedir, get_dbfile, cycle_metadata,
                       unlock_bucket, QuietError, get_parameters, get_backend, dump_metadata,
                       restore_metadata)
-from ..database import ConnectionManager
+from s3ql.database import ConnectionManager
 import logging
-from .. import fsck
-from .. import backends
-from ..backends.common import ChecksumError
+from s3ql import fsck
+from s3ql import backends
+from s3ql.backends.common import ChecksumError
 import sys
 import shutil
 import tempfile
@@ -108,6 +108,7 @@ def main(args=None):
                 raise RuntimeError('mountcnt_db > param[mountcnt], this should not happen.')
             else:
                 do_download = False
+                log.info('Using locally cached metadata.')
         else:
             if os.path.exists(cachedir):
                 raise RuntimeError('cachedir exists, but no local metadata.'
