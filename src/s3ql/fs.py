@@ -279,7 +279,8 @@ class Operations(llfuse.Operations):
                     inode = self.inodes[id_]
                     if inode.nlink_off != 0:
                         nlink_off = 1
-                        target_inode.nlink_off += 1
+                        if target_inode.nlink_off != 0:
+                            target_inode.nlink_off += 1
                     else:
                         nlink_off = 0
 
