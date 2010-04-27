@@ -10,7 +10,6 @@ from __future__ import division, print_function
 
 import logging
 from contextlib import contextmanager
-import tempfile
 import apsw
 import os
 import types
