@@ -15,7 +15,7 @@ import llfuse
 import collections
 import logging
 from .inode_cache import InodeCache
-from .common import (get_path, CTRL_NAME, CTRL_INODE, ROOT_INODE)
+from .common import (get_path, CTRL_NAME, CTRL_INODE)
 import time
 from cStringIO import StringIO
 import struct
@@ -29,13 +29,13 @@ log = logging.getLogger("fs")
 class Operations(llfuse.Operations):
     """A full-featured file system for online data storage
 
-    This class implements low-level FUSE operations and is meant to be
-    passed to llfuse.init().
+    This class implements low-level FUSE operations and is meant to be passed to
+    llfuse.init().
     
-    The ``access`` method of this class always gives full access, independent
-    of file permissions. If the FUSE library is initialized with ``allow_other``
-    or ``allow_root``, the ``default_permissions`` option should therefore always
-    be passed as well. 
+    The ``access`` method of this class always gives full access, independent of
+    file permissions. If the FUSE library is initialized with ``allow_other`` or
+    ``allow_root``, the ``default_permissions`` option should therefore always
+    be passed as well.
     
     
     Attributes:
@@ -52,40 +52,28 @@ class Operations(llfuse.Operations):
     --------------
     
     This class is not thread safe. Methods must only be called when the caller
-    holds the global lock `lock` that is also passed to the constructor. 
+    holds the global lock `lock` that is also passed to the constructor.
     
     However, some handlers do release the global lock while they are running. So
-    is nevertheless possible for multiple handlers to run at the same time, as long
-    as the concurrency is orchestrated by the instance itself.
+    is nevertheless possible for multiple handlers to run at the same time, as
+    long as the concurrency is orchestrated by the instance itself.
     
-    Since  threads may block both when (re-)acquiring the global lock and when trying to access the
-    database, it is important that these two operations are always carried out in the same order. The
-    convention is that if a method needs both a database lock and the global lock, the
-    global lock is always acquired first. In other words, no method will ever try to obtain
-    the global lock during an active database transaction.
+    Since  threads may block both when (re-)acquiring the global lock and when
+    trying to access the database, it is important that these two operations are
+    always carried out in the same order. The convention is that if a method
+    needs both a database lock and the global lock, the global lock is always
+    acquired first. In other words, no method will ever try to obtain the global
+    lock during an active database transaction.
     
  
     Directory Entry Types
     ----------------------
     
-    S3QL is quite agnostic when it comes to directory entry types. Every directory entry can contain
-    other entries *and* have a associated data, size, link target and device number.
-    
-    This philosophy only fails for the 'st_nlink' attribute because S3QL does not have a concept of '.'
-    and '..' entries (introducing them would add complexity and waste space in the database). This
-    problem is handled empirically: for each inode, S3QL manages a correction term `nlink_off`
-    that is added to the number of references to that inode to generate the 'st_nlink' attribute.
-    `nlink_off` is managed as follows:
-    - Inodes created by mkdir() start with `nlink_off=1`
-    - Inodes created with mknod(), create() and symlink() calls start with `nlink_off=0`
-    - mkdir() increases `nlink_off` for the parent inode by 1
-    - rmdir() decreases `nlink_off` for the parent inode by 1
-    - rename() of an inode with `nlink_off != 0` decreases `nlink_off` for the old
-      and increases it for the new parent inode.
-    
-    Finally, S3QL makes some provisions for users relying on 
-    unlink()/rmdir() to fail for a directory/file. For that, it explicitly
-    checks the st_mode attribute.
+    S3QL is quite agnostic when it comes to directory entry types. Every
+    directory entry can contain other entries *and* have a associated data,
+    size, link target and device number. However, S3QL makes some provisions for
+    users relying on unlink()/rmdir() to fail for a directory/file. For that, it
+    explicitly checks the st_mode attribute.
     """
 
     def handle_exc(self, exc):
@@ -163,26 +151,12 @@ class Operations(llfuse.Operations):
         # The inode cache may need to write to the database 
         # while our SELECT query is running
         with self.dbcm.transaction() as conn:
-            inode = self.inodes[id_]
-            inode.atime = timestamp
-
-            # .
-            if off == 0:
-                yield ('.', inode)
-
-            # ..
-            if off <= 1:
-                if id_ == ROOT_INODE:
-                    yield ('..', inode)
-                else:
-                    for (id_p,) in conn.query('SELECT parent_inode FROM contents '
-                                              'WHERE inode=?', (id_,)):
-                        yield ('..', self.inodes[id_p])
+            self.inodes[id_].atime = timestamp
 
             # The ResultSet is automatically deleted
             # when yield raises GeneratorExit.
             for (name, cid_) in conn.query("SELECT name, inode FROM contents WHERE parent_inode=? "
-                                           "LIMIT -1 OFFSET ?", (id_, off - 2)):
+                                           "LIMIT -1 OFFSET ?", (id_, off)):
                 yield (name, self.inodes[cid_])
 
     def getxattr(self, id_, name):
@@ -272,25 +246,18 @@ class Operations(llfuse.Operations):
     def _copy_tree(self, src_id, target_id, queue, id_cache):
 
         processed = 0
-        adj_nlink = self.inodes[target_id].nlink_off != 0
         with self.dbcm.transaction() as conn:
             for (name, id_) in conn.query('SELECT name, inode FROM contents WHERE parent_inode=?',
                                            (src_id,)):
 
                 if id_ not in id_cache:
                     inode = self.inodes[id_]
-                    if inode.nlink_off != 0:
-                        nlink_off = 1
-                        if adj_nlink:
-                            self.inodes[target_id].nlink_off += 1
-                    else:
-                        nlink_off = 0
 
                     inode_new = self.inodes.create_inode(refcount=1, mode=inode.mode, size=inode.size,
                                                          uid=inode.uid, gid=inode.gid,
                                                          mtime=inode.mtime, atime=inode.atime,
                                                          ctime=inode.ctime, target=inode.target,
-                                                         rdev=inode.rdev, nlink_off=nlink_off)
+                                                         rdev=inode.rdev)
                     id_new = inode_new.id
 
                     if inode.refcount != 1:
@@ -328,16 +295,13 @@ class Operations(llfuse.Operations):
         if not stat.S_ISDIR(inode.mode):
             raise llfuse.FUSEError(errno.ENOTDIR)
 
-        self._remove(id_p, name, inode.id, adj_nlink_off=True)
+        self._remove(id_p, name, inode.id)
 
 
-    def _remove(self, id_p, name, id_, adj_nlink_off=False):
-        '''Remove entry `name`with parent inode `inode_p` 
+    def _remove(self, id_p, name, id_):
+        '''Remove entry `name`with parent inode `id_p` 
         
-        `attr` must be the result of lookup(inode_p, name).
-        
-        If `adj_nlink_off` is set, the `nlink_off` attribute of the
-        parent directory is decreased by one as well.
+        `id_` must be the inode of `name`
         '''
 
         timestamp = time.time()
@@ -366,8 +330,7 @@ class Operations(llfuse.Operations):
             inode_p = self.inodes[id_p]
             inode_p.mtime = timestamp
             inode_p.ctime = timestamp
-            if adj_nlink_off and inode_p.nlink_off != 0:
-                inode_p.nlink_off -= 1
+
 
     def symlink(self, id_p, name, target, ctx):
         mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
@@ -423,12 +386,6 @@ class Operations(llfuse.Operations):
             inode_p_old.ctime = timestamp
             inode_p_new.ctime = timestamp
 
-            if self.inodes[id_].nlink_off != 0:
-                if inode_p_old.nlink_off != 0:
-                    inode_p_old.nlink_off -= 1
-                if inode_p_new.nlink_off != 0:
-                    inode_p_new.nlink_off += 1
-
     def _replace(self, id_p_old, name_old, id_p_new, name_new,
                  id_old, id_new):
 
@@ -447,18 +404,10 @@ class Operations(llfuse.Operations):
             conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
                         (id_old, name_new, id_p_new))
             inode_new = self.inodes[id_new]
-            inode_old = self.inodes[id_old]
-            if inode_p_new.nlink_off != 0:
-                if inode_new.nlink_off != 0 and inode_old.nlink_off == 0:
-                    inode_p_new.nlink_off -= 1
-                elif inode_new.nlink_off == 0 and inode_old.nlink_off != 0:
-                    inode_p_new.nlink_off += 1
 
             # Delete old name
             conn.execute('DELETE FROM contents WHERE name=? AND parent_inode=?',
                         (name_old, id_p_old))
-            if inode_old.nlink_off != 0 and inode_p_old.nlink_off != 0:
-                inode_p_old.nlink_off -= 1
 
             inode_new.refcount -= 1
             inode_new.ctime = timestamp
@@ -497,9 +446,6 @@ class Operations(llfuse.Operations):
             inode_p = self.inodes[new_id_p]
             inode_p.ctime = timestamp
             inode_p.mtime = timestamp
-
-            if inode.nlink_off != 0 and inode_p.nlink_off != 0:
-                inode_p.nlink_off += 1
 
         return inode
 
@@ -558,7 +504,7 @@ class Operations(llfuse.Operations):
         return self._create(id_p, name, mode, ctx, rdev=rdev)
 
     def mkdir(self, id_p, name, mode, ctx):
-        return self._create(id_p, name, mode, ctx, nlink_off=1)
+        return self._create(id_p, name, mode, ctx)
 
     def extstat(self):
         '''Return extended file system statistics'''
@@ -643,7 +589,7 @@ class Operations(llfuse.Operations):
         self.open_inodes[inode.id] += 1
         return (inode.id, inode)
 
-    def _create(self, id_p, name, mode, ctx, refcount=1, nlink_off=0, rdev=0,
+    def _create(self, id_p, name, mode, ctx, refcount=1, rdev=0,
                 target=None):
         if name == CTRL_NAME:
             with self.dbcm() as conn:
@@ -657,15 +603,12 @@ class Operations(llfuse.Operations):
         with self.dbcm.transaction() as conn:
             inode = self.inodes.create_inode(mtime=timestamp, ctime=timestamp, atime=timestamp,
                                              uid=ctx.uid, gid=ctx.gid, mode=mode, refcount=refcount,
-                                             nlink_off=nlink_off, rdev=rdev, target=target)
+                                             rdev=rdev, target=target)
             conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                          (name, inode.id, id_p))
             inode_p = self.inodes[id_p]
             inode_p.mtime = timestamp
             inode_p.ctime = timestamp
-
-            if nlink_off != 0 and inode_p.nlink_off != 0:
-                inode_p.nlink_off += 1
 
         return inode
 

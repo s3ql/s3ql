@@ -28,8 +28,8 @@ __all__ = ["get_bucket_home", "init_logging", 'sha256', 'sha256_fh',
            'cycle_metadata', 'CURRENT_FS_REV', 'VERSION', 'restore_metadata',
            'dump_metadata' ]
 
-VERSION = '0.12'
-CURRENT_FS_REV = 5
+VERSION = '0.13'
+CURRENT_FS_REV = 6
 
 AUTHINFO_BACKEND_PATTERN = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(\S+)$'
 AUTHINFO_BUCKET_PATTERN = r'^storage-url\s+(\S+)\s+password\s+(\S+)$'

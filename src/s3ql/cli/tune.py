@@ -10,11 +10,9 @@ from __future__ import division, print_function, absolute_import
 
 from optparse import OptionParser
 import logging
-import stat
 import cPickle as pickle
 from ..common import (init_logging_from_options, get_backend, QuietError, unlock_bucket,
-                      ExceptionStoringThread, cycle_metadata, ROOT_INODE, CTRL_INODE,
-                      dump_metadata)
+                      ExceptionStoringThread, cycle_metadata, dump_metadata, CURRENT_FS_REV)
 from getpass import getpass
 import sys
 from ..backends import s3
@@ -152,64 +150,45 @@ def delete_bucket(conn, bucketname):
 def upgrade(conn, bucket):
     '''Upgrade file system to newest revision'''
 
-    print('I am about to update the file system to the newest revision.',
-          'Please note that you will not be able to access the file system',
-          'with any older version of S3QL after this operation.',
-          'Please enter "yes" to continue.', '> ', sep='\n', end='')
+    print(textwrap.dedent('''
+        I am about to update the file system to the newest revision. Note that:
+        
+         - You should make very sure that this command is not interrupted and
+           that no one else tries to mount, fsck or upgrade the file system at
+           the same time.
+        
+         - You will not be able to access the file system with any older version
+           of S3QL after this operation. 
+           
+         - The upgrade can only be done from the *previous* revision. If you
+           skipped an intermediate revision, you have to use an intermediate
+           version of S3QL to first upgrade the file system to the previous
+           revision.
+        '''))
+
+    print('Please enter "yes" to continue.', '> ', sep='\n', end='')
 
     if sys.stdin.readline().strip().lower() != 'yes':
         raise QuietError(1)
 
-    # Upgrade from revision 1 to 2
-    if not list(bucket.list('s3ql_parameters_')):
-        dbfile = tempfile.NamedTemporaryFile()
-        bucket.fetch_fh('s3ql_metadata', dbfile)
-        dbfile.flush()
-        dbcm = ConnectionManager(dbfile.name)        
-        param = upgrade_rev1(dbcm, bucket)
-    else:
-        # Read parameters
-        seq_no = max([ int(x[len('s3ql_parameters_'):]) for x in bucket.list('s3ql_parameters_') ])
-        param = pickle.loads(bucket['s3ql_parameters_%d' % seq_no])
-        
-        log.info('Downloading metadata...')
-        if param['revision'] <= 3: 
-            dbfile = tempfile.NamedTemporaryFile()
-            bucket.fetch_fh('s3ql_metadata', dbfile)
-            dbfile.flush()
-            dbcm = ConnectionManager(dbfile.name)
-        elif param['revision'] == 4:
-            tmp = tempfile.TemporaryFile()
-            bucket.fetch_fh('s3ql_metadata', tmp)
-            dbfile = tempfile.NamedTemporaryFile()
-            dbcm = ConnectionManager(dbfile.name)
-            setup_rev4_tables(dbcm)
-            tmp.seek(0)
-            unpickler = pickle.Unpickler(tmp)
-        
-            with dbcm() as conn:
-                conn.execute('PRAGMA foreign_keys = OFF')
-                try:
-                    with conn.transaction(): 
-                        while True:
-                            table = unpickler.load()
-                            if table == 'EOF':
-                                break
-                            buf = unpickler.load()
-                            if not buf:
-                                continue
-                            sql = 'INSERT INTO %s VALUES(%s)' % (table,
-                                                                 ','.join('?' for _ in range(len(buf[0]))))
-                            for row in buf:
-                                conn.execute(sql, row)
-                finally:
-                    conn.execute('PRAGMA foreign_keys = ON')         
-                    
-            
-            
-    # Check consistency
-    mountcnt_db = dbcm.get_val('SELECT mountcnt FROM parameters')
-    if mountcnt_db < param['mountcnt']:
+    log.info('Getting file system parameters..')
+    seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
+    if not seq_nos:
+        raise QuietError('File system revision too old to upgrade.')
+    
+    seq_no = max(seq_nos)
+    param = bucket.lookup('s3ql_metadata')
+    
+    # Check revision
+    if param['revision'] < CURRENT_FS_REV-1:
+        raise QuietError('File system revision too old to upgrade.')
+
+    elif param['revision'] >= CURRENT_FS_REV:
+        print('File system already at most-recent revision')
+        return
+
+    # Check for unclean shutdown on other computer
+    if param['seq_no'] < seq_no:
         if isinstance(bucket, s3.Bucket):
             raise QuietError(textwrap.fill(textwrap.dedent('''
                 It appears that the file system is still mounted somewhere else. If this is not
@@ -224,35 +203,31 @@ def upgrade(conn, bucket):
                 the case, the file system may have not been unmounted cleanly and you should try
                 to run fsck on the computer where the file system has been mounted most recently.
                 ''')))
-    elif mountcnt_db > param['mountcnt']:
-        raise RuntimeError('mountcnt_db > param[mountcnt], this should not happen.')
+    elif param['seq_no'] > seq_no:
+        raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
 
-    # Upgrade from rev. 2 to rev. 3
-    if param['revision'] == 2:
-        upgrade_rev2(dbcm, param)
+    # Download metadata
+    log.info("Downloading & uncompressing metadata...")
+    dbfile = tempfile.NamedTemporaryFile()
+    dbcm = ConnectionManager(dbfile.name)
+    fh = tempfile.TemporaryFile()
+    bucket.fetch_fh("s3ql_metadata", fh)
+    fh.seek(0)
+    log.info('Reading metadata...')
+    restore_rev5_metadata(dbcm, fh)
+    fh.close()
 
-    # Upgrade from rev. 3 to rev. 4 
-    if param['revision'] == 3:
-        # metadata format only
-        log.info('Updating file system from revision 3 to 4.')
-        param['revision'] = 4
-
-    # Upgrade from rev. 4 to rev. 5
-    if param['revision'] == 4:
-        # metadata format only
-        log.info('Updating file system from revision 4 to 5.')
-        param['revision'] = 5
-        param['seq_no'] = mountcnt_db
-        param['label'] = dbcm.get_val('SELECT label FROM parameters')
-        param['blocksize'] = dbcm.get_val('SELECT blocksize FROM parameters')
-        param['needs_fsck'] = dbcm.get_val('SELECT needs_fsck FROM parameters')
-        param['last_fsck'] = dbcm.get_val('SELECT last_fsck FROM parameters')  
-        
-    # Upload parameters
+    log.info('Upgrading from revision 5 to 6...')
+    param['revision'] = CURRENT_FS_REV
+    
+    # Increase metadata sequence no
     param['seq_no'] += 1
     bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
+    for i in seq_nos:
+        if i < param['seq_no'] - 5:
+            del bucket['s3ql_seq_no_%d' % i ]
 
-    # Upload and metadata
+    # Upload metadata
     fh = tempfile.TemporaryFile()
     dump_metadata(dbcm, fh)
     fh.seek(0)
@@ -261,157 +236,7 @@ def upgrade(conn, bucket):
     bucket.store_fh("s3ql_metadata", fh, param)
     fh.close()
 
-def upgrade_rev1(dbcm, bucket):
-    '''Upgrade file system from revision 1 to 2'''
 
-    log.info('Updating file system from revision 1 to 2.')
-
-    # Remove . and .. from database
-    dbcm.execute('DELETE FROM contents WHERE name=? OR name=?', ('.', '..'))
-
-    # Prepare new eventual consistency handling
-    dbcm.execute('UPDATE parameters SET mountcnt=mountcnt+1')
-
-    param = dict()
-    param['revision'] = 2
-    param['mountcnt'] = dbcm.get_val('SELECT mountcnt FROM parameters')
-
-    bucket.store('s3ql_parameters_%d' % param['mountcnt'],
-                 pickle.dumps(param, 2))
-
-    return param
-
-
-def upgrade_rev2(dbcm, param):
-    '''Upgrade file system from revision 2 to 3'''
-
-    log.info('Updating file system from revision 2 to 3.')
-
-    dbcm.execute('CREATE INDEX ix_blocks_inode ON blocks(inode)')
-    dbcm.execute('CREATE INDEX ix_blocks_s3key ON blocks(s3key)')
-    dbcm.execute('CREATE INDEX ix_ext_attributes_inode ON ext_attributes(inode)')
-
-    dbcm.execute('DROP TRIGGER IF EXISTS fki_contents_inode')
-    dbcm.execute('DROP TRIGGER IF EXISTS fku_contents_inode')
-    dbcm.execute('DROP TRIGGER IF EXISTS fkd_contents_inode')
-
-    dbcm.execute('DROP TRIGGER IF EXISTS fki_contents_parent_inode')
-    dbcm.execute('DROP TRIGGER IF EXISTS fku_contents_parent_inode')
-    dbcm.execute('DROP TRIGGER IF EXISTS fkd_contents_parent_inode')
-
-    dbcm.execute('DROP TRIGGER IF EXISTS fki_ext_attributes_inode')
-    dbcm.execute('DROP TRIGGER IF EXISTS fku_ext_attributes_inode')
-    dbcm.execute('DROP TRIGGER IF EXISTS fkd_ext_attributes_inode')
-
-    dbcm.execute('DROP TRIGGER IF EXISTS fki_blocks_inode')
-    dbcm.execute('DROP TRIGGER IF EXISTS fku_blocks_inode')
-    dbcm.execute('DROP TRIGGER IF EXISTS fkd_blocks_inode')
-
-    dbcm.execute('DROP TRIGGER IF EXISTS fki_blocks_s3key')
-    dbcm.execute('DROP TRIGGER IF EXISTS fku_blocks_s3key')
-    dbcm.execute('DROP TRIGGER IF EXISTS fkd_blocks_s3key')
-
-    dbcm.execute('DROP TRIGGER IF EXISTS contents_check_parent_inode_insert')
-    dbcm.execute('DROP TRIGGER IF EXISTS contents_check_parent_inode_update')
-    dbcm.execute('DROP TRIGGER IF EXISTS inodes_check_parent_inode_update')
-
-    # We need to disable foreign key support to recreate the inode table
-    # without affecting refernces
-    dbcm.execute('PRAGMA foreign_keys = OFF')
-
-    dbcm.execute('ALTER TABLE inodes RENAME TO tmp')
-    dbcm.execute('UPDATE tmp SET atime=0 WHERE atime < 0')
-    dbcm.execute('UPDATE tmp SET mtime=0 WHERE mtime < 0')
-    dbcm.execute('UPDATE tmp SET ctime=0 WHERE ctime < 0')
-    dbcm.execute('UPDATE tmp SET rdev=0 WHERE rdev IS NULL')
-    dbcm.execute('''
-        CREATE TABLE inodes (
-        id        INTEGER PRIMARY KEY AUTOINCREMENT
-                  CHECK (id < 4294967296),
-        uid       INT NOT NULL 
-                  CHECK (typeof(uid) == 'integer'),
-        gid       INT NOT NULL 
-                  CHECK (typeof(gid) == 'integer'),
-        mode      INT NOT NULL 
-                  CHECK (typeof(mode) == 'integer'),
-        mtime     REAL NOT NULL 
-                  CHECK (typeof(mtime) == 'real' AND mtime >= 0),
-        atime     REAL NOT NULL 
-                  CHECK (typeof(atime) == 'real' AND atime >= 0),
-        ctime     REAL NOT NULL 
-                  CHECK (typeof(ctime) == 'real' AND ctime >= 0),
-        refcount  INT NOT NULL
-                  CHECK (typeof(refcount) == 'integer' AND refcount > 0),
-        target    BLOB(256) 
-                  CHECK (typeof(target) IN ('blob', 'null')),
-        size      INT NOT NULL DEFAULT 0
-                  CHECK (typeof(size) == 'integer' AND size >= 0),
-        rdev      INT NOT NULL DEFAULT 0
-                  CHECK (typeof(rdev) == 'integer'),
-        nlink_off INT NOT NULL DEFAULT 0
-                  CHECK (typeof(nlink_off) == 'integer')
-    )
-    ''')
-    columns = 'id, uid, gid, mode, mtime, atime, ctime, refcount, target, size, rdev'
-    dbcm.execute('INSERT INTO inodes (%s) SELECT %s FROM tmp ORDER BY id ASC' % (columns, columns))
-    dbcm.execute('DROP TABLE tmp')
-
-
-    # Fix up refcounts 
-    S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK |
-              stat.S_IFCHR | stat.S_IFIFO | stat.S_IFLNK)
-    with dbcm.transaction() as conn:
-        for (inode, mode) in conn.query("SELECT id, mode FROM inodes"):
-            refcount = conn.get_val("SELECT COUNT(name) FROM contents WHERE inode=?",
-                                    (inode,))
-
-            if inode == ROOT_INODE:
-                refcount += 1 # parent when mounted
-
-            if inode == CTRL_INODE:
-                conn.execute("UPDATE inodes SET nlink_off=?, refcount=? WHERE id=?",
-                             (0, 42, inode))
-
-            elif stat.S_ISDIR(mode):
-                subdir_cnt = conn.get_val('SELECT COUNT(name) FROM contents JOIN inodes '
-                                          'ON inode == id WHERE mode & ? == ? AND parent_inode = ?',
-                                          (S_IFMT, stat.S_IFDIR, inode))
-                conn.execute("UPDATE inodes SET nlink_off=?, refcount=? WHERE id=?",
-                             (subdir_cnt + 1, refcount, inode))
-            else:
-                conn.execute("UPDATE inodes SET refcount=? WHERE id=?",
-                             (refcount, inode))
-
-            # Fix size
-            if not stat.S_ISREG(mode):
-                conn.execute("UPDATE inodes SET size=0 WHERE id=?", (inode,))
-
-    dbcm.execute('ALTER TABLE s3_objects RENAME TO objects')
-    dbcm.execute('DROP INDEX ix_s3_objects_hash')
-    dbcm.execute('CREATE INDEX ix_objects_hash ON objects(hash)')
-
-
-    dbcm.execute('ALTER TABLE blocks RENAME TO tmp')
-    dbcm.execute('DROP INDEX ix_blocks_s3key')
-    dbcm.execute('DROP INDEX ix_blocks_inode')
-    conn.execute("""
-    CREATE TABLE blocks (
-        inode     INTEGER NOT NULL REFERENCES inodes(id),
-        blockno   INT NOT NULL
-                  CHECK (typeof(blockno) == 'integer' AND blockno >= 0),
-        obj_id    INTEGER NOT NULL REFERENCES objects(id),
- 
-        PRIMARY KEY (inode, blockno)
-    );
-    CREATE INDEX ix_blocks_obj_id ON blocks(obj_id);
-    CREATE INDEX ix_blocks_inode ON blocks(inode);
-    """)
-    dbcm.execute('INSERT INTO blocks (inode, blockno, obj_id) '
-                 'SELECT inode, blockno, s3key FROM tmp')
-    dbcm.execute('DROP TABLE tmp')
-    dbcm.execute('PRAGMA foreign_keys = ON')
-
-    param['revision'] = 3
 
 def copy_bucket(conn, options, src_bucket):
     '''Copy bucket to different storage location'''
@@ -454,123 +279,43 @@ def copy_bucket(conn, options, src_bucket):
 
 if __name__ == '__main__':
     main(sys.argv[1:])
+ 
+            
+def restore_rev5_metadata(dbcm, ifh):
+    from .. import mkfs
+    
+    unpickler = pickle.Unpickler(ifh)
 
-def setup_rev4_tables(conn):
-
-    # Filesystem parameters
-    conn.execute("""
-    CREATE TABLE parameters (
-        label       TEXT NOT NULL
-                    CHECK (typeof(label) == 'text'),
-        blocksize   INT NOT NULL
-                    CHECK (typeof(blocksize) == 'integer'),
-        last_fsck   REAL NOT NULL
-                    CHECK (typeof(last_fsck) == 'real'),
-        mountcnt    INT NOT NULL
-                    CHECK (typeof(mountcnt) == 'integer'),
-        needs_fsck  BOOLEAN NOT NULL
-                    CHECK (typeof(needs_fsck) == 'integer')
-    )""")
-
-
-    # Table with filesystem metadata
-    # The number of links `refcount` to an inode can in theory
-    # be determined from the `contents` table. However, managing
-    # this separately should be significantly faster (the information
-    # is required for every getattr!)
-    conn.execute("""
-    CREATE TABLE inodes (
-        -- id has to specified *exactly* as follows to become
-        -- an alias for the rowid.
-        -- inode_t may be restricted to 32 bits, so we need to constrain the
-        -- rowid. Also, as long as we don't store a separate generation no,
-        -- we can't reuse old rowids. Therefore we will run out of inodes after
-        -- 49 days if we insert 1000 rows per second. 
-        id        INTEGER PRIMARY KEY AUTOINCREMENT
-                  CHECK (id < 4294967296),
-        uid       INT NOT NULL 
-                  CHECK (typeof(uid) == 'integer'),
-        gid       INT NOT NULL 
-                  CHECK (typeof(gid) == 'integer'),
-        mode      INT NOT NULL 
-                  CHECK (typeof(mode) == 'integer'),
-        mtime     REAL NOT NULL 
-                  CHECK (typeof(mtime) == 'real'),
-        atime     REAL NOT NULL 
-                  CHECK (typeof(atime) == 'real'),
-        ctime     REAL NOT NULL 
-                  CHECK (typeof(ctime) == 'real'),
-        refcount  INT NOT NULL
-                  CHECK (typeof(refcount) == 'integer' AND refcount > 0),
-        target    BLOB(256) 
-                  CHECK (typeof(target) IN ('blob', 'null')),
-        size      INT NOT NULL DEFAULT 0
-                  CHECK (typeof(size) == 'integer' AND size >= 0),
-        rdev      INT NOT NULL DEFAULT 0
-                  CHECK (typeof(rdev) == 'integer'),
-                                    
-        -- Correction term to add to refcount to get st_nlink
-        nlink_off INT NOT NULL DEFAULT 0
-                  CHECK (typeof(nlink_off) == 'integer')
-    )
-    """)
-
-    # Table of filesystem objects
-    conn.execute("""
-    CREATE TABLE contents (
-        name      BLOB(256) NOT NULL
-                  CHECK (typeof(name) == 'blob'),
-        inode     INT NOT NULL REFERENCES inodes(id),
-        parent_inode INT NOT NULL REFERENCES inodes(id),
+    (data_start, to_dump, sizes, columns) = unpickler.load()
+    ifh.seek(data_start)
+    
+    pos = columns['inodes'].index('nlink_off')
+    del columns['inodes'][pos]
+                            
+    with dbcm() as conn:
+        mkfs.setup_tables(conn)
         
-        PRIMARY KEY (name, parent_inode)
-    );
-    CREATE INDEX ix_contents_parent_inode ON contents(parent_inode);
-    CREATE INDEX ix_contents_inode ON contents(inode);
-    """)
-
-    # Extended attributes
-    conn.execute("""
-    CREATE TABLE ext_attributes (
-        inode     INTEGER NOT NULL REFERENCES inodes(id),
-        name      BLOB NOT NULL
-                  CHECK (typeof(name) == 'blob'),
-        value     BLOB NOT NULL
-                  CHECK (typeof(value) == 'blob'),
- 
-        PRIMARY KEY (inode, name)               
-    );
-    CREATE INDEX ix_ext_attributes_inode ON ext_attributes(inode);
-    """)
-
-    # Refcount is included for performance reasons, for directories, the
-    # refcount also includes the implicit '.' entry
-    conn.execute("""
-    CREATE TABLE objects (
-        id        INTEGER PRIMARY KEY AUTOINCREMENT,
-        refcount  INT NOT NULL
-                  CHECK (typeof(refcount) == 'integer' AND refcount > 0),
-                  
-        -- hash and size is only updated when the object is committed
-        hash      BLOB(16) UNIQUE
-                  CHECK (typeof(hash) IN ('blob', 'null')),
-        size      INT NOT NULL
-                  CHECK (typeof(size) == 'integer' AND size >= 0)                  
-    );
-    CREATE INDEX ix_objects_hash ON objects(hash);
-    """)
-
-    # Maps blocks to objects
-    conn.execute("""
-    CREATE TABLE blocks (
-        inode     INTEGER NOT NULL REFERENCES inodes(id),
-        blockno   INT NOT NULL
-                  CHECK (typeof(blockno) == 'integer' AND blockno >= 0),
-        obj_id    INTEGER NOT NULL REFERENCES objects(id),
- 
-        PRIMARY KEY (inode, blockno)
-    );
-    CREATE INDEX ix_blocks_obj_id ON blocks(obj_id);
-    CREATE INDEX ix_blocks_inode ON blocks(inode);
-    """)
-
+        # Speed things up
+        conn.execute('PRAGMA foreign_keys = OFF')
+        try:
+            with conn.transaction(): 
+                for (table, _) in to_dump:
+                    log.info('Loading %s', table)
+                    col_str = ', '.join(columns[table])
+                    val_str = ', '.join('?' for _ in columns[table])
+                    sql_str = 'INSERT INTO %s (%s) VALUES(%s)' % (table, col_str, val_str)
+                    for _ in xrange(sizes[table]):
+                        buf = unpickler.load()
+                        if table == 'inodes':
+                            for row in buf:
+                                conn.execute(sql_str, row[:pos] + row[pos+1:])
+                        else:
+                            for row in buf:
+                                conn.execute(sql_str, row)
+        finally:
+            conn.execute('PRAGMA foreign_keys = ON')     
+    
+        log.info('Creating indices...')
+        mkfs.create_indices(conn)
+        
+        conn.execute('ANALYZE')

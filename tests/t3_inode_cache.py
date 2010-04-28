@@ -34,7 +34,6 @@ class cache_tests(TestCase):
     def test_create(self):
         attrs = {'mode': 784,
                  'refcount': 3,
-                 'nlink_off': 1,
                  'uid': 7,
                  'gid': 2,
                  'size': 34674,
@@ -56,7 +55,6 @@ class cache_tests(TestCase):
     def test_del(self):
         attrs = {'mode': 784,
                 'refcount': 3,
-                'nlink_off': 1,
                 'uid': 7,
                 'target': 'foobar',
                 'gid': 2,
@@ -73,7 +71,6 @@ class cache_tests(TestCase):
     def test_get(self):
         attrs = {'mode': 784,
                 'refcount': 3,
-                'nlink_off': 1,
                 'uid': 7,
                 'gid': 2,
                 'target': 'foobar',

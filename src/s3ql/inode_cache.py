@@ -17,10 +17,10 @@ __all__ = [ 'InodeCache' ]
 log = logging.getLogger('inode_cache')
 
 CACHE_SIZE = 100
-ATTRIBUTES = ('mode', 'refcount', 'nlink_off', 'uid', 'gid', 'size',
+ATTRIBUTES = ('mode', 'refcount', 'uid', 'gid', 'size',
               'rdev', 'target', 'atime', 'mtime', 'ctime', 'id')
 ATTRIBUTE_STR = ', '.join(ATTRIBUTES)
-UPDATE_ATTRS = ('mode', 'refcount', 'nlink_off', 'uid', 'gid', 'size',
+UPDATE_ATTRS = ('mode', 'refcount', 'uid', 'gid', 'size',
               'rdev', 'target', 'atime', 'mtime', 'ctime')
 UPDATE_STR = ', '.join('%s=?' % x for x in UPDATE_ATTRS)
 TIMEZONE = time.timezone
@@ -34,7 +34,7 @@ class _Inode(object):
     # not defined in the table
     def __getattr__(self, key):
         if key == 'st_nlink':
-            return self.refcount + self.nlink_off
+            return self.refcount
 
         elif key == 'st_blocks':
             return self.size // 512

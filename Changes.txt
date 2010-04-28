@@ -1,3 +1,11 @@
+xxx, S3QL 0.13
+
+  * S3QL no longer emulates the . and .. directory entries since this
+    is not required by POSIX and makes the code much simpler. This
+    also means that the st_nlink value of a directory is not longer
+    2 + number of subdirectories.
+    
+
 2010-04-27, S3QL 0.12
 
   * fsck.s3ql now accepts a --batch option to not prompt for any user

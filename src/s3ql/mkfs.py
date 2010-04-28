@@ -19,11 +19,11 @@ __all__ = [ "setup_tables", 'init_tables', 'create_indices' ]
 def init_tables(conn):
     # Insert root directory
     timestamp = time.time() - time.timezone
-    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,nlink_off) "
-                   "VALUES (?,?,?,?,?,?,?,?,?)",
+    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
+                   "VALUES (?,?,?,?,?,?,?,?)",
                    (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
-                    os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1, 2))
+                    os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
 
     # Insert control inode, the actual values don't matter that much 
     conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
@@ -32,10 +32,10 @@ def init_tables(conn):
                   0, 0, timestamp, timestamp, timestamp, 42))
 
     # Insert lost+found directory
-    inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,nlink_off) "
-                       "VALUES (?,?,?,?,?,?,?,?)",
+    inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                       "VALUES (?,?,?,?,?,?,?)",
                        (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1, 1))
+                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
     conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                  (b"lost+found", inode, ROOT_INODE))
 
@@ -63,10 +63,7 @@ def setup_tables(conn):
         refcount  INT NOT NULL,
         target    BLOB(256) ,
         size      INT NOT NULL DEFAULT 0,
-        rdev      INT NOT NULL DEFAULT 0,
-                                    
-        -- Correction term to add to refcount to get st_nlink
-        nlink_off INT NOT NULL DEFAULT 0
+        rdev      INT NOT NULL DEFAULT 0
     )
     """)
 

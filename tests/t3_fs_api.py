@@ -86,7 +86,7 @@ class fs_api_tests(TestCase):
         name = self.newname()
 
         inode_p_old = self.server.getattr(ROOT_INODE).copy()
-        self.server._create(ROOT_INODE, name, mode, ctx, nlink_off=1)
+        self.server._create(ROOT_INODE, name, mode, ctx)
 
         id_ = self.dbcm.get_val('SELECT inode FROM contents WHERE name=? AND '
                                 'parent_inode = ?', (name, ROOT_INODE))
@@ -97,12 +97,10 @@ class fs_api_tests(TestCase):
         self.assertEqual(inode.uid, ctx.uid)
         self.assertEqual(inode.gid, ctx.gid)
         self.assertEqual(inode.refcount, 1)
-        self.assertEqual(inode.nlink_off, 1)
         self.assertEqual(inode.size, 0)
 
         inode_p_new = self.server.getattr(ROOT_INODE)
 
-        self.assertEqual(inode_p_new.nlink_off, inode_p_old.nlink_off + 1)
         self.assertGreater(inode_p_new.mtime, inode_p_old.mtime)
         self.assertGreater(inode_p_new.ctime, inode_p_old.ctime)
 
@@ -153,7 +151,6 @@ class fs_api_tests(TestCase):
         inode_p_new = self.server.mkdir(ROOT_INODE, self.newname(),
                                         self.dir_mode(), Ctx())
         inode_p_new_before = self.server.getattr(inode_p_new.id).copy()
-        inode_p_old_before = self.server.getattr(ROOT_INODE).copy()
 
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
                                          self.file_mode(), Ctx())
@@ -163,7 +160,6 @@ class fs_api_tests(TestCase):
         self.server.link(inode.id, inode_p_new.id, name)
 
         inode_after = self.server.lookup(inode_p_new.id, name)
-        inode_p_old_after = self.server.getattr(ROOT_INODE)
         inode_p_new_after = self.server.getattr(inode_p_new.id)
 
         id_ = self.dbcm.get_val('SELECT inode FROM contents WHERE name=? AND '
@@ -174,8 +170,6 @@ class fs_api_tests(TestCase):
         self.assertGreater(inode_after.ctime, inode_before.ctime)
         self.assertLess(inode_p_new_before.mtime, inode_p_new_after.mtime)
         self.assertLess(inode_p_new_before.ctime, inode_p_new_after.ctime)
-        self.assertEqual(inode_p_old_before.nlink_off, inode_p_old_after.nlink_off)
-        self.assertEqual(inode_p_new_before.nlink_off, inode_p_new_after.nlink_off)
 
         self.fsck()
 
@@ -226,7 +220,7 @@ class fs_api_tests(TestCase):
 
         # Read all
         fh = self.server.opendir(ROOT_INODE)
-        self.assertListEqual(sorted(names + ['.', '..', 'lost+found']) ,
+        self.assertListEqual(sorted(names + ['lost+found']) ,
                              sorted(x[0] for x in self.server.readdir(fh, 0)))
         self.server.releasedir(fh)
 
@@ -244,7 +238,7 @@ class fs_api_tests(TestCase):
         except StopIteration:
             pass
 
-        self.assertListEqual(sorted(names + ['.', '..', 'lost+found']) ,
+        self.assertListEqual(sorted(names + ['lost+found']) ,
                              sorted(x[0] for x in entries))
         self.server.releasedir(fh)
 
@@ -304,8 +298,7 @@ class fs_api_tests(TestCase):
         self.assertLess(inode_p_new_before.ctime, inode_p_new_after.ctime)
         self.assertLess(inode_p_old_before.mtime, inode_p_old_after.mtime)
         self.assertLess(inode_p_old_before.ctime, inode_p_old_after.ctime)
-        self.assertEqual(inode_p_old_before.nlink_off, inode_p_old_after.nlink_off + 1)
-        self.assertEqual(inode_p_new_before.nlink_off, inode_p_new_after.nlink_off - 1)
+
 
         self.fsck()
 
@@ -342,8 +335,6 @@ class fs_api_tests(TestCase):
         self.assertLess(inode_p_new_before.ctime, inode_p_new_after.ctime)
         self.assertLess(inode_p_old_before.mtime, inode_p_old_after.mtime)
         self.assertLess(inode_p_old_before.ctime, inode_p_old_after.ctime)
-        self.assertEqual(inode_p_old_before.nlink_off, inode_p_old_after.nlink_off)
-        self.assertEqual(inode_p_new_before.nlink_off, inode_p_new_after.nlink_off)
 
         self.assertFalse(self.dbcm.has_val('SELECT id FROM inodes WHERE id=?', (inode2.id,)))
 
@@ -376,8 +367,6 @@ class fs_api_tests(TestCase):
         self.assertLess(inode_p_new_before.ctime, inode_p_new_after.ctime)
         self.assertLess(inode_p_old_before.mtime, inode_p_old_after.mtime)
         self.assertLess(inode_p_old_before.ctime, inode_p_old_after.ctime)
-        self.assertEqual(inode_p_old_before.nlink_off, inode_p_old_after.nlink_off + 1)
-        self.assertEqual(inode_p_new_before.nlink_off, inode_p_new_after.nlink_off - 1)
 
         self.assertFalse(self.dbcm.has_val('SELECT id FROM inodes WHERE id=?', (inode2.id,)))
 
@@ -497,7 +486,6 @@ class fs_api_tests(TestCase):
 
         self.assertLess(inode_p_before.mtime, inode_p_after.mtime)
         self.assertLess(inode_p_before.ctime, inode_p_after.ctime)
-        self.assertEqual(inode_p_before.nlink_off, inode_p_after.nlink_off + 1)
         self.assertFalse(self.dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
                                            'parent_inode = ?', (name, ROOT_INODE)))
         self.assertFalse(self.dbcm.has_val('SELECT id FROM inodes WHERE id=?', (inode.id,)))
@@ -591,10 +579,6 @@ class fs_api_tests(TestCase):
         f2_inode_c = self.server.lookup(dst_inode.id, 'file2')
         f2h_inode_c = self.server.lookup(dst_inode.id, 'file2_hardlink')
         d1_inode_c = self.server.lookup(dst_inode.id, 'dir1')
-        dst_inode_c = self.server.getattr(dst_inode.id)
-
-        # Check destination
-        self.assertEqual(dst_inode_c.nlink_off, 2)
 
         # Check file1
         fh = self.server.open(f1_inode_c.id, os.O_RDWR)
@@ -612,7 +596,6 @@ class fs_api_tests(TestCase):
 
         # Check subdir1
         self.assertNotEqual(d1_inode.id, d1_inode_c.id)
-        self.assertEqual(d1_inode_c.nlink_off, 1)
 
         # Copy again
         (tmp1, tmp2) = queue.pop()
@@ -623,7 +606,6 @@ class fs_api_tests(TestCase):
         f2_h_inode_c = self.server.lookup(d1_inode_c.id, 'file2_hardlink')
 
         # Check subdir1
-        self.assertEqual(self.server.getattr(d1_inode_c.id).nlink_off, 2)
         self.assertNotEqual(d2_inode.id, d2_inode_c.id)
 
         # Check file2

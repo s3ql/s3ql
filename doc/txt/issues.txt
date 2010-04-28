@@ -21,3 +21,16 @@ Known Issues
   specific program, this might be due to the program using very small
   write buffers. Although this is not really a bug in the program,
   it might be worth to ask the program's authors for help.
+
+* S3QL directories always have an `st_nlink` value of 1. This may confuse
+  programs that rely on directories having `st_nlink` values of 2 +
+  number of sub directories.
+
+  Note that this is not a bug in S3QL. Including sub directories in
+  the `st_nlink` value is a Unix convention, but by no means a
+  requirement. If an application blindly relies on this convention
+  being followed, then this is a bug in the application.
+
+  A prominent example are early versions of GNU find, which required
+  the `--noleaf` option to work correctly on S3QL file systems. This
+  bug has already been fixed in recent find versions.

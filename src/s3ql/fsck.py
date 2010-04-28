@@ -149,14 +149,12 @@ def check_lof():
     except KeyError:
         found_errors = True
         log_error("Recreating missing lost+found directory")
-        inode_l = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount, nlink_off) "
-                             "VALUES (?,?,?,?,?,?,?, ?)",
+        inode_l = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                             "VALUES (?,?,?,?,?,?,?)",
                              (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                              os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1, 1))
+                              os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
         conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                      (b"lost+found", inode_l, ROOT_INODE))
-        conn.execute('UPDATE inodes SET nlink_off=nlink_off+1 WHERE id=? AND nlink_off != 0',
-                     (ROOT_INODE,))
 
 
     mode = conn.get_val('SELECT mode FROM inodes WHERE id=?', (inode_l,))
@@ -289,7 +287,6 @@ def check_inode_unix():
     - Only regular files should have data blocks and a size
     - Only symlinks should have a target
     - Only devices should have a device number
-    - nlink_off should correspond to the number of child directories + 1
     
     Note that none of this is enforced by S3QL. However, as long
     as S3QL only communicates with the UNIX FUSE module, none of
@@ -301,28 +298,8 @@ def check_inode_unix():
 
     log.info('Checking inodes (types)...')
 
-    for (inode, mode, size, target, nlink_off,
-         rdev) in conn.query("SELECT id, mode, size, target, nlink_off, rdev FROM inodes"):
-
-        if stat.S_ISDIR(mode):
-            # Count sub directories
-            subdir_cnt = conn.get_val('SELECT COUNT(name) FROM contents JOIN inodes '
-                                      'ON inode == id WHERE mode & ? == ? AND parent_inode = ?',
-                                      (S_IFMT, stat.S_IFDIR, inode))
-            if nlink_off != subdir_cnt + 1:
-                found_errors = True
-                log_error("Inode %d (%s) has wrong nlink_off, setting from %d to %d",
-                          inode, get_path(inode, conn), nlink_off, subdir_cnt + 1)
-                conn.execute("UPDATE inodes SET nlink_off=? WHERE id=?",
-                             (subdir_cnt + 1, inode))
-
-        else:
-            if nlink_off != 0:
-                found_errors = True
-                log_error("Inode %d (%s) has wrong nlink_off, setting to 0.", 
-                          inode, get_path(inode, conn))
-                conn.execute("UPDATE inodes SET nlink_off=? WHERE id=?",
-                             (0, inode))
+    for (inode, mode, size, target, rdev) \
+        in conn.query("SELECT id, mode, size, target, rdev FROM inodes"):
 
         if size != 0 and not stat.S_ISREG(mode):
             found_errors = True

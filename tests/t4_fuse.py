@@ -126,7 +126,7 @@ class fuse_tests(TestCase):
         fstat = os.stat(fullname)
         self.assertTrue(stat.S_ISDIR(fstat.st_mode))
         self.assertEquals(libc.listdir(fullname), [])
-        self.assertEquals(fstat.st_nlink, 2)
+        self.assertEquals(fstat.st_nlink, 1)
         self.assertTrue(dirname in libc.listdir(self.mnt_dir))
         os.rmdir(fullname)
         self.assertRaises(OSError, os.stat, fullname)

@@ -54,13 +54,28 @@ Upgrading the file system
 =========================
 
 If you have installed a new version of S3QL, is usually necessary to
-upgrade your file system metdata. Note that afterwards the file system
-can no longer be accessed with older versions of S3QL. To upgrade a
-file system to the newest revision, execute ::
+upgrade your file system metadata. Note that afterwards the file system
+can no longer be accessed with older versions of S3QL.
+
+Before you upgrade the file system, you should run `fsck.s3ql` (from
+the S3QL release that you are upgrading from).
+
+During the upgrade you have to make very sure that the command is not
+interrupted, and that no one else tries to mount, fsck or upgrade the
+file system at the same time.
+
+Finally, note that `tune.s3ql` can only upgrade from the *previous*
+S3QL release, so you cannot directly upgrade e.g. from version 0.10 to
+version 0.12. You first have to download S3QL 0.11 and upgrade the
+file system from 0.10 to 0.11 before you can install S3QL 0.12 and
+upgrade the file system from 0.11 to 0.12.
+
+To upgrade a file system from the previous to the current revision,
+execute ::
 
   tune.s3ql --upgrade <storage url>
 
-You should make very sure that this command is not interrupted.
+
 
 Deleting a file system
 ======================
@@ -70,6 +85,7 @@ A file system can be deleted with::
   tune.s3ql --delete <storage url>
 
 This physically deletes all the data and file system structures.
+
 
 Copying a file system
 =====================
