@@ -365,24 +365,32 @@ def inode_for_path(path, conn):
     return inode
 
 
-def get_path(name, inode_p, conn):
-    """Return the full path of `name` with parent inode `inode_p`"""
+def get_path(id_, conn, name=None):
+    """Return a full path for inode `id_`.
+    
+    If `name` is specified, it is appended at the very end of the
+    path (useful if looking up the path for file name with parent
+    inode).
+    """
 
     if not isinstance(name, bytes):
         raise TypeError('name must be of type bytes')
 
-    path = [ name ]
+    if name is None:
+        path = list()
+    else:
+        path = [ name ]
 
     maxdepth = 255
-    while inode_p != ROOT_INODE:
+    while id_ != ROOT_INODE:
         # This can be ambigious if directories are hardlinked
-        (name2, inode_p) = conn.get_row("SELECT name, parent_inode FROM contents WHERE inode=?",
-                                       (inode_p,))
+        (name2, id_) = conn.get_row("SELECT name, parent_inode FROM contents WHERE inode=?",
+                                       (id_,))
         path.append(name2)
         maxdepth -= 1
         if maxdepth == 0:
             raise RuntimeError('Failed to resolve name "%s" at inode %d to path',
-                               name, inode_p)
+                               name, id_)
 
     path.append(b'')
     path.reverse()
@@ -407,7 +415,7 @@ def get_bucket_home(storage_url, homedir):
 
 def get_backend_credentials(homedir, backend, host):
     """Get credentials for given backend and host"""
-
+    
     # Try to read from file
     keyfile = os.path.join(homedir, 'authinfo')
 

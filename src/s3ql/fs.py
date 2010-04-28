@@ -347,7 +347,7 @@ class Operations(llfuse.Operations):
             # Check that there are no child entries
             if conn.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (id_,)):
                 log.debug("Attempted to remove entry with children: %s",
-                          get_path(name, id_p, conn))
+                          get_path(id_p, conn, name))
                 raise llfuse.FUSEError(errno.ENOTEMPTY)
 
             conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
@@ -380,8 +380,8 @@ class Operations(llfuse.Operations):
         if name_new == CTRL_NAME or name_old == CTRL_NAME:
             with self.dbcm() as conn:
                 log.warn('Attempted to rename s3ql control file (%s -> %s)',
-                          get_path(name_old, id_p_old, conn),
-                          get_path(name_new, id_p_new, conn))
+                          get_path(id_p_old, conn, name_old),
+                          get_path(id_p_new, conn, name_new))
             raise llfuse.FUSEError(errno.EACCES)
         elif name_old in ('.', '..'):
             log.warn('Attempted to rename . or ..')
@@ -438,7 +438,7 @@ class Operations(llfuse.Operations):
         with self.dbcm() as conn:
             if conn.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (id_new,)):
                 log.info("Attempted to overwrite entry with children: %s",
-                          get_path(name_new, id_p_new, conn))
+                          get_path(id_p_new, conn, name_new))
                 raise llfuse.FUSEError(errno.EINVAL)
 
             inode_p_old = self.inodes[id_p_old]
@@ -482,7 +482,7 @@ class Operations(llfuse.Operations):
         if new_name == CTRL_NAME or id_ == CTRL_INODE:
             with self.dbcm() as conn:
                 log.error('Attempted to create s3ql control file at %s',
-                          get_path(new_name, new_id_p, conn))
+                          get_path(new_id_p, conn, new_name))
             raise llfuse.FUSEError(errno.EACCES)
         elif new_name in ('.', '..'):
             raise llfuse.FUSEError(errno.EEXIST)
@@ -651,7 +651,7 @@ class Operations(llfuse.Operations):
         if name == CTRL_NAME:
             with self.dbcm() as conn:
                 log.error('Attempted to create s3ql control file at %s',
-                          get_path(name, id_p, conn))
+                          get_path(id_p, conn, name))
             raise llfuse.FUSEError(errno.EACCES)
         elif name in ('.', '..'):
             raise llfuse.FUSEError(errno.EEXIST)
