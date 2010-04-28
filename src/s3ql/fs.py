@@ -357,8 +357,7 @@ class Operations(llfuse.Operations):
             inode.ctime -= timestamp
 
             if inode.refcount == 0 and self.open_inodes[id_] == 0:
-                for blockno in xrange(inode.size // self.blocksize + 1):
-                    self.cache.remove(id_, blockno, self.lock)
+                self.cache.remove(id_, self.lock, 0, inode.size // self.blocksize + 1)
                 # Since the inode is not open, it's not possible that new blocks
                 # get created at this point and we can safely delete the inode
                 conn.execute('DELETE FROM ext_attributes WHERE inode=?', (id_,))
@@ -470,8 +469,7 @@ class Operations(llfuse.Operations):
             inode_p_new.mtime = timestamp
             
             if inode_new.refcount == 0 and self.open_inodes[id_new] == 0:
-                for blockno in xrange(inode_new.size // self.blocksize + 1):
-                    self.cache.remove(id_new, blockno, self.lock)
+                self.cache.remove(id_new, self.lock, 0, inode_new.size // self.blocksize + 1)
                 # Since the inode is not open, it's not possible that new blocks
                 # get created at this point and we can safely delete the inode
                 conn.execute('DELETE FROM ext_attributes WHERE inode=?', (id_new,))
@@ -520,8 +518,7 @@ class Operations(llfuse.Operations):
             # Delete all truncated blocks
             last_block = len_ // self.blocksize
             total_blocks = inode.size // self.blocksize + 1
-            for blockno in xrange(last_block + 1, total_blocks):
-                self.cache.remove(id_, blockno, self.lock)
+            self.cache.remove(id_, self.lock, last_block+1, total_blocks)
 
             # Get last object before truncation
             if len_ != 0:
@@ -797,8 +794,7 @@ class Operations(llfuse.Operations):
 
             inode = self.inodes[fh]
             if inode.refcount == 0:
-                for blockno in xrange(inode.size // self.blocksize + 1):
-                    self.cache.remove(fh, blockno, self.lock)
+                self.cache.remove(inode.id, self.lock, 0, inode.size // self.blocksize + 1)
                 # Since the inode is not open, it's not possible that new blocks
                 # get created at this point and we can safely delete the in
                 del self.inodes[fh]

@@ -296,55 +296,66 @@ class BlockCache(object):
         log.debug('_expire: end')
 
 
-    def remove(self, inode, blockno, lock):
-        """Remove block
+    def remove(self, inode, lock, start_no, end_no=None):
+        """Remove blocks for `inode`
+        
+        If `end_no` is not specified, remove just the `start_no` block.
+        Otherwise removes all blocks from `start_no` to, but not including,
+         `end_no`. 
         
         This method releases `lock' for the managed context, so the caller must
         not hold any prior database locks and must not try to acquire any
         database locks in the managed context.
         """
 
-        log.debug('remove(inode=%d, blockno=%d): start', inode, blockno)
+        log.debug('remove(inode=%d, start=%d, end=%s): start',
+                  inode, start_no, end_no)
 
         lock.release()
+        
+        if end_no is None:
+            end_no = start_no + 1
+            
         try:
-            with self.mlock(inode, blockno):
-                if (inode, blockno) in self.cache:
-                    # Type inference fails here
-                    #pylint: disable-msg=E1103
-                    el = self.cache.pop((inode, blockno))
-
-                    self.size -= os.fstat(el.fileno()).st_size
-                    el.close()
-                    os.unlink(el.name)
-
-                    if el.obj_id is None:
-                        log.debug('remove(inode=%d, blockno=%d): end (block only in cache)',
-                                  inode, blockno)
-                        return
-
-                    log.debug('remove(inode=%d, blockno=%d): block in cache and db', inode, blockno)
-                    obj_id = el.obj_id
-
-                else:
-                    try:
-                        obj_id = self.dbcm.get_val('SELECT obj_id FROM blocks WHERE inode=? '
-                                                   'AND blockno = ?', (inode, blockno))
-                    except KeyError:
-                        log.debug('remove(inode=%d, blockno=%d): end (block does not exist)',
-                                  inode, blockno)
-                        return
-
-                    log.debug('remove(inode=%d, blockno=%d): block only in db ', inode, blockno)
-
-                self.dbcm.execute('DELETE FROM blocks WHERE inode=? AND blockno=?',
-                                  (inode, blockno))
-            self.removal_queue.add(obj_id)
+            for blockno in range(start_no, end_no):
+                with self.mlock(inode, blockno):
+                    if (inode, blockno) in self.cache:
+                        # Type inference fails here
+                        #pylint: disable-msg=E1103
+                        el = self.cache.pop((inode, blockno))
+    
+                        self.size -= os.fstat(el.fileno()).st_size
+                        el.close()
+                        os.unlink(el.name)
+    
+                        if el.obj_id is None:
+                            log.debug('remove(inode=%d, blockno=%d): end (block only in cache)',
+                                      inode, blockno)
+                            return
+    
+                        log.debug('remove(inode=%d, blockno=%d): block in cache and db', inode, blockno)
+                        obj_id = el.obj_id
+    
+                    else:
+                        try:
+                            obj_id = self.dbcm.get_val('SELECT obj_id FROM blocks WHERE inode=? '
+                                                       'AND blockno = ?', (inode, blockno))
+                        except KeyError:
+                            log.debug('remove(inode=%d, blockno=%d): end (block does not exist)',
+                                      inode, blockno)
+                            return
+    
+                        log.debug('remove(inode=%d, blockno=%d): block only in db ', inode, blockno)
+    
+                    self.dbcm.execute('DELETE FROM blocks WHERE inode=? AND blockno=?',
+                                      (inode, blockno))
+                self.removal_queue.add(obj_id)
 
         finally:
             lock.acquire()
 
-        log.debug('remove(inode=%d, blockno=%d): end', inode, blockno)
+        log.debug('remove(inode=%d, start=%d, end=%s): end',
+                  inode, start_no, end_no)
 
     def flush(self, inode):
         """Upload dirty data for `inode`"""

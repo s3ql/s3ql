@@ -234,7 +234,7 @@ class cache_tests(TestCase):
         self.cache.bucket.verify()
 
         self.cache.bucket = TestBucket(self.bucket)
-        self.cache.remove(inode, blockno1, self.lock)
+        self.cache.remove(inode, self.lock, blockno1)
         self.cache.bucket.verify()
 
     def test_remove_cache(self):
@@ -245,7 +245,7 @@ class cache_tests(TestCase):
         with self.cache.get(inode, 1, self.lock) as fh:
             fh.seek(0)
             fh.write(data1)
-        self.cache.remove(inode, 1, self.lock)
+        self.cache.remove(inode, self.lock, 1)
         with self.cache.get(inode, 1, self.lock) as fh:
             fh.seek(0)
             self.assertTrue(fh.read(42) == '')
@@ -262,7 +262,7 @@ class cache_tests(TestCase):
         self.cache.flush(inode)
         self.cache.bucket.verify()
         self.cache.bucket = TestBucket(self.bucket, no_del=1)
-        self.cache.remove(inode, 1, self.lock)
+        self.cache.remove(inode, self.lock, 1)
         with self.cache.get(inode, 1, self.lock) as fh:
             fh.seek(0)
             self.assertTrue(fh.read(42) == '')
@@ -279,7 +279,7 @@ class cache_tests(TestCase):
         self.cache.clear()
         self.cache.bucket.verify()
         self.cache.bucket = TestBucket(self.bucket, no_del=1)
-        self.cache.remove(inode, 1, self.lock)
+        self.cache.remove(inode, self.lock, 1)
         with self.cache.get(inode, 1, self.lock) as fh:
             fh.seek(0)
             self.assertTrue(fh.read(42) == '')
