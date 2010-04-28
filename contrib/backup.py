@@ -114,7 +114,7 @@ def main():
                                    os.path.join(mountpoint, backup_dir, current_backup)])
 
         log.info('Creating new backup %r', current_backup)
-        rsync_args = ['rsync', '-aHxW', '--delete-during', '--delete-excluded',
+        rsync_args = ['rsync', '-aHAXxW', '--delete-during', '--delete-excluded',
                       '--partial']
         if verbose:
             rsync_args.append('-v')
