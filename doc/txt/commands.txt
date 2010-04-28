@@ -38,7 +38,17 @@ or if you suspect that there might be errors, you should run the
 
  fsck.s3ql [options] <storage url>
 
-To get a list of all available options, run `fsck.s3ql --help`.
+Possible options are:
+
+  --homedir=HOMEDIR  Directory for log files, cache and authentication info.
+                     Default: `~/.s3ql`
+  --debug=DEBUG      Activate debugging output from specified module. Use
+                     `all` to get debug messages from all modules.
+                     This option can be specified multiple times.
+  --quiet            Be really quiet
+  --batch            If user input is required, exit without prompting.
+  --force            Force checking even if file system is marked clean.
+
 
 Upgrading the file system
 =========================

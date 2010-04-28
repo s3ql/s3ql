@@ -1,4 +1,8 @@
-xxx, S3QL 0.12
+2010-04-27, S3QL 0.12
+
+  * fsck.s3ql now accepts a --batch option to not prompt for any user
+    input and requires a --force option to check the file system even
+    if it is marked as clean.
 
   * Fixed a bug in cp.s3ql that caused incorrect st_nlink values in the
     copy.

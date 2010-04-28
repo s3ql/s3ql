@@ -45,6 +45,11 @@ def parse_args(args):
                            "specified multiple times.")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
+    parser.add_option("--batch", action="store_true", default=False,
+                      help="If user input is required, exit without prompting.")
+    parser.add_option("--force", action="store_true", default=False,
+                      help="Force checking even if file system is marked clean.")
+    
 
     (options, pps) = parser.parse_args(args)
 
@@ -87,6 +92,7 @@ def main(args=None):
         dbcm = None
         if os.path.exists(home + '.params'):
             param = pickle.load(open(home + '.params', 'rb'))
+            param['needs_fsck'] = True
             if param['seq_no'] < seq_no:
                 choice = None
                 print('Local cache files exist, but file system appears to have \n'
@@ -95,6 +101,8 @@ def main(args=None):
                       '  a) Remove the local cache files and loose the changes in there\n'
                       '  b) Use the local cache and loose the changes performed during\n'
                       '     all mounts after the unclean shutdown.\n')
+                if options.batch:
+                    raise QuietError('(in batch mode, exiting)')
                 while choice not in ('a', 'b'):
                     print('Your choice [ab]? ', end='')
                     choice = sys.stdin.readline().strip().lower()
@@ -147,12 +155,20 @@ def main(args=None):
                       ''')))
             print('Enter "continue" to use the outdated data anyway:',
                   '> ', sep='\n', end='')
+            if options.batch:
+                raise QuietError('(in batch mode, exiting)')
             if sys.stdin.readline().strip() != 'continue':
                 raise QuietError(1)
             param['seq_no'] = seq_no
             
         elif param['seq_no'] > seq_no:
             raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
+        elif not param['needs_fsck']:
+            if options.force:
+                log.info('File system seems clean, checking anyway.')
+            else:
+                log.info('File system is marked as clean. Use --force to force checking.')
+                return
 
         # Download metadata
         if dbcm is None:
