@@ -98,7 +98,8 @@ class BlockCache(object):
         log.debug('close: start')
         if self.io_thread.is_alive():
             self.io_thread.stop_event.set()
-        self.io_thread.join_and_raise()
+        if self.io_thread is not None:
+            self.io_thread.join_and_raise()
         self.removal_queue.wait()
         self.clear()
         log.debug('close: end')
