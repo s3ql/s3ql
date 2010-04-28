@@ -56,7 +56,7 @@ class fs_api_tests(TestCase):
 
     def tearDown(self):
         self.server.destroy()
-        self.cache.clear()
+        self.cache.close()
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
 

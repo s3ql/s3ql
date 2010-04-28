@@ -52,7 +52,7 @@ class cache_tests(TestCase):
 
     def tearDown(self):
         self.cache.bucket = self.bucket
-        self.cache.clear()
+        self.cache.close()
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
 
