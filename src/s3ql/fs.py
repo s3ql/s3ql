@@ -524,7 +524,7 @@ class Operations(llfuse.Operations):
                 self.cache.remove(id_, blockno, self.lock)
 
             # Get last object before truncation
-            if len != 0:
+            if len_ != 0:
                 with self.cache.get(id_, last_block, self.lock) as fh:
                     fh.truncate(len_ - self.blocksize * last_block)
                     
