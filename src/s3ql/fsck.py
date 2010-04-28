@@ -14,7 +14,7 @@ import stat
 import time
 import logging
 import re
-from .common import (ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh)
+from .common import (ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh, get_path)
 
 __all__ = [ "fsck" ]
 
@@ -231,8 +231,9 @@ def check_inode_sizes():
         for (id_, size_old, size) in conn.query('SELECT * FROM wrong_sizes'):
             
             found_errors = True
-            log_error("Inode %d size does not agree with number of blocks, "
-                      "setting from %d to %d",id_, size_old, size)
+            log_error("Size of inode %d (%s) does not agree with number of blocks, "
+                      "setting from %d to %d", 
+                      id_, get_path(id_, conn), size_old, size)
             conn.execute("UPDATE inodes SET size=? WHERE id=?", (size, id_))
     finally:
         conn.execute('DROP TABLE min_sizes')
@@ -272,8 +273,8 @@ def check_inode_refcount():
                 conn.execute("UPDATE inodes SET refcount=? WHERE id=?", (1, id_))
     
             else: 
-                log_error("Inode %d has wrong reference count, setting from %d to %d",
-                          id_, cnt_old, cnt)
+                log_error("Inode %d (%s) has wrong reference count, setting from %d to %d",
+                          id_, get_path(id_, conn), cnt_old, cnt)
                 conn.execute("UPDATE inodes SET refcount=? WHERE id=?", (cnt, id_))
     finally:
         conn.execute('DROP TABLE refcounts')
@@ -310,46 +311,52 @@ def check_inode_unix():
                                       (S_IFMT, stat.S_IFDIR, inode))
             if nlink_off != subdir_cnt + 1:
                 found_errors = True
-                log_error("Inode %d has wrong nlink_off, setting from %d to %d",
-                          inode, nlink_off, subdir_cnt + 1)
+                log_error("Inode %d (%s) has wrong nlink_off, setting from %d to %d",
+                          inode, get_path(inode, conn), nlink_off, subdir_cnt + 1)
                 conn.execute("UPDATE inodes SET nlink_off=? WHERE id=?",
                              (subdir_cnt + 1, inode))
 
         else:
             if nlink_off != 0:
                 found_errors = True
-                log_error("Inode %d has wrong nlink_off, fixing.", inode)
+                log_error("Inode %d (%s) has wrong nlink_off, setting to 0.", 
+                          inode, get_path(inode, conn))
                 conn.execute("UPDATE inodes SET nlink_off=? WHERE id=?",
                              (0, inode))
 
         if size != 0 and not stat.S_ISREG(mode):
             found_errors = True
-            log_error('Inode %d is not regular file but has non-zero size. '
-                      'Don\'t know what to do.', inode)
+            log_error('Inode %d (%s) is not regular file but has non-zero size. '
+                      'This is probably going to confuse your system!',
+                      inode, get_path(inode, conn))
 
         if target is not None and not stat.S_ISLNK(mode):
             found_errors = True
-            log_error('Inode %d is not symlink but has symlink target. '
-                      'Don\'t know what to do.', inode)
+            log_error('Inode %d (%s) is not symlink but has symlink target. '
+                      'This is probably going to confuse your system!',
+                       inode, get_path(inode, conn))
 
         if rdev != 0 and not (stat.S_ISBLK(mode) or stat.S_ISCHR(mode)):
             found_errors = True
-            log_error('Inode %d is not device but has device number. '
-                      'Don\'t know what to do.', inode)
+            log_error('Inode %d (%s) is not device but has device number. '
+                      'This is probably going to confuse your system!',
+                      inode, get_path(inode, conn))
 
         has_children = conn.has_val('SELECT 1 FROM contents WHERE parent_inode=? LIMIT 1',
                                     (inode,))
         if has_children and not stat.S_ISDIR(mode):
             found_errors = True
-            log_error('Inode %d is not a directory but has child entries. '
-                      'Don\'t know what to do.', inode)
+            log_error('Inode %d (%s) is not a directory but has child entries. '
+                      'This is probably going to confuse your system!',
+                      inode, get_path(inode, conn))
 
         has_blocks = conn.has_val('SELECT 1 FROM blocks WHERE inode=? LIMIT 1',
                                   (inode,))
         if has_blocks and not stat.S_ISREG(mode):
             found_errors = True
-            log_error('Inode %d is not a regualr file but has data blocks. '
-                      'Don\'t know what to do.', inode)
+            log_error('Inode %d (%s) is not a regular file but has data blocks. '
+                      'This is probably going to confuse your system!',
+                       inode, get_path(inode, conn))
 
 
 def check_obj_refcounts():

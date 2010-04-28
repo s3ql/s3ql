@@ -126,6 +126,9 @@ class fsck_tests(TestCase):
                          (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                           0, 0, time.time(), time.time(), time.time(), 2, 0))
         
+        conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
+                     ('test-entry', id_, ROOT_INODE))
+        
         # Create a block
         obj_id = conn.rowid('INSERT INTO objects (refcount, size) VALUES(?, ?)',
                             (1, 500))
@@ -210,7 +213,9 @@ class fsck_tests(TestCase):
                      "VALUES (?,?,?,?,?,?,?,?,?)",
                      (inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                       os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 0))
-
+        conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
+                     ('test-entry', inode, ROOT_INODE))
+        
         fsck.found_errors = False
         fsck.check_inode_unix()
         self.assertFalse(fsck.found_errors)
@@ -222,12 +227,16 @@ class fsck_tests(TestCase):
 
     def test_unix_nlink_dir(self):
         conn = self.conn
-        inode = 42
-        conn.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount,size,nlink_off) "
-                     "VALUES (?,?,?,?,?,?,?,?,?,?)",
-                     (inode, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR,
+        inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size,nlink_off) "
+                     "VALUES (?,?,?,?,?,?,?,?,?)",
+                     (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR,
                       os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 0, 1))
-
+    
+        conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
+                     ('test-entry', inode, ROOT_INODE))
+        conn.execute('UPDATE inodes SET nlink_off = nlink_off+1 WHERE id=?', (ROOT_INODE,))
+        
+        
         fsck.found_errors = False
         fsck.check_inode_unix()
         self.assertFalse(fsck.found_errors)
@@ -244,6 +253,9 @@ class fsck_tests(TestCase):
                      (inode, stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR,
                       os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 0))
 
+        conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
+                     ('test-entry', inode, ROOT_INODE))
+        
         fsck.found_errors = False
         fsck.check_inode_unix()
         self.assertFalse(fsck.found_errors)
@@ -260,6 +272,9 @@ class fsck_tests(TestCase):
                      (inode, stat.S_IFCHR | stat.S_IRUSR | stat.S_IWUSR,
                       os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1))
 
+        conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
+                     ('test-entry', inode, ROOT_INODE))
+        
         fsck.found_errors = False
         fsck.check_inode_unix()
         self.assertFalse(fsck.found_errors)
@@ -275,7 +290,9 @@ class fsck_tests(TestCase):
                      "VALUES (?,?,?,?,?,?,?,?)",
                      (inode, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
                       os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1))
-
+        conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
+                     ('test-entry', inode, ROOT_INODE))
+        
         fsck.found_errors = False
         fsck.check_inode_unix()
         self.assertFalse(fsck.found_errors)
@@ -291,6 +308,9 @@ class fsck_tests(TestCase):
                    (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                     os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1))
 
+        conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
+                     ('test-entry', inode, ROOT_INODE))
+        
         fsck.found_errors = False
         fsck.check_inode_unix()
         self.assertFalse(fsck.found_errors)
@@ -306,6 +326,10 @@ class fsck_tests(TestCase):
                    "VALUES (?,?,?,?,?,?,?)",
                    (stat.S_IFSOCK | stat.S_IRUSR | stat.S_IWUSR,
                     os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1))
+        
+        conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
+                     ('test-entry', inode, ROOT_INODE))
+                
         fsck.found_errors = False
         fsck.check_inode_unix()
         self.assertFalse(fsck.found_errors)
