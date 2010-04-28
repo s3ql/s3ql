@@ -373,19 +373,20 @@ def get_path(id_, conn, name=None):
     inode).
     """
 
-    if not isinstance(name, bytes):
-        raise TypeError('name must be of type bytes')
+    
 
     if name is None:
         path = list()
     else:
+        if not isinstance(name, bytes):
+            raise TypeError('name must be of type bytes')
         path = [ name ]
 
     maxdepth = 255
     while id_ != ROOT_INODE:
         # This can be ambigious if directories are hardlinked
-        (name2, id_) = conn.get_row("SELECT name, parent_inode FROM contents WHERE inode=?",
-                                       (id_,))
+        (name2, id_) = conn.get_row("SELECT name, parent_inode FROM contents WHERE inode=? LIMIT 1",
+                                    (id_,))
         path.append(name2)
         maxdepth -= 1
         if maxdepth == 0:
