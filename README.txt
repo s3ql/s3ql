@@ -1,9 +1,10 @@
 About S3QL
-----------
+-----------
 
-S3QL is a FUSE file system that stores all its data in the Amazon Simple
-Storage Service ("S3"). It effectively allows you to use S3 as a harddisk with
-infinite capacity that can be accessed from any computer with internet access.
+S3QL is a file system that stores all its data online. It supports online
+storage services like Amazon S3 as well as arbitrary FTP or SFTP servers. It
+effectively provides you with a hard disk of infinite capacity that can be
+accessed from any computer with internet access.
 
 S3QL has been designed mainly for backup and archival purposes and many of its
 features are especially geared towards this. However, since S3QL is providing a
@@ -17,27 +18,23 @@ included from the very first line, and S3QL comes with extensive automated test
 cases for all its components.
 
 Features
---------
 
   • Transparency. Generally, you will not be able to distinguish S3QL from a
-    local file system like ext3 or NTFS. S3QL provides complete POSIX
-    filesystem semantics: you can store permissions, extended attributes, FIFOs
-    and devices, and files stored in S3QL are not limited to the 5 GB size of
-    S3 objects but can grow as large as your system supports (usually a few
-    terabyte).
+    local file system like ext3 or NTFS. S3QL removes any limits of the
+    underlying storage system (e.g. the 5 GB file size limit of Amazon S3 or
+    the inability to make hard links over FTP).
 
-  • Compression. Before being stored in S3, all data can be compressed using
-    the LZMA algorithm (which is roughly 15% more efficient than the bzip2 -9
-    command on Unix).
+  • Compression. Before storage, all data is compressed with the LZMA algorithm
+    (which is roughly 15% more efficient than the bzip2 -9 command on Unix).
 
-  • Encryption. After compression (but still before storage in S3), all data
-    can be AES encrypted with a 256 bit key. A SHA256 HMAC checksum is used to
+  • Encryption. After compression (but still before storage), all data is AES
+    encrypted with a 256 bit key. An additional SHA256 HMAC checksum is used to
     protect the data against manipulation.
 
   • Data De-duplication. If several files have identical contents, the
     redundant data will be stored only once. This works across all files stored
     in the file system, and also if only some parts of the files are identical
-    while other parts are different.
+    while other parts differ.
 
   • Writable Snapshots. Inside an S3QL file system, you can duplicate entire
     directory trees without using any additional storage space. Only if one of
@@ -48,12 +45,12 @@ Features
     directory at a given point in time.
 
   • Support for high latency, low bandwidth connections. S3QL saves the file
-    and directory structure in a database that is downloaded from S3 when the
-    file system is mounted and uploaded again when the file system is
-    unmounted. All operations that do not directly write or read file contents
-    can therefore be carried out very fast without any network transactions.
-    (Such operations are directory creation, moving and renaming files,
-    changing permissions, etc).
+    and directory structure in a database that is downloaded once when the file
+    system is mounted and uploaded again when the file system is unmounted. All
+    operations that do not directly write or read file contents can therefore
+    be carried out very fast without any network transactions. (Such operations
+    are directory creation, moving and renaming files, changing permissions,
+    etc).
 
     File contents are cached, so reading or writing to a file requires network
     access only if the data is not yet in the cache. Each file is also split
@@ -61,11 +58,6 @@ Features
     transferred over the network, only the required block is written or
     retrieved. Therefore making a small change (or reading a small part) in a
     large file does not require the entire file to be transferred.
-
-For more information about S3QL, please take a look at the extensive
-documentation at http://code.google.com/p/s3ql/wiki/about. It includes usage
-information as well as implementation details and a comparison to other methods
-of storing data in Amazon S3.
 
 
 Development Status
@@ -89,6 +81,32 @@ S3QL is in beta stage. This means that:
   • Future versions of S3QL will be backwards compatible, so you will not have
     to recreate the file system when you upgrade to a newer version of S3QL.
 
-Please report any problems or bugs that you may encounter on the Issue Tracker
-at http://code.google.com/p/s3ql/issues/list.
+Please report any problems or bugs that you may encounter on the Issue Tracker.
 
+In case S3QL does not (yet) fit your needs, you might want to take a look at
+the list of related projects.
+
+
+Typical Usage
+--------------
+
+Before a file system can be mounted, the backend which will hold the data has
+to be initialized. This is done with the mkfs.s3ql command. Here we are using
+the Amazon S3 backend, and nikratio_s3ql_bucket is the S3 bucket in which the
+file system will be stored.
+
+mkfs.s3ql s3://nikratio_s3ql_bucket
+
+To mount the S3QL file system stored in the S3 bucket nikratio_s3ql_bucket in
+the directory /mnt/s3ql, enter:
+
+mount.s3ql s3://nikratio_s3ql_bucket /mnt/s3ql
+
+Now you can instruct your favorite backup program to run a backup into the
+directory /mnt/s3ql and the data will be stored an Amazon S3. When you are
+done, the file system has to be unmounted with
+
+umount.s3ql /mnt/s3ql
+
+Please refer to the documentation for detailed installation and usage
+instructions.
