@@ -68,7 +68,8 @@ class fs_api_tests(TestCase):
     def fsck(self):
         self.cache.clear()
         self.server.inodes.flush()
-        fsck.fsck(self.dbcm, self.cachedir, self.bucket)
+        fsck.fsck(self.dbcm, self.cachedir, self.bucket, 
+                  { 'blocksize': self.blocksize })
         self.assertFalse(fsck.found_errors)
 
     def newname(self):
