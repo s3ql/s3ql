@@ -28,8 +28,8 @@ TIMEZONE = time.timezone
 class _Inode(object):
     '''An inode with its attributes'''
 
-    __slots__ = ATTRIBUTES
-
+    __slots__ = ATTRIBUTES 
+        
     # This allows access to all st_* attributes, even if they're
     # not defined in the table
     def __getattr__(self, key):
@@ -97,6 +97,17 @@ class InodeCache(object):
     -----
     
     This class is not thread-safe.
+    
+    Callers should keep in mind that the changes of the returned inode
+    object will only be written to the database if the inode is still
+    in the cache when its attributes are updated: it is possible for 
+    the caller to keep a reference to an inode when that
+    inode has already been expired from the InodeCache. Modifications
+    to this inode object will be lost(!).
+    
+    Callers should therefore use the returned inode objects only
+    as long as they can guarantee that no other calls to InodeCache
+    are made that may result in expiration of inodes from the cache.  
     '''
 
     def __init__(self, dbcm):

@@ -574,7 +574,7 @@ class fs_api_tests(TestCase):
         self.server.cache.flush_all()
         queue = list()
         id_cache = dict()
-        self.assertEqual(self.server._copy_tree(src_inode, dst_inode, queue, id_cache), 4)
+        self.assertEqual(self.server._copy_tree(src_inode.id, dst_inode.id, queue, id_cache), 4)
 
         # Change files
         fh = self.server.open(f1_inode.id, os.O_RDWR)

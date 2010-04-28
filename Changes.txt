@@ -1,5 +1,8 @@
 xxx, S3QL 0.12
 
+  * Fixed a bug in cp.s3ql that caused incorrect st_nlink values in the
+    copy.
+ 
   * fsck.s3ql has been even more optimized.
   
   * Fixed a problem with running out of file descriptors when lots of

@@ -251,12 +251,13 @@ class Operations(llfuse.Operations):
         # First we have to flush the cache
         self.cache.flush_all()
 
-        queue = [ (self.inodes[src_id], self.inodes[target_id]) ]
+        old_target_id = target_id
+        queue = [ (src_id, target_id) ]
         id_cache = dict()
         processed = 0
         while queue:
-            (src_inode, target_inode) = queue.pop()
-            processed += self._copy_tree(src_inode, target_inode, queue, id_cache)
+            (src_id, target_id) = queue.pop()
+            processed += self._copy_tree(src_id, target_id, queue, id_cache)
 
             # Give other threads a chance to access the db
             processed += 1
@@ -266,21 +267,22 @@ class Operations(llfuse.Operations):
                 self.lock.acquire()
                 processed = 0
 
-        llfuse.invalidate_inode(target_id)
+        llfuse.invalidate_inode(old_target_id)
 
-    def _copy_tree(self, src_inode, target_inode, queue, id_cache):
+    def _copy_tree(self, src_id, target_id, queue, id_cache):
 
         processed = 0
+        adj_nlink = self.inodes[target_id].nlink_off != 0
         with self.dbcm.transaction() as conn:
             for (name, id_) in conn.query('SELECT name, inode FROM contents WHERE parent_inode=?',
-                                           (src_inode.id,)):
+                                           (src_id,)):
 
                 if id_ not in id_cache:
                     inode = self.inodes[id_]
                     if inode.nlink_off != 0:
                         nlink_off = 1
-                        if target_inode.nlink_off != 0:
-                            target_inode.nlink_off += 1
+                        if adj_nlink:
+                            self.inodes[target_id].nlink_off += 1
                     else:
                         nlink_off = 0
 
@@ -289,24 +291,25 @@ class Operations(llfuse.Operations):
                                                          mtime=inode.mtime, atime=inode.atime,
                                                          ctime=inode.ctime, target=inode.target,
                                                          rdev=inode.rdev, nlink_off=nlink_off)
+                    id_new = inode_new.id
 
                     if inode.refcount != 1:
-                        id_cache[inode.id] = inode_new
+                        id_cache[id_] = id_new
 
                     for (obj_id, blockno) in conn.query('SELECT obj_id, blockno FROM blocks '
                                                         'WHERE inode=?', (id_,)):
                         conn.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
-                                     (inode_new.id, blockno, obj_id))
+                                     (id_new, blockno, obj_id))
                         conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?', (obj_id,))
 
                     if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
-                        queue.append((inode, inode_new))
+                        queue.append((id_, id_new))
                 else:
-                    inode_new = id_cache[id_]
-                    inode_new.refcount += 1
+                    id_new = id_cache[id_]
+                    self.inodes[id_new].refcount += 1
 
                 conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
-                             (name, inode_new.id, target_inode.id))
+                             (name, id_new, target_id))
                 processed += 1
 
             return processed
@@ -317,7 +320,7 @@ class Operations(llfuse.Operations):
         if stat.S_ISDIR(inode.mode):
             raise llfuse.FUSEError(errno.EISDIR)
 
-        self._remove(id_p, name, inode)
+        self._remove(id_p, name, inode.id)
 
     def rmdir(self, id_p, name):
         inode = self.lookup(id_p, name)
@@ -325,10 +328,10 @@ class Operations(llfuse.Operations):
         if not stat.S_ISDIR(inode.mode):
             raise llfuse.FUSEError(errno.ENOTDIR)
 
-        self._remove(id_p, name, inode, adj_nlink_off=True)
+        self._remove(id_p, name, inode.id, adj_nlink_off=True)
 
 
-    def _remove(self, id_p, name, inode, adj_nlink_off=False):
+    def _remove(self, id_p, name, id_, adj_nlink_off=False):
         '''Remove entry `name`with parent inode `inode_p` 
         
         `attr` must be the result of lookup(inode_p, name).
@@ -342,23 +345,24 @@ class Operations(llfuse.Operations):
         with self.dbcm() as conn:
 
             # Check that there are no child entries
-            if conn.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (inode.id,)):
+            if conn.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (id_,)):
                 log.debug("Attempted to remove entry with children: %s",
                           get_path(name, id_p, conn))
                 raise llfuse.FUSEError(errno.ENOTEMPTY)
 
             conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
                          (name, id_p))
+            inode = self.inodes[id_]
             inode.refcount -= 1
             inode.ctime -= timestamp
 
-            if inode.refcount == 0 and self.open_inodes[inode.id] == 0:
+            if inode.refcount == 0 and self.open_inodes[id_] == 0:
                 for blockno in xrange(inode.size // self.blocksize + 1):
-                    self.cache.remove(inode.id, blockno, self.lock)
+                    self.cache.remove(id_, blockno, self.lock)
                 # Since the inode is not open, it's not possible that new blocks
                 # get created at this point and we can safely delete the inode
-                conn.execute('DELETE FROM ext_attributes WHERE inode=?', (inode.id,))
-                del self.inodes[inode.id]
+                conn.execute('DELETE FROM ext_attributes WHERE inode=?', (id_,))
+                del self.inodes[id_]
 
             inode_p = self.inodes[id_p]
             inode_p.mtime = timestamp
@@ -400,12 +404,12 @@ class Operations(llfuse.Operations):
 
         if target_exists:
             self._replace(id_p_old, name_old, id_p_new, name_new,
-                          inode_old, inode_new)
+                          inode_old.id, inode_new.id)
         else:
-            self._rename(id_p_old, name_old, id_p_new, name_new, inode_old)
+            self._rename(id_p_old, name_old, id_p_new, name_new, inode_old.id)
 
 
-    def _rename(self, id_p_old, name_old, id_p_new, name_new, inode):
+    def _rename(self, id_p_old, name_old, id_p_new, name_new, id_):
         timestamp = time.time()
 
         with self.dbcm.transaction() as conn:
@@ -420,19 +424,19 @@ class Operations(llfuse.Operations):
             inode_p_old.ctime = timestamp
             inode_p_new.ctime = timestamp
 
-            if inode.nlink_off != 0:
+            if self.inodes[id_].nlink_off != 0:
                 if inode_p_old.nlink_off != 0:
                     inode_p_old.nlink_off -= 1
                 if inode_p_new.nlink_off != 0:
                     inode_p_new.nlink_off += 1
 
     def _replace(self, id_p_old, name_old, id_p_new, name_new,
-                 inode_old, inode_new):
+                 id_old, id_new):
 
         timestamp = time.time()
 
         with self.dbcm() as conn:
-            if conn.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (inode_new.id,)):
+            if conn.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (id_new,)):
                 log.info("Attempted to overwrite entry with children: %s",
                           get_path(name_new, id_p_new, conn))
                 raise llfuse.FUSEError(errno.EINVAL)
@@ -442,7 +446,9 @@ class Operations(llfuse.Operations):
 
             # Replace target
             conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
-                        (inode_old.id, name_new, id_p_new))
+                        (id_old, name_new, id_p_new))
+            inode_new = self.inodes[id_new]
+            inode_old = self.inodes[id_old]
             if inode_p_new.nlink_off != 0:
                 if inode_new.nlink_off != 0 and inode_old.nlink_off == 0:
                     inode_p_new.nlink_off -= 1
@@ -458,18 +464,18 @@ class Operations(llfuse.Operations):
             inode_new.refcount -= 1
             inode_new.ctime = timestamp
 
-            if inode_new.refcount == 0 and self.open_inodes[inode_new.id] == 0:
-                for blockno in xrange(inode_new.size // self.blocksize + 1):
-                    self.cache.remove(inode_new.id, blockno, self.lock)
-                # Since the inode is not open, it's not possible that new blocks
-                # get created at this point and we can safely delete the inode
-                conn.execute('DELETE FROM ext_attributes WHERE inode=?', (inode_new.id,))
-                del self.inodes[inode_new.id]
-
             inode_p_old.ctime = timestamp
             inode_p_old.mtime = timestamp
             inode_p_new.ctime = timestamp
             inode_p_new.mtime = timestamp
+            
+            if inode_new.refcount == 0 and self.open_inodes[id_new] == 0:
+                for blockno in xrange(inode_new.size // self.blocksize + 1):
+                    self.cache.remove(id_new, blockno, self.lock)
+                # Since the inode is not open, it's not possible that new blocks
+                # get created at this point and we can safely delete the inode
+                conn.execute('DELETE FROM ext_attributes WHERE inode=?', (id_new,))
+                del self.inodes[id_new]
 
 
     def link(self, id_, new_id_p, new_name):
@@ -521,6 +527,9 @@ class Operations(llfuse.Operations):
             if len != 0:
                 with self.cache.get(id_, last_block, self.lock) as fh:
                     fh.truncate(len_ - self.blocksize * last_block)
+                    
+            # Inode may have expired from cache 
+            inode = self.inodes[id_]
             inode.size = len_
 
         if 'st_mode' in attr:
@@ -686,6 +695,9 @@ class Operations(llfuse.Operations):
             length -= len(tmp)
             offset += len(tmp)
 
+        # Inode may have expired from cache 
+        inode = self.inodes[fh]
+        
         timestamp = time.time()
         inode.atime = timestamp
         inode.ctime = timestamp
