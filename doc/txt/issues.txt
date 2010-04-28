@@ -1,0 +1,23 @@
+.. -*- mode: rst -*-
+
+============
+Known Issues
+============
+
+* S3QL is rather slow when an application tries to write data in
+  unreasonably small chunks. If a 1 MB file is copied in chunks of 1
+  KB, this will take more than 10 times as long as when it's copied
+  with the (recommended) chunk size of 128 KB.
+
+  This is a limitation of the FUSE library (which does not yet support
+  write caching) which will hopefully be addressed in some future FUSE
+  version.
+
+  Most applications, including e.g. GNU `cp` and `rsync`, use
+  reasonably large buffers and are therefore not affected by this
+  problem and perform very efficient on S3QL file systems.
+
+  However, if you encounter unexpectedly slow performance with a
+  specific program, this might be due to the program using very small
+  write buffers. Although this is not really a bug in the program,
+  it might be worth to ask the program's authors for help.
