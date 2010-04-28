@@ -44,6 +44,7 @@ class fsck_tests(TestCase):
         fsck.bucket = self.bucket
         fsck.checkonly = False
         fsck.expect_errors = True
+        fsck.blocksize = self.blocksize
         fsck.found_errors = False
 
     def tearDown(self):
@@ -117,7 +118,25 @@ class fsck_tests(TestCase):
 
         self.assert_fsck(fsck.check_inode_refcount)
 
+    def test_inode_sizes(self):
 
+        conn = self.conn
+        id_ = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                         "VALUES (?,?,?,?,?,?,?,?)",
+                         (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
+                          0, 0, time.time(), time.time(), time.time(), 2, 0))
+        
+        # Create a block
+        obj_id = conn.rowid('INSERT INTO objects (refcount, size) VALUES(?, ?)',
+                            (1, 500))
+        conn.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
+                     (id_, 0, obj_id))   
+
+        
+        self.assert_fsck(fsck.check_inode_sizes)
+
+ 
+        
     def test_keylist(self):
         # Create an object that only exists in the bucket
         self.bucket['s3ql_data_4364'] = 'Testdata'

@@ -26,11 +26,12 @@ cachedir = None
 bucket = None
 expect_errors = False
 found_errors = False
+blocksize = None
 
 S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK |
           stat.S_IFCHR | stat.S_IFIFO | stat.S_IFLNK)
 
-def fsck(dbcm, cachedir_, bucket_):
+def fsck(dbcm, cachedir_, bucket_, param):
     """Check file system
     
     Sets module variable `found_errors`. Throws `FatalFsckError` 
@@ -41,10 +42,12 @@ def fsck(dbcm, cachedir_, bucket_):
     global cachedir
     global bucket
     global found_errors
+    global blocksize
 
     cachedir = cachedir_
     bucket = bucket_
     found_errors = False
+    blocksize = param['blocksize']
 
     with dbcm.transaction() as conn_:
         conn = conn_
@@ -53,6 +56,7 @@ def fsck(dbcm, cachedir_, bucket_):
         check_lof()
         check_loops()
         check_inode_refcount()
+        check_inode_sizes()
         check_inode_unix()
         check_obj_refcounts()
         check_keylist()
@@ -202,6 +206,38 @@ def check_loops():
     conn.execute("DROP TABLE loopcheck")
     conn.execute("DROP TABLE loopcheck2")
 
+def check_inode_sizes():
+    """Check if inode sizes agree with blocks"""
+
+    global found_errors
+
+    log.info('Checking inodes (sizes)...')
+
+    conn.execute('CREATE TEMPORARY TABLE min_sizes '
+                 '(id INTEGER PRIMARY KEY, min_size INTEGER NOT NULL)')
+    try:
+        conn.execute('''INSERT INTO min_sizes (id, min_size) 
+                     SELECT inode, MAX(blockno * ? + size) 
+                     FROM blocks JOIN objects ON obj_id == id 
+                     GROUP BY inode''',
+                     (blocksize,))
+        
+        conn.execute('''
+           CREATE TEMPORARY TABLE wrong_sizes AS 
+           SELECT id, size, min_size
+             FROM inodes JOIN min_sizes USING (id) 
+            WHERE size < min_size''')
+        
+        for (id_, size_old, size) in conn.query('SELECT * FROM wrong_sizes'):
+            
+            found_errors = True
+            log_error("Inode %d size does not agree with number of blocks, "
+                      "setting from %d to %d",id_, size_old, size)
+            conn.execute("UPDATE inodes SET size=? WHERE id=?", (size, id_))
+    finally:
+        conn.execute('DROP TABLE min_sizes')
+        conn.execute('DROP TABLE IF EXISTS wrong_sizes')
+        
 def check_inode_refcount():
     """Check inode reference counters"""
 

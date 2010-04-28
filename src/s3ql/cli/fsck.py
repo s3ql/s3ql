@@ -181,7 +181,7 @@ def main(args=None):
         if not os.path.exists(home + '-cache'):
             os.mkdir(home + '-cache', stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
-        fsck.fsck(dbcm, home + '-cache', bucket)
+        fsck.fsck(dbcm, home + '-cache', bucket, param)
 
         log.info("Saving metadata...")
         fh = tempfile.TemporaryFile()
