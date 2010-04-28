@@ -10,3 +10,4 @@ syntax: regexp
 ^.pydevproject$
 ^.project$
 ^.settings$
+\.pyc$
