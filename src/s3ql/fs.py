@@ -46,7 +46,8 @@ class Operations(llfuse.Operations):
     :lock:        Global lock to synchronize request processing
     :encountered_errors: Is set to true if a request handler raised an exception
     :inode_cache: A cache for the attributes of the currently opened inodes.
-
+    :open_inodes: dict of currently opened inodes. This is used to not remove
+                  the blocks of unlinked inodes that are still open.
  
     Multithreading
     --------------
@@ -55,7 +56,7 @@ class Operations(llfuse.Operations):
     holds the global lock `lock` that is also passed to the constructor.
     
     However, some handlers do release the global lock while they are running. So
-    is nevertheless possible for multiple handlers to run at the same time, as
+    it is nevertheless possible for multiple handlers to run at the same time, as
     long as the concurrency is orchestrated by the instance itself.
     
     Since  threads may block both when (re-)acquiring the global lock and when
@@ -318,8 +319,12 @@ class Operations(llfuse.Operations):
                          (name, id_p))
             inode = self.inodes[id_]
             inode.refcount -= 1
-            inode.ctime -= timestamp
+            inode.ctime = timestamp
 
+            inode_p = self.inodes[id_p]
+            inode_p.mtime = timestamp
+            inode_p.ctime = timestamp
+            
             if inode.refcount == 0 and self.open_inodes[id_] == 0:
                 self.cache.remove(id_, self.lock, 0, inode.size // self.blocksize + 1)
                 # Since the inode is not open, it's not possible that new blocks
@@ -327,9 +332,7 @@ class Operations(llfuse.Operations):
                 conn.execute('DELETE FROM ext_attributes WHERE inode=?', (id_,))
                 del self.inodes[id_]
 
-            inode_p = self.inodes[id_p]
-            inode_p.mtime = timestamp
-            inode_p.ctime = timestamp
+
 
 
     def symlink(self, id_p, name, target, ctx):
