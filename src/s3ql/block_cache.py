@@ -103,6 +103,7 @@ class BlockCache(object):
         log.debug('init: start')
         self.io_thread = ExceptionStoringThread(self._io_loop, log, pass_self=True)
         self.io_thread.stop_event = threading.Event()
+        self.io_thread.name = 'IO Thread'
         self.io_thread.start()
         log.debug('init: end')
 
