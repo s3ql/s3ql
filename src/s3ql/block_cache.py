@@ -29,7 +29,19 @@ log = logging.getLogger("BlockCache")
 # Standard file descriptor limit per process is 1024
 MAX_CACHE_ENTRIES = 768
 
-class CacheEntry(file):
+# Work around setuptools bug
+try:
+    import setuptools
+except ImportError:
+    file_class = file
+else:
+    if hasattr(setuptools, 'sandbox') and \
+       file is setuptools.sandbox._open:
+        file_class = getattr(setuptools.sandbox, '_file')
+    else:
+        file_class = file
+         
+class CacheEntry(file_class):
     """An element in the block cache
     
     If `obj_id` is `None`, then the object has not yet been
