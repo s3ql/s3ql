@@ -342,9 +342,9 @@ class BlockCache(object):
                         os.unlink(el.name)
     
                         if el.obj_id is None:
-                            log.debug('remove(inode=%d, blockno=%d): end (block only in cache)',
+                            log.debug('remove(inode=%d, blockno=%d): block only in cache',
                                       inode, blockno)
-                            return
+                            continue
     
                         log.debug('remove(inode=%d, blockno=%d): block in cache and db', inode, blockno)
                         obj_id = el.obj_id
@@ -354,9 +354,9 @@ class BlockCache(object):
                             obj_id = self.dbcm.get_val('SELECT obj_id FROM blocks WHERE inode=? '
                                                        'AND blockno = ?', (inode, blockno))
                         except KeyError:
-                            log.debug('remove(inode=%d, blockno=%d): end (block does not exist)',
+                            log.debug('remove(inode=%d, blockno=%d): block does not exist',
                                       inode, blockno)
-                            return
+                            continue
     
                         log.debug('remove(inode=%d, blockno=%d): block only in db ', inode, blockno)
     
