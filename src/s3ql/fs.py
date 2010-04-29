@@ -325,7 +325,7 @@ class Operations(llfuse.Operations):
             inode_p.mtime = timestamp
             inode_p.ctime = timestamp
             
-            if inode.refcount == 0 and self.open_inodes[id_] == 0:
+            if inode.refcount == 0 and id_ not in self.open_inodes:
                 self.cache.remove(id_, self.lock, 0, inode.size // self.blocksize + 1)
                 # Since the inode is not open, it's not possible that new blocks
                 # get created at this point and we can safely delete the inode
@@ -420,7 +420,7 @@ class Operations(llfuse.Operations):
             inode_p_new.ctime = timestamp
             inode_p_new.mtime = timestamp
             
-            if inode_new.refcount == 0 and self.open_inodes[id_new] == 0:
+            if inode_new.refcount == 0 and id_new not in self.open_inodes:
                 self.cache.remove(id_new, self.lock, 0, inode_new.size // self.blocksize + 1)
                 # Since the inode is not open, it's not possible that new blocks
                 # get created at this point and we can safely delete the inode
