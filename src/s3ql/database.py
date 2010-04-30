@@ -58,7 +58,7 @@ class ConnectionManager(object):
         '''
         self.dbfile = dbfile
         self.initsql = ('PRAGMA synchronous = off;'
-                        'PRAGMA foreign_keys = ON;')
+                        'PRAGMA foreign_keys = on;')
         self.retrytime = retrytime
         self.pool = list()
         self.provided = dict()
@@ -314,6 +314,9 @@ class WrappedConnection(object):
         except apsw.ConstraintError:
             log.error('Constraint error when executing %r with bindings %r',
                       statement, bindings)
+            # Work around SQLite bug, http://code.google.com/p/apsw/issues/detail?id=99
+            for i in range(100):
+                cur.execute('SELECT %d FROM inodes LIMIT 1' % i)
             raise
 
 
