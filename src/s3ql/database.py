@@ -316,7 +316,7 @@ class WrappedConnection(object):
                       statement, bindings)
             # Work around SQLite bug, http://code.google.com/p/apsw/issues/detail?id=99
             for i in range(100):
-                cur.execute('SELECT %d FROM inodes LIMIT 1' % i)
+                cur.execute('SELECT null'+ ' '*i)
             raise
 
 
