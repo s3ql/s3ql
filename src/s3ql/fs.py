@@ -350,12 +350,6 @@ class Operations(llfuse.Operations):
                           get_path(id_p_old, conn, name_old),
                           get_path(id_p_new, conn, name_new))
             raise llfuse.FUSEError(errno.EACCES)
-        elif name_old in ('.', '..'):
-            log.warn('Attempted to rename . or ..')
-            raise llfuse.FUSEError(errno.EACCES)
-        elif name_new in ('.', '..'):
-            log.warn('Attempted to rename . or ..')
-            raise llfuse.FUSEError(errno.EACCES)
 
         inode_old = self.lookup(id_p_old, name_old)
 
@@ -436,8 +430,6 @@ class Operations(llfuse.Operations):
                 log.error('Attempted to create s3ql control file at %s',
                           get_path(new_id_p, conn, new_name))
             raise llfuse.FUSEError(errno.EACCES)
-        elif new_name in ('.', '..'):
-            raise llfuse.FUSEError(errno.EEXIST)
 
         timestamp = time.time()
         with self.dbcm.transaction() as conn:
@@ -601,8 +593,6 @@ class Operations(llfuse.Operations):
                 log.error('Attempted to create s3ql control file at %s',
                           get_path(id_p, conn, name))
             raise llfuse.FUSEError(errno.EACCES)
-        elif name in ('.', '..'):
-            raise llfuse.FUSEError(errno.EEXIST)
 
         timestamp = time.time()
         with self.dbcm.transaction() as conn:
