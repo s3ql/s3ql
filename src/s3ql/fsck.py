@@ -402,11 +402,15 @@ def check_keylist():
                                     'EXCEPT SELECT id FROM objects'):
             found_errors = True
             name = unused_filename('object-%s' % obj_id)
-            log_error("object %s not referenced in objects table, saving locally as ./%s",
-                      obj_id, name)
-            if not expect_errors:
-                bucket.fetch_fh('s3ql_data_%d' % obj_id, open(name, 'wb'))
-            del bucket['s3ql_data_%d' % obj_id]
+            try:
+                if not expect_errors:
+                    bucket.fetch_fh('s3ql_data_%d' % obj_id, open(name, 'wb'))
+                del bucket['s3ql_data_%d' % obj_id]
+            except KeyError:
+                pass
+            else:
+                log_error("object %s not referenced in objects table, saving locally as ./%s",
+                          obj_id, name)
     
         conn.execute('CREATE TEMPORARY TABLE missing AS '
                      'SELECT id FROM objects EXCEPT SELECT id FROM obj_ids')
