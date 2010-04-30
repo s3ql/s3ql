@@ -27,9 +27,15 @@ class cache_tests(TestCase):
             mkfs.init_tables(conn)
 
         self.cache = inode_cache.InodeCache(self.dbcm)
+        self.cache.init()
+        
+        # We don't want background flushing
+        self.cache.flush_thread.stop_event.set()
+        self.cache.flush_thread.join_and_raise()
+        self.cache.flush_thread = None        
 
     def tearDown(self):
-        self.cache.close()
+        self.cache.destroy()
 
     def test_create(self):
         attrs = {'mode': 784,

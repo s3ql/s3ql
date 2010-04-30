@@ -211,12 +211,13 @@ class InodeCache(object):
         if id_ in self.attrs:
             self.setattr(self.attrs[id_])
 
-    def close(self):
+    def destroy(self):
         '''Finalize cache'''
 
         if self.flush_thread:
             self.flush_thread.stop_event.set()
             self.flush_thread.join_and_raise()
+            self.flush_thread = None
 
         for i in xrange(len(self.cached_rows)):
             id_ = self.cached_rows[i]

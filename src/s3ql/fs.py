@@ -17,6 +17,7 @@ import logging
 from .inode_cache import InodeCache
 from .common import (get_path, CTRL_NAME, CTRL_INODE)
 import time
+from .block_cache import BlockCache
 from cStringIO import StringIO
 import struct
 
@@ -90,17 +91,17 @@ class Operations(llfuse.Operations):
         self.encountered_errors = True
 
 
-    def __init__(self, dbcm, cache, lock, blocksize):
+    def __init__(self, dbcm, bucket, cachedir, lock, blocksize, cachesize):
         super(Operations, self).__init__()
 
         self.dbcm = dbcm
-        self.cache = cache
         self.encountered_errors = False
         self.inodes = InodeCache(dbcm)
         self.lock = lock
         self.open_inodes = collections.defaultdict(lambda: 0)
         self.blocksize = blocksize
-
+        self.cache = BlockCache(bucket, cachedir, cachesize, dbcm)
+        
         # Make sure the control file is only writable by the user
         # who mounted the file system
         self.inodes[CTRL_INODE].uid = os.getuid()
@@ -111,7 +112,8 @@ class Operations(llfuse.Operations):
         self.inodes.init()
 
     def destroy(self):
-        self.inodes.close()
+        self.inodes.destroy()
+        self.cache.destroy()
 
     def lookup(self, id_p, name):
         with self.dbcm() as conn:

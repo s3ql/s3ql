@@ -16,7 +16,6 @@ from s3ql import fs
 from s3ql.backends import s3
 from s3ql.daemonize import daemonize
 from s3ql.backends.common import ChecksumError, COMPRESS_BZIP2, COMPRESS_LZMA, COMPRESS_ZLIB
-from s3ql.block_cache import BlockCache
 from s3ql.common import (init_logging_from_options, get_backend, get_bucket_home,
                          QuietError, unlock_bucket, CURRENT_FS_REV, get_stdout_handler,
                          cycle_metadata, dump_metadata, restore_metadata)
@@ -47,6 +46,11 @@ def main(args=None):
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.')
 
+    if options.profile:
+        import cProfile
+        import pstats
+        prof = cProfile.Profile()
+        
     with get_backend(options) as (conn, bucketname):
 
         if not bucketname in conn:
@@ -69,18 +73,52 @@ def main(args=None):
             raise QuietError('Local cache files exist, file system has not been unmounted\n'
                              'cleanly. You need to run fsck.s3ql.')
             
+        lock = threading.Lock()
+        fuse_opts = get_fuse_opts(options)      
+                            
         with get_metadata(bucket, home) as (param, dbcm):
-            os.mkdir(home + '-cache', stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-            cache = BlockCache(bucket, home + '-cache', options.cachesize*1024, dbcm)
+            operations = fs.Operations(dbcm, bucket, cachedir=home + '-cache', lock=lock, 
+                                       blocksize=param['blocksize'], 
+                                       cachesize=options.cachesize * 1024)
+            log.info('Mounting filesystem...')
+            llfuse.init(operations, options.mountpoint, fuse_opts, lock)
             try:
-                operations = run_server(conn, bucket, cache, dbcm, options,
-                                        param['blocksize'])
+                if not options.fg:
+                    conn.prepare_fork()
+                    me = threading.current_thread()
+                    for t in threading.enumerate():
+                        if t is me:
+                            continue
+                        log.warn('Waiting for thread %s', t)
+                        t.join()
+                    if get_stdout_handler() is not None:
+                        logging.getLogger().removeHandler(get_stdout_handler())
+                    daemonize(options.homedir)
+                    conn.finish_fork()
+                    
+                if options.profile:
+                    prof.runcall(llfuse.main, options.single)
+                else:
+                    llfuse.main(options.single)
+            
             finally:
+                llfuse.close()
                 if operations.encountered_errors:
                     param['needs_fsck'] = True
-                cache.close()    
-                os.rmdir(home + '-cache')
-                    
+                       
+    if options.profile:
+        tmp = tempfile.NamedTemporaryFile()
+        prof.dump_stats(tmp.name)
+        fh = open('s3ql_profile.txt', 'w')
+        p = pstats.Stats(tmp.name, stream=fh)
+        tmp.close()
+        p.strip_dirs()
+        p.sort_stats('cumulative')
+        p.print_stats(50)
+        p.sort_stats('time')
+        p.print_stats(50)
+        fh.close()
+                                           
     if operations.encountered_errors:
         raise QuietError('Some errors were encountered while the file system was mounted.\n'
                          'Please examine the log files for more information.')
@@ -101,60 +139,7 @@ def get_fuse_opts(options):
 
     return fuse_opts
 
-def run_server(conn, bucket, cache, dbcm, options, blocksize):
-    '''Start FUSE server and run main loop
-    
-    Returns the used `Operations` instance so that the `encountered_errors`
-    attribute can be checked.
-    '''
 
-    if options.profile:
-        import cProfile
-        import pstats
-        prof = cProfile.Profile()
-
-    log.info('Mounting filesystem...')
-    lock = threading.Lock()
-    fuse_opts = get_fuse_opts(options)
-
-    operations = fs.Operations(dbcm, cache, lock, blocksize)
-    llfuse.init(operations, options.mountpoint, fuse_opts, lock)
-    try:
-        if not options.fg:
-            conn.prepare_fork()
-            me = threading.current_thread()
-            for t in threading.enumerate():
-                if t is me:
-                    continue
-                log.warn('Waiting for thread %s', t)
-                t.join()
-            if get_stdout_handler() is not None:
-                logging.getLogger().removeHandler(get_stdout_handler())
-            daemonize(options.homedir)
-            conn.finish_fork()
-            
-        if options.profile:
-            prof.runcall(llfuse.main, options.single)
-        else:
-            llfuse.main(options.single)
-
-    finally:
-        llfuse.close()
-
-    if options.profile:
-        tmp = tempfile.NamedTemporaryFile()
-        prof.dump_stats(tmp.name)
-        fh = open('s3ql_profile.txt', 'w')
-        p = pstats.Stats(tmp.name, stream=fh)
-        tmp.close()
-        p.strip_dirs()
-        p.sort_stats('cumulative')
-        p.print_stats(50)
-        p.sort_stats('time')
-        p.print_stats(50)
-        fh.close()
-
-    return operations
 
 def parse_args(args):
     '''Parse command line

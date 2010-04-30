@@ -47,13 +47,21 @@ class cache_tests(TestCase):
                            os.getuid(), os.getgid(), time(), time(), time(), 1, 32))
 
         self.cache = BlockCache(self.bucket, self.cachedir, cachesize, self.dbcm)
+        self.cache.init()
+        
+        # We do not want background threads
+        self.cache.io_thread.stop_event.set()
+        self.cache.io_thread.join_and_raise()
+        self.cache.io_thread = None
+        
         self.lock = threading.Lock()
         self.lock.acquire()
 
     def tearDown(self):
         self.cache.bucket = self.bucket
-        self.cache.close()
-        shutil.rmtree(self.cachedir)
+        self.cache.destroy()
+        if os.path.exists(self.cachedir):
+            shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
 
     @staticmethod

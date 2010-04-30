@@ -13,7 +13,6 @@ from s3ql import mkfs, fs, fsck
 from s3ql.backends import local
 from s3ql.common import ROOT_INODE
 from llfuse import FUSEError
-from s3ql.block_cache import BlockCache
 from s3ql.database import ConnectionManager
 from _common import TestCase
 import os
@@ -44,10 +43,18 @@ class fs_api_tests(TestCase):
             mkfs.setup_tables(conn)
             mkfs.init_tables(conn)
 
-        self.cache = BlockCache(self.bucket, self.cachedir, self.blocksize * 5, self.dbcm)
         self.lock = threading.Lock()
-        self.server = fs.Operations(self.dbcm, self.cache, self.lock, self.blocksize)
+        self.server = fs.Operations(self.dbcm, self.bucket, self.cachedir, 
+                                    self.lock, self.blocksize, cachesize=self.blocksize*5)
         self.server.init()
+        
+        # We don't want background flushing
+        self.server.cache.io_thread.stop_event.set()
+        self.server.cache.io_thread.join_and_raise()
+        self.server.cache.io_thread = None
+        self.server.inodes.flush_thread.stop_event.set()
+        self.server.inodes.flush_thread.join_and_raise()
+        self.server.inodes.flush_thread = None
 
         # Keep track of unused filenames
         self.name_cnt = 0
@@ -56,8 +63,8 @@ class fs_api_tests(TestCase):
 
     def tearDown(self):
         self.server.destroy()
-        self.cache.close()
-        shutil.rmtree(self.cachedir)
+        if os.path.exists(self.cachedir):
+            shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
 
     @staticmethod
@@ -66,7 +73,7 @@ class fs_api_tests(TestCase):
             return fd.read(len_)
 
     def fsck(self):
-        self.cache.clear()
+        self.server.cache.clear()
         self.server.inodes.flush()
         fsck.fsck(self.dbcm, self.cachedir, self.bucket, 
                   { 'blocksize': self.blocksize })

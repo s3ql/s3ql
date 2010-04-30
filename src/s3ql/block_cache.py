@@ -16,6 +16,7 @@ import logging
 import os
 import threading
 import time
+import stat
 
 __all__ = [ "BlockCache" ]
 
@@ -101,21 +102,25 @@ class BlockCache(object):
 
     def init(self):
         log.debug('init: start')
+        if not os.path.exists(self.cachedir):
+            os.mkdir(self.cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
         self.io_thread = ExceptionStoringThread(self._io_loop, log, pass_self=True)
         self.io_thread.stop_event = threading.Event()
         self.io_thread.name = 'IO Thread'
         self.io_thread.start()
         log.debug('init: end')
 
-    def close(self):
-        log.debug('close: start')
+    def destroy(self):
+        log.debug('destroy: start')
         if self.io_thread is not None:
-            if self.io_thread.is_alive():
-                self.io_thread.stop_event.set()
+            self.io_thread.stop_event.set()
             self.io_thread.join_and_raise()
+            self.io_thread = None
+            
         self.removal_queue.wait()
         self.clear()
-        log.debug('close: end')
+        os.rmdir(self.cachedir)
+        log.debug('destroy: end')
 
     def _io_loop(self, self_t):
         '''Run IO loop'''
