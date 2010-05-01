@@ -20,6 +20,7 @@ import time
 from .block_cache import BlockCache
 from cStringIO import StringIO
 import struct
+from llfuse.interface import FUSEError
 
 __all__ = [ "Server" ]
 
@@ -137,9 +138,8 @@ class Operations(llfuse.Operations):
         inode.ctime = timestamp
         return inode.target
 
-
     def opendir(self, id_):
-        return self.open(id_, None)
+        return id_
 
     def check_args(self, args):
         '''Check and/or supplement fuse mount options'''
@@ -433,16 +433,20 @@ class Operations(llfuse.Operations):
 
         timestamp = time.time()
         with self.dbcm.transaction() as conn:
+            inode_p = self.inodes[new_id_p]
+            if inode_p.refcount == 0:
+                log.warn('Attempted to create entry %s with unlinked parent %d',
+                         new_name, new_id_p)
+                raise FUSEError(errno.EINVAL)
+            inode_p.ctime = timestamp
+            inode_p.mtime = timestamp
+            
             conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                          (new_name, id_, new_id_p))
-
             inode = self.inodes[id_]
             inode.refcount += 1
             inode.ctime = timestamp
 
-            inode_p = self.inodes[new_id_p]
-            inode_p.ctime = timestamp
-            inode_p.mtime = timestamp
 
         return inode
 
@@ -586,8 +590,7 @@ class Operations(llfuse.Operations):
         self.open_inodes[inode.id] += 1
         return (inode.id, inode)
 
-    def _create(self, id_p, name, mode, ctx, refcount=1, rdev=0,
-                target=None):
+    def _create(self, id_p, name, mode, ctx, rdev=0, target=None):
         if name == CTRL_NAME:
             with self.dbcm() as conn:
                 log.error('Attempted to create s3ql control file at %s',
@@ -596,14 +599,19 @@ class Operations(llfuse.Operations):
 
         timestamp = time.time()
         with self.dbcm.transaction() as conn:
+            inode_p = self.inodes[id_p]
+            if inode_p.refcount == 0:
+                log.warn('Attempted to create entry %s with unlinked parent %d',
+                         name, id_p)
+                raise FUSEError(errno.EINVAL)
+            inode_p.mtime = timestamp
+            inode_p.ctime = timestamp
+            
             inode = self.inodes.create_inode(mtime=timestamp, ctime=timestamp, atime=timestamp,
-                                             uid=ctx.uid, gid=ctx.gid, mode=mode, refcount=refcount,
+                                             uid=ctx.uid, gid=ctx.gid, mode=mode, refcount=1,
                                              rdev=rdev, target=target)
             conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                          (name, inode.id, id_p))
-            inode_p = self.inodes[id_p]
-            inode_p.mtime = timestamp
-            inode_p.ctime = timestamp
 
         return inode
 
@@ -722,7 +730,7 @@ class Operations(llfuse.Operations):
         self.cache.flush(fh)
 
     def releasedir(self, fh):
-        return self.release(fh)
+        return
 
     def release(self, fh):
         self.open_inodes[fh] -= 1
@@ -736,6 +744,7 @@ class Operations(llfuse.Operations):
                 # Since the inode is not open, it's not possible that new blocks
                 # get created at this point and we can safely delete the in
                 del self.inodes[fh]
+
 
 
     # Called for close() calls. 
