@@ -317,7 +317,7 @@ class AbstractBucket(object):
             compr = lzma.LZMACompressor(options={ 'level': 9 })
             compr_str += 'LZMA'
         elif self.compression == COMPRESS_NONE:
-            compr = DummyCompressor
+            compr = DummyCompressor()
             compr_str += 'NONE'
         else:
             raise ValueError('Invalid compression algorithm')
