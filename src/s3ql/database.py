@@ -49,7 +49,7 @@ class ConnectionManager(object):
                    connection is created.
     """
 
-    def __init__(self, dbfile, retrytime=10000):
+    def __init__(self, dbfile, retrytime=120000):
         '''Initialize object.
         
         If `initsql` is specified, it is executed as an SQL command
