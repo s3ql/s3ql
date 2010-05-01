@@ -1,43 +1,35 @@
 '''
 interface.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
-Copyright (c) 2010, Nikolaus Rath <Nikolaus@rath.org>
-All rights reserved.
+Copyright (C) 2008-2010 Nikolaus Rath <Nikolaus@rath.org>
 
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-    * Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-    * Neither the name of the main author nor the names of other contributors may be used to endorse or promote products derived from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+This program can be distributed under the terms of the GNU LGPL.
 
 
-This module defines the interface between the FUSE C and Python API. The actual file system
-is implemented as an `Operations` instance whose methods will
-be called by the fuse library.
+This module defines the interface between the FUSE C and Python API. The actual
+file system is implemented as an `Operations` instance whose methods will be
+called by the fuse library.
 
-Note that all "string-like" quantities (e.g. file names, extended attribute names & values) are
-represented as bytes, since POSIX doesn't require any of them to be valid unicode strings.
+Note that all "string-like" quantities (e.g. file names, extended attribute
+names & values) are represented as bytes, since POSIX doesn't require any of
+them to be valid unicode strings.
 
 
 Exception Handling
 ------------------
 
-Since Python exceptions cannot be forwarded to the FUSE kernel module,
-the FUSE Python API catches all exceptions that are generated during
-request processing.
+Since Python exceptions cannot be forwarded to the FUSE kernel module, the FUSE
+Python API catches all exceptions that are generated during request processing.
 
-If the exception is of type `FUSEError`, the appropriate errno is returned
-to the kernel module and the exception is discarded.
+If the exception is of type `FUSEError`, the appropriate errno is returned to
+the kernel module and the exception is discarded.
 
-For any other exceptions, a warning is logged and a generic error signaled
-to the kernel module. Then the `handle_exc` method of the `Operations` 
-instance is called, so that the file system itself has a chance to react
-to the problem (e.g. by marking the file system as needing a check).
+For any other exceptions, a warning is logged and a generic error signaled to
+the kernel module. Then the `handle_exc` method of the `Operations` instance is
+called, so that the file system itself has a chance to react to the problem
+(e.g. by marking the file system as needing a check).
 
 The return value and any raised exceptions of `handle_exc` are ignored.
-
 '''
 
 # Since we are using ctype Structures, we often have to
@@ -50,10 +42,7 @@ The return value and any raised exceptions of `handle_exc` are ignored.
 
 from __future__ import division, print_function, absolute_import
 
-# Using .. as libfuse makes PyDev really unhappy.
-from . import ctypes_api
-libfuse = ctypes_api
-
+from . import ctypes_api as libfuse
 from ctypes import c_char_p, sizeof, create_string_buffer, addressof, string_at, POINTER, c_char, cast
 from functools import partial
 import errno
@@ -64,7 +53,6 @@ import stat as fstat
 
 __all__ = [ 'FUSEError', 'ENOATTR', 'ENOTSUP', 'init', 'main', 'close',
             'fuse_version', 'invalidate_entry', 'invalidate_inode' ]
-
 
 # These should really be defined in the errno module, but
 # unfortunately they are missing
@@ -82,20 +70,11 @@ channel = None
 handler_lock = None
 
 class DiscardedRequest(Exception):
-    '''Request was interrupted and reply discarded.
-    
-    '''
-
+    '''Request was interrupted and reply discarded. '''
     pass
 
 class ReplyError(Exception):
     '''Unable to send reply to fuse kernel module'''
-
-    pass
-
-class ReplyErrError(ReplyError):
-    '''Unable to send even error reply to fuse kernel module'''
-
     pass
 
 class FUSEError(Exception):
@@ -120,16 +99,18 @@ class FUSEError(Exception):
 def check_reply_result(result, func, *args):
     '''Check result of a call to a fuse_reply_* foreign function
     
-    If `result` is 0, it is assumed that the call succeeded and the function does nothing.
+    If `result` is 0, it is assumed that the call succeeded and the function
+    does nothing.
     
-    If result is `-errno.ENOENT`, this means that the request has been discarded and `DiscardedRequest`
-    is raised.
+    If result is `-errno.ENOENT`, this means that the request has been discarded
+    and `DiscardedRequest` is raised.
     
     In all other cases,  `ReplyError` is raised.
     
-    (We do not try to call `fuse_reply_err` or any other reply method as well, because the first reply
-    function may have already invalidated the `req` object and it seems better to (possibly) let the
-    request pend than to crash the server application.)
+    (We do not try to call `fuse_reply_err` or any other reply method as well,
+    because the first reply function may have already invalidated the `req`
+    object and it seems better to (possibly) let the request pend than to crash
+    the server application.)
     '''
 
     if result == 0:
@@ -138,22 +119,15 @@ def check_reply_result(result, func, *args):
     elif result == -errno.ENOENT:
         raise DiscardedRequest()
 
-    else:
-        if func.name == 'fuse_reply_err':
-            exc_type = ReplyErrError
-        else:
-            exc_type = ReplyError
-        if result > 0:
-            raise exc_type('Foreign function %s returned unexpected value %d'
-                             % (func.name, result))
-        elif result < 0:
-            raise exc_type('Foreign function %s returned error %s'
-                             % (func.name, errno.errorcode.get(-result, str(-result))))
+    elif result > 0:
+        raise ReplyError('Foreign function %s returned unexpected value %d'
+                         % (func.name, result))
+    elif result < 0:
+        raise ReplyError('Foreign function %s returned error %s'
+                         % (func.name, errno.errorcode.get(-result, str(-result))))
 
 
-#
 # Set return checker for common ctypes calls
-#  
 reply_functions = [ 'fuse_reply_err', 'fuse_reply_entry',
                    'fuse_reply_create', 'fuse_reply_readlink', 'fuse_reply_open',
                    'fuse_reply_write', 'fuse_reply_attr', 'fuse_reply_buf',
@@ -161,9 +135,6 @@ reply_functions = [ 'fuse_reply_err', 'fuse_reply_entry',
                    'fuse_reply_lock' ]
 for fname in reply_functions:
     getattr(libfuse, fname).errcheck = check_reply_result
-
-    # Name isn't stored by ctypes
-    getattr(libfuse, fname).name = fname
 
 
 def dict_to_entry(attr):
@@ -238,7 +209,7 @@ def op_wrapper(func, req, *args):
     try:
         func(req, *args)
     except FUSEError as e:
-        log.debug('op_wrapper caught FUSEError, calling fuse_reply_err(%s)',
+        log.debug('op_wrapper caught FUSEError, calling reply_err(%s)',
                   errno.errorcode.get(e.errno, str(e.errno)))
         try:
             libfuse.fuse_reply_err(req, e.errno)
@@ -254,11 +225,11 @@ def op_wrapper(func, req, *args):
             except:
                 pass
 
-        # Send error reply, unless the error occured when replying
-        if (not isinstance(exc, ReplyErrError) 
+        # Send error reply, unless the error occurred when replying
+        if (not isinstance(exc, ReplyError) 
             and func is not fuse_destroy 
             and func is not fuse_init):
-            log.debug('Calling fuse_reply_err(EIO)')
+            log.debug('Calling reply_err(EIO)')
             try:
                 libfuse.fuse_reply_err(req, errno.EIO)
             except DiscardedRequest:
@@ -279,14 +250,14 @@ def init(operations_, mountpoint_, args, lock=None):
     `operations_` has to be an instance of the `Operations` class (or another
     class defining the same methods).
     
-    `args` has to be a list of strings. Valid options are listed in struct fuse_opt fuse_mount_opts[]
-    (mount.c:68) and struct fuse_opt fuse_ll_opts[] (fuse_lowlevel_c:1526).
+    `args` has to be a list of strings. Valid options are listed in struct
+    fuse_opt fuse_mount_opts[] (mount.c:68) and struct fuse_opt fuse_ll_opts[]
+    (fuse_lowlevel_c:1526).
     
-    If `lock` is specified (it has to be a `Lock` instance), this lock is 
-    acquired before a request handler is called. This can be used to
-    serialize request handling by default. Concurrency can still be achieved
-    for parts of the code by releasing and reacquiring the lock in the
-    request handlers.
+    If `lock` is specified (it has to be a `Lock` instance), this lock is
+    acquired before a request handler is called. This can be used to serialize
+    request handling by default. Concurrency can still be achieved for parts of
+    the code by releasing and reacquiring the lock in the request handlers.
     '''
 
     log.debug('Initializing llfuse')
@@ -427,12 +398,13 @@ def close():
 def fuse_lookup(req, parent_inode, name):
     '''Look up a directory entry by name and get its attributes'''
 
-    log.debug('Handling lookup(%d, %s)', parent_inode, string_at(name))
+    log.debug('lookup(%d, %s): start', parent_inode, string_at(name))
 
     attr = operations.lookup(parent_inode, string_at(name))
     entry = dict_to_entry(attr)
 
-    log.debug('Calling fuse_reply_entry')
+    log.debug('lookup(%d, %s): calling reply_entry(ino=%d)', 
+              parent_inode, string_at(name), attr.id)
     try:
         libfuse.fuse_reply_entry(req, entry)
     except DiscardedRequest:
@@ -440,23 +412,28 @@ def fuse_lookup(req, parent_inode, name):
 
 def fuse_init(userdata_p, conn_info_p):
     '''Initialize Operations'''
+    
+    log.debug('init(): start')
     operations.init()
+    log.debug('init(): end')
 
 def fuse_destroy(userdata_p):
     '''Cleanup Operations'''
+    log.debug('destroy(): start')
     operations.destroy()
+    log.debug('destroy(): end')
 
 def fuse_getattr(req, ino, _unused):
     '''Get attributes for `ino`'''
 
-    log.debug('Handling getattr(%d)', ino)
+    log.debug('getattr(%d): start', ino)
 
     attr = operations.getattr(ino)
 
     attr_timeout = attr.attr_timeout
     stat = dict_to_stat(attr)
 
-    log.debug('Calling fuse_reply_attr')
+    log.debug('getattr(%d): calling reply_attr', ino)
     try:
         libfuse.fuse_reply_attr(req, stat, attr_timeout)
     except DiscardedRequest:
@@ -465,7 +442,7 @@ def fuse_getattr(req, ino, _unused):
 def fuse_access(req, ino, mask):
     '''Check if calling user has `mask` rights for `ino`'''
 
-    log.debug('Handling access(%d, %o)', ino, mask)
+    log.debug('access(%d, %o): start', ino, mask)
 
     # Get UID
     ctx = libfuse.fuse_req_ctx(req).contents
@@ -488,7 +465,7 @@ def fuse_access(req, ino, mask):
 
     ret = operations.access(ino, mask, ctx, get_gids)
 
-    log.debug('Calling fuse_reply_err')
+    log.debug('access(%d, %o): calling reply_err', ino, mask)
     try:
         if ret:
             libfuse.fuse_reply_err(req, 0)
@@ -501,7 +478,7 @@ def fuse_access(req, ino, mask):
 def fuse_create(req, ino_parent, name, mode, fi):
     '''Create and open a file'''
 
-    log.debug('Handling create(%d, %s, %o)', ino_parent, string_at(name), mode)
+    log.debug('create(%d, %s, %o): start', ino_parent, string_at(name), mode)
 
     # FUSE doesn't set any type information
     mode = (mode & ~fstat.S_IFMT(mode)) | fstat.S_IFREG
@@ -512,7 +489,8 @@ def fuse_create(req, ino_parent, name, mode, fi):
     fi.contents.keep_cache = 1
     entry = dict_to_entry(attr)
 
-    log.debug('Calling fuse_reply_create')
+    log.debug('create(%d, %s, %o): calling reply_create(fh=%i)',
+              ino_parent, string_at(name), mode, fh)
     try:
         libfuse.fuse_reply_create(req, entry, fi)
     except DiscardedRequest:
@@ -525,9 +503,9 @@ def fuse_flush(req, ino, fi):
     May be called multiple times for the same open file.
     '''
 
-    log.debug('Handling flush(%d)', fi.contents.fh)
+    log.debug('flush(%d): start', fi.contents.fh)
     operations.flush(fi.contents.fh)
-    log.debug('Calling fuse_reply_err(0)')
+    log.debug('flush(%d): calling reply_err', fi.contents.fh)
     try:
         libfuse.fuse_reply_err(req, 0)
     except DiscardedRequest:
@@ -541,9 +519,10 @@ def fuse_fsync(req, ino, datasync, fi):
     is flushed (and not the meta data).
     '''
 
-    log.debug('Handling fsync(%d, %s)', fi.contents.fh, datasync != 0)
+    log.debug('fsync(%d, %s): start', fi.contents.fh, datasync != 0)
     operations.fsync(fi.contents.fh, datasync != 0)
-    log.debug('Calling fuse_reply_err(0)')
+    log.debug('fsync(%d, %s): calling reply_err',
+              fi.contents.fh, datasync != 0)
     try:
         libfuse.fuse_reply_err(req, 0)
     except DiscardedRequest:
@@ -557,9 +536,10 @@ def fuse_fsyncdir(req, ino, datasync, fi):
     are flushed (and not the meta data about the directory itself).
     '''
 
-    log.debug('Handling fsyncdir(%d, %s)', fi.contents.fh, datasync != 0)
+    log.debug('fsyncdir(%d, %s): start', fi.contents.fh, datasync != 0)
     operations.fsyncdir(fi.contents.fh, datasync != 0)
-    log.debug('Calling fuse_reply_err(0)')
+    log.debug('fsyncdir(%d, %s): calling reply_err',
+              fi.contents.fh, datasync != 0)
     try:
         libfuse.fuse_reply_err(req, 0)
     except DiscardedRequest:
@@ -570,17 +550,19 @@ def fuse_getxattr(req, ino, name, size):
     '''Get an extended attribute.
     '''
 
-    log.debug('Handling getxattr(%d, %r, %d)', ino, string_at(name), size)
+    log.debug('getxattr(%d, %r, %d): start', ino, string_at(name), size)
     val = operations.getxattr(ino, string_at(name))
     if not isinstance(val, bytes):
         raise TypeError("getxattr return value must be of type bytes")
 
     try:
         if size == 0:
-            log.debug('Calling fuse_reply_xattr')
+            log.debug('getxattr(%d, %r, %d): calling reply_xattr',
+                      ino, string_at(name), size)
             libfuse.fuse_reply_xattr(req, len(val))
         elif size >= len(val):
-            log.debug('Calling fuse_reply_buf')
+            log.debug('getxattr(%d, %r, %d): calling reply_buf',
+                      ino, string_at(name), size)
             libfuse.fuse_reply_buf(req, val, len(val))
         else:
             raise FUSEError(errno.ERANGE)
@@ -591,11 +573,13 @@ def fuse_getxattr(req, ino, name, size):
 def fuse_link(req, ino, new_parent_ino, new_name):
     '''Create a hard link'''
 
-    log.debug('Handling fuse_link(%d, %d, %s)', ino, new_parent_ino, string_at(new_name))
+    log.debug('link(%d, %d, %s): start',
+              ino, new_parent_ino, string_at(new_name))
     attr = operations.link(ino, new_parent_ino, string_at(new_name))
     entry = dict_to_entry(attr)
 
-    log.debug('Calling fuse_reply_entry')
+    log.debug('link(%d, %d, %s): calling reply_entry',
+              ino, new_parent_ino, string_at(new_name))
     try:
         libfuse.fuse_reply_entry(req, entry)
     except DiscardedRequest:
@@ -604,7 +588,7 @@ def fuse_link(req, ino, new_parent_ino, new_name):
 def fuse_listxattr(req, inode, size):
     '''List extended attributes for `inode`'''
 
-    log.debug('Handling listxattr(%d)', inode)
+    log.debug('listxattr(%d): start', inode)
     names = operations.listxattr(inode)
 
     if not all([ isinstance(name, bytes) for name in names]):
@@ -620,7 +604,7 @@ def fuse_listxattr(req, inode, size):
 
     if size == 0:
         try:
-            log.debug('Calling fuse_reply_xattr')
+            log.debug('listxattr(%d): calling reply_xattr', inode)
             libfuse.fuse_reply_xattr(req, len(names))
         except DiscardedRequest:
             pass
@@ -630,7 +614,7 @@ def fuse_listxattr(req, inode, size):
 
     else:
         try:
-            log.debug('Calling fuse_reply_buf')
+            log.debug('listxattr(%d): calling reply_buf', inode)
             libfuse.fuse_reply_buf(req, buf, buf_size)
         except DiscardedRequest:
             pass
@@ -639,16 +623,17 @@ def fuse_listxattr(req, inode, size):
 def fuse_mkdir(req, inode_parent, name, mode):
     '''Create directory'''
 
-    log.debug('Handling mkdir(%d, %s, %o)', inode_parent, string_at(name), mode)
+    log.debug('mkdir(%d, %s, %o): start', 
+              inode_parent, string_at(name), mode)
 
     # FUSE doesn't set any type information
     mode = (mode & ~fstat.S_IFMT(mode)) | fstat.S_IFDIR
-
     attr = operations.mkdir(inode_parent, string_at(name), mode,
                             libfuse.fuse_req_ctx(req).contents)
     entry = dict_to_entry(attr)
 
-    log.debug('Calling fuse_reply_entry')
+    log.debug('mkdir(%d, %s, %o): calling reply_entry(ino=%d)', 
+              inode_parent, string_at(name), mode, attr.id)
     try:
         libfuse.fuse_reply_entry(req, entry)
     except DiscardedRequest:
@@ -657,13 +642,14 @@ def fuse_mkdir(req, inode_parent, name, mode):
 def fuse_mknod(req, inode_parent, name, mode, rdev):
     '''Create (possibly special) file'''
 
-    log.debug('Handling mknod(%d, %s, %o, %d)', inode_parent, string_at(name),
-              mode, rdev)
+    log.debug('mknod(%d, %s, %o, %d): start',
+              inode_parent, string_at(name), mode, rdev)
     attr = operations.mknod(inode_parent, string_at(name), mode, rdev,
                             libfuse.fuse_req_ctx(req).contents)
     entry = dict_to_entry(attr)
 
-    log.debug('Calling fuse_reply_entry')
+    log.debug('mknod(%d, %s, %o, %d): calling reply_entry(ino=%d)',
+              inode_parent, string_at(name), mode, rdev, attr.id)
     try:
         libfuse.fuse_reply_entry(req, entry)
     except DiscardedRequest:
@@ -671,11 +657,13 @@ def fuse_mknod(req, inode_parent, name, mode, rdev):
 
 def fuse_open(req, inode, fi):
     '''Open a file'''
-    log.debug('Handling open(%d, %d)', inode, fi.contents.flags)
+    
+    log.debug('open(%d, %d): start', inode, fi.contents.flags)
     fi.contents.fh = operations.open(inode, fi.contents.flags)
     fi.contents.keep_cache = 1
 
-    log.debug('Calling fuse_reply_open')
+    log.debug('open(%d, %d): calling reply_open', 
+              inode, fi.contents.flags)
     try:
         libfuse.fuse_reply_open(req, fi)
     except DiscardedRequest:
@@ -684,10 +672,11 @@ def fuse_open(req, inode, fi):
 def fuse_opendir(req, inode, fi):
     '''Open a directory'''
 
-    log.debug('Handling opendir(%d)', inode)
+    log.debug('opendir(%d): start', inode)
     fi.contents.fh = operations.opendir(inode)
 
-    log.debug('Calling fuse_reply_open')
+    log.debug('opendir(%d): calling reply_open(fh=%d)',
+               inode, fi.contents.fh)
     try:
         libfuse.fuse_reply_open(req, fi)
     except DiscardedRequest:
@@ -697,7 +686,8 @@ def fuse_opendir(req, inode, fi):
 def fuse_read(req, ino, size, off, fi):
     '''Read data from file'''
 
-    log.debug('Handling read(ino=%d, off=%d, size=%d)', fi.contents.fh, off, size)
+    log.debug('read(ino=%d, off=%d, size=%d): start', 
+              fi.contents.fh, off, size)
     data = operations.read(fi.contents.fh, off, size)
 
     if not isinstance(data, bytes):
@@ -706,7 +696,8 @@ def fuse_read(req, ino, size, off, fi):
     if len(data) > size:
         raise ValueError('read() must not return more than `size` bytes')
 
-    log.debug('Calling fuse_reply_buf')
+    log.debug('read(ino=%d, off=%d, size=%d): calling reply_buf', 
+              fi.contents.fh, off, size)
     try:
         libfuse.fuse_reply_buf(req, data, len(data))
     except DiscardedRequest:
@@ -716,9 +707,9 @@ def fuse_read(req, ino, size, off, fi):
 def fuse_readlink(req, inode):
     '''Read target of symbolic link'''
 
-    log.debug('Handling readlink(%d)', inode)
+    log.debug('readlink(%d): start', inode)
     target = operations.readlink(inode)
-    log.debug('Calling fuse_reply_readlink')
+    log.debug('readlink(%d): calling reply_readlink', inode)
     try:
         libfuse.fuse_reply_readlink(req, target)
     except DiscardedRequest:
@@ -728,7 +719,8 @@ def fuse_readlink(req, inode):
 def fuse_readdir(req, ino, bufsize, off, fi):
     '''Read directory entries'''
 
-    log.debug('Handling readdir(%d, %d, %d, %d)', ino, bufsize, off, fi.contents.fh)
+    log.debug('readdir(%d, %d, %d, %d): start', 
+              ino, bufsize, off, fi.contents.fh)
 
     # Collect as much entries as we can return
     entries = list()
@@ -746,19 +738,20 @@ def fuse_readdir(req, ino, bufsize, off, fi):
         entries.append((name, stat))
         size += entry_size
 
-    log.debug('Gathered %d entries, total size %d', len(entries), size)
+    log.debug('readdir(%d, %d, %d, %d): gathered %d entries, total size %d', 
+              ino, bufsize, off, fi.contents.fh, len(entries), size)
 
     # If there are no entries left, return empty buffer
     if not entries:
         try:
-            log.debug('Calling fuse_reply_buf')
+            log.debug('readdir(%d, %d, %d, %d): calling reply_buf', 
+                      ino, bufsize, off, fi.contents.fh)
             libfuse.fuse_reply_buf(req, None, 0)
         except DiscardedRequest:
             pass
         return
 
     # Create and fill buffer
-    log.debug('Adding entries to buffer')
     buf = create_string_buffer(size)
     next_ = off
     addr_off = 0
@@ -768,7 +761,8 @@ def fuse_readdir(req, ino, bufsize, off, fi):
                                               bufsize, name, stat, next_)
 
     # Return buffer
-    log.debug('Calling fuse_reply_buf')
+    log.debug('readdir(%d, %d, %d, %d): calling reply_buf', 
+              ino, bufsize, off, fi.contents.fh)
     try:
         libfuse.fuse_reply_buf(req, buf, size)
     except DiscardedRequest:
@@ -778,9 +772,9 @@ def fuse_readdir(req, ino, bufsize, off, fi):
 def fuse_release(req, inode, fi):
     '''Release open file'''
 
-    log.debug('Handling release(%d)', fi.contents.fh)
+    log.debug('release(%d): start', fi.contents.fh)
     operations.release(fi.contents.fh)
-    log.debug('Calling fuse_reply_err(0)')
+    log.debug('release(%d): calling reply_err', fi.contents.fh)
     try:
         libfuse.fuse_reply_err(req, 0)
     except DiscardedRequest:
@@ -789,9 +783,9 @@ def fuse_release(req, inode, fi):
 def fuse_releasedir(req, inode, fi):
     '''Release open directory'''
 
-    log.debug('Handling releasedir(%d)', fi.contents.fh)
+    log.debug('releasedir(%d): start', fi.contents.fh)
     operations.releasedir(fi.contents.fh)
-    log.debug('Calling fuse_reply_err(0)')
+    log.debug('releasedir(%d): calling reply_err', fi.contents.fh)
     try:
         libfuse.fuse_reply_err(req, 0)
     except DiscardedRequest:
@@ -800,9 +794,10 @@ def fuse_releasedir(req, inode, fi):
 def fuse_removexattr(req, inode, name):
     '''Remove extended attribute'''
 
-    log.debug('Handling removexattr(%d, %s)', inode, string_at(name))
+    log.debug('removexattr(%d, %s): start', inode, string_at(name))
     operations.removexattr(inode, string_at(name))
-    log.debug('Calling fuse_reply_err(0)')
+    log.debug('removexattr(%d, %s): calling reply_err',
+              inode, string_at(name))
     try:
         libfuse.fuse_reply_err(req, 0)
     except DiscardedRequest:
@@ -811,11 +806,12 @@ def fuse_removexattr(req, inode, name):
 def fuse_rename(req, parent_inode_old, name_old, parent_inode_new, name_new):
     '''Rename a directory entry'''
 
-    log.debug('Handling rename(%d, %r, %d, %r)', parent_inode_old, string_at(name_old),
+    log.debug('rename(%d, %r, %d, %r): start', parent_inode_old, string_at(name_old),
               parent_inode_new, string_at(name_new))
     operations.rename(parent_inode_old, string_at(name_old), parent_inode_new,
                       string_at(name_new))
-    log.debug('Calling fuse_reply_err(0)')
+    log.debug('rename(%d, %r, %d, %r): calling reply_err', parent_inode_old, 
+              string_at(name_old), parent_inode_new, string_at(name_new))
     try:
         libfuse.fuse_reply_err(req, 0)
     except DiscardedRequest:
@@ -824,9 +820,10 @@ def fuse_rename(req, parent_inode_old, name_old, parent_inode_new, name_new):
 def fuse_rmdir(req, inode_parent, name):
     '''Remove a directory'''
 
-    log.debug('Handling rmdir(%d, %r)', inode_parent, string_at(name))
+    log.debug('rmdir(%d, %r): start', inode_parent, string_at(name))
     operations.rmdir(inode_parent, string_at(name))
-    log.debug('Calling fuse_reply_err(0)')
+    log.debug('rmdir(%d, %r): calling reply_err', 
+              inode_parent, string_at(name))
     try:
         libfuse.fuse_reply_err(req, 0)
     except DiscardedRequest:
@@ -835,7 +832,7 @@ def fuse_rmdir(req, inode_parent, name):
 def fuse_setattr(req, inode, stat, to_set, fi):
     '''Change directory entry attributes'''
 
-    log.debug('Handling fuse_setattr(%d)', inode)
+    log.debug('fuse_setattr(%d): start', inode)
 
     # Note: We can't check if we know all possible flags,
     # because the part of to_set that is not "covered"
@@ -867,7 +864,7 @@ def fuse_setattr(req, inode, stat, to_set, fi):
     attr_timeout = attr.attr_timeout
     stat = dict_to_stat(attr)
 
-    log.debug('Calling fuse_reply_attr')
+    log.debug('fuse_setattr(%d): calling reply_attr', inode)
     try:
         libfuse.fuse_reply_attr(req, stat, attr_timeout)
     except DiscardedRequest:
@@ -876,7 +873,7 @@ def fuse_setattr(req, inode, stat, to_set, fi):
 def fuse_setxattr(req, inode, name, val, size, flags):
     '''Set an extended attribute'''
 
-    log.debug('Handling setxattr(%d, %r, %r, %d)', inode, string_at(name),
+    log.debug('setxattr(%d, %r, %r, %d): start', inode, string_at(name),
               string_at(val, size), flags)
 
     # Make sure we know all the flags
@@ -898,7 +895,8 @@ def fuse_setxattr(req, inode, name, val, size, flags):
 
     operations.setxattr(inode, string_at(name), string_at(val, size))
 
-    log.debug('Calling fuse_reply_err(0)')
+    log.debug('setxattr(%d, %r, %r, %d): calling reply_err', 
+              inode, string_at(name), string_at(val, size), flags)
     try:
         libfuse.fuse_reply_err(req, 0)
     except DiscardedRequest:
@@ -907,14 +905,14 @@ def fuse_setxattr(req, inode, name, val, size, flags):
 def fuse_statfs(req, inode):
     '''Return filesystem statistics'''
 
-    log.debug('Handling statfs(%d)', inode)
+    log.debug('statfs(%d): start', inode)
     attr = operations.statfs()
     statfs = libfuse.statvfs()
 
     for (key, val) in attr.iteritems():
         setattr(statfs, key, val)
 
-    log.debug('Calling fuse_reply_statfs')
+    log.debug('statfs(%d): calling reply_statfs', inode)
     try:
         libfuse.fuse_reply_statfs(req, statfs)
     except DiscardedRequest:
@@ -923,12 +921,14 @@ def fuse_statfs(req, inode):
 def fuse_symlink(req, target, parent_inode, name):
     '''Create a symbolic link'''
 
-    log.debug('Handling symlink(%d, %r, %r)', parent_inode, string_at(name), string_at(target))
+    log.debug('symlink(%d, %r, %r): start', 
+              parent_inode, string_at(name), string_at(target))
     attr = operations.symlink(parent_inode, string_at(name), string_at(target),
                               libfuse.fuse_req_ctx(req).contents)
     entry = dict_to_entry(attr)
 
-    log.debug('Calling fuse_reply_entry')
+    log.debug('symlink(%d, %r, %r): calling reply_entry(ino=%d)', 
+              parent_inode, string_at(name), string_at(target), attr.id)
     try:
         libfuse.fuse_reply_entry(req, entry)
     except DiscardedRequest:
@@ -938,9 +938,10 @@ def fuse_symlink(req, target, parent_inode, name):
 def fuse_unlink(req, parent_inode, name):
     '''Delete a file'''
 
-    log.debug('Handling unlink(%d, %r)', parent_inode, string_at(name))
+    log.debug('unlink(%d, %r): start', parent_inode, string_at(name))
     operations.unlink(parent_inode, string_at(name))
-    log.debug('Calling fuse_reply_err(0)')
+    log.debug('unlink(%d, %r): calling reply_err', 
+              parent_inode, string_at(name))
     try:
         libfuse.fuse_reply_err(req, 0)
     except DiscardedRequest:
@@ -949,10 +950,12 @@ def fuse_unlink(req, parent_inode, name):
 def fuse_write(req, inode, buf, size, off, fi):
     '''Write into an open file handle'''
 
-    log.debug('Handling write(fh=%d, off=%d, size=%d)', fi.contents.fh, off, size)
+    log.debug('write(fh=%d, off=%d, size=%d): start', 
+              fi.contents.fh, off, size)
     written = operations.write(fi.contents.fh, off, string_at(buf, size))
 
-    log.debug('Calling fuse_reply_write')
+    log.debug('write(fh=%d, off=%d, size=%d): calling reply_write', 
+              fi.contents.fh, off, size)
     try:
         libfuse.fuse_reply_write(req, written)
     except DiscardedRequest:
