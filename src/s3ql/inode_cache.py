@@ -28,7 +28,11 @@ TIMEZONE = time.timezone
 class _Inode(object):
     '''An inode with its attributes'''
 
-    __slots__ = ATTRIBUTES 
+    __slots__ = ATTRIBUTES + ('dirty',)
+    
+    def __init__(self):
+        super(_Inode, self).__init__()
+        self.dirty = False
         
     # This allows access to all st_* attributes, even if they're
     # not defined in the table
@@ -78,6 +82,12 @@ class _Inode(object):
 
         return copy
 
+    def __setattr__(self, name, value):
+        if name != 'dirty':
+            object.__setattr__(self, 'dirty', True)
+        object.__setattr__(self, name, value)
+        
+        
 class InodeCache(object):
     '''
     This class maps the `inode` SQL table to a dict, caching the rows.
@@ -173,6 +183,8 @@ class InodeCache(object):
         inode.atime += TIMEZONE
         inode.mtime += TIMEZONE
         inode.ctime += TIMEZONE
+        
+        inode.dirty = False
 
         return inode
 
@@ -198,6 +210,9 @@ class InodeCache(object):
 
 
     def setattr(self, inode):
+        if not inode.dirty:
+            return
+        inode.dirty = False
         inode = inode.copy()
 
         inode.atime -= TIMEZONE
@@ -206,7 +221,7 @@ class InodeCache(object):
 
         self.dbcm.execute("UPDATE inodes SET %s WHERE id=?" % UPDATE_STR,
                           [ getattr(inode, x) for x in UPDATE_ATTRS ] + [inode.id])
-
+            
     def flush_id(self, id_):
         if id_ in self.attrs:
             self.setattr(self.attrs[id_])
