@@ -27,11 +27,12 @@ from abc import ABCMeta, abstractmethod
 log = logging.getLogger("backend")
 
 __all__ = [ 'AbstractConnection', 'AbstractBucket', 'ChecksumError', 'UnsupportedError',
-           'COMPRESS_ZLIB', 'COMPRESS_BZIP2', 'COMPRESS_LZMA' ]
+           'COMPRESS_ZLIB', 'COMPRESS_BZIP2', 'COMPRESS_LZMA', 'COMPRESS_NONE' ]
 
 COMPRESS_ZLIB = 1
 COMPRESS_BZIP2 = 2
 COMPRESS_LZMA = 3
+COMPRESS_NONE = 4
 
 class AbstractConnection(object):
     '''This class contains functionality shared between all backends.'''
@@ -110,22 +111,9 @@ class AbstractBucket(object):
     '''
     __metaclass__ = ABCMeta
 
-    def __init__(self, passphrase, compression):
-        if compression == COMPRESS_ZLIB:
-            self.compr_factory = lambda: zlib.compressobj(9)
-            self.decomp_factory = zlib.decompressobj
-            self.compr_str = 'AES/ZLIB'
-        elif compression == COMPRESS_BZIP2:
-            self.compr_factory = lambda: bz2.BZ2Compressor(9)
-            self.decomp_factory = bz2.BZ2Decompressor
-            self.compr_str = 'AES/BZ2'
-        elif compression == COMPRESS_LZMA:
-            self.compr_factory = lambda: lzma.LZMACompressor(options={ 'level': 9 })
-            self.decomp_factory = lzma.LZMADecompressor
-            self.compr_str = 'AES/LZMA'
-        else:
-            raise ValueError('Invalid compression algorithm')
+    def __init__(self, passphrase, compression):      
         self.passphrase = passphrase
+        self.compression = compression
         super(AbstractBucket, self).__init__()
 
     def __getitem__(self, key):
@@ -159,12 +147,14 @@ class AbstractBucket(object):
         meta_raw = self.raw_lookup(key)
 
         if 'encrypted' in meta_raw:
-            if meta_raw['encrypted'] in ('True', 'AES/BZ2', 'AES/LZMA', 'AES/ZLIB'):
+            if meta_raw['encrypted'] == 'True' or \
+               meta_raw['encrypted'].startswith('AES/'):
                 encrypted = True
-            elif meta_raw['encrypted'] == 'False':
+            elif meta_raw['encrypted'] == 'False' or \
+                 meta_raw['encrypted'].startswith('PLAIN/'):
                 encrypted = False
             else:
-                raise RuntimeError('Unsupported compression/encryption')
+                raise RuntimeError('Unsupported encryption: %s' % meta_raw['encrypted'])
         else:
             encrypted = False
 
@@ -237,21 +227,37 @@ class AbstractBucket(object):
         meta_raw = self.raw_fetch(key, fh)
 
         if 'encrypted' in meta_raw:
-            if meta_raw['encrypted'] in ('True', 'AES/BZ2'):
-                decomp = bz2.BZ2Decompressor()
+            if meta_raw['encrypted'] == 'True':
                 encrypted = True
-            elif meta_raw['encrypted'] == 'AES/LZMA':
-                decomp = lzma.LZMADecompressor()
+                compr_alg = 'BZ2'
+            elif meta_raw['encrypted'].startswith('AES/'):
                 encrypted = True
-            elif meta_raw['encrypted'] == 'AES/ZLIB':
-                decomp = zlib.decompressobj()
-                encrypted = True
+                compr_alg =  meta_raw['encrypted'][4:]
             elif meta_raw['encrypted'] == 'False':
                 encrypted = False
+                compr_alg = 'NONE'  
+            elif meta_raw['encrypted'].startswith('PLAIN/'):
+                encrypted = False
+                compr_alg =  meta_raw['encrypted'][6:]
             else:
-                raise RuntimeError('Unsupported compression/encryption')
+                raise RuntimeError('Unsupported encryption')
+                        
+            if compr_alg == 'BZ2':
+                decomp = bz2.BZ2Decompressor()
+            elif compr_alg == 'LZMA':
+                decomp = lzma.LZMADecompressor()
+                encrypted = True
+            elif compr_alg == 'ZLIB':
+                decomp = zlib.decompressobj()
+                encrypted = True
+            elif compr_alg == 'NONE':
+                decomp = DummyDecompressor()
+                encrypted = True
+            else:
+                raise RuntimeError('Unsupported compression')
         else:
             encrypted = False
+            decomp = DummyDecompressor()
 
         if encrypted and not self.passphrase:
             raise ChecksumError('Encrypted object and no passphrase supplied')
@@ -266,12 +272,14 @@ class AbstractBucket(object):
         else:
             metadata = dict()
 
+        (fh, tmp) = (tmp, fh)
+        tmp.seek(0)
+        fh.seek(0)
         if self.passphrase:
-            (fh, tmp) = (tmp, fh)
-            tmp.seek(0)
-            fh.seek(0)
             decrypt_uncompress_fh(tmp, fh, self.passphrase, decomp)
-            tmp.close()
+        else:
+            uncompress_fh(tmp, fh, decomp)
+        tmp.close()
 
         return metadata
 
@@ -293,33 +301,47 @@ class AbstractBucket(object):
 
         if not isinstance(key, str):
             raise TypeError('key must be of type str')
-
+        
+        if self.passphrase:
+            compr_str = 'AES/'
+        else:
+            compr_str = 'PLAIN/'
+            
+        if self.compression == COMPRESS_ZLIB:
+            compr = zlib.compressobj(9)
+            compr_str += 'ZLIB'
+        elif self.compression == COMPRESS_BZIP2:
+            compr = bz2.BZ2Compressor(9)
+            compr_str += 'BZ2'
+        elif self.compression == COMPRESS_LZMA:
+            compr = lzma.LZMACompressor(options={ 'level': 9 })
+            compr_str += 'LZMA'
+        elif self.compression == COMPRESS_NONE:
+            compr = DummyCompressor
+            compr_str += 'NONE'
+        else:
+            raise ValueError('Invalid compression algorithm')
+        
         # We always store metadata (even if it's just None), so that we can verify that the
         # object has been created by us when we call lookup().
         meta_raw = pickle.dumps(metadata, 2)
-
+      
+        # We need to generate a temporary copy to determine the
+        # size of the object (which needs to transmitted as Content-Length)
+        nonce = struct.pack(b'<f', time.time() - time.timezone) + bytes(key)
+        tmp = tempfile.TemporaryFile()
+        fh.seek(0)
+            
         if self.passphrase:
-            # We need to generate a temporary copy to determine the
-            # size of the object (which needs to transmitted as Content-Length)
-            nonce = struct.pack(b'<f', time.time() - time.timezone) + bytes(key)
-            tmp = tempfile.TemporaryFile()
-            fh.seek(0)
-            compress_encrypt_fh(fh, tmp, self.passphrase, nonce, self.compr_factory())
+            compress_encrypt_fh(fh, tmp, self.passphrase, nonce, compr)
             meta_raw = encrypt(meta_raw, self.passphrase, nonce)
-            tmp.seek(0)
-
-            # We don't trust the LZMA module, so decompress again to check the HMAC
-            decrypt_uncompress_fh(tmp, open('/dev/null', 'r+b'),
-                                  self.passphrase, self.decomp_factory())
-
-            tmp.seek(0)
-            return lambda: self.raw_store(key, tmp, {'meta': b64encode(meta_raw),
-                                                     'encrypted': self.compr_str })
         else:
-            fh.seek(0)
-
-            return lambda : self.raw_store(key, fh, {'meta': b64encode(meta_raw),
-                                                     'encrypted': 'False' })
+            compress_fh(fh, tmp, self.compr_factory())
+               
+        tmp.seek(0)
+        return lambda: self.raw_store(key, tmp, {'meta': b64encode(meta_raw),
+                                                 'encrypted': compr_str })
+ 
 
     @abstractmethod
     def __str__(self):
@@ -423,7 +445,7 @@ def decrypt_uncompress_fh(ifh, ofh, passphrase, decomp):
         try:
             buf = decomp.decompress(buf)
         except IOError:
-            raise ChecksumError('Invalid bz2 stream')
+            raise ChecksumError('Invalid compressed stream')
 
         if buf:
             hmac_.update(buf)
@@ -437,6 +459,42 @@ def decrypt_uncompress_fh(ifh, ofh, passphrase, decomp):
 
     if hash_ != hmac_.digest():
         raise ChecksumError('HMAC mismatch')
+
+def uncompress_fh(ifh, ofh, decomp):
+    '''Read `ofh` and write uncompressed data to `ofh`'''
+
+    bs = 256 * 1024
+    while True:
+        buf = ifh.read(bs)
+        if not buf:
+            break
+        
+        try:
+            buf = decomp.decompress(buf)
+        except IOError:
+            raise ChecksumError('Invalid compressed stream')
+
+        if buf:
+            ofh.write(buf)
+
+    if decomp.unused_data:
+        raise ChecksumError('Data after end of compressed stream')
+
+    
+class DummyDecompressor(object):
+    def __init__(self):
+        super(DummyDecompressor, self).__init__()
+        self.unused_data = None
+    
+    def decompress(self, buf):
+        return buf
+    
+class DummyCompressor(object):
+    def flush(self):
+        return ''
+    
+    def compress(self, buf):
+        return buf    
 
 
 def compress_encrypt_fh(ifh, ofh, passphrase, nonce, compr):
@@ -477,6 +535,22 @@ def compress_encrypt_fh(ifh, ofh, passphrase, nonce, compr):
     ofh.seek(off)
     ofh.write(buf)
 
+def compress_fh(ifh, ofh, compr):
+    '''Read `ifh` and write compressed data to `ofh`'''
+
+    bs = 1024 * 1024
+    while True:
+        buf = ifh.read(bs)
+        if not buf:
+            buf = compr.flush()
+            ofh.write(buf)
+            break
+
+        buf = compr.compress(buf)
+        if buf:
+            ofh.write(buf)
+
+    
 
 def decrypt(buf, passphrase):
     '''Decrypt given string'''

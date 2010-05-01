@@ -1,5 +1,11 @@
 xxx, S3QL 0.13
 
+  * The compression can now be specified independently from the encryption,
+    so it is possible to have an unencrypted, but compressed file system.
+
+  * Apart from zlib, bzip2 and lzma, data can now also be stored
+    without any compression.
+
   * S3QL no longer emulates the . and .. directory entries since this
     is not required by POSIX and makes the code much simpler. This
     also means that the st_nlink value of a directory is not longer

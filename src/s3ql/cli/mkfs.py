@@ -45,7 +45,7 @@ def parse_args(args):
     parser.add_option("--blocksize", type="int", default=10240,
                       help="Maximum block size in KB (default: %default)")
     parser.add_option("--plain", action="store_true", default=False,
-                      help="Create file system without encryption and compression.")
+                      help="Create unencrypted file system.")
     parser.add_option("--debug", action="append",
                       help="Activate debugging output from specified module. Use 'all' "
                            "to get debug messages from all modules. This option can be "

@@ -15,7 +15,8 @@ from optparse import OptionParser
 from s3ql import fs
 from s3ql.backends import s3
 from s3ql.daemonize import daemonize
-from s3ql.backends.common import ChecksumError, COMPRESS_BZIP2, COMPRESS_LZMA, COMPRESS_ZLIB
+from s3ql.backends.common import (ChecksumError, COMPRESS_BZIP2, COMPRESS_LZMA, COMPRESS_ZLIB,
+                                  COMPRESS_NONE)
 from s3ql.common import (init_logging_from_options, get_backend, get_bucket_home,
                          QuietError, unlock_bucket, CURRENT_FS_REV, get_stdout_handler,
                          cycle_metadata, dump_metadata, restore_metadata)
@@ -218,6 +219,8 @@ def parse_args(args):
                       help="Use bzip2 instead of LZMA algorithm for compressing new blocks.")
     parser.add_option("--zlib", action="store_true", default=False,
                       help="Use zlib instead of LZMA algorithm for compressing new blocks.")
+    parser.add_option("--nocompress", action="store_true", default=False,
+                      help="Do not compress new blocks.")
     (options, pps) = parser.parse_args(args)
 
     #
@@ -228,13 +231,21 @@ def parse_args(args):
     options.storage_url = pps[0]
     options.mountpoint = pps[1]
 
-    if options.zlib and options.bzip2:
-        parser.error("--bzip2 and --zlib are mutually exclusive.")
-    elif options.zlib:
+    options.compression = None
+    if options.zlib:
         options.compression = COMPRESS_ZLIB
-    elif options.bzip2:
+    
+    if options.bzip2:
+        if options.compression:
+            parser.error("--bzip2, --zlib and --nocompress are mutually exclusive.")
         options.compression = COMPRESS_BZIP2
-    else:
+    
+    if options.nocompress:
+        if options.compression:
+            parser.error("--bzip2, --zlib and --nocompress are mutually exclusive.")
+        options.compression = COMPRESS_NONE 
+    
+    if not options.compression:
         options.compression = COMPRESS_LZMA
 
     if options.profile:
