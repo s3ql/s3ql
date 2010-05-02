@@ -12,6 +12,7 @@ from time import sleep
 import hashlib
 import logging.handlers
 import os
+from . import database as dbcm
 import stat
 import sys
 import threading
@@ -135,7 +136,7 @@ def unlock_bucket(options, bucket):
     data_pw = bucket['s3ql_passphrase']
     bucket.passphrase = data_pw
 
-def dump_metadata(dbcm, ofh):
+def dump_metadata(ofh):
     pickler = pickle.Pickler(ofh, 2)
     data_start = 2048
     bufsize = 256
@@ -147,7 +148,7 @@ def dump_metadata(dbcm, ofh):
                ('objects', 'id'),
                ('blocks', 'inode, blockno')]
 
-    with dbcm() as conn:
+    with dbcm.conn() as conn:
 
         columns = dict()
         for (table, _) in to_dump:
@@ -182,7 +183,7 @@ def dump_metadata(dbcm, ofh):
 
     
 
-def restore_metadata(dbcm, ifh):
+def restore_metadata(ifh):
     from . import mkfs
     
     unpickler = pickle.Unpickler(ifh)
@@ -190,13 +191,13 @@ def restore_metadata(dbcm, ifh):
     (data_start, to_dump, sizes, columns) = unpickler.load()
     ifh.seek(data_start)
     
-    with dbcm() as conn:
-        mkfs.setup_tables(conn)
+    with dbcm.conn() as conn:
+        mkfs.setup_tables()
         
         # Speed things up
         conn.execute('PRAGMA foreign_keys = OFF')
         try:
-            with conn.transaction(): 
+            with conn.write_lock(): 
                 for (table, _) in to_dump:
                     log.info('Loading %s', table)
                     col_str = ', '.join(columns[table])
@@ -210,7 +211,7 @@ def restore_metadata(dbcm, ifh):
             conn.execute('PRAGMA foreign_keys = ON')     
     
         log.info('Creating indices...')
-        mkfs.create_indices(conn)
+        mkfs.create_indices()
         
         conn.execute('ANALYZE')
 

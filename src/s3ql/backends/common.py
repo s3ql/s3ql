@@ -220,9 +220,8 @@ class AbstractBucket(object):
         if not isinstance(key, str):
             raise TypeError('key must be of type str')
 
-        if self.passphrase:
-            tmp = tempfile.TemporaryFile()
-            (fh, tmp) = (tmp, fh)
+        tmp = tempfile.TemporaryFile()
+        (fh, tmp) = (tmp, fh)
 
         meta_raw = self.raw_fetch(key, fh)
 
@@ -246,13 +245,10 @@ class AbstractBucket(object):
                 decomp = bz2.BZ2Decompressor()
             elif compr_alg == 'LZMA':
                 decomp = lzma.LZMADecompressor()
-                encrypted = True
             elif compr_alg == 'ZLIB':
                 decomp = zlib.decompressobj()
-                encrypted = True
             elif compr_alg == 'NONE':
                 decomp = DummyDecompressor()
-                encrypted = True
             else:
                 raise RuntimeError('Unsupported compression')
         else:
@@ -336,7 +332,7 @@ class AbstractBucket(object):
             compress_encrypt_fh(fh, tmp, self.passphrase, nonce, compr)
             meta_raw = encrypt(meta_raw, self.passphrase, nonce)
         else:
-            compress_fh(fh, tmp, self.compr_factory())
+            compress_fh(fh, tmp, compr)
                
         tmp.seek(0)
         return lambda: self.raw_store(key, tmp, {'meta': b64encode(meta_raw),

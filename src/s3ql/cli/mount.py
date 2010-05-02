@@ -20,7 +20,7 @@ from s3ql.backends.common import (ChecksumError, COMPRESS_BZIP2, COMPRESS_LZMA, 
 from s3ql.common import (init_logging_from_options, get_backend, get_bucket_home,
                          QuietError, unlock_bucket, CURRENT_FS_REV, get_stdout_handler,
                          cycle_metadata, dump_metadata, restore_metadata)
-from s3ql.database import ConnectionManager
+import s3ql.database as dbcm
 import llfuse
 import tempfile
 import textwrap
@@ -77,8 +77,8 @@ def main(args=None):
         lock = threading.Lock()
         fuse_opts = get_fuse_opts(options)      
                             
-        with get_metadata(bucket, home) as (param, dbcm):
-            operations = fs.Operations(dbcm, bucket, cachedir=home + '-cache', lock=lock, 
+        with get_metadata(bucket, home) as param:
+            operations = fs.Operations(bucket, cachedir=home + '-cache', lock=lock, 
                                        blocksize=param['blocksize'], 
                                        cachesize=options.cachesize * 1024)
             log.info('Mounting filesystem...')
@@ -303,12 +303,12 @@ def get_metadata(bucket, home):
     fh = os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
                           stat.S_IRUSR | stat.S_IWUSR), 'w+b')
     fh.close()
-    dbcm = ConnectionManager(home + '.db')
+    dbcm.init(home + '.db')
     fh = tempfile.TemporaryFile()
     bucket.fetch_fh("s3ql_metadata", fh)
     fh.seek(0)
     log.info('Reading metadata...')
-    restore_metadata(dbcm, fh)
+    restore_metadata(fh)
     fh.close()
 
     # Increase metadata sequence no
@@ -322,11 +322,11 @@ def get_metadata(bucket, home):
     pickle.dump(param, open(home + '.params', 'wb'), 2)
     
     try:
-        yield (param, dbcm)
+        yield param
     finally:
         log.info("Saving metadata...")
         fh = tempfile.TemporaryFile()
-        dump_metadata(dbcm, fh)
+        dump_metadata(fh)
         fh.seek(0)
         log.info("Compressing & uploading metadata..")
         cycle_metadata(bucket)

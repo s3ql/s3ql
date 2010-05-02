@@ -17,7 +17,7 @@ import logging
 from s3ql import mkfs
 from s3ql.common import (init_logging_from_options, get_backend, get_bucket_home,
                          QuietError, CURRENT_FS_REV, dump_metadata)
-from s3ql.database import ConnectionManager
+import s3ql.database as dbcm
 from s3ql.backends.boto.s3.connection import Location
 from s3ql.backends import s3
 import time
@@ -116,10 +116,10 @@ def main(args=None):
 
         try:
             log.info('Creating metadata tables...')
-            dbcm = ConnectionManager(home + '.db')
-            mkfs.setup_tables(dbcm)
-            mkfs.create_indices(dbcm)
-            mkfs.init_tables(dbcm)
+            dbcm.init(home + '.db')
+            mkfs.setup_tables()
+            mkfs.create_indices()
+            mkfs.init_tables()
 
             param = dict()
             param['revision'] = CURRENT_FS_REV
@@ -131,7 +131,7 @@ def main(args=None):
             bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
 
             fh = tempfile.TemporaryFile()
-            dump_metadata(dbcm, fh)
+            dump_metadata(fh)
             fh.seek(0)
             log.info("Uploading database..")
             bucket.store_fh("s3ql_metadata", fh, param)

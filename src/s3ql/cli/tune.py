@@ -19,7 +19,7 @@ from ..backends import s3
 from ..backends.boto.s3.connection import Location
 from ..backends.common import ChecksumError
 import os
-from ..database import ConnectionManager
+import s3ql.database as dbcm
 import tempfile
 import re
 import textwrap
@@ -209,12 +209,12 @@ def upgrade(conn, bucket):
     # Download metadata
     log.info("Downloading & uncompressing metadata...")
     dbfile = tempfile.NamedTemporaryFile()
-    dbcm = ConnectionManager(dbfile.name)
+    dbcm.init(dbfile.name)
     fh = tempfile.TemporaryFile()
     bucket.fetch_fh("s3ql_metadata", fh)
     fh.seek(0)
     log.info('Reading metadata...')
-    restore_rev5_metadata(dbcm, fh)
+    restore_rev5_metadata(fh)
     fh.close()
 
     log.info('Upgrading from revision 5 to 6...')
@@ -229,7 +229,7 @@ def upgrade(conn, bucket):
 
     # Upload metadata
     fh = tempfile.TemporaryFile()
-    dump_metadata(dbcm, fh)
+    dump_metadata(fh)
     fh.seek(0)
     log.info("Uploading database..")
     cycle_metadata(bucket)
@@ -281,7 +281,7 @@ if __name__ == '__main__':
     main(sys.argv[1:])
  
             
-def restore_rev5_metadata(dbcm, ifh):
+def restore_rev5_metadata(ifh):
     from .. import mkfs
     
     unpickler = pickle.Unpickler(ifh)
@@ -298,7 +298,7 @@ def restore_rev5_metadata(dbcm, ifh):
         # Speed things up
         conn.execute('PRAGMA foreign_keys = OFF')
         try:
-            with conn.transaction(): 
+            with conn.write_lock(): 
                 for (table, _) in to_dump:
                     log.info('Loading %s', table)
                     col_str = ', '.join(columns[table])

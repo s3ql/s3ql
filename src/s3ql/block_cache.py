@@ -9,9 +9,10 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 from contextlib import contextmanager
-from s3ql.multi_lock import MultiLock
-from s3ql.ordered_dict import OrderedDict
-from s3ql.common import (ExceptionStoringThread, sha256_fh, TimeoutError)
+from .multi_lock import MultiLock
+from .ordered_dict import OrderedDict
+from .common import (ExceptionStoringThread, sha256_fh, TimeoutError)
+from . import database as dbcm
 import logging
 import os
 import threading
@@ -87,7 +88,7 @@ class BlockCache(object):
     block number is used to prevent simultaneous access to the same block.
     """
 
-    def __init__(self, bucket, cachedir, maxsize, dbcm):
+    def __init__(self, bucket, cachedir, maxsize):
         log.debug('Initializing')
         self.cache = OrderedDict()
         self.cachedir = cachedir
@@ -95,7 +96,6 @@ class BlockCache(object):
         self.size = 0
         self.bucket = bucket
         self.mlock = MultiLock()
-        self.dbcm = dbcm
         self.removal_queue = RemovalQueue(self)
         self.io_thread = None
         self.expiry_lock = threading.Lock()
@@ -244,7 +244,7 @@ class BlockCache(object):
             filename = os.path.join(self.cachedir,
                                     'inode_%d_block_%d' % (inode, blockno))
             try:
-                obj_id = self.dbcm.get_val("SELECT obj_id FROM blocks WHERE inode=? AND blockno=?",
+                obj_id = dbcm.get_val("SELECT obj_id FROM blocks WHERE inode=? AND blockno=?",
                                            (inode, blockno))
 
             # No corresponding object
@@ -356,7 +356,7 @@ class BlockCache(object):
     
                     else:
                         try:
-                            obj_id = self.dbcm.get_val('SELECT obj_id FROM blocks WHERE inode=? '
+                            obj_id = dbcm.get_val('SELECT obj_id FROM blocks WHERE inode=? '
                                                        'AND blockno = ?', (inode, blockno))
                         except KeyError:
                             log.debug('remove(inode=%d, blockno=%d): block does not exist',
@@ -365,7 +365,7 @@ class BlockCache(object):
     
                         log.debug('remove(inode=%d, blockno=%d): block only in db ', inode, blockno)
     
-                    self.dbcm.execute('DELETE FROM blocks WHERE inode=? AND blockno=?',
+                    dbcm.execute('DELETE FROM blocks WHERE inode=? AND blockno=?',
                                       (inode, blockno))
                 self.removal_queue.add(obj_id)
 
@@ -560,7 +560,7 @@ class UploadQueue(object):
         el.seek(0)
         hash_ = sha256_fh(el)
         old_obj_id = el.obj_id
-        with self.bcache.dbcm.transaction() as conn:
+        with dbcm.write_lock() as conn:
             try:
                 el.obj_id = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
 
@@ -683,7 +683,7 @@ class RemovalQueue(object):
 
         log.debug('RemovalQueue._prepare_remval(%d): start', obj_id)
 
-        with self.bcache.dbcm.transaction() as conn:
+        with dbcm.write_lock() as conn:
             refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?',
                                     (obj_id,))
             if refcount > 1:

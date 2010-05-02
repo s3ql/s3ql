@@ -11,41 +11,42 @@ from __future__ import division, print_function
 import stat
 import os
 import time
+from . import database as dbcm
 
 from s3ql.common import ROOT_INODE, CTRL_INODE
 
 __all__ = [ "setup_tables", 'init_tables', 'create_indices' ]
 
-def init_tables(conn):
+def init_tables():
     # Insert root directory
     timestamp = time.time() - time.timezone
-    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
+    dbcm.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
                    "VALUES (?,?,?,?,?,?,?,?)",
                    (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                     os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
 
     # Insert control inode, the actual values don't matter that much 
-    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
+    dbcm.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
                  "VALUES (?,?,?,?,?,?,?,?)",
                  (CTRL_INODE, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
                   0, 0, timestamp, timestamp, timestamp, 42))
 
     # Insert lost+found directory
-    inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+    inode = dbcm.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                        "VALUES (?,?,?,?,?,?,?)",
                        (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
                         os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
-    conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+    dbcm.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                  (b"lost+found", inode, ROOT_INODE))
 
-def setup_tables(conn):
+def setup_tables():
     # Table with filesystem metadata
     # The number of links `refcount` to an inode can in theory
     # be determined from the `contents` table. However, managing
     # this separately should be significantly faster (the information
     # is required for every getattr!)
-    conn.execute("""
+    dbcm.execute("""
     CREATE TABLE inodes (
         -- id has to specified *exactly* as follows to become
         -- an alias for the rowid.
@@ -68,7 +69,7 @@ def setup_tables(conn):
     """)
 
     # Table of filesystem objects
-    conn.execute("""
+    dbcm.execute("""
     CREATE TABLE contents (
         name      BLOB(256) NOT NULL,
         inode     INT NOT NULL REFERENCES inodes(id),
@@ -78,7 +79,7 @@ def setup_tables(conn):
     )""")
     
     # Extended attributes
-    conn.execute("""
+    dbcm.execute("""
     CREATE TABLE ext_attributes (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
         name      BLOB NOT NULL,
@@ -89,7 +90,7 @@ def setup_tables(conn):
 
     # Refcount is included for performance reasons, for directories, the
     # refcount also includes the implicit '.' entry
-    conn.execute("""
+    dbcm.execute("""
     CREATE TABLE objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
         refcount  INT NOT NULL,
@@ -101,7 +102,7 @@ def setup_tables(conn):
 
 
     # Maps blocks to objects
-    conn.execute("""
+    dbcm.execute("""
     CREATE TABLE blocks (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
         blockno   INT NOT NULL,
@@ -110,11 +111,11 @@ def setup_tables(conn):
         PRIMARY KEY (inode, blockno)
     )""")
 
-def create_indices(conn):
-    conn.execute('CREATE INDEX ix_contents_parent_inode ON contents(parent_inode)')
-    conn.execute('CREATE INDEX ix_contents_inode ON contents(inode)')
-    conn.execute('CREATE INDEX ix_ext_attributes_inode ON ext_attributes(inode)')
-    conn.execute('CREATE INDEX ix_objects_hash ON objects(hash)')
-    conn.execute('CREATE INDEX ix_blocks_obj_id ON blocks(obj_id)')
-    conn.execute('CREATE INDEX ix_blocks_inode ON blocks(inode)')             
+def create_indices():
+    dbcm.execute('CREATE INDEX ix_contents_parent_inode ON contents(parent_inode)')
+    dbcm.execute('CREATE INDEX ix_contents_inode ON contents(inode)')
+    dbcm.execute('CREATE INDEX ix_ext_attributes_inode ON ext_attributes(inode)')
+    dbcm.execute('CREATE INDEX ix_objects_hash ON objects(hash)')
+    dbcm.execute('CREATE INDEX ix_blocks_obj_id ON blocks(obj_id)')
+    dbcm.execute('CREATE INDEX ix_blocks_inode ON blocks(inode)')             
 

@@ -13,7 +13,7 @@ from s3ql import mkfs, fs, fsck
 from s3ql.backends import local
 from s3ql.common import ROOT_INODE
 from llfuse import FUSEError
-from s3ql.database import ConnectionManager
+from s3ql import database as dbcm
 from _common import TestCase
 import os
 import stat
@@ -38,13 +38,12 @@ class fs_api_tests(TestCase):
         self.blocksize = 1024
 
         self.dbfile = tempfile.NamedTemporaryFile()
-        self.dbcm = ConnectionManager(self.dbfile.name)
-        with self.dbcm() as conn:
-            mkfs.setup_tables(conn)
-            mkfs.init_tables(conn)
+        dbcm.init(self.dbfile.name)
+        mkfs.setup_tables()
+        mkfs.init_tables()
 
         self.lock = threading.Lock()
-        self.server = fs.Operations(self.dbcm, self.bucket, self.cachedir, 
+        self.server = fs.Operations(self.bucket, self.cachedir, 
                                     self.lock, self.blocksize, cachesize=self.blocksize*5)
         self.server.init()
         
@@ -75,7 +74,7 @@ class fs_api_tests(TestCase):
     def fsck(self):
         self.server.cache.clear()
         self.server.inodes.flush()
-        fsck.fsck(self.dbcm, self.cachedir, self.bucket, 
+        fsck.fsck(self.cachedir, self.bucket, 
                   { 'blocksize': self.blocksize })
         self.assertFalse(fsck.found_errors)
 
@@ -95,7 +94,7 @@ class fs_api_tests(TestCase):
         inode_p_old = self.server.getattr(ROOT_INODE).copy()
         self.server._create(ROOT_INODE, name, mode, ctx)
 
-        id_ = self.dbcm.get_val('SELECT inode FROM contents WHERE name=? AND '
+        id_ = dbcm.get_val('SELECT inode FROM contents WHERE name=? AND '
                                 'parent_inode = ?', (name, ROOT_INODE))
 
         inode = self.server.getattr(id_)
@@ -169,7 +168,7 @@ class fs_api_tests(TestCase):
         inode_after = self.server.lookup(inode_p_new.id, name)
         inode_p_new_after = self.server.getattr(inode_p_new.id)
 
-        id_ = self.dbcm.get_val('SELECT inode FROM contents WHERE name=? AND '
+        id_ = dbcm.get_val('SELECT inode FROM contents WHERE name=? AND '
                                 'parent_inode = ?', (name, inode_p_new.id))
 
         self.assertEqual(inode_before.id, id_)
@@ -259,12 +258,12 @@ class fs_api_tests(TestCase):
                                          self.file_mode(), Ctx())
         self.server.write(fh, 0, 'foobar')
         self.server.unlink(ROOT_INODE, name)
-        self.assertFalse(self.dbcm.has_val('SELECT 1 FROM contents WHERE name=? AND '
+        self.assertFalse(dbcm.has_val('SELECT 1 FROM contents WHERE name=? AND '
                                            'parent_inode = ?', (name, ROOT_INODE)))
         self.assertTrue(self.server.getattr(inode.id).id)
         self.server.release(fh)
 
-        self.assertFalse(self.dbcm.has_val('SELECT 1 FROM inodes WHERE id=?', (inode.id,)))
+        self.assertFalse(dbcm.has_val('SELECT 1 FROM inodes WHERE id=?', (inode.id,)))
 
         self.fsck()
 
@@ -295,9 +294,9 @@ class fs_api_tests(TestCase):
         inode_p_old_after = self.server.getattr(ROOT_INODE)
         inode_p_new_after = self.server.getattr(inode_p_new.id)
 
-        self.assertFalse(self.dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
+        self.assertFalse(dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
                                            'parent_inode = ?', (oldname, ROOT_INODE)))
-        id_ = self.dbcm.get_val('SELECT inode FROM contents WHERE name=? AND '
+        id_ = dbcm.get_val('SELECT inode FROM contents WHERE name=? AND '
                                 'parent_inode = ?', (newname, inode_p_new.id))
         self.assertEqual(inode.id, id_)
 
@@ -332,9 +331,9 @@ class fs_api_tests(TestCase):
         inode_p_old_after = self.server.getattr(ROOT_INODE)
         inode_p_new_after = self.server.getattr(inode_p_new.id)
 
-        self.assertFalse(self.dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
+        self.assertFalse(dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
                                            'parent_inode = ?', (oldname, ROOT_INODE)))
-        id_ = self.dbcm.get_val('SELECT inode FROM contents WHERE name=? AND '
+        id_ = dbcm.get_val('SELECT inode FROM contents WHERE name=? AND '
                                 'parent_inode = ?', (newname, inode_p_new.id))
         self.assertEqual(inode.id, id_)
 
@@ -343,7 +342,7 @@ class fs_api_tests(TestCase):
         self.assertLess(inode_p_old_before.mtime, inode_p_old_after.mtime)
         self.assertLess(inode_p_old_before.ctime, inode_p_old_after.ctime)
 
-        self.assertFalse(self.dbcm.has_val('SELECT id FROM inodes WHERE id=?', (inode2.id,)))
+        self.assertFalse(dbcm.has_val('SELECT id FROM inodes WHERE id=?', (inode2.id,)))
 
         self.fsck()
 
@@ -364,9 +363,9 @@ class fs_api_tests(TestCase):
         inode_p_old_after = self.server.getattr(ROOT_INODE)
         inode_p_new_after = self.server.getattr(inode_p_new.id)
 
-        self.assertFalse(self.dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
+        self.assertFalse(dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
                                            'parent_inode = ?', (oldname, ROOT_INODE)))
-        id_ = self.dbcm.get_val('SELECT inode FROM contents WHERE name=? AND '
+        id_ = dbcm.get_val('SELECT inode FROM contents WHERE name=? AND '
                                 'parent_inode = ?', (newname, inode_p_new.id))
         self.assertEqual(inode.id, id_)
 
@@ -375,7 +374,7 @@ class fs_api_tests(TestCase):
         self.assertLess(inode_p_old_before.mtime, inode_p_old_after.mtime)
         self.assertLess(inode_p_old_before.ctime, inode_p_old_after.ctime)
 
-        self.assertFalse(self.dbcm.has_val('SELECT id FROM inodes WHERE id=?', (inode2.id,)))
+        self.assertFalse(dbcm.has_val('SELECT id FROM inodes WHERE id=?', (inode2.id,)))
 
         self.fsck()
 
@@ -453,7 +452,7 @@ class fs_api_tests(TestCase):
 
         self.assertEqual(target, self.server.readlink(inode.id))
 
-        id_ = self.dbcm.get_val('SELECT inode FROM contents WHERE name=? AND '
+        id_ = dbcm.get_val('SELECT inode FROM contents WHERE name=? AND '
                                 'parent_inode = ?', (name, ROOT_INODE))
 
         self.assertEqual(inode.id, id_)
@@ -478,9 +477,9 @@ class fs_api_tests(TestCase):
         self.assertLess(inode_p_before.mtime, inode_p_after.mtime)
         self.assertLess(inode_p_before.ctime, inode_p_after.ctime)
 
-        self.assertFalse(self.dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
+        self.assertFalse(dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
                                            'parent_inode = ?', (name, ROOT_INODE)))
-        self.assertFalse(self.dbcm.has_val('SELECT id FROM inodes WHERE id=?', (inode.id,)))
+        self.assertFalse(dbcm.has_val('SELECT id FROM inodes WHERE id=?', (inode.id,)))
 
         self.fsck()
 
@@ -493,9 +492,9 @@ class fs_api_tests(TestCase):
 
         self.assertLess(inode_p_before.mtime, inode_p_after.mtime)
         self.assertLess(inode_p_before.ctime, inode_p_after.ctime)
-        self.assertFalse(self.dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
+        self.assertFalse(dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
                                            'parent_inode = ?', (name, ROOT_INODE)))
-        self.assertFalse(self.dbcm.has_val('SELECT id FROM inodes WHERE id=?', (inode.id,)))
+        self.assertFalse(dbcm.has_val('SELECT id FROM inodes WHERE id=?', (inode.id,)))
 
         self.fsck()
 
@@ -507,9 +506,9 @@ class fs_api_tests(TestCase):
         (fh, inode) = self.server.create(ROOT_INODE, name, self.file_mode(), Ctx())
         self.server.write(fh, 0, data)
         self.server.unlink(ROOT_INODE, name)
-        self.assertFalse(self.dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
+        self.assertFalse(dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
                                            'parent_inode = ?', (name, ROOT_INODE)))
-        self.assertTrue(self.dbcm.has_val('SELECT id FROM inodes WHERE id=?', (inode.id,)))
+        self.assertTrue(dbcm.has_val('SELECT id FROM inodes WHERE id=?', (inode.id,)))
 
         self.server.link(inode.id, ROOT_INODE, name2)
         self.server.release(fh)

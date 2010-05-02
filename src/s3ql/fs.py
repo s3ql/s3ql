@@ -19,6 +19,7 @@ from .common import (get_path, CTRL_NAME, CTRL_INODE)
 import time
 from .block_cache import BlockCache
 from cStringIO import StringIO
+from . import database as dbcm
 import struct
 from llfuse.interface import FUSEError
 
@@ -43,7 +44,6 @@ class Operations(llfuse.Operations):
     Attributes:
     -----------
 
-    :dbcm:        `DBConnectionManager` instance
     :cache:       Holds information about cached blocks
     :lock:        Global lock to synchronize request processing
     :encountered_errors: Is set to true if a request handler raised an exception
@@ -92,16 +92,15 @@ class Operations(llfuse.Operations):
         self.encountered_errors = True
 
 
-    def __init__(self, dbcm, bucket, cachedir, lock, blocksize, cachesize):
+    def __init__(self, bucket, cachedir, lock, blocksize, cachesize):
         super(Operations, self).__init__()
 
-        self.dbcm = dbcm
         self.encountered_errors = False
-        self.inodes = InodeCache(dbcm)
+        self.inodes = InodeCache()
         self.lock = lock
         self.open_inodes = collections.defaultdict(lambda: 0)
         self.blocksize = blocksize
-        self.cache = BlockCache(bucket, cachedir, cachesize, dbcm)
+        self.cache = BlockCache(bucket, cachedir, cachesize)
         
         # Make sure the control file is only writable by the user
         # who mounted the file system
@@ -117,7 +116,7 @@ class Operations(llfuse.Operations):
         self.cache.destroy()
 
     def lookup(self, id_p, name):
-        with self.dbcm() as conn:
+        with dbcm.conn() as conn:
             if name == CTRL_NAME:
                 return self.inodes[CTRL_INODE]
 
@@ -153,7 +152,7 @@ class Operations(llfuse.Operations):
 
         # The inode cache may need to write to the database 
         # while our SELECT query is running
-        with self.dbcm.transaction() as conn:
+        with dbcm.write_lock() as conn:
             self.inodes[id_].atime = timestamp
 
             # The ResultSet is automatically deleted
@@ -180,7 +179,7 @@ class Operations(llfuse.Operations):
 
         else:
             try:
-                value = self.dbcm.get_val('SELECT value FROM ext_attributes WHERE inode=? AND name=?',
+                value = dbcm.get_val('SELECT value FROM ext_attributes WHERE inode=? AND name=?',
                                           (id_, name))
             except KeyError:
                 raise llfuse.FUSEError(llfuse.ENOATTR)
@@ -188,7 +187,7 @@ class Operations(llfuse.Operations):
 
     def listxattr(self, id_):
         names = list()
-        with self.dbcm() as conn:
+        with dbcm.conn() as conn:
             for (name,) in conn.query('SELECT name FROM ext_attributes WHERE inode=?', (id_,)):
                 names.append(name)
         return names
@@ -211,12 +210,12 @@ class Operations(llfuse.Operations):
 
             return llfuse.FUSEError(errno.EINVAL)
         else:
-            self.dbcm.execute('INSERT OR REPLACE INTO ext_attributes (inode, name, value) '
+            dbcm.execute('INSERT OR REPLACE INTO ext_attributes (inode, name, value) '
                               'VALUES(?, ?, ?)', (id_, name, value))
             self.inodes[id_].ctime = time.time()
 
     def removexattr(self, id_, name):
-        changes = self.dbcm.execute('DELETE FROM ext_attributes WHERE inode=? AND name=?',
+        changes = dbcm.execute('DELETE FROM ext_attributes WHERE inode=? AND name=?',
                                     (id_, name))
         if changes == 0:
             raise llfuse.FUSEError(llfuse.ENOATTR)
@@ -249,7 +248,7 @@ class Operations(llfuse.Operations):
     def _copy_tree(self, src_id, target_id, queue, id_cache):
 
         processed = 0
-        with self.dbcm.transaction() as conn:
+        with dbcm.write_lock() as conn:
             for (name, id_) in conn.query('SELECT name, inode FROM contents WHERE parent_inode=?',
                                            (src_id,)):
 
@@ -309,7 +308,7 @@ class Operations(llfuse.Operations):
 
         timestamp = time.time()
 
-        with self.dbcm() as conn:
+        with dbcm.conn() as conn:
 
             # Check that there are no child entries
             if conn.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (id_,)):
@@ -345,7 +344,7 @@ class Operations(llfuse.Operations):
 
     def rename(self, id_p_old, name_old, id_p_new, name_new):
         if name_new == CTRL_NAME or name_old == CTRL_NAME:
-            with self.dbcm() as conn:
+            with dbcm.conn() as conn:
                 log.warn('Attempted to rename s3ql control file (%s -> %s)',
                           get_path(id_p_old, conn, name_old),
                           get_path(id_p_new, conn, name_new))
@@ -373,7 +372,7 @@ class Operations(llfuse.Operations):
     def _rename(self, id_p_old, name_old, id_p_new, name_new, id_):
         timestamp = time.time()
 
-        with self.dbcm.transaction() as conn:
+        with dbcm.write_lock() as conn:
             conn.execute("UPDATE contents SET name=?, parent_inode=? WHERE name=? "
                          "AND parent_inode=?", (name_new, id_p_new,
                                                 name_old, id_p_old))
@@ -390,7 +389,7 @@ class Operations(llfuse.Operations):
 
         timestamp = time.time()
 
-        with self.dbcm() as conn:
+        with dbcm.conn() as conn:
             if conn.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (id_new,)):
                 log.info("Attempted to overwrite entry with children: %s",
                           get_path(id_p_new, conn, name_new))
@@ -426,13 +425,13 @@ class Operations(llfuse.Operations):
 
     def link(self, id_, new_id_p, new_name):
         if new_name == CTRL_NAME or id_ == CTRL_INODE:
-            with self.dbcm() as conn:
+            with dbcm.conn() as conn:
                 log.error('Attempted to create s3ql control file at %s',
                           get_path(new_id_p, conn, new_name))
             raise llfuse.FUSEError(errno.EACCES)
 
         timestamp = time.time()
-        with self.dbcm.transaction() as conn:
+        with dbcm.write_lock() as conn:
             inode_p = self.inodes[new_id_p]
             if inode_p.refcount == 0:
                 log.warn('Attempted to create entry %s with unlinked parent %d',
@@ -513,7 +512,7 @@ class Operations(llfuse.Operations):
         self.inodes.flush()
         self.lock.release()
         try:
-            with self.dbcm() as conn:
+            with dbcm.conn() as conn:
                 entries = conn.get_val("SELECT COUNT(rowid) FROM contents")
                 blocks = conn.get_val("SELECT COUNT(id) FROM objects")
                 inodes = conn.get_val("SELECT COUNT(id) FROM inodes")
@@ -527,7 +526,7 @@ class Operations(llfuse.Operations):
 
             return struct.pack('QQQQQQQ', entries, blocks, inodes, size_1, size_2,
                                self.cache.get_bucket_size(),
-                               self.dbcm.get_db_size())
+                               dbcm.get_db_size())
         finally:
             self.lock.acquire()
 
@@ -535,7 +534,7 @@ class Operations(llfuse.Operations):
         stat_ = dict()
 
         # Get number of blocks & inodes
-        with self.dbcm() as conn:
+        with dbcm.conn() as conn:
             blocks = conn.get_val("SELECT COUNT(id) FROM objects")
             inodes = conn.get_val("SELECT COUNT(id) FROM inodes")
             size = conn.get_val('SELECT SUM(size) FROM objects')
@@ -592,13 +591,13 @@ class Operations(llfuse.Operations):
 
     def _create(self, id_p, name, mode, ctx, rdev=0, target=None):
         if name == CTRL_NAME:
-            with self.dbcm() as conn:
+            with dbcm.conn() as conn:
                 log.error('Attempted to create s3ql control file at %s',
                           get_path(id_p, conn, name))
             raise llfuse.FUSEError(errno.EACCES)
 
         timestamp = time.time()
-        with self.dbcm.transaction() as conn:
+        with dbcm.write_lock() as conn:
             inode_p = self.inodes[id_p]
             if inode_p.refcount == 0:
                 log.warn('Attempted to create entry %s with unlinked parent %d',

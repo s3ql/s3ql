@@ -14,6 +14,7 @@ import stat
 import time
 import logging
 import re
+from . import database as dbcm
 from .common import (ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh, get_path)
 
 __all__ = [ "fsck" ]
@@ -31,7 +32,7 @@ blocksize = None
 S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK |
           stat.S_IFCHR | stat.S_IFIFO | stat.S_IFLNK)
 
-def fsck(dbcm, cachedir_, bucket_, param):
+def fsck(cachedir_, bucket_, param):
     """Check file system
     
     Sets module variable `found_errors`. Throws `FatalFsckError` 
@@ -49,7 +50,7 @@ def fsck(dbcm, cachedir_, bucket_, param):
     found_errors = False
     blocksize = param['blocksize']
 
-    with dbcm.transaction() as conn_:
+    with dbcm.write_lock() as conn_:
         conn = conn_
 
         check_cache()

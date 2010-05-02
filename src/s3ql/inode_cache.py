@@ -12,6 +12,7 @@ import time
 import common
 import logging
 import threading
+import database as dbcm
 
 __all__ = [ 'InodeCache' ]
 log = logging.getLogger('inode_cache')
@@ -118,11 +119,16 @@ class InodeCache(object):
     Callers should therefore use the returned inode objects only
     as long as they can guarantee that no other calls to InodeCache
     are made that may result in expiration of inodes from the cache.  
+    
+    Moreover, the caller must make sure that he does not call
+    InodeCache methods while a database transaction is active that
+    may be rolled back. This would rollback database updates
+    performed by InodeCache, which are generally for inodes that
+    are expired from the cache and therefore *not* directly related
+    to the effects of the current method call.
     '''
 
-    def __init__(self, dbcm):
-
-        self.dbcm = dbcm
+    def __init__(self):
         self.attrs = dict()
         self.cached_rows = list()
 
@@ -144,7 +150,7 @@ class InodeCache(object):
         self.flush_thread.start()
 
     def __delitem__(self, inode):
-        if self.dbcm.execute('DELETE FROM inodes WHERE id=?', (inode,)) != 1:
+        if dbcm.execute('DELETE FROM inodes WHERE id=?', (inode,)) != 1:
             raise KeyError('No such inode')
         try:
             del self.attrs[inode]
@@ -172,7 +178,7 @@ class InodeCache(object):
             return inode
 
     def getattr(self, id_):
-        attrs = self.dbcm.get_row("SELECT %s FROM inodes WHERE id=? " % ATTRIBUTE_STR,
+        attrs = dbcm.get_row("SELECT %s FROM inodes WHERE id=? " % ATTRIBUTE_STR,
                                   (id_,))
         inode = _Inode()
 
@@ -202,7 +208,7 @@ class InodeCache(object):
 
         # _Inode.id is not explicitly defined
         #pylint: disable-msg=W0201
-        inode.id = self.dbcm.rowid('INSERT INTO inodes (%s) VALUES(%s)'
+        inode.id = dbcm.rowid('INSERT INTO inodes (%s) VALUES(%s)'
                                    % (', '.join(init_attrs),
                                       ','.join('?' for _ in init_attrs)),
                                    (kw[x] for x in init_attrs))
@@ -219,7 +225,7 @@ class InodeCache(object):
         inode.mtime -= TIMEZONE
         inode.ctime -= TIMEZONE
 
-        self.dbcm.execute("UPDATE inodes SET %s WHERE id=?" % UPDATE_STR,
+        dbcm.execute("UPDATE inodes SET %s WHERE id=?" % UPDATE_STR,
                           [ getattr(inode, x) for x in UPDATE_ATTRS ] + [inode.id])
             
     def flush_id(self, id_):

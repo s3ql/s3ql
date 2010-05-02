@@ -16,6 +16,7 @@ from _common import TestCase
 
 BASE_DELAY = 0.5
 
+@unittest.skip('takes too long')
 class MultiLockTests(TestCase):
 
     def test_lock(self):

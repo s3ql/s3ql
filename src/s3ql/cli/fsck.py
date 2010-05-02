@@ -15,7 +15,7 @@ from optparse import OptionParser
 from s3ql.common import (init_logging_from_options, get_bucket_home, cycle_metadata,
                       unlock_bucket, QuietError, CURRENT_FS_REV, get_backend, dump_metadata,
                       restore_metadata)
-from s3ql.database import ConnectionManager
+import s3ql.database as dbcm
 import logging
 from s3ql import fsck
 from s3ql import backends
@@ -89,7 +89,7 @@ def main(args=None):
         seq_no = max(seq_nos)
 
         param = None
-        dbcm = None
+        metadata_loaded = False
         if os.path.exists(home + '.params'):
             param = pickle.load(open(home + '.params', 'rb'))
             param['needs_fsck'] = True
@@ -116,13 +116,15 @@ def main(args=None):
                 else:
                     log.info('Using local cache files.')
                     param['seq_no'] = seq_no
-                    dbcm = ConnectionManager(home + '.db')
+                    dbcm.init(home + '.db')
+                    metadata_loaded = True
 
             elif param['seq_no'] > seq_no:
                 raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
             else:
                 log.info('Using locally cached metadata.')
-                dbcm = ConnectionManager(home + '.db')
+                dbcm.init(home + '.db')
+                metadata_loaded = True
         else:
             if os.path.exists(home + '-cache') or os.path.exists(home + '.db'):
                 raise RuntimeError('cachedir exists, but no local metadata.'
@@ -171,17 +173,17 @@ def main(args=None):
                 return
 
         # Download metadata
-        if dbcm is None:
+        if not metadata_loaded:
             log.info("Downloading & uncompressing metadata...")
             fh = os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
                                   stat.S_IRUSR | stat.S_IWUSR), 'w+b')
             fh.close()
-            dbcm = ConnectionManager(home + '.db')
+            dbcm.init(home + '.db')
             fh = tempfile.TemporaryFile()
             bucket.fetch_fh("s3ql_metadata", fh)
             fh.seek(0)
             log.info('Reading metadata...')
-            restore_metadata(dbcm, fh)
+            restore_metadata(fh)
             fh.close()
     
         # Increase metadata sequence no
@@ -197,11 +199,11 @@ def main(args=None):
         if not os.path.exists(home + '-cache'):
             os.mkdir(home + '-cache', stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
-        fsck.fsck(dbcm, home + '-cache', bucket, param)
+        fsck.fsck(home + '-cache', bucket, param)
 
         log.info("Saving metadata...")
         fh = tempfile.TemporaryFile()
-        dump_metadata(dbcm, fh)
+        dump_metadata(fh)
         fh.seek(0)
         log.info("Compressing & uploading metadata..")
         cycle_metadata(bucket)

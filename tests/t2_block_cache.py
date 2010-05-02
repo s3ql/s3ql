@@ -11,7 +11,7 @@ from __future__ import division, print_function
 from s3ql import mkfs
 from s3ql.block_cache import BlockCache, UploadQueue
 from s3ql.backends import local
-from s3ql.database import ConnectionManager
+from s3ql import database as dbcm
 import os
 import tempfile
 from _common import TestCase
@@ -33,20 +33,19 @@ class cache_tests(TestCase):
         cachesize = int(1.5 * self.blocksize)
 
         self.dbfile = tempfile.NamedTemporaryFile()
-        self.dbcm = ConnectionManager(self.dbfile.name)
-        with self.dbcm() as conn:
-            mkfs.setup_tables(conn)
-            mkfs.init_tables(conn)
+        dbcm.init(self.dbfile.name)
+        mkfs.setup_tables()
+        mkfs.init_tables()
 
         # Create an inode we can work with
         self.inode = 42
-        self.dbcm.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,size) "
+        dbcm.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,size) "
                           "VALUES (?,?,?,?,?,?,?,?,?)",
                           (self.inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                            | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                            os.getuid(), os.getgid(), time(), time(), time(), 1, 32))
 
-        self.cache = BlockCache(self.bucket, self.cachedir, cachesize, self.dbcm)
+        self.cache = BlockCache(self.bucket, self.cachedir, cachesize)
         self.cache.init()
         
         # We do not want background threads

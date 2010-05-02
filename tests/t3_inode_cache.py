@@ -11,7 +11,7 @@ from __future__ import division, print_function
 
 from s3ql import inode_cache
 from s3ql import mkfs
-from s3ql.database import ConnectionManager
+from s3ql import database as dbcm
 from _common import TestCase
 import unittest2 as unittest
 import time
@@ -21,12 +21,10 @@ class cache_tests(TestCase):
 
     def setUp(self):
         self.dbfile = tempfile.NamedTemporaryFile()
-        self.dbcm = ConnectionManager(self.dbfile.name)
-        with self.dbcm() as conn:
-            mkfs.setup_tables(conn)
-            mkfs.init_tables(conn)
-
-        self.cache = inode_cache.InodeCache(self.dbcm)
+        dbcm.init(self.dbfile.name)
+        mkfs.setup_tables()
+        mkfs.init_tables()
+        self.cache = inode_cache.InodeCache()
         self.cache.init()
         
         # We don't want background flushing
@@ -54,7 +52,7 @@ class cache_tests(TestCase):
         for key in attrs.keys():
             self.assertEqual(attrs[key], getattr(inode, key))
 
-        self.assertTrue(self.dbcm.has_val('SELECT 1 FROM inodes WHERE id=?',
+        self.assertTrue(dbcm.has_val('SELECT 1 FROM inodes WHERE id=?',
                                           (inode.id,)))
 
 
@@ -71,7 +69,7 @@ class cache_tests(TestCase):
                 'mtime': time.time() }
         inode = self.cache.create_inode(**attrs)
         del self.cache[inode.id]
-        self.assertFalse(self.dbcm.has_val('SELECT 1 FROM inodes WHERE id=?', (inode.id,)))
+        self.assertFalse(dbcm.has_val('SELECT 1 FROM inodes WHERE id=?', (inode.id,)))
         self.assertRaises(KeyError, self.cache.__delitem__, inode.id)
 
     def test_get(self):
@@ -88,7 +86,7 @@ class cache_tests(TestCase):
         inode = self.cache.create_inode(**attrs)
         self.assertEqual(inode, self.cache[inode.id])
 
-        self.dbcm.execute('DELETE FROM inodes WHERE id=?', (inode.id,))
+        dbcm.execute('DELETE FROM inodes WHERE id=?', (inode.id,))
         # Entry should still be in cache
         self.assertEqual(inode, self.cache[inode.id])
 
