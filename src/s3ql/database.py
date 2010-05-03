@@ -49,7 +49,10 @@ log = logging.getLogger("database")
 # Globals
 dbfile = None
 initsql = ('PRAGMA synchronous = off;'
-           'PRAGMA foreign_keys = on;')
+           'PRAGMA foreign_keys = on;'
+           'PRAGMA recursize_triggers = on;'
+           'PRAGMA legacy_file_format = off;'
+           )
 retrytime = 120000
 pool = list()
 provided = dict()
