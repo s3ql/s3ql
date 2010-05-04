@@ -1,0 +1,23 @@
+#!/usr/bin/env python
+'''
+expire_backups - this file is part of S3QL (http://s3ql.googlecode.com)
+
+Copyright (C) 2008-2010 Nikolaus Rath <Nikolaus@rath.org>
+
+This program can be distributed under the terms of the GNU LGPL.
+'''
+
+from __future__ import unicode_literals, division, print_function
+
+import sys
+import os.path
+
+# We are running from the S3QL source directory, make sure
+# that we use modules from this directory
+basedir = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), '..'))
+if (os.path.exists(os.path.join(basedir, 'setup.py')) and
+    os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
+    sys.path = [os.path.join(basedir, 'src')] + sys.path
+    
+import s3ql.cli.expire_backups
+s3ql.cli.expire_backups.main(sys.argv[1:])

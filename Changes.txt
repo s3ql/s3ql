@@ -1,5 +1,9 @@
 xxx, S3QL 0.13
 
+  * The umount.s3ql command now properly handles the 'fuser' output
+    with Kernel 2.6.32 (before it always refused to unmount, claiming
+    that the mount point was busy).
+
   * The compression can now be specified independently from the encryption,
     so it is possible to have an unencrypted, but compressed file system.
 
@@ -10,7 +14,12 @@ xxx, S3QL 0.13
     is not required by POSIX and makes the code much simpler. This
     also means that the st_nlink value of a directory is not longer
     2 + number of subdirectories.
-    
+
+  * Fixed a bug that caused files to be listed with wrong sizes under
+    certain conditions.
+
+  * Added `expire_backups` command and instructions for a simple backup
+    solution using S3QL and rsync.
 
 2010-04-27, S3QL 0.12
 
@@ -20,43 +29,43 @@ xxx, S3QL 0.13
 
   * Fixed a bug in cp.s3ql that caused incorrect st_nlink values in the
     copy.
- 
+
   * fsck.s3ql has been even more optimized.
-  
+
   * Fixed a problem with running out of file descriptors when lots of
     objects are deleted.
-    
+
   * Bucket encryption passwords can now also be stored in
     the ~/.s3ql/authinfo file.
-   
+
   * mount.s3ql doesn't complain any more if it receives any of the standard
     mount(8) mount options.
-  
-  
+
+
 2010-04-24, S3QL 0.11
 
   * S3QL file system can now be mounted from /etc/fstab
-  
+
   * Metadata now takes significantly less space.
-  
+
   * Files with extended attributes can now be deleted.
-  
+
   * Extended attributes can now be listed.
-  
+
   * It is now possible to choose between zlib, BZip2 and LZMA compression
     every time the file system is mounted.
-  
+
   * Added contrib/benchmark.py to find out optimal compression method
     for given network bandwidth.
 
   * fsck.s3ql no longer uses mknod(3) , since that lead to errors on e.g.
-    NFS mounted volumes under Fedora. 
-    
+    NFS mounted volumes under Fedora.
+
   * File access, modification and inode change times before 1972 are
     now supported.
-  
+
   * Fixed a deadlock when removing or overwriting files.
-  
+
 2010-04-21, S3QL 0.10
 
   * S3QL now depends on FUSE version 2.8
@@ -66,11 +75,11 @@ xxx, S3QL 0.13
 
   * The setup script now automatically checks and, if necessary, installs
     the Python module dependencies.
-    
+
   * mkfs.s3ql now creates compressed and encrypted file systems by default.
 
   * Data is now compressed with LZMA instead of Bzip2.
-  
+
   * Data compression and data upload is now done in parallel, so the full network
     can bandwidth is continuously without breaks for data compression.
 
@@ -82,14 +91,14 @@ xxx, S3QL 0.13
     correct number of hard links).
 
   * File removal is now significantly faster, since the network transactions
-    are carried out asynchronously as part of the cache expiration. 
-    
+    are carried out asynchronously as part of the cache expiration.
+
   * mount.s3ql no longer tries to create files with mknod(), since that
-    lead to errors on NFS mounted volumes under Fedora. 
-  
+    lead to errors on NFS mounted volumes under Fedora.
+
   * This releases includes a lot of new code, so it may be slightly
     more beta-ish than usual.
-    
+
 
 2010-04-04, S3QL 0.9
 

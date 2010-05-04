@@ -15,5 +15,6 @@
    umount
    snapshotting
    commands
+   backup
    issues
    resources
