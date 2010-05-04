@@ -86,14 +86,21 @@ def check_cache():
     for filename in os.listdir(cachedir):
         found_errors = True
 
-        match = re.match('^inode_(\\d+)_block_(\\d+)$', filename)
+        match = re.match('^inode_(\\d+)_block_(\\d+)(\\.d)?$', filename)
         if match:
-            (inode, blockno) = [ int(match.group(i)) for i in (1, 2) ]
+            inode = int(match.group(1))
+            blockno = int(match.group(2))
+            dirty = match.group(3) == '.d'
         else:
             raise RuntimeError('Strange file in cache directory: %s' % filename)
+        
+        if not dirty:
+            log_error('Removing cached block %d of inode %d', blockno, inode)
+            os.unlink(os.path.join(cachedir, filename))
+            continue
 
-        log_error("Committing (potentially changed) cache for inode %d, block %d",
-                  inode, blockno)
+        log_error("Committing changed block %d of inode %d to backend",
+                  blockno, inode)
 
         fh = open(os.path.join(cachedir, filename), "rb")
         fh.seek(0, 2)

@@ -61,15 +61,21 @@ class CacheEntry(file_class):
         self.last_access = 0
 
     def truncate(self, *a, **kw):
-        self.dirty = True
+        if not self.dirty:
+            os.rename(self.name, self.name + '.d')
+            self.dirty = True
         return super(CacheEntry, self).truncate(*a, **kw)
 
     def write(self, *a, **kw):
-        self.dirty = True
+        if not self.dirty:
+            os.rename(self.name, self.name + '.d')
+            self.dirty = True
         return super(CacheEntry, self).write(*a, **kw)
 
     def writelines(self, *a, **kw):
-        self.dirty = True
+        if not self.dirty:
+            os.rename(self.name, self.name + '.d')
+            self.dirty = True
         return super(CacheEntry, self).writelines(*a, **kw)
 
     def __str__(self):
@@ -344,7 +350,10 @@ class BlockCache(object):
     
                         self.size -= os.fstat(el.fileno()).st_size
                         el.close()
-                        os.unlink(el.name)
+                        if el.dirty:
+                            os.unlink(el.name + '.d')
+                        else:
+                            os.unlink(el.name)
     
                         if el.obj_id is None:
                             log.debug('remove(inode=%d, blockno=%d): block only in cache',
@@ -507,6 +516,7 @@ class UploadQueue(object):
                         log.debug('UploadQueue.add(%s): uploading...', el)
                         fn()
                         el.dirty = False
+                        os.rename(el.name + '.d', el.name)
                         self.transit_size -= size
                         log.debug('UploadQueue.add(%s): upload complete.', el)
                     finally:
@@ -519,6 +529,7 @@ class UploadQueue(object):
             else:
                 log.debug('UploadQueue.add(%s): no upload required', el)
                 el.dirty = False
+                os.rename(el.name + '.d', el.name)
                 mlock.release(el.inode, el.blockno)
                 mlock_released = True
 

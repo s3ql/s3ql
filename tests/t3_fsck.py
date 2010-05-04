@@ -69,12 +69,20 @@ class fsck_tests(TestCase):
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                     os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1))
 
-        fh = open(self.cachedir + 'inode_%d_block_1' % inode, 'wb')
+        fh = open(self.cachedir + 'inode_%d_block_1.d' % inode, 'wb')
         fh.write('somedata')
         fh.close()
 
         self.assert_fsck(fsck.check_cache)
         self.assertEquals(self.bucket['s3ql_data_1'], 'somedata')
+        
+        fh = open(self.cachedir + 'inode_%d_block_1' % inode, 'wb')
+        fh.write('otherdata')
+        fh.close()
+
+        self.assert_fsck(fsck.check_cache)
+        self.assertEquals(self.bucket['s3ql_data_1'], 'somedata')
+               
 
     def test_lof1(self):
 
