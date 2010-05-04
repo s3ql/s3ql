@@ -425,6 +425,11 @@ def check_keylist():
         for (obj_id,) in conn.query('SELECT * FROM missing'):
             found_errors = True
             log_error("object %s only exists in table but not in bucket, deleting", obj_id)
+            log_error("The following files may lack data:")
+            for (id_,) in conn.query('SELECT inode FROM blocks WHERE obj_id=?', (obj_id,)):
+                for (name, id_p) in conn.query('SELECT name, parent_inode FROM contents '
+                                               'WHERE inode=?', (id_,)):
+                    log_error(get_path(id_p, conn, name))
             conn.execute("DELETE FROM blocks WHERE obj_id=?", (obj_id,))
             conn.execute("DELETE FROM objects WHERE id=?", (obj_id,))
     finally:

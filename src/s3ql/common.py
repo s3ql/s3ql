@@ -374,8 +374,6 @@ def get_path(id_, conn, name=None):
     inode).
     """
 
-    
-
     if name is None:
         path = list()
     else:
