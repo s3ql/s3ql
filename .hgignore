@@ -11,3 +11,4 @@ syntax: regexp
 ^.project$
 ^.settings$
 \.pyc$
+^setup.log$
