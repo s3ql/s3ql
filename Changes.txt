@@ -1,4 +1,9 @@
-xxx, S3QL 0.13
+2010-05-04, S3QL 0.13
+
+  * S3QL now works with Ubuntu Karmic / 10.04 LTS
+
+  * The test command no longer produces bogus error messages after
+    all tests have completed.
 
   * The umount.s3ql command now properly handles the 'fuser' output
     with Kernel 2.6.32 (before it always refused to unmount, claiming

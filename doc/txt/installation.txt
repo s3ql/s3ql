@@ -269,10 +269,6 @@ To install S3QL itself, proceed as follows:
    for help on the `mailing list
    <http://groups.google.com/group/s3ql>`_ or report a bug in the
    `issue tracker <http://code.google.com/p/s3ql/issues/list>`_.
-   **Note**: if you receive error messages *after* the tests completed
-   successfully, you probably don't need to worry about them (see the
-   `FAQ entry
-   <http://code.google.com/p/s3ql/wiki/FAQ#I%27m_getting_error_messages_after_the_tests_completed_succes>`_).
 
 Now you have three options to complete the installation:
 
