@@ -80,7 +80,9 @@ class fuse_tests(TestCase):
 
     def umount(self):
         time.sleep(0.5)
-        retry(5, lambda: subprocess.call(['fuser', '-m', '-s', self.mnt_dir]) == 1)
+        devnull = open('/dev/null', 'wb')
+        retry(5, lambda: subprocess.call(['fuser', '-m', self.mnt_dir],
+                                         stdout=devnull, stderr=devnull) == 1)
         s3ql.cli.umount.DONTWAIT = True
         try:
             s3ql.cli.umount.main([self.mnt_dir])
