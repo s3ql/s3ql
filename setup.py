@@ -18,6 +18,10 @@ import re
 import logging
 import ctypes.util
 
+# Work around setuptools bug
+# http://article.gmane.org/gmane.comp.python.peak/2509
+import multiprocessing
+
 # These are the definitions that we need
 fuse_export_regex = ['^FUSE_SET_.*', '^XATTR_.*', 'fuse_reply_.*' ]
 fuse_export_symbols = ['fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
