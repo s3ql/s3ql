@@ -38,6 +38,12 @@ log = logging.getLogger("mount")
 def main(args=None):
     '''Mount S3QL file system'''
 
+    try:
+        import psyco
+        psyco.profile()
+    except ImportError:
+        pass
+    
     if args is None:
         args = sys.argv[1:]
 

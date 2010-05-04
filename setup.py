@@ -21,6 +21,10 @@ import ctypes.util
 # Work around setuptools bug
 # http://article.gmane.org/gmane.comp.python.peak/2509
 import multiprocessing
+try:
+    import psyco
+except ImportError:
+    pass
 
 # These are the definitions that we need
 fuse_export_regex = ['^FUSE_SET_.*', '^XATTR_.*', 'fuse_reply_.*' ]
