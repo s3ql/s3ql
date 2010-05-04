@@ -51,7 +51,8 @@ def parse_args(args):
                       help="Lazy umount. Detaches the file system immediately, even if there "
                       'are still open files. The data will be uploaded in the background '
                       'once all open files have been closed.')
-
+    parser.add_option('--purge-cache', action="store_true", default=False,
+                      help='Do not umount, just flush and clean file system cache.')
     (options, pps) = parser.parse_args(args)
 
     # Verify parameters
@@ -59,6 +60,9 @@ def parse_args(args):
         parser.error("Incorrect number of arguments.")
     options.mountpoint = pps[0].rstrip('/')
 
+    if options.purge_cache and options.lazy:
+        parser.error('--lazy and --purge-cache are mutually exclusive')
+        
     return options
 
 def main(args=None):
@@ -89,6 +93,8 @@ def main(args=None):
 
     if options.lazy:
         lazy_umount(mountpoint)
+    elif options.purge_cache:
+        purge_cache(mountpoint)
     else:
         blocking_umount(mountpoint)
 
@@ -109,6 +115,18 @@ def lazy_umount(mountpoint):
     if found_errors:
         sys.exit(1)
 
+def purge_cache(mountpoint):
+    '''Flush and purge cache
+    
+    This function writes to stdout/stderr and calls `system.exit()`.
+    '''
+
+    ctrlfile = os.path.join(mountpoint, CTRL_NAME)
+
+    log.info('Flushing cache...')
+    cmd = b'doit!'
+    libc.setxattr(ctrlfile, b's3ql_flushcache!', cmd)
+
 
 def blocking_umount(mountpoint):
     '''Invoke fusermount and wait for daemon to terminate.
@@ -118,19 +136,16 @@ def blocking_umount(mountpoint):
 
     found_errors = False
 
-    fuser = subprocess.Popen(['fuser', '-m', '-v', mountpoint], stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT)
-    (stdout, dummy) = fuser.communicate()
-    if fuser.returncode == 0:
-        print('Cannot umount, the following processes still access the mountpoint:',
-              stdout, sep='\n', end='\n')
+    devnull = open('/dev/null', 'wb')
+    if subprocess.call(['fuser', '-m', mountpoint], stdout=devnull,
+                       stderr=devnull) == 0:
+        print('Cannot unmount, the following processes still access the mountpoint:')
+        subprocess.call(['fuser', '-v', '-m', mountpoint], stdout=sys.stdout,
+                        stderr=sys.stdout)
         raise QuietError(1)
 
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
-
-    log.info('Flushing cache...')
-    cmd = b'doit!'
-    libc.setxattr(ctrlfile, b's3ql_flushcache!', cmd)
+    purge_cache(mountpoint)
 
     if not warn_if_error(mountpoint):
         found_errors = True
