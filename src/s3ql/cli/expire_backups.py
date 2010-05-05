@@ -35,7 +35,7 @@ def parse_args(args):
         ensures that there will always be at least one backup available in each
         the specified  "generations". A generation is specified by giving its
         relative age compared to the younger generation. Please refer to the
-        S3QL dokumentation for details.    
+        S3QL dokumentation for details.
         '''))
 
     parser.add_option("--quiet", action="store_true", default=False,
@@ -76,22 +76,22 @@ def main(args=None):
         else:
             raise QuietError('Invalid backup age: %r' % txt_gen)
         if i == 0:
-            log.info('Generation %d starts %s after most recent backup', 
+            log.info('Generation %d starts %s after most recent backup',
                      i+1, txt_gen)
         elif i < len(options.generations)-1:
-            log.info('Generation %d starts %s after first backup of generation %d', 
+            log.info('Generation %d starts %s after first backup of generation %d',
                      i+1, txt_gen, i)
         else:
             log.info('Generation %d starts %s after first backup of generation %d '
-                     'and will not be kept.', 
+                     'and will not be kept.',
                      i+1, txt_gen, i)
-    
-    
-                   
+
+
+
     # Determine available backups
     available_txt = sorted(x for x in os.listdir('.')
                            if re.match(r'^\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d$', x))
- 
+
     # Get most recent backup
     now = datetime.strptime(available_txt.pop(), '%Y-%m-%d_%H:%M:%S')
     log.info('Most recent backup is from %s', now)
@@ -104,8 +104,11 @@ def main(args=None):
         available.append((name, age))
         i += 1
         log.info('Backup %d is from %s, age: %s', i, name, age)
-       
+
     step = min(generations)
+    if not available:
+        return
+
     if available[0][1] < step:
         log.warn('NOTE: Your most recent backup is %s old, but according to your backup\n'
                  'strategy, it should be at least %s old before creating a new backup.\n'
@@ -156,10 +159,10 @@ def main(args=None):
                                      'keeping backup %d instead.\n'
                                      '(further warnings about missing backups will be suppressed)',
                                      i + 1, len(available))
-                            
+
                         warn_missing = False
                 else:
-                    if warn_missing: 
+                    if warn_missing:
                         if simulated:
                             log.warn('There will be no backup for generation %d in %s hours\n'
                                      '(further warnings about missing backups will be suppressed)',

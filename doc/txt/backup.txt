@@ -126,13 +126,17 @@ required by `expire_backups` ::
   last_backup=`python <<EOF
   import os
   import re
-  print sorted(x for x in os.listdir('.') if re.match(r'^[\\d-]{10}_[\\d:]{8}$', x))[-1]
+  backups=sorted(x for x in os.listdir('.') if re.match(r'^[\\d-]{10}_[\\d:]{8}$', x))
+  if backups:
+      print backups[-1]
   EOF`
 
-  # Duplicate the most recent backup
+  # Duplicate the most recent backup unless this is the first backup
   new_backup=`date "+%Y-%m-%d_%H:%M:%S"`
-  echo "Copying $last_backup to $new_backup..."
-  cp.s3ql "$last_backup" "$new_backup"
+  if [ -n "$last_backup" ]; then
+      echo "Copying $last_backup to $new_backup..."
+      cp.s3ql "$last_backup" "$new_backup"
+  fi
 
   # ..and update the copy
   rsync -aHAXx --delete-during --delete-excluded --partial -v \
