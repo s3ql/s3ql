@@ -81,7 +81,7 @@ class FUSEError(Exception):
     '''Wrapped errno value to be returned to the fuse kernel module
 
     This exception can store only an errno. Request handlers should raise
-    to return a specific errno to the fuse kernel module.
+    it to return a specific errno to the fuse kernel module.
     '''
 
     __slots__ = [ 'errno' ]
@@ -106,11 +106,6 @@ def check_reply_result(result, func, *args):
     and `DiscardedRequest` is raised.
     
     In all other cases,  `ReplyError` is raised.
-    
-    (We do not try to call `fuse_reply_err` or any other reply method as well,
-    because the first reply function may have already invalidated the `req`
-    object and it seems better to (possibly) let the request pend than to crash
-    the server application.)
     '''
 
     if result == 0:
@@ -201,7 +196,13 @@ def stat_to_dict(stat):
 
 
 def op_wrapper(func, req, *args):
-    '''Catch all exceptions and call fuse_reply_err instead'''
+    '''Catch all exceptions and call fuse_reply_err instead
+    
+    (We do not try to call `fuse_reply_err` in case of a ReplyError, because the
+    first reply function may have already invalidated the `req` object and it
+    seems better to (possibly) let the request pend than to crash the server
+    application.)
+    '''
 
     if handler_lock:
         handler_lock.acquire()
