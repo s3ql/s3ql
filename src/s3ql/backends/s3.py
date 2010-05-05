@@ -17,7 +17,7 @@ from time import sleep
 from .boto.s3.connection import S3Connection
 from contextlib import contextmanager
 from .boto import exception
-from s3ql.common import (TimeoutError, QuietError, ExceptionStoringThread)
+from s3ql.common import (TimeoutError, ExceptionStoringThread)
 import logging
 import errno
 import time
