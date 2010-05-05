@@ -97,12 +97,6 @@ class Bucket(AbstractBucket):
                 raise
 
     def delete(self, key, force=False):
-        """Deletes the specified key
-
-        ``bucket.delete(key)`` can also be written as ``del bucket[key]``.
-        If `force` is true, do not return an error if the key does not exist.
-        """
-
         filename = os.path.join(self.name, escape(key))
         try:
             os.unlink(filename + '.dat')
@@ -118,11 +112,6 @@ class Bucket(AbstractBucket):
 
 
     def list(self, prefix=''):
-        """List keys in bucket
-
-        Returns an iterator over all keys in the bucket.
-        """
-
         for name in os.listdir(self.name):
             if not name.endswith('.dat'):
                 continue
@@ -132,8 +121,6 @@ class Bucket(AbstractBucket):
             yield key
 
     def get_size(self):
-        """Get total size of bucket"""
-
         size = 0
         for name in os.listdir(self.name):
             if not name.endswith('.dat'):
@@ -167,8 +154,6 @@ class Bucket(AbstractBucket):
             pickle.dump(metadata, dest, 2)
 
     def copy(self, src, dest):
-        """Copy data stored under `src` to `dest`"""
-
         if not isinstance(src, str):
             raise TypeError('key must be of type str')
 
