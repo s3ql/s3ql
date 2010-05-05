@@ -13,8 +13,7 @@ from os.path import basename
 from s3ql import libc, common
 from s3ql.common import retry, ExceptionStoringThread
 import filecmp
-import os
-import posixpath
+import os.path
 import s3ql.cli.fsck
 import s3ql.cli.mkfs
 import s3ql.cli.mount
@@ -51,7 +50,7 @@ class fuse_tests(TestCase):
 
     def tearDown(self):
         # Umount if still mounted
-        if posixpath.ismount(self.mnt_dir):
+        if os.path.ismount(self.mnt_dir):
             subprocess.call(['fusermount', '-z', '-u', self.mnt_dir])
 
         shutil.rmtree(self.mnt_dir)
@@ -74,7 +73,7 @@ class fuse_tests(TestCase):
 
         # Wait for mountpoint to come up
         try:
-            retry(3, posixpath.ismount, self.mnt_dir)
+            retry(3, os.path.ismount, self.mnt_dir)
         except:
             self.mount_thread.join_and_raise()
 
@@ -92,7 +91,7 @@ class fuse_tests(TestCase):
         # Now wait for server process
         exc = self.mount_thread.join_get_exc()
         self.assertIsNone(exc)
-        self.assertFalse(posixpath.ismount(self.mnt_dir))
+        self.assertFalse(os.path.ismount(self.mnt_dir))
 
         # Now run an fsck
         sys.stdin = StringIO('%s\n' % self.passphrase)
