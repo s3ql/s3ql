@@ -27,8 +27,8 @@ log = logging.getLogger("backend.s3")
 class Connection(AbstractConnection):
     """Represents a connection to Amazon S3
 
-    This class just dispatches everything to boto. Note separate boto connection 
-    object for each thread.
+    This class just dispatches everything to boto. It uses a separate boto
+    connection object for each thread.
     """
 
     def __init__(self, awskey, awspass):
@@ -104,15 +104,11 @@ class Connection(AbstractConnection):
         #pylint: disable-msg=W0221
 
         with self._get_boto() as boto:
-            # We need an EU bucket for the list-after-put consistency,
-            # otherwise it is possible that we read old metadata
-            # without noticing it.
             try:
                 boto.create_bucket(name, location=location)
             except exception.S3ResponseError as exc:
                 if exc.code == 'InvalidBucketName':
-                    log.error('Bucket name contains invalid characters.')
-                    raise QuietError(1)
+                    raise InvalidBucketNameError()
                 else:
                     raise
 
@@ -140,10 +136,10 @@ class Bucket(AbstractBucket):
     This class should not be instantiated directly, but using
     `Connection.get_bucket()`.
 
-    Due to AWS' eventual propagation model, we may receive e.g. a 'unknown bucket'
-    error when we try to upload a key into a newly created bucket. For this reason,
-    many boto calls are wrapped with `retry_boto`. Note that this assumes that
-    no one else is messing with the bucket at the same time.
+    Due to AWS' eventual propagation model, we may receive e.g. a 'unknown
+    bucket' error when we try to upload a key into a newly created bucket. For
+    this reason, many boto calls are wrapped with `retry_boto`. Note that this
+    assumes that no one else is messing with the bucket at the same time.
     """
 
     @contextmanager
@@ -166,7 +162,7 @@ class Bucket(AbstractBucket):
     def clear(self):
         """Delete all objects in bucket
         
-        Note that this function starts multiple threads."""
+        This function starts multiple threads."""
 
         threads = list()
         for (no, s3key) in enumerate(self):
@@ -226,18 +222,11 @@ class Bucket(AbstractBucket):
             retry_boto(boto.delete_key, key)
 
     def list(self, prefix=''):
-        """List keys in bucket
-
-        Returns an iterator over all keys in the bucket.
-        """
-
         with self._get_boto() as boto:
             for bkey in boto.list(prefix):
                 yield bkey.name
 
     def get_size(self):
-        """Get total size of bucket"""
-
         with self._get_boto() as boto:
             size = 0
             for bkey in boto.list():
@@ -263,8 +252,6 @@ class Bucket(AbstractBucket):
 
 
     def copy(self, src, dest):
-        """Copy data stored under `src` to `dest`"""
-
         if not isinstance(src, str):
             raise TypeError('key must be of type str')
 
@@ -277,10 +264,9 @@ class Bucket(AbstractBucket):
 def retry_boto(fn, *a, **kw):
     """Wait for fn(*a, **kw) to succeed
     
-    If `fn(*a, **kw)` raises `boto.exception.S3ResponseError` with errorcode
-    in (`NoSuchBucket`, `RequestTimeout`) or `IOError` with errno 104,
-    the function is called again. If the timeout is reached, 
-    `TimeoutError` is raised.
+    If `fn(*a, **kw)` raises `boto.exception.S3ResponseError` with errorcode in
+    (`NoSuchBucket`, `RequestTimeout`) or `IOError` with errno 104, the function
+    is called again. If the timeout is reached, `TimeoutError` is raised.
     """
 
     step = 0.2
@@ -313,3 +299,8 @@ def retry_boto(fn, *a, **kw):
             step *= 2
 
     raise TimeoutError()
+
+class InvalidBucketNameError(Exception):
+    
+    def __str__(self):
+        return 'Bucket name contains invalid characters.'
