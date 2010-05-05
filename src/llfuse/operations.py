@@ -64,7 +64,7 @@ class Operations(object):
         
         This method returns an iterator over the contents of directory `fh`,
         starting at entry `off`. The iterator yields tuples of the form
-        ``(name, attr)``, where ``attr` is a dict with keys corresponding to
+        ``(name, attr)``, where ``attr` is an object with attributes corresponding to
         the elements of ``struct stat``.
          
         Iteration may be stopped as soon as enough elements have been
@@ -87,8 +87,8 @@ class Operations(object):
     def link(self, inode, new_parent_inode, new_name):
         '''Create a hard link.
     
-        Returns a dict with the attributes of the newly created directory
-        entry. The keys are the same as for `lookup`.
+        Returns an object with the attributes of the newly created directory
+        entry. The attributes are the same as for `lookup`.
         '''
         
         raise FUSEError(errno.ENOSYS)
@@ -115,11 +115,11 @@ class Operations(object):
     def mkdir(self, parent_inode, name, mode, ctx):
         '''Create a directory
     
-        `ctx` must be a context object that contains pid, uid and 
-        primary gid of the requesting process.
+        `ctx` must be a context object that contains pid, uid and primary gid of
+        the requesting process.
         
-        Returns a dict with the attributes of the newly created directory
-        entry. The keys are the same as for `lookup`.
+        Returns an object with the attributes of the newly created directory
+        entry. The attributes are the same as for `lookup`.
         '''
         
         raise FUSEError(errno.ENOSYS)
@@ -127,11 +127,11 @@ class Operations(object):
     def mknod(self, parent_inode, name, mode, rdev, ctx):
         '''Create (possibly special) file
     
-        `ctx` must be a context object that contains pid, uid and 
-        primary gid of the requesting process.
+        `ctx` must be a context object that contains pid, uid and primary gid of
+        the requesting process.
         
-        Returns a dict with the attributes of the newly created directory
-        entry. The keys are the same as for `lookup`.
+        Returns an object with the attributes of the newly created directory
+        entry. The attributes are the same as for `lookup`.
         '''
         
         raise FUSEError(errno.ENOSYS)
@@ -140,18 +140,18 @@ class Operations(object):
     def lookup(self, parent_inode, name):
         '''Look up a directory entry by name and get its attributes.
     
-        Returns a dict with keys corresponding to the elements in 
-        ``struct stat`` and the following additional keys:
+        Returns an object with attributes corresponding to the elements in
+        ``struct stat`` as well as
         
         :generation: The inode generation number
         :attr_timeout: Validity timeout (in seconds) for the attributes
         :entry_timeout: Validity timeout (in seconds) for the name 
         
-        Note also that the ``st_Xtime`` entries support floating point numbers 
-        to allow for nano second resolution.
+        Note that the ``st_Xtime`` entries support floating point numbers to
+        allow for nano second resolution.
         
-        The returned dict can be modified at will by the caller without
-        influencing the internal state of the file system.
+        The returned object must not be modified by the caller as this would
+        affect the internal state of the file system.
         
         If the entry does not exist, raises `FUSEError(errno.ENOENT)`.
         '''
@@ -166,16 +166,16 @@ class Operations(object):
     def getattr(self, inode):
         '''Get attributes for `inode`
     
-        Returns a dict with keys corresponding to the elements in 
-        ``struct stat`` and the following additional keys:
+        Returns an object with attributes corresponding to the elements in 
+        ``struct stat`` as well as
         
         :attr_timeout: Validity timeout (in seconds) for the attributes
         
-        The returned dict can be modified at will by the caller without
-        influencing the internal state of the file system.
+        The returned object must not be modified by the caller as this would
+        affect the internal state of the file system.
         
-        Note that the ``st_Xtime`` entries support floating point numbers 
-        to allow for nano second resolution.
+        Note that the ``st_Xtime`` entries support floating point numbers to
+        allow for nano second resolution.
         '''
         
         raise FUSEError(errno.ENOSYS)
@@ -191,11 +191,11 @@ class Operations(object):
     def access(self, inode, mode, ctx, get_sup_gids):
         '''Check if requesting process has `mode` rights on `inode`. 
         
-        Returns a boolean value. `get_sup_gids` must be a function that
-        returns a list of the supplementary group ids of the requester. 
+        Returns a boolean value. `get_sup_gids` must be a function that returns
+        a list of the supplementary group ids of the requester.
         
-        `ctx` must be a context object that contains pid, uid and 
-        primary gid of the requesting process.
+        `ctx` must be a context object that contains pid, uid and primary gid of
+        the requesting process.
         '''
         
         raise FUSEError(errno.ENOSYS)
@@ -208,7 +208,7 @@ class Operations(object):
         
         Returns a tuple of the form ``(fh, attr)``. `fh` is
         integer file handle that is used to identify the open file and
-        `attr` is a dict similar to the one returned by `lookup`.
+        `attr` is an object similar to the one returned by `lookup`.
         '''
         
         raise FUSEError(errno.ENOSYS)
@@ -219,8 +219,7 @@ class Operations(object):
         May be called multiple times for the same open file (e.g. if the file handle
         has been duplicated).
                                                              
-        If the filesystem supports file locking operations, all locks belonging
-        to the file handle's owner are cleared. 
+        This method also clears all locks belonging to the file handle's owner.
         '''
         
         raise FUSEError(errno.ENOSYS)
@@ -237,8 +236,8 @@ class Operations(object):
     def fsyncdir(self, fh, datasync):  
         '''Flush buffers for directory `fh`
         
-        If the `datasync` is true, then only the directory contents
-        are flushed (and not the meta data about the directory itself).
+        If the `datasync` is true, then only the directory contents are flushed
+        (and not the meta data about the directory itself).
         '''
         
         raise FUSEError(errno.ENOSYS)
@@ -267,7 +266,7 @@ class Operations(object):
     def removexattr(self, inode, name):
         '''Remove extended attribute
         
-        If the attribute does not exist, raises FUSEError(ENOATTR)
+        If the attribute does not exist, raises `FUSEError(ENOATTR)`
         '''
         
         raise FUSEError(errno.ENOSYS)
@@ -285,12 +284,12 @@ class Operations(object):
     def setattr(self, inode, attr):
         '''Change directory entry attributes
         
-        `attr` must be a dict with keys corresponding to the attributes of 
-        ``struct stat``. `attr` may also include a new value for ``st_size`` which
-        means that the file should be truncated or extended.
+        `attr` must be an object with attributes corresponding to the attributes
+        of ``struct stat``. `attr` may also include a new value for ``st_size``
+        which means that the file should be truncated or extended.
         
-        Returns a dict with the new attributs of the directory entry,
-        similar to the one returned by `getattr()`
+        Returns an object with the new attributs of the directory entry, similar
+        to the one returned by `getattr()`
         '''
         
         raise FUSEError(errno.ENOSYS)
@@ -318,8 +317,8 @@ class Operations(object):
         `ctx` must be a context object that contains pid, uid and 
         primary gid of the requesting process.
         
-        Returns a dict with the attributes of the newly created directory
-        entry. The keys are the same as for `lookup`.
+        Returns an object with the attributes of the newly created directory
+        entry, similar to the one returned by `lookup`.
         '''
         
         raise FUSEError(errno.ENOSYS)
