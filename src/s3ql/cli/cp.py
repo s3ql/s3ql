@@ -1,5 +1,5 @@
 '''
-umount.py - this file is part of S3QL (http://s3ql.googlecode.com)
+cp.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 
