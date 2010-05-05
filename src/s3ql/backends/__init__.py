@@ -8,4 +8,4 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
-__all__ = [ 'common', 's3', 'local', 'ftp', 'sftp' ]
+__all__ = [ 'common', 'ftp', 'ftplib', 'local', 's3', 'sftp' ]
