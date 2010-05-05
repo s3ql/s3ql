@@ -8,5 +8,5 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
-__all__ = [ 'cp', 'fsck', 'mkfs', 'mount', 'mount_local', 'statfs',
-		   'tune', 'umount' ]
+__all__ = [ 'cp', 'expire_backups', 'fsck', 'mkfs', 'mount', 
+           'statfs', 'tune', 'umount' ]
