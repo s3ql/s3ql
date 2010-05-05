@@ -25,10 +25,10 @@ __all__ = [ "BlockCache" ]
 log = logging.getLogger("BlockCache")
 
 
-# This is an additional limit on the cache, in addition to the cache size. It prevents that we
-# run out of file descriptors, or simply eat up too much memory for cache elements if the users
-# creates thousands of 10-byte files.
-# Standard file descriptor limit per process is 1024
+# This is an additional limit on the cache, in addition to the cache size. It
+# prevents that we run out of file descriptors, or simply eat up too much memory
+# for cache elements if the users creates thousands of 10-byte files. Standard
+# file descriptor limit per process is 1024
 MAX_CACHE_ENTRIES = 768
 
 # Work around setuptools bug
@@ -50,7 +50,7 @@ class CacheEntry(file_class):
     uploaded to the backend. 
     """
 
-    __slots__ = [ 'dirty', 'obj_id', 'inode', 'blockno', 'last_access', 'removed' ]
+    __slots__ = [ 'dirty', 'obj_id', 'inode', 'blockno', 'last_access' ]
 
     def __init__(self, inode, blockno, obj_id, filename, mode):
         super(CacheEntry, self).__init__(filename, mode)
@@ -208,7 +208,7 @@ class BlockCache(object):
         
         This method releases `lock' for the managed context, so the caller must
         not hold any prior database locks and must not try to acquire any
-        database locks in the managed context.
+        database locks in the managed block.
         """
 
         log.debug('get(inode=%d, block=%d): start', inode, blockno)
