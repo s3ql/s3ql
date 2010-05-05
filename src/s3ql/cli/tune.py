@@ -298,7 +298,7 @@ def restore_rev5_metadata(ifh):
     pos = columns['inodes'].index('nlink_off')
     del columns['inodes'][pos]
                             
-    with dbcm() as conn:
+    with dbcm.conn() as conn:
         mkfs.setup_tables(conn)
         
         # Speed things up
