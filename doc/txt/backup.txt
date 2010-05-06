@@ -118,8 +118,7 @@ required by `expire_backups` ::
   mount.s3ql s3://my_backup_bucket "$mountpoint"
 
   # Make sure the file system is unmounted when we are done
-  trap "umount.s3ql '$mountpoint'" EXIT
-  trap "rmdir '$mountpoint'" EXIT
+  trap "umount.s3ql '$mountpoint'; rmdir '$mountpoint'" EXIT
 
   # Figure out the most recent backup
   cd "$mountpoint"
