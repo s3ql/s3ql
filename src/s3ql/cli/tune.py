@@ -299,7 +299,7 @@ def restore_rev5_metadata(ifh):
     del columns['inodes'][pos]
                             
     with dbcm.conn() as conn:
-        mkfs.setup_tables(conn)
+        mkfs.setup_tables()
         
         # Speed things up
         conn.execute('PRAGMA foreign_keys = OFF')
@@ -322,6 +322,6 @@ def restore_rev5_metadata(ifh):
             conn.execute('PRAGMA foreign_keys = ON')     
     
         log.info('Creating indices...')
-        mkfs.create_indices(conn)
+        mkfs.create_indices()
         
         conn.execute('ANALYZE')
