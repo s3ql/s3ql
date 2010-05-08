@@ -211,8 +211,8 @@ def parse_args(args):
                       'specified, other users can access the mount point as well and '
                       'individual file permissions are taken into account for all users.')
     parser.add_option("--allow-root", action="store_true", default=False,
-                      help='Like `--allow_other`, but also allow the root user '
-                           'to access the mount point.')
+                      help='Like `--allow_other`, but restrict access to the mounting '
+                           'user and the root user.')
     parser.add_option("--fg", action="store_true", default=False,
                       help="Do not daemonize, stay in foreground")
     parser.add_option("--single", action="store_true", default=False,
@@ -237,6 +237,9 @@ def parse_args(args):
     options.storage_url = pps[0]
     options.mountpoint = pps[1]
 
+    if options.allow_other and options.allow_root:
+         parser.error("--allow-other and --allow-root are mutually exclusive.")
+         
     options.compression = None
     if options.zlib:
         options.compression = COMPRESS_ZLIB
