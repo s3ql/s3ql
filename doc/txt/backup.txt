@@ -112,10 +112,16 @@ required by `expire_backups` ::
   # Abort entire script if any command fails
   set -e
 
+  # Backup destination  (storage url)
+  bucket="s3://my_backup_bucket"
+
+  # Recover cache if e.g. system was shut down while fs was mounted
+  fsck.s3ql --batch "$bucket"
+
   # Create a temporary mountpoint and mount file system
   mountpoint="/tmp/s3ql_backup_$$"
   mkdir "$mountpoint"
-  mount.s3ql s3://my_backup_bucket "$mountpoint"
+  mount.s3ql "$bucket" "$mountpoint"
 
   # Make sure the file system is unmounted when we are done
   trap "cd /; umount.s3ql '$mountpoint'; rmdir '$mountpoint'" EXIT
