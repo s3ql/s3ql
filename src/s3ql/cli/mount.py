@@ -238,7 +238,7 @@ def parse_args(args):
     options.mountpoint = pps[1]
 
     if options.allow_other and options.allow_root:
-         parser.error("--allow-other and --allow-root are mutually exclusive.")
+        parser.error("--allow-other and --allow-root are mutually exclusive.")
          
     options.compression = None
     if options.zlib:
