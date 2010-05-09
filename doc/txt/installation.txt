@@ -38,8 +38,8 @@ download and install updated packages from the S3QL website
 with the commands::
 
   arch=`dpkg-architecture -qDEB_HOST_ARCH`
-  wget http://s3ql.googlecode.com/files/{libfuse-dev,libfuse2,fuse-utils}_2.8.3_$arch.deb
-  sudo dpkg -i {libfuse-dev,libfuse2,fuse-utils}_2.8.3_$arch.deb
+  wget http://s3ql.googlecode.com/files/{fuse-utils,libfuse2,libfuse2-dev}_2.8.3_$arch.deb
+  sudo dpkg -i {fuse-utils,libfuse2,libfuse-dev}_2.8.3_$arch.deb
 
 Finally, S3QL also requires the `PyLibLZMA
 <http://pypi.python.org/pypi/pyliblzma>`_ and `unittest2
