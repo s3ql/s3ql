@@ -27,8 +27,11 @@ as follows:
 #. Download the source from http://code.google.com/p/apsw/downloads/list
 #. Extract the zip file and change into the new directory
 #. Run `python setup.py fetch --sqlite build install --user` to
-   install the module into `~/.local` or run `sudo python setup.py fetch
-   --sqlite build install` to install system-wide.
+   install the module into `~/.local` or run `sudo python setup.py
+   fetch --sqlite build install` to install system-wide.
+
+   You will get a lot of compiler warnings add this step, but this is
+   expected and no cause for concern.
 
 After that, you need to upgrade your FUSE packages. You can
 download and install updated packages from the S3QL website
@@ -93,6 +96,9 @@ After that, you also have to install the `Python APSW module
 #. Run `python setup.py fetch --sqlite build install --user` to
    install the module into `~/.local` or run `sudo python setup.py fetch
    --sqlite build install` to install system-wide.
+
+   You will get a lot of compiler warnings add this step, but this is
+   expected and no cause for concern.
 
 Finally, S3QL also requires the `PyLibLZMA
 <http://pypi.python.org/pypi/pyliblzma>`_ and `unittest2
@@ -225,7 +231,8 @@ The programs/libraries are required to run S3QL:
   If APSW is installed, this should print two version numbers which
   both have to be at least 3.6.19. To install APSW manually, download
   it from the website, extract it and run `python setup.py install
-  --user`.
+  --user`. You will get a lot of compiler warnings add this step, but
+  this is expected and no cause for concern.
 
 * The `PyLibLZMA Python module
   <http://pypi.python.org/pypi/pyliblzma>`_ is probably not yet
