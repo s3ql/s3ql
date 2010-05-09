@@ -325,7 +325,10 @@ def get_metadata(bucket, home):
     bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
     for i in seq_nos:
         if i < param['seq_no'] - 5:
-            del bucket['s3ql_seq_no_%d' % i ]
+            try:
+                del bucket['s3ql_seq_no_%d' % i ]
+            except KeyError:
+                pass # Key list may not be up to date
             
     # Save parameters
     pickle.dump(param, open(home + '.params', 'wb'), 2)
