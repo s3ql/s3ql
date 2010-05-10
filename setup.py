@@ -19,7 +19,7 @@ import logging
 import ctypes.util
 
 # Work around setuptools bug
-# http://article.gmane.org/gmane.comp.python.peak/2509
+# http://bitbucket.org/tarek/distribute/issue/152/
 import multiprocessing
 try:
     import psyco
@@ -53,9 +53,9 @@ basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
 sys.path.insert(0, os.path.join(basedir, 'src'))
 import s3ql.common
 
-# Import setuptools
-import ez_setup
-ez_setup.use_setuptools()
+# Import distribute
+from distribute_setup import use_setuptools
+use_setuptools()
 import setuptools
 import setuptools.command.test as setuptools_test
 
