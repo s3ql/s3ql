@@ -1,0 +1,8 @@
+Document: s3ql
+Title: S3QL User's Guide
+Author: Nikolaus Rath <Nikolaus@rath.org>
+Section: File Management
+
+Format: HTML
+Index: /usr/share/doc/s3ql/html/index.html
+Files: /usr/share/doc/s3ql/html/*.html

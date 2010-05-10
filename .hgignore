@@ -12,3 +12,4 @@ syntax: regexp
 ^.settings$
 \.pyc$
 ^setup.log$
+^debian/s3ql$
