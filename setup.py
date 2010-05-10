@@ -51,7 +51,7 @@ libc_export_symbols = [ 'setxattr', 'getxattr', 'readdir', 'opendir',
 # Add S3QL sources
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
 sys.path.insert(0, os.path.join(basedir, 'src'))
-import s3ql.common
+import s3ql
 
 # Import distribute
 from distribute_setup import use_setuptools
@@ -60,6 +60,7 @@ import setuptools
 import setuptools.command.test as setuptools_test
 
 def main():
+
     with open(os.path.join(basedir, 'doc', 'txt', 'about.txt'), 'r') as fh:
         long_desc = fh.read()
 
@@ -72,7 +73,7 @@ def main():
     setuptools.setup(
           name='s3ql',
           zip_safe=True,
-          version=s3ql.common.VERSION,
+          version=s3ql.VERSION,
           description='a full-featured file system for online data storage',
           long_description=long_desc,
           author='Nikolaus Rath',

@@ -21,20 +21,18 @@ import re
 import cPickle as pickle
 from contextlib import contextmanager
 
-__all__ = ["get_bucket_home", "init_logging", 'sha256', 'sha256_fh', 
-           "get_credentials", "get_dbfile", "inode_for_path", "get_path", 
+__all__ = ["get_bucket_home", "init_logging", 'sha256', 'sha256_fh',
+           "get_credentials", "get_dbfile", "inode_for_path", "get_path",
            "ROOT_INODE", "ExceptionStoringThread", 'retry', 'get_stdout_handler',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'init_logging_from_options', 'QuietError', 'get_backend',
-           'cycle_metadata', 'CURRENT_FS_REV', 'VERSION', 'restore_metadata',
-           'dump_metadata' ]
+           'cycle_metadata', 'restore_metadata', 'dump_metadata' ]
 
-VERSION = '0.14'
-CURRENT_FS_REV = 6
+
 
 AUTHINFO_BACKEND_PATTERN = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(\S+)$'
 AUTHINFO_BUCKET_PATTERN = r'^storage-url\s+(\S+)\s+password\s+(\S+)$'
-    
+
 log = logging.getLogger('common')
 
 @contextmanager
@@ -98,11 +96,11 @@ def unlock_bucket(options, bucket):
 
     if 's3ql_passphrase' not in bucket:
         return
-    
+
     # Try to read from file
     keyfile = os.path.join(options.homedir, 'authinfo')
     wrap_pw = None
-    
+
     if os.path.isfile(keyfile):
         mode = os.stat(keyfile).st_mode
         if mode & (stat.S_IRGRP | stat.S_IROTH):
@@ -131,7 +129,7 @@ def unlock_bucket(options, bucket):
             wrap_pw = getpass("Enter encryption password: ")
         else:
             wrap_pw = sys.stdin.readline().rstrip()
-        
+
     bucket.passphrase = wrap_pw
     data_pw = bucket['s3ql_passphrase']
     bucket.passphrase = data_pw
@@ -141,7 +139,7 @@ def dump_metadata(ofh):
     data_start = 2048
     bufsize = 256
     buf = range(bufsize)
-    
+
     to_dump = [('inodes', 'id'),
                ('contents', 'name, parent_inode'),
                ('ext_attributes', 'inode, name'),
@@ -154,15 +152,15 @@ def dump_metadata(ofh):
         for (table, _) in to_dump:
             columns[table] = list()
             for row in conn.query('PRAGMA table_info(%s)' % table):
-                columns[table].append(row[1])            
-          
-        ofh.seek(data_start)  
+                columns[table].append(row[1])
+
+        ofh.seek(data_start)
         sizes = dict()
         for (table, order) in to_dump:
             log.info('Saving %s' % table)
             pickler.clear_memo()
             sizes[table] = 0
-            i=0
+            i = 0
             for row in conn.query('SELECT * FROM %s ORDER BY %s' % (table, order)):
                 buf[i] = row
                 i += 1
@@ -171,33 +169,33 @@ def dump_metadata(ofh):
                     pickler.clear_memo()
                     sizes[table] += 1
                     i = 0
-                    
+
             if i != 0:
                 pickler.dump(buf[:i])
                 sizes[table] += 1
 
-            
+
     ofh.seek(0)
-    pickler.dump((data_start, to_dump, sizes, columns))       
+    pickler.dump((data_start, to_dump, sizes, columns))
     assert ofh.tell() < data_start
 
-    
+
 
 def restore_metadata(ifh):
     from . import mkfs
-    
+
     unpickler = pickle.Unpickler(ifh)
 
     (data_start, to_dump, sizes, columns) = unpickler.load()
     ifh.seek(data_start)
-    
+
     with dbcm.conn() as conn:
         mkfs.setup_tables()
-        
+
         # Speed things up
         conn.execute('PRAGMA foreign_keys = OFF')
         try:
-            with conn.write_lock(): 
+            with conn.write_lock():
                 for (table, _) in to_dump:
                     log.info('Loading %s', table)
                     col_str = ', '.join(columns[table])
@@ -208,11 +206,11 @@ def restore_metadata(ifh):
                         for row in buf:
                             conn.execute(sql_str, row)
         finally:
-            conn.execute('PRAGMA foreign_keys = ON')     
-    
+            conn.execute('PRAGMA foreign_keys = ON')
+
         log.info('Creating indices...')
         mkfs.create_indices()
-        
+
         conn.execute('ANALYZE')
 
 
@@ -415,7 +413,7 @@ def get_bucket_home(storage_url, homedir):
 
 def get_backend_credentials(homedir, backend, host):
     """Get credentials for given backend and host"""
-    
+
     # Try to read from file
     keyfile = os.path.join(homedir, 'authinfo')
 

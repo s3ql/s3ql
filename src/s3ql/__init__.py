@@ -9,4 +9,7 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 __all__ = [ 'block_cache', "common", 'daemonize', 'database', 'fs', 'fsck', 'libc_api',
-            'libc', "mkfs", 'multi_lock', 'ordered_dict' ]
+            'libc', "mkfs", 'multi_lock', 'ordered_dict', 'VERSION', 'CURRENT_FS_REV' ]
+
+VERSION = '0.14'
+CURRENT_FS_REV = 6

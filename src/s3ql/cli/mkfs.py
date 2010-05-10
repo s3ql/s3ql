@@ -14,9 +14,9 @@ from getpass import getpass
 import shutil
 from optparse import OptionParser
 import logging
-from s3ql import mkfs
+from s3ql import mkfs, CURRENT_FS_REV
 from s3ql.common import (init_logging_from_options, get_backend, get_bucket_home,
-                         QuietError, CURRENT_FS_REV, dump_metadata)
+                         QuietError, dump_metadata)
 import s3ql.database as dbcm
 from s3ql.backends.boto.s3.connection import Location
 from s3ql.backends import s3

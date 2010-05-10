@@ -12,7 +12,8 @@ from optparse import OptionParser
 import logging
 import cPickle as pickle
 from ..common import (init_logging_from_options, get_backend, QuietError, unlock_bucket,
-                      ExceptionStoringThread, cycle_metadata, dump_metadata, CURRENT_FS_REV)
+                      ExceptionStoringThread, cycle_metadata, dump_metadata)
+from .. import  CURRENT_FS_REV
 from getpass import getpass
 import sys
 from ..backends import s3
@@ -95,7 +96,7 @@ def main(args=None):
         psyco.profile()
     except ImportError:
         pass
-    
+
     options = parse_args(args)
     init_logging_from_options(options, 'tune.log')
 
@@ -181,12 +182,12 @@ def upgrade(conn, bucket):
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
     if not seq_nos:
         raise QuietError('File system revision too old to upgrade.')
-    
+
     seq_no = max(seq_nos)
     param = bucket.lookup('s3ql_metadata')
-    
+
     # Check revision
-    if param['revision'] < CURRENT_FS_REV-1:
+    if param['revision'] < CURRENT_FS_REV - 1:
         raise QuietError('File system revision too old to upgrade.')
 
     elif param['revision'] >= CURRENT_FS_REV:
@@ -225,7 +226,7 @@ def upgrade(conn, bucket):
 
     log.info('Upgrading from revision 5 to 6...')
     param['revision'] = CURRENT_FS_REV
-    
+
     # Increase metadata sequence no
     param['seq_no'] += 1
     bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
@@ -285,26 +286,26 @@ def copy_bucket(conn, options, src_bucket):
 
 if __name__ == '__main__':
     main(sys.argv[1:])
- 
-            
+
+
 def restore_rev5_metadata(ifh):
     from .. import mkfs
-    
+
     unpickler = pickle.Unpickler(ifh)
 
     (data_start, to_dump, sizes, columns) = unpickler.load()
     ifh.seek(data_start)
-    
+
     pos = columns['inodes'].index('nlink_off')
     del columns['inodes'][pos]
-                            
+
     with dbcm.conn() as conn:
         mkfs.setup_tables()
-        
+
         # Speed things up
         conn.execute('PRAGMA foreign_keys = OFF')
         try:
-            with conn.write_lock(): 
+            with conn.write_lock():
                 for (table, _) in to_dump:
                     log.info('Loading %s', table)
                     col_str = ', '.join(columns[table])
@@ -314,14 +315,14 @@ def restore_rev5_metadata(ifh):
                         buf = unpickler.load()
                         if table == 'inodes':
                             for row in buf:
-                                conn.execute(sql_str, row[:pos] + row[pos+1:])
+                                conn.execute(sql_str, row[:pos] + row[pos + 1:])
                         else:
                             for row in buf:
                                 conn.execute(sql_str, row)
         finally:
-            conn.execute('PRAGMA foreign_keys = ON')     
-    
+            conn.execute('PRAGMA foreign_keys = ON')
+
         log.info('Creating indices...')
         mkfs.create_indices()
-        
+
         conn.execute('ANALYZE')

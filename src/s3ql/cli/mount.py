@@ -12,13 +12,13 @@ from __future__ import division, print_function, absolute_import
 # be directly executed.
 import sys
 from optparse import OptionParser
-from s3ql import fs
+from s3ql import fs, CURRENT_FS_REV
 from s3ql.backends import s3
 from s3ql.daemonize import daemonize
 from s3ql.backends.common import (ChecksumError, COMPRESS_BZIP2, COMPRESS_LZMA, COMPRESS_ZLIB,
                                   COMPRESS_NONE)
 from s3ql.common import (init_logging_from_options, get_backend, get_bucket_home,
-                         QuietError, unlock_bucket, CURRENT_FS_REV, get_stdout_handler,
+                         QuietError, unlock_bucket, get_stdout_handler,
                          cycle_metadata, dump_metadata, restore_metadata)
 import s3ql.database as dbcm
 import llfuse
@@ -43,7 +43,7 @@ def main(args=None):
         psyco.profile()
     except ImportError:
         pass
-    
+
     if args is None:
         args = sys.argv[1:]
 
@@ -57,13 +57,13 @@ def main(args=None):
         import cProfile
         import pstats
         prof = cProfile.Profile()
-        
+
     with get_backend(options) as (conn, bucketname):
 
         if not bucketname in conn:
             raise QuietError("Bucket does not exist.")
         bucket = conn.get_bucket(bucketname, compression=options.compression)
-        
+
         # Unlock bucket
         try:
             unlock_bucket(options, bucket)
@@ -75,17 +75,17 @@ def main(args=None):
 
         # Check for unclean shutdown on this computer
         if (os.path.exists(home + '.db')
-            or os.path.exists(home + '.params') 
+            or os.path.exists(home + '.params')
             or os.path.exists(home + '-cache')):
             raise QuietError('Local cache files exist, file system has not been unmounted\n'
                              'cleanly. You need to run fsck.s3ql.')
-            
+
         lock = threading.Lock()
-        fuse_opts = get_fuse_opts(options)      
-                            
+        fuse_opts = get_fuse_opts(options)
+
         with get_metadata(bucket, home) as param:
-            operations = fs.Operations(bucket, cachedir=home + '-cache', lock=lock, 
-                                       blocksize=param['blocksize'], 
+            operations = fs.Operations(bucket, cachedir=home + '-cache', lock=lock,
+                                       blocksize=param['blocksize'],
                                        cachesize=options.cachesize * 1024)
             log.info('Mounting filesystem...')
             llfuse.init(operations, options.mountpoint, fuse_opts, lock)
@@ -102,17 +102,17 @@ def main(args=None):
                         logging.getLogger().removeHandler(get_stdout_handler())
                     daemonize(options.homedir)
                     conn.finish_fork()
-                    
+
                 if options.profile:
                     prof.runcall(llfuse.main, options.single)
                 else:
                     llfuse.main(options.single)
-            
+
             finally:
                 llfuse.close()
                 if operations.encountered_errors:
                     param['needs_fsck'] = True
-                       
+
     if options.profile:
         tmp = tempfile.NamedTemporaryFile()
         prof.dump_stats(tmp.name)
@@ -125,7 +125,7 @@ def main(args=None):
         p.sort_stats('time')
         p.print_stats(50)
         fh.close()
-                                           
+
     if operations.encountered_errors:
         raise QuietError('Some errors were encountered while the file system was mounted.\n'
                          'Please examine the log files for more information.')
@@ -239,21 +239,21 @@ def parse_args(args):
 
     if options.allow_other and options.allow_root:
         parser.error("--allow-other and --allow-root are mutually exclusive.")
-         
+
     options.compression = None
     if options.zlib:
         options.compression = COMPRESS_ZLIB
-    
+
     if options.bzip2:
         if options.compression:
             parser.error("--bzip2, --zlib and --nocompress are mutually exclusive.")
         options.compression = COMPRESS_BZIP2
-    
+
     if options.nocompress:
         if options.compression:
             parser.error("--bzip2, --zlib and --nocompress are mutually exclusive.")
-        options.compression = COMPRESS_NONE 
-    
+        options.compression = COMPRESS_NONE
+
     if not options.compression:
         options.compression = COMPRESS_LZMA
 
@@ -276,7 +276,7 @@ def get_metadata(bucket, home):
         raise QuietError('Old file system revision, please run tune.s3ql --upgrade first.')
     seq_no = max(seq_nos)
     param = bucket.lookup('s3ql_metadata')
-    
+
     # Check revision
     if param['revision'] < CURRENT_FS_REV:
         raise QuietError('File system revision too old, please run tune.s3ql --upgrade first.')
@@ -287,7 +287,7 @@ def get_metadata(bucket, home):
     # Check that the fs itself is clean
     if param['needs_fsck']:
         raise QuietError("File system damaged, run fsck!")
-    
+
     # Check for unclean shutdown on other computer
     if param['seq_no'] < seq_no:
         if isinstance(bucket, s3.Bucket):
@@ -329,10 +329,10 @@ def get_metadata(bucket, home):
                 del bucket['s3ql_seq_no_%d' % i ]
             except KeyError:
                 pass # Key list may not be up to date
-            
+
     # Save parameters
     pickle.dump(param, open(home + '.params', 'wb'), 2)
-    
+
     try:
         yield param
     finally:
@@ -347,9 +347,9 @@ def get_metadata(bucket, home):
 
         # Remove database
         log.debug("Cleaning up...")
-        os.unlink(home + '.db')      
-        os.unlink(home + '.params')  
-       
-                
+        os.unlink(home + '.db')
+        os.unlink(home + '.params')
+
+
 if __name__ == '__main__':
     main(sys.argv[1:])

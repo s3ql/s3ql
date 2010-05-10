@@ -13,8 +13,9 @@ import stat
 import time
 from optparse import OptionParser
 from s3ql.common import (init_logging_from_options, get_bucket_home, cycle_metadata,
-                      unlock_bucket, QuietError, CURRENT_FS_REV, get_backend, dump_metadata,
+                      unlock_bucket, QuietError, get_backend, dump_metadata,
                       restore_metadata)
+from s3ql import CURRENT_FS_REV
 import s3ql.database as dbcm
 import logging
 from s3ql import fsck
@@ -49,7 +50,7 @@ def parse_args(args):
                       help="If user input is required, exit without prompting.")
     parser.add_option("--force", action="store_true", default=False,
                       help="Force checking even if file system is marked clean.")
-    
+
 
     (options, pps) = parser.parse_args(args)
 
@@ -71,7 +72,7 @@ def main(args=None):
         psyco.profile()
     except ImportError:
         pass
-    
+
     options = parse_args(args)
     init_logging_from_options(options, 'fsck.log')
 
@@ -118,7 +119,7 @@ def main(args=None):
                     os.unlink(home + '.db')
                     os.unlink(home + '.params')
                     shutil.rmtree(home + '-cache')
-                    param =  None
+                    param = None
                 else:
                     log.info('Using local cache files.')
                     param['seq_no'] = seq_no
@@ -138,14 +139,14 @@ def main(args=None):
 
         if param is None:
             param = bucket.lookup('s3ql_metadata')
-             
+
         # Check revision
         if param['revision'] < CURRENT_FS_REV:
             raise QuietError('File system revision too old, please run tune.s3ql --upgrade first.')
         elif param['revision'] > CURRENT_FS_REV:
             raise QuietError('File system revision too new, please update your '
                              'S3QL installation.')
-            
+
         if param['seq_no'] < seq_no:
             if isinstance(bucket, backends.s3.Bucket):
                 print(textwrap.fill(textwrap.dedent('''
@@ -168,7 +169,7 @@ def main(args=None):
             if sys.stdin.readline().strip() != 'continue':
                 raise QuietError(1)
             param['seq_no'] = seq_no
-            
+
         elif param['seq_no'] > seq_no:
             raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
         elif not param['needs_fsck']:
@@ -191,14 +192,14 @@ def main(args=None):
             log.info('Reading metadata...')
             restore_metadata(fh)
             fh.close()
-    
+
         # Increase metadata sequence no
         param['seq_no'] += 1
         bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
         for i in seq_nos:
             if i < param['seq_no'] - 5:
                 del bucket['s3ql_seq_no_%d' % i ]
-                
+
         # Save parameters
         pickle.dump(param, open(home + '.params', 'wb'), 2)
 
