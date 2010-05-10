@@ -15,7 +15,7 @@ import errno
 import shutil
 import cPickle as pickle
 import os
-import paramiko
+import paramiko 
 
 log = logging.getLogger("backend.sftp")
 
