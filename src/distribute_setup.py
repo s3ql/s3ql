@@ -13,6 +13,10 @@ the appropriate options to ``use_setuptools()``.
 
 This file can also be run as a script to install or upgrade setuptools.
 """
+
+#pylint: disable-all
+#@PydevCodeAnalysisIgnore
+
 import os
 import sys
 import time
