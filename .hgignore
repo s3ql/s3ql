@@ -3,13 +3,26 @@ syntax: regexp
 ^src/s3ql/libc_api\.py$
 ^doc/doctrees$
 ^doc/html$
-^dist$
 ^src/s3ql\.egg-info$
 ^build$
-^src/s3ql/lzma\.so$
 ^.pydevproject$
 ^.project$
 ^.settings$
 \.pyc$
 ^setup.log$
+^dist$
+
+# Temporary files created when building deb
+syntax: regexp
 ^debian/s3ql$
+^debian/files$
+^debian/s3ql.debhelper.log$
+^debian/s3ql.postinst.debhelper$
+^debian/s3ql.prerm.debhelper$
+^debian/s3ql.substvars$
+
+# Downloaded distribute version
+syntax: regexp
+^distribute-0.6.12-py2.6.egg$
+^distribute-0.6.12.tar.gz$
+
