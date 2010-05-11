@@ -3,6 +3,8 @@ xxxx, S3QL 0.14
   * fsck now detects if a cached block is dirty and commits only dirty
     blocks to the backend.
 
+  * Installation in Debian and Ubuntu is now much simpler, it can be
+    done completely with aptitude.
 
 2010-05-04, S3QL 0.13
 

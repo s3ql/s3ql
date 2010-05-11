@@ -12,44 +12,18 @@ on your distribution.
 Ubuntu/Debian
 =============
 
-Starting with Ubuntu 9.10 (Karmic), most of S3QL's dependencies are
-already available as packages and can be installed with following
-command (if you want, you can remove `gccxml` and the packages ending
-in `-dev` again when the installation is complete)::
+Installation under Ubuntu/Debian is very simple since S3QL and all
+its dependencies are available as pre-build packages. To install them,
+first register the package repository by executing ::
 
-  sudo aptitude install python-dev libfuse2 libfuse-dev python-paramiko \
-                        gccxml python-pycryptopp libattr1-dev liblzma-dev liblzma0
+  sudo add-apt-repository ppa:nikratio/s3ql
 
-Additionally, The `Python APSW module
-<http://code.google.com/p/apsw/>`_ needs to be installed from source
-as follows:
+then update the list of available packages with `aptitude update` and
+install s3ql with `aptitude install s3ql`. If you are running Ubuntu
+Karmic, you will get a warning that the `fuse-utils` package needs to
+be upgraded as well, which you can safely confirm.
 
-#. Download the source from http://code.google.com/p/apsw/downloads/list
-#. Extract the zip file and change into the new directory
-#. Run `python setup.py fetch --sqlite build install --user` to
-   install the module into `~/.local` or run `sudo python setup.py
-   fetch --sqlite build install` to install system-wide.
 
-   You will get a lot of compiler warnings add this step, but this is
-   expected and no cause for concern.
-
-After that, you need to upgrade your FUSE packages. You can
-download and install updated packages from the S3QL website
-with the commands::
-
-  arch=`dpkg-architecture -qDEB_HOST_ARCH`
-  wget http://s3ql.googlecode.com/files/{fuse-utils,libfuse2,libfuse-dev}_2.8.3_$arch.deb
-  sudo dpkg -i {fuse-utils,libfuse2,libfuse-dev}_2.8.3_$arch.deb
-
-Finally, S3QL also requires the `PyLibLZMA
-<http://pypi.python.org/pypi/pyliblzma>`_ and `unittest2
-<http://pypi.python.org/pypi/unittest2>`_ Python modules. However,
-these modules will be downloaded and installed automatically during
-the S3QL installation if necessary (the PyLibLZMA module needs to
-be version 0.5.3 or newer).
-
-Once all the dependencies have been satisfied as described, you can
-continue with :ref:`inst-s3ql`.
 
 Fedora
 ======
