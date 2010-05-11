@@ -2,7 +2,7 @@ Source: s3ql
 Section: misc
 Priority: optional
 Maintainer: Nikolaus Rath <Nikolaus@rath.org>
-Build-Depends: quilt (>= 0.46-7~), debhelper (>= 7.0.50~), libfuse-dev (>= 2.8.0), gccxml, libattr1-dev, python-support, python (>= 2.6), python-sphinx
+Build-Depends: quilt (>= 0.46-7~), debhelper (>= 7.0.50~), libfuse-dev (>= 2.8.0), gccxml, libattr1-dev, python-support, python (>= 2.6), python-sphinx, pkg-config
 Standards-Version: 3.8.3
 Homepage: http://code.google.com/p/s3ql/
 
