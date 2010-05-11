@@ -101,12 +101,12 @@ class Operations(llfuse.Operations):
         self.open_inodes = collections.defaultdict(lambda: 0)
         self.blocksize = blocksize
         self.cache = BlockCache(bucket, cachedir, cachesize)
-        
+
         # Make sure the control file is only writable by the user
         # who mounted the file system
         self.inodes[CTRL_INODE].uid = os.getuid()
         self.inodes[CTRL_INODE].gid = os.getgid()
-          
+
     def init(self):
         self.cache.init()
         self.inodes.init()
@@ -227,7 +227,12 @@ class Operations(llfuse.Operations):
         # First we have to flush the cache
         self.cache.flush_all()
 
-        old_target_id = target_id
+        # Copy target attributes
+        src_inode = self.inodes[src_id]
+        target_inode = self.inodes[target_id]
+        for attr in ('atime', 'ctime', 'mtime', 'mode', 'uid', 'gid'):
+            setattr(target_inode, attr, getattr(src_inode, attr))
+
         queue = [ (src_id, target_id) ]
         id_cache = dict()
         processed = 0
@@ -243,7 +248,7 @@ class Operations(llfuse.Operations):
                 self.lock.acquire()
                 processed = 0
 
-        llfuse.invalidate_inode(old_target_id)
+        llfuse.invalidate_inode(target_inode.id)
 
     def _copy_tree(self, src_id, target_id, queue, id_cache):
 
@@ -325,7 +330,7 @@ class Operations(llfuse.Operations):
             inode_p = self.inodes[id_p]
             inode_p.mtime = timestamp
             inode_p.ctime = timestamp
-            
+
             if inode.refcount == 0 and id_ not in self.open_inodes:
                 self.cache.remove(id_, self.lock, 0, inode.size // self.blocksize + 1)
                 # Since the inode is not open, it's not possible that new blocks
@@ -414,7 +419,7 @@ class Operations(llfuse.Operations):
             inode_p_old.mtime = timestamp
             inode_p_new.ctime = timestamp
             inode_p_new.mtime = timestamp
-            
+
             if inode_new.refcount == 0 and id_new not in self.open_inodes:
                 self.cache.remove(id_new, self.lock, 0, inode_new.size // self.blocksize + 1)
                 # Since the inode is not open, it's not possible that new blocks
@@ -439,7 +444,7 @@ class Operations(llfuse.Operations):
                 raise FUSEError(errno.EINVAL)
             inode_p.ctime = timestamp
             inode_p.mtime = timestamp
-            
+
             conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
                          (new_name, id_, new_id_p))
             inode = self.inodes[id_]
@@ -464,13 +469,13 @@ class Operations(llfuse.Operations):
             # Delete all truncated blocks
             last_block = len_ // self.blocksize
             total_blocks = inode.size // self.blocksize + 1
-            self.cache.remove(id_, self.lock, last_block+1, total_blocks)
+            self.cache.remove(id_, self.lock, last_block + 1, total_blocks)
 
             # Get last object before truncation
             if len_ != 0:
                 with self.cache.get(id_, last_block, self.lock) as fh:
                     fh.truncate(len_ - self.blocksize * last_block)
-                    
+
             # Inode may have expired from cache 
             inode = self.inodes[id_]
             inode.size = len_
@@ -605,7 +610,7 @@ class Operations(llfuse.Operations):
                 raise FUSEError(errno.EINVAL)
             inode_p.mtime = timestamp
             inode_p.ctime = timestamp
-            
+
             inode = self.inodes.create_inode(mtime=timestamp, ctime=timestamp, atime=timestamp,
                                              uid=ctx.uid, gid=ctx.gid, mode=mode, refcount=1,
                                              rdev=rdev, target=target)
@@ -639,7 +644,7 @@ class Operations(llfuse.Operations):
 
         # Inode may have expired from cache 
         inode = self.inodes[fh]
-        
+
         timestamp = time.time()
         inode.atime = timestamp
         inode.ctime = timestamp
