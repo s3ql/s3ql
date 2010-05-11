@@ -1,0 +1,3 @@
+compression = "lzma"
+compression-level = 9
+
