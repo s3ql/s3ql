@@ -18,9 +18,6 @@ from _common import TestCase
 import _common
 from random import randrange
 
-# Each test should correspond to exactly one function in the tested
-# module, and testing should be done under the assumption that any
-# other functions that are called by the tested function work perfectly.
 class BackendTests(object):
 
     def newname(self):

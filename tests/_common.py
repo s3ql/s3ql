@@ -8,6 +8,21 @@ This program can be distributed under the terms of the GNU LGPL.
 This module defines a new TestCase that aborts the test run as 
 soon as a test fails. The module also servers as a storage container
 for authentication data that may be required for some test cases.
+
+
+Test case policy
+----------------
+
+Each test should correspond to exactly one function in the tested module. The
+test should assume that any other functions that are called by the tested
+function work perfectly. However, the test must not rely on the result of any
+other functions when checking the correctness of the tested function.
+
+Example: if a module has methods `write_file_to_disk`, `write_some_bytes` and
+`read_file_from_disk`, then the test for `write_file_to_disk` may assume that
+the `write_some_bytes` method that is called by `write_file_to_disk` works
+correctly, but it must not use the `read_file_from_disk` method to check if the
+file has been written correctly.
 '''
 
 from __future__ import division, print_function

@@ -22,9 +22,6 @@ import shutil
 
 # TODO: Rewrite this test case
 
-# Each test should correspond to exactly one function in the tested
-# module, and testing should be done under the assumption that any
-# other functions that are called by the tested function work perfectly.
 class fsck_tests(TestCase):
 
     def setUp(self):
@@ -75,14 +72,14 @@ class fsck_tests(TestCase):
 
         self.assert_fsck(fsck.check_cache)
         self.assertEquals(self.bucket['s3ql_data_1'], 'somedata')
-        
+
         fh = open(self.cachedir + 'inode_%d_block_1' % inode, 'wb')
         fh.write('otherdata')
         fh.close()
 
         self.assert_fsck(fsck.check_cache)
         self.assertEquals(self.bucket['s3ql_data_1'], 'somedata')
-               
+
 
     def test_lof1(self):
 
@@ -130,21 +127,21 @@ class fsck_tests(TestCase):
                          "VALUES (?,?,?,?,?,?,?,?)",
                          (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                           0, 0, time.time(), time.time(), time.time(), 2, 0))
-        
+
         dbcm.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                      ('test-entry', id_, ROOT_INODE))
-        
+
         # Create a block
         obj_id = dbcm.rowid('INSERT INTO objects (refcount, size) VALUES(?, ?)',
                             (1, 500))
         dbcm.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
-                     (id_, 0, obj_id))   
+                     (id_, 0, obj_id))
 
-        
+
         self.assert_fsck(fsck.check_inode_sizes)
 
- 
-        
+
+
     def test_keylist(self):
         # Create an object that only exists in the bucket
         self.bucket['s3ql_data_4364'] = 'Testdata'
@@ -184,7 +181,7 @@ class fsck_tests(TestCase):
         # We can't fix loops yet
 
     def test_obj_refcounts(self):
- 
+
         obj_id = 42
         inode = 42
         dbcm.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount,size) "
@@ -220,7 +217,7 @@ class fsck_tests(TestCase):
 
         dbcm.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                      ('test-entry', inode, ROOT_INODE))
-        
+
         fsck.found_errors = False
         fsck.check_inode_unix()
         self.assertFalse(fsck.found_errors)
@@ -230,7 +227,7 @@ class fsck_tests(TestCase):
         self.assertTrue(fsck.found_errors)
 
     def test_unix_target(self):
-  
+
         inode = 42
         dbcm.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount) "
                      "VALUES (?,?,?,?,?,?,?,?)",
@@ -239,7 +236,7 @@ class fsck_tests(TestCase):
 
         dbcm.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                      ('test-entry', inode, ROOT_INODE))
-        
+
         fsck.found_errors = False
         fsck.check_inode_unix()
         self.assertFalse(fsck.found_errors)
@@ -257,7 +254,7 @@ class fsck_tests(TestCase):
                       os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1))
         dbcm.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                      ('test-entry', inode, ROOT_INODE))
-        
+
         fsck.found_errors = False
         fsck.check_inode_unix()
         self.assertFalse(fsck.found_errors)
@@ -275,7 +272,7 @@ class fsck_tests(TestCase):
 
         dbcm.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                      ('test-entry', inode, ROOT_INODE))
-        
+
         fsck.found_errors = False
         fsck.check_inode_unix()
         self.assertFalse(fsck.found_errors)
@@ -291,10 +288,10 @@ class fsck_tests(TestCase):
                    "VALUES (?,?,?,?,?,?,?)",
                    (stat.S_IFSOCK | stat.S_IRUSR | stat.S_IWUSR,
                     os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1))
-        
+
         dbcm.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                      ('test-entry', inode, ROOT_INODE))
-                
+
         fsck.found_errors = False
         fsck.check_inode_unix()
         self.assertFalse(fsck.found_errors)
