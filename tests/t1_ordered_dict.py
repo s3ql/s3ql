@@ -12,11 +12,6 @@ import unittest2 as unittest
 from s3ql.ordered_dict import OrderedDict
 from _common import TestCase
 
-# TODO: Rewrite this test case
-
-# Each test should correspond to exactly one function in the tested
-# module, and testing should be done under the assumption that any
-# other functions that are called by the tested function work perfectly.
 class OrderedDictTests(TestCase):
 
     def test_1_add_del(self):
