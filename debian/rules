@@ -21,3 +21,10 @@ override_dh_compress:
 override_dh_installdocs:
 	python setup.py build_sphinx
 	dh_installdocs
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -rf doc/html
+	rm -rf doc/doctrees
+	rm -rf setup.log
+
