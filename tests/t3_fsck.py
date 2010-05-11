@@ -20,8 +20,6 @@ import tempfile
 import time
 import shutil
 
-# TODO: Rewrite this test case
-
 class fsck_tests(TestCase):
 
     def setUp(self):
