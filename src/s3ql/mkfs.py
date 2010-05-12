@@ -6,14 +6,14 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import division, print_function
+from __future__ import division, print_function, absolute_import
 
 import stat
 import os
 import time
 from . import database as dbcm
 
-from s3ql.common import ROOT_INODE, CTRL_INODE
+from .common import ROOT_INODE, CTRL_INODE
 
 __all__ = [ "setup_tables", 'init_tables', 'create_indices' ]
 
@@ -50,11 +50,7 @@ def setup_tables():
     CREATE TABLE inodes (
         -- id has to specified *exactly* as follows to become
         -- an alias for the rowid.
-        -- inode_t may be restricted to 32 bits, so we need to constrain the
-        -- rowid. Also, as long as we don't store a separate generation no,
-        -- we can't reuse old rowids. Therefore we will run out of inodes after
-        -- 49 days if we insert 1000 rows per second. 
-        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        id        INTEGER PRIMARY KEY,
         uid       INT NOT NULL,
         gid       INT NOT NULL,
         mode      INT NOT NULL,
@@ -77,7 +73,7 @@ def setup_tables():
         
         PRIMARY KEY (name, parent_inode)
     )""")
-    
+
     # Extended attributes
     dbcm.execute("""
     CREATE TABLE ext_attributes (
@@ -117,5 +113,5 @@ def create_indices():
     dbcm.execute('CREATE INDEX ix_ext_attributes_inode ON ext_attributes(inode)')
     dbcm.execute('CREATE INDEX ix_objects_hash ON objects(hash)')
     dbcm.execute('CREATE INDEX ix_blocks_obj_id ON blocks(obj_id)')
-    dbcm.execute('CREATE INDEX ix_blocks_inode ON blocks(inode)')             
+    dbcm.execute('CREATE INDEX ix_blocks_inode ON blocks(inode)')
 

@@ -13,8 +13,10 @@ import common
 import logging
 import threading
 import database as dbcm
+from random import randint
+import apsw
 
-__all__ = [ 'InodeCache' ]
+__all__ = [ 'InodeCache', 'OutOfInodesError' ]
 log = logging.getLogger('inode_cache')
 
 CACHE_SIZE = 100
@@ -30,11 +32,11 @@ class _Inode(object):
     '''An inode with its attributes'''
 
     __slots__ = ATTRIBUTES + ('dirty',)
-    
+
     def __init__(self):
         super(_Inode, self).__init__()
         self.dirty = False
-        
+
     # This allows access to all st_* attributes, even if they're
     # not defined in the table
     def __getattr__(self, key):
@@ -87,8 +89,8 @@ class _Inode(object):
         if name != 'dirty':
             object.__setattr__(self, 'dirty', True)
         object.__setattr__(self, name, value)
-        
-        
+
+
 class InodeCache(object):
     '''
     This class maps the `inode` SQL table to a dict, caching the rows.
@@ -189,7 +191,7 @@ class InodeCache(object):
         inode.atime += TIMEZONE
         inode.mtime += TIMEZONE
         inode.ctime += TIMEZONE
-        
+
         inode.dirty = False
 
         return inode
@@ -206,12 +208,26 @@ class InodeCache(object):
 
         init_attrs = [ x for x in ATTRIBUTES if x in kw ]
 
-        # _Inode.id is not explicitly defined
-        #pylint: disable-msg=W0201
-        inode.id = dbcm.rowid('INSERT INTO inodes (%s) VALUES(%s)'
-                                   % (', '.join(init_attrs),
-                                      ','.join('?' for _ in init_attrs)),
-                                   (kw[x] for x in init_attrs))
+        # We want to restrict inodes to 2^32, and we do not want to immediately
+        # reuse deleted inodes (so that the lack of generation numbers isn't too
+        # likely to cause problems with NFS)
+        sql = ('INSERT INTO inodes (id, %s) VALUES(?, %s)'
+               % (', '.join(init_attrs), ','.join('?' for _ in init_attrs)))
+        bindings = [ kw[x] for x in init_attrs ]
+        for _ in range(100):
+            # _Inode.id is not explicitly defined
+            #pylint: disable-msg=W0201
+            inode.id = randint(0, 2 ** 32 - 1)
+            try:
+                dbcm.execute(sql, [inode.id] + bindings)
+            except apsw.ConstraintError:
+                pass
+            else:
+                break
+        else:
+            raise OutOfInodesError()
+
+
         return self[inode.id]
 
 
@@ -227,7 +243,7 @@ class InodeCache(object):
 
         dbcm.execute("UPDATE inodes SET %s WHERE id=?" % UPDATE_STR,
                           [ getattr(inode, x) for x in UPDATE_ATTRS ] + [inode.id])
-            
+
     def flush_id(self, id_):
         if id_ in self.attrs:
             self.setattr(self.attrs[id_])
@@ -278,3 +294,7 @@ class InodeCache(object):
         if self.attrs:
             raise RuntimeError('InodeCache instance was destroyed without calling close()')
 
+class OutOfInodesError(Exception):
+
+    def __str__(self):
+        return 'Could not find free rowid in inode table'

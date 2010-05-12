@@ -23,8 +23,8 @@ Known Issues
   it might be worth to ask the program's authors for help.
 
 * S3QL directories always have an `st_nlink` value of 1. This may confuse
-  programs that rely on directories having `st_nlink` values of 2 +
-  number of sub directories.
+  programs that rely on directories having `st_nlink` values of *(2 +
+  number of sub directories)*.
 
   Note that this is not a bug in S3QL. Including sub directories in
   the `st_nlink` value is a Unix convention, but by no means a
@@ -34,3 +34,24 @@ Known Issues
   A prominent example are early versions of GNU find, which required
   the `--noleaf` option to work correctly on S3QL file systems. This
   bug has already been fixed in recent find versions.
+
+
+* S3QL is not fully compatible with NFS. In particular, S3QL does
+  not support *inode generation numbers*. This means that NFS clients
+  may accidentally read or write the wrong file in the following situation:
+
+  #. An S3QL file system is exported over NFS
+  #. NFS client 1 opens a file A
+  #. Another NFS client 2 (or the server itself) deletes file A (without
+     client 1 knowing about this)
+  #. A new file B is created by either of the clients or the server
+  #. NFS client 1 tries to read or write file A (which has actually already been deleted).
+
+  In this situation it is possible that NFS client 1 actually writes
+  or reads the newly created file B instead. The chances of this are 1
+  to (2^32 - *n*) where *n* is the total number of directory entries
+  in the S3QL file system (as displayed by `stat.s3ql`).
+
+  Luckily enough, as long as you have less than about 2 thousand
+  million directory entries (2^31), the chances for this are totally
+  irrelevant and you don't have to worry about it.

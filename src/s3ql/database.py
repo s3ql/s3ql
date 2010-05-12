@@ -59,7 +59,7 @@ provided = dict()
 
 def init(dbfile_):
     '''Initialize Module'''
-    
+
     global dbfile
     dbfile = dbfile_
 
@@ -68,7 +68,7 @@ def init(dbfile_):
 
     global pool
     pool = list()
-    
+
     global provided
     provided = dict()
 
@@ -208,7 +208,7 @@ class WrappedConnection(object):
         The transaction will be committed when the block has
         executed, even if execution was aborted with an exception.
         '''
-         
+
         if self.in_trx:
             yield
         else:
@@ -250,7 +250,7 @@ class WrappedConnection(object):
 
         if isinstance(bindings, types.GeneratorType):
             bindings = list(bindings)
-            
+
         # Convert bytes to buffer
         if isinstance(bindings, dict):
             newbindings = dict()
@@ -271,11 +271,9 @@ class WrappedConnection(object):
             else:
                 return cur.execute(statement)
         except apsw.ConstraintError:
-            log.error('Constraint error when executing %r with bindings %r',
-                      statement, bindings)
             # Work around SQLite bug, http://code.google.com/p/apsw/issues/detail?id=99
             for i in range(100):
-                cur.execute('SELECT null'+ ' '*i)
+                cur.execute('SELECT null' + ' ' * i)
             raise
 
 

@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import division, print_function
+from __future__ import division, print_function, absolute_import
 
 import os
 import errno
@@ -14,7 +14,7 @@ import stat
 import llfuse
 import collections
 import logging
-from .inode_cache import InodeCache
+from .inode_cache import InodeCache, OutOfInodesError
 from .common import (get_path, CTRL_NAME, CTRL_INODE)
 import time
 from .block_cache import BlockCache
@@ -119,6 +119,14 @@ class Operations(llfuse.Operations):
         with dbcm.conn() as conn:
             if name == CTRL_NAME:
                 return self.inodes[CTRL_INODE]
+
+            if name == '.':
+                return self.inodes[id_p]
+
+            if name == '..':
+                id_ = conn.get_val("SELECT parent_inode FROM contents WHERE inode=?",
+                                   (id_p,))
+                return self.inodes[id_]
 
             try:
                 id_ = conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
@@ -252,6 +260,9 @@ class Operations(llfuse.Operations):
 
     def _copy_tree(self, src_id, target_id, queue, id_cache):
 
+        # To avoid lookups and make good tidier
+        make_inode = self.inodes.create_inode
+
         processed = 0
         with dbcm.write_lock() as conn:
             for (name, id_) in conn.query('SELECT name, inode FROM contents WHERE parent_inode=?',
@@ -260,11 +271,16 @@ class Operations(llfuse.Operations):
                 if id_ not in id_cache:
                     inode = self.inodes[id_]
 
-                    inode_new = self.inodes.create_inode(refcount=1, mode=inode.mode, size=inode.size,
-                                                         uid=inode.uid, gid=inode.gid,
-                                                         mtime=inode.mtime, atime=inode.atime,
-                                                         ctime=inode.ctime, target=inode.target,
-                                                         rdev=inode.rdev)
+                    try:
+                        inode_new = make_inode(refcount=1, mode=inode.mode, size=inode.size,
+                                               uid=inode.uid, gid=inode.gid,
+                                               mtime=inode.mtime, atime=inode.atime,
+                                               ctime=inode.ctime, target=inode.target,
+                                               rdev=inode.rdev)
+                    except OutOfInodesError:
+                        log.warn('Could not find a free inode')
+                        raise FUSEError(errno.ENOSPC)
+
                     id_new = inode_new.id
 
                     if inode.refcount != 1:
@@ -611,9 +627,14 @@ class Operations(llfuse.Operations):
             inode_p.mtime = timestamp
             inode_p.ctime = timestamp
 
-            inode = self.inodes.create_inode(mtime=timestamp, ctime=timestamp, atime=timestamp,
-                                             uid=ctx.uid, gid=ctx.gid, mode=mode, refcount=1,
-                                             rdev=rdev, target=target)
+            try:
+                inode = self.inodes.create_inode(mtime=timestamp, ctime=timestamp, atime=timestamp,
+                                                 uid=ctx.uid, gid=ctx.gid, mode=mode, refcount=1,
+                                                 rdev=rdev, target=target)
+            except OutOfInodesError:
+                log.warn('Could not find a free inode')
+                raise FUSEError(errno.ENOSPC)
+
             conn.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
                          (name, inode.id, id_p))
 
