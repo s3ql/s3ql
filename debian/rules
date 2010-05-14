@@ -1,30 +1,23 @@
 #!/usr/bin/make -f
 # -*- makefile -*-
-# Sample debian/rules that uses debhelper.
-# This file was originally written by Joey Hess and Craig Small.
-# As a special exception, when this file is copied by dh-make into a
-# dh-make output file, you may use that output file without restriction.
-# This special exception was added by Craig Small in version 0.37 of dh-make.
 
-# Uncomment this to turn on verbose mode.
 #export DH_VERBOSE=1
 
 %:
-	dh --with quilt  $@
+        dh $@
 
 override_dh_installchangelogs:
-	dh_installchangelogs Changes.txt
+        dh_installchangelogs Changes.txt
 
 override_dh_compress:
-	dh_compress -X.txt -X.js
+        dh_compress -X.txt -X.js
 
 override_dh_installdocs:
-	python setup.py build_sphinx
-	dh_installdocs
+        python setup.py build_sphinx
+        dh_installdocs
 
 override_dh_auto_clean:
-	dh_auto_clean
-	rm -rf doc/html
-	rm -rf doc/doctrees
-	rm -rf setup.log
-
+        dh_auto_clean
+        rm -rf doc/html
+        rm -rf doc/doctrees
+        rm -rf setup.log
