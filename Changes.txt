@@ -1,4 +1,4 @@
-xxxx, S3QL 0.14
+2010-05-14, S3QL 0.14
 
   * fsck now detects if a cached block is dirty and commits only dirty
     blocks to the backend.
