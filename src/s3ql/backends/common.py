@@ -110,7 +110,7 @@ class AbstractBucket(object):
     '''
     __metaclass__ = ABCMeta
 
-    def __init__(self, passphrase, compression):      
+    def __init__(self, passphrase, compression):
         self.passphrase = passphrase
         self.compression = compression
         super(AbstractBucket, self).__init__()
@@ -144,35 +144,8 @@ class AbstractBucket(object):
             raise TypeError('key must be of type str')
 
         meta_raw = self.raw_lookup(key)
+        return self._get_meta(meta_raw)[0]
 
-        if 'encrypted' in meta_raw:
-            if meta_raw['encrypted'] == 'True' or \
-               meta_raw['encrypted'].startswith('AES/'):
-                encrypted = True
-            elif meta_raw['encrypted'] == 'False' or \
-                 meta_raw['encrypted'].startswith('PLAIN/'):
-                encrypted = False
-            else:
-                raise RuntimeError('Unsupported encryption: %s' % meta_raw['encrypted'])
-        else:
-            encrypted = False
-
-        if encrypted and not self.passphrase:
-            raise ChecksumError('Encrypted object and no passphrase supplied')
-        if not encrypted and self.passphrase:
-            raise ChecksumError('Passphrase supplied, but object is not encrypted')
-        if encrypted and not 'meta' in meta_raw:
-            raise ChecksumError('Encrypted object without metadata, unable to verify on lookup.')
-
-        if 'meta' in meta_raw:
-            buf = b64decode(meta_raw['meta'])
-            if encrypted:
-                buf = decrypt(buf, self.passphrase)
-            metadata = pickle.loads(buf)
-        else:
-            metadata = dict()
-
-        return metadata
 
     def fetch(self, key):
         """Return data stored under `key`.
@@ -209,6 +182,46 @@ class AbstractBucket(object):
         fh = StringIO(val)
         self.store_fh(key, fh, metadata)
 
+    def _get_meta(self, meta_raw):
+        '''Get metadata & decompressor factory
+        '''
+
+        convert_legacy_metadata(meta_raw)
+
+        compr_alg = meta_raw['Compression']
+        encr_alg = meta_raw['Encryption']
+        encrypted = (encr_alg != 'None')
+
+        if encrypted:
+            if not self.passphrase:
+                raise ChecksumError('Encrypted object and no passphrase supplied')
+
+            if encr_alg != 'AES':
+                raise RuntimeError('Unsupported encryption')
+        elif self.passphrase:
+            raise ChecksumError('Passphrase supplied, but object is not encrypted')
+
+        if compr_alg == 'BZ2':
+            decomp = bz2.BZ2Decompressor
+        elif compr_alg == 'LZMA':
+            decomp = lzma.LZMADecompressor
+        elif compr_alg == 'ZLIB':
+            decomp = zlib.decompressobj
+        elif compr_alg == 'None':
+            decomp = DummyDecompressor
+        else:
+            raise RuntimeError('Unsupported compression: %s' % compr_alg)
+
+        if 'meta' in meta_raw:
+            buf = b64decode(meta_raw['meta'])
+            if encrypted:
+                buf = decrypt(buf, self.passphrase)
+            metadata = pickle.loads(buf)
+        else:
+            metadata = dict()
+
+        return (metadata, decomp)
+
     def fetch_fh(self, key, fh):
         """Fetch data for `key` and write to `fh`
 
@@ -222,57 +235,15 @@ class AbstractBucket(object):
         (fh, tmp) = (tmp, fh)
 
         meta_raw = self.raw_fetch(key, fh)
-
-        if 'encrypted' in meta_raw:
-            if meta_raw['encrypted'] == 'True':
-                encrypted = True
-                compr_alg = 'BZ2'
-            elif meta_raw['encrypted'].startswith('AES/'):
-                encrypted = True
-                compr_alg =  meta_raw['encrypted'][4:]
-            elif meta_raw['encrypted'] == 'False':
-                encrypted = False
-                compr_alg = 'NONE'  
-            elif meta_raw['encrypted'].startswith('PLAIN/'):
-                encrypted = False
-                compr_alg =  meta_raw['encrypted'][6:]
-            else:
-                raise RuntimeError('Unsupported encryption')
-                        
-            if compr_alg == 'BZ2':
-                decomp = bz2.BZ2Decompressor()
-            elif compr_alg == 'LZMA':
-                decomp = lzma.LZMADecompressor()
-            elif compr_alg == 'ZLIB':
-                decomp = zlib.decompressobj()
-            elif compr_alg == 'NONE':
-                decomp = DummyDecompressor()
-            else:
-                raise RuntimeError('Unsupported compression: %s' % compr_alg)
-        else:
-            encrypted = False
-            decomp = DummyDecompressor()
-
-        if encrypted and not self.passphrase:
-            raise ChecksumError('Encrypted object and no passphrase supplied')
-        if not encrypted and self.passphrase:
-            raise ChecksumError('Passphrase supplied, but object is not encrypted')
-
-        if 'meta' in meta_raw:
-            buf = b64decode(meta_raw['meta'])
-            if encrypted:
-                buf = decrypt(buf, self.passphrase)
-            metadata = pickle.loads(buf)
-        else:
-            metadata = dict()
+        (metadata, decomp) = self._get_meta(meta_raw)
 
         (fh, tmp) = (tmp, fh)
         tmp.seek(0)
         fh.seek(0)
         if self.passphrase:
-            decrypt_uncompress_fh(tmp, fh, self.passphrase, decomp)
+            decrypt_uncompress_fh(tmp, fh, self.passphrase, decomp())
         else:
-            uncompress_fh(tmp, fh, decomp)
+            uncompress_fh(tmp, fh, decomp())
         tmp.close()
 
         return metadata
@@ -295,47 +266,47 @@ class AbstractBucket(object):
 
         if not isinstance(key, str):
             raise TypeError('key must be of type str')
-        
-        if self.passphrase:
-            compr_str = 'AES/'
-        else:
-            compr_str = 'PLAIN/'
-            
-        if self.compression == COMPRESS_ZLIB:
-            compr = zlib.compressobj(9)
-            compr_str += 'ZLIB'
-        elif self.compression == COMPRESS_BZIP2:
-            compr = bz2.BZ2Compressor(9)
-            compr_str += 'BZ2'
-        elif self.compression == COMPRESS_LZMA:
-            compr = lzma.LZMACompressor(options={ 'level': 9 })
-            compr_str += 'LZMA'
-        elif self.compression == COMPRESS_NONE:
-            compr = DummyCompressor()
-            compr_str += 'NONE'
-        else:
-            raise ValueError('Invalid compression algorithm')
-        
+
         # We always store metadata (even if it's just None), so that we can
         # verify that the object has been created by us when we call lookup().
-        meta_raw = pickle.dumps(metadata, 2)
-      
+        meta_buf = pickle.dumps(metadata, 2)
+
+        meta_raw = dict()
+
+        if self.passphrase:
+            meta_raw['Encryption'] = 'AES'
+            nonce = struct.pack(b'<f', time.time() - time.timezone) + bytes(key)
+            meta_raw['meta'] = b64encode(encrypt(meta_buf, self.passphrase, nonce))
+        else:
+            meta_raw['Encryption'] = 'None'
+            meta_raw['meta'] = b64encode(meta_buf)
+
+        if self.compression == COMPRESS_ZLIB:
+            compr = zlib.compressobj(9)
+            meta_raw['Compression'] = 'ZLIB'
+        elif self.compression == COMPRESS_BZIP2:
+            compr = bz2.BZ2Compressor(9)
+            meta_raw['Compression'] = 'BZ2'
+        elif self.compression == COMPRESS_LZMA:
+            compr = lzma.LZMACompressor(options={ 'level': 9 })
+            meta_raw['Compression'] = 'LZMA'
+        elif self.compression == COMPRESS_NONE:
+            compr = DummyCompressor()
+            meta_raw['Compression'] = 'None'
+        else:
+            raise ValueError('Invalid compression algorithm')
+
         # We need to generate a temporary copy to determine the size of the
         # object (which needs to transmitted as Content-Length)
-        nonce = struct.pack(b'<f', time.time() - time.timezone) + bytes(key)
         tmp = tempfile.TemporaryFile()
         fh.seek(0)
-            
         if self.passphrase:
             compress_encrypt_fh(fh, tmp, self.passphrase, nonce, compr)
-            meta_raw = encrypt(meta_raw, self.passphrase, nonce)
         else:
             compress_fh(fh, tmp, compr)
-               
         tmp.seek(0)
-        return lambda: self.raw_store(key, tmp, {'meta': b64encode(meta_raw),
-                                                 'encrypted': compr_str })
- 
+        return lambda: self.raw_store(key, tmp, meta_raw)
+
 
     @abstractmethod
     def __str__(self):
@@ -462,7 +433,7 @@ def uncompress_fh(ifh, ofh, decomp):
         buf = ifh.read(bs)
         if not buf:
             break
-        
+
         try:
             buf = decomp.decompress(buf)
         except IOError:
@@ -474,21 +445,21 @@ def uncompress_fh(ifh, ofh, decomp):
     if decomp.unused_data:
         raise ChecksumError('Data after end of compressed stream')
 
-    
+
 class DummyDecompressor(object):
     def __init__(self):
         super(DummyDecompressor, self).__init__()
         self.unused_data = None
-    
+
     def decompress(self, buf):
         return buf
-    
+
 class DummyCompressor(object):
     def flush(self):
         return ''
-    
+
     def compress(self, buf):
-        return buf    
+        return buf
 
 
 def compress_encrypt_fh(ifh, ofh, passphrase, nonce, compr):
@@ -544,7 +515,7 @@ def compress_fh(ifh, ofh, compr):
         if buf:
             ofh.write(buf)
 
-    
+
 
 def decrypt(buf, passphrase):
     '''Decrypt given string'''
@@ -597,5 +568,36 @@ def encrypt(buf, passphrase, nonce):
     return b''.join(
                     (struct.pack(b'<B', len(nonce)),
                     nonce, hash_, buf))
+
+
+def convert_legacy_metadata(meta):
+    if ('Encryption' in meta and
+        'Compression' in meta):
+        return
+
+    if 'encrypted' not in meta:
+        meta['Encryption'] = 'None'
+        meta['Compression'] = 'None'
+        return
+
+    s = meta.pop('encrypted')
+
+    if s == 'True':
+        meta['Encryption'] = 'AES'
+        meta['Compression'] = 'BZ2'
+
+    elif s == 'False':
+        meta['Encryption'] = 'None'
+        meta['Compression'] = 'None'
+
+    elif s.startswith('AES/'):
+        meta['Encryption'] = 'AES'
+        meta['Compression'] = s[4:]
+
+    elif s.startswith('PLAIN/'):
+        meta['Encryption'] = 'None'
+        meta['Compression'] = s[6:]
+    else:
+        raise RuntimeError('Unsupported encryption')
 
 
