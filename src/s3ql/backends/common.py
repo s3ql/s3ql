@@ -26,13 +26,7 @@ from abc import ABCMeta, abstractmethod
 
 log = logging.getLogger("backend")
 
-__all__ = [ 'AbstractConnection', 'AbstractBucket', 'ChecksumError', 'UnsupportedError',
-           'COMPRESS_ZLIB', 'COMPRESS_BZIP2', 'COMPRESS_LZMA', 'COMPRESS_NONE' ]
-
-COMPRESS_ZLIB = 1
-COMPRESS_BZIP2 = 2
-COMPRESS_LZMA = 3
-COMPRESS_NONE = 4
+__all__ = [ 'AbstractConnection', 'AbstractBucket', 'ChecksumError', 'UnsupportedError' ]
 
 class AbstractConnection(object):
     '''This class contains functionality shared between all backends.'''
@@ -83,12 +77,12 @@ class AbstractConnection(object):
         pass
 
     @abstractmethod
-    def create_bucket(self, name, passphrase=None):
+    def create_bucket(self, name, passphrase=None, compression=None):
         """Create bucket and return `Bucket` instance"""
         pass
 
     @abstractmethod
-    def get_bucket(self, name, passphrase=None, compression=COMPRESS_ZLIB):
+    def get_bucket(self, name, passphrase=None, compression=None):
         """Get `Bucket` instance for bucket `name`"""
         pass
 
@@ -201,7 +195,7 @@ class AbstractBucket(object):
         elif self.passphrase:
             raise ChecksumError('Passphrase supplied, but object is not encrypted')
 
-        if compr_alg == 'BZ2':
+        if compr_alg == 'BZIP2':
             decomp = bz2.BZ2Decompressor
         elif compr_alg == 'LZMA':
             decomp = lzma.LZMADecompressor
@@ -281,16 +275,16 @@ class AbstractBucket(object):
             meta_raw['Encryption'] = 'None'
             meta_raw['meta'] = b64encode(meta_buf)
 
-        if self.compression == COMPRESS_ZLIB:
+        if self.compression == 'ZLIB':
             compr = zlib.compressobj(9)
             meta_raw['Compression'] = 'ZLIB'
-        elif self.compression == COMPRESS_BZIP2:
+        elif self.compression == 'BZIP2':
             compr = bz2.BZ2Compressor(9)
-            meta_raw['Compression'] = 'BZ2'
-        elif self.compression == COMPRESS_LZMA:
+            meta_raw['Compression'] = 'BZIP2'
+        elif self.compression == 'LZMA':
             compr = lzma.LZMACompressor(options={ 'level': 9 })
             meta_raw['Compression'] = 'LZMA'
-        elif self.compression == COMPRESS_NONE:
+        elif not self.compression:
             compr = DummyCompressor()
             meta_raw['Compression'] = 'None'
         else:
@@ -584,7 +578,7 @@ def convert_legacy_metadata(meta):
 
     if s == 'True':
         meta['Encryption'] = 'AES'
-        meta['Compression'] = 'BZ2'
+        meta['Compression'] = 'BZIP2'
 
     elif s == 'False':
         meta['Encryption'] = 'None'
@@ -600,4 +594,6 @@ def convert_legacy_metadata(meta):
     else:
         raise RuntimeError('Unsupported encryption')
 
+    if meta['Compression'] == 'BZ2':
+        meta['Compression'] = 'BZIP2'
 

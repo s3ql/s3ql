@@ -1,3 +1,9 @@
+xxx, S3QL 0.15
+
+  * mount.s3ql: instead of --bzip2, --zlib and --no-compress, there
+    is now just one option --compress=<alg>.
+    
+
 2010-05-14, S3QL 0.14
 
   * fsck now detects if a cached block is dirty and commits only dirty

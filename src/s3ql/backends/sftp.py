@@ -9,13 +9,13 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
-from .common import AbstractConnection, AbstractBucket, COMPRESS_LZMA
+from .common import AbstractConnection, AbstractBucket
 import logging
 import errno
 import shutil
 import cPickle as pickle
 import os
-import paramiko 
+import paramiko
 
 log = logging.getLogger("backend.sftp")
 
@@ -72,13 +72,13 @@ class Connection(AbstractConnection):
 
         self.sftp.rmdir(name)
 
-    def create_bucket(self, name, passphrase=None):
+    def create_bucket(self, name, passphrase=None, compression='LZMA'):
         """Create and return bucket"""
 
         self.sftp.mkdir(name)
-        return self.get_bucket(name, passphrase)
+        return self.get_bucket(name, passphrase, compression)
 
-    def get_bucket(self, name, passphrase=None, compression=COMPRESS_LZMA):
+    def get_bucket(self, name, passphrase=None, compression='LZMA'):
         """Return Bucket instance for the bucket `name`
         
         Raises `KeyError` if the bucket does not exist.

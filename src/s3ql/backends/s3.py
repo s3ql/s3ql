@@ -12,7 +12,7 @@ from __future__ import division, print_function, absolute_import
 import warnings
 warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 
-from .common import AbstractConnection, AbstractBucket, COMPRESS_LZMA
+from .common import AbstractConnection, AbstractBucket
 from time import sleep
 from .boto.s3.connection import S3Connection
 from contextlib import contextmanager
@@ -95,7 +95,7 @@ class Connection(AbstractConnection):
             self._push_conn(conn)
 
     def create_bucket(self, name, location, passphrase=None,
-                      compression=COMPRESS_LZMA):
+                      compression='LZMA'):
         """Create and return an S3 bucket
         
         Note that a call to `get_bucket` right after creation may fail,
@@ -115,7 +115,7 @@ class Connection(AbstractConnection):
 
         return Bucket(self, name, passphrase, compression)
 
-    def get_bucket(self, name, passphrase=None, compression=COMPRESS_LZMA):
+    def get_bucket(self, name, passphrase=None, compression='LZMA'):
         """Return a bucket instance for the bucket `name`
         
         Raises `KeyError` if the bucket does not exist.
@@ -302,6 +302,6 @@ def retry_boto(fn, *a, **kw):
     raise TimeoutError()
 
 class InvalidBucketNameError(Exception):
-    
+
     def __str__(self):
         return 'Bucket name contains invalid characters.'

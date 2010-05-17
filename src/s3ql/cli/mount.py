@@ -15,8 +15,7 @@ from optparse import OptionParser
 from s3ql import fs, CURRENT_FS_REV
 from s3ql.backends import s3
 from s3ql.daemonize import daemonize
-from s3ql.backends.common import (ChecksumError, COMPRESS_BZIP2, COMPRESS_LZMA, COMPRESS_ZLIB,
-                                  COMPRESS_NONE)
+from s3ql.backends.common import (ChecksumError)
 from s3ql.common import (init_logging_from_options, get_backend, get_bucket_home,
                          QuietError, unlock_bucket, get_stdout_handler,
                          cycle_metadata, dump_metadata, restore_metadata)
@@ -62,7 +61,7 @@ def main(args=None):
 
         if not bucketname in conn:
             raise QuietError("Bucket does not exist.")
-        bucket = conn.get_bucket(bucketname, compression=options.compression)
+        bucket = conn.get_bucket(bucketname, compression=options.compress)
 
         # Unlock bucket
         try:
@@ -221,12 +220,10 @@ def parse_args(args):
     parser.add_option("--profile", action="store_true", default=False,
                       help="Create profiling information. If you don't understand this, "
                            "then you don't need it.")
-    parser.add_option("--bzip2", action="store_true", default=False,
-                      help="Use bzip2 instead of LZMA algorithm for compressing new blocks.")
-    parser.add_option("--zlib", action="store_true", default=False,
-                      help="Use zlib instead of LZMA algorithm for compressing new blocks.")
-    parser.add_option("--nocompress", action="store_true", default=False,
-                      help="Do not compress new blocks.")
+    parser.add_option("--compress", action="store", default='LZMA',
+                      choices=('LZMA', 'BZIP2', 'ZLIB', 'None'),
+                      help="Compression algorithm to use when storing new data. Allowed "
+                           "values: LZMA, BZIP2, ZLIB, None. (default: LZMA)")
     (options, pps) = parser.parse_args(args)
 
     #
@@ -240,29 +237,15 @@ def parse_args(args):
     if options.allow_other and options.allow_root:
         parser.error("--allow-other and --allow-root are mutually exclusive.")
 
-    options.compression = None
-    if options.zlib:
-        options.compression = COMPRESS_ZLIB
-
-    if options.bzip2:
-        if options.compression:
-            parser.error("--bzip2, --zlib and --nocompress are mutually exclusive.")
-        options.compression = COMPRESS_BZIP2
-
-    if options.nocompress:
-        if options.compression:
-            parser.error("--bzip2, --zlib and --nocompress are mutually exclusive.")
-        options.compression = COMPRESS_NONE
-
-    if not options.compression:
-        options.compression = COMPRESS_LZMA
-
     if options.profile:
         options.single = True
 
     if options.homedir is None:
         raise QuietError('--homedir not specified and $HOME environment variable not set,\n'
                          'can not come up with a sensible default.')
+
+    if options.compress == 'None':
+        options.compress = None
 
     return options
 

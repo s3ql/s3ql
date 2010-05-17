@@ -43,10 +43,10 @@ You can specify the following options:
                         this, then you don't need it.
   --profile             Create profiling information. If you don't understand
                         this, then you don't need it.
-  --bzip2               Use bzip2 instead of LZMA algorithm for compressing
-                        new blocks.
-  --zlib                Use zlib instead of LZMA algorithm for compressing new
-                        blocks.
+  --compress=COMPRESS   Compression algorithm to use when storing new data.
+                        Allowed values: LZMA, BZIP2, ZLIB, None. (default:
+                        LZMA)
+
 
 
 .. _bucket_pw:
