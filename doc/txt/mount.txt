@@ -44,8 +44,8 @@ You can specify the following options:
   --profile             Create profiling information. If you don't understand
                         this, then you don't need it.
   --compress=COMPRESS   Compression algorithm to use when storing new data.
-                        Allowed values: LZMA, BZIP2, ZLIB, None. (default:
-                        LZMA)
+                        Allowed values: lzma, bzip2, zlib, none. (default:
+                        lzma)
 
 
 

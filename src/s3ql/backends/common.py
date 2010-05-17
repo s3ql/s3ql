@@ -275,13 +275,13 @@ class AbstractBucket(object):
             meta_raw['Encryption'] = 'None'
             meta_raw['meta'] = b64encode(meta_buf)
 
-        if self.compression == 'ZLIB':
+        if self.compression == 'zlib':
             compr = zlib.compressobj(9)
             meta_raw['Compression'] = 'ZLIB'
-        elif self.compression == 'BZIP2':
+        elif self.compression == 'bzip2':
             compr = bz2.BZ2Compressor(9)
             meta_raw['Compression'] = 'BZIP2'
-        elif self.compression == 'LZMA':
+        elif self.compression == 'lzma':
             compr = lzma.LZMACompressor(options={ 'level': 9 })
             meta_raw['Compression'] = 'LZMA'
         elif not self.compression:

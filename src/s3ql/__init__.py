@@ -12,4 +12,4 @@ __all__ = [ 'block_cache', "common", 'daemonize', 'database', 'fs', 'fsck', 'lib
             'libc', "mkfs", 'multi_lock', 'ordered_dict', 'VERSION', 'CURRENT_FS_REV' ]
 
 VERSION = '0.14'
-CURRENT_FS_REV = 6
+CURRENT_FS_REV = 7

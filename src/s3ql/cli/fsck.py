@@ -183,15 +183,22 @@ def main(args=None):
         if not metadata_loaded:
             log.info("Downloading & uncompressing metadata...")
             fh = os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
-                                  stat.S_IRUSR | stat.S_IWUSR), 'w+b')
-            fh.close()
-            dbcm.init(home + '.db')
-            fh = tempfile.TemporaryFile()
-            bucket.fetch_fh("s3ql_metadata", fh)
-            fh.seek(0)
-            log.info('Reading metadata...')
-            restore_metadata(fh)
-            fh.close()
+                                   stat.S_IRUSR | stat.S_IWUSR), 'w+b')
+            if param['DB-Format'] == 'dump':
+                fh.close()
+                dbcm.init(home + '.db')
+                fh = tempfile.TemporaryFile()
+                bucket.fetch_fh("s3ql_metadata", fh)
+                fh.seek(0)
+                log.info('Reading metadata...')
+                restore_metadata(fh)
+                fh.close()
+            elif param['DB-Format'] == 'sqlite':
+                bucket.fetch_fh("s3ql_metadata", fh)
+                fh.close()
+                dbcm.init(home + '.db')
+            else:
+                raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
 
         # Increase metadata sequence no
         param['seq_no'] += 1
@@ -216,6 +223,7 @@ def main(args=None):
         cycle_metadata(bucket)
         param['needs_fsck'] = False
         param['last_fsck'] = time.time() - time.timezone
+        param['DB-Format'] = 'dump'
         bucket.store_fh("s3ql_metadata", fh, param)
         fh.close()
 

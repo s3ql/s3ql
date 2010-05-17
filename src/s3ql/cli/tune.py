@@ -10,9 +10,8 @@ from __future__ import division, print_function, absolute_import
 
 from optparse import OptionParser
 import logging
-import cPickle as pickle
 from ..common import (init_logging_from_options, get_backend, QuietError, unlock_bucket,
-                      ExceptionStoringThread, cycle_metadata, dump_metadata)
+                      ExceptionStoringThread, cycle_metadata, dump_metadata, restore_metadata)
 from .. import  CURRENT_FS_REV
 from getpass import getpass
 import sys
@@ -182,7 +181,6 @@ def upgrade(conn, bucket):
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
     if not seq_nos:
         raise QuietError('File system revision too old to upgrade.')
-
     seq_no = max(seq_nos)
     param = bucket.lookup('s3ql_metadata')
 
@@ -193,6 +191,10 @@ def upgrade(conn, bucket):
     elif param['revision'] >= CURRENT_FS_REV:
         print('File system already at most-recent revision')
         return
+
+    # Check that the fs itself is clean
+    if param['needs_fsck']:
+        raise QuietError("File system damaged, run fsck!")
 
     # Check for unclean shutdown on other computer
     if param['seq_no'] < seq_no:
@@ -221,10 +223,10 @@ def upgrade(conn, bucket):
     bucket.fetch_fh("s3ql_metadata", fh)
     fh.seek(0)
     log.info('Reading metadata...')
-    restore_rev5_metadata(fh)
+    restore_metadata(fh)
     fh.close()
 
-    log.info('Upgrading from revision 5 to 6...')
+    log.info('Upgrading from revision 6 to 7...')
     param['revision'] = CURRENT_FS_REV
 
     # Increase metadata sequence no
@@ -235,6 +237,7 @@ def upgrade(conn, bucket):
             del bucket['s3ql_seq_no_%d' % i ]
 
     # Upload metadata
+    param['DB-Format'] = 'dump'
     fh = tempfile.TemporaryFile()
     dump_metadata(fh)
     fh.seek(0)
@@ -286,43 +289,3 @@ def copy_bucket(conn, options, src_bucket):
 
 if __name__ == '__main__':
     main(sys.argv[1:])
-
-
-def restore_rev5_metadata(ifh):
-    from .. import mkfs
-
-    unpickler = pickle.Unpickler(ifh)
-
-    (data_start, to_dump, sizes, columns) = unpickler.load()
-    ifh.seek(data_start)
-
-    pos = columns['inodes'].index('nlink_off')
-    del columns['inodes'][pos]
-
-    with dbcm.conn() as conn:
-        mkfs.setup_tables()
-
-        # Speed things up
-        conn.execute('PRAGMA foreign_keys = OFF')
-        try:
-            with conn.write_lock():
-                for (table, _) in to_dump:
-                    log.info('Loading %s', table)
-                    col_str = ', '.join(columns[table])
-                    val_str = ', '.join('?' for _ in columns[table])
-                    sql_str = 'INSERT INTO %s (%s) VALUES(%s)' % (table, col_str, val_str)
-                    for _ in xrange(sizes[table]):
-                        buf = unpickler.load()
-                        if table == 'inodes':
-                            for row in buf:
-                                conn.execute(sql_str, row[:pos] + row[pos + 1:])
-                        else:
-                            for row in buf:
-                                conn.execute(sql_str, row)
-        finally:
-            conn.execute('PRAGMA foreign_keys = ON')
-
-        log.info('Creating indices...')
-        mkfs.create_indices()
-
-        conn.execute('ANALYZE')

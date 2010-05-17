@@ -82,7 +82,7 @@ def main(args=None):
         lock = threading.Lock()
         fuse_opts = get_fuse_opts(options)
 
-        with get_metadata(bucket, home) as param:
+        with get_metadata(bucket, home, options.compress) as param:
             operations = fs.Operations(bucket, cachedir=home + '-cache', lock=lock,
                                        blocksize=param['blocksize'],
                                        cachesize=options.cachesize * 1024)
@@ -220,8 +220,8 @@ def parse_args(args):
     parser.add_option("--profile", action="store_true", default=False,
                       help="Create profiling information. If you don't understand this, "
                            "then you don't need it.")
-    parser.add_option("--compress", action="store", default='LZMA',
-                      choices=('LZMA', 'BZIP2', 'ZLIB', 'None'),
+    parser.add_option("--compress", action="store", default='lzma',
+                      choices=('lzma', 'bzip2', 'zlib', 'none'),
                       help="Compression algorithm to use when storing new data. Allowed "
                            "values: LZMA, BZIP2, ZLIB, None. (default: LZMA)")
     (options, pps) = parser.parse_args(args)
@@ -244,14 +244,14 @@ def parse_args(args):
         raise QuietError('--homedir not specified and $HOME environment variable not set,\n'
                          'can not come up with a sensible default.')
 
-    if options.compress == 'None':
+    if options.compress == 'none':
         options.compress = None
 
     return options
 
 
 @contextmanager
-def get_metadata(bucket, home):
+def get_metadata(bucket, home, compression):
     # Get file system parameters
     log.info('Getting file system parameters..')
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
@@ -293,15 +293,22 @@ def get_metadata(bucket, home):
     # Download metadata
     log.info("Downloading & uncompressing metadata...")
     fh = os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
-                          stat.S_IRUSR | stat.S_IWUSR), 'w+b')
-    fh.close()
-    dbcm.init(home + '.db')
-    fh = tempfile.TemporaryFile()
-    bucket.fetch_fh("s3ql_metadata", fh)
-    fh.seek(0)
-    log.info('Reading metadata...')
-    restore_metadata(fh)
-    fh.close()
+                           stat.S_IRUSR | stat.S_IWUSR), 'w+b')
+    if param['DB-Format'] == 'dump':
+        fh.close()
+        dbcm.init(home + '.db')
+        fh = tempfile.TemporaryFile()
+        bucket.fetch_fh("s3ql_metadata", fh)
+        fh.seek(0)
+        log.info('Reading metadata...')
+        restore_metadata(fh)
+        fh.close()
+    elif param['DB-Format'] == 'sqlite':
+        bucket.fetch_fh("s3ql_metadata", fh)
+        fh.close()
+        dbcm.init(home + '.db')
+    else:
+        raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
 
     # Increase metadata sequence no
     param['seq_no'] += 1
@@ -319,10 +326,17 @@ def get_metadata(bucket, home):
     try:
         yield param
     finally:
-        log.info("Saving metadata...")
-        fh = tempfile.TemporaryFile()
-        dump_metadata(fh)
-        fh.seek(0)
+        if compression == 'LZMA':
+            param['DB-Format'] = 'dump'
+            log.info("Saving metadata...")
+            fh = tempfile.TemporaryFile()
+            dump_metadata(fh)
+            fh.seek(0)
+        else:
+            param['DB-Format'] = 'sqlite'
+            dbcm.execute('VACUUM')
+            fh = open(home + '.db', 'rb')
+
         log.info("Compressing & uploading metadata..")
         cycle_metadata(bucket)
         bucket.store_fh("s3ql_metadata", fh, param)
