@@ -35,7 +35,9 @@ the form `s3://<bucketname>`.
 
 When reading the authentication information for the S3 backend from
 the `authinfo` file, the `host` field is ignored, i.e. the first entry
-with `s3` as a backend will be used.
+with `s3` as a backend will be used. For example ::
+
+   backend s3 machine any myAWSaccessKeyId password myAwsSecretAccessKey
 
 Note that the bucket names come from a global pool, so chances are
 that your favorite name has already been taken by another S3 user.
