@@ -182,8 +182,8 @@ class AbstractBucket(object):
 
         convert_legacy_metadata(meta_raw)
 
-        compr_alg = meta_raw['Compression']
-        encr_alg = meta_raw['Encryption']
+        compr_alg = meta_raw['compression']
+        encr_alg = meta_raw['encryption']
         encrypted = (encr_alg != 'None')
 
         if encrypted:
@@ -268,25 +268,25 @@ class AbstractBucket(object):
         meta_raw = dict()
 
         if self.passphrase:
-            meta_raw['Encryption'] = 'AES'
+            meta_raw['encryption'] = 'AES'
             nonce = struct.pack(b'<f', time.time() - time.timezone) + bytes(key)
             meta_raw['meta'] = b64encode(encrypt(meta_buf, self.passphrase, nonce))
         else:
-            meta_raw['Encryption'] = 'None'
+            meta_raw['encryption'] = 'None'
             meta_raw['meta'] = b64encode(meta_buf)
 
         if self.compression == 'zlib':
             compr = zlib.compressobj(9)
-            meta_raw['Compression'] = 'ZLIB'
+            meta_raw['compression'] = 'ZLIB'
         elif self.compression == 'bzip2':
             compr = bz2.BZ2Compressor(9)
-            meta_raw['Compression'] = 'BZIP2'
+            meta_raw['compression'] = 'BZIP2'
         elif self.compression == 'lzma':
             compr = lzma.LZMACompressor(options={ 'level': 9 })
-            meta_raw['Compression'] = 'LZMA'
+            meta_raw['compression'] = 'LZMA'
         elif not self.compression:
             compr = DummyCompressor()
-            meta_raw['Compression'] = 'None'
+            meta_raw['compression'] = 'None'
         else:
             raise ValueError('Invalid compression algorithm')
 
@@ -350,7 +350,10 @@ class AbstractBucket(object):
 
     @abstractmethod
     def raw_store(self, key, fh, metadata):
-        '''Store contents of `fh` in `key` with metadata'''
+        '''Store contents of `fh` in `key` with metadata
+        
+        `metadata` has to be a dict with lower-case keys.
+        '''
         pass
 
 
@@ -565,35 +568,35 @@ def encrypt(buf, passphrase, nonce):
 
 
 def convert_legacy_metadata(meta):
-    if ('Encryption' in meta and
-        'Compression' in meta):
+    if ('encryption' in meta and
+        'compression' in meta):
         return
 
     if 'encrypted' not in meta:
-        meta['Encryption'] = 'None'
-        meta['Compression'] = 'None'
+        meta['encryption'] = 'None'
+        meta['compression'] = 'None'
         return
 
     s = meta.pop('encrypted')
 
     if s == 'True':
-        meta['Encryption'] = 'AES'
-        meta['Compression'] = 'BZIP2'
+        meta['encryption'] = 'AES'
+        meta['compression'] = 'BZIP2'
 
     elif s == 'False':
-        meta['Encryption'] = 'None'
-        meta['Compression'] = 'None'
+        meta['encryption'] = 'None'
+        meta['compression'] = 'None'
 
     elif s.startswith('AES/'):
-        meta['Encryption'] = 'AES'
-        meta['Compression'] = s[4:]
+        meta['encryption'] = 'AES'
+        meta['compression'] = s[4:]
 
     elif s.startswith('PLAIN/'):
-        meta['Encryption'] = 'None'
-        meta['Compression'] = s[6:]
+        meta['encryption'] = 'None'
+        meta['compression'] = s[6:]
     else:
         raise RuntimeError('Unsupported encryption')
 
-    if meta['Compression'] == 'BZ2':
-        meta['Compression'] = 'BZIP2'
+    if meta['compression'] == 'BZ2':
+        meta['compression'] = 'BZIP2'
 
