@@ -99,6 +99,7 @@ def main():
                            'fsck.s3ql = s3ql.cli.fsck:main',
                            'mkfs.s3ql = s3ql.cli.mkfs:main',
                            'mount.s3ql = s3ql.cli.mount:main',
+                           'expire_backups = s3ql.cli.expire_backups:main',
                            'stat.s3ql = s3ql.cli.statfs:main',
                            'tune.s3ql = s3ql.cli.tune:main',
                            'umount.s3ql = s3ql.cli.umount:main' ]
