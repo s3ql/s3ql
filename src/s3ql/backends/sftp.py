@@ -72,13 +72,13 @@ class Connection(AbstractConnection):
 
         self.sftp.rmdir(name)
 
-    def create_bucket(self, name, passphrase=None, compression='LZMA'):
+    def create_bucket(self, name, passphrase=None, compression='lzma'):
         """Create and return bucket"""
 
         self.sftp.mkdir(name)
         return self.get_bucket(name, passphrase, compression)
 
-    def get_bucket(self, name, passphrase=None, compression='LZMA'):
+    def get_bucket(self, name, passphrase=None, compression='lzma'):
         """Return Bucket instance for the bucket `name`
         
         Raises `KeyError` if the bucket does not exist.

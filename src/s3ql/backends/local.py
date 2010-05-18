@@ -31,7 +31,7 @@ class Connection(AbstractConnection):
         else:
             os.rmdir(name)
 
-    def create_bucket(self, name, passphrase=None, compression='BZIP2'):
+    def create_bucket(self, name, passphrase=None, compression='bzip2'):
         """Create and return a bucket"""
 
         if os.path.exists(name):
@@ -40,7 +40,7 @@ class Connection(AbstractConnection):
 
         return self.get_bucket(name, passphrase, compression)
 
-    def get_bucket(self, name, passphrase=None, compression='BZIP2'):
+    def get_bucket(self, name, passphrase=None, compression='bzip2'):
         """Return a bucket instance for the bucket `name`
         
         Raises `KeyError` if the bucket does not exist.

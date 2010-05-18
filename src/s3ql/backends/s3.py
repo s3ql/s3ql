@@ -95,7 +95,7 @@ class Connection(AbstractConnection):
             self._push_conn(conn)
 
     def create_bucket(self, name, location, passphrase=None,
-                      compression='LZMA'):
+                      compression='lzma'):
         """Create and return an S3 bucket
         
         Note that a call to `get_bucket` right after creation may fail,
@@ -115,7 +115,7 @@ class Connection(AbstractConnection):
 
         return Bucket(self, name, passphrase, compression)
 
-    def get_bucket(self, name, passphrase=None, compression='LZMA'):
+    def get_bucket(self, name, passphrase=None, compression='lzma'):
         """Return a bucket instance for the bucket `name`
         
         Raises `KeyError` if the bucket does not exist.
