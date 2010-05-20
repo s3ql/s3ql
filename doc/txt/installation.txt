@@ -147,7 +147,9 @@ not the case.
 
 The programs/libraries are required to run S3QL:
 
-* Kernel version 2.6.26 or newer.
+* Kernel version 2.6.9 or newer. However, starting with 
+  kernel 2.6.26 you will get significantly better write performance,
+  so you should use 2.6.26 or newer whenever possible.
 
 * The **Python development headers** should be available as a
   package in your distribution. The package is typically called
