@@ -127,6 +127,7 @@ def main(args=None):
             param['label'] = options.label
             param['blocksize'] = options.blocksize * 1024
             param['needs_fsck'] = False
+            param['DB-Format'] = 'dump'
             param['last_fsck'] = time.time() - time.timezone
             bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
 
