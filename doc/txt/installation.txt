@@ -9,10 +9,10 @@ S3QL depends on several other programs and libraries that have to be
 installed first. The best method to satisfy these dependencies depends
 on your distribution.
 
-Ubuntu/Debian
-=============
+Ubuntu
+======
 
-Installation under Ubuntu/Debian is very simple since S3QL and all
+Installation under Ubuntu is very simple since S3QL and all
 its dependencies are available as pre-build packages. To install them,
 first register the package repository by executing ::
 
@@ -24,6 +24,21 @@ Karmic, you will get a warning that the `fuse-utils` package needs to
 be upgraded as well, which you can safely confirm.
 
 
+Debian
+======
+
+Installation under Debian is usually simple since S3QL and its
+dependencies are available as pre-build packages. To install them,
+first register the package repository by adding ::
+
+  deb http://ppa.launchpad.net/nikratio/s3ql/ubuntu karmic main
+
+to `/etc/apt/sources.list` (if you are running the *testing* or
+*unstable* distribution then you should probably replace `lucid` by
+`karmic` in the above line). Then update the list of available
+packages with `aptitude update` and install s3ql with `aptitude
+install s3ql`. If you get a warning that the `fuse-utils` package
+needs to be upgraded as well you can safely confirm it.
 
 Fedora
 ======
