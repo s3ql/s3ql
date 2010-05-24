@@ -28,6 +28,14 @@ class Ctx(object):
         self.uid = randint(0, 2 ** 32)
         self.gid = randint(0, 2 ** 32)
 
+# Determine system clock granularity
+stamp1 = time.time()
+stamp2 = stamp1
+while stamp1 == stamp2:
+    stamp2 = time.time()
+CLOCK_GRANULARITY = 2 * (stamp2 - stamp1)
+del stamp1
+del stamp2
 
 class fs_api_tests(TestCase):
 
@@ -43,10 +51,10 @@ class fs_api_tests(TestCase):
         mkfs.init_tables()
 
         self.lock = threading.Lock()
-        self.server = fs.Operations(self.bucket, self.cachedir, 
-                                    self.lock, self.blocksize, cachesize=self.blocksize*5)
+        self.server = fs.Operations(self.bucket, self.cachedir,
+                                    self.lock, self.blocksize, cachesize=self.blocksize * 5)
         self.server.init()
-        
+
         # We don't want background flushing
         self.server.cache.io_thread.stop_event.set()
         self.server.cache.io_thread.join_and_raise()
@@ -74,7 +82,7 @@ class fs_api_tests(TestCase):
     def fsck(self):
         self.server.cache.clear()
         self.server.inodes.flush()
-        fsck.fsck(self.cachedir, self.bucket, 
+        fsck.fsck(self.cachedir, self.bucket,
                   { 'blocksize': self.blocksize })
         self.assertFalse(fsck.found_errors)
 
@@ -92,10 +100,11 @@ class fs_api_tests(TestCase):
         name = self.newname()
 
         inode_p_old = self.server.getattr(ROOT_INODE).copy()
+        time.sleep(CLOCK_GRANULARITY)
         self.server._create(ROOT_INODE, name, mode, ctx)
 
         id_ = dbcm.get_val('SELECT inode FROM contents WHERE name=? AND '
-                                'parent_inode = ?', (name, ROOT_INODE))
+                           'parent_inode = ?', (name, ROOT_INODE))
 
         inode = self.server.getattr(id_)
 
@@ -161,6 +170,7 @@ class fs_api_tests(TestCase):
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
                                          self.file_mode(), Ctx())
         self.server.release(fh)
+        time.sleep(CLOCK_GRANULARITY)
 
         inode_before = self.server.getattr(inode.id).copy()
         self.server.link(inode.id, inode_p_new.id, name)
@@ -205,6 +215,7 @@ class fs_api_tests(TestCase):
 
         self.server.write(fh, off, data)
         inode_before = self.server.getattr(inode.id).copy()
+        time.sleep(CLOCK_GRANULARITY)
         self.assertTrue(self.server.read(fh, off, len_) == data)
         inode_after = self.server.getattr(inode.id)
         self.assertGreater(inode_after.atime, inode_before.atime)
@@ -288,6 +299,7 @@ class fs_api_tests(TestCase):
         inode_p_new = self.server.mkdir(ROOT_INODE, self.newname(), self.dir_mode(), Ctx())
         inode_p_new_before = self.server.getattr(inode_p_new.id).copy()
         inode_p_old_before = self.server.getattr(ROOT_INODE).copy()
+        time.sleep(CLOCK_GRANULARITY)
 
         self.server.rename(ROOT_INODE, oldname, inode_p_new.id, newname)
 
@@ -326,6 +338,7 @@ class fs_api_tests(TestCase):
         self.server.release(fh)
         self.server.setxattr(inode2.id, 'test_xattr', '42*8')
 
+        time.sleep(CLOCK_GRANULARITY)
         self.server.rename(ROOT_INODE, oldname, inode_p_new.id, newname)
 
         inode_p_old_after = self.server.getattr(ROOT_INODE)
@@ -358,6 +371,7 @@ class fs_api_tests(TestCase):
 
         inode2 = self.server.mkdir(inode_p_new.id, newname, self.dir_mode(), Ctx())
 
+        time.sleep(CLOCK_GRANULARITY)
         self.server.rename(ROOT_INODE, oldname, inode_p_new.id, newname)
 
         inode_p_old_after = self.server.getattr(ROOT_INODE)
@@ -392,6 +406,7 @@ class fs_api_tests(TestCase):
                 'st_mtime': time.timezone + randint(0, 2 ** 32) / 10 ** 6
                 }
 
+        time.sleep(CLOCK_GRANULARITY)
         self.server.setattr(inode.id, attr)
         inode_new = self.server.getattr(inode.id)
         self.assertGreater(inode_new.ctime, inode_old.ctime)
@@ -447,6 +462,7 @@ class fs_api_tests(TestCase):
         name = self.newname()
 
         inode_p_before = self.server.getattr(ROOT_INODE).copy()
+        time.sleep(CLOCK_GRANULARITY)
         inode = self.server.symlink(ROOT_INODE, name, target, Ctx())
         inode_p_after = self.server.getattr(ROOT_INODE)
 
@@ -471,6 +487,7 @@ class fs_api_tests(TestCase):
         self.server.setxattr(inode.id, 'test_xattr', '42*8')
 
         inode_p_before = self.server.getattr(ROOT_INODE).copy()
+        time.sleep(CLOCK_GRANULARITY)
         self.server.unlink(ROOT_INODE, name)
         inode_p_after = self.server.getattr(ROOT_INODE)
 
@@ -487,6 +504,7 @@ class fs_api_tests(TestCase):
         name = self.newname()
         inode = self.server.mkdir(ROOT_INODE, name, self.dir_mode(), Ctx())
         inode_p_before = self.server.getattr(ROOT_INODE).copy()
+        time.sleep(CLOCK_GRANULARITY)
         self.server.rmdir(ROOT_INODE, name)
         inode_p_after = self.server.getattr(ROOT_INODE)
 
@@ -525,6 +543,7 @@ class fs_api_tests(TestCase):
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
                                      self.file_mode(), Ctx())
         inode_before = self.server.getattr(inode.id).copy()
+        time.sleep(CLOCK_GRANULARITY)
         self.server.write(fh, off, data)
         inode_after = self.server.getattr(inode.id)
 
