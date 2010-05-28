@@ -1,5 +1,7 @@
 xxx, S3QL 0.15
 
+  * Corrected installation instructions for Debian
+
   * mount.s3ql: instead of --bzip2, --zlib and --no-compress, there
     is now just one option --compress=<alg>.
 

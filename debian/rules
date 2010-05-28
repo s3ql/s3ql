@@ -12,8 +12,13 @@ override_dh_installchangelogs:
 override_dh_compress:
 	dh_compress -X.txt -X.js
 
+# Fakeroot breaks testing
+#override_dh_install:
+#	python setup.py test
+#	dh_install
+
 override_dh_installdocs:
-	python setup.py build_sphinx
+	python2.6 setup.py build_sphinx
 	dh_installdocs
 
 override_dh_auto_clean:

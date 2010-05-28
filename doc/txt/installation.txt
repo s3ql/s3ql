@@ -16,10 +16,11 @@ Installation under Ubuntu is very simple since S3QL and all
 its dependencies are available as pre-build packages. To install them,
 first register the package repository by executing ::
 
+  sudo aptitude install python-software-properties
   sudo add-apt-repository ppa:nikratio/s3ql
 
-then update the list of available packages with `aptitude update` and
-install s3ql with `aptitude install s3ql`. If you are running Ubuntu
+then update the list of available packages with `sudo aptitude update` and
+install s3ql with `sudo aptitude install s3ql`. If you are running Ubuntu
 Karmic, you will get a warning that the `fuse-utils` package needs to
 be upgraded as well, which you can safely confirm.
 
@@ -27,18 +28,57 @@ be upgraded as well, which you can safely confirm.
 Debian
 ======
 
-Installation under Debian is usually simple since S3QL and its
-dependencies are available as pre-build packages. To install them,
-first register the package repository by adding ::
+If you are running Debian, building S3QL is straightforward because
+you can use the Debian packaging tools to create S3QL packages for
+your system. The following steps have been tested on Debian 6.0
+(*squeeze*), but the basic procedure should be the same for all Debian
+releases.
 
-  deb http://ppa.launchpad.net/nikratio/s3ql/ubuntu karmic main
 
-to `/etc/apt/sources.list` (if you are running the *testing* or
-*unstable* distribution then you should probably replace `lucid` by
-`karmic` in the above line). Then update the list of available
-packages with `aptitude update` and install s3ql with `aptitude
-install s3ql`. If you get a warning that the `fuse-utils` package
-needs to be upgraded as well you can safely confirm it.
+#. Register the package repository by adding ::
+
+     deb-src http://ppa.launchpad.net/nikratio/s3ql/ubuntu lucid main
+
+   to `/etc/apt/sources.list`. Do *not* replace `lucid` by the code
+   name of your Debian release, you will use the repository to download
+   the source code only.
+
+#. Register the repository GPG key and update the list of available
+   packages by executing ::
+
+     sudo gpg --no-options --no-default-keyring --secret-keyring /etc/apt/secring.gpg \
+              --trustdb-name /etc/apt/trustdb.gpg --keyring /etc/apt/trusted.gpg \
+              --keyserver keyserver.ubuntu.com --recv 9958C967
+     sudo aptitude update
+  
+#. Install the Debian build utilities and prepackaged S3QL dependencies::
+
+     sudo aptitude install dpkg-dev python-pycryptopp python-paramiko
+  
+#. Create and install the `python-apsw` package ::
+
+     sudo apt-get build-dep python-apsw
+     sudo apt-get source python-apsw
+     (cd python-apsw-*; dpkg-buildpackage -us -uc)
+     dpkg -i python-apsw_*.deb
+
+   (the third command will generate a lot of warnings, but they can
+   safely be ignored).
+
+#. Create and install the `python-pyliblzma` package ::
+
+     sudo apt-get build-dep python-pyliblzma
+     sudo apt-get source python-pyliblzma
+     (cd python-pyliblzma-*; dpkg-buildpackage -us -uc)
+     dpkg -i python-pyliblzma_*.deb
+
+#. Create and install the S3QL package ::
+
+     sudo apt-get build-dep s3ql
+     sudo apt-get source s3ql
+     (cd s3ql-*; dpkg-buildpackage -us -uc)
+     dpkg -i s3ql_*.deb
+
 
 Fedora
 ======

@@ -1,3 +1,9 @@
+s3ql (0.15) lucid; urgency=low
+
+  * New release.
+
+ -- Nikolaus Rath <Nikolaus@rath.org>  Fri, 28 May 2010 18:12:10 -0400
+
 s3ql (0.14-1) lucid; urgency=low
 
   * Initial Release.
