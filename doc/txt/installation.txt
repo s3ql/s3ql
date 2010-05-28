@@ -310,8 +310,7 @@ To install S3QL itself, proceed as follows:
 
 Now you have three options to complete the installation:
 
-* You can run the S3QL commands from the `bin/` directory. For that,
-  you have to execute `python setup.py build_ext --inplace` first.
+* You can run the S3QL commands from the `bin/` directory.
 
 * You can install S3QL system-wide for all users. To do that, you
   have to run `sudo python setup.py install`.
