@@ -133,9 +133,51 @@ def main(args=None):
                 dbcm.init(home + '.db')
                 metadata_loaded = True
         else:
-            if os.path.exists(home + '-cache') or os.path.exists(home + '.db'):
-                raise RuntimeError('cachedir exists, but no local metadata.'
-                                   'This should not happen.')
+            if os.path.exists(home + '-cache'):
+                print(textwrap.dedent('''
+                      Local cache files exist, but fsck can not determine what to do with it. If you
+                      commit the existing data, you may loose changes performed after the data has been
+                      generated. If you discard the existing data, you may loose the changes contained in
+                      the data.
+                      
+                      Please report this problem in the issue tracker on
+                      http://code.google.com/p/s3ql/issues/list and include the file ~/.s3ql/mount.log.
+                      '''))
+                print('Enter "use" to use the existing data or "discard" to discard it.',
+                      '> ', sep='\n', end='')
+                if options.batch:
+                    raise QuietError('(in batch mode, exiting)')
+                choice = sys.stdin.readline().strip().lower()
+                if choice == 'use':
+                    pass
+                elif choice == 'discard':
+                    shutil.rmtree(home + '-cache')
+                else:
+                    raise QuietError('Invalid input, aborting.')
+
+            if os.path.exists(home + 'db'):
+                print(textwrap.dedent('''
+                      Local metadata exist, but fsck can not determine what to do with it. If you use the
+                      existing metadata, you may loose changes performed after the local metadata has
+                      been saved. If you discard the existing metadata, you may loose changes contained
+                      therein.
+                      
+                      Please report this problem in the issue tracker on
+                      http://code.google.com/p/s3ql/issues/list and include the file ~/.s3ql/mount.log.
+                      '''))
+                print('Enter "use" to use the existing metadata or "discard" to discard it.',
+                      '> ', sep='\n', end='')
+                if options.batch:
+                    raise QuietError('(in batch mode, exiting)')
+                choice = sys.stdin.readline().strip().lower()
+                if choice == 'use':
+                    param = bucket.lookup('s3ql_metadata')
+                    dbcm.init(home + '.db')
+                    metadata_loaded = True
+                elif choice == 'discard':
+                    os.unlink(home + '-db')
+                else:
+                    raise QuietError('Invalid input, aborting.')
 
         if param is None:
             param = bucket.lookup('s3ql_metadata')
