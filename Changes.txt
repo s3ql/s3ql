@@ -1,4 +1,9 @@
-xxx, S3QL 0.15
+xxx, S3QL 0.16
+
+  *
+  
+
+2010-05-28, S3QL 0.15
 
   * Fixed test cases to handle systems with low system clock resolution.
 
