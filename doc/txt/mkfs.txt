@@ -24,7 +24,7 @@ You can specify the following options:
   -L LABEL              Filesystem label
   --blocksize=BLOCKSIZE
                         Maximum size of s3 objects in KB (default: 10240)
-  --plain               Create file system without encryption and compression.
+  --plain               Create unencrypted file system
   --debug=DEBUG         Activate debugging output from specified module. Use
                         `all` to get debug messages from all modules. This
                         option can be specified multiple times.
