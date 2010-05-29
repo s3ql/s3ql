@@ -27,7 +27,6 @@ import os
 import stat
 import threading
 import logging
-from contextlib import contextmanager
 import cPickle as pickle
 
 __all__ = [ 'main' ]
@@ -82,35 +81,131 @@ def main(args=None):
         lock = threading.Lock()
         fuse_opts = get_fuse_opts(options)
 
-        with get_metadata(bucket, home, options.compress) as param:
-            operations = fs.Operations(bucket, cachedir=home + '-cache', lock=lock,
-                                       blocksize=param['blocksize'],
-                                       cachesize=options.cachesize * 1024)
-            log.info('Mounting filesystem...')
-            llfuse.init(operations, options.mountpoint, fuse_opts, lock)
-            try:
-                if not options.fg:
-                    conn.prepare_fork()
-                    me = threading.current_thread()
-                    for t in threading.enumerate():
-                        if t is me:
-                            continue
-                        log.warn('Waiting for thread %s', t)
-                        t.join()
-                    if get_stdout_handler() is not None:
-                        logging.getLogger().removeHandler(get_stdout_handler())
-                    daemonize(options.homedir)
-                    conn.finish_fork()
+        # Get file system parameters
+        log.info('Getting file system parameters..')
+        seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
+        if not seq_nos:
+            raise QuietError('Old file system revision, please run tune.s3ql --upgrade first.')
+        seq_no = max(seq_nos)
+        param = bucket.lookup('s3ql_metadata')
 
-                if options.profile:
-                    prof.runcall(llfuse.main, options.single)
-                else:
-                    llfuse.main(options.single)
+        # Check revision
+        if param['revision'] < CURRENT_FS_REV:
+            raise QuietError('File system revision too old, please run tune.s3ql --upgrade first.')
+        elif param['revision'] > CURRENT_FS_REV:
+            raise QuietError('File system revision too new, please update your '
+                             'S3QL installation.')
 
-            finally:
-                llfuse.close()
-                if operations.encountered_errors:
-                    param['needs_fsck'] = True
+        # Check that the fs itself is clean
+        if param['needs_fsck']:
+            raise QuietError("File system damaged, run fsck!")
+
+        # Check for unclean shutdown on other computer
+        if param['seq_no'] < seq_no:
+            if isinstance(bucket, s3.Bucket):
+                raise QuietError(textwrap.fill(textwrap.dedent('''
+                    It appears that the file system is still mounted somewhere else. If this is not
+                    the case, the file system may have not been unmounted cleanly or the data from
+                    the most-recent mount may have not yet propagated through S3. In the later case,
+                    waiting for a while should fix the problem, in the former case you should try to
+                    run fsck on the computer where the file system has been mounted most recently.
+                    ''')))
+            else:
+                raise QuietError(textwrap.fill(textwrap.dedent('''
+                    It appears that the file system is still mounted somewhere else. If this is not
+                    the case, the file system may have not been unmounted cleanly and you should try
+                    to run fsck on the computer where the file system has been mounted most recently.
+                    ''')))
+        elif param['seq_no'] > seq_no:
+            raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
+
+        # Download metadata
+        log.info("Downloading & uncompressing metadata...")
+        fh = os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
+                               stat.S_IRUSR | stat.S_IWUSR), 'w+b')
+        if param['DB-Format'] == 'dump':
+            fh.close()
+            dbcm.init(home + '.db')
+            fh = tempfile.TemporaryFile()
+            bucket.fetch_fh("s3ql_metadata", fh)
+            fh.seek(0)
+            log.info('Reading metadata...')
+            restore_metadata(fh)
+            fh.close()
+        elif param['DB-Format'] == 'sqlite':
+            bucket.fetch_fh("s3ql_metadata", fh)
+            fh.close()
+            dbcm.init(home + '.db')
+        else:
+            raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
+
+        # Increase metadata sequence no
+        param['seq_no'] += 1
+        bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
+        for i in seq_nos:
+            if i < param['seq_no'] - 5:
+                try:
+                    del bucket['s3ql_seq_no_%d' % i ]
+                except KeyError:
+                    pass # Key list may not be up to date
+
+        # Save parameters
+        pickle.dump(param, open(home + '.params', 'wb'), 2)
+
+        operations = fs.Operations(bucket, cachedir=home + '-cache', lock=lock,
+                                   blocksize=param['blocksize'],
+                                   cachesize=options.cachesize * 1024)
+
+        log.info('Mounting filesystem...')
+        llfuse.init(operations, options.mountpoint, fuse_opts, lock)
+        try:
+            if not options.fg:
+                conn.prepare_fork()
+                me = threading.current_thread()
+                for t in threading.enumerate():
+                    if t is me:
+                        continue
+                    log.warn('Waiting for thread %s', t)
+                    t.join()
+                if get_stdout_handler() is not None:
+                    logging.getLogger().removeHandler(get_stdout_handler())
+                daemonize(options.homedir)
+                conn.finish_fork()
+
+            if options.profile:
+                prof.runcall(llfuse.main, options.single)
+            else:
+                llfuse.main(options.single)
+
+        finally:
+            llfuse.close()
+
+        if options.compress == 'LZMA':
+            param['DB-Format'] = 'dump'
+            log.info("Saving metadata...")
+            fh = tempfile.TemporaryFile()
+            dump_metadata(fh)
+            fh.seek(0)
+        else:
+            param['DB-Format'] = 'sqlite'
+            dbcm.execute('VACUUM')
+            fh = open(home + '.db', 'rb')
+
+        if operations.encountered_errors:
+            # Upload most recent version, but mark as damaged and still outdated 
+            # since we keep the local version
+            param['needs_fsck'] = True
+            param['seq_no'] -= 1
+
+        log.info("Compressing & uploading metadata..")
+        cycle_metadata(bucket)
+        bucket.store_fh("s3ql_metadata", fh, param)
+        fh.close()
+
+        if not operations.encountered_errors:
+            log.debug("Cleaning up...")
+            os.unlink(home + '.db')
+            os.unlink(home + '.params')
 
     if options.profile:
         tmp = tempfile.NamedTemporaryFile()
@@ -126,8 +221,8 @@ def main(args=None):
         fh.close()
 
     if operations.encountered_errors:
-        raise QuietError('Some errors were encountered while the file system was mounted.\n'
-                         'Please examine the log files for more information.')
+        raise QuietError('Some errors were encountered while the file system was mounted,\n'
+                         'you should run fsck.s3ql and examine ~/.s3ql/mount.log.')
 
 
 def get_fuse_opts(options):
@@ -248,104 +343,6 @@ def parse_args(args):
         options.compress = None
 
     return options
-
-
-@contextmanager
-def get_metadata(bucket, home, compression):
-    # Get file system parameters
-    log.info('Getting file system parameters..')
-    seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
-    if not seq_nos:
-        raise QuietError('Old file system revision, please run tune.s3ql --upgrade first.')
-    seq_no = max(seq_nos)
-    param = bucket.lookup('s3ql_metadata')
-
-    # Check revision
-    if param['revision'] < CURRENT_FS_REV:
-        raise QuietError('File system revision too old, please run tune.s3ql --upgrade first.')
-    elif param['revision'] > CURRENT_FS_REV:
-        raise QuietError('File system revision too new, please update your '
-                         'S3QL installation.')
-
-    # Check that the fs itself is clean
-    if param['needs_fsck']:
-        raise QuietError("File system damaged, run fsck!")
-
-    # Check for unclean shutdown on other computer
-    if param['seq_no'] < seq_no:
-        if isinstance(bucket, s3.Bucket):
-            raise QuietError(textwrap.fill(textwrap.dedent('''
-                It appears that the file system is still mounted somewhere else. If this is not
-                the case, the file system may have not been unmounted cleanly or the data from
-                the most-recent mount may have not yet propagated through S3. In the later case,
-                waiting for a while should fix the problem, in the former case you should try to
-                run fsck on the computer where the file system has been mounted most recently.
-                ''')))
-        else:
-            raise QuietError(textwrap.fill(textwrap.dedent('''
-                It appears that the file system is still mounted somewhere else. If this is not
-                the case, the file system may have not been unmounted cleanly and you should try
-                to run fsck on the computer where the file system has been mounted most recently.
-                ''')))
-    elif param['seq_no'] > seq_no:
-        raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
-
-    # Download metadata
-    log.info("Downloading & uncompressing metadata...")
-    fh = os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
-                           stat.S_IRUSR | stat.S_IWUSR), 'w+b')
-    if param['DB-Format'] == 'dump':
-        fh.close()
-        dbcm.init(home + '.db')
-        fh = tempfile.TemporaryFile()
-        bucket.fetch_fh("s3ql_metadata", fh)
-        fh.seek(0)
-        log.info('Reading metadata...')
-        restore_metadata(fh)
-        fh.close()
-    elif param['DB-Format'] == 'sqlite':
-        bucket.fetch_fh("s3ql_metadata", fh)
-        fh.close()
-        dbcm.init(home + '.db')
-    else:
-        raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
-
-    # Increase metadata sequence no
-    param['seq_no'] += 1
-    bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
-    for i in seq_nos:
-        if i < param['seq_no'] - 5:
-            try:
-                del bucket['s3ql_seq_no_%d' % i ]
-            except KeyError:
-                pass # Key list may not be up to date
-
-    # Save parameters
-    pickle.dump(param, open(home + '.params', 'wb'), 2)
-
-    try:
-        yield param
-    finally:
-        if compression == 'LZMA':
-            param['DB-Format'] = 'dump'
-            log.info("Saving metadata...")
-            fh = tempfile.TemporaryFile()
-            dump_metadata(fh)
-            fh.seek(0)
-        else:
-            param['DB-Format'] = 'sqlite'
-            dbcm.execute('VACUUM')
-            fh = open(home + '.db', 'rb')
-
-        log.info("Compressing & uploading metadata..")
-        cycle_metadata(bucket)
-        bucket.store_fh("s3ql_metadata", fh, param)
-        fh.close()
-
-        # Remove database
-        log.debug("Cleaning up...")
-        os.unlink(home + '.db')
-        os.unlink(home + '.params')
 
 
 if __name__ == '__main__':
