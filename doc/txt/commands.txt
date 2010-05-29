@@ -20,6 +20,11 @@ de-duplication and compression.
 `stat.s3ql` also has some additional options. Run `stat.s3ql --help`
 for a complete list.
 
+`stat.s3ql` can only be called by the user that mounted the file
+system (even if it was mounted with `--allow-other` or
+`--allow-root`). This limitation will hopefully be removed in the
+future (see `issue 155 <http://code.google.com/p/s3ql/issues/detail?id=155>`_).
+
 Changing the Passphrase
 =======================
 
