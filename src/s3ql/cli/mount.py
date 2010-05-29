@@ -173,7 +173,7 @@ def parse_args(args):
                 if opt in ('rw', 'defaults', 'auto', 'noauto', 'user', 'nouser', 'dev', 'nodev',
                            'suid', 'nosuid', 'atime', 'diratime', 'exec', 'noexec', 'group',
                            'mand', 'nomand', '_netdev', 'nofail', 'norelatime', 'strictatime',
-                           'owner', 'users'):
+                           'owner', 'users', 'nobootwait'):
                     continue
                 elif opt == 'ro':
                     raise QuietError('Read-only mounting not supported.')
