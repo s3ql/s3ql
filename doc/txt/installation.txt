@@ -7,193 +7,21 @@
 
 S3QL depends on several other programs and libraries that have to be
 installed first. The best method to satisfy these dependencies depends
-on your distribution.
+on your distribution. In some cases S3QL and all its dependencies can
+be installed with as little as three commands, while in other cases more work
+may be required.
 
-Ubuntu
-======
-
-Installation under Ubuntu is very simple since S3QL and all
-its dependencies are available as pre-build packages. To install them,
-first register the package repository by executing ::
-
-  sudo aptitude install python-software-properties
-  sudo add-apt-repository ppa:nikratio/s3ql
-
-then update the list of available packages with `sudo aptitude update` and
-install s3ql with `sudo aptitude install s3ql`. If you are running Ubuntu
-Karmic, you will get a warning that the `fuse-utils` package needs to
-be upgraded as well, which you can safely confirm.
+The `S3QL Wiki <http://code.google.com/p/s3ql/w/list>`_ contains
+installation instructions for quite a few different Linux
+distributions. You should only use the generic instructions in this
+manual if your distribution is not included in the `distribution-specific
+installation instructions
+<http://code.google.com/p/s3ql/w/list?q=label:Installation>`_ on the wiki.
 
 
-Debian
-======
 
-If you are running Debian, building S3QL is straightforward because
-you can use the Debian packaging tools to create S3QL packages for
-your system. The following steps have been tested on Debian 6.0
-(*squeeze*), but the basic procedure should be the same for all Debian
-releases.
-
-
-#. Register the package repository by adding ::
-
-     deb-src http://ppa.launchpad.net/nikratio/s3ql/ubuntu lucid main
-
-   to `/etc/apt/sources.list`. Do *not* replace `lucid` by the code
-   name of your Debian release, you will use the repository to download
-   the source code only.
-
-#. Register the repository GPG key and update the list of available
-   packages by executing ::
-
-     sudo gpg --no-options --no-default-keyring --secret-keyring /etc/apt/secring.gpg \
-              --trustdb-name /etc/apt/trustdb.gpg --keyring /etc/apt/trusted.gpg \
-              --keyserver keyserver.ubuntu.com --recv 9958C967
-     sudo aptitude update
-  
-#. Install the Debian build utilities and prepackaged S3QL dependencies::
-
-     sudo aptitude install dpkg-dev python-pycryptopp python-paramiko
-  
-#. Create and install the `python-apsw` package ::
-
-     sudo apt-get build-dep python-apsw
-     sudo apt-get source python-apsw
-     (cd python-apsw-*; dpkg-buildpackage -us -uc)
-     dpkg -i python-apsw_*.deb
-
-   (the third command will generate a lot of warnings, but they can
-   safely be ignored).
-
-#. Create and install the `python-pyliblzma` package ::
-
-     sudo apt-get build-dep python-pyliblzma
-     sudo apt-get source python-pyliblzma
-     (cd python-pyliblzma-*; dpkg-buildpackage -us -uc)
-     dpkg -i python-pyliblzma_*.deb
-
-#. Create and install the S3QL package ::
-
-     sudo apt-get build-dep s3ql
-     sudo apt-get source s3ql
-     (cd s3ql-*; dpkg-buildpackage -us -uc)
-     dpkg -i s3ql_*.deb
-
-
-Fedora
-======
-
-Starting with Fedora 12, most of S3QL's dependencies are
-already available as packages and can be installed with following
-command (if you want, you can remove packages ending
-in `-devel` again when the installation is complete)::
-
-  sudo yum install python-devel libattr-devel fuse-devel cmake \
-              pycryptopp python-paramiko xz-devel
-
-In addition to that, the GCC-XML compiler needs to be compiled from
-source as follows:
-
-#. Retrieve the sources from the CVS tree with the command ::
-
-     cvs -d :pserver:anoncvs@www.gccxml.org:/cvsroot/GCC_XML login
-
-   (just press enter when asked for a password) followed by ::
-
-     cvs -d :pserver:anoncvs@www.gccxml.org:/cvsroot/GCC_XML co gccxml
-
-   This will create a new directory called `gccxml` in the current directory.
-
-#. Change into the new `gccxml` directory and create a new
-   sub-directory `gccxml-build` ::
-
-     cd gccxml
-     mkdir gccxml-build
-
-#. Change into the build directory and build and install gccxml with the commands ::
-
-     cd gccxml-build
-     cmake ..
-     make
-     sudo make install
-
-After that, you also have to install the `Python APSW module
-<http://code.google.com/p/apsw/>`_:
-
-#. Download the source from http://code.google.com/p/apsw/downloads/list
-#. Extract the zip file and change into the new directory
-#. Run `python setup.py fetch --sqlite build install --user` to
-   install the module into `~/.local` or run `sudo python setup.py fetch
-   --sqlite build install` to install system-wide.
-
-   You will get a lot of compiler warnings add this step, but this is
-   expected and no cause for concern.
-
-Finally, S3QL also requires the `PyLibLZMA
-<http://pypi.python.org/pypi/pyliblzma>`_ and `unittest2
-<http://pypi.python.org/pypi/unittest2>`_ Python modules. However,
-these modules will be downloaded and installed automatically during
-the S3QL installation if necessary (the PyLibLZMA module needs to
-be version 0.5.3 or newer).
-
-Once all the dependencies have been satisfied as described, you can
-continue with :ref:`inst-s3ql`.
-
-Thanks to Cliff Stanford for helping with these instructions.
-
-CentOs
-======
-
-Under CentOS 5, you can install most of S3QL's dependencies with the
-following commands, to be run as root: (thanks to `heri16
-<http://code.google.com/u/heri16/>`_)::
-
-  yum install libattr-devel fuse-libs fuse-devel fuse gcc-c++ bzip2 unzip
-
-  wget http://download.fedora.redhat.com/pub/epel/5/i386/epel-release-5-3.noarch.rpm
-  yum --nogpgcheck localinstall epel-release-5-3.noarch.rpm
-  yum --enablerepo=epel install libffi
-  yum --enablerepo=epel install xz-libs xz-devel xz
-
-  wget http://yum.chrislea.com/centos/5/i386/chl-release-5-3.noarch.rpm
-  yum --nogpgcheck localinstall chl-release-5-3.noarch.rpm
-  yum --enablerepo=chl install python26 python26-devel
-
-  wget http://packages.sw.be/rpmforge-release/rpmforge-release-0.5.1-1.el5.rf.i386.rpm
-  yum --nogpgcheck localinstall rpmforge-release-0.5.1-1.el5.rf.i386.rpm
-  yum --enablerepo=rpmforge install cmake
-
-  cvs -d :pserver:anoncvs@www.gccxml.org:/cvsroot/GCC_XML login
-  # (just press enter when prompted for a password)
-  cvs -d :pserver:anoncvs@www.gccxml.org:/cvsroot/GCC_XML co gccxml
-  mkdir gccxml-build
-  cd gccxml-build
-  cmake ../gccxml
-  make
-  make test
-  make install
-  cd ..
-
-  wget http://pypi.python.org/packages/source/p/pycryptopp/pycryptopp-0.5.17.tar.gz
-  tar -xf pycryptopp-0.5.17.tar.gz
-  cd pycryptopp*
-  python26 setup.py build
-  python26 setup.py test
-  python26 setup.py install
-  cd ..
-
-CentOS specific installation instructions for the `Python APSW module
-<http://code.google.com/p/apsw/>`_, the `Paramiko Python Module
-<http://www.lag.net/paramiko/>`_ and the `XZ Utils
-<http://tukaani.org/xz/>`_ are not yet available. Please refer to the
-instructions for other distributions and post your results to the
-mailing list, so that this documentation can be extended.
-
-Once all the dependencies have been satisfied as described, you can
-continue with :ref:`inst-s3ql`.
-
-Other distributions
-===================
+Dependencies
+============
 
 The following is a list of the programs and libraries required by
 S3QL. Generally, you should first check if your distribution already

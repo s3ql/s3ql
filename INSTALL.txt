@@ -1,0 +1,17 @@
+Installation
+------------
+
+S3QL depends on several other programs and libraries that have to be installed
+first. The best method to satisfy these dependencies depends on your
+distribution. In some cases S3QL and all its dependencies can be installed with as
+little as three commands, while in other cases more work may be required.
+
+The S3QL Wiki contains installation instructions for quite a few different
+Linux distributions:
+
+  http://code.google.com/p/s3ql/w/list?q=label:Installation
+
+If your distribution is not included in this list, you can fall back on the
+more detailed, but also more complex General Installation Instructions in the
+S3QL User's Guide (which is included in the doc/ directory and available
+online on http://www.rath.org/s3ql-docs/).

@@ -17,6 +17,9 @@ serviceable as possible. Solid error detection and error handling have been
 included from the very first line, and S3QL comes with extensive automated test
 cases for all its components.
 
+Homepage: http://code.google.com/p/s3ql/
+
+
 Features
 
   • Transparency. Generally, you will not be able to distinguish S3QL from a
@@ -85,28 +88,3 @@ Please report any problems or bugs that you may encounter on the Issue Tracker.
 
 In case S3QL does not (yet) fit your needs, you might want to take a look at
 the list of related projects.
-
-
-Typical Usage
---------------
-
-Before a file system can be mounted, the backend which will hold the data has
-to be initialized. This is done with the mkfs.s3ql command. Here we are using
-the Amazon S3 backend, and nikratio_s3ql_bucket is the S3 bucket in which the
-file system will be stored.
-
-mkfs.s3ql s3://nikratio_s3ql_bucket
-
-To mount the S3QL file system stored in the S3 bucket nikratio_s3ql_bucket in
-the directory /mnt/s3ql, enter:
-
-mount.s3ql s3://nikratio_s3ql_bucket /mnt/s3ql
-
-Now you can instruct your favorite backup program to run a backup into the
-directory /mnt/s3ql and the data will be stored an Amazon S3. When you are
-done, the file system has to be unmounted with
-
-umount.s3ql /mnt/s3ql
-
-Please refer to the documentation for detailed installation and usage
-instructions.
