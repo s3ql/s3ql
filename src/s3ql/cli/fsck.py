@@ -77,6 +77,14 @@ def main(args=None):
     init_logging_from_options(options, 'fsck.log')
 
     with get_backend(options) as (conn, bucketname):
+
+        # Check if fs is mounted on this computer
+        # This is not foolproof but should prevent common mistakes
+        with open('/proc/mounts', 'r') as fh:
+            for line in fh:
+                if line.startswith(options.storage_url):
+                    raise QuietError('Can not check mounted file system.')
+
         if not bucketname in conn:
             raise QuietError("Bucket does not exist.")
         bucket = conn.get_bucket(bucketname)

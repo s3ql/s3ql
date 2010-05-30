@@ -1,7 +1,8 @@
 xxx, S3QL 0.16
 
-  *
-  
+  * fsck.s3ql now does a rudimentary check if the file system is still
+    mounted to prevent checking a mounted file system.
+
 
 2010-05-28, S3QL 0.15
 
