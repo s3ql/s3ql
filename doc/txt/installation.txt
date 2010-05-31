@@ -20,65 +20,31 @@ installation instructions
 
 
 
-Dependencies
-============
+Runtime Dependencies
+====================
 
-The following is a list of the programs and libraries required by
-S3QL. Generally, you should first check if your distribution already
-provides a suitable packages and only install from source if that is
-not the case.
+The following is a list of the programs and libraries required for
+running S3QL. Generally, you should first check if your distribution
+already provides a suitable packages and only install from source if
+that is not the case.
 
-The programs/libraries are required to run S3QL:
-
-* Kernel version 2.6.9 or newer. However, starting with 
-  kernel 2.6.26 you will get significantly better write performance,
-  so you should use 2.6.26 or newer whenever possible.
-
-* The **Python development headers** should be available as a
-  package in your distribution. The package is typically called
-  something like `python-dev`, `python-devel` or `python2.6-devel`.
-  To check if this package is installed, try to execute
-  `python-config` (it should print out a brief help message).
-
-* The **extended attribute headers** should be available as a
-  package in your distribution. The package is typically called
-  something like `libattr-dev`, `libattr1-dev`, `libattr-devel` or
-  `libattr1-devel`. To see if this package is installed, check for a
-  file called `xattr.h` in either `/usr/include/attr/` or
-  `/usr/local/include/attr/`.
+* Kernel version 2.6.9 or newer. Starting with kernel 2.6.26
+  you will get significantly better write performance, so you should
+  actually use *2.6.26 or newer whenever possible*.
 
 * The `FUSE Library <http://fuse.sourceforge.net/>`_ should already be
   installed on your system. However, you have to make sure that you
-  have at least version 2.8 and that you also have the FUSE headers
-  installed (the package is typically called something like
-  `fuse-dev`, `libfuse-dev`, `fuse-devel` or `libfuse-devel`).
+  have at least version 2.8.0. 
 
-  To test if the FUSE library is installed with development headers,
-  run the command `pkg-config --modversion fuse`. It should print a
-  version number.
-
-* The `XZ Utils <http://tukaani.org/xz/>`_ (formerly known as LZMA Utils)
-  are probably available as a package for your system. Make sure that
-  you also install the development headers, which may be in a separate
-  package. The packages are typically called something like `liblzma`
-  and `liblzma-dev` or `libxz` and `libxz-dev`.
-
-  To test if the correct package is installed, run the command
-  `pkg-config --modversion liblzma`. It should print a version number.
-
-* The `GCC-XML compiler <http://www.gccxml.org>`_ compiler may or may
-  not be available as a package. To check if GCC-XML is installed, try
-  to run `gccxml --version`. If you need to install GCC-XML manually,
-  please refer to the instructions for installing under Fedora or the
-  `GCC-XML installation instructions
-  <http://www.gccxml.org/HTML/Install.html>`_.
+* The `XZ Utils <http://tukaani.org/xz/>`_ (formerly known as LZMA
+  Utils) are probably available as a package for your system.
 
 * The `PyCrypto++ Python Module
   <http://pypi.python.org/pypi/pycryptopp>`_ may or may not be
   available as a package. To check if this module is installed, try to
   execute `python -c 'import pycryptopp'`. To manually install
   PyCrypto++, download it from the website, extract it and run `python
-  setup.py install --user`.
+  setup.py install`.
 
 * The `APSW Python Module <http://code.google.com/p/apsw/>`_ may be
   available as a package, but most likely the version of the package
@@ -89,9 +55,9 @@ The programs/libraries are required to run S3QL:
 
   If APSW is installed, this should print two version numbers which
   both have to be at least 3.6.19. To install APSW manually, download
-  it from the website, extract it and run `python setup.py install
-  --user`. You will get a lot of compiler warnings add this step, but
-  this is expected and no cause for concern.
+  it from the website, extract it and run `python setup.py fetch
+  --sqlite install`. You will get a lot of compiler warnings add this
+  step, but this is expected and no cause for concern.
 
 * The `PyLibLZMA Python module
   <http://pypi.python.org/pypi/pyliblzma>`_ is probably not yet
@@ -102,8 +68,64 @@ The programs/libraries are required to run S3QL:
   `python -c 'import lzma; print lzma.__version__'`. This should print
   a version number. You need at least version 0.5.3.
 
+* If you want to use the SFTP backend, then you also need the
+  `Paramiko Python Module <http://www.lag.net/paramiko/>`_. It may or
+  may not be available as a package. To check if this module is
+  installed, try to execute `python -c 'import paramiko'`. 
+
+  
+Build Dependencies
+==================
+
+To build S3QL from source, you must have installed both the runtime
+dependencies listed above and the following compile-time dependencies.
+Once S3QL has been installed, the compile-time dependencies can be
+removed again.
+
+* The **Python development headers** should be available as a
+  package in your distribution. The package is typically called
+  something like `python-dev`, `python-devel` or `python2.6-devel`.
+  To check if this package is installed, try to execute
+  `python-config` (it should print out a brief help message).
+
+* The **extended attribute development headers** should be available as a
+  package in your distribution. The package is typically called
+  something like `libattr-dev`, `libattr1-dev`, `libattr-devel` or
+  `libattr1-devel`. To see if this package is installed, check for a
+  file called `xattr.h` in either `/usr/include/attr/` or
+  `/usr/local/include/attr/`.
+
+* The **pkg-config** program.
+
+* The **FUSE development headers**. If you installed FUSE from source,
+  the headers are already installed. If you installed FUSE from a
+  package, you probably need to install another package called
+  something like `fuse-dev`, `libfuse-dev`, `fuse-devel` or
+  `libfuse-devel`.
+
+  To test if the FUSE development headers are installed, run the
+  command `pkg-config --modversion fuse`. It should print a version
+  number.
+
+* The **XZ-Utils development headers**. If you installed XZ-Utils from
+  source, the headers are already installed. If you installed XZ-Utils
+  from a package, you probably need to install another package called
+  something like `liblzma-dev`, `libxz-dev`, `liblzma-devel` or
+  `libxz-devel`.
+
+  To test if the XZ-Utils development headers are installed, run the
+  command `pkg-config --modversion liblzma`. It should print a version
+  number.
+
+* The `GCC-XML compiler <http://www.gccxml.org>`_ compiler may or may
+  not be available as a package. To check if GCC-XML is installed, try
+  to run `gccxml --version`. If you need to install GCC-XML manually,
+  please refer to the instructions for installing under Fedora or the
+  `GCC-XML installation instructions
+  <http://www.gccxml.org/HTML/Install.html>`_.
+
 * The `unittest2 Python module <http://pypi.python.org/pypi/pyliblzma>`_ is
-  probably not yet available as a package. It will, however, be
+  probably not available as a package. It will, however, be
   automatically downloaded and installed during the S3QL installation
   if required.
 
@@ -111,15 +133,6 @@ The programs/libraries are required to run S3QL:
   `python -c 'import unittest2`. The command should succeed without
   printing anything.
 
-* If you want to use the SFTP backend, then you also need the
-  `Paramiko Python Module <http://www.lag.net/paramiko/>`_. It may or
-  may not be available as a package. To check if this module is
-  installed, try to execute `python -c 'import paramiko'`. To manually
-  install Paramiko, download it from the website, extract it and run
-  `python setup.py install --user`.
-
-Once all the dependencies have been satisfied as described, you can
-continue with :ref:`inst-s3ql`.
 
 .. _inst-s3ql:
 
@@ -130,13 +143,13 @@ To install S3QL itself, proceed as follows:
 
 1. Download S3QL from http://code.google.com/p/s3ql/downloads/list
 2. Unpack it into a folder of your choice
-3. Run `python setup.py build` to build the package
+3. Run `python setup.py build_ctypes` to build the package
 4. Run `python setup.py test` to run a self-test. If this fails, ask
    for help on the `mailing list
    <http://groups.google.com/group/s3ql>`_ or report a bug in the
    `issue tracker <http://code.google.com/p/s3ql/issues/list>`_.
 
-Now you have three options to complete the installation:
+Now you have three options:
 
 * You can run the S3QL commands from the `bin/` directory.
 
