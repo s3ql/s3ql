@@ -55,3 +55,12 @@ Known Issues
   Luckily enough, as long as you have less than about 2 thousand
   million directory entries (2^31), the chances for this are totally
   irrelevant and you don't have to worry about it.
+
+* When you mount from `fstab` and also rely on your system's standard
+  mechanism for unmounting (i.e., you don't explicitly unmount with
+  `umount.s3ql`), the unmounting process will *not* block until all
+  data has been uploaded. So you have to take care to wait for the
+  `mount.s3ql` process to terminate before you shut down the system.
+  For this reason it is generally a better idea to mount and umount
+  S3QL file systems in a dedicated init script that uses `umount.s3ql`
+  for unmounting and thereby blocks until all data has been uploaded.
