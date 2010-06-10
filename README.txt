@@ -68,9 +68,12 @@ Development Status
 
 S3QL is in beta stage. This means that:
 
-  • All core features have been implemented and you can be reasonably confident
-    that any bugs that you might still encounter will not endanger your stored
-    data.
+  • There are still plenty of bugs in the code and you should be ready to deal
+    with them. Please report problems on the mailing list or issue tracker,
+    usually they are resolved in less than a day.
+
+  • However, you can be reasonably confident that the bugs (although
+    inconvenient) will not endanger your stored data.
 
   • The author is using this version of S3QL as his main backup system on
     several computers and stores about 10 GB of data daily. Byte-by-byte
@@ -85,6 +88,3 @@ S3QL is in beta stage. This means that:
     to recreate the file system when you upgrade to a newer version of S3QL.
 
 Please report any problems or bugs that you may encounter on the Issue Tracker.
-
-In case S3QL does not (yet) fit your needs, you might want to take a look at
-the list of related projects.
