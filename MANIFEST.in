@@ -4,7 +4,9 @@ graft contrib
 graft tests
 graft bin
 include src/*.py src/*.h src/*.zip
-include Changes.txt 
+include Changes.txt
+include INSTALL.txt
+include README.txt
 exclude src/llfuse/ctypes_api.py
 exclude src/s3ql/libc_api.py
 exclude MANIFEST.in
