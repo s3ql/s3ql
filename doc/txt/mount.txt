@@ -140,45 +140,47 @@ Cache expiration (i.e., removal of blocks from the cache) is only done
 when the maximum cache size is reached. S3QL always expires the least
 recently used blocks first.
 
-Mounting in `/etc/fstab`
-========================
 
-It is also possible to mount an S3QL file system automatically in
-`/etc/fstab`. For that, S3QL has to be installed system-wide (see
-:ref:`inst-s3ql`) and you have to place a copy of the `mount.s3ql`
-command in the `/sbin` directory.
+Automatic Mounting
+==================
 
-A sample entry for S3QL in `/etc/fstab` would look like
-this::
+If you want to mount and umount an S3QL file system automatically at
+system startup and shutdown, you have two options. You can either add
+it to `/etc/fstab` like any other file system, or you can create
+a dedicated init script.
+
+The first option is simpler, but not recommended. Since file systems
+mounted in `/etc/fstab` will always be unmounted with the `umount`
+command, the call will *not* block until all data has been uploaded
+(this is a FUSE limitation, see `issue 159
+<http://code.google.com/p/s3ql/issues/detail?id=159>`_) and your
+system will shut down (or restart) before the upload is complete. If
+for some reason you want to do this nevertheless, you have to copy the
+`mount.s3ql` program to `/sbin` and use the `homedir=` and `_netdev`
+mount options, e.g. ::
 
   s3://my_s3ql_bucket     /mnt/s3     s3ql    homedir=/var/s3ql,allow-other,_netdev  0  0
 
-Most likely you will have to specify the `homedir` option
-when mounting from fstab because the `$HOME` environment variable is
-not set in this case (and `mount.s3ql` cannot figure out a sensible
-default for `--homedir` without it). The `_netdev` option signals that
-this file system needs network access.
 
-**Warning:** When you mount from `fstab` and also rely on your
-system's standard mechanism for unmounting (i.e., you don't explicitly
-unmount with `umount.s3ql`), the unmounting process will *not* block
-until all data has been uploaded. So you have to take care to wait
-for the `mount.s3ql` process to terminate before you shut down the
-system. For this reason it is generally a better idea to mount and
-umount S3QL file systems in a dedicated init script that uses
-`umount.s3ql` for unmounting and thereby blocks until all data has
-been uploaded.
+The better option is to use a dedicated init script that mounts and
+umounts the file system using the `mount.s3ql` and `umount.s3ql`
+commands. The correct place and format for this script depends on your
+distribution, usual locations are `/etc/init.d/` and `/etc/init/`.
 
 
-When mounting from `fstab` you should also make sure that the file system
-is unmounted every once in a while. S3QL flushes the file system
-metadata only when the file system is unmounted, so if you had an S3QL
-file system mounted for several days and then your harddisk crashes
-(so that `fsck.s3ql` cannot recover the local metadata), you will
-loose all the changes that you have made since the last successful
-unmount. Your data will still be stored on the backend, but without
-the metadata it will not be linked to any directory entries.
+
+Long-term Mounting
+==================
+
+If you intend to keep an S3QL file system mounted for long periods of
+time, you should make sure that the file system is unmounted and
+remounted every once in a while. S3QL flushes the file system metadata
+only when the file system is unmounted, so if you had an S3QL file
+system mounted for several days and then your harddisk crashes (so
+that `fsck.s3ql` cannot recover the local metadata), you will loose
+all the changes that you have made since the last successful unmount.
+Your data will still be stored on the backend, but without the
+metadata it will not be linked to any directory entries.
 
 This limitation will hopefully be removed in the future (see `issue
 132 <http://code.google.com/p/s3ql/issues/detail?id=132>`_).
-

@@ -56,11 +56,13 @@ Known Issues
   million directory entries (2^31), the chances for this are totally
   irrelevant and you don't have to worry about it.
 
-* When you mount from `fstab` and also rely on your system's standard
-  mechanism for unmounting (i.e., you don't explicitly unmount with
-  `umount.s3ql`), the unmounting process will *not* block until all
-  data has been uploaded. So you have to take care to wait for the
-  `mount.s3ql` process to terminate before you shut down the system.
-  For this reason it is generally a better idea to mount and umount
-  S3QL file systems in a dedicated init script that uses `umount.s3ql`
-  for unmounting and thereby blocks until all data has been uploaded.
+* The `umount` and `fusermount -u` commands will *not* block until all
+  data has been uploaded to the backend. (this is a FUSE limitation
+  that will hopefully be removed in the future, see `issue 159
+  <http://code.google.com/p/s3ql/issues/detail?id=159>`_). If you use
+  either command to unmount an S3QL file system, you have to take care
+  to explicitly wait for the `mount.s3ql` process to terminate before
+  you shut down or restart the system. Therefore it is generally not a
+  good idea to mount an S3QL file system in `/etc/fstab` (you should
+  use a dedicated init script instead).
+
