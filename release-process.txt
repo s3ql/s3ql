@@ -10,5 +10,7 @@ For making a new release:
  - Temporarily append ~karmic to version in debian/changelog, 
    upload karmic version to launchpad
  - Write announcement to mailing list
+ - Add release date to Changes.txt
+ - hg tag release
 
 
