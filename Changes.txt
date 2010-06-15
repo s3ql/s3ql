@@ -1,4 +1,4 @@
-xxx, S3QL 0.16
+2010-06-15, S3QL 0.16
 
   * Fixed problem with readdir() returning entries twice or skipping
     them if files are added or removed while readdir() is in progress.
