@@ -65,13 +65,16 @@ def setup_tables():
     """)
 
     # Table of filesystem objects
+    # id is used by readdir() to restart at the correct
+    # position
     dbcm.execute("""
     CREATE TABLE contents (
+        rowid     INTEGER PRIMARY KEY AUTOINCREMENT,
         name      BLOB(256) NOT NULL,
         inode     INT NOT NULL REFERENCES inodes(id),
         parent_inode INT NOT NULL REFERENCES inodes(id),
         
-        PRIMARY KEY (name, parent_inode)
+        UNIQUE (name, parent_inode)
     )""")
 
     # Extended attributes
@@ -84,8 +87,7 @@ def setup_tables():
         PRIMARY KEY (inode, name)               
     )""")
 
-    # Refcount is included for performance reasons, for directories, the
-    # refcount also includes the implicit '.' entry
+    # Refcount is included for performance reasons
     dbcm.execute("""
     CREATE TABLE objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,6 +108,7 @@ def setup_tables():
  
         PRIMARY KEY (inode, blockno)
     )""")
+    
 
 def create_indices():
     dbcm.execute('CREATE INDEX ix_contents_parent_inode ON contents(parent_inode)')

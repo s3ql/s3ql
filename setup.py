@@ -151,7 +151,6 @@ class build_ctypes(setuptools.Command):
             print('Could not find fuse library', file=sys.stderr)
             sys.exit(1)
 
-
         # Create temporary XML file
         tmp_fh = tempfile.NamedTemporaryFile()
         tmp_name = tmp_fh.name
@@ -180,6 +179,11 @@ class build_ctypes(setuptools.Command):
 
         # Delete temporary XML file
         tmp_fh.close()
+        
+        # Make sure that off_t is 64 bit (required by readdir)
+        from llfuse import ctypes_api
+        if ctypes_api.sizeof(ctypes_api.off_t) < 8:
+            raise SystemExit('ERROR: S3QL requires the off_t type to be 64bit.')
 
         print('Code generation complete.')
 
@@ -255,7 +259,7 @@ distutils.command.build.build.sub_commands.insert(0, ('build_ctypes', None))
 class test(setuptools_test.test):
 
     description = "Run self-tests"
-    user_options = (setuptools_test.test.user_options +
+    user_options = (setuptools_test.test.user_options + 
                     [('debug=', None, 'Activate debugging for specified modules '
                                     '(separated by commas, specify "all" for all modules)'),
                     ('awskey=', None, 'Specify AWS access key to use, secret key will be asked for. '

@@ -158,16 +158,22 @@ class Operations(llfuse.Operations):
     def readdir(self, id_, off):
         timestamp = time.time()
 
+        if off == 0:
+            off = -1
+            
         # The inode cache may need to write to the database 
         # while our SELECT query is running
         with dbcm.write_lock() as conn:
-            self.inodes[id_].atime = timestamp
+            self.inodes[id_].atime = timestamp 
 
             # The ResultSet is automatically deleted
-            # when yield raises GeneratorExit.
-            for (name, cid_) in conn.query("SELECT name, inode FROM contents WHERE parent_inode=? "
-                                           "LIMIT -1 OFFSET ?", (id_, off)):
-                yield (name, self.inodes[cid_])
+            # when yield raises GeneratorExit.  
+            res = conn.query("SELECT rowid, name, inode FROM contents WHERE parent_inode=? "
+                             'AND rowid > ? ORDER BY rowid', (id_, off))
+            for (next_, name, cid_) in res:
+                yield (name, self.inodes[cid_], next_)
+
+                
 
     def getxattr(self, id_, name):
         # Handle S3QL commands
@@ -358,8 +364,8 @@ class Operations(llfuse.Operations):
 
 
     def symlink(self, id_p, name, target, ctx):
-        mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
-                    stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP |
+        mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | 
+                    stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | 
                     stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
         return self._create(id_p, name, mode, ctx, target=target)
 

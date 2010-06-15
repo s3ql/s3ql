@@ -1,5 +1,8 @@
 xxx, S3QL 0.16
 
+  * Fixed problem with readdir() returning entries twice or skipping
+    them if files are added or removed while readdir() is in progress.
+
   * Fixed build problem on Gentoo.
 
   * fsck.s3ql now does a rudimentary check if the file system is still

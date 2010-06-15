@@ -63,13 +63,20 @@ class Operations(object):
         '''Read directory entries
         
         This method returns an iterator over the contents of directory `fh`,
-        starting at entry `off`. The iterator yields tuples of the form
-        ``(name, attr)``, where ``attr` is an object with attributes corresponding to
-        the elements of ``struct stat``.
+        starting at the entry identified by `off`.
+        
+        The iterator yields tuples of the form ``(name, attr, next_)``, where
+        ``attr` is an object with attributes corresponding to the elements of
+        ``struct stat`` and ``next_`` gives an offset that can be passed as
+        `off` to a successive `readdir()` call.
          
         Iteration may be stopped as soon as enough elements have been
         retrieved and does not have to be continued until `StopIteration`
         is raised.
+
+        If entries are added or removed during a `readdir` cycle, they may
+        or may not be returned. However, they will not cause other entries
+        to be skipped or returned more than once.        
         '''
         
         raise FUSEError(errno.ENOSYS)

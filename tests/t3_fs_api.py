@@ -229,11 +229,17 @@ class fs_api_tests(TestCase):
     def test_readdir(self):
 
         # Create a few entries
-        names = [ 'entry_%2d' % i for i in range(10) ]
+        names = [ 'entry_%2d' % i for i in range(20) ]
         for name in names:
             (fh, _) = self.server.create(ROOT_INODE, name,
                                          self.file_mode(), Ctx())
             self.server.release(fh)
+            
+        # Delete some to make sure that we don't have continous rowids
+        remove_no = [0, 2, 3, 5, 9]
+        for i in remove_no:
+            self.server.unlink(ROOT_INODE, names[i])
+            del names[i]
 
         # Read all
         fh = self.server.opendir(ROOT_INODE)
@@ -244,19 +250,19 @@ class fs_api_tests(TestCase):
         # Read in parts
         fh = self.server.opendir(ROOT_INODE)
         entries = list()
-        off = 0
         try:
+            next_ = 0
             while True:
-                gen = self.server.readdir(fh, off)
-                entries.append(gen.next())
-                off += 1
-                entries.append(gen.next())
-                off += 1
+                gen = self.server.readdir(fh, next_)
+                for _ in range(3):
+                    (name, _, next_) = gen.next()
+                    entries.append(name)
+                    
         except StopIteration:
             pass
 
         self.assertListEqual(sorted(names + ['lost+found']) ,
-                             sorted(x[0] for x in entries))
+                             sorted(entries))
         self.server.releasedir(fh)
 
         self.fsck()

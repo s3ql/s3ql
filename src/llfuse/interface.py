@@ -404,7 +404,7 @@ def fuse_lookup(req, parent_inode, name):
     attr = operations.lookup(parent_inode, string_at(name))
     entry = dict_to_entry(attr)
 
-    log.debug('lookup(%d, %s): calling reply_entry(ino=%d)', 
+    log.debug('lookup(%d, %s): calling reply_entry(ino=%d)',
               parent_inode, string_at(name), attr.id)
     try:
         libfuse.fuse_reply_entry(req, entry)
@@ -624,7 +624,7 @@ def fuse_listxattr(req, inode, size):
 def fuse_mkdir(req, inode_parent, name, mode):
     '''Create directory'''
 
-    log.debug('mkdir(%d, %s, %o): start', 
+    log.debug('mkdir(%d, %s, %o): start',
               inode_parent, string_at(name), mode)
 
     # FUSE doesn't set any type information
@@ -633,7 +633,7 @@ def fuse_mkdir(req, inode_parent, name, mode):
                             libfuse.fuse_req_ctx(req).contents)
     entry = dict_to_entry(attr)
 
-    log.debug('mkdir(%d, %s, %o): calling reply_entry(ino=%d)', 
+    log.debug('mkdir(%d, %s, %o): calling reply_entry(ino=%d)',
               inode_parent, string_at(name), mode, attr.id)
     try:
         libfuse.fuse_reply_entry(req, entry)
@@ -663,7 +663,7 @@ def fuse_open(req, inode, fi):
     fi.contents.fh = operations.open(inode, fi.contents.flags)
     fi.contents.keep_cache = 1
 
-    log.debug('open(%d, %d): calling reply_open', 
+    log.debug('open(%d, %d): calling reply_open',
               inode, fi.contents.flags)
     try:
         libfuse.fuse_reply_open(req, fi)
@@ -687,7 +687,7 @@ def fuse_opendir(req, inode, fi):
 def fuse_read(req, ino, size, off, fi):
     '''Read data from file'''
 
-    log.debug('read(ino=%d, off=%d, size=%d): start', 
+    log.debug('read(ino=%d, off=%d, size=%d): start',
               fi.contents.fh, off, size)
     data = operations.read(fi.contents.fh, off, size)
 
@@ -697,7 +697,7 @@ def fuse_read(req, ino, size, off, fi):
     if len(data) > size:
         raise ValueError('read() must not return more than `size` bytes')
 
-    log.debug('read(ino=%d, off=%d, size=%d): calling reply_buf', 
+    log.debug('read(ino=%d, off=%d, size=%d): calling reply_buf',
               fi.contents.fh, off, size)
     try:
         libfuse.fuse_reply_buf(req, data, len(data))
@@ -720,13 +720,13 @@ def fuse_readlink(req, inode):
 def fuse_readdir(req, ino, bufsize, off, fi):
     '''Read directory entries'''
 
-    log.debug('readdir(%d, %d, %d, %d): start', 
+    log.debug('readdir(%d, %d, %d, %d): start',
               ino, bufsize, off, fi.contents.fh)
 
     # Collect as much entries as we can return
     entries = list()
     size = 0
-    for (name, attr) in operations.readdir(fi.contents.fh, off):
+    for (name, attr, next_) in operations.readdir(fi.contents.fh, off):
         if not isinstance(name, bytes):
             raise TypeError("readdir() must return entry names as bytes")
 
@@ -736,16 +736,16 @@ def fuse_readdir(req, ino, bufsize, off, fi):
         if size + entry_size > bufsize:
             break
 
-        entries.append((name, stat))
+        entries.append((name, stat, next_))
         size += entry_size
 
-    log.debug('readdir(%d, %d, %d, %d): gathered %d entries, total size %d', 
+    log.debug('readdir(%d, %d, %d, %d): gathered %d entries, total size %d',
               ino, bufsize, off, fi.contents.fh, len(entries), size)
 
     # If there are no entries left, return empty buffer
     if not entries:
         try:
-            log.debug('readdir(%d, %d, %d, %d): calling reply_buf', 
+            log.debug('readdir(%d, %d, %d, %d): calling reply_buf',
                       ino, bufsize, off, fi.contents.fh)
             libfuse.fuse_reply_buf(req, None, 0)
         except DiscardedRequest:
@@ -754,15 +754,13 @@ def fuse_readdir(req, ino, bufsize, off, fi):
 
     # Create and fill buffer
     buf = create_string_buffer(size)
-    next_ = off
     addr_off = 0
-    for (name, stat) in entries:
-        next_ += 1
+    for (name, stat, next_) in entries:
         addr_off += libfuse.fuse_add_direntry(req, cast(addressof(buf) + addr_off, POINTER(c_char)),
                                               bufsize, name, stat, next_)
 
     # Return buffer
-    log.debug('readdir(%d, %d, %d, %d): calling reply_buf', 
+    log.debug('readdir(%d, %d, %d, %d): calling reply_buf',
               ino, bufsize, off, fi.contents.fh)
     try:
         libfuse.fuse_reply_buf(req, buf, size)
@@ -811,7 +809,7 @@ def fuse_rename(req, parent_inode_old, name_old, parent_inode_new, name_new):
               parent_inode_new, string_at(name_new))
     operations.rename(parent_inode_old, string_at(name_old), parent_inode_new,
                       string_at(name_new))
-    log.debug('rename(%d, %r, %d, %r): calling reply_err', parent_inode_old, 
+    log.debug('rename(%d, %r, %d, %r): calling reply_err', parent_inode_old,
               string_at(name_old), parent_inode_new, string_at(name_new))
     try:
         libfuse.fuse_reply_err(req, 0)
@@ -823,7 +821,7 @@ def fuse_rmdir(req, inode_parent, name):
 
     log.debug('rmdir(%d, %r): start', inode_parent, string_at(name))
     operations.rmdir(inode_parent, string_at(name))
-    log.debug('rmdir(%d, %r): calling reply_err', 
+    log.debug('rmdir(%d, %r): calling reply_err',
               inode_parent, string_at(name))
     try:
         libfuse.fuse_reply_err(req, 0)
@@ -896,7 +894,7 @@ def fuse_setxattr(req, inode, name, val, size, flags):
 
     operations.setxattr(inode, string_at(name), string_at(val, size))
 
-    log.debug('setxattr(%d, %r, %r, %d): calling reply_err', 
+    log.debug('setxattr(%d, %r, %r, %d): calling reply_err',
               inode, string_at(name), string_at(val, size), flags)
     try:
         libfuse.fuse_reply_err(req, 0)
@@ -922,13 +920,13 @@ def fuse_statfs(req, inode):
 def fuse_symlink(req, target, parent_inode, name):
     '''Create a symbolic link'''
 
-    log.debug('symlink(%d, %r, %r): start', 
+    log.debug('symlink(%d, %r, %r): start',
               parent_inode, string_at(name), string_at(target))
     attr = operations.symlink(parent_inode, string_at(name), string_at(target),
                               libfuse.fuse_req_ctx(req).contents)
     entry = dict_to_entry(attr)
 
-    log.debug('symlink(%d, %r, %r): calling reply_entry(ino=%d)', 
+    log.debug('symlink(%d, %r, %r): calling reply_entry(ino=%d)',
               parent_inode, string_at(name), string_at(target), attr.id)
     try:
         libfuse.fuse_reply_entry(req, entry)
@@ -941,7 +939,7 @@ def fuse_unlink(req, parent_inode, name):
 
     log.debug('unlink(%d, %r): start', parent_inode, string_at(name))
     operations.unlink(parent_inode, string_at(name))
-    log.debug('unlink(%d, %r): calling reply_err', 
+    log.debug('unlink(%d, %r): calling reply_err',
               parent_inode, string_at(name))
     try:
         libfuse.fuse_reply_err(req, 0)
@@ -951,11 +949,11 @@ def fuse_unlink(req, parent_inode, name):
 def fuse_write(req, inode, buf, size, off, fi):
     '''Write into an open file handle'''
 
-    log.debug('write(fh=%d, off=%d, size=%d): start', 
+    log.debug('write(fh=%d, off=%d, size=%d): start',
               fi.contents.fh, off, size)
     written = operations.write(fi.contents.fh, off, string_at(buf, size))
 
-    log.debug('write(fh=%d, off=%d, size=%d): calling reply_write', 
+    log.debug('write(fh=%d, off=%d, size=%d): calling reply_write',
               fi.contents.fh, off, size)
     try:
         libfuse.fuse_reply_write(req, written)
