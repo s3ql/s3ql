@@ -4,7 +4,6 @@ For making a new release:
  - Rebuild documentation
  - Upload dokumentation
  - Upload source distribution
- - Update source distribution link on wiki download page
  - Deprecate old source distribution
  - Bump version in debian/changelog
  - Upload Lucid version to launchpad
