@@ -217,18 +217,27 @@ def upgrade(conn, bucket):
 
     # Download metadata
     log.info("Downloading & uncompressing metadata...")
-    dbfile = tempfile.NamedTemporaryFile()
-    dbcm.init(dbfile.name)
-    fh = tempfile.TemporaryFile()
-    bucket.fetch_fh("s3ql_metadata", fh)
-    fh.seek(0)
-    log.info('Reading metadata...')
-    restore_metadata(fh)
-    fh.close()
+    if param['DB-Format'] == 'dump':
+        dbfile = tempfile.NamedTemporaryFile()
+        dbcm.init(dbfile.name)
+        fh = tempfile.TemporaryFile()
+        bucket.fetch_fh("s3ql_metadata", fh)
+        fh.seek(0)
+        log.info('Reading metadata...')
+        restore_metadata(fh)
+        fh.close()
+    elif param['DB-Format'] == 'sqlite':
+        dbfile = tempfile.NamedTemporaryFile()
+        bucket.fetch_fh("s3ql_metadata", dbfile)
+        dbfile.flush()
+        dbcm.init(dbfile.name)
+    else:
+        raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
 
-    log.info('Upgrading from revision 6 to 7...')
+    log.info('Upgrading from revision %d to %d...', CURRENT_FS_REV - 1,
+             CURRENT_FS_REV)
     param['revision'] = CURRENT_FS_REV
-
+    
     # Increase metadata sequence no
     param['seq_no'] += 1
     bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
@@ -245,7 +254,6 @@ def upgrade(conn, bucket):
     cycle_metadata(bucket)
     bucket.store_fh("s3ql_metadata", fh, param)
     fh.close()
-
 
 
 def copy_bucket(conn, options, src_bucket):
