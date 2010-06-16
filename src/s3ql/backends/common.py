@@ -600,3 +600,5 @@ def convert_legacy_metadata(meta):
     if meta['compression'] == 'BZ2':
         meta['compression'] = 'BZIP2'
 
+    if meta['compression'] == 'NONE':
+        meta['compression'] = 'None'
