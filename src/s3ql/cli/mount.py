@@ -279,18 +279,13 @@ def parse_args(args):
                     raise QuietError('Read-only mounting not supported.')
                 args.insert(pos, '--' + opt)
 
-    if 'HOME' in os.environ:
-        default_home = os.path.join(os.environ["HOME"], ".s3ql")
-    else:
-        default_home = None
-
     parser = OptionParser(
         usage="%prog  [options] <storage-url> <mountpoint>\n"
               "       %prog --help",
         description="Mount an S3QL file system.")
 
     parser.add_option("--homedir", type="string",
-                      default=default_home,
+                      default=os.path.expanduser("~/.s3ql"),
                       help='Directory for log files, cache and authentication info. '
                       'Default: ~/.s3ql')
     parser.add_option("--cachesize", type="int", default=102400,
@@ -339,10 +334,6 @@ def parse_args(args):
 
     if options.profile:
         options.single = True
-
-    if options.homedir is None:
-        raise QuietError('--homedir not specified and $HOME environment variable not set,\n'
-                         'can not come up with a sensible default.')
 
     if options.compress == 'none':
         options.compress = None

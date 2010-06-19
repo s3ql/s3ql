@@ -38,7 +38,7 @@ def parse_args(args):
         'be detected and appear only in the logging messages of the mount program.')
 
     parser.add_option("--homedir", type="string",
-                      default=os.path.join(os.environ["HOME"], ".s3ql"),
+                      default=os.path.expanduser("~/.s3ql"),
                       help='Directory for log files, cache and authentication info. '
                       'Default: ~/.s3ql')
     parser.add_option("--debug", action="append",
@@ -62,7 +62,7 @@ def parse_args(args):
 
     if options.purge_cache and options.lazy:
         parser.error('--lazy and --purge-cache are mutually exclusive')
-        
+
     return options
 
 def main(args=None):

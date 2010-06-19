@@ -50,7 +50,7 @@ def parse_args(args):
     parser.add_option("--copy", action="store_true", default=False,
                       help="Copy a bucket. The destination bucket must not exist.")
     parser.add_option("--homedir", type="string",
-                      default=os.path.join(os.environ["HOME"], ".s3ql"),
+                      default=os.path.expanduser("~/.s3ql"),
                       help='Directory for log files, cache and authentication info. '
                       'Default: ~/.s3ql')
     parser.add_option("--s3-location", type="string", default='EU',
@@ -237,7 +237,7 @@ def upgrade(conn, bucket):
     log.info('Upgrading from revision %d to %d...', CURRENT_FS_REV - 1,
              CURRENT_FS_REV)
     param['revision'] = CURRENT_FS_REV
-    
+
     # Increase metadata sequence no
     param['seq_no'] += 1
     bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')

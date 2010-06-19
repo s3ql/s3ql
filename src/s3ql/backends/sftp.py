@@ -39,7 +39,7 @@ class Connection(AbstractConnection):
         self._client = paramiko.SSHClient()
         # Probably not a good idea to do this by default
         #self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        self._client.load_host_keys(os.path.join(os.environ['HOME'], '.ssh', 'known_hosts'))
+        self._client.load_host_keys(os.path.expanduser('~/.ssh/known_hosts'))
         self._client.connect(self.host, port=self.port, username=self.login, password=self.password)
         self.sftp = self._client.open_sftp()
 
@@ -105,10 +105,7 @@ class Bucket(AbstractBucket):
         self.name = name
 
     def __str__(self):
-        if self.passphrase:
-            return '<encrypted sftp bucket, name=%r>' % self.name
-        else:
-            return '<sftp bucket, name=%r>' % self.name
+        return '<sftp bucket, name=%r>' % self.name
 
     def clear(self):
         for name in self.conn.sftp.listdir(self.name):

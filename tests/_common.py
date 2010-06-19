@@ -59,7 +59,7 @@ class TestCase(unittest.TestCase):
 # so that we can run individual tests without the setup.py
 # initialization.
 def init_credentials():
-    keyfile = os.path.join(os.environ['HOME'], '.awssecret')
+    keyfile = os.path.expanduser("~/.awssecret")
 
     if not os.path.isfile(keyfile):
         return None

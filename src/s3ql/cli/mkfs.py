@@ -37,7 +37,7 @@ def parse_args(args):
                            'us-west-1, or us-standard. The later is not recommended, please '
                            'refer to the FAQ at http://code.google.com/p/s3ql/ for more information.')
     parser.add_option("--homedir", type="string",
-                      default=os.path.join(os.environ["HOME"], ".s3ql"),
+                      default=os.path.expanduser("~/.s3ql"),
                       help='Directory for log files, cache and authentication info. '
                       'Default: ~/.s3ql')
     parser.add_option("-L", type="string", default='', help="Filesystem label",
