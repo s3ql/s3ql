@@ -25,6 +25,7 @@ import tempfile
 import textwrap
 import os
 import stat
+import time
 import threading
 import logging
 import cPickle as pickle
@@ -118,6 +119,10 @@ def main(args=None):
                     ''')))
         elif param['seq_no'] > seq_no:
             raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
+
+        if (time.time() - time.timezone) - param['last_fsck'] > 60 * 60 * 24 * 31:
+            log.warn('Last file system check was more than 1 month ago, '
+                     'running fsck.s3ql is recommended.')
 
         # Download metadata
         log.info("Downloading & uncompressing metadata...")

@@ -223,7 +223,10 @@ def main(args=None):
         elif param['seq_no'] > seq_no:
             raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
         elif not param['needs_fsck']:
-            if options.force:
+            if ((time.time() - time.timezone) - param['last_fsck']
+                 > 60 * 60 * 24 * 31): # last check more than 1 month ago
+                pass
+            elif options.force:
                 log.info('File system seems clean, checking anyway.')
             else:
                 log.info('File system is marked as clean. Use --force to force checking.')
