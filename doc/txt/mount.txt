@@ -156,10 +156,10 @@ command, the call will *not* block until all data has been uploaded
 <http://code.google.com/p/s3ql/issues/detail?id=159>`_) and your
 system will shut down (or restart) before the upload is complete. If
 for some reason you want to do this nevertheless, you have to copy the
-`mount.s3ql` program to `/sbin` and use the `homedir=` and `_netdev`
-mount options, e.g. ::
+`mount.s3ql` program to `/sbin` and use the `_netdev`
+mount option, e.g. ::
 
-  s3://my_s3ql_bucket     /mnt/s3     s3ql    homedir=/var/s3ql,allow-other,_netdev  0  0
+  s3://my_s3ql_bucket     /mnt/s3     s3ql    allow-other,_netdev  0  0
 
 
 The better option is to use a dedicated init script that mounts and
