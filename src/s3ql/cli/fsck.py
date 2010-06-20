@@ -95,7 +95,7 @@ def main(args=None):
             raise QuietError('Checksum error - incorrect password?')
 
         home = get_bucket_home(options.storage_url, options.homedir)
-
+        
         # Get file system parameters
         log.info('Getting file system parameters..')
         seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
@@ -105,9 +105,11 @@ def main(args=None):
 
         param = None
         metadata_loaded = False
+        fsck_required = False 
+        
         if os.path.exists(home + '.params'):
+            fsck_required = True
             param = pickle.load(open(home + '.params', 'rb'))
-            param['needs_fsck'] = True
             if param['seq_no'] < seq_no:
                 choice = None
                 print('Local cache files exist, but file system appears to have \n'
@@ -142,6 +144,7 @@ def main(args=None):
                 metadata_loaded = True
         else:
             if os.path.exists(home + '-cache'):
+                fsck_required = True
                 print(textwrap.dedent('''
                       Local cache files exist, but fsck can not determine what to do with it. If you
                       commit the existing data, you may loose changes performed after the data has been
@@ -163,7 +166,8 @@ def main(args=None):
                 else:
                     raise QuietError('Invalid input, aborting.')
 
-            if os.path.exists(home + 'db'):
+            if os.path.exists(home + '.db'):
+                fsck_required = True
                 print(textwrap.dedent('''
                       Local metadata exist, but fsck can not determine what to do with it. If you use the
                       existing metadata, you may loose changes performed after the local metadata has
@@ -179,11 +183,10 @@ def main(args=None):
                     raise QuietError('(in batch mode, exiting)')
                 choice = sys.stdin.readline().strip().lower()
                 if choice == 'use':
-                    param = bucket.lookup('s3ql_metadata')
                     dbcm.init(home + '.db')
                     metadata_loaded = True
                 elif choice == 'discard':
-                    os.unlink(home + '-db')
+                    os.unlink(home + '.db')
                 else:
                     raise QuietError('Invalid input, aborting.')
 
@@ -222,11 +225,11 @@ def main(args=None):
 
         elif param['seq_no'] > seq_no:
             raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
-        elif not param['needs_fsck']:
-            if ((time.time() - time.timezone) - param['last_fsck']
-                 > 60 * 60 * 24 * 31): # last check more than 1 month ago
-                pass
-            elif options.force:
+        elif (not param['needs_fsck'] 
+              and not fsck_required 
+              and ((time.time() - time.timezone) - param['last_fsck'])
+                 < 60 * 60 * 24 * 31): # last check more than 1 month ago
+            if options.force:
                 log.info('File system seems clean, checking anyway.')
             else:
                 log.info('File system is marked as clean. Use --force to force checking.')
