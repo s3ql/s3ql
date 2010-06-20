@@ -31,12 +31,13 @@ class Connection(AbstractConnection):
     connection object for each thread.
     """
 
-    def __init__(self, awskey, awspass):
+    def __init__(self, awskey, awspass, reduced_redundancy=False):
         super(Connection, self).__init__()
         self.awskey = awskey
         self.awspass = awspass
         self.pool = list()
         self.conn_cnt = 0
+        self.reduced_redundancy = reduced_redundancy
 
     def _pop_conn(self):
         '''Get boto connection object from the pool'''
@@ -249,7 +250,8 @@ class Bucket(AbstractBucket):
         with self._get_boto() as boto:
             bkey = boto.new_key(key)
             bkey.metadata.update(metadata)
-            retry_boto(bkey.set_contents_from_file, fh)
+            retry_boto(bkey.set_contents_from_file, fh,
+                       reduced_redundancy=self.conn.reduced_redundancy)
 
 
     def copy(self, src, dest):

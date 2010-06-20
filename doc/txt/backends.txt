@@ -31,7 +31,12 @@ Amazon S3
 =========
 
 To store your file system in an Amazon S3 bucket, use a storage URL of
-the form `s3://<bucketname>`.
+the form `s3://<bucketname>` or `s3rr://<bucketname>`. The later form
+will use `reduced redundancy storage
+<http://aws.amazon.com/s3/#protecting>`_. In theory you could change
+the prefix for a given bucket at will, but you really should not do
+this because different parts of your file system would then be stored
+with different durability guarantees.
 
 When reading the authentication information for the S3 backend from
 the `authinfo` file, the `host` field is ignored, i.e. the first entry

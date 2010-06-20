@@ -57,6 +57,11 @@ def get_backend(options):
         conn = s3.Connection(login, password)
         bucketname = storage_url[len('s3://'):]
 
+    elif storage_url.startswith('s3rr://'):
+        (login, password) = get_backend_credentials(options.homedir, 's3', None)
+        conn = s3.Connection(login, password, reduced_redundancy=True)
+        bucketname = storage_url[len('s3rr://'):]
+
     else:
         pat = r'^([a-z]+)://([a-zA-Z0-9.-]+)(?::([0-9]+))?(/[a-zA-Z0-9./_-]+)$'
         match = re.match(pat, storage_url)
@@ -548,8 +553,8 @@ class EmbeddedException(Exception):
 
     def __str__(self):
         return ''.join(['caused by an exception in thread %s.\n' % self.threadname,
-                       'Original/inner traceback (most recent call last): \n' ] +
-                       traceback.format_tb(self.tb) +
+                       'Original/inner traceback (most recent call last): \n' ] + 
+                       traceback.format_tb(self.tb) + 
                        traceback.format_exception_only(type(self.exc), self.exc))
 
 

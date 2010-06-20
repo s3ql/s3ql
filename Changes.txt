@@ -3,6 +3,9 @@ xxx, S3QL 0.17
   * The local and sftp backends now spread their files into different 
     sub-directories.
      
+  * Amazon S3 Reduced Redundancy Storage (RRS) is now supported. To
+    use it, use a storage url of the form s3rr://<bucket> instead of
+    s3://<bucket>.
 
 2010-06-15, S3QL 0.16
 
