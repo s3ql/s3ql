@@ -39,15 +39,14 @@
 Some handy utility functions used by several classes.
 """
 
-import base64
-import hmac
 import re
-import urllib, urllib2
-import imp
-import subprocess, os, StringIO
-import time, datetime
+import urllib
+import urllib2
+import subprocess
+import StringIO
+import time
 import logging.handlers
-import s3ql.backends.boto as boto
+from .. import boto
 import tempfile
 import smtplib
 import datetime
@@ -95,10 +94,11 @@ def canonical_string(method, path, headers, expires=None):
 
     buf = "%s\n" % method
     for key in sorted_header_keys:
+        val = interesting_headers[key]
         if key.startswith(AMAZON_HEADER_PREFIX):
-            buf += "%s:%s\n" % (key, interesting_headers[key])
+            buf += "%s:%s\n" % (key, val)
         else:
-            buf += "%s\n" % interesting_headers[key]
+            buf += "%s\n" % val
 
     # don't include anything after the first ? in the resource...
     buf += "%s" % path.split('?')[0]
@@ -114,6 +114,14 @@ def canonical_string(method, path, headers, expires=None):
         buf += "?location"
     elif re.search("[&?]requestPayment($|=|&)", path):
         buf += "?requestPayment"
+    elif re.search("[&?]versions($|=|&)", path):
+        buf += "?versions"
+    elif re.search("[&?]versioning($|=|&)", path):
+        buf += "?versioning"
+    else:
+        m = re.search("[&?]versionId=([^&]+)($|=|&)", path)
+        if m:
+            buf += '?versionId=' + m.group(1)
 
     return buf
 
@@ -133,7 +141,8 @@ def get_aws_metadata(headers):
     metadata = {}
     for hkey in headers.keys():
         if hkey.lower().startswith(METADATA_PREFIX):
-            metadata[hkey[len(METADATA_PREFIX):]] = headers[hkey]
+            val = urllib.unquote_plus(headers[hkey])
+            metadata[hkey[len(METADATA_PREFIX):]] = unicode(val, 'utf-8')
             del headers[hkey]
     return metadata
 
@@ -154,7 +163,7 @@ def retry_url(url, retry_on_404=True):
         except:
             pass
         boto.log.exception('Caught exception reading instance data')
-        time.sleep(2 ** i)
+        time.sleep(2**i)
     boto.log.error('Unable to read instance data, giving up')
     return ''
 
@@ -169,7 +178,7 @@ def _get_instance_metadata(url):
             else:
                 p = field.find('=')
                 if p > 0:
-                    key = field[p + 1:]
+                    key = field[p+1:]
                     resource = field[0:p] + '/openssh-key'
                 else:
                     key = resource = field
@@ -204,7 +213,7 @@ def get_instance_userdata(version='latest', sep=None):
     return user_data
 
 ISO8601 = '%Y-%m-%dT%H:%M:%SZ'
-
+    
 def get_ts(ts=None):
     if not ts:
         ts = time.gmtime()
@@ -217,7 +226,6 @@ def find_class(module_name, class_name=None):
     if class_name:
         module_name = "%s.%s" % (module_name, class_name)
     modules = module_name.split('.')
-    path = None
     c = None
 
     try:
@@ -229,7 +237,7 @@ def find_class(module_name, class_name=None):
         return c
     except:
         return None
-
+    
 def update_dme(username, password, dme_id, ip_address):
     """
     Update your Dynamic DNS record with DNSMadeEasy.com
@@ -250,7 +258,6 @@ def fetch_file(uri, file=None, username=None, password=None):
     if file == None:
         file = tempfile.NamedTemporaryFile()
     try:
-        working_dir = boto.config.get("General", "working_dir")
         if uri.startswith('s3://'):
             bucket_name, key_name = uri[len('s3://'):].split('/', 1)
             c = boto.connect_s3()
@@ -333,7 +340,7 @@ class AuthSMTPHandler(logging.handlers.SMTPHandler):
         logging.handlers.SMTPHandler.__init__(self, mailhost, fromaddr, toaddrs, subject)
         self.username = username
         self.password = password
-
+        
     def emit(self, record):
         """
         Emit a record.
@@ -343,11 +350,6 @@ class AuthSMTPHandler(logging.handlers.SMTPHandler):
         without having to resort to cut and paste inheritance but, no.
         """
         try:
-            import smtplib
-            try:
-                from email.Utils import formatdate
-            except:
-                formatdate = self.date_time
             port = self.mailport
             if not port:
                 port = smtplib.SMTP_PORT
@@ -356,7 +358,7 @@ class AuthSMTPHandler(logging.handlers.SMTPHandler):
             msg = self.format(record)
             msg = "From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\n\r\n%s" % (
                             self.fromaddr,
-                            string.join(self.toaddrs, ","),
+                            ','.join(self.toaddrs),
                             self.getSubject(record),
                             formatdate(), msg)
             smtp.sendmail(self.fromaddr, self.toaddrs, msg)
@@ -463,7 +465,6 @@ class LRUCache(dict):
 
     def _manage_size(self):
         while len(self._dict) > self.capacity:
-            olditem = self._dict[self.tail.key]
             del self._dict[self.tail.key]
             if self.tail != self.head:
                 self.tail = self.tail.previous
@@ -498,10 +499,10 @@ class Password(object):
 
     def set(self, value):
         self.str = _hashfn(value).hexdigest()
-
+   
     def __str__(self):
         return str(self.str)
-
+   
     def __eq__(self, other):
         if other == None:
             return False
@@ -526,7 +527,7 @@ def notify(subject, body=None, html_body=None, to_string=None, attachments=[], a
             msg['To'] = to_string
             msg['Date'] = formatdate(localtime=True)
             msg['Subject'] = subject
-
+        
             if body:
                 msg.attach(MIMEText(body))
 

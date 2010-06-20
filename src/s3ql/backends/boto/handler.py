@@ -19,9 +19,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
-#pylint: disable-all
-#@PydevCodeAnalysisIgnore
-
 import xml.sax
 
 class XmlHandler(xml.sax.ContentHandler):
@@ -45,5 +42,5 @@ class XmlHandler(xml.sax.ContentHandler):
 
     def characters(self, content):
         self.current_text += content
-
+            
 

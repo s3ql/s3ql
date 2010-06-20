@@ -25,18 +25,20 @@
 """
 Exception classes - Subclassing allows you to check for specific errors
 """
-
+import base64
+import xml.sax
 from . import handler
 from .resultset import ResultSet
+import base64
 
-import xml.sax
 
 class BotoClientError(StandardError):
     """
     General Boto Client error (error accessing AWS)
     """
-
+    
     def __init__(self, reason):
+        StandardError.__init__(self)
         self.reason = reason
 
     def __repr__(self):
@@ -54,10 +56,11 @@ class S3PermissionsError(BotoClientError):
     Permissions error when accessing a bucket or key on S3.
     """
     pass
-
+    
 class BotoServerError(StandardError):
-
+    
     def __init__(self, status, reason, body=None):
+        StandardError.__init__(self)
         self.status = status
         self.reason = reason
         self.body = body or ''
@@ -121,6 +124,7 @@ class ConsoleOutput:
         self.instance_id = None
         self.timestamp = None
         self.comment = None
+        self.output = None
 
     def startElement(self, name, attrs, connection):
         return None
@@ -183,7 +187,7 @@ class SQSDecodeError(BotoClientError):
     Error when decoding an SQS message.
     """
     def __init__(self, reason, message):
-        self.reason = reason
+        BotoClientError.__init__(self, reason)
         self.message = message
 
     def __repr__(self):
@@ -191,7 +195,7 @@ class SQSDecodeError(BotoClientError):
 
     def __str__(self):
         return 'SQSDecodeError: %s' % self.reason
-
+    
 class S3ResponseError(BotoServerError):
     """
     Error in response from S3.
@@ -247,6 +251,12 @@ class EC2ResponseError(BotoServerError):
         for p in ('errors'):
             setattr(self, p, None)
 
+class EmrResponseError(BotoServerError):
+    """
+    Error in response from EMR
+    """
+    pass
+
 class _EC2Error:
 
     def __init__(self, connection=None):
@@ -280,8 +290,16 @@ class AWSConnectionError(BotoClientError):
 class S3DataError(BotoClientError):
     """
     Error receiving data from S3.
-    """
+    """ 
     pass
 
 class FPSResponseError(BotoServerError):
     pass
+
+
+class InvalidUriError(Exception):
+  """Exception raised when URI is invalid."""
+
+  def __init__(self, message):
+    Exception.__init__(self)
+    self.message = message

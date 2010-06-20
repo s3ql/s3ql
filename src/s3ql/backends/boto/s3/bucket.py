@@ -34,6 +34,7 @@ from .bucketlistresultset import BucketListResultSet
 from .. import utils
 import xml.sax
 import urllib
+import re
 
 S3Permissions = ['READ', 'WRITE', 'READ_ACP', 'WRITE_ACP', 'FULL_CONTROL']
 
@@ -46,7 +47,7 @@ class Bucket:
            <TargetPrefix>%s</TargetPrefix>
          </LoggingEnabled>
        </BucketLoggingStatus>"""
-
+    
     EmptyBucketLoggingBody = """<?xml version="1.0" encoding="UTF-8"?>
        <BucketLoggingStatus xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
        </BucketLoggingStatus>"""
@@ -57,6 +58,15 @@ class Bucket:
        <RequestPaymentConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
          <Payer>%s</Payer>
        </RequestPaymentConfiguration>"""
+
+    VersioningBody = """<?xml version="1.0" encoding="UTF-8"?>
+       <VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+         <Status>%s</Status>
+         <MfaDelete>%s</MfaDelete>
+       </VersioningConfiguration>"""
+
+    VersionRE = '<Status>([A-Za-z]+)</Status>'
+    MFADeleteRE = '<MfaDelete>([A-Za-z]+)</MfaDelete>'
 
     def __init__(self, connection=None, name=None, key_class=Key):
         self.name = name
@@ -108,8 +118,8 @@ class Bucket:
         :returns: A Key object from this bucket.
         """
         return self.get_key(key_name, headers=headers)
-
-    def get_key(self, key_name, headers=None):
+        
+    def get_key(self, key_name, headers=None, version_id=None):
         """
         Check to see if a particular key exists within the bucket.  This
         method uses a HEAD request to check for the existance of the key.
@@ -121,9 +131,15 @@ class Bucket:
         :rtype: :class:`boto.s3.key.Key`
         :returns: A Key object from this bucket.
         """
-        response = self.connection.make_request('HEAD', self.name, key_name, headers=headers)
+        if version_id:
+            query_args = 'versionId=%s' % version_id
+        else:
+            query_args = None
+        response = self.connection.make_request('HEAD', self.name, key_name,
+                                                headers=headers,
+                                                query_args=query_args)
         if response.status == 200:
-            body = response.read()
+            response.read()
             k = self.key_class(self)
             k.metadata = boto.utils.get_aws_metadata(response.msg)
             k.etag = response.getheader('etag')
@@ -132,10 +148,11 @@ class Bucket:
             k.last_modified = response.getheader('last-modified')
             k.size = int(response.getheader('content-length'))
             k.name = key_name
+            k.handle_version_headers(response)
             return k
         else:
             if response.status == 404:
-                body = response.read()
+                response.read()
                 return None
             else:
                 raise S3ResponseError(response.status, response.reason, '')
@@ -151,13 +168,14 @@ class Bucket:
         
         :type prefix: string
         :param prefix: allows you to limit the listing to a particular
-                        prefix.  For example, if you call the method with prefix='/foo/'
-                        then the iterator will only cycle through the keys that begin with
-                        the string '/foo/'.
+                        prefix.  For example, if you call the method with
+                        prefix='/foo/' then the iterator will only cycle
+                        through the keys that begin with the string '/foo/'.
                         
         :type delimiter: string
         :param delimiter: can be used in conjunction with the prefix
-                        to allow you to organize and browse your keys hierarchically. See:
+                        to allow you to organize and browse your keys
+                        hierarchically. See:
                         http://docs.amazonwebservices.com/AmazonS3/2006-03-01/
                         for more details.
                         
@@ -169,14 +187,74 @@ class Bucket:
         """
         return BucketListResultSet(self, prefix, delimiter, marker, headers)
 
+    def list_versions(self, prefix='', delimiter='', key_marker='',
+                      version_id_marker='', headers=None):
+        """
+        List key objects within a bucket.  This returns an instance of an
+        BucketListResultSet that automatically handles all of the result
+        paging, etc. from S3.  You just need to keep iterating until
+        there are no more results.
+        Called with no arguments, this will return an iterator object across
+        all keys within the bucket.
+        
+        :type prefix: string
+        :param prefix: allows you to limit the listing to a particular
+                        prefix.  For example, if you call the method with
+                        prefix='/foo/' then the iterator will only cycle
+                        through the keys that begin with the string '/foo/'.
+                        
+        :type delimiter: string
+        :param delimiter: can be used in conjunction with the prefix
+                        to allow you to organize and browse your keys
+                        hierarchically. See:
+                        http://docs.amazonwebservices.com/AmazonS3/2006-03-01/
+                        for more details.
+                        
+        :type marker: string
+        :param marker: The "marker" of where you are in the result set
+        
+        :rtype: :class:`boto.s3.bucketlistresultset.BucketListResultSet`
+        :return: an instance of a BucketListResultSet that handles paging, etc
+        """
+        return VersionedBucketListResultSet(self, prefix, delimiter, key_marker,
+                                            version_id_marker, headers)
+
+    def _get_all(self, element_map, initial_query_string='',
+                 headers=None, **params):
+        l = []
+        for k,v in params.items():
+            k = k.replace('_', '-')
+            if  k == 'maxkeys':
+                k = 'max-keys'
+            if isinstance(v, unicode):
+                v = v.encode('utf-8')
+            if v is not None and v != '':
+                l.append('%s=%s' % (urllib.quote(k), urllib.quote(str(v))))
+        if len(l):
+            s = initial_query_string + '&' + '&'.join(l)
+        else:
+            s = initial_query_string
+        response = self.connection.make_request('GET', self.name,
+                headers=headers, query_args=s)
+        body = response.read()
+        boto.log.debug(body)
+        if response.status == 200:
+            rs = ResultSet(element_map)
+            h = handler.XmlHandler(rs, self)
+            xml.sax.parseString(body, h)
+            return rs
+        else:
+            raise S3ResponseError(response.status, response.reason, body)
+
     def get_all_keys(self, headers=None, **params):
         """
-        A lower-level method for listing contents of a bucket.  This closely models the actual S3
-        API and requires you to manually handle the paging of results.  For a higher-level method
+        A lower-level method for listing contents of a bucket.
+        This closely models the actual S3 API and requires you to manually
+        handle the paging of results.  For a higher-level method
         that handles the details of paging for you, you can use the list method.
         
-        :type maxkeys: int
-        :param maxkeys: The maximum number of keys to retrieve
+        :type max_keys: int
+        :param max_keys: The maximum number of keys to retrieve
         
         :type prefix: string
         :param prefix: The prefix of the keys you want to retrieve
@@ -185,36 +263,60 @@ class Bucket:
         :param marker: The "marker" of where you are in the result set
         
         :type delimiter: string 
-        :param delimiter: "If this optional, Unicode string parameter is included with your request, then keys that contain the same string between the prefix and the first occurrence of the delimiter will be rolled up into a single result element in the CommonPrefixes collection. These rolled-up keys are not returned elsewhere in the response."
+        :param delimiter: If this optional, Unicode string parameter
+                          is included with your request, then keys that
+                          contain the same string between the prefix and
+                          the first occurrence of the delimiter will be
+                          rolled up into a single result element in the
+                          CommonPrefixes collection. These rolled-up keys
+                          are not returned elsewhere in the response.
 
         :rtype: ResultSet
         :return: The result from S3 listing the keys requested
         
         """
-        l = []
-        for k, v in params.items():
-            if  k == 'maxkeys':
-                k = 'max-keys'
-            if isinstance(v, unicode):
-                v = v.encode('utf-8')
-            if v is not None:
-                l.append('%s=%s' % (urllib.quote(k), urllib.quote(str(v))))
-        if len(l):
-            s = '&'.join(l)
-        else:
-            s = None
-        response = self.connection.make_request('GET', self.name,
-                headers=headers, query_args=s)
-        body = response.read()
-        boto.log.debug(body)
-        if response.status == 200:
-            rs = ResultSet([('Contents', self.key_class),
-                            ('CommonPrefixes', Prefix)])
-            h = handler.XmlHandler(rs, self)
-            xml.sax.parseString(body, h)
-            return rs
-        else:
-            raise S3ResponseError(response.status, response.reason, body)
+        return self._get_all([('Contents', self.key_class),
+                              ('CommonPrefixes', Prefix)],
+                             '', headers, **params)
+
+    def get_all_versions(self, headers=None, **params):
+        """
+        A lower-level, version-aware method for listing contents of a bucket.
+        This closely models the actual S3 API and requires you to manually
+        handle the paging of results.  For a higher-level method
+        that handles the details of paging for you, you can use the list method.
+        
+        :type max_keys: int
+        :param max_keys: The maximum number of keys to retrieve
+        
+        :type prefix: string
+        :param prefix: The prefix of the keys you want to retrieve
+        
+        :type key_marker: string
+        :param key_marker: The "marker" of where you are in the result set
+                           with respect to keys.
+        
+        :type version_id_marker: string
+        :param version_id_marker: The "marker" of where you are in the result
+                                  set with respect to version-id's.
+        
+        :type delimiter: string 
+        :param delimiter: If this optional, Unicode string parameter
+                          is included with your request, then keys that
+                          contain the same string between the prefix and
+                          the first occurrence of the delimiter will be
+                          rolled up into a single result element in the
+                          CommonPrefixes collection. These rolled-up keys
+                          are not returned elsewhere in the response.
+
+        :rtype: ResultSet
+        :return: The result from S3 listing the keys requested
+        
+        """
+        return self._get_all([('Version', self.key_class),
+                              ('CommonPrefixes', Prefix),
+                              ('DeleteMarker', DeleteMarker)],
+                             'versions', headers, **params)
 
     def new_key(self, key_name=None):
         """
@@ -228,23 +330,50 @@ class Bucket:
         """
         return self.key_class(self, key_name)
 
-    def generate_url(self, expires_in, method='GET', headers=None, force_http=False):
-        return self.connection.generate_url(expires_in, method, self.name, headers=headers,
+    def generate_url(self, expires_in, method='GET',
+                     headers=None, force_http=False):
+        return self.connection.generate_url(expires_in, method, self.name,
+                                            headers=headers,
                                             force_http=force_http)
 
-    def delete_key(self, key_name, headers=None):
+    def delete_key(self, key_name, headers=None,
+                   version_id=None, mfa_token=None):
         """
-        Deletes a key from the bucket.
+        Deletes a key from the bucket.  If a version_id is provided,
+        only that version of the key will be deleted.
         
         :type key_name: string
         :param key_name: The key name to delete
+
+        :type version_id: string
+        :param version_id: The version ID (optional)
+        
+        :type mfa_token: tuple or list of strings
+        :param mfa_token: A tuple or list consisting of the serial number
+                          from the MFA device and the current value of
+                          the six-digit token associated with the device.
+                          This value is required anytime you are
+                          deleting versioned objects from a bucket
+                          that has the MFADelete option on the bucket.
         """
-        response = self.connection.make_request('DELETE', self.name, key_name, headers=headers)
+        if version_id:
+            query_args = 'versionId=%s' % version_id
+        else:
+            query_args = None
+        if mfa_token:
+            if not headers:
+                headers = {}
+            headers['x-amz-mfa'] = ' '.join(mfa_token)
+        response = self.connection.make_request('DELETE', self.name, key_name,
+                                                headers=headers,
+                                                query_args=query_args)
         body = response.read()
         if response.status != 204:
             raise S3ResponseError(response.status, response.reason, body)
 
-    def copy_key(self, new_key_name, src_bucket_name, src_key_name, metadata=None):
+    def copy_key(self, new_key_name, src_bucket_name,
+                 src_key_name, metadata=None, src_version_id=None,
+                 storage_class='STANDARD', preserve_acl=False):
         """
         Create a new key in the bucket by copying another existing key.
 
@@ -257,6 +386,11 @@ class Bucket:
         :type src_key_name: string
         :param src_key_name: The name of the source key
 
+        :type src_version_id: string
+        :param src_version_id: The version id for the key.  This param
+                               is optional.  If not specified, the newest
+                               version of the key will be copied.
+
         :type metadata: dict
         :param metadata: Metadata to be associated with new key.
                          If metadata is supplied, it will replace the
@@ -264,17 +398,42 @@ class Bucket:
                          If no metadata is supplied, the source key's
                          metadata will be copied to the new key.
 
+        :type storage_class: string
+        :param storage_class: The storage class of the new key.
+                              By default, the new key will use the
+                              standard storage class.  Possible values are:
+                              STANDARD | REDUCED_REDUNDANCY
+
+        :type preserve_acl: bool
+        :param preserve_acl: If True, the ACL from the source key
+                             will be copied to the destination
+                             key.  If False, the destination key
+                             will have the default ACL.
+                             Note that preserving the ACL in the
+                             new key object will require two
+                             additional API calls to S3, one to
+                             retrieve the current ACL and one to
+                             set that ACL on the new object.  If
+                             you don't care about the ACL, a value
+                             of False will be significantly more
+                             efficient.
+
         :rtype: :class:`boto.s3.key.Key` or subclass
         :returns: An instance of the newly created key object
         """
+        if preserve_acl:
+            acl = self.get_xml_acl(src_key_name)
         src = '%s/%s' % (src_bucket_name, urllib.quote(src_key_name))
+        if src_version_id:
+            src += '?version_id=%s' % src_version_id
+        headers = {'x-amz-copy-source' : src}
+        if storage_class != 'STANDARD':
+            headers['x-amz-storage-class'] = storage_class
         if metadata:
-            headers = {'x-amz-copy-source' : src,
-                       'x-amz-metadata-directive' : 'REPLACE'}
+            headers['x-amz-metadata-directive'] = 'REPLACE'
             headers = boto.utils.merge_meta(headers, metadata)
         else:
-            headers = {'x-amz-copy-source' : src,
-                       'x-amz-metadata-directive' : 'COPY'}
+            headers['x-amz-metadata-directive'] = 'COPY'
         response = self.connection.make_request('PUT', self.name, new_key_name,
                                                 headers=headers)
         body = response.read()
@@ -284,48 +443,70 @@ class Bucket:
             xml.sax.parseString(body, h)
             if hasattr(key, 'Error'):
                 raise S3CopyError(key.Code, key.Message, body)
+            key.handle_version_headers(response)
+            if preserve_acl:
+                self.set_xml_acl(acl, new_key_name)
             return key
         else:
             raise S3ResponseError(response.status, response.reason, body)
 
-    def set_canned_acl(self, acl_str, key_name='', headers=None):
+    def set_canned_acl(self, acl_str, key_name='', headers=None,
+                       version_id=None):
         assert acl_str in CannedACLStrings
 
         if headers:
             headers['x-amz-acl'] = acl_str
         else:
-            headers = {'x-amz-acl': acl_str}
+            headers={'x-amz-acl': acl_str}
 
+        query_args='acl'
+        if version_id:
+            query_args += '&versionId=%s' % version_id
         response = self.connection.make_request('PUT', self.name, key_name,
-                headers=headers, query_args='acl')
+                headers=headers, query_args=query_args)
         body = response.read()
         if response.status != 200:
             raise S3ResponseError(response.status, response.reason, body)
 
-    def get_xml_acl(self, key_name='', headers=None):
+    def get_xml_acl(self, key_name='', headers=None, version_id=None):
+        query_args = 'acl'
+        if version_id:
+            query_args += '&versionId=%s' % version_id
         response = self.connection.make_request('GET', self.name, key_name,
-                                                query_args='acl', headers=headers)
+                                                query_args=query_args,
+                                                headers=headers)
         body = response.read()
         if response.status != 200:
             raise S3ResponseError(response.status, response.reason, body)
         return body
 
-    def set_xml_acl(self, acl_str, key_name='', headers=None):
+    def set_xml_acl(self, acl_str, key_name='', headers=None, version_id=None):
+        query_args = 'acl'
+        if version_id:
+            query_args += '&versionId=%s' % version_id
         response = self.connection.make_request('PUT', self.name, key_name,
-                data=acl_str, query_args='acl', headers=headers)
+                                                data=acl_str,
+                                                query_args=query_args,
+                                                headers=headers)
         body = response.read()
         if response.status != 200:
             raise S3ResponseError(response.status, response.reason, body)
 
-    def set_acl(self, acl_or_str, key_name='', headers=None):
+    def set_acl(self, acl_or_str, key_name='', headers=None, version_id=None):
         if isinstance(acl_or_str, Policy):
-            self.set_xml_acl(acl_or_str.to_xml(), key_name, headers=headers)
+            self.set_xml_acl(acl_or_str.to_xml(), key_name,
+                             headers, version_id)
         else:
-            self.set_canned_acl(acl_or_str, key_name, headers=headers)
+            self.set_canned_acl(acl_or_str, key_name,
+                                headers, version_id)
 
-    def get_acl(self, key_name='', headers=None):
+    def get_acl(self, key_name='', headers=None, version_id=None):
+        query_args = 'acl'
+        if version_id:
+            query_args += '&versionId=%s' % version_id
         response = self.connection.make_request('GET', self.name, key_name,
-                query_args='acl', headers=headers)
+                                                query_args=query_args,
+                                                headers=headers)
         body = response.read()
         if response.status == 200:
             policy = Policy(self)
@@ -341,26 +522,30 @@ class Bucket:
             for key in self:
                 self.set_canned_acl('public-read', key.name, headers=headers)
 
-    def add_email_grant(self, permission, email_address, recursive=False, headers=None):
+    def add_email_grant(self, permission, email_address,
+                        recursive=False, headers=None):
         """
-        Convenience method that provides a quick way to add an email grant to a bucket.
-        This method retrieves the current ACL, creates a new grant based on the parameters
-        passed in, adds that grant to the ACL and then PUT's the new ACL back to S3.
+        Convenience method that provides a quick way to add an email grant
+        to a bucket. This method retrieves the current ACL, creates a new
+        grant based on the parameters passed in, adds that grant to the ACL
+        and then PUT's the new ACL back to S3.
         
-        :param permission: The permission being granted. Should be one of: (READ, WRITE, READ_ACP, WRITE_ACP, FULL_CONTROL).
-             See http://docs.amazonwebservices.com/AmazonS3/2006-03-01/UsingAuthAccess.html for more details on permissions.
         :type permission: string
+        :param permission: The permission being granted. Should be one of:
+                           (READ, WRITE, READ_ACP, WRITE_ACP, FULL_CONTROL).
         
-        :param email_address: The email address associated with the AWS account your are granting
-            the permission to.
         :type email_address: string
+        :param email_address: The email address associated with the AWS
+                              account your are granting the permission to.
         
-        :param recursive: A boolean value to controls whether the command will apply the
-            grant to all keys within the bucket or not.  The default value is False.
-            By passing a True value, the call will iterate through all keys in the
-            bucket and apply the same grant to each key.
-            CAUTION: If you have a lot of keys, this could take a long time!
         :type recursive: boolean
+        :param recursive: A boolean value to controls whether the command
+                          will apply the grant to all keys within the bucket
+                          or not.  The default value is False.  By passing a
+                          True value, the call will iterate through all keys
+                          in the bucket and apply the same grant to each key.
+                          CAUTION: If you have a lot of keys, this could take
+                          a long time!
         """
         if permission not in S3Permissions:
             raise S3PermissionsError('Unknown Permission: %s' % permission)
@@ -378,21 +563,21 @@ class Bucket:
         passed in, adds that grant to the ACL and then PUT's the new ACL back to S3.
         
         :type permission: string
-        :param permission:  The permission being granted.  Should be one of:
-                            READ|WRITE|READ_ACP|WRITE_ACP|FULL_CONTROL
-                            See http://docs.amazonwebservices.com/AmazonS3/2006-03-01/UsingAuthAccess.html
-                            for more details on permissions.
-                            
+        :param permission: The permission being granted. Should be one of:
+                           (READ, WRITE, READ_ACP, WRITE_ACP, FULL_CONTROL).
+        
         :type user_id: string
         :param user_id:     The canonical user id associated with the AWS account your are granting
                             the permission to.
                             
-        :type recursive: bool
-        :param recursive:   A boolean value that controls whether the command will apply the
-                            grant to all keys within the bucket or not.  The default value is False.
-                            By passing a True value, the call will iterate through all keys in the
-                            bucket and apply the same grant to each key.
-                            CAUTION: If you have a lot of keys, this could take a long time!
+        :type recursive: boolean
+        :param recursive: A boolean value to controls whether the command
+                          will apply the grant to all keys within the bucket
+                          or not.  The default value is False.  By passing a
+                          True value, the call will iterate through all keys
+                          in the bucket and apply the same grant to each key.
+                          CAUTION: If you have a lot of keys, this could take
+                          a long time!
         """
         if permission not in S3Permissions:
             raise S3PermissionsError('Unknown Permission: %s' % permission)
@@ -437,7 +622,7 @@ class Bucket:
             return True
         else:
             raise S3ResponseError(response.status, response.reason, body)
-
+        
     def disable_logging(self, headers=None):
         body = self.EmptyBucketLoggingBody
         response = self.connection.make_request('PUT', self.name, data=body,
@@ -465,16 +650,6 @@ class Bucket:
         policy.acl.add_grant(g2)
         self.set_acl(policy, headers=headers)
 
-    def disable_logging(self, headers=None):
-        body = self.EmptyBucketLoggingBody
-        response = self.connection.make_request('PUT', self.name, data=body,
-                query_args='logging', headers=headers)
-        body = response.read()
-        if response.status == 200:
-            return True
-        else:
-            raise S3ResponseError(response.status, response.reason, body)
-
     def get_request_payment(self, headers=None):
         response = self.connection.make_request('GET', self.name,
                 query_args='requestPayment', headers=headers)
@@ -491,6 +666,82 @@ class Bucket:
         body = response.read()
         if response.status == 200:
             return True
+        else:
+            raise S3ResponseError(response.status, response.reason, body)
+        
+    def configure_versioning(self, versioning, mfa_delete=False,
+                             mfa_token=None, headers=None):
+        """
+        Configure versioning for this bucket.
+        Note: This feature is currently in beta release and is available
+              only in the Northern California region.
+
+        :type versioning: bool
+        :param versioning: A boolean indicating whether version is
+                           enabled (True) or disabled (False).
+
+        :type mfa_delete: bool
+        :param mfa_delete: A boolean indicating whether the Multi-Factor
+                           Authentication Delete feature is enabled (True)
+                           or disabled (False).  If mfa_delete is enabled
+                           then all Delete operations will require the
+                           token from your MFA device to be passed in
+                           the request.
+
+        :type mfa_token: tuple or list of strings
+        :param mfa_token: A tuple or list consisting of the serial number
+                          from the MFA device and the current value of
+                          the six-digit token associated with the device.
+                          This value is required when you are changing
+                          the status of the MfaDelete property of
+                          the bucket.
+        """
+        if versioning:
+            ver = 'Enabled'
+        else:
+            ver = 'Suspended'
+        if mfa_delete:
+            mfa = 'Enabled'
+        else:
+            mfa = 'Disabled'
+        body = self.VersioningBody % (ver, mfa)
+        if mfa_token:
+            if not headers:
+                headers = {}
+            headers['x-amz-mfa'] = ' '.join(mfa_token)
+        response = self.connection.make_request('PUT', self.name, data=body,
+                query_args='versioning', headers=headers)
+        body = response.read()
+        if response.status == 200:
+            return True
+        else:
+            raise S3ResponseError(response.status, response.reason, body)
+        
+    def get_versioning_status(self, headers=None):
+        """
+        Returns the current status of versioning on the bucket.
+
+        :rtype: dict
+        :returns: A dictionary containing a key named 'Versioning'
+                  that can have a value of either Enabled, Disabled,
+                  or Suspended. Also, if MFADelete has ever been enabled
+                  on the bucket, the dictionary will contain a key
+                  named 'MFADelete' which will have a value of either
+                  Enabled or Suspended.
+        """
+        response = self.connection.make_request('GET', self.name,
+                query_args='versioning', headers=headers)
+        body = response.read()
+        boto.log.debug(body)
+        if response.status == 200:
+            d = {}
+            ver = re.search(self.VersionRE, body)
+            if ver:
+                d['Versioning'] = ver.group(1)
+            mfa = re.search(self.MFADeleteRE, body)
+            if mfa:
+                d['MfaDelete'] = mfa.group(1)
+            return d
         else:
             raise S3ResponseError(response.status, response.reason, body)
 

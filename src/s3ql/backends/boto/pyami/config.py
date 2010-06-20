@@ -53,7 +53,6 @@ class Config(ConfigParser.SafeConfigParser):
 
     def load_credential_file(self, path):
         """Load a credential file as is setup like the Java utilities"""
-        config = ConfigParser.ConfigParser()
         c_data = StringIO.StringIO()
         c_data.write("[Credentials]\n")
         for line in open(path, "r").readlines():
@@ -125,14 +124,14 @@ class Config(ConfigParser.SafeConfigParser):
         except:
             val = default
         return val
-
+    
     def getint(self, section, name, default=0):
         try:
             val = ConfigParser.SafeConfigParser.getint(self, section, name)
         except:
             val = int(default)
         return val
-
+    
     def getfloat(self, section, name, default=0.0):
         try:
             val = ConfigParser.SafeConfigParser.getfloat(self, section, name)
@@ -150,13 +149,13 @@ class Config(ConfigParser.SafeConfigParser):
         else:
             val = default
         return val
-
+    
     def setbool(self, section, name, value):
         if value:
             self.set(section, name, 'true')
         else:
             self.set(section, name, 'false')
-
+    
     def dump(self):
         s = StringIO.StringIO()
         self.write(s)
@@ -172,7 +171,7 @@ class Config(ConfigParser.SafeConfigParser):
                     fp.write('%s = xxxxxxxxxxxxxxxxxx\n' % option)
                 else:
                     fp.write('%s = %s\n' % (option, self.get(section, option)))
-
+    
     def dump_to_sdb(self, domain_name, item_name):
         import simplejson
         sdb = boto.connect_sdb()

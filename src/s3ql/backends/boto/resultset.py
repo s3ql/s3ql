@@ -47,6 +47,10 @@ class ResultSet(list):
         else:
             self.markers = []
         self.marker = None
+        self.key_marker = None
+        self.next_key_marker = None
+        self.next_version_id_marker = None
+        self.version_id_marker = None
         self.is_truncated = False
         self.next_token = None
         self.status = True
@@ -70,6 +74,14 @@ class ResultSet(list):
             self.is_truncated = self.to_boolean(value)
         elif name == 'Marker':
             self.marker = value
+        elif name == 'KeyMarker':
+            self.key_marker = value
+        elif name == 'VersionIdMarker':
+            self.version_id_marker = value
+        elif name == 'NextKeyMarker':
+            self.next_key_marker = value
+        elif name == 'NextVersionIdMarker':
+            self.next_version_id_marker = value
         elif name == 'Prefix':
             self.prefix = value
         elif name == 'return':

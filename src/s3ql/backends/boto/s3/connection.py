@@ -44,10 +44,11 @@ def assert_case_insensitive(f):
     return wrapper
 
 class _CallingFormat:
-    def build_url_base(self, protocol, server, bucket, key=''):
+
+    def build_url_base(self, connection, protocol, server, bucket, key=''):
         url_base = '%s://' % protocol
         url_base += self.build_host(server, bucket)
-        url_base += self.build_path_base(bucket, key)
+        url_base += connection.get_path(self.build_path_base(bucket, key))
         return url_base
 
     def build_host(self, server, bucket):
@@ -66,16 +67,19 @@ class _CallingFormat:
         return '/%s' % urllib.quote(key)
 
 class SubdomainCallingFormat(_CallingFormat):
+    
     @assert_case_insensitive
     def get_bucket_server(self, server, bucket):
         return '%s.%s' % (bucket, server)
 
 class VHostCallingFormat(_CallingFormat):
+    
     @assert_case_insensitive
     def get_bucket_server(self, server, bucket):
         return bucket
 
 class OrdinaryCallingFormat(_CallingFormat):
+    
     def get_bucket_server(self, server, bucket):
         return server
 
@@ -88,7 +92,10 @@ class OrdinaryCallingFormat(_CallingFormat):
 class Location:
     DEFAULT = ''
     EU = 'EU'
+    USWest = 'us-west-1'
 
+#boto.set_stream_logger('s3')
+    
 class S3Connection(AWSAuthConnection):
 
     DefaultHost = 's3.amazonaws.com'
@@ -98,16 +105,17 @@ class S3Connection(AWSAuthConnection):
                  is_secure=True, port=None, proxy=None, proxy_port=None,
                  proxy_user=None, proxy_pass=None,
                  host=DefaultHost, debug=0, https_connection_factory=None,
-                 calling_format=SubdomainCallingFormat(), path='/'):
+                 calling_format=SubdomainCallingFormat(), path='/', provider='aws'):
         self.calling_format = calling_format
         AWSAuthConnection.__init__(self, host,
                 aws_access_key_id, aws_secret_access_key,
                 is_secure, port, proxy, proxy_port, proxy_user, proxy_pass,
                 debug=debug, https_connection_factory=https_connection_factory,
-                path=path)
+                path=path, provider=provider)
 
     def __iter__(self):
-        return self.get_all_buckets()
+        for bucket in self.get_all_buckets():
+            yield bucket
 
     def __contains__(self, bucket_name):
        return not (self.lookup(bucket_name) is None)
@@ -122,12 +130,12 @@ class S3Connection(AWSAuthConnection):
         # Convert conditions object mappings to condition statements
 
         return '{"expiration": "%s",\n"conditions": [%s]}' % \
-            (time.strftime(utils.ISO8601, expiration_time), ",".join(conditions))
+            (time.strftime(boto.utils.ISO8601, expiration_time), ",".join(conditions))
 
 
-    def build_post_form_args(self, bucket_name, key, expires_in=6000,
-                        acl=None, success_action_redirect=None, max_content_length=None,
-                        http_method="http", fields=None, conditions=None):
+    def build_post_form_args(self, bucket_name, key, expires_in = 6000,
+                        acl = None, success_action_redirect = None, max_content_length = None,
+                        http_method = "http", fields=None, conditions=None):
         """
         Taken from the AWS book Python examples and modified for use with boto
         This only returns the arguments required for the post form, not the actual form
@@ -225,13 +233,14 @@ class S3Connection(AWSAuthConnection):
             headers = {}
         expires = int(time.time() + expires_in)
         auth_path = self.calling_format.build_auth_path(bucket, key)
-        canonical_str = utils.canonical_string(method, auth_path,
+        auth_path = self.get_path(auth_path)
+        canonical_str = boto.utils.canonical_string(method, auth_path,
                                                     headers, expires)
         hmac_copy = self.hmac.copy()
         hmac_copy.update(canonical_str)
         b64_hmac = base64.encodestring(hmac_copy.digest()).strip()
         encoded_canonical = urllib.quote_plus(b64_hmac)
-        path = self.calling_format.build_path_base(bucket, key)
+        self.calling_format.build_path_base(bucket, key)
         if query_auth:
             query_part = '?' + self.QueryString % (encoded_canonical, expires,
                                              self.aws_access_key_id)
@@ -245,14 +254,14 @@ class S3Connection(AWSAuthConnection):
         else:
             protocol = self.protocol
             port = self.port
-        return self.calling_format.build_url_base(protocol, self.server_name(port),
+        return self.calling_format.build_url_base(self, protocol, self.server_name(port),
                                                   bucket, key) + query_part
 
     def get_all_buckets(self, headers=None):
         response = self.make_request('GET')
         body = response.read()
         if response.status > 300:
-            raise S3ResponseError(response.status, response.reason, body, headers=headers)
+            raise S3ResponseError(response.status, response.reason, body)
         rs = ResultSet([('Bucket', Bucket)])
         h = handler.XmlHandler(rs, self)
         xml.sax.parseString(body, h)
@@ -275,7 +284,7 @@ class S3Connection(AWSAuthConnection):
     def get_bucket(self, bucket_name, validate=True, headers=None):
         bucket = Bucket(self, bucket_name)
         if validate:
-            rs = bucket.get_all_keys(headers, maxkeys=0)
+            bucket.get_all_keys(headers, maxkeys=0)
         return bucket
 
     def lookup(self, bucket_name, validate=True, headers=None):
@@ -285,7 +294,8 @@ class S3Connection(AWSAuthConnection):
             bucket = None
         return bucket
 
-    def create_bucket(self, bucket_name, headers=None, location=Location.DEFAULT, policy=None):
+    def create_bucket(self, bucket_name, headers=None,
+                      location=Location.DEFAULT, policy=None):
         """
         Creates a new located bucket. By default it's in the USA. You can pass
         Location.EU to create an European bucket.
@@ -303,6 +313,10 @@ class S3Connection(AWSAuthConnection):
         :param policy: A canned ACL policy that will be applied to the new key in S3.
              
         """
+        # TODO: Not sure what Exception Type from boto.exception to use.
+        if not bucket_name.islower():
+            raise Exception("Bucket names must be lower case.")
+
         if policy:
             if headers:
                 headers['x-amz-acl'] = policy

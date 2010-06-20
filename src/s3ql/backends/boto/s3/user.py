@@ -49,4 +49,4 @@ class User:
         s += '<ID>%s</ID>' % self.id
         s += '<DisplayName>%s</DisplayName>' % self.display_name
         s += '</%s>' % element_name
-        return s
+        return s        

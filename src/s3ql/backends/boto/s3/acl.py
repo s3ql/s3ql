@@ -28,6 +28,7 @@ import StringIO
 CannedACLStrings = ['private', 'public-read',
                     'public-read-write', 'authenticated-read']
 
+
 class Policy:
 
     def __init__(self, parent=None):
@@ -111,7 +112,7 @@ class ACL:
             s += grant.to_xml()
         s += '</AccessControlList>'
         return s
-
+        
 class Grant:
 
     NameSpace = 'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
@@ -160,5 +161,5 @@ class Grant:
         s += '<Permission>%s</Permission>' % self.permission
         s += '</Grant>'
         return s
-
-
+        
+            
