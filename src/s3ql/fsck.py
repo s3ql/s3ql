@@ -29,7 +29,7 @@ expect_errors = False
 found_errors = False
 blocksize = None
 
-S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK |
+S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK | 
           stat.S_IFCHR | stat.S_IFIFO | stat.S_IFLNK)
 
 def fsck(cachedir_, bucket_, param):
@@ -110,15 +110,26 @@ def check_cache():
 
         try:
             obj_id = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
-
+            
         except KeyError:
             obj_id = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
                                (1, hash_, size))
             bucket.store_fh('s3ql_data_%d' % obj_id, fh)
 
         else:
-            conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
-                         (obj_id,))
+            # Verify that this object actually exists
+            if bucket.contains('s3ql_data_%d' % obj_id):
+                conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
+                             (obj_id,))    
+            else:
+                # We don't want to delete the vanished object here, because
+                # check_keylist will do a better job and print all affected
+                # inodes. However, we need to reset the hash so that we can
+                # insert the new object.
+                conn.execute('UPDATE objects SET hash=NULL WHERE id=?', (obj_id,))
+                obj_id = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
+                                    (1, hash_, size))
+                bucket.store_fh('s3ql_data_%d' % obj_id, fh)
 
         try:
             old_obj_id = conn.get_val('SELECT obj_id FROM blocks WHERE inode=? AND blockno=?',
@@ -238,7 +249,7 @@ def check_inode_sizes():
             
             found_errors = True
             log_error("Size of inode %d (%s) does not agree with number of blocks, "
-                      "setting from %d to %d", 
+                      "setting from %d to %d",
                       id_, get_path(id_, conn), size_old, size)
             conn.execute("UPDATE inodes SET size=? WHERE id=?", (size, id_))
     finally:
@@ -365,7 +376,7 @@ def check_obj_refcounts():
         
         for (id_, cnt, cnt_old) in conn.query('SELECT * FROM wrong_refcounts'):
             log_error("Object %s has invalid refcount, setting from %d to %d",
-                        id_, cnt_old, cnt)
+                      id_, cnt_old, cnt)
             found_errors = True
             if cnt is not None:
                 conn.execute("UPDATE objects SET refcount=? WHERE id=?",
@@ -393,16 +404,13 @@ def check_keylist():
     # seen
     conn.execute("CREATE TEMP TABLE obj_ids (id INTEGER PRIMARY KEY)")
     try:
-        for (i, obj_name) in enumerate(bucket):
+        for (i, obj_name) in enumerate(bucket.list('s3ql_data_')):
     
-            if i % 5000 == 0:
+            if i != 0 and i % 5000 == 0:
                 log.info('..processed %d objects so far..', i)
     
             # We only bother with data objects
-            if not obj_name.startswith("s3ql_data_"):
-                continue
-            else:
-                obj_id = int(obj_name[len('s3ql_data_'):])
+            obj_id = int(obj_name[10:])
     
             conn.execute('INSERT INTO obj_ids VALUES(?)', (obj_id,))
         
