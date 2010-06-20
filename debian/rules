@@ -10,7 +10,7 @@ override_dh_installchangelogs:
 	dh_installchangelogs Changes.txt
 
 override_dh_compress:
-	dh_compress -X.txt -X.js
+	dh_compress -X.txt -X.js -X.py
 
 # Fakeroot breaks testing
 #override_dh_install:
@@ -23,6 +23,7 @@ override_dh_installdocs:
 
 override_dh_auto_clean:
 	dh_auto_clean
+	rm -rf dist
 	rm -rf doc/html
 	rm -rf doc/doctrees
 	rm -rf setup.log
