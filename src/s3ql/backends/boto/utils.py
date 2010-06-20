@@ -141,8 +141,9 @@ def get_aws_metadata(headers):
     metadata = {}
     for hkey in headers.keys():
         if hkey.lower().startswith(METADATA_PREFIX):
-            val = urllib.unquote_plus(headers[hkey])
-            metadata[hkey[len(METADATA_PREFIX):]] = unicode(val, 'utf-8')
+            #val = urllib.unquote_plus(headers[hkey])
+            #metadata[hkey[len(METADATA_PREFIX):]] = unicode(val, 'utf-8')
+            metadata[hkey[len(METADATA_PREFIX):]] = headers[hkey]
             del headers[hkey]
     return metadata
 
@@ -163,7 +164,7 @@ def retry_url(url, retry_on_404=True):
         except:
             pass
         boto.log.exception('Caught exception reading instance data')
-        time.sleep(2**i)
+        time.sleep(2 ** i)
     boto.log.error('Unable to read instance data, giving up')
     return ''
 
@@ -178,7 +179,7 @@ def _get_instance_metadata(url):
             else:
                 p = field.find('=')
                 if p > 0:
-                    key = field[p+1:]
+                    key = field[p + 1:]
                     resource = field[0:p] + '/openssh-key'
                 else:
                     key = resource = field
