@@ -16,7 +16,7 @@ You can specify the following options:
 
   --s3-location=S3_LOCATION
                         Specify storage location for new bucket.
-                        Allowed values: `EU`, `us-west-1`, or
+                        Allowed values: `EU`, `us-west-1`, `ap-southeast-1` or
                         `us-standard`. The later is not recommended,
                         please refer to the FAQ for more information.
   --homedir=HOMEDIR     Directory for log files, cache and authentication
