@@ -10,17 +10,18 @@ from __future__ import division, print_function, absolute_import
 
 from optparse import OptionParser
 import logging
-from ..common import (init_logging_from_options, get_backend, QuietError, unlock_bucket,
+from s3ql.common import (init_logging_from_options, get_backend, QuietError, unlock_bucket,
                       ExceptionStoringThread, cycle_metadata, dump_metadata, restore_metadata)
-from .. import  CURRENT_FS_REV
+from s3ql import CURRENT_FS_REV
 from getpass import getpass
 import sys
-from ..backends import s3
-from ..backends.boto.s3.connection import Location
-from ..backends.common import ChecksumError
+from s3ql.backends import s3, local, sftp
+from s3ql.backends.boto.s3.connection import Location
+from s3ql.backends.common import ChecksumError
 import os
 import s3ql.database as dbcm
 import tempfile
+import errno
 import re
 import textwrap
 
@@ -150,8 +151,9 @@ def delete_bucket(conn, bucketname):
     log.info('Deleting...')
     conn.delete_bucket(bucketname, recursive=True)
 
-    print('Bucket deleted. Please note that it may take a while until',
-          'the removal is visible everywhere.', sep='\n')
+    print('Bucket deleted.')
+    if isinstance(conn, s3.Connection):
+        print('Note that it may take a while until the removal becomes visible.')
 
 def upgrade(conn, bucket):
     '''Upgrade file system to newest revision'''
@@ -197,7 +199,7 @@ def upgrade(conn, bucket):
         raise QuietError("File system damaged, run fsck!")
 
     # Check for unclean shutdown on other computer
-    if param['seq_no'] < seq_no:
+    if param['seq_no'] < seq_no and False:
         if isinstance(bucket, s3.Bucket):
             raise QuietError(textwrap.fill(textwrap.dedent('''
                 It appears that the file system is still mounted somewhere else. If this is not
@@ -237,6 +239,43 @@ def upgrade(conn, bucket):
     log.info('Upgrading from revision %d to %d...', CURRENT_FS_REV - 1,
              CURRENT_FS_REV)
     param['revision'] = CURRENT_FS_REV
+    
+    # Update local backend directory structure
+    if isinstance(bucket, local.Bucket):
+        for name in os.listdir(bucket.name):
+            if not name.endswith('.dat'):
+                continue
+            name = name[:-4]
+            newname = bucket.key_to_path(local.unescape(name))
+            oldname = os.path.join(bucket.name, name)
+            if name == newname:
+                continue
+            try:
+                os.rename(oldname + '.dat', newname + '.dat')
+            except OSError as exc:
+                if exc.errno != errno.ENOENT:
+                    raise
+                os.makedirs(os.path.dirname(newname))
+                os.rename(oldname + '.dat', newname + '.dat')
+            os.rename(oldname + '.meta', newname + '.meta')
+    elif isinstance(bucket, sftp.Bucket):
+        for name in bucket.conn.sftp.listdir(bucket.name):
+            if not name.endswith('.dat'):
+                continue
+            name = name[:-4]
+            newname = bucket.key_to_path(local.unescape(name))
+            oldname = os.path.join(bucket.name, name)
+            if oldname == newname:
+                continue
+            try:
+                bucket.conn.sftp.rename(oldname + '.dat', newname + '.dat')
+            except IOError as exc:
+                if exc.errno != errno.ENOENT:
+                    raise
+                bucket._makedirs(os.path.dirname(newname))
+                bucket.conn.sftp.rename(oldname + '.dat', newname + '.dat')
+            bucket.conn.sftp.rename(oldname + '.meta', newname + '.meta')
+                                
 
     # Increase metadata sequence no
     param['seq_no'] += 1

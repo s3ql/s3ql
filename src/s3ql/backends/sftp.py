@@ -15,6 +15,7 @@ import errno
 import shutil
 import cPickle as pickle
 import os
+import stat
 import paramiko
 
 log = logging.getLogger("backend.sftp")
@@ -64,14 +65,22 @@ class Connection(AbstractConnection):
             raise KeyError('Bucket directory does not exist on remote host')
 
         if recursive:
-            for item in self.sftp.listdir(name):
-                if not (item.endswith('.dat') or item.endswith('.meta')):
-                    log.warn('Unknown file in bucket directory: %s', item)
-                    continue
-                self.sftp.remove(os.path.join(name, item))
-
+            self._rmtree(name)
+  
         self.sftp.rmdir(name)
+        
+    def _rmtree(self, path):
+        '''Recursively delete contents of remote path'''
+        
+        for attr in self.sftp.listdir_attr(path):
+            fullname = '%s/%s' % (path, attr.filename)
+            if stat.S_ISDIR(attr.st_mode):
+                self._rmtree(fullname)
+                self.sftp.rmdir(fullname)
+            else:
+                self.sftp.remove(fullname)                
 
+        
     def create_bucket(self, name, passphrase=None, compression='lzma'):
         """Create and return bucket"""
 
@@ -104,23 +113,35 @@ class Bucket(AbstractBucket):
         self.conn = conn
         self.name = name
 
+    def key_to_path(self, key):
+        '''Return path for given key'''
+        
+        key = escape(key)
+        
+        if not key.startswith('s3ql_data_'):
+            return os.path.join(self.name, key)
+        
+        no = key[10:]
+        path = [ self.name, 's3ql_data']
+        for i in range(0, len(no), 3):
+            path.append(no[:i])
+        path.append(key)
+        
+        return os.path.join(*path)
+    
     def __str__(self):
         return '<sftp bucket, name=%r>' % self.name
 
     def clear(self):
-        for name in self.conn.sftp.listdir(self.name):
-            if not (name.endswith('.dat') or name.endswith('.meta')):
-                log.warn('Unknown file in bucket directory: %s', name)
-                continue
-            self.conn.sftp.remove(os.path.join(self.name, name))
+        self.conn._rmtree(self.name)
 
     def contains(self, key):
-        return os.path.join(self.name, escape(key) + '.dat') in self.conn
+        return (self.key_to_path(key) + '.dat') in self.conn
 
     def raw_lookup(self, key):
-        filename = os.path.join(self.name, escape(key))
+        path = self.key_to_path(key)
         try:
-            src = self.conn.sftp.open(filename + '.meta', 'rb')
+            src = self.conn.sftp.open(path + '.meta', 'rb')
             return pickle.load(src)
         except IOError as exc:
             if exc.errno == errno.ENOENT:
@@ -129,11 +150,11 @@ class Bucket(AbstractBucket):
                 raise
 
     def delete(self, key, force=False):
-        filename = os.path.join(self.name, escape(key))
+        path = self.key_to_path(key)
 
         try:
-            self.conn.sftp.remove(filename + '.dat')
-            self.conn.sftp.remove(filename + '.meta')
+            self.conn.sftp.remove(path + '.dat')
+            self.conn.sftp.remove(path + '.meta')
         except IOError as exc:
             if exc.errno == errno.ENOENT:
                 if force:
@@ -143,32 +164,73 @@ class Bucket(AbstractBucket):
             else:
                 raise
 
-
     def list(self, prefix=''):
-        for name in self.conn.sftp.listdir(self.name):
-            if not name.endswith('.dat'):
-                continue
-            key = unescape(name[:-len('.dat')])
-            if not key.startswith(prefix):
-                continue
-            yield key
-
+        if prefix:
+            base = os.path.dirname(self.key_to_path(prefix))
+        else:
+            base = self.name
+            
+        for (_, _, names) in self._walk(base):
+            for name in names:
+                if not name.endswith('.dat'):
+                    continue
+                key = unescape(name[:-4])
+                
+                if not prefix or key.startswith(prefix):
+                    yield key
+           
+    def _walk(self, base):
+        '''Iterate recursively over directories, like os.walk'''
+                         
+        to_visit = [ base ]
+        while to_visit: 
+            base = to_visit.pop()
+            files = list()
+            for attr in self.conn.sftp.listdir_attr(base):
+                if stat.S_ISDIR(attr.st_mode):
+                    to_visit.append('%s/%s' % (base, attr.filename))
+                else:
+                    files.append(attr.filename) 
+            yield (base, to_visit, files)
+    
+    def _makedirs(self, path):
+        '''Like os.makedirs, but over sftp'''
+        
+        cur = '/'
+        done = False
+        for el in path.split('/'):
+            cur = '%s/%s' % (cur, el)
+            if cur not in self.conn:
+                self.conn.sftp.mkdir(cur)
+                done = True
+        
+        if not done:
+            err = OSError('Entry already exists: %s' % cur)
+            err.errno = errno.EEXIST
+            raise err
+            
+        
     def get_size(self):
         size = 0
-        for name in self.conn.sftp.listdir_attr(self.name):
-            if not name.filename.endswith('.dat'):
-                continue
-            size += name.st_size
+        to_visit = [ self.name ]
+        while to_visit: 
+            base = to_visit.pop()
+            for attr in self.conn.sftp.listdir_attr(base):
+                if stat.S_ISDIR(attr.st_mode):
+                    to_visit.append('%s/%s' % (base, attr.filename))
+                elif attr.filename.endswith('.dat'):
+                    size += attr.st_size            
+            
         return size
 
     def raw_fetch(self, key, fh):
-        filename = os.path.join(self.name, escape(key))
+        path = self.key_to_path(key)
         try:
-            src = self.conn.sftp.open(filename + '.dat', 'r')
+            src = self.conn.sftp.open(path + '.dat', 'r')
             fh.seek(0)
             shutil.copyfileobj(src, fh)
 
-            src = self.conn.sftp.open(filename + '.meta', 'r')
+            src = self.conn.sftp.open(path + '.meta', 'r')
             metadata = pickle.load(src)
 
         except IOError as exc:
@@ -180,22 +242,37 @@ class Bucket(AbstractBucket):
         return metadata
 
     def raw_store(self, key, fh, metadata):
-        filename = os.path.join(self.name, escape(key))
-
-        destfilename = filename + '.dat'
+        path = self.key_to_path(key)
         fh.seek(0)
-
-        fh_dest = self.conn.sftp.open(destfilename, 'w')
-        shutil.copyfileobj(fh, fh_dest)
-
-        destfilename = filename + '.meta'
-        fh.seek(0)
-        fh_dest = self.conn.sftp.open(destfilename, 'w')
-        pickle.dump(metadata, fh_dest, 2)
+        try:
+            dest = self.conn.sftp.open(path + '.dat', 'w')
+        except IOError as exc:
+            if exc.errno != errno.ENOENT:
+                raise
+            self._makedirs(os.path.dirname(path))
+            dest = self.conn.sftp.open(path + '.dat', 'w')
+            
+        shutil.copyfileobj(fh, dest)
+        dest.close()
+                
+        dest = self.conn.sftp.open(path + '.meta', 'w')
+        pickle.dump(metadata, dest, 2)
+        dest.close()
 
     def rename(self, src, dest):
-        self.conn.sftp.rename(os.path.join(self.name, escape(src)),
-                              os.path.join(self.name, escape(dest)))
+        src_path = self.key_to_path(src)
+        dest_path = self.key_to_path(dest)
+        if not os.path.exists(src_path + '.dat'):
+            raise KeyError('Key %r not in bucket' % src)
+           
+        try: 
+            self.conn.sftp.rename(src_path, dest_path)
+        except IOError as exc:
+            if exc.errno != errno.ENOENT:
+                raise
+            self._makedirs(os.path.dirname(dest_path))
+            self.conn.sftp.rename(src_path, dest_path)          
+
 
 def escape(s):
     '''Escape '/', '=' and '\0' in s'''

@@ -1,3 +1,9 @@
+xxx, S3QL 0.17
+
+  * The local and sftp backends now spread their files into different 
+    sub-directories.
+     
+
 2010-06-15, S3QL 0.16
 
   * Fixed problem with readdir() returning entries twice or skipping

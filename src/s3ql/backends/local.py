@@ -59,25 +59,23 @@ class Bucket(AbstractBucket):
         self.name = name
 
     def __str__(self):
-        if self.passphrase:
-            return '<encrypted local bucket, name=%r>' % self.name
-        else:
-            return '<local bucket, name=%r>' % self.name
-
+        return '<local bucket, name=%r>' % self.name
 
     def clear(self):
         """Delete all objects in bucket"""
 
         for name in os.listdir(self.name):
-            if not name.endswith('.dat'):
-                continue
-            os.unlink(os.path.join(self.name, name))
-            os.unlink(os.path.join(self.name, name[:-4]) + '.meta')
+            path = os.path.join(self.name, name)
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+                os.rmdir(path)
+            else:
+                os.unlink(path)
 
     def contains(self, key):
-        filename = escape(key) + '.dat'
+        path = self.key_to_path(key) + '.dat'
         try:
-            os.lstat(os.path.join(self.name, filename))
+            os.lstat(path)
         except OSError as exc:
             if exc.errno == errno.ENOENT:
                 return False
@@ -86,9 +84,9 @@ class Bucket(AbstractBucket):
 
 
     def raw_lookup(self, key):
-        filename = os.path.join(self.name, escape(key))
+        path = self.key_to_path(key)
         try:
-            with open(filename + '.meta', 'rb') as src:
+            with open(path + '.meta', 'rb') as src:
                 return pickle.load(src)
         except IOError as exc:
             if exc.errno == errno.ENOENT:
@@ -97,10 +95,10 @@ class Bucket(AbstractBucket):
                 raise
 
     def delete(self, key, force=False):
-        filename = os.path.join(self.name, escape(key))
+        path = self.key_to_path(key)
         try:
-            os.unlink(filename + '.dat')
-            os.unlink(filename + '.meta')
+            os.unlink(path + '.dat')
+            os.unlink(path + '.meta')
         except IOError as exc:
             if exc.errno == errno.ENOENT:
                 if force:
@@ -111,31 +109,39 @@ class Bucket(AbstractBucket):
                 raise
 
 
-    def list(self, prefix=''):
-        for name in os.listdir(self.name):
-            if not name.endswith('.dat'):
-                continue
-            key = unescape(name[:-len('.dat')])
-            if not key.startswith(prefix):
-                continue
-            yield key
+    def list(self, prefix=None):
+        if prefix:
+            base = os.path.dirname(self.key_to_path(prefix))
+        else:
+            base = self.name
+            
+        for (_, _, names) in os.walk(base):
+            for name in names:
+                if not name.endswith('.dat'):
+                    continue
+                key = unescape(name[:-4])
+                
+                if not prefix or key.startswith(prefix):
+                    yield key
+            
 
     def get_size(self):
         size = 0
-        for name in os.listdir(self.name):
-            if not name.endswith('.dat'):
-                continue
-            size += os.path.getsize(os.path.join(self.name, name))
+        for (path, _, names) in os.walk(self.name):
+            for name in names:
+                if not name.endswith('.dat'):
+                    continue
+                size += os.path.getsize(os.path.join(path, name))
 
         return size
 
     def raw_fetch(self, key, fh):
-        filename = os.path.join(self.name, escape(key))
+        path = self.key_to_path(key)
         try:
-            with open(filename + '.dat', 'rb') as src:
+            with open(path + '.dat', 'rb') as src:
                 fh.seek(0)
                 shutil.copyfileobj(src, fh)
-            with open(filename + '.meta', 'rb') as src:
+            with open(path + '.meta', 'rb') as src:
                 metadata = pickle.load(src)
         except IOError as exc:
             if exc.errno == errno.ENOENT:
@@ -146,11 +152,20 @@ class Bucket(AbstractBucket):
         return metadata
 
     def raw_store(self, key, fh, metadata):
-        filename = os.path.join(self.name, escape(key))
+        path = self.key_to_path(key)
         fh.seek(0)
-        with open(filename + '.dat', 'wb') as dest:
-            shutil.copyfileobj(fh, dest)
-        with open(filename + '.meta', 'wb') as dest:
+        try:
+            dest = open(path + '.dat', 'wb')
+        except IOError as exc:
+            if exc.errno != errno.ENOENT:
+                raise
+            os.makedirs(os.path.dirname(path))
+            dest = open(path + '.dat', 'wb')
+        
+        shutil.copyfileobj(fh, dest)
+        dest.close()
+                
+        with open(path + '.meta', 'wb') as dest:
             pickle.dump(metadata, dest, 2)
 
     def copy(self, src, dest):
@@ -160,15 +175,62 @@ class Bucket(AbstractBucket):
         if not isinstance(dest, str):
             raise TypeError('key must be of type str')
 
-        filename_src = os.path.join(self.name, escape(src))
-        filename_dest = os.path.join(self.name, escape(dest))
+        path_src = self.key_to_path(src)
+        path_dest = self.key_to_path(dest)
 
-        if not os.path.exists(filename_src + '.dat'):
-            raise KeyError('source key does not exist')
+        # Can't use shutil.copyfile() here, need to make
+        # sure destination path exists
+        try:
+            dest = open(path_dest + '.dat', 'wb')
+        except IOError as exc:
+            if exc.errno != errno.ENOENT:
+                raise
+            os.makedirs(os.path.dirname(path_dest))
+            dest = open(path_dest + '.dat', 'wb')
+        
+        try:
+            with open(path_src + '.dat', 'rb') as src:
+                shutil.copyfileobj(src, dest)
+        except IOError as exc:
+            if exc.errno == errno.ENOENT:
+                raise KeyError('Key %r not in bucket' % src)
+            else:
+                raise
+        finally:
+            dest.close()
+        
+        shutil.copyfile(path_src + '.meta', path_dest + '.meta')
 
-        shutil.copyfile(filename_src + '.dat', filename_dest + '.dat')
-        shutil.copyfile(filename_src + '.meta', filename_dest + '.meta')
-
+    def rename(self, src, dest):
+        src_path = self.key_to_path(src)
+        dest_path = self.key_to_path(dest)
+        if not os.path.exists(src_path + '.dat'):
+            raise KeyError('Key %r not in bucket' % src)
+           
+        try: 
+            os.rename(src_path, dest_path)
+        except OSError as exc:
+            if exc.errno != errno.ENOENT:
+                raise
+            os.makedirs(os.path.dirname(dest_path))
+            os.rename(src_path, dest_path)       
+            
+        
+    def key_to_path(self, key):
+        '''Return path for given key'''
+        
+        key = escape(key)
+        
+        if not key.startswith('s3ql_data_'):
+            return os.path.join(self.name, key)
+        
+        no = key[10:]
+        path = [ self.name, 's3ql_data']
+        for i in range(0, len(no), 3):
+            path.append(no[:i])
+        path.append(key)
+        
+        return os.path.join(*path)
 
 def escape(s):
     '''Escape '/', '=' and '\0' in s'''
@@ -187,4 +249,5 @@ def unescape(s):
     s = s.replace('=3D', '=')
 
     return s
+
 
