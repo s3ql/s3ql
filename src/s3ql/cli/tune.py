@@ -11,18 +11,16 @@ from __future__ import division, print_function, absolute_import
 from optparse import OptionParser
 import logging
 from s3ql.common import (init_logging_from_options, get_backend, QuietError, unlock_bucket,
-                      ExceptionStoringThread, cycle_metadata, dump_metadata, restore_metadata)
+                      cycle_metadata, dump_metadata, restore_metadata)
 from s3ql import CURRENT_FS_REV
 from getpass import getpass
 import sys
 from s3ql.backends import s3, local, sftp
-from s3ql.backends.boto.s3.connection import Location
 from s3ql.backends.common import ChecksumError
 import os
 import s3ql.database as dbcm
 import tempfile
 import errno
-import re
 import textwrap
 
 log = logging.getLogger("tune")
@@ -32,7 +30,6 @@ def parse_args(args):
 
     parser = OptionParser(
         usage="%prog [options] <storage-url>\n"
-              "       %prog --copy <source-url> <dest-url>\n"
               "       %prog --help",
         description="Change or show S3QL file system parameters.")
 
@@ -48,40 +45,21 @@ def parse_args(args):
                       help="Upgrade file system to newest revision.")
     parser.add_option("--delete", action="store_true", default=False,
                       help="Completely delete a bucket with all contents.")
-    parser.add_option("--copy", action="store_true", default=False,
-                      help="Copy a bucket. The destination bucket must not exist.")
     parser.add_option("--homedir", type="string",
                       default=os.path.expanduser("~/.s3ql"),
                       help='Directory for log files, cache and authentication info. '
                       'Default: ~/.s3ql')
-    parser.add_option("--s3-location", type="string", default='EU',
-                      help="Specify storage location for new bucket. Allowed values: EU,"
-                           'us-west-1, or us-standard. The later is not recommended, see'
-                           'http://code.google.com/p/s3ql/wiki/FAQ#'
-                           'What%27s_wrong_with_having_S3_buckets_in_the_%22US_Standar')
 
     (options, pps) = parser.parse_args(args)
 
-    actions = [options.change_passphrase, options.upgrade, options.delete, options.copy]
+    actions = [options.change_passphrase, options.upgrade, options.delete]
     selected = len([ act for act in actions if act ])
     if selected != 1:
         parser.error("Need to specify exactly one action.")
 
-    if options.s3_location not in ('EU', 'us-west-1', 'us-standard'):
-        parser.error("Invalid S3 storage location. Allowed values: EU, us-west-1, us-standard")
-
-    if options.s3_location == 'us-standard':
-        options.s3_location = Location.DEFAULT
-
-    if options.copy:
-        if len(pps) != 2:
-            parser.error("Incorrect number of arguments.")
-        options.storage_url = pps[0]
-        options.dest_url = pps[1]
-    else:
-        if len(pps) != 1:
-            parser.error("Incorrect number of arguments.")
-        options.storage_url = pps[0]
+    if len(pps) != 1:
+        parser.error("Incorrect number of arguments.")
+    options.storage_url = pps[0]
 
     return options
 
@@ -112,9 +90,6 @@ def main(args=None):
             unlock_bucket(options, bucket)
         except ChecksumError:
             raise QuietError('Checksum error - incorrect password?')
-
-        if options.copy:
-            return copy_bucket(conn, options, bucket)
 
         if options.change_passphrase:
             return change_passphrase(bucket)
@@ -293,45 +268,6 @@ def upgrade(conn, bucket):
     cycle_metadata(bucket)
     bucket.store_fh("s3ql_metadata", fh, param)
     fh.close()
-
-
-def copy_bucket(conn, options, src_bucket):
-    '''Copy bucket to different storage location'''
-
-    if not isinstance(conn, s3.Connection):
-        raise QuietError('Can only copy S3 buckets')
-
-    if not re.match('^[a-z][a-z0-9-]*$', options.dest_name):
-        raise QuietError('Invalid dest. bucket name. Name must consist only of lowercase letters,\n'
-                         'digits and dashes, and the first character has to be a letter.')
-
-    if conn.bucket_exists(options.dest_name):
-        print('Destination bucket already exists.')
-        raise QuietError(1)
-
-    dest_bucket = conn.create_bucket(options.dest_name, location=options.s3_location)
-
-    log.info('Copying objects into new bucket..')
-    threads = list()
-    for (no, key) in enumerate(src_bucket):
-        if no != 0 and no % 100 == 0:
-            log.info('Copied %d objects so far..', no)
-
-        def cp(key=key):
-            with dest_bucket._get_boto() as boto:
-                s3.retry_boto(boto.copy_key, key, src_bucket.name, key)
-
-        t = ExceptionStoringThread(cp, log)
-        t.start()
-        threads.append(t)
-
-        if len(threads) > 50:
-            log.debug('50 threads reached, waiting..')
-            threads.pop(0).join_and_raise()
-
-    log.debug('Waiting for copying threads')
-    for t in threads:
-        t.join_and_raise()
 
 
 if __name__ == '__main__':

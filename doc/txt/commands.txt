@@ -90,20 +90,3 @@ A file system can be deleted with::
   tune.s3ql --delete <storage url>
 
 This physically deletes all the data and file system structures.
-
-
-Copying a file system
-=====================
-
-With ::
-
-  tune.s3ql --copy <source storage url> <target storage url>
-
-you can physically copy an entire filesystem. The two file systems
-will be completely independent and take twice as much storage space.
-
-You can use this command e.g. to relocate S3 buckets to a different
-storage region.
-
-For a complete list of `tune.s3ql` options and operations, run
-`tune.s3ql --help`.
