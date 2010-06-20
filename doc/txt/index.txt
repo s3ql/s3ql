@@ -16,5 +16,6 @@
    snapshotting
    commands
    backup
+   contrib
    issues
    resources

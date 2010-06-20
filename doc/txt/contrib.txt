@@ -1,0 +1,26 @@
+.. -*- mode: rst -*-
+
+=====================
+Contributed Programs
+=====================
+
+S3QL comes with a few contributed programs that are not part of the
+core distribution (and are therefore not installed automatically by
+default), but which may nevertheless be useful. These programs are in
+the `contrib` directory of the source distribution or in
+`/usr/share/doc/s3ql/contrib` if you installed S3QL from a package.
+
+
+benchmark.py
+============
+
+This program measures your uplink bandwidth and compression speed and
+recommends a compression algorithm for optimal throughput.
+
+
+s3_copy.py
+==========
+
+This program physically duplicates Amazon S3 bucket. It can be used to
+migrate buckets to a different storage region or storage class
+(standard or reduced redundancy).
