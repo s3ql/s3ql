@@ -92,8 +92,6 @@ def setup_tables():
     CREATE TABLE objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
         refcount  INT NOT NULL,
-                  
-        -- hash and size is only updated when the object is committed
         hash      BLOB(16) UNIQUE,
         size      INT NOT NULL                 
     )""")
