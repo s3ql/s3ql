@@ -92,7 +92,8 @@ class Operations(llfuse.Operations):
         self.encountered_errors = True
 
 
-    def __init__(self, bucket, cachedir, lock, blocksize, cachesize):
+    def __init__(self, bucket, cachedir, lock, blocksize, cache_size,
+                 cache_entries=768):
         super(Operations, self).__init__()
 
         self.encountered_errors = False
@@ -100,7 +101,7 @@ class Operations(llfuse.Operations):
         self.lock = lock
         self.open_inodes = collections.defaultdict(lambda: 0)
         self.blocksize = blocksize
-        self.cache = BlockCache(bucket, cachedir, cachesize)
+        self.cache = BlockCache(bucket, cachedir, cache_size, cache_entries)
 
         # Make sure the control file is only writable by the user
         # who mounted the file system

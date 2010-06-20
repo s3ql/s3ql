@@ -25,12 +25,6 @@ __all__ = [ "BlockCache" ]
 log = logging.getLogger("BlockCache")
 
 
-# This is an additional limit on the cache, in addition to the cache size. It
-# prevents that we run out of file descriptors, or simply eat up too much memory
-# for cache elements if the users creates thousands of 10-byte files. Standard
-# file descriptor limit per process is 1024
-MAX_CACHE_ENTRIES = 768
-
 class CacheEntry(file):
     """An element in the block cache
     
@@ -67,7 +61,7 @@ class CacheEntry(file):
         return super(CacheEntry, self).writelines(*a, **kw)
 
     def __str__(self):
-        return ('<CacheEntry, inode=%d, blockno=%d, dirty=%s, obj_id=%r>' %
+        return ('<CacheEntry, inode=%d, blockno=%d, dirty=%s, obj_id=%r>' % 
                 (self.inode, self.blockno, self.dirty, self.obj_id))
 
 class BlockCache(object):
@@ -82,11 +76,12 @@ class BlockCache(object):
     block number is used to prevent simultaneous access to the same block.
     """
 
-    def __init__(self, bucket, cachedir, maxsize):
+    def __init__(self, bucket, cachedir, max_size, max_entries=768):
         log.debug('Initializing')
         self.cache = OrderedDict()
         self.cachedir = cachedir
-        self.maxsize = maxsize
+        self.max_size = max_size
+        self.max_entries = max_entries
         self.size = 0
         self.bucket = bucket
         self.mlock = MultiLock()
@@ -202,7 +197,7 @@ class BlockCache(object):
         log.debug('get(inode=%d, block=%d): start', inode, blockno)
 
         lock.release()
-        if self.size > self.maxsize or len(self.cache) > MAX_CACHE_ENTRIES:
+        if self.size > self.max_size or len(self.cache) > self.max_entries:
             self._expire()
         self.mlock.acquire(inode, blockno)
 
@@ -277,8 +272,8 @@ class BlockCache(object):
         queue = UploadQueue(self)
 
         with self.expiry_lock:
-            while (len(self.cache) > MAX_CACHE_ENTRIES or
-                   (len(self.cache) > 0  and self.size > self.maxsize)):
+            while (len(self.cache) > self.max_entries or
+                   (len(self.cache) > 0  and self.size > self.max_size)):
 
                 # Try to expire entries that are not dirty
                 for el in self.cache.values_rev():
@@ -289,8 +284,8 @@ class BlockCache(object):
 
                 # If this did not work, then we try to flush just
                 # enough entries
-                need_size = self.size - self.maxsize
-                need_entries = len(self.cache) - MAX_CACHE_ENTRIES
+                need_size = self.size - self.max_size
+                need_entries = len(self.cache) - self.max_entries
                 for el in self.cache.values_rev():
                     if need_size < 0 and need_entries < 0:
                         break
@@ -408,11 +403,11 @@ class BlockCache(object):
         """Upload all dirty data and clear cache"""
 
         log.debug('clear: start')
-        bak = self.maxsize
-        # maxsize=0 is not sufficient, that would keep entries with 0 size
-        self.maxsize = -1
+        bak = self.max_size
+        # max_size=0 is not sufficient, that would keep entries with 0 size
+        self.max_size = -1
         self._expire()
-        self.maxsize = bak
+        self.max_size = bak
         log.debug('clear: end')
 
     def __del__(self):

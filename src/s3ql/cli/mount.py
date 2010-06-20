@@ -159,7 +159,8 @@ def main(args=None):
 
         operations = fs.Operations(bucket, cachedir=home + '-cache', lock=lock,
                                    blocksize=param['blocksize'],
-                                   cachesize=options.cachesize * 1024)
+                                   cache_size=options.cachesize * 1024,
+                                   cache_entries=options.max_cache_entries)
 
         log.info('Mounting filesystem...')
         llfuse.init(operations, options.mountpoint, fuse_opts, lock)
@@ -292,6 +293,12 @@ def parse_args(args):
                       help="Cache size in kb (default: 102400 (100 MB)). Should be at least 10 times "
                       "the blocksize of the filesystem, otherwise an object may be retrieved and "
                       "written several times during a single write() or read() operation.")
+    parser.add_option("--max-cache-entries", type="int", default=768,
+                      help="Maximum number of entries in cache (default: %default). "
+                      'Each cache entry requires one file descriptor, so if you increase '
+                      'this number you have to make sure that your process file descriptor '
+                      'limit (as set with `ulimit -n`) is high enough (at least the number ' 
+                      'of cache entries + 100).')
     parser.add_option("--debug", action="append",
                       help="Activate debugging output from specified module. Use 'all' "
                            "to get debug messages from all modules. This option can be "

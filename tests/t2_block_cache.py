@@ -71,7 +71,7 @@ class cache_tests(TestCase):
     def test_get(self):
         inode = self.inode
         blockno = 11
-        data = self.random_data(int(0.5 * self.cache.maxsize))
+        data = self.random_data(int(0.5 * self.cache.max_size))
 
         # Case 1: Object does not exist yet
         with self.cache.get(inode, blockno, self.lock) as fh:
@@ -93,7 +93,7 @@ class cache_tests(TestCase):
     def test_flush(self):
         inode = self.inode
         blockno = 11
-        data = self.random_data(int(0.5 * self.cache.maxsize))
+        data = self.random_data(int(0.5 * self.cache.max_size))
 
         self.cache.bucket = TestBucket(self.bucket)
         self.assertEqual(len(self.cache), 0)
@@ -111,7 +111,7 @@ class cache_tests(TestCase):
     def test_flush_all(self):
         inode = self.inode
         blockno = 11
-        data = self.random_data(int(0.5 * self.cache.maxsize))
+        data = self.random_data(int(0.5 * self.cache.max_size))
 
         self.cache.bucket = TestBucket(self.bucket)
         self.assertEqual(len(self.cache), 0)
@@ -153,7 +153,7 @@ class cache_tests(TestCase):
 
     def test_prepare_upload(self):
         inode = self.inode
-        datalen = int(0.1 * self.cache.maxsize)
+        datalen = int(0.1 * self.cache.max_size)
         blockno1 = 21
         blockno2 = 25
         blockno3 = 7
@@ -225,7 +225,7 @@ class cache_tests(TestCase):
 
     def test_remove_referenced(self):
         inode = self.inode
-        datalen = int(0.1 * self.cache.maxsize)
+        datalen = int(0.1 * self.cache.max_size)
         blockno1 = 21
         blockno2 = 24
         data = self.random_data(datalen)

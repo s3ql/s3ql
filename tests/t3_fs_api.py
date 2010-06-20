@@ -52,7 +52,7 @@ class fs_api_tests(TestCase):
 
         self.lock = threading.Lock()
         self.server = fs.Operations(self.bucket, self.cachedir,
-                                    self.lock, self.blocksize, cachesize=self.blocksize * 5)
+                                    self.lock, self.blocksize, cache_size=self.blocksize * 5)
         self.server.init()
 
         # We don't want background flushing
