@@ -1,4 +1,4 @@
-xxx, S3QL 0.17
+2010-06-29, S3QL 0.17
 
   * The local and sftp backends now spread their files into different 
     sub-directories.
