@@ -57,8 +57,9 @@ def parse_args(args):
 
     (options, pps) = parser.parse_args(args)
 
-    if options.s3_location not in ('EU', 'us-west-1', 'us-standard'):
-        parser.error("Invalid S3 storage location. Allowed values: EU, us-west-1, us-standard")
+    if options.s3_locaton not in ('EU', 'us-west-1', 'us-standard', 'ap-southeast-1'):
+        parser.error("Invalid S3 storage location. "
+                     "Allowed values: EU, us-west-1, ap-southeast-1, us-standard")
 
     if options.s3_location == 'us-standard':
         options.s3_location = Location.DEFAULT
