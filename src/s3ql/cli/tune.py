@@ -259,7 +259,8 @@ def upgrade(conn, bucket):
         if i < param['seq_no'] - 5:
             del bucket['s3ql_seq_no_%d' % i ]
 
-    # Upload metadata
+    # Upload metadata in dump format, so that we have the newest
+    # table definitions on the next mount.
     param['DB-Format'] = 'dump'
     fh = tempfile.TemporaryFile()
     dump_metadata(fh)
