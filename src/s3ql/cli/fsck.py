@@ -271,15 +271,16 @@ def main(args=None):
 
         fsck.fsck(home + '-cache', bucket, param)
 
-        log.info("Saving metadata...")
-        fh = tempfile.TemporaryFile()
-        dump_metadata(fh)
-        fh.seek(0)
         log.info("Compressing & uploading metadata..")
-        cycle_metadata(bucket)
+        if dbcm.is_active():
+            raise RuntimeError("Database connection not closed.")
+         
+        dbcm.execute('VACUUM')
+        fh = open(home + '.db', 'rb')        
         param['needs_fsck'] = False
         param['last_fsck'] = time.time() - time.timezone
-        param['DB-Format'] = 'dump'
+        param['DB-Format'] = 'sqlite'
+        cycle_metadata(bucket)
         bucket.store_fh("s3ql_metadata", fh, param)
         fh.close()
 
