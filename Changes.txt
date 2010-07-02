@@ -1,3 +1,8 @@
+xxx, S3QL 0.18
+
+  * Added --strip-meta option to mount.s3ql
+  
+  
 2010-06-29, S3QL 0.17
 
   * The local and sftp backends now spread their files into different 

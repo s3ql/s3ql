@@ -186,7 +186,7 @@ def main(args=None):
         finally:
             llfuse.close()
 
-        if options.compress == 'LZMA':
+        if options.strip_meta:
             param['DB-Format'] = 'dump'
             log.info("Saving metadata...")
             fh = tempfile.TemporaryFile()
@@ -326,6 +326,11 @@ def parse_args(args):
                       choices=('lzma', 'bzip2', 'zlib', 'none'),
                       help="Compression algorithm to use when storing new data. Allowed "
                            "values: LZMA, BZIP2, ZLIB, None. (default: LZMA)")
+    parser.add_option("--strip-meta", action="store_true", default=False,
+                      help='Strip metadata of all redundancies (like indices) before '
+                      'uploading. This will significantly reduce the size of the data '
+                      'at the expense of additional CPU time during the next unmount '
+                      'and mount.')
     (options, pps) = parser.parse_args(args)
 
     #
@@ -345,6 +350,10 @@ def parse_args(args):
     if options.compress == 'none':
         options.compress = None
 
+    if options.strip_meta and options.compress is None:
+        parser.error('--strip-meta and --compress=none does not make much sense and '
+                     'is really not a good idea.')
+        
     return options
 
 
