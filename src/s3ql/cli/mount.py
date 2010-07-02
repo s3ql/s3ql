@@ -186,6 +186,7 @@ def main(args=None):
         finally:
             llfuse.close()
 
+        
         if options.strip_meta:
             param['DB-Format'] = 'dump'
             log.info("Saving metadata...")
@@ -194,6 +195,8 @@ def main(args=None):
             fh.seek(0)
         else:
             param['DB-Format'] = 'sqlite'
+            if dbcm.is_active():
+                raise RuntimeError("Database connection not closed.")
             dbcm.execute('VACUUM')
             fh = open(home + '.db', 'rb')
 
