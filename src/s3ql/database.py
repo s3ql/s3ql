@@ -166,6 +166,12 @@ def get_db_size():
     else:
         return 0
 
+def is_active():
+    '''True if any connections are provided at the moment'''
+    
+    return len(provided) != 0
+    
+    
 class WrappedConnection(object):
     '''
     This class wraps an APSW connection object. It should be used instead of any
