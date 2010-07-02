@@ -28,6 +28,21 @@ __all__ = [ "Server" ]
 # standard logger for this module
 log = logging.getLogger("fs")
 
+def log_stacktraces():
+    '''Log stack trace for every running thread'''
+    
+    import sys
+    import traceback
+    
+    code = list()
+    for threadId, frame in sys._current_frames().items():
+        code.append("\n# ThreadID: %s" % threadId)
+        for filename, lineno, name, line in traceback.extract_stack(frame):
+            code.append('%s:%d, in %s' % (os.path.basename(filename), lineno, name))
+            if line:
+                code.append("    %s" % (line.strip()))
+
+    log.warn("\n".join(code))
 
 class Operations(llfuse.Operations):
     """A full-featured file system for online data storage
@@ -190,7 +205,7 @@ class Operations(llfuse.Operations):
             elif name == b'stat.s3ql':
                 return self.extstat()
 
-            return llfuse.FUSEError(errno.EINVAL)
+            raise llfuse.FUSEError(errno.EINVAL)
 
         else:
             try:
@@ -218,12 +233,16 @@ class Operations(llfuse.Operations):
                     self.cache.clear()
                 finally:
                     self.lock.acquire()
-                return
 
             elif name == 'copy':
                 self.copy_tree(*struct.unpack('II', value))
 
-            return llfuse.FUSEError(errno.EINVAL)
+            elif name == 'stacktrace':
+                # Trigger with setfattr -n 'stacktrace' mnt/.__s3ql__ctrl__
+                log_stacktraces()
+                
+            else:
+                raise llfuse.FUSEError(errno.EINVAL)
         else:
             dbcm.execute('INSERT OR REPLACE INTO ext_attributes (inode, name, value) '
                               'VALUES(?, ?, ?)', (id_, name, value))
