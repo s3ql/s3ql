@@ -376,7 +376,7 @@ def check_obj_refcounts():
         
         for (id_, cnt, cnt_old) in conn.query('SELECT * FROM wrong_refcounts'):
             log_error("Object %s has invalid refcount, setting from %d to %d",
-                      id_, cnt_old, cnt)
+                      id_, cnt_old, cnt or 0)
             found_errors = True
             if cnt is not None:
                 conn.execute("UPDATE objects SET refcount=? WHERE id=?",
