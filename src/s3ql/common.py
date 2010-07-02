@@ -304,7 +304,7 @@ def init_logging(logfile, stdout_level=logging.INFO, file_level=logging.INFO,
     root_logger = logging.getLogger()
 
     quiet_formatter = logging.Formatter('%(message)s')
-    verbose_formatter = logging.Formatter('%(asctime)s,%(msecs)03d %(threadName)s: '
+    verbose_formatter = logging.Formatter('%(asctime)s,%(msecs)03d [%(process)s] %(threadName)s: '
                                           '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
 
     # Add stdout logger
