@@ -16,12 +16,11 @@ from optparse import OptionParser
 import logging
 from s3ql import mkfs, CURRENT_FS_REV
 from s3ql.common import (init_logging_from_options, get_backend, get_bucket_home,
-                         QuietError, dump_metadata)
+                         QuietError)
 import s3ql.database as dbcm
 from s3ql.backends.boto.s3.connection import Location
 from s3ql.backends import s3
 import time
-import tempfile
 
 log = logging.getLogger("mkfs")
 
@@ -129,14 +128,16 @@ def main(args=None):
             param['label'] = options.label
             param['blocksize'] = options.blocksize * 1024
             param['needs_fsck'] = False
-            param['DB-Format'] = 'dump'
+            param['DB-Format'] = 'sqlite'
             param['last_fsck'] = time.time() - time.timezone
             bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
 
-            fh = tempfile.TemporaryFile()
-            dump_metadata(fh)
-            fh.seek(0)
-            log.info("Uploading database..")
+            log.info("Compressing & uploading metadata..")
+            if dbcm.is_active():
+                raise RuntimeError("Database connection not closed.")
+             
+            dbcm.execute('VACUUM')
+            fh = open(home + '.db', 'rb')        
             bucket.store_fh("s3ql_metadata", fh, param)
             fh.close()
 
