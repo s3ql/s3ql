@@ -1,10 +1,10 @@
 About S3QL
 -----------
 
-S3QL is a file system that stores all its data online. It supports online
-storage services like Amazon S3 as well as arbitrary FTP or SFTP servers. It
-effectively provides you with a hard disk of infinite capacity that can be
-accessed from any computer with internet access.
+S3QL is a file system that stores all its data online. It supports
+Amazon S3 as well as arbitrary SFTP servers and effectively provides
+you with a hard disk of infinite capacity that can be accessed from
+any computer with internet access.
 
 S3QL has been designed mainly for backup and archival purposes and many of its
 features are especially geared towards this. However, since S3QL is providing a

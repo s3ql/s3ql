@@ -72,7 +72,11 @@ SFTP / SSH
 ==========
 
 The SFTP backend uses the SFTP protocol, which is a file transfer
-protocol similar to ftp, but uses an encrypted SSH connection.
+protocol similar to ftp, but uses an encrypted SSH connection. 
+
+Note that the SFTP backend is rather slow and has not been tested
+as extensively as the S3 and Local backends.
+
 The storage URL for SFTP connections has the form ::
 
   sftp://<host>[:port]/<path>
@@ -88,16 +92,3 @@ unknown host key; to add the key to your local keyring you have to
 establish a connection to that computer with the standard SSH command
 line programs first.
 
-FTP
-====
-
-This backend provides support for the standard FTP and FTP over TLS
-protocols. The store url has the form ::
-
-  ftp://<host>[:port]/<path>
-
-for unencrypted FTP or ::
-
-  ftps://<host>[:port]/<path>
-
-for FTP over TLS.
