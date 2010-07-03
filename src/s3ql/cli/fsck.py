@@ -13,7 +13,7 @@ import stat
 import time
 from optparse import OptionParser
 from s3ql.common import (init_logging_from_options, get_bucket_home, cycle_metadata,
-                      unlock_bucket, QuietError, get_backend, dump_metadata,
+                      unlock_bucket, QuietError, get_backend, 
                       restore_metadata)
 from s3ql import CURRENT_FS_REV
 import s3ql.database as dbcm
