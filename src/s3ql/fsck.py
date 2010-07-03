@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import division, print_function
+from __future__ import division, print_function, absolute_import
 
 import os
 from os.path import basename
@@ -15,6 +15,9 @@ import time
 import logging
 import re
 from . import database as dbcm
+from .backends.common import ObjectNotEncrypted, ChecksumError
+from cPickle import UnpicklingError
+from .backends import s3
 from .common import (ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh, get_path)
 
 __all__ = [ "fsck" ]
@@ -417,16 +420,8 @@ def check_keylist():
         for (obj_id,) in conn.query('SELECT id FROM obj_ids '
                                     'EXCEPT SELECT id FROM objects'):
             found_errors = True
-            name = unused_filename('object-%s' % obj_id)
-            try:
-                if not expect_errors:
-                    bucket.fetch_fh('s3ql_data_%d' % obj_id, open(name, 'wb'))
-                del bucket['s3ql_data_%d' % obj_id]
-            except KeyError:
-                pass
-            else:
-                log_error("object %s not referenced in objects table, saving locally as ./%s",
-                          obj_id, name)
+            _download_object(obj_id)
+
     
         conn.execute('CREATE TEMPORARY TABLE missing AS '
                      'SELECT id FROM objects EXCEPT SELECT id FROM obj_ids')
@@ -444,6 +439,43 @@ def check_keylist():
         conn.execute('DROP TABLE obj_ids')
         conn.execute('DROP TABLE IF EXISTS missing')
 
+   
+def _download_object(obj_id):
+    '''Try to download object'''
+    
+    name = unused_filename('object-%s' % obj_id)     
+    log_error("backend lists unknown object %s, trying to save locally as ./%s..",
+              obj_id, name)
+    
+    if expect_errors:
+        fh = open('/dev/null', 'wb')
+    else:
+        fh = open(name, 'wb')
+        
+    try:
+        bucket.fetch_fh('s3ql_data_%d' % obj_id, fh)
+        
+    except KeyError:
+        if isinstance(bucket, s3.Bucket):
+            log_error('..but object has vanished now, probably everything is alright.')
+        else:
+            log_error('..but object has vanished now, backend inconsistent?')
+    
+    except UnpicklingError:
+        log_error("..but is damaged (unpickling error). You need to remove "
+                  "'s3ql_data_%d' manually from the backend.",  obj_id)
+        
+    except ChecksumError:
+        log_error("..but is damaged (checksum mismatch). You need to remove "
+                  "'s3ql_data_%d' manually from the backend.",  obj_id)
+                    
+    except ObjectNotEncrypted:
+        log_error("..but is not an S3QL object (not encrypted). You need to remove "
+                  "'s3ql_data_%d' manually from the backend.",  obj_id)
+        
+    else:
+        del bucket['s3ql_data_%d' % obj_id]
+                
 def unused_filename(path):
     '''Append numeric suffix to (local) path until it does not exist'''
 

@@ -176,8 +176,12 @@ class AbstractBucket(object):
         fh = StringIO(val)
         self.store_fh(key, fh, metadata)
 
-    def _get_meta(self, meta_raw):
+    def _get_meta(self, meta_raw, plain=False):
         '''Get metadata & decompressor factory
+        
+        If the bucket has a password set
+        but the object is not encrypted, `ObjectNotEncrypted` is raised
+        unless `plain` is true. 
         '''
 
         convert_legacy_metadata(meta_raw)
@@ -192,8 +196,8 @@ class AbstractBucket(object):
 
             if encr_alg != 'AES':
                 raise RuntimeError('Unsupported encryption')
-        elif self.passphrase:
-            raise ChecksumError('Passphrase supplied, but object is not encrypted')
+        elif self.passphrase and not plain:
+            raise ObjectNotEncrypted()
 
         if compr_alg == 'BZIP2':
             decomp = bz2.BZ2Decompressor
@@ -216,10 +220,12 @@ class AbstractBucket(object):
 
         return (metadata, decomp)
 
-    def fetch_fh(self, key, fh):
+    def fetch_fh(self, key, fh, plain=False):
         """Fetch data for `key` and write to `fh`
 
-        Return a dictionary with the metadata.
+        Return a dictionary with the metadata. If the bucket has a password set
+        but the object is not encrypted, `ObjectNotEncrypted` is raised
+        unless `plain` is true. 
         """
 
         if not isinstance(key, str):
@@ -229,7 +235,7 @@ class AbstractBucket(object):
         (fh, tmp) = (tmp, fh)
 
         meta_raw = self.raw_fetch(key, fh)
-        (metadata, decomp) = self._get_meta(meta_raw)
+        (metadata, decomp) = self._get_meta(meta_raw, plain)
 
         (fh, tmp) = (tmp, fh)
         tmp.seek(0)
@@ -547,6 +553,17 @@ class ChecksumError(Exception):
     """
     pass
 
+class ObjectNotEncrypted(Exception):
+    '''
+    Raised by the backend if an object was requested from an encrypted
+    bucket, but the object was stored without encryption.
+    
+    We do not want to simply return the uncrypted object, because the
+    caller may rely on the objects integrity being cryptographically
+    verified.
+    ''' 
+
+    pass
 
 def encrypt(buf, passphrase, nonce):
     '''Encrypt given string'''
@@ -568,6 +585,7 @@ def encrypt(buf, passphrase, nonce):
 
 
 def convert_legacy_metadata(meta):
+    
     if ('encryption' in meta and
         'compression' in meta):
         return
