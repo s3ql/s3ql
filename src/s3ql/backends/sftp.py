@@ -17,6 +17,7 @@ import cPickle as pickle
 import os
 import stat
 import paramiko
+import threading
 
 log = logging.getLogger("backend.sftp")
 
@@ -33,9 +34,12 @@ class Connection(AbstractConnection):
 
         self._client = None
         self.sftp = None
-        self.setup_ssh_connection()
+        
+        self._setup_ssh_connection()
+        
+        self.paramiko_lock = threading.RLock()
 
-    def setup_ssh_connection(self):
+    def _setup_ssh_connection(self):
 
         self._client = paramiko.SSHClient()
         # Probably not a good idea to do this by default
@@ -49,7 +53,8 @@ class Connection(AbstractConnection):
 
     def __contains__(self, entry):
         try:
-            self.sftp.stat(entry)
+            with self.paramiko_lock:
+                self.sftp.stat(entry)
         except IOError as exc:
             if exc.errno == errno.ENOENT:
                 return False
@@ -67,24 +72,27 @@ class Connection(AbstractConnection):
         if recursive:
             self._rmtree(name)
   
-        self.sftp.rmdir(name)
+        with self.paramiko_lock:
+            self.sftp.rmdir(name)
         
     def _rmtree(self, path):
         '''Recursively delete contents of remote path'''
         
-        for attr in self.sftp.listdir_attr(path):
-            fullname = '%s/%s' % (path, attr.filename)
-            if stat.S_ISDIR(attr.st_mode):
-                self._rmtree(fullname)
-                self.sftp.rmdir(fullname)
-            else:
-                self.sftp.remove(fullname)                
+        with self.paramiko_lock:
+            for attr in self.sftp.listdir_attr(path):
+                fullname = '%s/%s' % (path, attr.filename)
+                if stat.S_ISDIR(attr.st_mode):
+                    self._rmtree(fullname)
+                    self.sftp.rmdir(fullname)
+                else:
+                    self.sftp.remove(fullname)                
 
         
     def create_bucket(self, name, passphrase=None, compression='lzma'):
         """Create and return bucket"""
 
-        self.sftp.mkdir(name)
+        with self.paramiko_lock:
+            self.sftp.mkdir(name)
         return self.get_bucket(name, passphrase, compression)
 
     def get_bucket(self, name, passphrase=None, compression='lzma'):
@@ -104,7 +112,7 @@ class Connection(AbstractConnection):
         self._client.close()
 
     def finish_fork(self):
-        self.setup_ssh_connection()
+        self._setup_ssh_connection()
 
 class Bucket(AbstractBucket):
 
@@ -141,7 +149,8 @@ class Bucket(AbstractBucket):
     def raw_lookup(self, key):
         path = self.key_to_path(key)
         try:
-            src = self.conn.sftp.open(path + '.meta', 'rb')
+            with self.conn.paramiko_lock:
+                src = self.conn.sftp.open(path + '.meta', 'rb')
             return pickle.load(src)
         except IOError as exc:
             if exc.errno == errno.ENOENT:
@@ -153,8 +162,9 @@ class Bucket(AbstractBucket):
         path = self.key_to_path(key)
 
         try:
-            self.conn.sftp.remove(path + '.dat')
-            self.conn.sftp.remove(path + '.meta')
+            with self.conn.paramiko_lock:
+                self.conn.sftp.remove(path + '.dat')
+                self.conn.sftp.remove(path + '.meta')
         except IOError as exc:
             if exc.errno == errno.ENOENT:
                 if force:
@@ -186,11 +196,12 @@ class Bucket(AbstractBucket):
         while to_visit: 
             base = to_visit.pop()
             files = list()
-            for attr in self.conn.sftp.listdir_attr(base):
-                if stat.S_ISDIR(attr.st_mode):
-                    to_visit.append('%s/%s' % (base, attr.filename))
-                else:
-                    files.append(attr.filename) 
+            with self.conn.paramiko_lock:
+                for attr in self.conn.sftp.listdir_attr(base):
+                    if stat.S_ISDIR(attr.st_mode):
+                        to_visit.append('%s/%s' % (base, attr.filename))
+                    else:
+                        files.append(attr.filename) 
             yield (base, to_visit, files)
     
     def _makedirs(self, path):
@@ -201,7 +212,8 @@ class Bucket(AbstractBucket):
         for el in path.split('/'):
             cur = '%s/%s' % (cur, el)
             if cur not in self.conn:
-                self.conn.sftp.mkdir(cur)
+                with self.conn.paramiko_lock:
+                    self.conn.sftp.mkdir(cur)
                 done = True
         
         if not done:
@@ -215,23 +227,27 @@ class Bucket(AbstractBucket):
         to_visit = [ self.name ]
         while to_visit: 
             base = to_visit.pop()
-            for attr in self.conn.sftp.listdir_attr(base):
-                if stat.S_ISDIR(attr.st_mode):
-                    to_visit.append('%s/%s' % (base, attr.filename))
-                elif attr.filename.endswith('.dat'):
-                    size += attr.st_size            
+            with self.conn.paramiko_lock:
+                for attr in self.conn.sftp.listdir_attr(base):
+                    if stat.S_ISDIR(attr.st_mode):
+                        to_visit.append('%s/%s' % (base, attr.filename))
+                    elif attr.filename.endswith('.dat'):
+                        size += attr.st_size            
             
         return size
 
     def raw_fetch(self, key, fh):
         path = self.key_to_path(key)
         try:
-            src = self.conn.sftp.open(path + '.dat', 'r')
-            fh.seek(0)
-            shutil.copyfileobj(src, fh)
-
-            src = self.conn.sftp.open(path + '.meta', 'r')
-            metadata = pickle.load(src)
+            with self.conn.paramiko_lock:
+                src = self.conn.sftp.open(path + '.dat', 'r')
+                fh.seek(0)
+                shutil.copyfileobj(src, fh)
+                src.close()
+    
+                src = self.conn.sftp.open(path + '.meta', 'r')
+                metadata = pickle.load(src)
+                src.close()
 
         except IOError as exc:
             if exc.errno == errno.ENOENT:
@@ -244,20 +260,22 @@ class Bucket(AbstractBucket):
     def raw_store(self, key, fh, metadata):
         path = self.key_to_path(key)
         fh.seek(0)
-        try:
-            dest = self.conn.sftp.open(path + '.dat', 'w')
-        except IOError as exc:
-            if exc.errno != errno.ENOENT:
-                raise
-            self._makedirs(os.path.dirname(path))
-            dest = self.conn.sftp.open(path + '.dat', 'w')
-            
-        shutil.copyfileobj(fh, dest)
-        dest.close()
+        
+        with self.conn.paramiko_lock:
+            try:
+                dest = self.conn.sftp.open(path + '.dat', 'w')
+            except IOError as exc:
+                if exc.errno != errno.ENOENT:
+                    raise
+                self._makedirs(os.path.dirname(path))
+                dest = self.conn.sftp.open(path + '.dat', 'w')
                 
-        dest = self.conn.sftp.open(path + '.meta', 'w')
-        pickle.dump(metadata, dest, 2)
-        dest.close()
+            shutil.copyfileobj(fh, dest)
+            dest.close()
+                    
+            dest = self.conn.sftp.open(path + '.meta', 'w')
+            pickle.dump(metadata, dest, 2)
+            dest.close()
 
     def rename(self, src, dest):
         src_path = self.key_to_path(src)
@@ -265,13 +283,14 @@ class Bucket(AbstractBucket):
         if not os.path.exists(src_path + '.dat'):
             raise KeyError('Key %r not in bucket' % src)
            
-        try: 
-            self.conn.sftp.rename(src_path, dest_path)
-        except IOError as exc:
-            if exc.errno != errno.ENOENT:
-                raise
-            self._makedirs(os.path.dirname(dest_path))
-            self.conn.sftp.rename(src_path, dest_path)          
+        with self.conn.paramiko_lock:
+            try: 
+                self.conn.sftp.rename(src_path, dest_path)
+            except IOError as exc:
+                if exc.errno != errno.ENOENT:
+                    raise
+                self._makedirs(os.path.dirname(dest_path))
+                self.conn.sftp.rename(src_path, dest_path)          
 
 
 def escape(s):

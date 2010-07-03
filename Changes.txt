@@ -2,6 +2,8 @@ xxx, S3QL 0.18
 
   * Added --strip-meta option to mount.s3ql
   
+  * sftp backend is working again
+  
   
 2010-06-29, S3QL 0.17
 
