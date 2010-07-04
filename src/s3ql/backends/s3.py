@@ -20,6 +20,7 @@ from .boto import exception
 from s3ql.common import (TimeoutError, ExceptionStoringThread)
 import logging
 import errno
+import httplib
 import time
 
 log = logging.getLogger("backend.s3")
@@ -267,9 +268,14 @@ class Bucket(AbstractBucket):
 def retry_boto(fn, *a, **kw):
     """Wait for fn(*a, **kw) to succeed
     
-    If `fn(*a, **kw)` raises `boto.exception.S3ResponseError` with errorcode in
-    (`NoSuchBucket`, `RequestTimeout`) or `IOError` with errno 104, the function
-    is called again. If the timeout is reached, `TimeoutError` is raised.
+    If `fn(*a, **kw)` raises any of
+    
+     - `boto.exception.S3ResponseError` with errorcode in
+       (`NoSuchBucket`, `RequestTimeout`)
+     - `IOError` with errno 104
+     - `httplib.IncompleteRead` 
+     
+    the function is called again. If the timeout is reached, `TimeoutError` is raised.
     """
 
     step = 0.2
@@ -295,7 +301,10 @@ def retry_boto(fn, *a, **kw):
                          exc.error_code, fn.__name__)
             else:
                 raise
-
+        except httplib.IncompleteRead as exc:
+            log.warn('Encountered %s error when calling %s, retrying...',
+                     exc.error_code, fn.__name__)
+            
         sleep(step)
         waited += step
         if step < timeout / 30:

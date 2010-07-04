@@ -128,34 +128,43 @@ def main(args=None):
         log.info("Downloading & uncompressing metadata...")
         fh = os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
                                stat.S_IRUSR | stat.S_IWUSR), 'w+b')
-        if param['DB-Format'] == 'dump':
-            fh.close()
-            dbcm.init(home + '.db')
-            fh = tempfile.TemporaryFile()
-            bucket.fetch_fh("s3ql_metadata", fh)
-            fh.seek(0)
-            log.info('Reading metadata...')
-            restore_metadata(fh)
-            fh.close()
-        elif param['DB-Format'] == 'sqlite':
-            bucket.fetch_fh("s3ql_metadata", fh)
-            fh.close()
-            dbcm.init(home + '.db')
-        else:
-            raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
-
-        # Increase metadata sequence no
+        try:
+            if param['DB-Format'] == 'dump':
+                fh.close()
+                dbcm.init(home + '.db')
+                fh = tempfile.TemporaryFile()
+                bucket.fetch_fh("s3ql_metadata", fh)
+                fh.seek(0)
+                log.info('Reading metadata...')
+                restore_metadata(fh)
+                fh.close()
+            elif param['DB-Format'] == 'sqlite':
+                bucket.fetch_fh("s3ql_metadata", fh)
+                fh.close()
+                dbcm.init(home + '.db')
+            else:
+                raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
+        except:
+            # Don't keep file if it doesn't contain anything sensible
+            os.unlink(home + '.db')
+            raise
+            
+        # Increase metadata sequence no, save parameters 
         param['seq_no'] += 1
-        bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
+        try:
+            pickle.dump(param, open(home + '.params', 'wb'), 2)
+            bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
+        except:
+            os.unlink(home + '.params')
+            os.unlink(home + '.db')
+            raise
+                    
         for i in seq_nos:
             if i < param['seq_no'] - 5:
                 try:
                     del bucket['s3ql_seq_no_%d' % i ]
                 except KeyError:
                     pass # Key list may not be up to date
-
-        # Save parameters
-        pickle.dump(param, open(home + '.params', 'wb'), 2)
 
         operations = fs.Operations(bucket, cachedir=home + '-cache', lock=lock,
                                    blocksize=param['blocksize'],
