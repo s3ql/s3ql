@@ -50,7 +50,7 @@ class TuneTests(TestCase):
         try:
             s3ql.cli.tune.main(['--change-passphrase', self.bucketname ])
         except SystemExit as exc:
-            self.fail("tune.s3ql failed: %s" % exc)
+            self.fail("s3qltune failed: %s" % exc)
 
 
         bucket = local.Connection().get_bucket(os.path.join(self.bucket_dir, 'mybucket'))

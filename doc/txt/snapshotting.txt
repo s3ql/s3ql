@@ -4,13 +4,13 @@
  Creating Snapshots
 ====================
 
-The command `cp.s3ql` can be used to duplicate a directory tree
+The command `s3qlcp` can be used to duplicate a directory tree
 without physically duplicating the file contents. This is made
 possible by the data de-duplication feature of S3QL.
 
-The syntax of `cp.s3ql` is::
+The syntax of `s3qlcp` is::
 
-  cp.s3ql <src> <target>
+  s3qlcp <src> <target>
 
 This will replicate the contents of the directory `<src>` in the
 directory `<target>`. `<src>` has to be an existing directory and
@@ -21,7 +21,7 @@ The replication will not take any additional space. Only if one of
 directories is modified later on, the modified data will take
 additional storage space.
 
-`cp.s3ql` can only be called by the user that mounted the file system
+`s3qlcp` can only be called by the user that mounted the file system
 (even if it was mounted with `--allow-other` or `--allow-root`). This
 limitation will hopefully be removed in the future (see `issue 155
 <http://code.google.com/p/s3ql/issues/detail?id=155>`_).
@@ -31,7 +31,7 @@ Note that:
 * After the replication, both source and target directory will still
   be completely ordinary directories. You can regard `<src>` as a
   snapshot of `<target>` or vice versa. However, the most common
-  usage of `cp.s3ql` is to regularly duplicate the same source
+  usage of `s3qlcp` is to regularly duplicate the same source
   directory, say `documents`, to different target directories. For a
   e.g. monthly replication, the target directories would typically be
   named something like `documents_Januray` for the replication in

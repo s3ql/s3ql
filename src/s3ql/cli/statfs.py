@@ -71,7 +71,7 @@ def main(args=None):
     # Use a decent sized buffer, otherwise the statistics have to be
     # calculated thee(!) times because we need to invoce getxattr
     # three times.
-    buf = libc.getxattr(ctrlfile, b'stat.s3ql', size_guess=256)
+    buf = libc.getxattr(ctrlfile, b's3qlstat', size_guess=256)
 
     (entries, blocks, inodes, size_1, size_2,
      size_3, dbsize) = struct.unpack('QQQQQQQ', buf)

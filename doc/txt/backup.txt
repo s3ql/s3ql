@@ -13,7 +13,7 @@ systems.
 The basic tasks that have to be done for a backup are:
 
 #. Mount the file system
-#. Replicate the previous backup with `cp.s3ql`
+#. Replicate the previous backup with `s3qlcp`
 #. Update the new copy with the data from the backup source using rsync
 #. Delete old backups that are no longer needed
 #. Unmount the file system
@@ -140,7 +140,7 @@ required by `expire_backups` ::
   new_backup=`date "+%Y-%m-%d_%H:%M:%S"`
   if [ -n "$last_backup" ]; then
       echo "Copying $last_backup to $new_backup..."
-      cp.s3ql "$last_backup" "$new_backup"
+      s3qlcp "$last_backup" "$new_backup"
   fi
 
   # ..and update the copy

@@ -95,14 +95,16 @@ def main():
           packages=setuptools.find_packages('src'),
           provides=['s3ql', 'llfuse'],
           entry_points={ 'console_scripts':
-                          ['cp.s3ql = s3ql.cli.cp:main',
-                           'fsck.s3ql = s3ql.cli.fsck:main',
-                           'mkfs.s3ql = s3ql.cli.mkfs:main',
-                           'mount.s3ql = s3ql.cli.mount:main',
-                           'expire_backups = s3ql.cli.expire_backups:main',
-                           'stat.s3ql = s3ql.cli.statfs:main',
-                           'tune.s3ql = s3ql.cli.tune:main',
-                           'umount.s3ql = s3ql.cli.umount:main' ]
+                        [
+                         'mkfs.s3ql = s3ql.cli.mkfs:main',
+                         'fsck.s3ql = s3ql.cli.fsck:main',
+                         'mount.s3ql = s3ql.cli.mount:main',
+                         'umount.s3ql = s3ql.cli.umount:main',
+                         's3qlcp = s3ql.cli.cp:main',
+                         'expire_backups = s3ql.cli.expire_backups:main',
+                         's3qlstat = s3ql.cli.statfs:main',
+                         's3qltune = s3ql.cli.tune:main',
+		                         ]
                           },
           install_requires=['apsw >= 3.6.19',
                             'pycryptopp',

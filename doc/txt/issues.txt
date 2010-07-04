@@ -50,7 +50,7 @@ Known Issues
   In this situation it is possible that NFS client 1 actually writes
   or reads the newly created file B instead. The chances of this are 1
   to (2^32 - *n*) where *n* is the total number of directory entries
-  in the S3QL file system (as displayed by `stat.s3ql`).
+  in the S3QL file system (as displayed by `s3qlstat`).
 
   Luckily enough, as long as you have less than about 2 thousand
   million directory entries (2^31), the chances for this are totally

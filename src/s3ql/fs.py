@@ -202,7 +202,7 @@ class Operations(llfuse.Operations):
             elif name == b's3ql_pid?':
                 return bytes(os.getpid())
 
-            elif name == b'stat.s3ql':
+            elif name == b's3qlstat':
                 return self.extstat()
 
             raise llfuse.FUSEError(errno.EINVAL)

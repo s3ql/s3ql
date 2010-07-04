@@ -8,19 +8,19 @@ Getting file system statistics
 ==============================
 
 You can get more information about a mounted S3QL file system with the
-`stat.s3ql` command. It has the following syntax::
+`s3qlstat` command. It has the following syntax::
 
-  stat.s3ql <mountpoint>
+  s3qlstat <mountpoint>
 
 
 Probably the most interesting numbers are the total size of your data,
 the total size after duplication, and the final size after
 de-duplication and compression.
 
-`stat.s3ql` also has some additional options. Run `stat.s3ql --help`
+`s3qlstat` also has some additional options. Run `s3qlstat --help`
 for a complete list.
 
-`stat.s3ql` can only be called by the user that mounted the file
+`s3qlstat` can only be called by the user that mounted the file
 system (even if it was mounted with `--allow-other` or
 `--allow-root`). This limitation will hopefully be removed in the
 future (see `issue 155 <http://code.google.com/p/s3ql/issues/detail?id=155>`_).
@@ -28,9 +28,9 @@ future (see `issue 155 <http://code.google.com/p/s3ql/issues/detail?id=155>`_).
 Changing the Passphrase
 =======================
 
-To change the passphrase a bucket, use the `tune.s3ql` command::
+To change the passphrase a bucket, use the `s3qltune` command::
 
-  tune.s3ql --change-passphrase  <storage url>
+  s3qltune --change-passphrase  <storage url>
 
 The passphrase can only be changed when the bucket is not mounted.
 
@@ -69,7 +69,7 @@ During the upgrade you have to make very sure that the command is not
 interrupted, and that no one else tries to mount, fsck or upgrade the
 file system at the same time.
 
-Finally, note that `tune.s3ql` can only upgrade from the *previous*
+Finally, note that `s3qltune` can only upgrade from the *previous*
 S3QL release, so you cannot directly upgrade e.g. from version 0.10 to
 version 0.12. You first have to download S3QL 0.11 and upgrade the
 file system from 0.10 to 0.11 before you can install S3QL 0.12 and
@@ -78,7 +78,7 @@ upgrade the file system from 0.11 to 0.12.
 To upgrade a file system from the previous to the current revision,
 execute ::
 
-  tune.s3ql --upgrade <storage url>
+  s3qltune --upgrade <storage url>
 
 
 
@@ -87,6 +87,6 @@ Deleting a file system
 
 A file system can be deleted with::
 
-  tune.s3ql --delete <storage url>
+  s3qltune --delete <storage url>
 
 This physically deletes all the data and file system structures.
