@@ -10,7 +10,7 @@ from __future__ import division, print_function
 
 import unittest2 as unittest
 from s3ql.backends import local, s3
-from s3ql.backends.common import ChecksumError
+from s3ql.backends.common import ChecksumError, ObjectNotEncrypted
 import tempfile
 import os
 import time
@@ -122,8 +122,8 @@ class BackendTests(object):
         bucket.store('encrypted', 'testdata', { 'tag': True })
         time.sleep(self.delay)
         self.assertEquals(bucket['encrypted'], b'testdata')
-        self.assertRaises(ChecksumError, bucket.fetch, 'plain')
-        self.assertRaises(ChecksumError, bucket.lookup, 'plain')
+        self.assertRaises(ObjectNotEncrypted, bucket.fetch, 'plain')
+        self.assertRaises(ObjectNotEncrypted, bucket.lookup, 'plain')
 
         bucket.passphrase = None
         self.assertRaises(ChecksumError, bucket.fetch, 'encrypted')
@@ -132,8 +132,8 @@ class BackendTests(object):
         bucket.passphrase = self.passphrase
         self.assertRaises(ChecksumError, bucket.fetch, 'encrypted')
         self.assertRaises(ChecksumError, bucket.lookup, 'encrypted')
-        self.assertRaises(ChecksumError, bucket.fetch, 'plain')
-        self.assertRaises(ChecksumError, bucket.lookup, 'plain')
+        self.assertRaises(ObjectNotEncrypted, bucket.fetch, 'plain')
+        self.assertRaises(ObjectNotEncrypted, bucket.lookup, 'plain')
 
     def test_copy(self):
 
