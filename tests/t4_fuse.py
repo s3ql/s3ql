@@ -17,20 +17,17 @@ import os.path
 import s3ql.cli.fsck
 import s3ql.cli.mkfs
 import s3ql.cli.mount
-import s3ql.cli.cp
 import s3ql.cli.umount
 import shutil
 import stat
 import subprocess
-import tarfile
 import sys
 import tempfile
 import time
-import errno
 import unittest2 as unittest
 
 class fuse_tests(TestCase):
-
+    
     def setUp(self):
         # We need this to test multi block operations
         self.src = __file__
@@ -264,53 +261,6 @@ class fuse_tests(TestCase):
 
         os.close(fd)
         os.unlink(filename)
-
-
-class fuse_tests2(fuse_tests):
-
-    def runTest(self):
-        try:
-            subprocess.call(['rsync', '--version'],
-                            stderr=subprocess.STDOUT,
-                            stdout=open('/dev/null', 'wb'))
-        except OSError as exc:
-            if exc.errno == errno.ENOENT:
-                raise unittest.SkipTest('rsync not installed')
-            raise
-
-        self.mount()
-        self.tst_rsync()
-        self.umount()
-
-    def tst_rsync(self):
-
-        # Extract tar
-        data_file = os.path.join(os.path.dirname(__file__), 'data.tar.bz2')
-        tempdir = tempfile.mkdtemp()
-        tarfile.open(data_file).extractall(tempdir)
-
-        # Rsync
-        subprocess.check_call(['rsync', '-aHAX', tempdir + '/',
-                               os.path.join(self.mnt_dir, 'orig') + '/'])
-
-        # copy
-        try:
-            s3ql.cli.cp.main([os.path.join(self.mnt_dir, 'orig'),
-                              os.path.join(self.mnt_dir, 'copy')])
-        except SystemExit as exc:
-            self.fail("cp failed: %s" % exc)
-
-        # compare
-        rsync = subprocess.Popen(['rsync', '-anciHAX', '--delete',
-                                  tempdir + '/',
-                                  os.path.join(self.mnt_dir, 'copy') + '/'],
-                                  stdout=subprocess.PIPE,
-                                  stderr=subprocess.STDOUT)
-        out = rsync.communicate()[0]
-        if out:
-            self.fail('Copy not equal to original, rsync says:\n' + out)
-        elif rsync.returncode != 0:
-            self.fail('rsync failed with ' + out)
 
 
 # Somehow important according to pyunit documentation
