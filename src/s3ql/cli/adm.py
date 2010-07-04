@@ -1,5 +1,5 @@
 '''
-tune.py - this file is part of S3QL (http://s3ql.googlecode.com)
+adm.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 
@@ -23,7 +23,7 @@ import tempfile
 import errno
 import textwrap
 
-log = logging.getLogger("tune")
+log = logging.getLogger("adm")
 
 def parse_args(args):
     '''Parse command line'''
@@ -31,7 +31,7 @@ def parse_args(args):
     parser = OptionParser(
         usage="%prog [options] <storage-url>\n"
               "       %prog --help",
-        description="Change or show S3QL file system parameters.")
+        description="Manage S3QL Buckets.")
 
     parser.add_option("--debug", action="append",
                       help="Activate debugging output from specified module. Use 'all' "
@@ -76,7 +76,7 @@ def main(args=None):
         pass
 
     options = parse_args(args)
-    init_logging_from_options(options, 'tune.log')
+    init_logging_from_options(options, logfile=None)
 
     with get_backend(options) as (conn, bucketname):
         if not bucketname in conn:

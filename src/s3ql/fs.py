@@ -238,7 +238,6 @@ class Operations(llfuse.Operations):
                 self.copy_tree(*struct.unpack('II', value))
 
             elif name == 'stacktrace':
-                # Trigger with setfattr -n 'stacktrace' mnt/.__s3ql__ctrl__
                 log_stacktraces()
                 
             else:

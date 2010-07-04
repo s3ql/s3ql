@@ -1,5 +1,5 @@
 '''
-t4_tune.py - this file is part of S3QL (http://s3ql.googlecode.com)
+t4_adm.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 
@@ -15,10 +15,10 @@ import os
 from cStringIO import StringIO
 import shutil
 import s3ql.cli.mkfs
-import s3ql.cli.tune
+import s3ql.cli.adm
 from s3ql.backends import local
 
-class TuneTests(TestCase):
+class AdmTests(TestCase):
 
     def setUp(self):
         self.cache_dir = tempfile.mkdtemp()
@@ -48,9 +48,9 @@ class TuneTests(TestCase):
         sys.stdin = StringIO('%s\n%s\n%s\n' % (self.passphrase,
                                                passphrase_new, passphrase_new))
         try:
-            s3ql.cli.tune.main(['--change-passphrase', self.bucketname ])
+            s3ql.cli.adm.main(['--change-passphrase', self.bucketname ])
         except SystemExit as exc:
-            self.fail("s3qltune failed: %s" % exc)
+            self.fail("s3qladm failed: %s" % exc)
 
 
         bucket = local.Connection().get_bucket(os.path.join(self.bucket_dir, 'mybucket'))
@@ -62,7 +62,7 @@ class TuneTests(TestCase):
 
 # Somehow important according to pyunit documentation
 def suite():
-    return unittest.makeSuite(TuneTests)
+    return unittest.makeSuite(AdmTests)
 
 
 # Allow calling from command line

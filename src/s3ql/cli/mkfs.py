@@ -80,7 +80,7 @@ def main(args=None):
     with get_backend(options) as (conn, bucketname):
         if conn.bucket_exists(bucketname):
             raise QuietError("Bucket already exists!\n"
-                             "(you can delete an existing bucket with s3qltune --delete)\n")
+                             "(you can delete an existing bucket with s3qladm --delete)\n")
 
         if isinstance(conn, s3.Connection):
             bucket = conn.create_bucket(bucketname, location=options.s3_location)

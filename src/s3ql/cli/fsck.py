@@ -100,7 +100,7 @@ def main(args=None):
         log.info('Getting file system parameters..')
         seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
         if not seq_nos:
-            raise QuietError('Old file system revision, please run s3qltune --upgrade first.')
+            raise QuietError('Old file system revision, please run s3qladm --upgrade first.')
         seq_no = max(seq_nos)
 
         param = None
@@ -195,7 +195,7 @@ def main(args=None):
 
         # Check revision
         if param['revision'] < CURRENT_FS_REV:
-            raise QuietError('File system revision too old, please run s3qltune --upgrade first.')
+            raise QuietError('File system revision too old, please run s3qladm --upgrade first.')
         elif param['revision'] > CURRENT_FS_REV:
             raise QuietError('File system revision too new, please update your '
                              'S3QL installation.')

@@ -10,7 +10,7 @@ following syntax::
   mkfs.s3ql [options] <storage url>
 
 If you want to overwrite an existing bucket, you have to delete the
-bucket with `s3qltune --delete` first.
+bucket with `s3qladm --delete` first.
 
 You can specify the following options:
 
