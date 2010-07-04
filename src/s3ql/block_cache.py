@@ -11,7 +11,8 @@ from __future__ import division, print_function
 from contextlib import contextmanager
 from .multi_lock import MultiLock
 from .ordered_dict import OrderedDict
-from .common import (ExceptionStoringThread, sha256_fh, TimeoutError)
+from .common import sha256_fh, TimeoutError, ExceptionStoringThread
+from .thread_group import ThreadGroup
 from . import database as dbcm
 import logging
 import os
@@ -444,25 +445,23 @@ def retry_exc(timeout, exc_types, fn, *a, **kw):
     raise TimeoutError()
 
 
+MAX_UPLOAD_THREADS = 10
+MIN_TRANSIT_SIZE = 1024 * 1024
 class UploadQueue(object):
     '''
     Schedules and executes object uploads to make optimum usage
-    network bandwith and CPU time.
+    network bandwidth and CPU time.
     '''
 
     def __init__(self, bcache):
-        self.threads = list()
+        self.threads = ThreadGroup(MAX_UPLOAD_THREADS)
         self.bcache = bcache
-        self.max_threads = 10
         self.transit_size = 0
-        self.max_transit = 1024 * 1024
-
+        
     def add(self, el):
         '''Upload cache entry `el`
         
-        Returns size of cache entry. This function may block if the
-        queue is already full, otherwise it returns immediately after
-        compression while the upload proceeds in the background.
+        Returns size of cache entry. This function may block if the queue is already full.
         '''
 
         log.debug('UploadQueue.add(%s): start', el)
@@ -487,12 +486,13 @@ class UploadQueue(object):
 
             log.debug('UploadQueue.add(%s): preparing upload', el)
             fn = self._prepare_upload(el)
+            
             if fn:
-                if (len(self.threads) > self.max_threads or
-                    (self.transit_size > self.max_transit and len(self.threads) > 1)):
+                # If we already have the minimum transit size, do not start more threads
+                while self.transit_size > MIN_TRANSIT_SIZE:
                     log.debug('UploadQueue.add(%s): waiting for upload thread', el)
-                    self.wait_for_thread()
-
+                    self.threads.join_one()
+    
                 log.debug('UploadQueue.add(%s): starting upload thread', el)
                 def _do():
                     try:
@@ -505,9 +505,7 @@ class UploadQueue(object):
                     finally:
                         mlock.release(el.inode, el.blockno)
                 self.transit_size += size
-                t = ExceptionStoringThread(_do, log)
-                self.threads.append(t)
-                t.start()
+                self.threads.add(_do)
                 mlock_released = True
             else:
                 log.debug('UploadQueue.add(%s): no upload required', el)
@@ -515,6 +513,7 @@ class UploadQueue(object):
                 os.rename(el.name + '.d', el.name)
                 mlock.release(el.inode, el.blockno)
                 mlock_released = True
+
 
         except:
             if not mlock_released:
@@ -525,17 +524,10 @@ class UploadQueue(object):
         return size
 
     def wait_for_thread(self):
-        while True:
-            for t in self.threads:
-                t.join(1)
-                if not t.is_alive():
-                    self.threads.remove(t)
-                    t.join_and_raise()
-                    return
+        self.threads.join_one()
 
     def wait(self):
-        while len(self.threads) > 0:
-            self.wait_for_thread()
+        self.threads.join_all()
 
     def _prepare_upload(self, el):
         '''Prepare upload of specified cache entry
@@ -618,6 +610,7 @@ class UploadQueue(object):
         return doit
     
     
+MAX_REMOVAL_THREADS = 25
 class RemovalQueue(object):
     '''
     Schedules and executes object removals to make optimum usage network
@@ -625,9 +618,8 @@ class RemovalQueue(object):
     '''
 
     def __init__(self, bcache):
-        self.threads = list()
+        self.threads = ThreadGroup(MAX_REMOVAL_THREADS)
         self.bcache = bcache
-        self.max_threads = 25
 
     def add(self, obj_id):
         '''Remove object obj_id
@@ -642,31 +634,18 @@ class RemovalQueue(object):
         fn = self._prepare_removal(obj_id)
         
         if fn:
-            if len(self.threads) > self.max_threads:
-                log.debug('RemovalQueue.add(%s): waiting for removal thread', obj_id)
-                self.wait_for_thread()
-
             log.debug('RemovalQueue.add(%s): starting removal thread', obj_id)
-            t = ExceptionStoringThread(fn, log)
-            self.threads.append(t)
-            t.start()
+            self.threads.add(fn)
         else:
             log.debug('RemovalQueue.add(%s): no retwork transaction required', obj_id)
 
         log.debug('RemovalQueue.add(%s): end', obj_id)
 
     def wait_for_thread(self):
-        while True:
-            for t in self.threads:
-                t.join(1)
-                if not t.is_alive():
-                    self.threads.remove(t)
-                    t.join_and_raise()
-                    return
+        self.threads.join_one()
 
     def wait(self):
-        while len(self.threads) > 0:
-            self.wait_for_thread()
+        self.threads.join_all()
 
     def _prepare_removal(self, obj_id):
         '''Prepare removal of specified object
