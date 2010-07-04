@@ -115,8 +115,8 @@ def main(args=None):
                 print('Local cache files exist, but file system appears to have \n'
                       'been mounted elsewhere after the unclean shutdown.\n'
                       'You can either:\n'
-                      '  a) Remove the local cache files and loose the changes in there\n'
-                      '  b) Use the local cache and loose the changes performed during\n'
+                      '  a) Remove the local cache files and lose the changes in there\n'
+                      '  b) Use the local cache and lose the changes performed during\n'
                       '     all mounts after the unclean shutdown.\n')
                 if options.batch:
                     raise QuietError('(in batch mode, exiting)')
@@ -147,8 +147,8 @@ def main(args=None):
                 fsck_required = True
                 print(textwrap.dedent('''
                       Local cache files exist, but fsck can not determine what to do with it. If you
-                      commit the existing data, you may loose changes performed after the data has been
-                      generated. If you discard the existing data, you may loose the changes contained in
+                      commit the existing data, you may lose changes performed after the data has been
+                      generated. If you discard the existing data, you may lose the changes contained in
                       the data.
                       
                       Please report this problem in the issue tracker on
@@ -170,8 +170,8 @@ def main(args=None):
                 fsck_required = True
                 print(textwrap.dedent('''
                       Local metadata exist, but fsck can not determine what to do with it. If you use the
-                      existing metadata, you may loose changes performed after the local metadata has
-                      been saved. If you discard the existing metadata, you may loose changes contained
+                      existing metadata, you may lose changes performed after the local metadata has
+                      been saved. If you discard the existing metadata, you may lose changes contained
                       therein.
                       
                       Please report this problem in the issue tracker on
