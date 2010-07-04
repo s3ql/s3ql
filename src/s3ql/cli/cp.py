@@ -25,12 +25,15 @@ def parse_args(args):
     parser = OptionParser(
         usage="%prog  [options] <source> <target>\n"
               "       %prog --help",
-        description="Efficiently copy directory trees.")
+        description=
+'''Replicates the contents of the directory <source> in the directory <target>. <source>
+has to be an existing directory and <target>  must not exist. Both directories have to be
+within the same S3QL file system.
 
-    parser.add_option("--homedir", type="string",
-                      default=os.path.expanduser("~/.s3ql"),
-                      help='Directory for log files, cache and authentication info. '
-                      'Default: ~/.s3ql')
+The replication will not take any additional space. Only if one of directories is modified later on,
+the modified data will take additional storage space.        
+        ''')
+
     parser.add_option("--debug", action="append",
                       help="Activate debugging output from specified module. Use 'all' "
                            "to get debug messages from all modules. This option can be "
@@ -55,7 +58,7 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-    init_logging_from_options(options, 'cp.log')
+    init_logging_from_options(options, logfile=None)
 
     if not os.path.exists(options.source):
         log.error('Source directory %r does not exist', options.source)

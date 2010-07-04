@@ -27,10 +27,6 @@ def parse_args(args):
               "       %prog --help",
         description="Print file system statistics.")
 
-    parser.add_option("--homedir", type="string",
-                      default=os.path.expanduser("~/.s3ql"),
-                      help='Directory for log files, cache and authentication info. '
-                      'Default: ~/.s3ql')
     parser.add_option("--debug", action="append",
                       help="Activate debugging output from specified module. Use 'all' "
                            "to get debug messages from all modules. This option can be "
@@ -55,7 +51,7 @@ def main(args=None):
 
     options = parse_args(args)
     mountpoint = options.mountpoint
-    init_logging_from_options(options, 'statfs.log')
+    init_logging_from_options(options, logfile=None)
 
     # Check if it's a mount point
     if not posixpath.ismount(mountpoint):
