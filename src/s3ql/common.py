@@ -282,7 +282,10 @@ def init_logging_from_options(options, logfile):
         file_level = logging.INFO
         file_loggers = None
 
-    init_logging(os.path.join(options.homedir, logfile), stdout_level, file_level, file_loggers)
+    if logfile is not None:
+        logfile = os.path.join(options.homedir, logfile)
+        
+    init_logging(logfile, stdout_level, file_level, file_loggers)
 
 
 logging_initialized = False
