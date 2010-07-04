@@ -295,8 +295,7 @@ class fuse_tests2(fuse_tests):
 
         # copy
         try:
-            s3ql.cli.cp.main(['--homedir', self.cache_dir,
-                              os.path.join(self.mnt_dir, 'orig'),
+            s3ql.cli.cp.main([os.path.join(self.mnt_dir, 'orig'),
                               os.path.join(self.mnt_dir, 'copy')])
         except SystemExit as exc:
             self.fail("cp failed: %s" % exc)
