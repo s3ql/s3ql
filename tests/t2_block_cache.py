@@ -49,9 +49,7 @@ class cache_tests(TestCase):
         self.cache.init()
         
         # We do not want background threads
-        self.cache.io_thread.stop_event.set()
-        self.cache.io_thread.join_and_raise()
-        self.cache.io_thread = None
+        self.cache.io_thread.stop()
         
         self.lock = threading.Lock()
         self.lock.acquire()

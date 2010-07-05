@@ -70,34 +70,41 @@ class ThreadGroup(object):
         self.max_threads = max_threads
         self.active_threads = list()
         self.finished_threads = list()
-        self.lock = threading.Condition(threading.Lock())
+        self.lock = threading.Condition(threading.RLock())
         
     def add(self, fn, *a, **kw):
         '''Add new thread that runs given function
         
         If the group already contains the maximum number of threads, the method will first call
-        `join_one()`. There is a race condition between checking the number of threads and starting
-        the new thread, so the maximum number of threads is not exactly obeyed.
+        `join_one()`. 
         '''
         
         t = Thread(self)
         t.run_protected = lambda: fn(*a, **kw)
         
-        if len(self) >= self.max_threads:
-            self.join_one()
-        self.active_threads.append(t)
+        with self.lock:
+            if len(self) >= self.max_threads:
+                self.join_one()
+            self.active_threads.append(t)
+            
         t.start()
+        
         
         
     def join_one(self):
         '''Wait for any one thread to finish
         
         If the thread terminated with an exception, the exception
-        is encapsulated in `EmbeddedException` and raised again.
+        is encapsulated in `EmbeddedException` and raised again. If there are
+        no active threads, the call returns without doing anything.
         '''
         
         log.debug('controller: waiting for lock')
         with self.lock:
+            
+            if not self.finished_threads and not self.active_threads:
+                return
+            
             # Loop is required because notify() may wake up more than
             # one thread in wait() state.
             while True:
@@ -117,8 +124,10 @@ class ThreadGroup(object):
     def join_all(self):
         '''Call `join_one` until all threads are finished'''
         
-        while self.active_threads or self.finished_threads:
-            self.join_one()
+        with self.lock:
+            while self.active_threads or self.finished_threads:
+                self.join_one()
     
     def __len__(self):
-        return len(self.active_threads) + len(self.finished_threads)
+        with self.lock:
+            return len(self.active_threads) + len(self.finished_threads)

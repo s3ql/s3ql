@@ -56,9 +56,7 @@ class fs_api_tests(TestCase):
         self.server.init()
 
         # We don't want background flushing
-        self.server.cache.io_thread.stop_event.set()
-        self.server.cache.io_thread.join_and_raise()
-        self.server.cache.io_thread = None
+        self.server.cache.io_thread.stop()
         self.server.inodes.flush_thread.stop_event.set()
         self.server.inodes.flush_thread.join_and_raise()
         self.server.inodes.flush_thread = None

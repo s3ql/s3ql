@@ -11,11 +11,12 @@ from __future__ import division, print_function
 from contextlib import contextmanager
 from .multi_lock import MultiLock
 from .ordered_dict import OrderedDict
-from .common import sha256_fh, TimeoutError, ExceptionStoringThread
+from .common import sha256_fh, TimeoutError, EmbeddedException
 from .thread_group import ThreadGroup
 from . import database as dbcm
 import logging
 import os
+import sys
 import threading
 import time
 import stat
@@ -87,67 +88,25 @@ class BlockCache(object):
         self.bucket = bucket
         self.mlock = MultiLock()
         self.removal_queue = RemovalQueue(self)
-        self.io_thread = None
+        self.upload_queue = UploadQueue(self)
+        self.io_thread = IOThread(self)
         self.expiry_lock = threading.Lock()
 
     def init(self):
         log.debug('init: start')
         if not os.path.exists(self.cachedir):
             os.mkdir(self.cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-        self.io_thread = ExceptionStoringThread(self._io_loop, log, pass_self=True)
-        self.io_thread.stop_event = threading.Event()
-        self.io_thread.name = 'IO Thread'
         self.io_thread.start()
         log.debug('init: end')
 
     def destroy(self):
         log.debug('destroy: start')
-        if self.io_thread is not None:
-            self.io_thread.stop_event.set()
-            self.io_thread.join_and_raise()
-            self.io_thread = None
-            
-        self.removal_queue.wait()
+        self.io_thread.stop()    
         self.clear()
+        self.removal_queue.wait()
+        self.upload_queue.wait()        
         os.rmdir(self.cachedir)
         log.debug('destroy: end')
-
-    def _io_loop(self, self_t):
-        '''Run IO loop'''
-
-        log.debug('_io_loop: start')
-        self_t.queue = UploadQueue(self)
-
-        while not self_t.stop_event.is_set():
-            self._do_io(self_t)
-            log.debug('_io_loop: sleeping')
-            self_t.stop_event.wait(5)
-
-        self_t.queue.wait()
-        log.debug('_io_loop: end')
-
-    def _do_io(self, self_t):
-        '''Flush all objects that have not been accessed in the last 10 seconds'''
-
-        log.debug('_do_io: start')
-        keep_running = True
-        while keep_running:
-            keep_running = False
-            stamp = time.time()
-            for el in self.cache.values_rev():
-                if stamp - el.last_access < 10:
-                    break
-                if not el.dirty:
-                    continue
-
-                self_t.queue.add(el)
-                keep_running = True
-
-                if self_t.stop_event.is_set():
-                    keep_running = False
-                    break
-
-        log.debug('_do_io: end')
 
     def _remove_entry(self, el):
         '''Try to remove `el' from cache
@@ -270,8 +229,6 @@ class BlockCache(object):
 
         log.debug('_expire: start')
 
-        queue = UploadQueue(self)
-
         with self.expiry_lock:
             while (len(self.cache) > self.max_entries or
                    (len(self.cache) > 0  and self.size > self.max_size)):
@@ -282,24 +239,28 @@ class BlockCache(object):
                         log.debug('_expire: %s is dirty, trying to flush', el)
                         break
                     self._remove_entry(el)
-
-                # If this did not work, then we try to flush just
-                # enough entries
+     
                 need_size = self.size - self.max_size
                 need_entries = len(self.cache) - self.max_entries
-                for el in self.cache.values_rev():
-                    if need_size < 0 and need_entries < 0:
-                        break
-
-                    log.debug('_expire: adding %s to queue', el)
-                    if el.dirty:
-                        need_size -= queue.add(el)
-                    else:
-                        need_size -= os.fstat(el.fileno()).st_size
-                    need_entries -= 1
-
+                if need_size <= 0 and need_entries <= 0:
+                    break
+                         
+                # If there are no entries in the queue, add just enough
+                if self.upload_queue.is_empty():
+                    for el in self.cache.values_rev():
+                        log.debug('_expire: adding %s to queue', el)
+                        if el.dirty:
+                            need_size -= self.upload_queue.add(el)
+                        else:
+                            need_size -= os.fstat(el.fileno()).st_size
+                        need_entries -= 1                
+                
+                        if need_size < 0 and need_entries < 0:
+                            break
+                                        
+                # Wait for the next entry  
                 log.debug('_expire: waiting for queue')
-                queue.wait()
+                self.upload_queue.wait_for_thread()
 
         log.debug('_expire: end')
 
@@ -415,7 +376,67 @@ class BlockCache(object):
         if len(self.cache) > 0:
             raise RuntimeError("BlockCache instance was destroyed without calling close()!")
 
+class IOThread(threading.Thread):
 
+    def __init__(self, bcache):
+        super(IOThread, self).__init__()
+
+        self._exc = None
+        self._tb = None
+        self._joined = False
+        self.bcache = bcache
+        
+        self.stop_event = threading.Event()
+        self.name = 'IO Thread'
+            
+    def run_protected(self):
+        log.debug('IOThread: start')
+
+        while not self.stop_event.is_set():
+            did_sth = False
+            stamp = time.time()
+            for el in self.bcache.cache.values_rev():
+                if stamp - el.last_access < 10:
+                    break
+                if not el.dirty:
+                    continue
+
+                self.bcache.upload_queue.add(el)
+                did_sth = True
+
+                if self.stop_event.is_set():
+                    break            
+            
+            if not did_sth:
+                self.stop_event.wait(5)
+
+        log.debug('IOThread: end')       
+                
+    def run(self):
+        try:
+            self.run_protected()
+        except BaseException as exc:
+            self._exc = exc
+            self._tb = sys.exc_info()[2] # This creates a circular reference chain
+
+    def stop(self):
+        '''Wait for thread to finish, raise any occurred exceptions'''
+        
+        self._joined = True
+        
+        self.stop_event.set()           
+        self.join()
+        
+        if self._exc is not None:
+            # Break reference chain
+            tb = self._tb
+            del self._tb
+            raise EmbeddedException(self._exc, tb, self.name)
+
+    def __del__(self):
+        if not self._joined:
+            raise RuntimeError("Thread was destroyed without calling stop()!")
+        
 def retry_exc(timeout, exc_types, fn, *a, **kw):
     """Wait for fn(*a, **kw) to succeed
     
@@ -528,6 +549,9 @@ class UploadQueue(object):
 
     def wait(self):
         self.threads.join_all()
+        
+    def is_empty(self):
+        return len(self.threads) == 0
 
     def _prepare_upload(self, el):
         '''Prepare upload of specified cache entry

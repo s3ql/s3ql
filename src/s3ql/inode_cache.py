@@ -145,6 +145,7 @@ class InodeCache(object):
     def init(self):
         '''Initialize background flush thread'''
 
+        # TODO: Replace this with explicit class like IOThread in BlockCache
         self.flush_thread = common.ExceptionStoringThread(self.flush_loop, log, pass_self=True)
         self.flush_thread.setName('inode flush thread')
         self.flush_thread.daemon = True
