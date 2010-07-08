@@ -330,37 +330,33 @@ class BlockCache(object):
                   inode, start_no, end_no)
 
     def flush(self, inode):
-        """Upload dirty data for `inode`"""
+        """Flush buffers for `inode`"""
 
         log.debug('flush(inode=%d): start', inode)
-        queue = UploadQueue(self)
 
         for el in self.cache.itervalues():
             if el.inode != inode:
                 continue
             if not el.dirty:
                 continue
-
-            queue.add(el)
-
-        queue.wait()
+            
+            el.flush()
+            
         log.debug('flush(inode=%d): end', inode)
 
     def flush_all(self):
-        """Upload all dirty data"""
+        """Flush buffers for all cached blocks"""
 
         log.debug('flush_all: start')
-        queue = UploadQueue(self)
 
         for el in self.cache.itervalues():
             if not el.dirty:
                 continue
 
-            queue.add(el)
+            el.flush()
 
-        queue.wait()
         log.debug('flush_all: end')
-
+        
     def clear(self):
         """Upload all dirty data and clear cache"""
 

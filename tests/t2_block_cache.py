@@ -88,24 +88,6 @@ class cache_tests(TestCase):
             self.assertEqual(data, fh.read(len(data)))
 
 
-    def test_flush(self):
-        inode = self.inode
-        blockno = 11
-        data = self.random_data(int(0.5 * self.cache.max_size))
-
-        self.cache.bucket = TestBucket(self.bucket)
-        self.assertEqual(len(self.cache), 0)
-        with self.cache.get(inode, blockno, self.lock) as fh:
-            fh.seek(0)
-            fh.write(data)
-        self.assertEqual(len(self.cache), 1)
-        self.cache.flush(inode + 1)
-        self.assertEqual(len(self.cache), 1)
-        self.cache.bucket = TestBucket(self.bucket, no_store=1)
-        self.cache.flush(inode)
-        self.assertEqual(len(self.cache), 1)
-        self.cache.bucket.verify()
-
     def test_flush_all(self):
         inode = self.inode
         blockno = 11
