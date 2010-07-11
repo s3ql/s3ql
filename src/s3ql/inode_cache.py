@@ -9,7 +9,6 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 import time
-import common
 import logging
 import threading
 import sys
@@ -17,6 +16,7 @@ import database as dbcm
 from random import randint
 import apsw
 from .common import EmbeddedException
+from s3ql.database import NoSuchRowError
 
 __all__ = [ 'InodeCache', 'OutOfInodesError' ]
 log = logging.getLogger('inode_cache')
@@ -162,7 +162,11 @@ class InodeCache(object):
         try:
             return self.attrs[id_]
         except KeyError:
-            inode = self.getattr(id_)
+            try:
+                inode = self.getattr(id_)
+            except NoSuchRowError:
+                raise KeyError('No such inode: %d' % id_)
+            
             old_id = self.cached_rows[self.pos]
             self.cached_rows[self.pos] = id_
             self.pos = (self.pos + 1) % CACHE_SIZE

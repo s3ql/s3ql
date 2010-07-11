@@ -13,6 +13,7 @@ import hashlib
 import logging.handlers
 import os
 from . import database as dbcm
+from .database import NoSuchRowError
 import stat
 import sys
 import threading
@@ -366,7 +367,7 @@ def inode_for_path(path, conn):
         try:
             inode = conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
                                 (el, inode))
-        except KeyError:
+        except NoSuchRowError:
             raise KeyError('Path %s does not exist' % path)
 
     return inode

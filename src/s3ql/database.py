@@ -42,7 +42,7 @@ import thread
 
 __all__ = [ "init", 'execute', 'get_db_size', 'get_row', 'get_val', 'has_val',
            'rowid', 'write_lock', 'WrappedConnection', 'NoUniqueValueError',
-           'conn' ]
+           'conn', 'NoSuchRowError' ]
 
 log = logging.getLogger("database")
 
@@ -297,7 +297,7 @@ class WrappedConnection(object):
     def get_val(self, *a, **kw):
         """Execute statement and return first element of first result row.
         
-        If there is no result row, raises `KeyError`. If there is more
+        If there is no result row, raises `NoSuchRowError`. If there is more
         than one row, raises `NoUniqueValueError`.
         """
 
@@ -311,7 +311,7 @@ class WrappedConnection(object):
     def get_row(self, *a, **kw):
         """Execute select statement and return first row.
         
-        If there are no result rows, raises `KeyError`. If there is more
+        If there are no result rows, raises `NoSuchRowError`. If there is more
         than one result row, raises `NoUniqueValueError`.
         """
 
@@ -319,7 +319,7 @@ class WrappedConnection(object):
         try:
             row = res.next()
         except StopIteration:
-            raise KeyError('Query returned empty result set')
+            raise NoSuchRowError()
         try:
             res.next()
         except StopIteration:
@@ -350,7 +350,14 @@ class NoUniqueValueError(Exception):
 
     def __str__(self):
         return 'Query generated more than 1 result row'
-
+    
+    
+class NoSuchRowError(Exception):
+    '''Raised if the query did not produce any result rows'''
+    
+    def __str__(self):
+        return 'Query produced 0 result rows'
+    
 
 class ResultSet(object):
     '''Iterator over the result of an SQL query

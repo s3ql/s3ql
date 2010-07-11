@@ -11,6 +11,7 @@ from __future__ import division, print_function
 from s3ql import mkfs
 from s3ql.block_cache import BlockCache
 from s3ql.backends import local
+from s3ql.backends.common import NoSuchObject
 from s3ql import database as dbcm
 import os
 import tempfile

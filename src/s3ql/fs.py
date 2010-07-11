@@ -20,6 +20,7 @@ import time
 from .block_cache import BlockCache
 from cStringIO import StringIO
 from . import database as dbcm
+from .database import NoSuchRowError
 import struct
 from llfuse.interface import FUSEError
 
@@ -147,7 +148,7 @@ class Operations(llfuse.Operations):
             try:
                 id_ = conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
                                    (name, id_p))
-            except KeyError:
+            except NoSuchRowError:
                 raise(llfuse.FUSEError(errno.ENOENT))
             return self.inodes[id_]
 
@@ -211,7 +212,7 @@ class Operations(llfuse.Operations):
             try:
                 value = dbcm.get_val('SELECT value FROM ext_attributes WHERE inode=? AND name=?',
                                           (id_, name))
-            except KeyError:
+            except NoSuchRowError:
                 raise llfuse.FUSEError(llfuse.ENOATTR)
             return value
 

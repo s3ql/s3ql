@@ -15,6 +15,7 @@ from .ordered_dict import OrderedDict
 from .common import sha256_fh, TimeoutError, EmbeddedException
 from .thread_group import ThreadGroup
 from . import database as dbcm
+from .database import NoSuchRowError
 import logging
 import os
 import sys
@@ -175,7 +176,7 @@ class BlockCache(object):
                                           (inode, blockno))
     
                 # No corresponding object
-                except KeyError:
+                except NoSuchRowError:
                     log.debug('get(inode=%d, block=%d): creating new block', inode, blockno)
                     el = CacheEntry(inode, blockno, None, filename, "w+b")
     
@@ -321,7 +322,7 @@ class BlockCache(object):
                 try:
                     obj_id = dbcm.get_val('SELECT obj_id FROM blocks WHERE inode=? '
                                           'AND blockno = ?', (inode, blockno))
-                except KeyError:
+                except NoSuchRowError:
                     log.debug('remove(inode=%d, blockno=%d): block does not exist',
                               inode, blockno)
                     continue
@@ -524,7 +525,7 @@ class UploadManager(object):
             try:
                 el.obj_id = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
 
-            except KeyError:
+            except NoSuchRowError:
                 need_upload = True
                 el.obj_id = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
                                       (1, hash_, size))

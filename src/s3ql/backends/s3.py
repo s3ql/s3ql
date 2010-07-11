@@ -183,7 +183,7 @@ class Bucket(AbstractBucket):
 
             log.debug('Deleting key %s', s3key)
 
-            # Ignore KeyError when clearing bucket
+            # Ignore missing objects when clearing bucket
             t = ExceptionStoringThread(self.delete, s3key, True)
             t.start()
             threads.append(t)

@@ -15,7 +15,8 @@ import time
 import logging
 import re
 from . import database as dbcm
-from .backends.common import ObjectNotEncrypted, ChecksumError
+from .database import NoSuchRowError
+from .backends.common import ObjectNotEncrypted, ChecksumError, NoSuchObject
 from cPickle import UnpicklingError
 from .backends import s3
 from .common import (ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh, get_path)
@@ -114,7 +115,7 @@ def check_cache():
         try:
             obj_id = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
             
-        except KeyError:
+        except NoSuchRowError:
             obj_id = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
                                (1, hash_, size))
             bucket.store_fh('s3ql_data_%d' % obj_id, fh)
@@ -137,7 +138,7 @@ def check_cache():
         try:
             old_obj_id = conn.get_val('SELECT obj_id FROM blocks WHERE inode=? AND blockno=?',
                                      (inode, blockno))
-        except KeyError:
+        except NoSuchRowError:
             conn.execute('INSERT INTO blocks (obj_id, inode, blockno) VALUES(?,?,?)',
                          (obj_id, inode, blockno))
         else:
@@ -168,7 +169,7 @@ def check_lof():
         inode_l = conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
                              (b"lost+found", ROOT_INODE))
 
-    except KeyError:
+    except NoSuchRowError:
         found_errors = True
         log_error("Recreating missing lost+found directory")
         inode_l = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
@@ -510,7 +511,7 @@ def resolve_free(path, name):
             i += 1
             newname = name + bytes(i)
 
-    except KeyError:
+    except NoSuchRowError:
         pass
 
     return (inode_p, newname)
