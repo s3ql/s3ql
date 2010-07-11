@@ -31,7 +31,7 @@ __all__ = [ 'AbstractConnection', 'AbstractBucket', 'ChecksumError', 'Unsupporte
 class AbstractConnection(object):
     '''This class contains functionality shared between all backends.
     
-    TODO: All derived classes are expected to be completely threadsafe
+    All derived classes are expected to be completely threadsafe
     (except for internal methods starting with underscore)
     '''
     __metaclass__ = ABCMeta
@@ -106,7 +106,7 @@ class AbstractBucket(object):
     Instances behave more or less like dicts. They raise the same exceptions,
     can be iterated over and indexed into.
     
-    TODO: All derived classes are expected to be completely threadsafe
+    All derived classes are expected to be completely threadsafe
     (except for internal methods starting with underscore)
     '''
     __metaclass__ = ABCMeta

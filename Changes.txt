@@ -1,12 +1,14 @@
 xxx, S3QL 0.18
 
   * Added --strip-meta option to mount.s3ql
-  
+
   * stat.s3ql, tune.s3ql and cp.s3ql have been renamed to
     s3qlstat, s3qladm and s3qlcp respectively.
-  
+
+  * sftp backend is working again
+
   * Added the s3qlctrl command.
-  
+
 2010-06-29, S3QL 0.17
 
   * The local and sftp backends now spread their files into different 

@@ -22,6 +22,7 @@ import logging
 import errno
 import httplib
 import time
+import threading
 
 log = logging.getLogger("backend.s3")
 
@@ -30,6 +31,10 @@ class Connection(AbstractConnection):
 
     This class just dispatches everything to boto. It uses a separate boto
     connection object for each thread.
+    
+    This class is threadsafe. All methods (except for internal methods
+    starting with underscore) may be called concurrently by different
+    threads.    
     """
 
     def __init__(self, awskey, awspass, reduced_redundancy=False):
@@ -37,26 +42,29 @@ class Connection(AbstractConnection):
         self.awskey = awskey
         self.awspass = awspass
         self.pool = list()
+        self.lock = threading.RLock()
         self.conn_cnt = 0
         self.reduced_redundancy = reduced_redundancy
 
     def _pop_conn(self):
         '''Get boto connection object from the pool'''
 
-        try:
-            conn = self.pool.pop()
-        except IndexError:
-            # Need to create a new connection
-            log.debug("Creating new boto connection (active conns: %d)...",
-                      self.conn_cnt)
-            conn = S3Connection(self.awskey, self.awspass)
-            self.conn_cnt += 1
-
-        return conn
+        with self.lock:
+            try:
+                conn = self.pool.pop()
+            except IndexError:
+                # Need to create a new connection
+                log.debug("Creating new boto connection (active conns: %d)...",
+                          self.conn_cnt)
+                conn = S3Connection(self.awskey, self.awspass)
+                self.conn_cnt += 1
+    
+            return conn
 
     def _push_conn(self, conn):
         '''Return boto connection object to pool'''
-        self.pool.append(conn)
+        with self.lock:
+            self.pool.append(conn)
 
     def delete_bucket(self, name, recursive=False):
         """Delete bucket"""
@@ -143,6 +151,10 @@ class Bucket(AbstractBucket):
     bucket' error when we try to upload a key into a newly created bucket. For
     this reason, many boto calls are wrapped with `retry_boto`. Note that this
     assumes that no one else is messing with the bucket at the same time.
+    
+    This class is threadsafe. All methods (except for internal methods
+    starting with underscore) may be called concurrently by different
+    threads.    
     """
 
     @contextmanager
