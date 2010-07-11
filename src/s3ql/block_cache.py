@@ -10,6 +10,7 @@ from __future__ import division, print_function
 
 from contextlib import contextmanager
 from .multi_lock import MultiLock
+from .backends.common import NoSuchObject
 from .ordered_dict import OrderedDict
 from .common import sha256_fh, TimeoutError, EmbeddedException
 from .thread_group import ThreadGroup
@@ -183,7 +184,7 @@ class BlockCache(object):
                     log.debug('get(inode=%d, block=%d): downloading block', inode, blockno)
                     el = CacheEntry(inode, blockno, obj_id, filename, "w+b")
                     with without(self.lock):
-                        retry_exc(300, [ KeyError ], self.bucket.fetch_fh,
+                        retry_exc(300, [ NoSuchObject ], self.bucket.fetch_fh,
                                   's3ql_data_%d' % obj_id, el)
                     self.size += os.fstat(el.fileno()).st_size
     
@@ -346,7 +347,7 @@ class BlockCache(object):
         
             if to_delete:
                 with without(self.lock):
-                    self.removal_queue.add(lambda : retry_exc(300, [ KeyError ], 
+                    self.removal_queue.add(lambda : retry_exc(300, [ NoSuchObject ], 
                                                               self.bucket.delete,
                                                               's3ql_data_%d' % obj_id))
 
@@ -575,11 +576,11 @@ class UploadManager(object):
                     with self.transit_size_lock:
                         self.transit_size -= size
                     if to_delete:
-                        retry_exc(300, [ KeyError ], self.bucket.delete,
+                        retry_exc(300, [ NoSuchObject ], self.bucket.delete,
                                   's3ql_data_%d' % old_obj_id)
 
             elif to_delete:
-                doit = lambda : retry_exc(300, [ KeyError ], self.bucket.delete,
+                doit = lambda : retry_exc(300, [ NoSuchObject ], self.bucket.delete,
                                           's3ql_data_%d' % old_obj_id)
                 
             # If we already have the minimum transit size, do not start more threads

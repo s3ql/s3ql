@@ -26,7 +26,8 @@ from abc import ABCMeta, abstractmethod
 
 log = logging.getLogger("backend")
 
-__all__ = [ 'AbstractConnection', 'AbstractBucket', 'ChecksumError', 'UnsupportedError' ]
+__all__ = [ 'AbstractConnection', 'AbstractBucket', 'ChecksumError', 'UnsupportedError',
+            'NoSuchObject', 'NoSuchBucket' ]
 
 class AbstractConnection(object):
     '''This class contains functionality shared between all backends.
@@ -41,7 +42,7 @@ class AbstractConnection(object):
 
         try:
             self.get_bucket(name)
-        except KeyError:
+        except NoSuchBucket:
             return False
         else:
             return True
@@ -103,8 +104,8 @@ class AbstractConnection(object):
 class AbstractBucket(object):
     '''This class contains functionality shared between all backends.
     
-    Instances behave more or less like dicts. They raise the same exceptions,
-    can be iterated over and indexed into.
+    Instances behave similarly to dicts. They can be iterated over and
+    indexed into, but raise a separate set of exceptions.
     
     All derived classes are expected to be completely threadsafe
     (except for internal methods starting with underscore)
@@ -138,7 +139,7 @@ class AbstractBucket(object):
     def lookup(self, key):
         """Return metadata for given key.
 
-        If the key does not exist, KeyError is raised.
+        If the key does not exist, `NoSuchObject` is raised.
         """
 
         if not isinstance(key, str):
@@ -572,6 +573,26 @@ class ObjectNotEncrypted(Exception):
 
     pass
 
+class NoSuchObject(Exception):
+    '''Raised if the requested object does not exist in the bucket'''
+    
+    def __init__(self, key):
+        super(NoSuchObject, self).__init__()
+        self.key = key
+        
+    def __str__(self):
+        return 'Bucket does not have anything stored under key %r' % self.key
+
+class NoSuchBucket(Exception):
+    '''Raised if the requested bucket does not exist'''
+    
+    def __init__(self, name):
+        super(NoSuchBucket, self).__init__()
+        self.name = name
+        
+    def __str__(self):
+        return 'Bucket %r does not exist' % self.name
+        
 def encrypt(buf, passphrase, nonce):
     '''Encrypt given string'''
 
@@ -627,3 +648,8 @@ def convert_legacy_metadata(meta):
 
     if meta['compression'] == 'NONE':
         meta['compression'] = 'None'
+
+
+
+    
+    

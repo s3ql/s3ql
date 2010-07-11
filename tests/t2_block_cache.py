@@ -324,7 +324,7 @@ class TestBucket(object):
 
         try:
             return self.bucket.delete(*a, **kw)
-        except KeyError:
+        except NoSuchObject:
             # Don't count key errors
             self.no_del += 1
             raise

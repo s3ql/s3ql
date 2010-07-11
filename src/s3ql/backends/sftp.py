@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
-from .common import AbstractConnection, AbstractBucket
+from .common import AbstractConnection, AbstractBucket, NoSuchBucket, NoSuchObject
 import logging
 import errno
 import shutil
@@ -75,7 +75,7 @@ class Connection(AbstractConnection):
 
         with self.lock:
             if name not in self:
-                raise KeyError('Bucket directory does not exist on remote host')
+                raise NoSuchBucket(name)
     
             if recursive:
                 self._rmtree(name)
@@ -102,14 +102,11 @@ class Connection(AbstractConnection):
             return self.get_bucket(name, passphrase, compression)
 
     def get_bucket(self, name, passphrase=None, compression='lzma'):
-        """Return Bucket instance for the bucket `name`
-        
-        Raises `KeyError` if the bucket does not exist.
-        """
+        """Return Bucket instance for the bucket `name`"""
         
         with self.lock:
             if name not in self:
-                raise KeyError('Bucket %s does not exist' % name)
+                raise NoSuchBucket(name)
     
             return Bucket(self, name, passphrase, compression)
 
@@ -174,7 +171,7 @@ class Bucket(AbstractBucket):
                 return pickle.load(src)
             except IOError as exc:
                 if exc.errno == errno.ENOENT:
-                    raise KeyError('Key %r not in bucket' % key)
+                    raise NoSuchObject(key)
                 else:
                     raise
 
@@ -190,7 +187,7 @@ class Bucket(AbstractBucket):
                     if force:
                         pass
                     else:
-                        raise KeyError('Key %r not in bucket' % key)
+                        raise NoSuchObject(key)
                 else:
                     raise
 
@@ -270,7 +267,7 @@ class Bucket(AbstractBucket):
     
             except IOError as exc:
                 if exc.errno == errno.ENOENT:
-                    raise KeyError('Key %r not in bucket' % key)
+                    raise NoSuchObject(key)
                 else:
                     raise
     
@@ -301,7 +298,7 @@ class Bucket(AbstractBucket):
             src_path = self._key_to_path(src)
             dest_path = self._key_to_path(dest)
             if not os.path.exists(src_path + '.dat'):
-                raise KeyError('Key %r not in bucket' % src)
+                raise NoSuchObject(src)
                
             try: 
                 self.conn.sftp.rename(src_path, dest_path)

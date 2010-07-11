@@ -10,7 +10,7 @@ from __future__ import division, print_function
 
 import unittest2 as unittest
 from s3ql.backends import local, s3
-from s3ql.backends.common import ChecksumError, ObjectNotEncrypted
+from s3ql.backends.common import ChecksumError, ObjectNotEncrypted, NoSuchObject
 import tempfile
 import os
 import time
@@ -30,7 +30,7 @@ class BackendTests(object):
         value = self.newname()
         metadata = { 'jimmy': 'jups@42' }
 
-        self.assertRaises(KeyError, self.bucket.lookup, key)
+        self.assertRaises(NoSuchObject, self.bucket.lookup, key)
         self.bucket.store(key, value, metadata)
         time.sleep(self.delay)
         self.assertEquals(self.bucket.fetch(key), (value, metadata))
@@ -41,7 +41,7 @@ class BackendTests(object):
         value = self.newname()
         metadata = { 'jimmy': 'jups@42' }
 
-        self.assertRaises(KeyError, self.bucket.fetch, key)
+        self.assertRaises(NoSuchObject, self.bucket.fetch, key)
         self.bucket.store(key, value, metadata)
         time.sleep(self.delay)
         self.assertEquals(self.bucket.fetch(key), (value, metadata))
@@ -51,7 +51,7 @@ class BackendTests(object):
         value = self.newname()
         metadata = { 'jimmy': 'jups@42' }
 
-        self.assertRaises(KeyError, self.bucket.lookup, key)
+        self.assertRaises(NoSuchObject, self.bucket.lookup, key)
         self.bucket.store(key, value, metadata)
         time.sleep(self.delay)
         self.assertEquals(self.bucket.lookup(key), metadata)
@@ -140,8 +140,8 @@ class BackendTests(object):
         key1 = self.newname()
         key2 = self.newname()
         value = self.newname()
-        self.assertRaises(KeyError, self.bucket.lookup, key1)
-        self.assertRaises(KeyError, self.bucket.lookup, key2)
+        self.assertRaises(NoSuchObject, self.bucket.lookup, key1)
+        self.assertRaises(NoSuchObject, self.bucket.lookup, key2)
 
         self.bucket.store(key1, value)
         time.sleep(self.delay)

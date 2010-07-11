@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
-from .common import AbstractConnection, AbstractBucket
+from .common import AbstractConnection, AbstractBucket, NoSuchBucket, NoSuchObject
 import shutil
 import logging
 import cPickle as pickle
@@ -36,7 +36,7 @@ class Connection(AbstractConnection):
 
         with self.lock:
             if not os.path.exists(name):
-                raise KeyError('Directory of local bucket does not exist')
+                raise NoSuchBucket(name)
     
             if recursive:
                 shutil.rmtree(name)
@@ -56,12 +56,12 @@ class Connection(AbstractConnection):
     def get_bucket(self, name, passphrase=None, compression='bzip2'):
         """Return a bucket instance for the bucket `name`
         
-        Raises `KeyError` if the bucket does not exist.
+        Raises `NoSuchBucket` if the bucket does not exist.
         """
         
         with self.lock:
             if not os.path.exists(name):
-                raise KeyError('Local bucket directory %s does not exist' % name)
+                raise NoSuchBucket(name)
             return Bucket(name, self.lock, passphrase, compression)
 
 
@@ -113,7 +113,7 @@ class Bucket(AbstractBucket):
                     return pickle.load(src)
             except IOError as exc:
                 if exc.errno == errno.ENOENT:
-                    raise KeyError('Key %r not in bucket' % key)
+                    raise NoSuchObject(key)
                 else:
                     raise
 
@@ -128,7 +128,7 @@ class Bucket(AbstractBucket):
                     if force:
                         pass
                     else:
-                        raise KeyError('Key %r not in bucket' % key)
+                        raise NoSuchObject(key)
                 else:
                     raise
 
@@ -172,7 +172,7 @@ class Bucket(AbstractBucket):
                     metadata = pickle.load(src)
             except IOError as exc:
                 if exc.errno == errno.ENOENT:
-                    raise KeyError('Key %r not in bucket' % key)
+                    raise NoSuchObject(key)
                 else:
                     raise
     
@@ -222,7 +222,7 @@ class Bucket(AbstractBucket):
                     shutil.copyfileobj(src, dest)
             except IOError as exc:
                 if exc.errno == errno.ENOENT:
-                    raise KeyError('Key %r not in bucket' % src)
+                    raise NoSuchObject(src)
                 else:
                     raise
             finally:
@@ -235,7 +235,7 @@ class Bucket(AbstractBucket):
             src_path = self._key_to_path(src)
             dest_path = self._key_to_path(dest)
             if not os.path.exists(src_path + '.dat'):
-                raise KeyError('Key %r not in bucket' % src)
+                raise NoSuchObject(src)
                
             try: 
                 os.rename(src_path, dest_path)

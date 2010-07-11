@@ -455,7 +455,7 @@ def _download_object(obj_id):
     try:
         bucket.fetch_fh('s3ql_data_%d' % obj_id, fh)
         
-    except KeyError:
+    except NoSuchObject:
         if isinstance(bucket, s3.Bucket):
             log_error('..but object has vanished now, probably everything is alright.')
         else:

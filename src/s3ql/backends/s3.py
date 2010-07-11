@@ -12,7 +12,7 @@ from __future__ import division, print_function, absolute_import
 import warnings
 warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
 
-from .common import AbstractConnection, AbstractBucket
+from .common import AbstractConnection, AbstractBucket, NoSuchBucket, NoSuchObject
 from time import sleep
 from .boto.s3.connection import S3Connection
 from contextlib import contextmanager
@@ -126,17 +126,14 @@ class Connection(AbstractConnection):
         return Bucket(self, name, passphrase, compression)
 
     def get_bucket(self, name, passphrase=None, compression='lzma'):
-        """Return a bucket instance for the bucket `name`
-        
-        Raises `KeyError` if the bucket does not exist.
-        """
+        """Return a bucket instance for the bucket `name`"""
 
         with self._get_boto() as boto:
             try:
                 boto.get_bucket(name)
             except exception.S3ResponseError as e:
                 if e.status == 404:
-                    raise KeyError("Bucket %r does not exist." % name)
+                    raise NoSuchBucket(name)
                 else:
                     raise
         return Bucket(self, name, passphrase, compression)
@@ -216,7 +213,7 @@ class Bucket(AbstractBucket):
             bkey = retry_boto(boto.get_key, key)
 
         if bkey is None:
-            raise KeyError('Key does not exist: %s' % key)
+            raise NoSuchObject(key)
 
         return bkey.metadata
 
@@ -232,7 +229,7 @@ class Bucket(AbstractBucket):
 
         with self._get_boto() as boto:
             if not force and retry_boto(boto.get_key, key) is None:
-                raise KeyError('Key does not exist: %s' % key)
+                raise NoSuchObject(key)
 
             retry_boto(boto.delete_key, key)
 
@@ -253,7 +250,7 @@ class Bucket(AbstractBucket):
         with self._get_boto() as boto:
             bkey = retry_boto(boto.get_key, key)
             if bkey is None:
-                raise KeyError('Key does not exist: %s' % key)
+                raise NoSuchObject(key)
             fh.seek(0)
             retry_boto(bkey.get_contents_to_file, fh)
 

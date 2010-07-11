@@ -15,7 +15,7 @@ from optparse import OptionParser
 from s3ql import fs, CURRENT_FS_REV
 from s3ql.backends import s3
 from s3ql.daemonize import daemonize
-from s3ql.backends.common import (ChecksumError)
+from s3ql.backends.common import (ChecksumError, NoSuchObject)
 from s3ql.common import (init_logging_from_options, get_backend, get_bucket_home,
                          QuietError, unlock_bucket, get_stdout_handler,
                          cycle_metadata, dump_metadata, restore_metadata)
@@ -163,7 +163,7 @@ def main(args=None):
             if i < param['seq_no'] - 5:
                 try:
                     del bucket['s3ql_seq_no_%d' % i ]
-                except KeyError:
+                except NoSuchObject:
                     pass # Key list may not be up to date
 
         operations = fs.Operations(bucket, cachedir=home + '-cache', lock=lock,
