@@ -62,8 +62,7 @@ def main(args=None):
     init_logging_from_options(options, logfile=None)
 
     if not os.path.exists(options.mountpoint):
-        log.error('Mountpoint %r does not exist', options.mountpoint)
-        raise QuietError(1)
+        raise QuietError('Mountpoint %r does not exist' % options.mountpoint)
 
     ctrlfile = os.path.join(options.mountpoint, CTRL_NAME)
     if not (CTRL_NAME not in libc.listdir(options.mountpoint) 

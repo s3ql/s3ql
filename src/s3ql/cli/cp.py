@@ -61,36 +61,29 @@ def main(args=None):
     init_logging_from_options(options, logfile=None)
 
     if not os.path.exists(options.source):
-        log.error('Source directory %r does not exist', options.source)
-        raise QuietError(1)
+        raise QuietError('Source directory %r does not exist' % options.source)
 
     if os.path.exists(options.target):
-        log.error('Target directory %r must not yet exist.', options.target)
-        raise QuietError(1)
+        raise QuietError('Target directory %r must not yet exist.' % options.target)
 
     parent = os.path.dirname(os.path.abspath(options.target))
     if not os.path.exists(parent):
-        log.error('Target parent %r does not exist', parent)
-        raise QuietError(1)
+        raise QuietError('Target parent %r does not exist' % parent)
 
     fstat_s = os.stat(options.source)
     fstat_p = os.stat(parent)
     if not stat.S_ISDIR(fstat_s.st_mode):
-        log.error('Source %r is not a directory', options.source)
-        raise QuietError(1)
+        raise QuietError('Source %r is not a directory' % options.source)
 
     if not stat.S_ISDIR(fstat_p.st_mode):
-        log.error('Target parent %r is not a directory', parent)
-        raise QuietError(1)
+        raise QuietError('Target parent %r is not a directory' % parent)
 
     if fstat_p.st_dev != fstat_s.st_dev:
-        log.error('Source and target are not on the same file system.')
-        raise QuietError(1)
+        raise QuietError('Source and target are not on the same file system.')
 
     ctrlfile = os.path.join(parent, CTRL_NAME)
     if not (CTRL_NAME not in libc.listdir(parent) and os.path.exists(ctrlfile)):
-        log.error('Source and target are not on an S3QL file system')
-        raise QuietError(1)
+        raise QuietError('Source and target are not on an S3QL file system')
 
     os.mkdir(options.target)
     fstat_t = os.stat(options.target)

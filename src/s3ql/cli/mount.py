@@ -180,7 +180,7 @@ def main(args=None):
                 for t in threading.enumerate():
                     if t is me:
                         continue
-                    log.warn('Waiting for thread %s', t)
+                    log.error('Waiting for thread %s', t)
                     t.join()
                 if get_stdout_handler() is not None:
                     logging.getLogger().removeHandler(get_stdout_handler())

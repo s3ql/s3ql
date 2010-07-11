@@ -43,7 +43,7 @@ def log_stacktraces():
             if line:
                 code.append("    %s" % (line.strip()))
 
-    log.warn("\n".join(code))
+    log.error("\n".join(code))
 
 class Operations(llfuse.Operations):
     """A full-featured file system for online data storage
@@ -475,7 +475,7 @@ class Operations(llfuse.Operations):
     def link(self, id_, new_id_p, new_name):
         if new_name == CTRL_NAME or id_ == CTRL_INODE:
             with dbcm.conn() as conn:
-                log.error('Attempted to create s3ql control file at %s',
+                log.warn('Attempted to create s3ql control file at %s',
                           get_path(new_id_p, conn, new_name))
             raise llfuse.FUSEError(errno.EACCES)
 
@@ -641,7 +641,7 @@ class Operations(llfuse.Operations):
     def _create(self, id_p, name, mode, ctx, rdev=0, target=None):
         if name == CTRL_NAME:
             with dbcm.conn() as conn:
-                log.error('Attempted to create s3ql control file at %s',
+                log.warn('Attempted to create s3ql control file at %s',
                           get_path(id_p, conn, name))
             raise llfuse.FUSEError(errno.EACCES)
 
