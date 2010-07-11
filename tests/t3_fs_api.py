@@ -56,7 +56,7 @@ class fs_api_tests(TestCase):
         self.server.init()
 
         # We don't want background flushing
-        self.server.cache.io_thread.stop()
+        self.server.cache.commit_thread.stop()
         self.server.inodes.flush_thread.stop_event.set()
         self.server.inodes.flush_thread.join_and_raise()
         self.server.inodes.flush_thread = None
@@ -79,6 +79,7 @@ class fs_api_tests(TestCase):
 
     def fsck(self):
         self.server.cache.clear()
+        self.server.cache.upload_manager.join_all()
         self.server.inodes.flush()
         fsck.fsck(self.cachedir, self.bucket,
                   { 'blocksize': self.blocksize })
@@ -589,7 +590,7 @@ class fs_api_tests(TestCase):
         f2_inode = self.server.link(f2_inode.id, d1_inode.id, 'file2_hardlink')
 
         # Replicate
-        self.server.cache.flush_all()
+        self.server.cache.commit()
         queue = list()
         id_cache = dict()
         self.assertEqual(self.server._copy_tree(src_inode.id, dst_inode.id, queue, id_cache), 4)

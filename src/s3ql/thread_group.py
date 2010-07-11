@@ -58,7 +58,10 @@ class Thread(threading.Thread):
 
 
 class ThreadGroup(object):
-    '''Represents a group of threads'''
+    '''Represents a group of threads.
+    
+    This class is threadsafe, instance methods can safely be
+    called concurrently.'''
     
     def __init__(self, max_threads):
         '''Initialize thread group

@@ -29,7 +29,11 @@ log = logging.getLogger("backend")
 __all__ = [ 'AbstractConnection', 'AbstractBucket', 'ChecksumError', 'UnsupportedError' ]
 
 class AbstractConnection(object):
-    '''This class contains functionality shared between all backends.'''
+    '''This class contains functionality shared between all backends.
+    
+    TODO: All derived classes are expected to be completely threadsafe
+    (except for internal methods starting with underscore)
+    '''
     __metaclass__ = ABCMeta
 
     def bucket_exists(self, name):
@@ -101,6 +105,9 @@ class AbstractBucket(object):
     
     Instances behave more or less like dicts. They raise the same exceptions,
     can be iterated over and indexed into.
+    
+    TODO: All derived classes are expected to be completely threadsafe
+    (except for internal methods starting with underscore)
     '''
     __metaclass__ = ABCMeta
 
@@ -288,7 +295,7 @@ class AbstractBucket(object):
             compr = bz2.BZ2Compressor(9)
             meta_raw['compression'] = 'BZIP2'
         elif self.compression == 'lzma':
-            compr = lzma.LZMACompressor(options={ 'level': 9 })
+            compr = lzma.LZMACompressor(options={ 'level': 7 })
             meta_raw['compression'] = 'LZMA'
         elif not self.compression:
             compr = DummyCompressor()
