@@ -28,7 +28,7 @@ class MultiLockTests(TestCase):
             time.sleep(2 * BASE_DELAY)
             mlock.release(key)
 
-        t = ExceptionStoringThread(hold, logger=None)
+        t = ExceptionStoringThread(hold)
         t.start()
         time.sleep(BASE_DELAY)
 
@@ -49,7 +49,7 @@ class MultiLockTests(TestCase):
             time.sleep(2 * BASE_DELAY)
             mlock.release(key1)
 
-        t = ExceptionStoringThread(hold, logger=None)
+        t = ExceptionStoringThread(hold)
         t.start()
         time.sleep(BASE_DELAY)
 
@@ -71,11 +71,11 @@ class MultiLockTests(TestCase):
             time.sleep(2 * BASE_DELAY)
             mlock.release(key)
 
-        t1 = ExceptionStoringThread(lock, logger=None)
+        t1 = ExceptionStoringThread(lock)
         t1.start()
         t1.join_and_raise()
 
-        t2 = ExceptionStoringThread(unlock, logger=None)
+        t2 = ExceptionStoringThread(unlock)
         t2.start()
 
         stamp = time.time()

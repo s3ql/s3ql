@@ -28,9 +28,7 @@ class cache_tests(TestCase):
         self.cache.init()
         
         # We don't want background flushing
-        self.cache.flush_thread.stop_event.set()
-        self.cache.flush_thread.join_and_raise()
-        self.cache.flush_thread = None        
+        self.cache.flush_thread.stop()
 
     def tearDown(self):
         self.cache.destroy()

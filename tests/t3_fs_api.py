@@ -57,9 +57,7 @@ class fs_api_tests(TestCase):
 
         # We don't want background flushing
         self.server.cache.commit_thread.stop()
-        self.server.inodes.flush_thread.stop_event.set()
-        self.server.inodes.flush_thread.join_and_raise()
-        self.server.inodes.flush_thread = None
+        self.server.inodes.flush_thread.stop()
 
         # Keep track of unused filenames
         self.name_cnt = 0

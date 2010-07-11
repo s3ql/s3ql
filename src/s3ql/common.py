@@ -497,7 +497,7 @@ CTRL_INODE = 2
 class ExceptionStoringThread(threading.Thread):
     '''Catch all exceptions and store them'''
 
-    def __init__(self, target, logger, args=(), kwargs={}, pass_self=False):
+    def __init__(self, target, *args, **kwargs):
         # Default value isn't dangerous
         #pylint: disable-msg=W0102
         super(ExceptionStoringThread, self).__init__()
@@ -507,20 +507,13 @@ class ExceptionStoringThread(threading.Thread):
         self.joined = False
         self.args = args
         self.kwargs = kwargs
-        self.pass_self = pass_self
-        self.logger = logger
 
     def run(self):
         try:
-            if self.pass_self:
-                self.target(self, *self.args, **self.kwargs)
-            else:
-                self.target(*self.args, **self.kwargs)
+            self.target(*self.args, **self.kwargs)
         except BaseException as exc:
             self.exc = exc
             self.tb = sys.exc_info()[2] # This creates a circular reference chain
-            if self.logger:
-                self.logger.warn('Thread terminated with exception, saving.', exc_info=True)
 
     def join_get_exc(self):
         self.joined = True

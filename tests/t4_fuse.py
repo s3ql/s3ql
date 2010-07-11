@@ -71,9 +71,9 @@ class fuse_tests(TestCase):
             self.fail("mkfs.s3ql failed: %s" % exc)
 
         sys.stdin = StringIO('%s\n' % self.passphrase)
-        self.mount_thread = ExceptionStoringThread(s3ql.cli.mount.main, logger=None,
-                                       args=(["--fg", '--homedir', self.cache_dir, self.bucketname,
-                                              self.mnt_dir],))
+        self.mount_thread = ExceptionStoringThread(s3ql.cli.mount.main,
+                                                   ["--fg", '--homedir', self.cache_dir, 
+                                                    self.bucketname, self.mnt_dir])
         self.mount_thread.start()
 
         # Wait for mountpoint to come up
