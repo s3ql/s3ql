@@ -80,9 +80,10 @@ def main(args=None):
 
         # Check if fs is mounted on this computer
         # This is not foolproof but should prevent common mistakes
+        match = options.storage_url + ' /'
         with open('/proc/mounts', 'r') as fh:
             for line in fh:
-                if line.startswith(options.storage_url):
+                if line.startswith(match):
                     raise QuietError('Can not check mounted file system.')
 
         if not bucketname in conn:
