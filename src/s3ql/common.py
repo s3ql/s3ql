@@ -96,6 +96,11 @@ def cycle_metadata(bucket):
                 bucket.rename("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
             except UnsupportedError:
                 bucket.copy("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
+                
+    try:
+        bucket.rename("s3ql_metadata", "s3ql_metadata_bak_0")
+    except UnsupportedError:
+        bucket.copy("s3ql_metadata", "s3ql_metadata_bak_0")             
 
 
 def unlock_bucket(options, bucket):
