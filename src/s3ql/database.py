@@ -18,6 +18,9 @@ it is not clear if and when local objects are being destroyed.
 Therefore we maintain a pool of connections that are
 shared between all threads.
 
+Public functions (not starting with an underscore) of this module
+are threadsafe and safe to call concurrently from several threads.
+
 Module Attributes:
 -----------
 
@@ -28,7 +31,8 @@ Module Attributes:
 :provided:     Dict of currently provided ConnectionWrapper instances
 :dbfile:       Filename of the database
 :initsql:      SQL commands that are executed whenever a new
-               connection is created.                 
+               connection is created.
+                 
 '''
 
 from __future__ import division, print_function
@@ -39,6 +43,7 @@ import apsw
 import os
 import types
 import thread
+import threading
 
 __all__ = [ "init", 'execute', 'get_db_size', 'get_row', 'get_val', 'has_val',
            'rowid', 'write_lock', 'WrappedConnection', 'NoUniqueValueError',
@@ -56,6 +61,7 @@ initsql = ('PRAGMA synchronous = off;'
 retrytime = 120000
 pool = list()
 provided = dict()
+lock = threading.RLock()
 
 def init(dbfile_):
     '''Initialize Module'''
@@ -90,13 +96,15 @@ def conn():
         yield wconn
         return
 
-    conn_ = _pop_conn()
-    provided[thread.get_ident()] = conn_
+    with lock:
+        conn_ = _pop_conn()
+        provided[thread.get_ident()] = conn_
     try:
         yield conn_
     finally:
-        del provided[thread.get_ident()]
-        _push_conn(conn_)
+        with lock:
+            del provided[thread.get_ident()]
+            _push_conn(conn_)
 
 @contextmanager
 def write_lock():
@@ -109,24 +117,26 @@ def write_lock():
 def _pop_conn():
     '''Return database connection from the pool'''
 
-    try:
-        conn_ = pool.pop()
-    except IndexError:
-        # Need to create a new connection
-        log.debug("Creating new db connection (active conns: %d",
-                  len(provided))
-        conn_ = apsw.Connection(dbfile)
-        conn_.setbusytimeout(retrytime)
-        if initsql:
-            conn_.cursor().execute(initsql)
-        conn_ = WrappedConnection(conn_)
-
-    return conn_
+    with lock:
+        try:
+            conn_ = pool.pop()
+        except IndexError:
+            # Need to create a new connection
+            log.debug("Creating new db connection (active conns: %d",
+                      len(provided))
+            conn_ = apsw.Connection(dbfile)
+            conn_.setbusytimeout(retrytime)
+            if initsql:
+                conn_.cursor().execute(initsql)
+            conn_ = WrappedConnection(conn_)
+    
+        return conn_
 
 def _push_conn(conn_):
     '''Put a database connection back into the pool'''
 
-    pool.append(conn_)
+    with lock:
+        pool.append(conn_)
 
 def get_val(*a, **kw):
     """Acquire WrappedConnection and run its get_val method """
