@@ -16,7 +16,7 @@ import database as dbcm
 from random import randint
 import apsw
 from .common import EmbeddedException
-from s3ql.database import NoSuchRowError
+from .database import NoSuchRowError
 
 __all__ = [ 'InodeCache', 'OutOfInodesError' ]
 log = logging.getLogger('inode_cache')

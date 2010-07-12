@@ -2,6 +2,10 @@ xxx, S3QL 0.18
 
   * Added --strip-meta option to mount.s3ql
 
+  * Added --metadata-upload-interval option to mount.s3ql. This allows 
+    to periodically upload updated metadata even while the file system
+    is mounted.
+  
   * stat.s3ql, tune.s3ql and cp.s3ql have been renamed to
     s3qlstat, s3qladm and s3qlcp respectively.
 

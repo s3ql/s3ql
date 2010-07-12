@@ -31,8 +31,8 @@ class fsck_tests(TestCase):
 
         self.dbfile = tempfile.NamedTemporaryFile()
         dbcm.init(self.dbfile.name)
-        mkfs.setup_tables()
-        mkfs.init_tables()
+        mkfs.setup_tables(dbcm)
+        mkfs.init_tables(dbcm)
 
         fsck.conn = dbcm._pop_conn()
         fsck.cachedir = self.cachedir

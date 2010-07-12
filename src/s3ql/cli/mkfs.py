@@ -118,9 +118,8 @@ def main(args=None):
         try:
             log.info('Creating metadata tables...')
             dbcm.init(home + '.db')
-            mkfs.setup_tables()
-            mkfs.create_indices()
-            mkfs.init_tables()
+            mkfs.setup_tables(dbcm)
+            mkfs.init_tables(dbcm)
 
             param = dict()
             param['revision'] = CURRENT_FS_REV
@@ -142,7 +141,8 @@ def main(args=None):
             fh.close()
 
         finally:
-            os.unlink(home + '.db')
+            if os.path.exists(dbcm.dbfile):
+                os.unlink(dbcm.dbfile)
 
 
 if __name__ == '__main__':

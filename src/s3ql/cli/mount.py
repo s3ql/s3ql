@@ -13,12 +13,14 @@ from __future__ import division, print_function, absolute_import
 import sys
 from optparse import OptionParser
 from s3ql import fs, CURRENT_FS_REV
+from s3ql.mkfs import create_indices
 from s3ql.backends import s3
 from s3ql.daemonize import daemonize
 from s3ql.backends.common import (ChecksumError, NoSuchObject)
 from s3ql.common import (init_logging_from_options, get_backend, get_bucket_home,
                          QuietError, unlock_bucket, get_stdout_handler,
-                         cycle_metadata, dump_metadata, restore_metadata)
+                         cycle_metadata, dump_metadata, restore_metadata,
+                         EmbeddedException, copy_metadata)
 import s3ql.database as dbcm
 import llfuse
 import tempfile
@@ -148,7 +150,11 @@ def main(args=None):
             # Don't keep file if it doesn't contain anything sensible
             os.unlink(home + '.db')
             raise
-            
+        
+        log.info('Indexing...')
+        create_indices(dbcm)
+        dbcm.execute('ANALYZE')
+        
         # Increase metadata sequence no, save parameters 
         param['seq_no'] += 1
         try:
@@ -158,6 +164,7 @@ def main(args=None):
             os.unlink(home + '.params')
             os.unlink(home + '.db')
             raise
+        param['seq_no'] -= 1
                     
         for i in seq_nos:
             if i < param['seq_no'] - 5:
@@ -170,6 +177,7 @@ def main(args=None):
                                    blocksize=param['blocksize'],
                                    cache_size=options.cachesize * 1024,
                                    cache_entries=options.max_cache_entries)
+        metadata_upload_thread = MetadataUploadThread(bucket, options, param)
 
         log.info('Mounting filesystem...')
         llfuse.init(operations, options.mountpoint, fuse_opts, lock)
@@ -186,6 +194,7 @@ def main(args=None):
                     logging.getLogger().removeHandler(get_stdout_handler())
                 daemonize(options.homedir)
                 conn.finish_fork()
+                metadata_upload_thread.start()
 
             if options.profile:
                 prof.runcall(llfuse.main, options.single)
@@ -195,31 +204,32 @@ def main(args=None):
         finally:
             llfuse.close()
 
+        metadata_upload_thread.stop()
+        
+        if operations.encountered_errors:
+            param['needs_fsck'] = True
+        else:       
+            param['seq_no'] += 1
+
+        if dbcm.is_active():
+            raise RuntimeError("Database connection not closed.")
         
         if options.strip_meta:
+            log.info('Saving metadata...')
             param['DB-Format'] = 'dump'
-            log.info("Saving metadata...")
             fh = tempfile.TemporaryFile()
-            dump_metadata(fh)
-            fh.seek(0)
+            dump_metadata(fh) 
         else:
             param['DB-Format'] = 'sqlite'
-            if dbcm.is_active():
-                raise RuntimeError("Database connection not closed.")
             dbcm.execute('VACUUM')
-            fh = open(home + '.db', 'rb')
-
-        if operations.encountered_errors:
-            # Upload most recent version, but mark as damaged and still outdated 
-            # since we keep the local version
-            param['needs_fsck'] = True
-            param['seq_no'] -= 1
-
+            fh = open(dbcm.dbfile, 'rb')   
+                
         log.info("Compressing & uploading metadata..")
         cycle_metadata(bucket)
+        fh.seek(0)
         bucket.store_fh("s3ql_metadata", fh, param)
         fh.close()
-
+        
         if not operations.encountered_errors:
             log.debug("Cleaning up...")
             os.unlink(home + '.db')
@@ -337,12 +347,17 @@ def parse_args(args):
     parser.add_option("--compress", action="store", default='lzma',
                       choices=('lzma', 'bzip2', 'zlib', 'none'),
                       help="Compression algorithm to use when storing new data. Allowed "
-                           "values: LZMA, BZIP2, ZLIB, None. (default: LZMA)")
+                           "values: lzma, bzip2, zlib, none. (default: lzma)")
     parser.add_option("--strip-meta", action="store_true", default=False,
                       help='Strip metadata of all redundancies (like indices) before '
                       'uploading. This will significantly reduce the size of the data '
                       'at the expense of additional CPU time during the next unmount '
                       'and mount.')
+    parser.add_option("--metadata-upload-interval", action="store", type='int',
+                      default=24*60*60,
+                      help='Interval in seconds between complete metadata uploads. '
+                      'default: 24h.')
+
     (options, pps) = parser.parse_args(args)
 
     #
@@ -368,6 +383,68 @@ def parse_args(args):
         
     return options
 
+class MetadataUploadThread(threading.Thread):
+
+    def __init__(self, bucket, options, param):
+        super(MetadataUploadThread, self).__init__()
+
+        self._exc = None
+        self._tb = None
+        self._joined = False
+        self.bucket = bucket
+        self.options = options
+        self.param = param
+        
+        self.stop_event = threading.Event()
+        self.name = 'Metadata-Upload-Thread'
+           
+    def run(self):
+        log.debug('MetadataUploadThread: start')
+        try:
+            self.stop_event.wait(self.options.metadata_upload_interval)
+            while not self.stop_event.is_set():
+                log.info('Saving metadata...')
+        
+                if self.options.strip_meta:
+                    self.param['DB-Format'] = 'dump'
+                    fh = tempfile.TemporaryFile()
+                    dump_metadata(fh) 
+                else:
+                    self.param['DB-Format'] = 'sqlite'
+                    fh = tempfile.NamedTemporaryFile()
+                    copy_metadata(fh)
+                        
+                log.info("Compressing & uploading metadata..")
+                cycle_metadata(self.bucket)
+                fh.seek(0)
+                self.bucket.store_fh("s3ql_metadata", fh, self.param)
+                
+                self.stop_event.wait(self.options.metadata_upload_interval)
+                    
+        except BaseException as exc:
+            self._exc = exc
+            self._tb = sys.exc_info()[2] # This creates a circular reference chain
+        
+        log.debug('MetadataUploadThread: end')    
+        
+    def stop(self):
+        '''Wait for thread to finish, raise any occurred exceptions'''
+        
+        self._joined = True
+        
+        self.stop_event.set()
+        if self.is_alive():
+            self.join()
+        
+        if self._exc is not None:
+            # Break reference chain
+            tb = self._tb
+            del self._tb
+            raise EmbeddedException(self._exc, tb, self.name)
+
+    def __del__(self):
+        if not self._joined:
+            raise RuntimeError("Thread was destroyed without calling stop()!")
 
 if __name__ == '__main__':
     main(sys.argv[1:])

@@ -16,6 +16,7 @@ from . import database as dbcm
 from .database import NoSuchRowError
 import stat
 import sys
+import apsw
 import threading
 import traceback
 import re
@@ -27,7 +28,7 @@ __all__ = ["get_bucket_home", "init_logging", 'sha256', 'sha256_fh',
            "ROOT_INODE", "ExceptionStoringThread", 'retry', 'get_stdout_handler',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'init_logging_from_options', 'QuietError', 'get_backend',
-           'cycle_metadata', 'restore_metadata', 'dump_metadata' ]
+           'cycle_metadata', 'restore_metadata', 'dump_metadata', 'copy_metadata' ]
 
 
 
@@ -140,29 +141,28 @@ def unlock_bucket(options, bucket):
     data_pw = bucket['s3ql_passphrase']
     bucket.passphrase = data_pw
 
+metadata_to_dump = [('inodes', 'id'),
+               ('contents', 'name, parent_inode'),
+               ('ext_attributes', 'inode, name'),
+               ('objects', 'id'),
+               ('blocks', 'inode, blockno')]
 def dump_metadata(ofh):
     pickler = pickle.Pickler(ofh, 2)
     data_start = 2048
     bufsize = 256
     buf = range(bufsize)
 
-    to_dump = [('inodes', 'id'),
-               ('contents', 'name, parent_inode'),
-               ('ext_attributes', 'inode, name'),
-               ('objects', 'id'),
-               ('blocks', 'inode, blockno')]
-
-    with dbcm.conn() as conn:
+    with dbcm.write_lock() as conn:
 
         columns = dict()
-        for (table, _) in to_dump:
+        for (table, _) in metadata_to_dump:
             columns[table] = list()
             for row in conn.query('PRAGMA table_info(%s)' % table):
                 columns[table].append(row[1])
 
         ofh.seek(data_start)
         sizes = dict()
-        for (table, order) in to_dump:
+        for (table, order) in metadata_to_dump:
             log.info('Saving %s' % table)
             pickler.clear_memo()
             sizes[table] = 0
@@ -182,10 +182,40 @@ def dump_metadata(ofh):
 
 
     ofh.seek(0)
-    pickler.dump((data_start, to_dump, sizes, columns))
+    pickler.dump((data_start, metadata_to_dump, sizes, columns))
     assert ofh.tell() < data_start
 
 
+def copy_metadata(fh):
+    from . import mkfs
+    
+    conn = apsw.Connection(fh.name)
+    mkfs.setup_tables(conn.cursor())
+    conn.close()
+    
+    dbcm.execute('ATTACH ? AS dst', (fh.name,))
+    try:
+        # Speed things up
+        dbcm.execute('PRAGMA foreign_keys = OFF;'
+                     'PRAGMA recursize_triggers = OFF;')        
+        try:
+            with dbcm.write_lock() as conn:
+                for (table, order) in metadata_to_dump:
+                    columns = list()
+                    for row in conn.query('PRAGMA table_info(%s)' % table):
+                        columns.append(row[1])
+                    columns = ', '.join(columns)
+                    
+                    dbcm.execute('INSERT INTO dst.%s (%s) SELECT %s FROM %s ORDER BY %s'
+                                 % (table, columns, columns, table, order))
+                                  
+        finally:
+            dbcm.execute('PRAGMA foreign_keys = ON;'
+                         'PRAGMA recursize_triggers = ON')
+    finally:
+        dbcm.execute('DETACH dst')
+                
+    return fh
 
 def restore_metadata(ifh):
     from . import mkfs
@@ -196,10 +226,11 @@ def restore_metadata(ifh):
     ifh.seek(data_start)
 
     with dbcm.conn() as conn:
-        mkfs.setup_tables()
+        mkfs.setup_tables(conn)
 
         # Speed things up
-        conn.execute('PRAGMA foreign_keys = OFF')
+        conn.execute('PRAGMA foreign_keys = OFF;'
+                     'PRAGMA recursize_triggers = OFF;')
         try:
             with conn.write_lock():
                 for (table, _) in to_dump:
@@ -212,12 +243,8 @@ def restore_metadata(ifh):
                         for row in buf:
                             conn.execute(sql_str, row)
         finally:
-            conn.execute('PRAGMA foreign_keys = ON')
-
-        log.info('Creating indices...')
-        mkfs.create_indices()
-
-        conn.execute('ANALYZE')
+            conn.execute('PRAGMA foreign_keys = ON;'
+                         'PRAGMA recursize_triggers = ON')
 
 
 class QuietError(SystemExit):

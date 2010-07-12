@@ -22,8 +22,8 @@ class cache_tests(TestCase):
     def setUp(self):
         self.dbfile = tempfile.NamedTemporaryFile()
         dbcm.init(self.dbfile.name)
-        mkfs.setup_tables()
-        mkfs.init_tables()
+        mkfs.setup_tables(dbcm)
+        mkfs.init_tables(dbcm)
         self.cache = inode_cache.InodeCache()
         self.cache.init()
         

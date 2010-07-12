@@ -13,6 +13,7 @@ import logging
 from s3ql.common import (init_logging_from_options, get_backend, QuietError, unlock_bucket,
                       cycle_metadata, dump_metadata, restore_metadata)
 from s3ql import CURRENT_FS_REV
+from s3ql.mkfs import create_indices
 from getpass import getpass
 import sys
 from s3ql.backends import s3, local, sftp
@@ -210,7 +211,11 @@ def upgrade(conn, bucket):
         dbcm.init(dbfile.name)
     else:
         raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
-
+    
+    log.info("Indexing...")
+    create_indices(dbcm)
+    dbcm.execute('ANALYZE')
+    
     log.info('Upgrading from revision %d to %d...', CURRENT_FS_REV - 1,
              CURRENT_FS_REV)
     param['revision'] = CURRENT_FS_REV

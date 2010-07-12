@@ -13,10 +13,10 @@ import stat
 import time
 from optparse import OptionParser
 from s3ql.common import (init_logging_from_options, get_bucket_home, cycle_metadata,
-                      unlock_bucket, QuietError, get_backend, 
-                      restore_metadata)
+                      unlock_bucket, QuietError, get_backend, restore_metadata)
 from s3ql import CURRENT_FS_REV
 import s3ql.database as dbcm
+from s3ql.mkfs import create_indices
 import logging
 from s3ql import fsck
 from s3ql import backends
@@ -256,6 +256,10 @@ def main(args=None):
             else:
                 raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
 
+            log.info("Indexing...")
+            create_indices(dbcm)
+            dbcm.execute('ANALYZE')
+    
         # Increase metadata sequence no
         param['seq_no'] += 1
         bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')

@@ -88,7 +88,7 @@ def main(args=None):
         log.info('Compressing with LZMA...')
         stamp = time.time()
         compress_encrypt_fh(ifh, ofh, 'foobar', 'nonce',
-                            lzma.LZMACompressor(options={ 'level': 9 }))
+                            lzma.LZMACompressor(options={ 'level': 7 }))
         seconds = time.time() - stamp
         lzma_speed = size / seconds
         log.info('done. LZMA Compression Speed:  %.2f KB per second', lzma_speed)

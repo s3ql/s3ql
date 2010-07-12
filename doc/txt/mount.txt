@@ -51,12 +51,16 @@ You can specify the following options:
   --profile             Create profiling information. If you don't understand
                         this, then you don't need it.
   --compress=COMPRESS   Compression algorithm to use when storing new data.
-                        Allowed values: LZMA, BZIP2, ZLIB, None. (default:
-                        LZMA)
+                        Allowed values: `lzma`, `bzip2`, `zlib`, `none`. (default:
+                        `lzma`)
   --strip-meta          Strip metadata of all redundancies (like indices)
                         before uploading. This will significantly reduce the
                         size of the data at the expense of additional CPU time
                         during the next unmount and mount.
+  --metadata-upload-interval=<seconds>
+                        Interval in seconds between complete metadata uploads.
+                        default: 24h.
+
 
 
 .. _bucket_pw:
@@ -179,20 +183,3 @@ umounts the file system using the `mount.s3ql` and `umount.s3ql`
 commands. The correct place and format for this script depends on your
 distribution, usual locations are `/etc/init.d/` and `/etc/init/`.
 
-
-
-Long-term Mounting
-==================
-
-If you intend to keep an S3QL file system mounted for long periods of
-time, you should make sure that the file system is unmounted and
-remounted every once in a while. S3QL flushes the file system metadata
-only when the file system is unmounted, so if you had an S3QL file
-system mounted for several days and then your harddisk crashes (so
-that `fsck.s3ql` cannot recover the local metadata), you will loose
-all the changes that you have made since the last successful unmount.
-Your data will still be stored on the backend, but without the
-metadata it will not be linked to any directory entries.
-
-This limitation will hopefully be removed in the future (see `issue
-132 <http://code.google.com/p/s3ql/issues/detail?id=132>`_).
