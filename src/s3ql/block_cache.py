@@ -588,7 +588,7 @@ class UploadManager(object):
             # than two threads
             while self.transit_size > MIN_TRANSIT_SIZE and len(self.threads) >= 2:
                 log.debug('UploadManager.add(%s): waiting for upload thread', el)
-                with without(self.lock):
+                with without(lock):
                     self.threads.join_one()
 
             log.debug('UploadManager.add(%s): starting upload thread', el)
