@@ -301,13 +301,14 @@ class Bucket(AbstractBucket):
                 raise NoSuchObject(src)
                
             try: 
-                self.conn.sftp.rename(src_path, dest_path)
+                self.conn.sftp.rename(src_path + '.dat', dest_path + '.dat')
+                self.conn.sftp.rename(src_path + '.meta', dest_path + '.meta')
             except IOError as exc:
                 if exc.errno != errno.ENOENT:
                     raise
                 self._makedirs(os.path.dirname(dest_path))
-                self.conn.sftp.rename(src_path, dest_path)          
-
+                self.conn.sftp.rename(src_path + '.dat', dest_path + '.dat')
+                self.conn.sftp.rename(src_path + '.meta', dest_path + '.meta')
 
 def _escape(s):
     '''Escape '/', '=' and '\0' in s'''

@@ -238,13 +238,14 @@ class Bucket(AbstractBucket):
                 raise NoSuchObject(src)
                
             try: 
-                os.rename(src_path, dest_path)
+                os.rename(src_path + '.dat', dest_path + '.dat')
+                os.rename(src_path + '.meta', dest_path + '.meta')
             except OSError as exc:
                 if exc.errno != errno.ENOENT:
                     raise
-                os.makedirs(os.path.dirname(dest_path))
-                os.rename(src_path, dest_path)       
-            
+                os.makedirs(os.path.dirname(dest_path))   
+                os.rename(src_path + '.dat', dest_path + '.dat')
+                os.rename(src_path + '.meta', dest_path + '.meta')            
         
     def _key_to_path(self, key):
         '''Return path for given key'''
