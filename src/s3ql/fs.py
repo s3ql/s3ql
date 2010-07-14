@@ -153,7 +153,12 @@ class Operations(llfuse.Operations):
             return self.inodes[id_]
 
     def getattr(self, id_):
-        return self.inodes[id_]
+        try:
+            return self.inodes[id_]
+        except KeyError:
+            # It is possible to get getattr() for an inode that
+            # has just been unlinked()
+            raise FUSEError(errno.ENOENT)
 
     def readlink(self, id_):
         timestamp = time.time()
