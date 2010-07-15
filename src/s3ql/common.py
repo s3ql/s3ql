@@ -28,7 +28,8 @@ __all__ = ["get_bucket_home", 'sha256', 'sha256_fh', 'add_stdout_logging',
            "ROOT_INODE", "ExceptionStoringThread", 'retry', 'LoggerFilter',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'QuietError', 'get_backend', 'add_file_logging', 'setup_excepthook',
-           'cycle_metadata', 'restore_metadata', 'dump_metadata', 'copy_metadata' ]
+           'cycle_metadata', 'restore_metadata', 'dump_metadata', 'copy_metadata',
+           'without' ]
 
 
 
@@ -37,6 +38,16 @@ AUTHINFO_BUCKET_PATTERN = r'^storage-url\s+(\S+)\s+password\s+(\S+)$'
 
 log = logging.getLogger('common')
 
+@contextmanager
+def without(lock):
+    '''Execute managed block with released lock'''
+    
+    lock.release()
+    try:
+        yield
+    finally:
+        lock.acquire()
+        
 class LoggerFilter(object):
     """
     For use with the logging module as a message filter.
