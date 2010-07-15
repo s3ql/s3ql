@@ -35,11 +35,7 @@ UserAgent = 'Boto/%s (%s)' % (Version, sys.platform)
 config = Config()
 
 def init_logging():
-    for file in BotoConfigLocations:
-        try:
-            logging.config.fileConfig(os.path.expanduser(file))
-        except:
-            pass
+    pass
 
 class NullHandler(logging.Handler):
     def emit(self, record):
@@ -47,7 +43,6 @@ class NullHandler(logging.Handler):
 
 log = logging.getLogger('boto')
 log.addHandler(NullHandler())
-init_logging()
 
 # convenience function to set logging to a particular file
 def set_file_logger(name, filepath, level=logging.INFO, format_string=None):

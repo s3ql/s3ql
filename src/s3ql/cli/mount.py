@@ -17,10 +17,10 @@ from s3ql.mkfs import create_indices
 from s3ql.backends import s3
 from s3ql.daemonize import daemonize
 from s3ql.backends.common import (ChecksumError, NoSuchObject)
-from s3ql.common import (init_logging_from_options, get_backend, get_bucket_home,
-                         QuietError, unlock_bucket, get_stdout_handler,
+from s3ql.common import (add_stdout_logging, get_backend, get_bucket_home,
+                         QuietError, unlock_bucket, add_file_logging, LoggerFilter,
                          cycle_metadata, dump_metadata, restore_metadata,
-                         EmbeddedException, copy_metadata)
+                         EmbeddedException, copy_metadata, setup_excepthook)
 import s3ql.database as dbcm
 import llfuse
 import tempfile
@@ -49,7 +49,23 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-    init_logging_from_options(options, 'mount.log')
+    
+    # Initialize logging if not yet initialized
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        # Save handler so that we can remove it when daemonizing
+        stdout_log_handler = add_stdout_logging(options.quiet)
+        add_file_logging(os.path.join(options.homedir, 'mount.log'))
+        setup_excepthook()
+        
+        if options.debug:
+            root_logger.setLevel(logging.DEBUG)
+            if 'all' not in options.debug:
+                root_logger.addFilter(LoggerFilter(options.debug, logging.INFO))
+        else:
+            root_logger.setLevel(logging.INFO) 
+    else:
+        log.info("Logging already initialized.")
 
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.')
@@ -190,8 +206,8 @@ def main(args=None):
                         continue
                     log.error('Waiting for thread %s', t)
                     t.join()
-                if get_stdout_handler() is not None:
-                    logging.getLogger().removeHandler(get_stdout_handler())
+  
+                logging.getLogger().removeHandler(stdout_log_handler)
                 daemonize(options.homedir)
                 conn.finish_fork()
                 metadata_upload_thread.start()
@@ -381,6 +397,9 @@ def parse_args(args):
         parser.error('--strip-meta and --compress=none does not make much sense and '
                      'is really not a good idea.')
         
+    if not os.path.exists(options.homedir):
+        os.mkdir(options.homedir, 0700)
+                
     return options
 
 class MetadataUploadThread(threading.Thread):

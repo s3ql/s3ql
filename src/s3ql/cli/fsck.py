@@ -12,8 +12,9 @@ import os
 import stat
 import time
 from optparse import OptionParser
-from s3ql.common import (init_logging_from_options, get_bucket_home, cycle_metadata,
-                      unlock_bucket, QuietError, get_backend, restore_metadata)
+from s3ql.common import (get_bucket_home, cycle_metadata, add_stdout_logging, 
+                         add_file_logging, setup_excepthook, LoggerFilter,
+                         unlock_bucket, QuietError, get_backend, restore_metadata)
 from s3ql import CURRENT_FS_REV
 import s3ql.database as dbcm
 from s3ql.mkfs import create_indices
@@ -56,7 +57,10 @@ def parse_args(args):
 
     if len(pps) != 1:
         parser.error("Incorrect number of arguments.")
-
+        
+    if not os.path.exists(options.homedir):
+        os.mkdir(options.homedir, 0700)
+        
     options.storage_url = pps[0]
 
     return options
@@ -74,7 +78,22 @@ def main(args=None):
         pass
 
     options = parse_args(args)
-    init_logging_from_options(options, 'fsck.log')
+
+    # Initialize logging if not yet initialized
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        add_stdout_logging(options.quiet)
+        add_file_logging(os.path.join(options.homedir, 'fsck.log'))
+        setup_excepthook()
+        
+        if options.debug:
+            root_logger.setLevel(logging.DEBUG)
+            if 'all' not in options.debug:
+                root_logger.addFilter(LoggerFilter(options.debug, logging.INFO))
+        else:
+            root_logger.setLevel(logging.INFO) 
+    else:
+        log.info("Logging already initialized.")
 
     with get_backend(options) as (conn, bucketname):
 

@@ -299,22 +299,25 @@ class test(setuptools_test.test):
         import unittest2 as unittest
         import _common
         import s3ql.common
-        from s3ql.common import init_logging
+        from s3ql.common import (setup_excepthook, add_file_logging, add_stdout_logging,
+                                 LoggerFilter)
         from getpass import getpass
 
-        # Init Logging
-        logfile = os.path.join(basedir, 'setup.log')
-        stdout_level = logging.WARN
-        if self.debug and 'all' in self.debug:
-            file_level = logging.DEBUG
-            file_loggers = None
-        elif self.debug:
-            file_level = logging.DEBUG
-            file_loggers = self.debug
+        # Initialize logging if not yet initialized
+        root_logger = logging.getLogger()
+        if not root_logger.handlers:
+            add_stdout_logging(quiet=True)
+            add_file_logging(os.path.join(basedir, 'setup.log'))
+            setup_excepthook()  
+            if self.debug:
+                root_logger.setLevel(logging.DEBUG)
+                if 'all' not in self.debug:
+                    root_logger.addFilter(LoggerFilter(self.debug, logging.INFO))
+            else:
+                root_logger.setLevel(logging.INFO) 
         else:
-            file_level = logging.INFO
-            file_loggers = None
-        init_logging(logfile, stdout_level, file_level, file_loggers)
+            log.info("Logging already initialized.")
+        
 
         # Init AWS
         if self.awskey:

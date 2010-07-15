@@ -30,7 +30,8 @@ from __future__ import division, print_function
 import unittest2 as unittest
 import os
 import logging
-import sys
+from s3ql.common import add_stdout_logging, setup_excepthook
+#from s3ql.common import LoggerFilter
 
 __all__ = [ 'TestCase' ]
 
@@ -41,9 +42,18 @@ class TestCase(unittest.TestCase):
     def __init__(self, *a, **kw):
         super(TestCase, self).__init__(*a, **kw)
 
-        # Init logging with default settings if not yet done
-        if not log.handlers:
-            logging.basicConfig(level=logging.WARN, stream=sys.stderr)
+        # Initialize logging if not yet initialized
+        root_logger = logging.getLogger()
+        if not root_logger.handlers:
+            handler = add_stdout_logging()
+            setup_excepthook()
+            handler.setLevel(logging.DEBUG)
+            root_logger.setLevel(logging.WARN)
+            
+            # For debugging:)
+            #root_logger.setLevel(logging.DEBUG)
+            #root_logger.addFilter(LoggerFilter(['fs'], 
+            #                                   logging.INFO))
 
     def run(self, result=None):
         if result is None:

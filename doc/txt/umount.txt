@@ -23,9 +23,7 @@ You can specify the following options:
 
   --homedir=HOMEDIR  Directory for log files, cache and authentication
                      info. Default: `~/.s3ql`
-  --debug=DEBUG      Activate debugging output from specified module. Use
-                     `all` to get debug messages from all modules. This option
-                     can be specified multiple times.
+  --debug            Activate debugging output
   --quiet            Be really quiet
   -z, --lazy         Lazy umount. Detaches the file system immediately, even
                      if there are still open files. The data will be uploaded

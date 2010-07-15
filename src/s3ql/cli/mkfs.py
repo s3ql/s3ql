@@ -15,7 +15,8 @@ import shutil
 from optparse import OptionParser
 import logging
 from s3ql import mkfs, CURRENT_FS_REV
-from s3ql.common import (init_logging_from_options, get_backend, get_bucket_home,
+from s3ql.common import (get_backend, get_bucket_home, add_stdout_logging, 
+                         add_file_logging, setup_excepthook, LoggerFilter,
                          QuietError)
 import s3ql.database as dbcm
 from s3ql.backends.boto.s3.connection import Location
@@ -67,6 +68,9 @@ def parse_args(args):
         parser.error("Incorrect number of arguments.")
     options.storage_url = pps[0]
 
+    if not os.path.exists(options.homedir):
+        os.mkdir(options.homedir, 0700)
+        
     return options
 
 def main(args=None):
@@ -75,7 +79,21 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-    init_logging_from_options(options, 'mkfs.log')
+
+    # Initialize logging if not yet initialized
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        add_stdout_logging(options.quiet)
+        add_file_logging(os.path.join(options.homedir, 'mkfs.log'))
+        setup_excepthook()  
+        if options.debug:
+            root_logger.setLevel(logging.DEBUG)
+            if 'all' not in options.debug:
+                root_logger.addFilter(LoggerFilter(options.debug, logging.INFO))
+        else:
+            root_logger.setLevel(logging.INFO) 
+    else:
+        log.info("Logging already initialized.")
 
     with get_backend(options) as (conn, bucketname):
         if conn.bucket_exists(bucketname):

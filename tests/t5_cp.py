@@ -49,7 +49,7 @@ class cpTests(t4_fuse.fuse_tests):
         try:
             s3ql.cli.cp.main([os.path.join(self.mnt_dir, 'orig'),
                               os.path.join(self.mnt_dir, 'copy')])
-        except SystemExit as exc:
+        except BaseException as exc:
             self.fail("s3qlcp failed: %s" % exc)
 
         # compare

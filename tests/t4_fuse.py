@@ -41,10 +41,6 @@ class fuse_tests(TestCase):
         self.bucketname = 'local://' + os.path.join(self.bucket_dir, 'mybucket')
         self.passphrase = 'oeut3d'
 
-        # Make sure that the mount thread does not mess with the
-        # logging settings
-        common.init_logging = lambda * a, **kw: None
-
         self.mount_thread = None
         self.name_cnt = 0
 
@@ -67,7 +63,7 @@ class fuse_tests(TestCase):
         try:
             s3ql.cli.mkfs.main(['-L', 'test fs', '--blocksize', '500',
                                 '--homedir', self.cache_dir, self.bucketname ])
-        except SystemExit as exc:
+        except BaseException as exc:
             self.fail("mkfs.s3ql failed: %s" % exc)
 
         sys.stdin = StringIO('%s\n' % self.passphrase)
@@ -102,7 +98,7 @@ class fuse_tests(TestCase):
         sys.stdin = StringIO('%s\n' % self.passphrase)
         try:
             s3ql.cli.fsck.main(['--homedir', self.cache_dir, self.bucketname])
-        except SystemExit as exc:
+        except BaseException as exc:
             self.fail("fsck failed: %s" % exc)
 
     def runTest(self):

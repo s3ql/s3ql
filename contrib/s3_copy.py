@@ -19,8 +19,9 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.common import (init_logging_from_options, QuietError, get_backend_credentials,
-                         ExceptionStoringThread)
+from s3ql.common import (add_stdout_logging, setup_excepthook, QuietError,
+                         get_backend_credentials, ExceptionStoringThread,
+                         LoggerFilter)
 from s3ql.backends import s3
 from s3ql.backends.boto.s3.connection import Location
 
@@ -82,7 +83,22 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-    init_logging_from_options(options, 's3_copy.log')
+
+    # Initialize logging if not yet initialized
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        handler = add_stdout_logging(options.quiet)
+        setup_excepthook()  
+        if options.debug:
+            root_logger.setLevel(logging.DEBUG)
+            handler.setLevel(logging.DEBUG)
+            if 'all' not in options.debug:
+                root_logger.addFilter(LoggerFilter(options.debug, logging.INFO))
+        else:
+            root_logger.setLevel(logging.INFO) 
+    else:
+        log.info("Logging already initialized.")
+
     (login, password) = get_backend_credentials(options.homedir, 's3', None)
     conn = s3.Connection(login, password)
     

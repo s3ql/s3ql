@@ -13,7 +13,7 @@ from __future__ import division, print_function, absolute_import
 import sys
 from optparse import OptionParser
 import os
-from ..common import QuietError
+from ..common import QuietError, add_stdout_logging, setup_excepthook
 from datetime import datetime, timedelta
 import logging
 import re
@@ -42,7 +42,9 @@ def parse_args(args):
                       help="Be really quiet")
     parser.add_option("-n", action="store_true", default=False,
                       help="Dry run. Just show which backups would be deleted.")
-
+    parser.add_option("--debug", action="store_true",
+                      help="Activate debugging output")
+    
     (options, pps) = parser.parse_args(args)
 
     # Verify parameters
@@ -59,12 +61,18 @@ def main(args=None):
 
     options = parse_args(args)
 
-    if options.quiet:
-        logging.basicConfig(level=logging.WARN, stream=sys.stdout,
-                            format='%(message)s')
+    # Initialize logging if not yet initialized
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        handler = add_stdout_logging(options.quiet)
+        setup_excepthook()  
+        if options.debug:
+            root_logger.setLevel(logging.DEBUG)
+            handler.setLevel(logging.DEBUG)
+        else:
+            root_logger.setLevel(logging.INFO)         
     else:
-        logging.basicConfig(level=logging.INFO, stream=sys.stdout,
-                            format='%(message)s')
+        log.info("Logging already initialized.")
 
     # Relative generation ages
     generations = list()

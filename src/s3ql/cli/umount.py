@@ -13,7 +13,8 @@ import sys
 from optparse import OptionParser
 import os
 import logging
-from s3ql.common import init_logging_from_options, CTRL_NAME, QuietError
+from s3ql.common import (CTRL_NAME, QuietError, add_stdout_logging, 
+                         setup_excepthook)
 import posixpath
 import subprocess
 import time
@@ -37,14 +38,8 @@ def parse_args(args):
         'occuring during the unmount (e.g. a failure to upload the metadata) can not '
         'be detected and appear only in the logging messages of the mount program.')
 
-    parser.add_option("--homedir", type="string",
-                      default=os.path.expanduser("~/.s3ql"),
-                      help='Directory for log files, cache and authentication info. '
-                      'Default: ~/.s3ql')
-    parser.add_option("--debug", action="append",
-                      help="Activate debugging output from specified module. Use 'all' "
-                           "to get debug messages from all modules. This option can be "
-                           "specified multiple times.")
+    parser.add_option("--debug", action="store_true",
+                      help="Activate debugging output")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
     parser.add_option('--lazy', "-z", action="store_true", default=False,
@@ -77,8 +72,20 @@ def main(args=None):
 
     options = parse_args(args)
     mountpoint = options.mountpoint
-    init_logging_from_options(options, 'umount.log')
-
+    
+    # Initialize logging if not yet initialized
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        handler = add_stdout_logging(options.quiet)
+        setup_excepthook()  
+        if options.debug:
+            root_logger.setLevel(logging.DEBUG)
+            handler.setLevel(logging.DEBUG)
+        else:
+            root_logger.setLevel(logging.INFO) 
+    else:
+        log.info("Logging already initialized.")
+        
     # Check if it's a mount point
     if not posixpath.ismount(mountpoint):
         print('Not a mount point.', file=sys.stderr)

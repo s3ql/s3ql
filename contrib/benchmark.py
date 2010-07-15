@@ -22,7 +22,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
 from s3ql.backends.common import compress_encrypt_fh
-from s3ql.common import (init_logging_from_options, get_backend, QuietError)
+from s3ql.common import (get_backend, QuietError, add_stdout_logging, setup_excepthook)
 
 log = logging.getLogger('benchmark')
 
@@ -39,10 +39,8 @@ def parse_args(args):
                       default=os.path.expanduser("~/.s3ql"),
                       help='Directory for log files, cache and authentication info. '
                       'Default: ~/.s3ql')
-    parser.add_option("--debug", action="append",
-                      help="Activate debugging output from specified module. Use 'all' "
-                           "to get debug messages from all modules. This option can be "
-                           "specified multiple times.")
+    parser.add_option("--debug", action="store_true",
+                      help="Activate debugging output")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
     (options, pps) = parser.parse_args(args)
@@ -69,7 +67,19 @@ def main(args=None):
         pass
 
     options = parse_args(args)
-    init_logging_from_options(options, 'benchmark.log')
+
+    # Initialize logging if not yet initialized
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        handler = add_stdout_logging(options.quiet)
+        setup_excepthook()  
+        if options.debug:
+            root_logger.setLevel(logging.DEBUG)
+            handler.setLevel(logging.DEBUG)
+        else:
+            root_logger.setLevel(logging.INFO)         
+    else:
+        log.info("Logging already initialized.")
 
     if not os.path.exists(options.testfile):
         raise QuietError('Mountpoint does not exist.')

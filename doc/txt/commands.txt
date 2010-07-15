@@ -60,9 +60,7 @@ syntax is ::
 `<mountpoint>` must be the location of a mounted S3QL file system. The
 following options can be given:
 
-  --debug=DEBUG  Activate debugging output from specified module. Use 'all' to
-                 get debug messages from all modules. This option can be
-                 specified multiple times.
+  --debug        Activate debugging output
   --quiet        Be really quiet
   --stacktrace   Dump stack trace for all active threads into logfile. Useful
                  for debugging deadlocks.

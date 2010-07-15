@@ -27,9 +27,6 @@ class AdmTests(TestCase):
         self.bucketname = 'local://' + os.path.join(self.bucket_dir, 'mybucket')
         self.passphrase = 'oeut3d'
 
-        # Make sure that the logging settings remain unchanged
-        s3ql.common.init_logging = lambda * a, **kw: None
-
     def tearDown(self):
         shutil.rmtree(self.cache_dir)
         shutil.rmtree(self.bucket_dir)
@@ -38,7 +35,7 @@ class AdmTests(TestCase):
         sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
         try:
             s3ql.cli.mkfs.main(['--homedir', self.cache_dir, self.bucketname ])
-        except SystemExit as exc:
+        except BaseException as exc:
             self.fail("mkfs.s3ql failed: %s" % exc)
 
     def test_passphrase(self):
@@ -49,7 +46,7 @@ class AdmTests(TestCase):
                                                passphrase_new, passphrase_new))
         try:
             s3ql.cli.adm.main(['--change-passphrase', self.bucketname ])
-        except SystemExit as exc:
+        except BaseException as exc:
             self.fail("s3qladm failed: %s" % exc)
 
 

@@ -12,7 +12,8 @@ from s3ql import libc
 from optparse import OptionParser
 import os
 import logging
-from s3ql.common import init_logging_from_options, CTRL_NAME, QuietError
+from s3ql.common import (CTRL_NAME, QuietError, add_stdout_logging, 
+                         setup_excepthook)
 import posixpath
 import struct
 import sys
@@ -27,10 +28,8 @@ def parse_args(args):
               "       %prog --help",
         description="Print file system statistics.")
 
-    parser.add_option("--debug", action="append",
-                      help="Activate debugging output from specified module. Use 'all' "
-                           "to get debug messages from all modules. This option can be "
-                           "specified multiple times.")
+    parser.add_option("--debug", action="store_true",
+                      help="Activate debugging output")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
 
@@ -51,7 +50,19 @@ def main(args=None):
 
     options = parse_args(args)
     mountpoint = options.mountpoint
-    init_logging_from_options(options, logfile=None)
+    
+    # Initialize logging if not yet initialized
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        handler = add_stdout_logging(options.quiet)
+        setup_excepthook()  
+        if options.debug:
+            root_logger.setLevel(logging.DEBUG)
+            handler.setLevel(logging.DEBUG)
+        else:
+            root_logger.setLevel(logging.INFO)      
+    else:
+        log.info("Logging already initialized.")
 
     # Check if it's a mount point
     if not posixpath.ismount(mountpoint):

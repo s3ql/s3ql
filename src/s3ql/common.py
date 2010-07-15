@@ -10,7 +10,6 @@ from __future__ import division, print_function
 from getpass import getpass
 from time import sleep
 import hashlib
-import logging.handlers
 import os
 from . import database as dbcm
 from .database import NoSuchRowError
@@ -18,16 +17,17 @@ import stat
 import sys
 import apsw
 import threading
+import logging.handlers
 import traceback
 import re
 import cPickle as pickle
 from contextlib import contextmanager
 
-__all__ = ["get_bucket_home", "init_logging", 'sha256', 'sha256_fh',
+__all__ = ["get_bucket_home", 'sha256', 'sha256_fh', 'add_stdout_logging',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
-           "ROOT_INODE", "ExceptionStoringThread", 'retry', 'get_stdout_handler',
+           "ROOT_INODE", "ExceptionStoringThread", 'retry', 'LoggerFilter',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
-           'init_logging_from_options', 'QuietError', 'get_backend',
+           'QuietError', 'get_backend', 'add_file_logging', 'setup_excepthook',
            'cycle_metadata', 'restore_metadata', 'dump_metadata', 'copy_metadata' ]
 
 
@@ -36,6 +36,57 @@ AUTHINFO_BACKEND_PATTERN = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\
 AUTHINFO_BUCKET_PATTERN = r'^storage-url\s+(\S+)\s+password\s+(\S+)$'
 
 log = logging.getLogger('common')
+
+class LoggerFilter(object):
+    """
+    For use with the logging module as a message filter.
+    
+    This filter accepts all messages which have at least the specified
+    priority *or* come from a configured list of loggers.
+    """
+
+    def __init__(self, acceptnames, acceptlevel):
+        """Initializes a Filter object"""
+        
+        self.acceptlevel = acceptlevel
+        self.acceptnames = [ x.lower() for x in acceptnames ]
+
+    def filter(self, record):
+        '''Determine if the log message should be printed'''
+
+        if record.levelno >= self.acceptlevel:
+            return True
+
+        if record.name.lower() in self.acceptnames:
+            return True
+
+        return False
+    
+def add_stdout_logging(quiet=False):
+    '''Add stdout logging handler to root logger'''
+
+    root_logger = logging.getLogger()
+    formatter = logging.Formatter('%(message)s') 
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    if quiet:
+        handler.setLevel(logging.WARN)
+    else:
+        handler.setLevel(logging.INFO)
+    root_logger.addHandler(handler)
+    return handler
+
+    
+def add_file_logging(logfile):
+
+    root_logger = logging.getLogger()
+    formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
+                                          '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
+    handler = logging.handlers.RotatingFileHandler(logfile, maxBytes=1024**2,
+                                                   backupCount=5)
+    handler.setFormatter(formatter)  
+    root_logger.addHandler(handler)
+    return handler
 
 @contextmanager
 def get_backend(options):
@@ -252,135 +303,40 @@ def restore_metadata(ifh):
                          'PRAGMA recursize_triggers = ON')
 
 
-class QuietError(SystemExit):
-    '''QuietError is an exception that should not result in a
-    stack trace being printed. It is typically raised if the
-    exception can generally only be handled by the user invoking
-    a non-interactive program.
-    The exception argument should be a string containing sufficient
-    information about the problem.
+class QuietError(Exception):
     '''
-    pass
-
-
-class Filter(object):
-    """
-    For use with the logging module as a message filter.
+    QuietError is the base class for exceptions that should not result
+    in a stack trace being printed.
     
-    This filter accepts all messages which have the specified priority 
-    or come from a configured list of loggers.    
-    """
-
-    def __init__(self, acceptnames, acceptlevel):
-        """Initializes a Filter object.
-        
-        Passes through all messages with priority higher than
-        `acceptlevel` or coming from a logger in `acceptnames`. 
-        """
-        if acceptnames is None:
-            acceptnames = list()
-
-        self.acceptlevel = acceptlevel
-        self.acceptnames = [ x.lower() for x in acceptnames ]
-
-    def filter(self, record):
-        '''Determine if the log message should be printed'''
-
-        if record.levelno > self.acceptlevel:
-            return True
-
-        if record.name.lower() in self.acceptnames:
-            return True
-
-        return False
-
-def init_logging_from_options(options, logfile):
-    '''Call init_logging according to command line arguments
-    
-    `options` should have attributes ``quiet`` and ``debug``.
+    It is typically used for exceptions that are the result of the user
+    supplying invalid input data. The exception argument should be a
+    string containing sufficient information about the problem.
     '''
-
-    if options.quiet:
-        stdout_level = logging.WARN
-    else:
-        stdout_level = logging.INFO
-
-    if options.debug and 'all' in options.debug:
-        file_level = logging.DEBUG
-        file_loggers = None
-    elif options.debug:
-        file_level = logging.DEBUG
-        file_loggers = options.debug
-    else:
-        file_level = logging.INFO
-        file_loggers = None
-
-    if logfile is not None:
-        logfile = os.path.join(options.homedir, logfile)
-        
-    init_logging(logfile, stdout_level, file_level, file_loggers)
-
-
-logging_initialized = False
-stdout_handler = None
-def init_logging(logfile, stdout_level=logging.INFO, file_level=logging.INFO,
-                 file_loggers=None):
-    """Initialize logging
     
-    `file_logger` can be set to a list of logger names. In that case, debug
-    messages are only written into `logfile` if they come from one of these
-    loggers.
-    """
+    def __init__(self, msg):
+        super(QuietError, self).__init__()
+        self.msg = msg
 
-    global logging_initialized
-    global stdout_handler
-    if logging_initialized:
-        raise RuntimeError('Logging already initialized')
+    def __str__(self):
+        return self.msg
 
-    root_logger = logging.getLogger()
-
-    quiet_formatter = logging.Formatter('%(message)s')
-    verbose_formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
-                                          '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
-
-    # Add stdout logger
-    if stdout_level is not None:
-        stdout_handler = logging.StreamHandler()
-        if stdout_level <= logging.DEBUG:
-            stdout_handler.setFormatter(verbose_formatter)
+def setup_excepthook():
+    '''Modify sys.excepthook to log exceptions
+    
+    Also makes sure that exceptions derived from `QuietException`
+    do not result in stacktraces.
+    '''
+    
+    def excepthook(type_, val, tb):
+        root_logger = logging.getLogger()
+        if isinstance(val, QuietError):
+            root_logger.error(val.msg)
         else:
-            stdout_handler.setFormatter(quiet_formatter)
-        stdout_handler.setLevel(stdout_level)
-        root_logger.addHandler(stdout_handler)
-        root_logger.setLevel(stdout_level)
-
-    # Add file logger
-    if logfile is not None:
-        if not os.path.exists(os.path.dirname(logfile)):
-            os.mkdir(os.path.dirname(logfile), 0700)
-        handler = logging.handlers.RotatingFileHandler(logfile, maxBytes=1 * 1024 * 1024, backupCount=5)
-        handler.setFormatter(verbose_formatter)
-        handler.setLevel(file_level)
-        root_logger.addHandler(handler)
-
-        if file_loggers:
-            if not isinstance(file_loggers, list):
-                raise ValueError('file_loggers must be list of strings')
-            handler.addFilter(Filter(acceptnames=file_loggers, acceptlevel=logging.DEBUG))
-
-        root_logger.setLevel(min(stdout_level, file_level))
-
-    # Make sure that top-level exceptions are logged
-    def log_main(*a):
-        root_logger.error('Uncaught top-level exception',
-                          exc_info=a)
-
-    sys.excepthook = log_main
-    logging_initialized = True
-
-def get_stdout_handler():
-    return stdout_handler
-
+            root_logger.error('Uncaught top-level exception', 
+                              exc_info=(type_, val, tb))
+            
+    sys.excepthook = excepthook 
+    
 def inode_for_path(path, conn):
     """Return inode of directory entry at `path`
     
