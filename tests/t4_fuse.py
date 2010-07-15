@@ -97,7 +97,8 @@ class fuse_tests(TestCase):
         # Now run an fsck
         sys.stdin = StringIO('%s\n' % self.passphrase)
         try:
-            s3ql.cli.fsck.main(['--homedir', self.cache_dir, self.bucketname])
+            s3ql.cli.fsck.main(['--force', '--homedir', self.cache_dir, 
+                                self.bucketname])
         except BaseException as exc:
             self.fail("fsck failed: %s" % exc)
 
