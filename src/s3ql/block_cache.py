@@ -418,9 +418,11 @@ class CommitThread(threading.Thread):
                         break
                     if not el.dirty:
                         continue
-    
+                            
                     # UploadManager is not threadsafe
                     with self.bcache.lock:
+                        if not el.dirty: # Object may have been accessed
+                            continue
                         self.bcache.upload_manager.add(el, self.bcache.lock)
                     did_sth = True
     
