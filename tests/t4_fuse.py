@@ -10,7 +10,7 @@ from __future__ import division, print_function
 from _common import TestCase
 from cStringIO import StringIO
 from os.path import basename
-from s3ql import libc, common
+from s3ql import libc
 from s3ql.common import retry, ExceptionStoringThread
 import filecmp
 import os.path
