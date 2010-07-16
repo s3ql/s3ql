@@ -43,7 +43,7 @@ You can specify the following options:
                         specified, other users can access the mount point as
                         well and individual file permissions are taken into
                         account for all users.
-  --allow-root          Like `--allow_other`, but restrict access to the
+  --allow-root          Like `--allow-other`, but restrict access to the
                         mounting user and the root user.
   --fg                  Do not daemonize, stay in foreground
   --single              Run in single threaded mode. If you don't understand

@@ -350,7 +350,7 @@ def parse_args(args):
                       'specified, other users can access the mount point as well and '
                       'individual file permissions are taken into account for all users.')
     parser.add_option("--allow-root", action="store_true", default=False,
-                      help='Like `--allow_other`, but restrict access to the mounting '
+                      help='Like `--allow-other`, but restrict access to the mounting '
                            'user and the root user.')
     parser.add_option("--fg", action="store_true", default=False,
                       help="Do not daemonize, stay in foreground")
