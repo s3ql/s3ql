@@ -170,6 +170,8 @@ class Bucket(AbstractBucket):
         super(Bucket, self).__init__(passphrase, compression)
         self.conn = conn
         self.name = name
+        with self._get_boto() as boto:
+            self.rac_consistent = (boto.get_location() != '')
 
     def clear(self):
         """Delete all objects in bucket
@@ -208,6 +210,9 @@ class Bucket(AbstractBucket):
 
         return bkey is not None
 
+    def read_after_create_consistent(self):
+        return self.rac_consistent
+            
     def raw_lookup(self, key):
         with self._get_boto() as boto:
             bkey = retry_boto(boto.get_key, key)

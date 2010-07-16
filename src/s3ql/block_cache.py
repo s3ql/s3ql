@@ -176,8 +176,11 @@ class BlockCache(object):
                     log.debug('get(inode=%d, block=%d): downloading block', inode, blockno)
                     el = CacheEntry(inode, blockno, obj_id, filename, "w+b")
                     with without(self.lock):
-                        retry_exc(300, [ NoSuchObject ], self.bucket.fetch_fh,
-                                  's3ql_data_%d' % obj_id, el)
+                        if self.bucket.read_after_create_consistent():
+                            self.bucket.fetch_fh('s3ql_data_%d' % obj_id, el)
+                        else:
+                            retry_exc(300, [ NoSuchObject ], self.bucket.fetch_fh,
+                                      's3ql_data_%d' % obj_id, el)
                     self.size += os.fstat(el.fileno()).st_size
     
                 self.cache[(inode, blockno)] = el
@@ -338,10 +341,14 @@ class BlockCache(object):
                     to_delete = True
         
             if to_delete:
+                if self.bucket.read_after_create_consistent():
+                    fn = lambda : self.bucket.delete('s3ql_data_%d' % obj_id)
+                else:
+                    fn = lambda : retry_exc(300, [ NoSuchObject ], 
+                                            self.bucket.delete,
+                                            's3ql_data_%d' % obj_id)
                 with without(self.lock):
-                    self.removal_queue.add(lambda : retry_exc(300, [ NoSuchObject ], 
-                                                              self.bucket.delete,
-                                                              's3ql_data_%d' % obj_id))
+                    self.removal_queue.add(fn)
 
         log.debug('remove(inode=%d, start=%d, end=%s): end',
                   inode, start_no, end_no)

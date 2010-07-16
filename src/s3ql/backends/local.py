@@ -82,6 +82,9 @@ class Bucket(AbstractBucket):
     def __str__(self):
         return '<local bucket, name=%r>' % self.name
 
+    def read_after_create_consistent(self):
+        return True
+    
     def clear(self):
         """Delete all objects in bucket"""
         with self.lock:

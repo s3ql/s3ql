@@ -315,6 +315,16 @@ class AbstractBucket(object):
         tmp.seek(0)
         return lambda: self.raw_store(key, tmp, meta_raw)
 
+    @abstractmethod
+    def read_after_create_consistent(self):
+        '''Does this backend provide read-after-create consistency?
+        
+        Returns True if newly created objects are guaranteed to be
+        included immediately in subsequent object listings and to 
+        be available immediately for retrieval. 
+        '''
+        pass
+    
 
     @abstractmethod
     def __str__(self):

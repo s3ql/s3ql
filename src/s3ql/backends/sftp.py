@@ -155,6 +155,9 @@ class Bucket(AbstractBucket):
     def __str__(self):
         return '<sftp bucket, name=%r>' % self.name
 
+    def read_after_create_consistent(self):
+        return True
+
     def clear(self):
         with self.conn.lock:
             self.conn._rmtree(self.name)
