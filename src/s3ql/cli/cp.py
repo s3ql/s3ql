@@ -15,6 +15,7 @@ import logging
 from s3ql.common import add_stdout_logging, setup_excepthook, CTRL_NAME, QuietError
 import struct
 import stat
+import errno
 import sys
 
 log = logging.getLogger("cp")
@@ -95,7 +96,17 @@ def main(args=None):
     if not (CTRL_NAME not in libc.listdir(parent) and os.path.exists(ctrlfile)):
         raise QuietError('Source and target are not on an S3QL file system')
 
-    os.mkdir(options.target)
+    if os.stat(ctrlfile).st_uid != os.geteuid():
+        raise QuietError('Only root and the mounting user have permission to run s3qlcp.')
+        
+    try:
+        os.mkdir(options.target)
+    except OSError as exc:
+        if exc.errno == errno.EACCES:
+            raise QuietError('No permission to create target directory')
+        else:
+            raise
+    
     fstat_t = os.stat(options.target)
     libc.setxattr(ctrlfile, 'copy', struct.pack('II', fstat_s.st_ino, fstat_t.st_ino))
 
