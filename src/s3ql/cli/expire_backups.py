@@ -86,15 +86,9 @@ def main(args=None):
         if i == 0:
             log.info('Generation %d starts %s after most recent backup',
                      i+1, txt_gen)
-        elif i < len(options.generations)-1:
+        else:
             log.info('Generation %d starts %s after first backup of generation %d',
                      i+1, txt_gen, i)
-        else:
-            log.info('Generation %d starts %s after first backup of generation %d '
-                     'and will not be kept.',
-                     i+1, txt_gen, i)
-
-
 
     # Determine available backups
     available_txt = sorted(x for x in os.listdir('.')
@@ -141,6 +135,7 @@ def main(args=None):
                 continue
             done = False
             min_age = cur_age + min_rel_age
+            log.debug('Minimum age for generation %d is %s', i+1, min_age)
             for (j, age) in enumerate((a[1] for a in available)):
                 if age >= min_age:
                     if j not in keep:
