@@ -27,10 +27,10 @@ Features
     underlying storage system (e.g. the 5 GB file size limit of Amazon S3 or
     the inability to make hard links over FTP).
 
-  • Compression. Before storage, all data is compressed with the LZMA algorithm
-    (which is roughly 15% more efficient than the bzip2 -9 command on Unix).
+  • Compression. Before storage, all data may compressed with the LZMA,
+    BZIP2 or LZ algorithm.
 
-  • Encryption. After compression (but still before storage), all data is AES
+  • Encryption. After compression (but still before storage), all data can be AES
     encrypted with a 256 bit key. An additional SHA256 HMAC checksum is used to
     protect the data against manipulation.
 
