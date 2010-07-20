@@ -11,9 +11,8 @@ from __future__ import division, print_function, absolute_import
 import os
 import stat
 import time
-from optparse import OptionParser
 from s3ql.common import (get_bucket_home, cycle_metadata, add_stdout_logging, 
-                         add_file_logging, setup_excepthook, LoggerFilter,
+                         add_file_logging, setup_excepthook, LoggerFilter, OptionParser,
                          unlock_bucket, QuietError, get_backend, restore_metadata)
 from s3ql import CURRENT_FS_REV
 import s3ql.database as dbcm
@@ -22,7 +21,6 @@ import logging
 from s3ql import fsck
 from s3ql import backends
 from s3ql.backends.common import ChecksumError
-import s3ql
 import sys
 import shutil
 import tempfile
@@ -34,9 +32,8 @@ log = logging.getLogger("fsck")
 def parse_args(args):
 
     parser = OptionParser(
-        usage="%prog  [options] <storage-url>\n"
-        "%prog --help",
-        version='S3QL %s' % s3ql.VERSION,
+        usage="%prog [options] <storage-url>\n"
+              "%prog --help",
         description="Checks and repairs an S3QL filesystem.")
 
     parser.add_option("--homedir", type="string", metavar='<path>',

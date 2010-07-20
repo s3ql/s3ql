@@ -11,7 +11,6 @@ from __future__ import division, print_function, absolute_import
 # We can't use relative imports because this file may
 # be directly executed.
 import sys
-from optparse import OptionParser
 from s3ql import fs, CURRENT_FS_REV
 from s3ql.mkfs import create_indices
 from s3ql.backends import s3
@@ -19,9 +18,8 @@ from s3ql.daemonize import daemonize
 from s3ql.backends.common import (ChecksumError, NoSuchObject)
 from s3ql.common import (add_stdout_logging, get_backend, get_bucket_home,
                          QuietError, unlock_bucket, add_file_logging, LoggerFilter,
-                         cycle_metadata, dump_metadata, restore_metadata,
+                         cycle_metadata, dump_metadata, restore_metadata, OptionParser,
                          EmbeddedException, copy_metadata, setup_excepthook)
-import s3ql
 import s3ql.database as dbcm
 import llfuse
 import tempfile
@@ -320,9 +318,8 @@ def parse_args(args):
                 args.insert(pos, '--' + opt)
 
     parser = OptionParser(
-        usage="%prog  [options] <storage-url> <mountpoint>\n"
-              "       %prog --help",
-        version='S3QL %s' % s3ql.VERSION,
+        usage="%prog [options] <storage-url> <mountpoint>\n"
+              "%prog --help",
         description="Mount an S3QL file system.")
 
     parser.add_option("--homedir", type="string", metavar='<path>',

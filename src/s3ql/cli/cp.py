@@ -9,13 +9,13 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function, absolute_import
 
 from s3ql import libc
-from optparse import OptionParser
 import os
 import logging
-from s3ql.common import add_stdout_logging, setup_excepthook, CTRL_NAME, QuietError
+from s3ql.common import (add_stdout_logging, setup_excepthook, CTRL_NAME, QuietError,
+                         OptionParser)
 import struct
 import stat
-import s3ql
+import textwrap
 import errno
 import sys
 
@@ -25,17 +25,18 @@ def parse_args(args):
     '''Parse command line'''
 
     parser = OptionParser(
-        usage="%prog  [options] <source> <target>\n"
-              "       %prog --help",
-        version='S3QL %s' % s3ql.VERSION,
-        description=
-'''Replicates the contents of the directory <source> in the directory <target>. <source>
-has to be an existing directory and <target>  must not exist. Both directories have to be
-within the same S3QL file system.
+        usage="%prog [options] <source> <target>\n"
+              "%prog --help",
+        description=textwrap.dedent('''\ 
+        Replicates the contents of the directory <source> in the
+        directory <target>. <source> has to be an existing directory and
+        <target>  must not exist. Both directories have to be within
+        the same S3QL file system.
 
-The replication will not take any additional space. Only if one of directories is modified later on,
-the modified data will take additional storage space.        
-        ''')
+        The replication will not take any additional space. Only if one
+        of directories is modified later on, the modified data will take
+        additional storage space.
+        '''))
 
     parser.add_option("--debug", action="store_true",
                       help="Activate debugging output")

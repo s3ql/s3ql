@@ -12,16 +12,14 @@ import sys
 import os
 from getpass import getpass
 import shutil
-from optparse import OptionParser
 import logging
 from s3ql import mkfs, CURRENT_FS_REV
 from s3ql.common import (get_backend, get_bucket_home, add_stdout_logging, 
                          add_file_logging, setup_excepthook, LoggerFilter,
-                         QuietError)
+                         QuietError, OptionParser)
 import s3ql.database as dbcm
 from s3ql.backends.boto.s3.connection import Location
 from s3ql.backends import s3
-import s3ql
 import time
 
 log = logging.getLogger("mkfs")
@@ -29,9 +27,8 @@ log = logging.getLogger("mkfs")
 def parse_args(args):
 
     parser = OptionParser(
-        usage="%prog  [options] <storage-url>\n" \
-            "       %prog --help",
-        version='S3QL %s' % s3ql.VERSION,
+        usage="%prog [options] <storage-url>\n" \
+              "%prog --help",
         description="Initializes an S3QL file system")
 
     parser.add_option("--s3-location", type="string", default='EU', metavar='<name>',

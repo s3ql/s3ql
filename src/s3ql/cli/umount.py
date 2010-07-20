@@ -10,12 +10,10 @@ from __future__ import division, print_function, absolute_import
 
 from s3ql import libc
 import sys
-from optparse import OptionParser
 import os
 import logging
 from s3ql.common import (CTRL_NAME, QuietError, add_stdout_logging, 
-                         setup_excepthook)
-import s3ql
+                         setup_excepthook, OptionParser)
 import posixpath
 import subprocess
 import time
@@ -31,9 +29,8 @@ def parse_args(args):
     '''
 
     parser = OptionParser(
-        usage="%prog  [options] <mountpoint>\n"
-              "       %prog --help",
-        version='S3QL %s' % s3ql.VERSION,
+        usage="%prog [options] <mountpoint>\n"
+              "%prog --help",
         description="Unmounts an S3QL file system. The command returns only after "
         'all data has been uploaded to the backend. If any file system errors occurred while '
         'the file system was mounted, a warning message is printed. Note that errors '

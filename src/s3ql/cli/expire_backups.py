@@ -11,13 +11,11 @@ from __future__ import division, print_function, absolute_import
 
 
 import sys
-from optparse import OptionParser
 import os
-from ..common import QuietError, add_stdout_logging, setup_excepthook
+from ..common import (QuietError, add_stdout_logging, setup_excepthook, OptionParser)
 from datetime import datetime, timedelta
 import logging
 import re
-import s3ql
 import textwrap
 import shutil
 
@@ -28,10 +26,9 @@ def parse_args(args):
     '''Parse command line'''
 
     parser = OptionParser(
-        usage="%prog  [options] <age> <age> ... \n"
-              "       %prog --help",
-        version='S3QL %s' % s3ql.VERSION,
-        description=textwrap.dedent('''
+        usage="%prog [options] <age> <age> ... \n"
+              "%prog --help",
+        description=textwrap.dedent('''\
         This program deletes backups that are no longer needed as defined by the
         specified backup strategy. It uses a sophisticated algorithm that
         ensures that there will always be at least one backup available in each

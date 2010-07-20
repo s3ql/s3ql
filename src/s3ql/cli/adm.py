@@ -8,10 +8,9 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
-from optparse import OptionParser
 import logging
 from s3ql.common import (get_backend, QuietError, unlock_bucket, LoggerFilter,
-                      cycle_metadata, dump_metadata, restore_metadata,
+                      cycle_metadata, dump_metadata, restore_metadata, OptionParser,
                       add_file_logging, add_stdout_logging, setup_excepthook)
 from s3ql import CURRENT_FS_REV
 from s3ql.mkfs import create_indices
@@ -21,7 +20,6 @@ from s3ql.backends import s3, local, sftp
 from s3ql.backends.common import ChecksumError
 import os
 import s3ql.database as dbcm
-import s3ql
 import tempfile
 import errno
 import textwrap
@@ -33,8 +31,7 @@ def parse_args(args):
 
     parser = OptionParser(
         usage="%prog [options] <action> <storage-url>\n"
-              "       %prog --help",
-        version='S3QL %s' % s3ql.VERSION,
+              "%prog --help",
         description="Manage S3QL Buckets.")
 
     parser.add_option("--debug", action="append", metavar='<module>',

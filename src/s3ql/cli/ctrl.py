@@ -9,11 +9,10 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function, absolute_import
 
 from s3ql import libc
-from optparse import OptionParser
 import os
 import logging
-from s3ql.common import CTRL_NAME, QuietError, add_stdout_logging, setup_excepthook
-import s3ql
+from s3ql.common import (CTRL_NAME, QuietError, add_stdout_logging, setup_excepthook,
+                         OptionParser)
 import sys
 
 log = logging.getLogger("ctrl")
@@ -22,9 +21,8 @@ def parse_args(args):
     '''Parse command line'''
 
     parser = OptionParser(
-        usage="%prog  [options] <mountpoint>\n"
-              "       %prog --help",
-        version='S3QL %s' % s3ql.VERSION,
+        usage="%prog [options] <mountpoint>\n"
+              "%prog --help",
         description="Control a mounted S3QL File System.")
 
     parser.add_option("--debug", action="store_true",
