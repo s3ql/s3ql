@@ -31,12 +31,12 @@ def parse_args(args):
     '''Parse command line'''
 
     parser = OptionParser(
-        usage="%prog [options] <storage-url>\n"
+        usage="%prog [options] <action> <storage-url>\n"
               "       %prog --help",
         description="Manage S3QL Buckets.")
 
-    parser.add_option("--debug", action="append",
-                      help="Activate debugging output from specified module. Use 'all' "
+    parser.add_option("--debug", action="append", metavar='<module>',
+                      help="Activate debugging output from <module>. Use `all` "
                            "to get debug messages from all modules. This option can be "
                            "specified multiple times.")
     parser.add_option("--quiet", action="store_true", default=False,
@@ -47,7 +47,7 @@ def parse_args(args):
                       help="Upgrade file system to newest revision.")
     parser.add_option("--delete", action="store_true", default=False,
                       help="Completely delete a bucket with all contents.")
-    parser.add_option("--homedir", type="string",
+    parser.add_option("--homedir", type="string", metavar='<path>',
                       default=os.path.expanduser("~/.s3ql"),
                       help='Directory for log files, cache and authentication info. '
                       'Default: ~/.s3ql')

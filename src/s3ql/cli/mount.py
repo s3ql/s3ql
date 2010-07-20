@@ -323,22 +323,22 @@ def parse_args(args):
               "       %prog --help",
         description="Mount an S3QL file system.")
 
-    parser.add_option("--homedir", type="string",
+    parser.add_option("--homedir", type="string", metavar='<path>',
                       default=os.path.expanduser("~/.s3ql"),
                       help='Directory for log files, cache and authentication info. '
                       'Default: ~/.s3ql')
-    parser.add_option("--cachesize", type="int", default=102400,
+    parser.add_option("--cachesize", type="int", default=102400, metavar='<size>', 
                       help="Cache size in kb (default: 102400 (100 MB)). Should be at least 10 times "
                       "the blocksize of the filesystem, otherwise an object may be retrieved and "
                       "written several times during a single write() or read() operation.")
-    parser.add_option("--max-cache-entries", type="int", default=768,
+    parser.add_option("--max-cache-entries", type="int", default=768, metavar='<num>',
                       help="Maximum number of entries in cache (default: %default). "
                       'Each cache entry requires one file descriptor, so if you increase '
                       'this number you have to make sure that your process file descriptor '
                       'limit (as set with `ulimit -n`) is high enough (at least the number ' 
                       'of cache entries + 100).')
-    parser.add_option("--debug", action="append",
-                      help="Activate debugging output from specified module. Use 'all' "
+    parser.add_option("--debug", action="append", metavar='<module>',
+                      help="Activate debugging output from <module>. Use `all` "
                            "to get debug messages from all modules. This option can be "
                            "specified multiple times.")
     parser.add_option("--quiet", action="store_true", default=False,
@@ -360,17 +360,17 @@ def parse_args(args):
     parser.add_option("--profile", action="store_true", default=False,
                       help="Create profiling information. If you don't understand this, "
                            "then you don't need it.")
-    parser.add_option("--compress", action="store", default='lzma',
+    parser.add_option("--compress", action="store", default='lzma', metavar='<name>',
                       choices=('lzma', 'bzip2', 'zlib', 'none'),
                       help="Compression algorithm to use when storing new data. Allowed "
-                           "values: lzma, bzip2, zlib, none. (default: lzma)")
+                           "values: lzma, bzip2, zlib, none. (default: %default)")
     parser.add_option("--strip-meta", action="store_true", default=False,
                       help='Strip metadata of all redundancies (like indices) before '
                       'uploading. This will significantly reduce the size of the data '
                       'at the expense of additional CPU time during the next unmount '
                       'and mount.')
     parser.add_option("--metadata-upload-interval", action="store", type='int',
-                      default=24*60*60,
+                      default=24*60*60, metavar='<seconds>',
                       help='Interval in seconds between complete metadata uploads. '
                       'default: 24h.')
 

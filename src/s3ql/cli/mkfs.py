@@ -32,23 +32,23 @@ def parse_args(args):
             "       %prog --help",
         description="Initializes an S3QL file system")
 
-    parser.add_option("--s3-location", type="string", default='EU',
+    parser.add_option("--s3-location", type="string", default='EU', metavar='<name>',
                       help="Specify storage location for new bucket. Allowed values: EU,"
                            'us-west-1, ap-southeast-1, or us-standard.'
                            ' The later is not recommended, please '
                            'refer to the FAQ at http://code.google.com/p/s3ql/ for more information.')
-    parser.add_option("--homedir", type="string",
+    parser.add_option("--homedir", type="string", metavar='<path>',
                       default=os.path.expanduser("~/.s3ql"),
                       help='Directory for log files, cache and authentication info. '
                       'Default: ~/.s3ql')
     parser.add_option("-L", type="string", default='', help="Filesystem label",
-                      dest="label")
-    parser.add_option("--blocksize", type="int", default=10240,
+                      dest="label", metavar='<name>',)
+    parser.add_option("--blocksize", type="int", default=10240, metavar='<size>',
                       help="Maximum block size in KB (default: %default)")
     parser.add_option("--plain", action="store_true", default=False,
                       help="Create unencrypted file system.")
-    parser.add_option("--debug", action="append",
-                      help="Activate debugging output from specified module. Use 'all' "
+    parser.add_option("--debug", action="append", metavar='<module>',
+                      help="Activate debugging output from <module>. Use `all` "
                            "to get debug messages from all modules. This option can be "
                            "specified multiple times.")
     parser.add_option("--quiet", action="store_true", default=False,
