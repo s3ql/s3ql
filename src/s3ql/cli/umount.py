@@ -46,17 +46,13 @@ def parse_args(args):
                       help="Lazy umount. Detaches the file system immediately, even if there "
                       'are still open files. The data will be uploaded in the background '
                       'once all open files have been closed.')
-    parser.add_option('--purge-cache', action="store_true", default=False,
-                      help='Do not umount, just flush and clean file system cache.')
+
     (options, pps) = parser.parse_args(args)
 
     # Verify parameters
     if len(pps) != 1:
         parser.error("Incorrect number of arguments.")
     options.mountpoint = pps[0].rstrip('/')
-
-    if options.purge_cache and options.lazy:
-        parser.error('--lazy and --purge-cache are mutually exclusive')
 
     return options
 
@@ -100,8 +96,6 @@ def main(args=None):
 
     if options.lazy:
         lazy_umount(mountpoint)
-    elif options.purge_cache:
-        purge_cache(mountpoint)
     else:
         blocking_umount(mountpoint)
 
@@ -122,18 +116,6 @@ def lazy_umount(mountpoint):
     if found_errors:
         sys.exit(1)
 
-def purge_cache(mountpoint):
-    '''Flush and purge cache
-    
-    This function writes to stdout/stderr and calls `system.exit()`.
-    '''
-
-    ctrlfile = os.path.join(mountpoint, CTRL_NAME)
-
-    log.info('Flushing cache...')
-    cmd = b'doit!'
-    libc.setxattr(ctrlfile, b's3ql_flushcache!', cmd)
-
 
 def blocking_umount(mountpoint):
     '''Invoke fusermount and wait for daemon to terminate.
@@ -152,7 +134,9 @@ def blocking_umount(mountpoint):
         raise QuietError(1)
 
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
-    purge_cache(mountpoint)
+    
+    log.info('Flushing cache...')
+    libc.setxattr(ctrlfile, b's3ql_flushcache!', b'dummy')
 
     if not warn_if_error(mountpoint):
         found_errors = True
