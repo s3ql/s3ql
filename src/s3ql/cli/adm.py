@@ -21,6 +21,7 @@ from s3ql.backends import s3, local, sftp
 from s3ql.backends.common import ChecksumError
 import os
 import s3ql.database as dbcm
+import s3ql
 import tempfile
 import errno
 import textwrap
@@ -33,6 +34,7 @@ def parse_args(args):
     parser = OptionParser(
         usage="%prog [options] <action> <storage-url>\n"
               "       %prog --help",
+        version='S3QL %s' % s3ql.VERSION,
         description="Manage S3QL Buckets.")
 
     parser.add_option("--debug", action="append", metavar='<module>',

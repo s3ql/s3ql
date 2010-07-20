@@ -22,6 +22,7 @@ import logging
 from s3ql import fsck
 from s3ql import backends
 from s3ql.backends.common import ChecksumError
+import s3ql
 import sys
 import shutil
 import tempfile
@@ -35,6 +36,7 @@ def parse_args(args):
     parser = OptionParser(
         usage="%prog  [options] <storage-url>\n"
         "%prog --help",
+        version='S3QL %s' % s3ql.VERSION,
         description="Checks and repairs an S3QL filesystem.")
 
     parser.add_option("--homedir", type="string", metavar='<path>',

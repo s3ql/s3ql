@@ -21,6 +21,7 @@ from s3ql.common import (add_stdout_logging, get_backend, get_bucket_home,
                          QuietError, unlock_bucket, add_file_logging, LoggerFilter,
                          cycle_metadata, dump_metadata, restore_metadata,
                          EmbeddedException, copy_metadata, setup_excepthook)
+import s3ql
 import s3ql.database as dbcm
 import llfuse
 import tempfile
@@ -321,6 +322,7 @@ def parse_args(args):
     parser = OptionParser(
         usage="%prog  [options] <storage-url> <mountpoint>\n"
               "       %prog --help",
+        version='S3QL %s' % s3ql.VERSION,
         description="Mount an S3QL file system.")
 
     parser.add_option("--homedir", type="string", metavar='<path>',

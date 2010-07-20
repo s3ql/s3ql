@@ -14,6 +14,7 @@ import os
 import logging
 from s3ql.common import (CTRL_NAME, QuietError, add_stdout_logging, 
                          setup_excepthook)
+import s3ql
 import posixpath
 import struct
 import sys
@@ -26,6 +27,7 @@ def parse_args(args):
     parser = OptionParser(
         usage="%prog  [options] <mountpoint>\n"
               "       %prog --help",
+        version='S3QL %s' % s3ql.VERSION,
         description="Print file system statistics.")
 
     parser.add_option("--debug", action="store_true",

@@ -15,6 +15,7 @@ import logging
 from s3ql.common import add_stdout_logging, setup_excepthook, CTRL_NAME, QuietError
 import struct
 import stat
+import s3ql
 import errno
 import sys
 
@@ -26,6 +27,7 @@ def parse_args(args):
     parser = OptionParser(
         usage="%prog  [options] <source> <target>\n"
               "       %prog --help",
+        version='S3QL %s' % s3ql.VERSION,
         description=
 '''Replicates the contents of the directory <source> in the directory <target>. <source>
 has to be an existing directory and <target>  must not exist. Both directories have to be
