@@ -200,7 +200,7 @@ def unlock_bucket(options, bucket):
     # Otherwise from stdin
     if wrap_pw is None:
         if sys.stdin.isatty():
-            wrap_pw = getpass("Enter encryption password: ")
+            wrap_pw = getpass("Enter bucket encryption passphrase: ")
         else:
             wrap_pw = sys.stdin.readline().rstrip()
 
@@ -448,11 +448,17 @@ def get_backend_credentials(homedir, backend, host):
 
     # Otherwise from stdin
     if sys.stdin.isatty():
-        print("Enter login for %s: " % host, end='')
+        if host:
+            print("Enter backend login for %s: " % host, end='')
+        else:
+            print("Enter backend login: ", end='')
     key = sys.stdin.readline().rstrip()
 
     if sys.stdin.isatty():
-        pw = getpass("Enter password for %s: " % host)
+        if host:
+            pw = getpass("Enter backend password for %s: " % host)
+        else:
+            pw = getpass("Enter backend password: ")
     else:
         pw = sys.stdin.readline().rstrip()
 
