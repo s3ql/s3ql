@@ -83,6 +83,9 @@ class ThreadGroup(object):
         '''
         
         t = Thread(self)
+        
+        # Attribute defined outside init
+        #pylint: disable-msg=W0201
         t.run_protected = lambda: fn(*a, **kw)
         
         with self.lock:
