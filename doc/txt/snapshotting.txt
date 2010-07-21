@@ -51,6 +51,9 @@ Note that:
   usual.
 
 
+For a full list of available options, run `s3qlcp --help`.
+
+
 Snapshotting vs Hardlinking
 ===========================
 

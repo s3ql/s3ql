@@ -35,18 +35,13 @@ or if you suspect that there might be errors, you should run the
 
  fsck.s3ql [options] <storage url>
 
-Possible options are:
+Important options are:
 
-  --homedir=HOMEDIR  Directory for log files, cache and authentication info.
-                     Default: `~/.s3ql`
-  --debug=DEBUG      Activate debugging output from specified module. Use
-                     `all` to get debug messages from all modules.
-                     This option can be specified multiple times.
-  --quiet            Be really quiet
-  --batch            If user input is required, exit without prompting.
-  --force            Force checking even if file system is marked clean.
-
+  --batch           If user input is required, exit without prompting.
+  --force           Force checking even if file system is marked clean.
   
+For a full list of available options, run `fsck.s3ql --help`.
+
 
 `s3qlctrl` - Control a mounted S3QL File System
 ===============================================
@@ -55,17 +50,18 @@ Possible options are:
 The `s3qlctrl` can be used to control a mounted S3QL file system. Its
 syntax is ::
 
- s3qlctrl [options] <mountpoint>
+ s3qlctrl [options] <action> <mountpoint>
 
-`<mountpoint>` must be the location of a mounted S3QL file system. The
-following options can be given:
+`<mountpoint>` must be the location of a mounted S3QL file system. 
+For a list of valid options, run `s3qlctrl --help`. `<action>`
+may be either of:
 
-  --debug        Activate debugging output
-  --quiet        Be really quiet
-  --stacktrace   Dump stack trace for all active threads into logfile. Useful
-                 for debugging deadlocks.
-  --flush-cache  Flush file system cache. The command blocks until the cache
-                 has been flushed.
+  :flushcache:
+              Flush file system cache. The command blocks until the cache has
+              been flushed.
+  :stacktrace:  Dump stack trace for all active threads into logfile. This is for
+              debugging purposes only.
+
 
 
 `s3qladm` - Manage S3QL Buckets
@@ -76,6 +72,12 @@ The `s3qladm` command performs various operations on S3QL buckets.
 The file system contained in the bucket *must not be mounted* when
 using `s3qladm` or things will go wrong badly.
 
+The syntax is ::
+
+ s3qladm [options] <action> <storage-url>
+
+For a list of valid options, run `s3qladm --help`. The available
+actions are explained in the following subsections.
 
 
 Changing the Passphrase
@@ -83,7 +85,7 @@ Changing the Passphrase
 
 To change the passphrase a bucket, use the `s3qladm` command::
 
-  s3qladm --change-passphrase  <storage url>
+  s3qladm passphrase  <storage url>
 
 The passphrase can only be changed when the bucket is not mounted.
 
@@ -110,7 +112,7 @@ upgrade the file system from 0.11 to 0.12.
 To upgrade a file system from the previous to the current revision,
 execute ::
 
-  s3qladm --upgrade <storage url>
+  s3qladm upgrade <storage url>
 
 
 Deleting a file system
@@ -118,6 +120,6 @@ Deleting a file system
 
 A file system can be deleted with::
 
-  s3qladm --delete <storage url>
+  s3qladm delete <storage url>
 
 This physically deletes all the data and file system structures.

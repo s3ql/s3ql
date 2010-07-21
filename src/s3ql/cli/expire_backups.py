@@ -12,7 +12,8 @@ from __future__ import division, print_function, absolute_import
 
 import sys
 import os
-from ..common import (QuietError, add_stdout_logging, setup_excepthook, OptionParser)
+from ..common import (QuietError, add_stdout_logging, setup_excepthook)
+from s3ql.optparse import OptionParser
 from datetime import datetime, timedelta
 import logging
 import re

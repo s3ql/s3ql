@@ -17,13 +17,10 @@ from .database import NoSuchRowError
 import stat
 import sys
 import apsw
-import optparse
 import threading
 import logging.handlers
 import traceback
-import s3ql
 import re
-import textwrap
 import cPickle as pickle
 from contextlib import contextmanager
 
@@ -33,7 +30,7 @@ __all__ = ["get_bucket_home", 'sha256', 'sha256_fh', 'add_stdout_logging',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'QuietError', 'get_backend', 'add_file_logging', 'setup_excepthook',
            'cycle_metadata', 'restore_metadata', 'dump_metadata', 'copy_metadata',
-           'without', 'OptionParser' ]
+           'without', 'OptionParser', 'ArgumentGroup' ]
 
 
 
@@ -579,45 +576,3 @@ def sha256_fh(fh):
 
 def sha256(s):
     return hashlib.sha256(s).digest()
-
-
-class HelpFormatter (optparse.IndentedHelpFormatter):
-
-    def format_usage(self, usage):
-        if '\n' in usage:
-            variants = usage.split('\n')
-            s =  'Usage: %s\n' % variants[0] 
-            sp = '  or:  %s\n' 
-            return s + '\n'.join(sp % x for x in variants[1:])
-        else:
-            return _("Usage: %s\n") % usage
-
-    def _format_text(self, text):
-        """
-        Format one or more paragraphs of free-form text for inclusion in
-        the help output at the current indentation level.
-        """
-        text_width = self.width - self.current_indent
-        indent = " "*self.current_indent
-        
-        results = list()
-        for prg in text.split('\n\n'):
-            results.append(textwrap.fill(prg,
-                             text_width,
-                             initial_indent=indent,
-                             subsequent_indent=indent))
-        
-        return '\n\n'.join(results)
-              
-    
-class OptionParser(optparse.OptionParser):
-    
-    def __init__(self, **kw):
-        if 'version' not in kw:
-            kw['version'] = 'S3QL %s' % s3ql.VERSION
-        if 'formatter' not in kw:
-            kw['formatter'] = HelpFormatter()
-            
-        optparse.OptionParser.__init__(self, **kw)
-                                           
-                                            

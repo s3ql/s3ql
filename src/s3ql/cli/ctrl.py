@@ -11,8 +11,8 @@ from __future__ import division, print_function, absolute_import
 from s3ql import libc
 import os
 import logging
-from s3ql.common import (CTRL_NAME, QuietError, add_stdout_logging, setup_excepthook,
-                         OptionParser)
+from s3ql.common import (CTRL_NAME, QuietError, add_stdout_logging, setup_excepthook)
+from s3ql.optparse import (OptionParser, ArgumentGroup)
 import sys
 
 log = logging.getLogger("ctrl")
@@ -21,32 +21,31 @@ def parse_args(args):
     '''Parse command line'''
 
     parser = OptionParser(
-        usage="%prog [options] <mountpoint>\n"
+        usage="%prog [options] <action> <mountpoint>\n"
               "%prog --help",
-        description="Control a mounted S3QL File System.")
+        description='''Control a mounted S3QL File System''')
+
+    group = ArgumentGroup(parser, "<action> may be either of")
+    group.add_argument("stacktrace", "Dump stack trace for all active threads into logfile.")
+    group.add_argument("flushcache", "Flush file system cache. The command blocks until "
+                                      "the cache has been flushed.")
+    parser.add_option_group(group)
 
     parser.add_option("--debug", action="store_true",
                       help="Activate debugging output")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
-    parser.add_option("--stacktrace", action="store_true", default=False,
-                      help="Dump stack trace for all active threads into logfile. "
-                           "Useful for debugging deadlocks.")
-    parser.add_option("--flush-cache", action="store_true", default=False,
-                      help="Flush file system cache. The command blocks until "
-                           "the cache has been flushed.")
 
     (options, pps) = parser.parse_args(args)
-
+    
     # Verify parameters
-    if len(pps) != 1:
+    if len(pps) != 2:
         parser.error("Incorrect number of arguments.")
-    options.mountpoint = pps[0].rstrip('/')
+    options.action = pps[0]
+    options.mountpoint = pps[1].rstrip('/')
 
-    actions = [options.stacktrace, options.flush_cache]
-    selected = len([ act for act in actions if act ])
-    if selected != 1:
-        parser.error("Need to specify exactly one action.")
+    if options.action not in group.arguments:
+        parser.error("Invalid <action>: %s" % options.action)
         
     return options
 
@@ -79,10 +78,10 @@ def main(args=None):
             and os.path.exists(ctrlfile)):
         raise QuietError('Mountpoint is not an S3QL file system')
 
-    if options.stacktrace:
+    if options.action == 'stacktrace':
         libc.setxattr(ctrlfile, 'stacktrace', 'dummy')
         
-    elif options.flush_cache:
+    elif options.action == 'flushcache':
         libc.setxattr(ctrlfile, 's3ql_flushcache!', 'dummy')
         
 

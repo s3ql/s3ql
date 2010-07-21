@@ -15,27 +15,20 @@ Note that S3QL is not a network file system like `NFS
 `CIFS <http://en.wikipedia.org/wiki/CIFS>`_, so an S3QL file system
 can only be mounted on one computer at a time.
 
-You can specify the following options:
+The most important options are:
 
-  --homedir=HOMEDIR     Directory for log files, cache and authentication
-                        info. Default: ~/.s3ql
-  --cachesize=CACHESIZE
-                        Cache size in kb (default: 102400 (100 MB)). Should be
+  --cachesize=<size>    Cache size in kb (default: 102400 (100 MB)). Should be
                         at least 10 times the blocksize of the filesystem,
                         otherwise an object may be retrieved and written
                         several times during a single write() or read()
                         operation.
-  --max-cache-entries=MAX_CACHE_ENTRIES
-                        Maximum number of entries in cache (default: 768). Each
-                        cache entry requires one file descriptor, so if you
-                        increase this number you have to make sure that your
-                        process file descriptor limit (as set with `ulimit
-                        -n`) is high enough (at least the number of cache
-                        entries + 100).
-  --debug=DEBUG         Activate debugging output from specified module. Use
-                        'all' to get debug messages from all modules. This
-                        option can be specified multiple times.
-  --quiet               Be really quiet
+  --max-cache-entries=<num>
+                        Maximum number of entries in cache (default: 768).
+                        Each cache entry requires one file descriptor, so if
+                        you increase this number you have to make sure that
+                        your process file descriptor limit (as set with
+                        `ulimit -n`) is high enough (at least the number of
+                        cache entries + 100).
   --allow-other         Normally, only the user who called `mount.s3ql` can
                         access the mount point. This user then also has full
                         access to it, independent of individual file
@@ -46,13 +39,9 @@ You can specify the following options:
   --allow-root          Like `--allow-other`, but restrict access to the
                         mounting user and the root user.
   --fg                  Do not daemonize, stay in foreground
-  --single              Run in single threaded mode. If you don't understand
-                        this, then you don't need it.
-  --profile             Create profiling information. If you don't understand
-                        this, then you don't need it.
-  --compress=COMPRESS   Compression algorithm to use when storing new data.
-                        Allowed values: `lzma`, `bzip2`, `zlib`, `none`. (default:
-                        `lzma`)
+  --compress=<name>     Compression algorithm to use when storing new data.
+                        Allowed values: lzma, bzip2, zlib, none. (default:
+                        lzma)
   --strip-meta          Strip metadata of all redundancies (like indices)
                         before uploading. This will significantly reduce the
                         size of the data at the expense of additional CPU time
@@ -61,7 +50,7 @@ You can specify the following options:
                         Interval in seconds between complete metadata uploads.
                         default: 24h.
 
-
+For a full list of available options, run `mount.s3ql --help`.
 
 .. _bucket_pw:
 

@@ -96,6 +96,8 @@ above backup strategy, the correct invocation would be::
   expire_backups 1h 24h 2d 5d 26d 154d
 
 
+For a full list of available options, run `expire_backups --help`.
+
 
 A sample backup script
 ======================

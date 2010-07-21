@@ -16,7 +16,8 @@ import logging
 from s3ql import mkfs, CURRENT_FS_REV
 from s3ql.common import (get_backend, get_bucket_home, add_stdout_logging, 
                          add_file_logging, setup_excepthook, LoggerFilter,
-                         QuietError, OptionParser)
+                         QuietError)
+from s3ql.optparse import OptionParser
 import s3ql.database as dbcm
 from s3ql.backends.boto.s3.connection import Location
 from s3ql.backends import s3

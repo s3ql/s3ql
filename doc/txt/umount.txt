@@ -19,15 +19,13 @@ until all data has been uploaded, so if you use them instead of
 `umount.s3ql` then you should manually wait for the `mount.s3ql`
 process to terminate before shutting down the system.
 
-You can specify the following options:
+The most important options are:
 
-  --homedir=HOMEDIR  Directory for log files, cache and authentication
-                     info. Default: `~/.s3ql`
-  --debug            Activate debugging output
-  --quiet            Be really quiet
   -z, --lazy         Lazy umount. Detaches the file system immediately, even
                      if there are still open files. The data will be uploaded
                      in the background once all open files have been closed.
+
+For a full list of available options, run `umount.s3ql --help`.
 
 If, for some reason, the `umount.sql` command does not work, the file
 system can also be unmounted with `fusermount -u -z`. Note that this

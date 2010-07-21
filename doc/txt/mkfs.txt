@@ -12,24 +12,18 @@ following syntax::
 If you want to overwrite an existing bucket, you have to delete the
 bucket with `s3qladm --delete` first.
 
-You can specify the following options:
+The most important options are:
 
-  --s3-location=S3_LOCATION
-                        Specify storage location for new bucket.
-                        Allowed values: `EU`, `us-west-1`, `ap-southeast-1` or
-                        `us-standard`. The later is not recommended,
-                        please refer to the FAQ for more information.
-  --homedir=HOMEDIR     Directory for log files, cache and authentication
-                        info. Default: `~/.s3ql`
-  -L LABEL              Filesystem label
-  --blocksize=BLOCKSIZE
-                        Maximum size of s3 objects in KB (default: 10240)
-  --plain               Create unencrypted file system
-  --debug=DEBUG         Activate debugging output from specified module. Use
-                        `all` to get debug messages from all modules. This
-                        option can be specified multiple times.
-  --quiet               Be really quiet
+  --s3-location=<name>  Specify storage location for new bucket. Allowed
+                        values: EU,us-west-1, ap-southeast-1, or us-standard.
+                        The later is not recommended, please refer to the FAQ
+                        at http://code.google.com/p/s3ql/ for more
+                        information.
+  -L <name>             Filesystem label
+  --blocksize=<size>    Maximum block size in KB (default: 10240)
+  --plain               Create unencrypted file system.
 
+For a full list of available options, run `mkfs.s3ql --help`.
 
 Unless you have specified the `--plain` option, `mkfs.s3ql` will ask you
 to enter an encryption password. If you do not want to enter this

@@ -12,7 +12,8 @@ from s3ql import libc
 import os
 import logging
 from s3ql.common import (CTRL_NAME, QuietError, add_stdout_logging, 
-                         setup_excepthook, OptionParser)
+                         setup_excepthook)
+from s3ql.optparse import OptionParser
 import posixpath
 import struct
 import sys

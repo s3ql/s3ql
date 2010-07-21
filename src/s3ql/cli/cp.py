@@ -11,8 +11,8 @@ from __future__ import division, print_function, absolute_import
 from s3ql import libc
 import os
 import logging
-from s3ql.common import (add_stdout_logging, setup_excepthook, CTRL_NAME, QuietError,
-                         OptionParser)
+from s3ql.common import (add_stdout_logging, setup_excepthook, CTRL_NAME, QuietError)
+from s3ql.optparse import OptionParser
 import struct
 import stat
 import textwrap
@@ -27,7 +27,7 @@ def parse_args(args):
     parser = OptionParser(
         usage="%prog [options] <source> <target>\n"
               "%prog --help",
-        description=textwrap.dedent('''\ 
+        description=textwrap.dedent('''\
         Replicates the contents of the directory <source> in the
         directory <target>. <source> has to be an existing directory and
         <target>  must not exist. Both directories have to be within

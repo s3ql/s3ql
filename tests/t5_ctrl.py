@@ -23,7 +23,7 @@ class ctrlTests(t4_fuse.fuse_tests):
     def tst_flush(self):
 
         try:
-            s3ql.cli.ctrl.main(['--flush-cache', self.mnt_dir])
+            s3ql.cli.ctrl.main(['flushcache', self.mnt_dir])
         except BaseException as exc:
             self.fail("s3qladm failed: %s" % exc)
             

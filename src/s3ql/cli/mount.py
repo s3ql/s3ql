@@ -18,8 +18,9 @@ from s3ql.daemonize import daemonize
 from s3ql.backends.common import (ChecksumError, NoSuchObject)
 from s3ql.common import (add_stdout_logging, get_backend, get_bucket_home,
                          QuietError, unlock_bucket, add_file_logging, LoggerFilter,
-                         cycle_metadata, dump_metadata, restore_metadata, OptionParser,
+                         cycle_metadata, dump_metadata, restore_metadata, 
                          EmbeddedException, copy_metadata, setup_excepthook)
+from s3ql.optparse import OptionParser
 import s3ql.database as dbcm
 import llfuse
 import tempfile

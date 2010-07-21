@@ -10,8 +10,9 @@ from __future__ import division, print_function, absolute_import
 
 import logging
 from s3ql.common import (get_backend, QuietError, unlock_bucket, LoggerFilter,
-                      cycle_metadata, dump_metadata, restore_metadata, OptionParser,
+                      cycle_metadata, dump_metadata, restore_metadata, 
                       add_file_logging, add_stdout_logging, setup_excepthook)
+from s3ql.optparse import (OptionParser, ArgumentGroup)
 from s3ql import CURRENT_FS_REV
 from s3ql.mkfs import create_indices
 from getpass import getpass
@@ -34,34 +35,33 @@ def parse_args(args):
               "%prog --help",
         description="Manage S3QL Buckets.")
 
+    group = ArgumentGroup(parser, "<action> may be either of")
+    group.add_argument("passphrase", "Change bucket passphrase")
+    group.add_argument("upgrade", "Upgrade file system to newest revision.")
+    group.add_argument("delete", "Completely delete a bucket with all contents.")
+    parser.add_option_group(group)
+    
     parser.add_option("--debug", action="append", metavar='<module>',
                       help="Activate debugging output from <module>. Use `all` "
                            "to get debug messages from all modules. This option can be "
                            "specified multiple times.")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
-    parser.add_option("--change-passphrase", action="store_true", default=False,
-                      help="Change bucket passphrase")
-    parser.add_option("--upgrade", action="store_true", default=False,
-                      help="Upgrade file system to newest revision.")
-    parser.add_option("--delete", action="store_true", default=False,
-                      help="Completely delete a bucket with all contents.")
     parser.add_option("--homedir", type="string", metavar='<path>',
                       default=os.path.expanduser("~/.s3ql"),
                       help='Directory for log files, cache and authentication info. '
                       'Default: ~/.s3ql')
 
     (options, pps) = parser.parse_args(args)
-
-    actions = [options.change_passphrase, options.upgrade, options.delete]
-    selected = len([ act for act in actions if act ])
-    if selected != 1:
-        parser.error("Need to specify exactly one action.")
-
-    if len(pps) != 1:
+    if len(pps) != 2:
         parser.error("Incorrect number of arguments.")
-    options.storage_url = pps[0]
 
+    options.action = pps[0]
+    options.storage_url = pps[1]
+
+    if options.action not in group.arguments:
+        parser.error("Invalid <action>: %s" % options.action)
+        
     if not os.path.exists(options.homedir):
         os.mkdir(options.homedir, 0700)
         
@@ -103,7 +103,7 @@ def main(args=None):
             raise QuietError("Bucket does not exist.")
         bucket = conn.get_bucket(bucketname)
 
-        if options.delete:
+        if options.action == 'delete':
             return delete_bucket(conn, bucketname)
 
         try:
@@ -111,10 +111,10 @@ def main(args=None):
         except ChecksumError:
             raise QuietError('Checksum error - incorrect password?')
 
-        if options.change_passphrase:
+        if options.action == 'passphrase':
             return change_passphrase(bucket)
 
-        if options.upgrade:
+        if options.action == 'upgrade':
             return upgrade(conn, bucket)
 
 

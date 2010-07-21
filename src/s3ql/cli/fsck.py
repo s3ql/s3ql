@@ -12,8 +12,9 @@ import os
 import stat
 import time
 from s3ql.common import (get_bucket_home, cycle_metadata, add_stdout_logging, 
-                         add_file_logging, setup_excepthook, LoggerFilter, OptionParser,
+                         add_file_logging, setup_excepthook, LoggerFilter, 
                          unlock_bucket, QuietError, get_backend, restore_metadata)
+from s3ql.optparse import OptionParser
 from s3ql import CURRENT_FS_REV
 import s3ql.database as dbcm
 from s3ql.mkfs import create_indices

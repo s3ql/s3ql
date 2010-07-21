@@ -45,7 +45,7 @@ class AdmTests(TestCase):
         sys.stdin = StringIO('%s\n%s\n%s\n' % (self.passphrase,
                                                passphrase_new, passphrase_new))
         try:
-            s3ql.cli.adm.main(['--change-passphrase', self.bucketname ])
+            s3ql.cli.adm.main(['passphrase', self.bucketname ])
         except BaseException as exc:
             self.fail("s3qladm failed: %s" % exc)
 
