@@ -27,17 +27,18 @@ class Thread(threading.Thread):
     
     def run(self):
         try:
-            self.run_protected()
+            try:
+                self.run_protected()
+            finally:
+                log.debug('thread: waiting for lock')
+                with self._group.lock:
+                    log.debug('thread: calling notify()')
+                    self._group.active_threads.remove(self)
+                    self._group.finished_threads.append(self)
+                    self._group.lock.notifyAll()
         except BaseException as exc:
             self._exc = exc
-            self._tb = sys.exc_info()[2] # This creates a circular reference chain
-        finally:
-            log.debug('thread: waiting for lock')
-            with self._group.lock:
-                log.debug('thread: calling notify()')
-                self._group.active_threads.remove(self)
-                self._group.finished_threads.append(self)
-                self._group.lock.notify()
+            self._tb = sys.exc_info()[2] # This creates a circular reference chain           
 
     def join_and_raise(self):
         '''Wait for the thread to finish, raise any occurred exceptions'''
@@ -94,9 +95,7 @@ class ThreadGroup(object):
             self.active_threads.append(t)
             
         t.start()
-        
-        
-        
+            
     def join_one(self):
         '''Wait for any one thread to finish
         
@@ -108,12 +107,15 @@ class ThreadGroup(object):
         log.debug('controller: waiting for lock')
         with self.lock:
             
-            if not self.finished_threads and not self.active_threads:
-                return
-            
-            # Loop is required because notify() may wake up more than
-            # one thread in wait() state.
+            # Loop is required because we notify all waiting threads
+            # when one worker thread has finished (so that waiting
+            # threads can exit if there are no worker threads left).
             while True:
+                
+                if not self.finished_threads and not self.active_threads:
+                    # No threads running
+                    return
+                
                 # See if any thread has terminated
                 log.debug('controller: looking for terminated threads')
                 try:
