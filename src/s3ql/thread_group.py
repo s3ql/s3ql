@@ -76,13 +76,19 @@ class ThreadGroup(object):
         self.finished_threads = list()
         self.lock = threading.Condition(threading.RLock())
         
-    def add(self, fn, *a, **kw):
+    def add(self, fn, max_threads=None, *a, **kw):
         '''Add new thread that runs given function
         
-        If the group already contains the maximum number of threads, the method will first call
-        `join_one()`. 
+        This method waits until there are less than `max_threads` active
+        threads, then it starts a new thread executing `fn`.
+                
+        If `max_threads` is `None`, the `max_threads` value passed
+        to the constructor is used instead.
         '''
         
+        if max_threads is None:
+            max_threads = self.max_threads
+            
         t = Thread(self)
         
         # Attribute defined outside init
@@ -90,52 +96,43 @@ class ThreadGroup(object):
         t.run_protected = lambda: fn(*a, **kw)
         
         with self.lock:
-            if len(self) >= self.max_threads:
+            while len(self) >= max_threads:
                 self.join_one()
+                
             self.active_threads.append(t)
             
         t.start()
-            
+    
     def join_one(self):
         '''Wait for any one thread to finish
         
         If the thread terminated with an exception, the exception
         is encapsulated in `EmbeddedException` and raised again. If there are
         no active threads, the call returns without doing anything.
+                
+        If more than one thread has called `join_one`, a single thread
+        that finishes execution will cause all pending `join_one` calls
+        to return.
         '''
         
-        log.debug('controller: waiting for lock')
         with self.lock:
+            if len(self) == 0:
+                return
             
-            # Loop is required because we notify all waiting threads
-            # when one worker thread has finished (so that waiting
-            # threads can exit if there are no worker threads left).
-            while True:
-                
-                if not self.finished_threads and not self.active_threads:
-                    # No threads running
-                    return
-                
-                # See if any thread has terminated
-                log.debug('controller: looking for terminated threads')
-                try:
-                    self.finished_threads.pop().join_and_raise()
-                    return    
-                except IndexError:
-                    pass 
-                
+            try:
+                self.finished_threads.pop().join_and_raise()
+            except IndexError:
                 # Wait for thread to terminate
-                log.debug('controller: wait()')
+                log.debug('join_one: wait()')
                 self.lock.wait()
-                
-        
+            
     def join_all(self):
-        '''Call `join_one` until all threads are finished'''
+        '''Call join_one() until all threads have terminated'''
         
         with self.lock:
-            while self.active_threads or self.finished_threads:
-                self.join_one()
-    
+            while len(self) > 0: 
+                self.join_one()    
+                
     def __len__(self):
         with self.lock:
             return len(self.active_threads) + len(self.finished_threads)

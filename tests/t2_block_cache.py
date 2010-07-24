@@ -145,7 +145,7 @@ class cache_tests(TestCase):
             fh.write(data1)
             el1 = fh
         mngr.add(el1, self.cache.lock)
-        mngr.join_one()
+        mngr.join_all()
         self.cache.upload_manager.bucket.verify()
 
         # Case 2: Link new object
@@ -155,7 +155,7 @@ class cache_tests(TestCase):
             fh.write(data1)
             el2 = fh
         mngr.add(el2, self.cache.lock)
-        mngr.join_one()
+        mngr.join_all()
         self.cache.upload_manager.bucket.verify()
 
         # Case 3: Upload old object, still has references
@@ -164,7 +164,7 @@ class cache_tests(TestCase):
             fh.seek(0)
             fh.write(data2)
         mngr.add(el1, self.cache.lock)
-        mngr.join_one()
+        mngr.join_all()
         self.cache.upload_manager.bucket.verify()
 
 
@@ -174,9 +174,8 @@ class cache_tests(TestCase):
             fh.seek(0)
             fh.write(data3)
         mngr.add(el2, self.cache.lock)
-        mngr.join_one()
+        mngr.join_all()
         self.cache.upload_manager.bucket.verify()
-
 
         # Case 5: Link old object, no references left
         self.cache.upload_manager.bucket = TestBucket(self.bucket, no_del=1)
@@ -184,7 +183,7 @@ class cache_tests(TestCase):
             fh.seek(0)
             fh.write(data2)
         mngr.add(el2, self.cache.lock)
-        mngr.join_one()
+        mngr.join_all()
         self.cache.upload_manager.bucket.verify()
 
 
@@ -196,7 +195,7 @@ class cache_tests(TestCase):
             fh.write(data1)
             el3 = fh
         mngr.add(el3, self.cache.lock)
-        mngr.join_one()
+        mngr.join_all()
         self.cache.upload_manager.bucket.verify()
 
 
@@ -205,7 +204,7 @@ class cache_tests(TestCase):
             fh.seek(0)
             fh.write(data1)
         mngr.add(el1, self.cache.lock)
-        mngr.join_one()
+        mngr.join_all()
         self.cache.upload_manager.bucket.verify()
 
 

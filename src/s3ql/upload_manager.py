@@ -121,27 +121,26 @@ class UploadManager(object):
                 doit = lambda : retry_exc(300, [ NoSuchObject ], self.bucket.delete,
                                           's3ql_data_%d' % old_obj_id)
                 
+                
             # If we already have the minimum transit size, do not start more
             # than two threads
-            while self.transit_size > MIN_TRANSIT_SIZE and len(self.threads) >= 2:
-                log.debug('add(%s): waiting for upload thread', el)
-                with without(lock):
-                    self.threads.join_one()
-
             log.debug('add(%s): starting upload thread', el)
-            
-            with without(lock):
-                self.threads.add(doit)
+            if self.transit_size > MIN_TRANSIT_SIZE:
+                with without(lock):
+                    self.threads.add(doit, max_threads=2)
+            else:
+                with without(lock):
+                    self.threads.add(doit)
 
         log.debug('add(%s): end', el)
         return size
 
-    def join_one(self):
-        self.threads.join_one()
-
     def join_all(self):
         self.threads.join_all()
-        
+
+    def join_one(self):
+        self.threads.join_one()
+                
     def upload_in_progress(self):
         return len(self.threads) > 0
 
