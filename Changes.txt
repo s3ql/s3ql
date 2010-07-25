@@ -1,3 +1,8 @@
+2010-07-25, S3QL 0.19
+
+  * Fixed various smaller bugs, see Mercurial changelog for 
+    details.
+
 2010-07-11, S3QL 0.18
 
   * Added --strip-meta option to mount.s3ql
