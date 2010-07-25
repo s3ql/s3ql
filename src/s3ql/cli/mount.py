@@ -363,7 +363,7 @@ def parse_args(args):
     parser.add_option("--compress", action="store", default='lzma', metavar='<name>',
                       choices=('lzma', 'bzip2', 'zlib', 'none'),
                       help="Compression algorithm to use when storing new data. Allowed "
-                           "values: lzma, bzip2, zlib, none. (default: %default)")
+                           "values: `lzma`, `bzip2`, `zlib`, none. (default: `%default`)")
     parser.add_option("--strip-meta", action="store_true", default=False,
                       help='Strip metadata of all redundancies (like indices) before '
                       'uploading. This will significantly reduce the size of the data '

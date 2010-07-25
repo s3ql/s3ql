@@ -40,8 +40,8 @@ The most important options are:
                         mounting user and the root user.
   --fg                  Do not daemonize, stay in foreground
   --compress=<name>     Compression algorithm to use when storing new data.
-                        Allowed values: lzma, bzip2, zlib, none. (default:
-                        lzma)
+                        Allowed values: `lzma`, `bzip2`, `zlib`, `none`. (default:
+                        `lzma`)
   --strip-meta          Strip metadata of all redundancies (like indices)
                         before uploading. This will significantly reduce the
                         size of the data at the expense of additional CPU time
