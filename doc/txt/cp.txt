@@ -1,16 +1,16 @@
 .. -*- mode: rst -*-
 
-====================
- Creating Snapshots
-====================
+==============================
+Snapshotting and Copy-on-Write
+==============================
 
-The command `s3qlcp` can be used to duplicate a directory tree
-without physically duplicating the file contents. This is made
-possible by the data de-duplication feature of S3QL.
+The command `s3qlcp` can be used to duplicate a directory tree without
+physically copying the file contents. This is possible due to the data
+de-duplication feature of S3QL.
 
 The syntax of `s3qlcp` is::
 
-  s3qlcp <src> <target>
+  s3qlcp [options] <src> <target>
 
 This will replicate the contents of the directory `<src>` in the
 directory `<target>`. `<src>` has to be an existing directory and

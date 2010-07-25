@@ -1,8 +1,8 @@
 .. -*- mode: rst -*-
 
-================
-Managing Backups
-================
+=================
+Backups with S3QL
+=================
 
 S3QL ships with a program called `expire_backups` that can be used to
 manage backups according to different backup strategies. When combined

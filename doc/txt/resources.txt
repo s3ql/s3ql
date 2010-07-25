@@ -14,7 +14,8 @@ resolve with this manual, you might want to consider the following other resourc
 
 * The `S3QL Mailing List <http://groups.google.com/group/s3ql>`_. You
   can subscribe by sending a mail to
-  mailto:s3ql+subscribe@googlegroups.com
+  `s3ql+subscribe@googlegroups.com <mailto:s3ql+subscribe@googlegroups.com>`_.
 
 
-Please report any bugs you may encounter in the `Issue Tracker <http://code.google.com/p/s3ql/issues/list>`_.
+Please report any bugs you may encounter in the `Issue Tracker
+<http://code.google.com/p/s3ql/issues/list>`_.

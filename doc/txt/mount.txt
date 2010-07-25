@@ -54,15 +54,15 @@ For a full list of available options, run `mount.s3ql --help`.
 
 .. _bucket_pw:
 
-Storing Bucket Passwords
-========================
+Storing Bucket Encryption Passwords
+===================================
 
 If you are trying to mount an encrypted bucket, `mount.s3ql` will first
 try to read the password from the `.s3ql/authinfo` file (the same file
 that is used to read the backend authentication data) and prompt the
 user to enter the password only if this fails.
 
-The `.authinfo` entries to specify bucket passwords are of the form ::
+The `authinfo` entries to specify bucket passwords are of the form ::
 
   storage-url <storage-url> password <password>
 
@@ -74,7 +74,7 @@ the entry would be ::
 **Note**: if you are using the local backend, the storage url will
 always be converted to an absolute path. So if you are in the
 `/home/john` directory and try to mount `local://bucket`, the matching
-`.authinfo` entry has to have a storage url of
+`authinfo` entry has to have a storage url of
 `local:///home/john/bucket`.
 
 
@@ -122,7 +122,7 @@ option. In addition to that, the maximum number of objects in the
 cache is limited by the `--max-cache-entries` option, so it is
 possible that the cache does not grow up to the maximum cache size
 because the maximum number of cache elements has been reached. The
-reason for this limit is that each cache entries requires one open
+reason for this limit is that each cache entry requires one open
 file descriptor, and Linux distributions usually limit the total
 number of file descriptors per process to about a thousand.
 

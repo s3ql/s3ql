@@ -11,10 +11,13 @@
    installation
    backends
    mkfs
+   adm
    mount
+   ctrl
+   cp
+   stat
    umount
-   snapshotting
-   commands
+   fsck
    backup
    contrib
    issues

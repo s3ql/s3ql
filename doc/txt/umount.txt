@@ -29,5 +29,5 @@ For a full list of available options, run `umount.s3ql --help`.
 
 If, for some reason, the `umount.sql` command does not work, the file
 system can also be unmounted with `fusermount -u -z`. Note that this
-command will return immediately and file system may continue to upload
-data in the background for a while longer.
+command will return immediately and the file system may continue to
+upload data in the background for a while longer.
