@@ -82,19 +82,19 @@ Development Status
   <http://code.google.com/p/s3ql/issues/list>`_, usually they are
   resolved in less than a day.
 
-* However, you can be reasonably confident that the bugs (although
-  inconvenient) will not endanger your stored data.
+  Nevertheless, you can be reasonably confident that the bugs
+  (although inconvenient) will not endanger your stored data.
 
 * The author is using this version of S3QL as his main backup system
-  on several computers and stores about 10 GB of data daily.
+  on several computers and stores about 300 GB of data. Daily
+  incremental backups have a volume of about 200 MB.
+
   Byte-by-byte comparisons of the backup against the original data are
-  done every once in a while and so far have shown no problems.
+  done every once in a while and so far have shown no discrepancies.
 
 * If you intend to use S3QL as an archive file system (i.e. the data
   will only be stored in S3QL and nowhere else) it is recommended that
   you still maintain secondary copies until S3QL reaches production
   stage.
 
-* Future versions of S3QL will be backwards compatible, so you will
-  not have to recreate the file system when you upgrade to a newer
-  version of S3QL.
+* Future versions of S3QL will be backwards compatible.
