@@ -5,17 +5,19 @@
 ============
 
 S3QL is a file system that stores all its data online. It supports
-`Amazon S3 <http://aws.amazon.com/s3 Amazon S3>`_ as
-well as arbitrary SFTP servers and effectively provides you with a hard disk
-of infinite capacity that can be accessed from any computer with internet access.
+`Amazon S3 <http://aws.amazon.com/s3 Amazon S3>`_ as well as arbitrary
+SFTP servers and effectively provides you with a hard disk of infinite
+capacity that can be accessed from any computer with internet access.
 
-S3QL has been designed mainly for backup and archival purposes and
-many of its features are especially geared towards this. However,
-since S3QL is providing a standard UNIX file system, it can in
-principle be used for any other application as well.
+S3QL is providing a standard, full featured UNIX file system that is
+conceptually indistinguishable from any local file system.
+Furthermore, S3QL has additional features like compression,
+encryption, data de-duplication, snapshotting and dynamic file
+system size. This makes S3QL especially suitable for online backup and
+archival.
 
 S3QL is designed to favor simplicity and elegance over performance and
-feature-richness. Care has been taken to make the source code as
+feature-creep. Care has been taken to make the source code as
 readable and serviceable as possible. Solid error detection and error
 handling have been included from the very first line, and S3QL comes
 with extensive automated test cases for all its components.
@@ -24,46 +26,49 @@ Features
 ========
 
 
-* **Transparency.** Generally, you will not be able to distinguish S3QL
-  from a local file system like ext3 or NTFS. S3QL removes any limits
-  of the underlying storage system (e.g. the 5 GB file size limit of
-  Amazon S3 or the inability to make hard links over FTP).
+* **Transparency.** Conceptually, S3QL is indistinguishable from a
+  local file system. For example, it supports hardlinks, symlinks,
+  full unix permissions, extended attributes and file sizes up to 2
+  TB.
+
+* **Dynamic Size.** The size of an S3QL file system grows and shrinks
+  dynamically as required. 
 
 * **Compression.** Before storage, all data may compressed with the
   LZMA, BZIP2 or LZ algorithm.
 
-* **Encryption.** After compression (but still before storage), all
-  data can AES encrypted with a 256 bit key. An additional SHA256
-  HMAC checksum is used to protect the data against manipulation.
+* **Encryption.** After compression (but before upload), all data can
+  AES encrypted with a 256 bit key. An additional SHA256 HMAC checksum
+  is used to protect the data against manipulation.
 
 * **Data De-duplication.** If several files have identical contents,
   the redundant data will be stored only once. This works across all
   files stored in the file system, and also if only some parts of the
   files are identical while other parts differ.
 
-* **Copy-on-Write** Inside an S3QL file system, you can duplicate
-  entire directory trees without using any additional storage space.
-  Only if one of the copies is modified, the part of the data that
-  has been modified will take up additional storage space.
+* **Copy-on-Write/Snapshotting.** S3QL can replicate entire directory
+  trees without using any additional storage space. Only if one of the
+  copies is modified, the part of the data that has been modified will
+  take up additional storage space. This can be used to create
+  intelligent snapshots that preserve the state of a directory at
+  different points in time using a minimum amount of space.
 
-  This feature can be used to create **snapshots** that efficiently
-  save the state of a given directory at a fixed point in time.
+* **High Performance independent of network latency.** All operations
+  that do not write or read file contents (like creating directories
+  or moving, renaming, and changing permissions of files and
+  directories) are very fast because they are carried out without any
+  network transactions.
 
-* **Support for high latency, low bandwidth connections.** S3QL saves
-  the file and directory structure in a database that is downloaded
-  once when the file system is mounted and uploaded again when the
-  file system is unmounted. *All operations that do not directly
-  write or read file contents can therefore be carried out very fast
-  without any network transactions*. (Such operations are directory
-  creation, moving and renaming files, changing permissions, etc).
+  S3QL achieves this by saving the entire file and directory structure
+  in a database. This database is locally cached and the remote
+  copy updated asynchronously.
 
-  File contents are cached, so reading or writing to a file requires
-  network access only if the data is not yet in the cache.
-  Additionally, each file is split into small blocks that are stored
-  separately, and if data is needs to be transferred over the network,
-  only the required block is written or retrieved. Therefore *making a
-  small change (or reading a small part) in a large file does not
-  require the entire file to be transferred*.
+* **Support for low bandwidth connections.** S3QL splits file contents
+  into smaller blocks and caches blocks locally. This minimizes both
+  the number of network transactions required for reading and writing
+  data, and the amount of data that has to be transferred when only
+  parts of a file are read or written.
+
 
 
 Development Status
