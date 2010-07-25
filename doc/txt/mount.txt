@@ -10,10 +10,12 @@ the following syntax::
 
   mount.s3ql [options] <storage url> <mountpoint>
 
-Note that S3QL is not a network file system like `NFS
-<http://en.wikipedia.org/wiki/Network_File_System_%28protocol%29>`_ or
-`CIFS <http://en.wikipedia.org/wiki/CIFS>`_, so an S3QL file system
-can only be mounted on one computer at a time.
+.. NOTE::
+
+   S3QL is not a network file system like `NFS
+   <http://en.wikipedia.org/wiki/Network_File_System_%28protocol%29>`_
+   or `CIFS <http://en.wikipedia.org/wiki/CIFS>`_. It can only be
+   mounted on one computer at a time.
 
 The most important options are:
 
@@ -71,11 +73,13 @@ the entry would be ::
 
   storage-url s3://joes_bucket password topsecret
 
-**Note**: if you are using the local backend, the storage url will
-always be converted to an absolute path. So if you are in the
-`/home/john` directory and try to mount `local://bucket`, the matching
-`authinfo` entry has to have a storage url of
-`local:///home/john/bucket`.
+.. NOTE::
+
+   If you are using the local backend, the storage url will
+   always be converted to an absolute path. So if you are in the
+   `/home/john` directory and try to mount `local://bucket`, the matching
+   `authinfo` entry has to have a storage url of
+   `local:///home/john/bucket`.
 
 
 Compression Algorithms

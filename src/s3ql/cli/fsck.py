@@ -20,7 +20,6 @@ import s3ql.database as dbcm
 from s3ql.mkfs import create_indices
 import logging
 from s3ql import fsck
-from s3ql import backends
 from s3ql.backends.common import ChecksumError
 import sys
 import shutil
@@ -165,7 +164,7 @@ def main(args=None):
         else:
             if os.path.exists(home + '-cache'):
                 fsck_required = True
-                print(textwrap.dedent('''
+                print(textwrap.dedent('''\
                       Local cache files exist, but fsck can not determine what to do with it. If you
                       commit the existing data, you may lose changes performed after the data has been
                       generated. If you discard the existing data, you may lose the changes contained in
@@ -188,7 +187,7 @@ def main(args=None):
 
             if os.path.exists(home + '.db'):
                 fsck_required = True
-                print(textwrap.dedent('''
+                print(textwrap.dedent('''\
                       Local metadata exist, but fsck can not determine what to do with it. If you use the
                       existing metadata, you may lose changes performed after the local metadata has
                       been saved. If you discard the existing metadata, you may lose changes contained
@@ -221,20 +220,21 @@ def main(args=None):
                              'S3QL installation.')
 
         if param['seq_no'] < seq_no:
-            if isinstance(bucket, backends.s3.Bucket):
-                print(textwrap.fill(textwrap.dedent('''
-                      Up to date metadata is not available. Either the file system has not
-                      been unmounted cleanly or the data has not yet propagated through S3.
-                      In the later case, waiting for a while should fix the problem, in
-                      the former case you should try to run fsck on the computer where
-                      the file system has been mounted most recently
-                      ''')))
-            else:
-                print(textwrap.fill(textwrap.dedent('''
+            if bucket.read_after_write_consistent():
+                print(textwrap.fill(textwrap.dedent('''\
                       Up to date metadata is not available. Probably the file system has not
                       been unmounted and you should try to run fsck on the computer where
                       the file system has been mounted most recently.
                       ''')))
+            else:
+                print(textwrap.fill(textwrap.dedent('''\
+                      Up to date metadata is not available. Either the file system has not
+                      been unmounted cleanly or the data has not yet propagated through the backend.
+                      In the later case, waiting for a while should fix the problem, in
+                      the former case you should try to run fsck on the computer where
+                      the file system has been mounted most recently
+                      ''')))
+
             print('Enter "continue" to use the outdated data anyway:',
                   '> ', sep='\n', end='')
             if options.batch:

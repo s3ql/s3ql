@@ -34,9 +34,7 @@ def parse_args(args):
 
     parser.add_option("--s3-location", type="string", default='EU', metavar='<name>',
                       help="Specify storage location for new bucket. Allowed values: `EU`, "
-                           '`us-west-1`, `ap-southeast-1`, or `us-standard`. '
-                           'The later is not recommended, please '
-                           'refer to the FAQ at http://code.google.com/p/s3ql/ for more information.')
+                           '`us-west-1`, `ap-southeast-1`, or `us-standard`.')
     parser.add_option("--homedir", type="string", metavar='<path>',
                       default=os.path.expanduser("~/.s3ql"),
                       help='Directory for log files, cache and authentication info. '

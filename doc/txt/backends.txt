@@ -10,6 +10,9 @@ system data is being stored is called a *bucket*. (This is mostly for
 historical reasons, since initially S3QL supported only the Amazon S3
 backend).
 
+The `authinfo` file
+===================
+
 Most backends first try to read the file `~/.s3ql/authinfo` to determine
 the username and password for connecting to the remote host. If this
 fails, both username and password are read from the terminal.
@@ -24,11 +27,99 @@ specify ::
 
   backend ftp machine backups.joesdomain.com login joe password jibbadup
 
+  
+Consistency Guarantees
+======================
+  
+The different backends provide different types of *consistency
+guarantees*. Informally, a consistency guarantee tells you how fast
+the backend will apply changes to the stored data. 
 
-Currently, S3QL supports the following backends:
+S3QL defines the following three levels:
 
-Amazon S3
-=========
+* **Read-after-Write Consistency.** This is the strongest consistency
+  guarantee. If a backend offers read-after-write consistency, it
+  guarantees that as soon as you have committed any changes to the
+  backend, subsequent requests will take into account these changes.
+
+* **Read-after-Create Consistency.** If a backend provides only
+  read-after-create consistency, only the creation of a new object is
+  guaranteed to be taken into account for subsequent requests. This
+  means that, for example, if you overwrite data in an existing
+  object, subsequent requests may still return the old data for a
+  certain period of time.
+
+* **Eventual consistency.** This is the lowest consistency level.
+  Basically, any changes that you make to the backend may not be
+  visible for a certain amount of time after the change has been made.
+  However, you are guaranteed that no change will be lost. All changes
+  will *eventually* become visible.
+
+  .
+
+
+As long as your backend provides read-after-write or read-after-create
+consistency, you do not have to worry about consistency guarantees at
+all. However, if you plan to use a backend with only eventual
+consistency, you have to be a bit careful in some situations.
+
+
+.. _eventual_consistency:
+
+Dealing with Eventual Consistency
+---------------------------------
+
+.. NOTE::
+
+  The following applies only to storage backends that do not provide
+  read-after-create or read-after-write consistency. Currently,
+  this is only the Amazon S3 backend *if used with the US-Standard
+  storage region*. If you use a different storage backend, or the S3
+  backend with a different storage region, this section does not apply
+  to you.
+
+While the file system is mounted, S3QL is able to automatically handle
+all issues related to the weak eventual consistency guarantee.
+However, some issues may arise during the mount process and when the
+file system is checked.
+
+Suppose that you mount the file system, store some new data, delete
+some old data and unmount it again. Now remember that eventual
+consistency means that there is no guarantee that these changes will
+be visible immediately. At least in theory it is therefore possible
+that if you mount the file system again, S3QL does not see any of the
+changes that you have done and presents you an "old version" of the
+file system without them. Even worse, if you notice the problem and
+unmount the file system, S3QL will upload the old status (which S3QL
+necessarily has to consider as current) and thereby permanently
+override the newer version (even though this change may not become
+immediately visible either).
+
+The same problem applies when checking the file system. If the backend
+provides S3QL with only partially updated data, S3QL has no way to
+find out if this a real consistency problem that needs to be fixed or
+if it is only a temporary problem that will resolve itself
+automatically (because there are still changes that have not become
+visible yet).
+
+While this may seem to be a rather big problem, the likelihood of it
+to occur is rather low. In practice, most storage providers rarely
+need more than a few seconds to apply incoming changes, so to trigger
+this problem one would have to unmount and remount the file system in
+a very short time window. Many people therefore make sure that they
+wait a few minutes between successive mounts (or file system checks)
+and decide that the remaining risk is negligible.
+
+Nevertheless, the eventual consistency guarantee does not impose an
+upper limit on the time that it may take for change to become visible.
+Therefore there is no "totally safe" waiting time that would totally
+eliminate this problem; a theoretical possibility always remains.
+
+
+  
+
+The Amazon S3 Backend
+=====================
 
 To store your file system in an Amazon S3 bucket, use a storage URL of
 the form `s3://<bucketname>` or `s3rr://<bucketname>`. The later form
@@ -37,6 +128,12 @@ will use `reduced redundancy storage
 the prefix for a given bucket at will, but you really should not do
 this because different parts of your file system would then be stored
 with different durability guarantees.
+
+The Amazon S3 backend provides read-after-create consistency for the
+EU, Asia-Pacific and US-West storage regions. *For the US-Standard
+storage region, Amazon S3 provides only eventual consistency* (please
+refer to :ref:`eventual_consistency` for information about
+what this entails).
 
 When reading the authentication information for the S3 backend from
 the `authinfo` file, the `host` field is ignored, i.e. the first entry
@@ -60,19 +157,22 @@ access key id" and "AWS secret access key" shown under `My
 Account/Access Identifiers
 <https://aws-portal.amazon.com/gp/aws/developer/account/index.html?ie=UTF8&action=access-key>`_.
 
-Local
-=====
+The Local Backend
+=================
 
 The local backend stores file system data in a directory on your
 computer. The storage URL for the local backend has the form
 `local://<path>`. Note that you have to write three consecutive
 slashes to specify an absolute path, e.g. `local:///var/archive`.
 
-SFTP / SSH
-==========
+The local backend provides read-after-write consistency.
+
+The SFTP Backend
+================
 
 The SFTP backend uses the SFTP protocol, which is a file transfer
 protocol similar to ftp, but uses an encrypted SSH connection. 
+It provides read-after-write consistency.
 
 Note that the SFTP backend is rather slow and has not been tested
 as extensively as the S3 and Local backends.

@@ -157,7 +157,10 @@ class Bucket(AbstractBucket):
 
     def read_after_create_consistent(self):
         return True
-
+    
+    def read_after_write_consistent(self):
+        return True
+    
     def clear(self):
         with self.conn.lock:
             self.conn._rmtree(self.name)

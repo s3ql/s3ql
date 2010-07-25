@@ -16,10 +16,7 @@ The most important options are:
 
   --s3-location=<name>  Specify storage location for new bucket. Allowed
                         values: `EU`, `us-west-1`, `ap-southeast-1`,
-                        or `us-standard`. The later is not
-                        recommended, please refer to the FAQ at
-                        http://code.google.com/p/s3ql/ for more
-                        information.
+                        or `us-standard`. 
   -L <name>             Filesystem label
   --blocksize=<size>    Maximum block size in KB (default: 10240)
   --plain               Create unencrypted file system.

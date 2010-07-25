@@ -317,15 +317,14 @@ class AbstractBucket(object):
 
     @abstractmethod
     def read_after_create_consistent(self):
-        '''Does this backend provide read-after-create consistency?
-        
-        Returns True if newly created objects are guaranteed to be
-        included immediately in subsequent object listings and to 
-        be available immediately for retrieval. 
-        '''
+        '''Does this backend provide read-after-create consistency?'''
         pass
     
-
+    @abstractmethod
+    def read_after_write_consistent(self):
+        '''Does this backend provide read-after-write consistency?'''
+        pass
+        
     @abstractmethod
     def __str__(self):
         pass

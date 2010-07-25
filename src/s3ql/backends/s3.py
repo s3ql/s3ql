@@ -212,7 +212,10 @@ class Bucket(AbstractBucket):
 
     def read_after_create_consistent(self):
         return self.rac_consistent
-            
+
+    def read_after_write_consistent(self):
+        return False
+                
     def raw_lookup(self, key):
         with self._get_boto() as boto:
             bkey = retry_boto(boto.get_key, key)

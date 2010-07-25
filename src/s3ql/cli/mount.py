@@ -13,7 +13,6 @@ from __future__ import division, print_function, absolute_import
 import sys
 from s3ql import fs, CURRENT_FS_REV
 from s3ql.mkfs import create_indices
-from s3ql.backends import s3
 from s3ql.daemonize import daemonize
 from s3ql.backends.common import (ChecksumError, NoSuchObject)
 from s3ql.common import (add_stdout_logging, get_backend, get_bucket_home,
@@ -121,20 +120,21 @@ def main(args=None):
 
         # Check for unclean shutdown on other computer
         if param['seq_no'] < seq_no:
-            if isinstance(bucket, s3.Bucket):
-                raise QuietError(textwrap.fill(textwrap.dedent('''
-                    It appears that the file system is still mounted somewhere else. If this is not
-                    the case, the file system may have not been unmounted cleanly or the data from
-                    the most-recent mount may have not yet propagated through S3. In the later case,
-                    waiting for a while should fix the problem, in the former case you should try to
-                    run fsck on the computer where the file system has been mounted most recently.
-                    ''')))
-            else:
-                raise QuietError(textwrap.fill(textwrap.dedent('''
+            if bucket.read_after_write_consistent():
+                raise QuietError(textwrap.fill(textwrap.dedent('''\
                     It appears that the file system is still mounted somewhere else. If this is not
                     the case, the file system may have not been unmounted cleanly and you should try
                     to run fsck on the computer where the file system has been mounted most recently.
                     ''')))
+            else:                
+                raise QuietError(textwrap.fill(textwrap.dedent('''\
+                    It appears that the file system is still mounted somewhere else. If this is not the
+                    case, the file system may have not been unmounted cleanly or the data from the 
+                    most-recent mount may have not yet propagated through the backend. In the later case,
+                    waiting for a while should fix the problem, in the former case you should try to run
+                    fsck on the computer where the file system has been mounted most recently.
+                    ''')))
+
         elif param['seq_no'] > seq_no:
             raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
 
