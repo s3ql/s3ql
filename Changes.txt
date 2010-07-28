@@ -47,7 +47,7 @@
   * mount.s3ql: instead of --bzip2, --zlib and --no-compress, there
     is now just one option --compress=<alg>.
 
-  * File system metadata is now uploaded in with all indices. This
+  * File system metadata is now uploaded with all indices. This
     makes mounting the file system much faster. Only if LZMA
     compression has been chosen, indices are stripped for storage and
     regenerated on the next mount.
