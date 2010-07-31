@@ -110,7 +110,7 @@ def main(args=None):
         bucket = conn.get_bucket(bucketname)
 
         try:
-            unlock_bucket(options, bucket)
+            unlock_bucket(options.homedir, options.storage_url, bucket)
         except ChecksumError:
             raise QuietError('Checksum error - incorrect password?')
 

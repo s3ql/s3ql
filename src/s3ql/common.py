@@ -176,14 +176,14 @@ def cycle_metadata(bucket):
         bucket.copy("s3ql_metadata", "s3ql_metadata_bak_0")             
 
 
-def unlock_bucket(options, bucket):
+def unlock_bucket(homedir, storage_url, bucket):
     '''Ask for passphrase if bucket requires one'''
 
     if 's3ql_passphrase' not in bucket:
         return
 
     # Try to read from file
-    keyfile = os.path.join(options.homedir, 'authinfo')
+    keyfile = os.path.join(homedir, 'authinfo')
     wrap_pw = None
 
     if os.path.isfile(keyfile):
@@ -203,7 +203,7 @@ def unlock_bucket(options, bucket):
                 log.warn('Cannot parse line in %s:\n %s', keyfile, line)
                 continue
 
-            if options.storage_url == res.group(1):
+            if storage_url == res.group(1):
                 wrap_pw = res.group(2)
                 log.info('Using encryption password from %s', keyfile)
                 break
