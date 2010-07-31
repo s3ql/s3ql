@@ -1,6 +1,13 @@
 #!/usr/bin/env python
 '''
+s3_copy.py - this file is part of S3QL (http://s3ql.googlecode.com)
+
 Migrate an S3 bucket to a different storage region or storage class.
+
+---
+Copyright (C) 2010 Nikolaus Rath <Nikolaus@rath.org>
+
+This program can be distributed under the terms of the GNU LGPL.
 '''
 
 from __future__ import division, print_function, absolute_import
