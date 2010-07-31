@@ -28,10 +28,11 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
 from s3ql.common import (add_stdout_logging, setup_excepthook, QuietError,
-                         unlock_bucket,
+                         unlock_bucket, restore_metadata, 
                          get_backend, LoggerFilter, canonicalize_storage_url)
 from s3ql.backends.common import ChecksumError
 from s3ql.optparse import OptionParser
+import s3ql.database as dbcm
 
 log = logging.getLogger('make_dummy')
 
@@ -55,7 +56,10 @@ def parse_args(args):
                            "specified multiple times.")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")      
-    
+    parser.add_option("--scramble", action="store_true", default=False,
+                      help="Also irreversible scramble all file and directory names."
+                           "Not yet implemented.")    
+        
     (options, pps) = parser.parse_args(args)
 
     #
@@ -112,7 +116,33 @@ def main(args=None):
 
             copy_objects(src_bucket, dest_bucket)
 
+            if options.scramble:
+                scramble(dest_bucket)
+                    
         
+def scramble(bucket):
+    '''Scramble all metadata in bucket'''
+    
+    for key in bucket.list('s3ql_metadata'): 
+        log.info("Scrambling %s...", key)
+        fh = tempfile.NamedTemporaryFile()
+        param = bucket.fetch_fh(key, fh)
+        
+        if param['DB-Format'] == 'dump':
+            fh2 = tempfile.TemporaryFile()
+            dbcm.init(fh2.name)
+            fh.seek(0)
+            log.info('Reading metadata...')
+            restore_metadata(fh)
+            fh.close()
+        elif param['DB-Format'] == 'sqlite':
+            fh.flush()
+            dbcm.init(fh.name)
+        else:
+            raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
+        
+        
+                
 def copy_objects(src_bucket, dest_bucket):        
         
     log.info('Copying...')
@@ -124,7 +154,7 @@ def copy_objects(src_bucket, dest_bucket):
 
         if key.startswith('s3ql_data_'):
             dest_bucket[key] = key
-        elif key == 's3ql_passphrase':
+        elif key == 's3ql_passphrase' or key.startswith('s3ql_metadata_bak'):
             pass
         else:
             log.info('Copying %s..', key)
