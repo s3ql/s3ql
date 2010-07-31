@@ -355,7 +355,7 @@ class Operations(llfuse.Operations):
 
 
     def _remove(self, id_p, name, id_):
-        '''Remove entry `name`with parent inode `id_p` 
+        '''Remove entry `name` with parent inode `id_p` 
         
         `id_` must be the inode of `name`
         '''
@@ -386,9 +386,6 @@ class Operations(llfuse.Operations):
                 # get created at this point and we can safely delete the inode
                 conn.execute('DELETE FROM ext_attributes WHERE inode=?', (id_,))
                 del self.inodes[id_]
-
-
-
 
     def symlink(self, id_p, name, target, ctx):
         mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | 
