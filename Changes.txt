@@ -7,7 +7,10 @@ xxx, S3QL 0.20
   * Mounting with the local and sftp backends is now significantly
     faster, because the object tree is no longer traversed completely.
     
-    
+  * Fixed a race condition that occasionally produced errors when
+    deleting large files (spanning multiple blocks).
+  
+  
 2010-07-25, S3QL 0.19
 
   * Fixed various smaller bugs, see Mercurial changelog for 

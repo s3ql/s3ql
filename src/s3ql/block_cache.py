@@ -324,7 +324,7 @@ class BlockCache(object):
                 log.debug('remove(inode=%d, blockno=%d): block only in db ', inode, blockno)
 
             with dbcm.write_lock() as conn:
-                dbcm.execute('DELETE FROM blocks WHERE inode=? AND blockno=?',
+                conn.execute('DELETE FROM blocks WHERE inode=? AND blockno=?',
                              (inode, blockno))
                     
                 refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?', (obj_id,))
@@ -341,12 +341,18 @@ class BlockCache(object):
                     to_delete = True
         
             if to_delete:
+                # Note: lambda: obj_id=obj_is *crucial* to make sure that the
+                # closure captures the *current* value of obj_id. Otherwise
+                # 'obj_id' is a name with function scope whose binding will
+                # change. Using a parameter with a default value circumvents
+                # this, because the default value is evaluated when the
+                # (lambda-) function is defined.
                 if self.bucket.read_after_create_consistent():
-                    fn = lambda : self.bucket.delete('s3ql_data_%d' % obj_id)
+                    fn = lambda obj_id=obj_id: self.bucket.delete('s3ql_data_%d' % obj_id)
                 else:
-                    fn = lambda : retry_exc(300, [ NoSuchObject ], 
-                                            self.bucket.delete,
-                                            's3ql_data_%d' % obj_id)
+                    fn = lambda obj_id=obj_id: retry_exc(300, [ NoSuchObject ], 
+                                                         self.bucket.delete,
+                                                         's3ql_data_%d' % obj_id)
                 with without(self.lock):
                     self.removal_queue.add(fn)
 
