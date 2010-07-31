@@ -92,7 +92,7 @@ def main(args=None):
     if not os.path.exists(options.testfile):
         raise QuietError('Mountpoint does not exist.')
 
-    with get_backend(options) as (conn, bucketname):
+    with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
 
         if not bucketname in conn:
             raise QuietError("Bucket does not exist.")

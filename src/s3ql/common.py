@@ -30,7 +30,7 @@ __all__ = ["get_bucket_home", 'sha256', 'sha256_fh', 'add_stdout_logging',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'QuietError', 'get_backend', 'add_file_logging', 'setup_excepthook',
            'cycle_metadata', 'restore_metadata', 'dump_metadata', 'copy_metadata',
-           'without', 'OptionParser', 'ArgumentGroup' ]
+           'without', 'OptionParser', 'ArgumentGroup', 'canonicalize_storage_url' ]
 
 
 
@@ -100,30 +100,40 @@ def add_file_logging(logfile):
     root_logger.addHandler(handler)
     return handler
 
+
+def canonicalize_storage_url(storage_url):
+    '''Return canonicalized storage URL
+    
+    For the local backend, this converts the path into an absolute
+    path.
+    '''
+    
+    if storage_url.startswith('local://'):
+        return 'local://%s' % os.path.abspath(storage_url[len('local://'):])
+    else:
+        return storage_url    
+    
 @contextmanager
-def get_backend(options):
-    '''Get backend connection and bucket name
+def get_backend(storage_url, homedir):
+    '''Return backend connection and bucket name
     
     This is a context manager, since some connections need to be cleaned 
-    up properly. For the local backend, this function also canonicalizes
-    the path stored in options.storage_url
+    up properly. 
     '''
 
     from .backends import s3, local, ftp
-    storage_url = options.storage_url
 
     if storage_url.startswith('local://'):
         conn = local.Connection()
-        bucketname = os.path.abspath(storage_url[len('local://'):])
-        options.storage_url = 'local://%s' % bucketname
+        bucketname = storage_url[len('local://'):]
 
     elif storage_url.startswith('s3://'):
-        (login, password) = get_backend_credentials(options.homedir, 's3', None)
+        (login, password) = get_backend_credentials(homedir, 's3', None)
         conn = s3.Connection(login, password)
         bucketname = storage_url[len('s3://'):]
 
     elif storage_url.startswith('s3rr://'):
-        (login, password) = get_backend_credentials(options.homedir, 's3', None)
+        (login, password) = get_backend_credentials(homedir, 's3', None)
         conn = s3.Connection(login, password, reduced_redundancy=True)
         bucketname = storage_url[len('s3rr://'):]
 
@@ -133,7 +143,7 @@ def get_backend(options):
         if not match:
             raise QuietError('Invalid storage url: %r' % storage_url)
         (backend, host, port, bucketname) = match.groups()
-        (login, password) = get_backend_credentials(options.homedir, backend, host)
+        (login, password) = get_backend_credentials(homedir, backend, host)
 
         if backend == 'ftp':
             conn = ftp.Connection(host, port, login, password)

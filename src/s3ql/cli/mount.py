@@ -18,6 +18,7 @@ from s3ql.backends.common import (ChecksumError, NoSuchObject)
 from s3ql.common import (add_stdout_logging, get_backend, get_bucket_home,
                          QuietError, unlock_bucket, add_file_logging, LoggerFilter,
                          cycle_metadata, dump_metadata, restore_metadata, 
+                         canonicalize_storage_url,
                          EmbeddedException, copy_metadata, setup_excepthook)
 from s3ql.optparse import OptionParser
 import s3ql.database as dbcm
@@ -74,7 +75,7 @@ def main(args=None):
         import pstats
         prof = cProfile.Profile()
 
-    with get_backend(options) as (conn, bucketname):
+    with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
 
         if not bucketname in conn:
             raise QuietError("Bucket does not exist.")
@@ -381,7 +382,7 @@ def parse_args(args):
     #
     if len(pps) != 2:
         parser.error("Incorrect number of arguments.")
-    options.storage_url = pps[0]
+    options.storage_url = canonicalize_storage_url(pps[0])
     options.mountpoint = pps[1]
 
     if options.allow_other and options.allow_root:

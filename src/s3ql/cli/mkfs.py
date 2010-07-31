@@ -16,7 +16,7 @@ import logging
 from s3ql import mkfs, CURRENT_FS_REV
 from s3ql.common import (get_backend, get_bucket_home, add_stdout_logging, 
                          add_file_logging, setup_excepthook, LoggerFilter,
-                         QuietError)
+                         QuietError, canonicalize_storage_url)
 from s3ql.optparse import OptionParser
 import s3ql.database as dbcm
 from s3ql.backends.boto.s3.connection import Location
@@ -64,7 +64,7 @@ def parse_args(args):
 
     if len(pps) != 1:
         parser.error("Incorrect number of arguments.")
-    options.storage_url = pps[0]
+    options.storage_url = canonicalize_storage_url(pps[0])
 
     if not os.path.exists(options.homedir):
         os.mkdir(options.homedir, 0700)
@@ -93,7 +93,7 @@ def main(args=None):
     else:
         log.info("Logging already initialized.")
 
-    with get_backend(options) as (conn, bucketname):
+    with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
         if conn.bucket_exists(bucketname):
             raise QuietError("Bucket already exists!\n"
                              "(you can delete an existing bucket with s3qladm --delete)\n")

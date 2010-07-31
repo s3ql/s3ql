@@ -13,7 +13,8 @@ import stat
 import time
 from s3ql.common import (get_bucket_home, cycle_metadata, add_stdout_logging, 
                          add_file_logging, setup_excepthook, LoggerFilter, 
-                         unlock_bucket, QuietError, get_backend, restore_metadata)
+                         unlock_bucket, QuietError, get_backend, restore_metadata,
+                         canonicalize_storage_url)
 from s3ql.optparse import OptionParser
 from s3ql import CURRENT_FS_REV
 import s3ql.database as dbcm
@@ -60,7 +61,7 @@ def parse_args(args):
     if not os.path.exists(options.homedir):
         os.mkdir(options.homedir, 0700)
         
-    options.storage_url = pps[0]
+    options.storage_url = canonicalize_storage_url(pps[0])
 
     return options
 
@@ -94,7 +95,7 @@ def main(args=None):
     else:
         log.info("Logging already initialized.")
 
-    with get_backend(options) as (conn, bucketname):
+    with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
 
         # Check if fs is mounted on this computer
         # This is not foolproof but should prevent common mistakes

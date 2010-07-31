@@ -10,7 +10,7 @@ from __future__ import division, print_function, absolute_import
 
 import logging
 from s3ql.common import (get_backend, QuietError, unlock_bucket, LoggerFilter,
-                      cycle_metadata, dump_metadata, restore_metadata, 
+                      cycle_metadata, dump_metadata, restore_metadata, canonicalize_storage_url,
                       add_file_logging, add_stdout_logging, setup_excepthook)
 from s3ql.optparse import (OptionParser, ArgumentGroup)
 from s3ql import CURRENT_FS_REV
@@ -57,7 +57,7 @@ def parse_args(args):
         parser.error("Incorrect number of arguments.")
 
     options.action = pps[0]
-    options.storage_url = pps[1]
+    options.storage_url = canonicalize_storage_url(pps[1])
 
     if options.action not in group.arguments:
         parser.error("Invalid <action>: %s" % options.action)
@@ -98,7 +98,7 @@ def main(args=None):
         log.info("Logging already initialized.")
 
 
-    with get_backend(options) as (conn, bucketname):
+    with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
         if not bucketname in conn:
             raise QuietError("Bucket does not exist.")
         bucket = conn.get_bucket(bucketname)
