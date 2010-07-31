@@ -108,10 +108,6 @@ def main(args=None):
 
     (login, password) = get_backend_credentials(options.homedir, 's3', None)
     conn = s3.Connection(login, password)
-    
-    if not re.match('^[a-z][a-z0-9-]*$', options.dest):
-        raise QuietError('Invalid destination name. Name must consist only of lowercase letters,\n'
-                         'digits and dashes, and the first character has to be a letter.')
 
     if conn.bucket_exists(options.dest):
         raise QuietError('Destination bucket already exists.')
