@@ -9,7 +9,6 @@ import sys
 import time
 import os
 import logging
-from optparse import OptionParser
 import re
 
 # We are running from the S3QL source directory, make sure
@@ -24,6 +23,7 @@ from s3ql.common import (add_stdout_logging, setup_excepthook, QuietError,
                          LoggerFilter)
 from s3ql.backends import s3
 from s3ql.backends.boto.s3.connection import Location
+from s3ql.optparse import OptionParser
 
 log = logging.getLogger('s3_copy')
 
@@ -31,8 +31,8 @@ def parse_args(args):
     '''Parse command line'''
 
     parser = OptionParser(
-        usage="%prog  [options] <source-bucket> <dest-bucket>\n"
-              "       %prog --help",
+        usage="%prog [options] <source-bucket> <dest-bucket>\n"
+              "%prog --help",
         description="Remote-copy source-bucket to dest-bucket, optionally changing "
                     'storage region and storage class.')
 

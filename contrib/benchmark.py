@@ -12,7 +12,6 @@ import logging
 import lzma
 import zlib
 import bz2
-from optparse import OptionParser
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
@@ -23,6 +22,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
 
 from s3ql.backends.common import compress_encrypt_fh
 from s3ql.common import (get_backend, QuietError, add_stdout_logging, setup_excepthook)
+from s3ql.optparse import OptionParser
 
 log = logging.getLogger('benchmark')
 
@@ -30,8 +30,8 @@ def parse_args(args):
     '''Parse command line'''
 
     parser = OptionParser(
-        usage="%prog  [options] <storage-url> <test-file>\n"
-              "       %prog --help",
+        usage="%prog [options] <storage-url> <test-file>\n"
+              "%prog --help",
         description="Transfers and compresses the test file and gives a recommendation "
                     "for the compression algorithm to use.")
 
