@@ -293,7 +293,7 @@ class Operations(llfuse.Operations):
 
     def _copy_tree(self, src_id, target_id, queue, id_cache):
 
-        # To avoid lookups and make good tidier
+        # To avoid lookups and make code tidier
         make_inode = self.inodes.create_inode
 
         processed = 0
