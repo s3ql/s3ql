@@ -22,7 +22,6 @@ from s3ql.backends.common import ChecksumError
 import os
 import s3ql.database as dbcm
 import tempfile
-import errno
 import textwrap
 
 log = logging.getLogger("adm")
@@ -231,50 +230,19 @@ def upgrade(conn, bucket):
     else:
         raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
     
-    log.info("Indexing...")
-    create_indices(dbcm)
-    dbcm.execute('ANALYZE')
+    #log.info("Indexing...")
+    #create_indices(dbcm)
+    #dbcm.execute('ANALYZE')
     
     log.info('Upgrading from revision %d to %d...', CURRENT_FS_REV - 1,
              CURRENT_FS_REV)
     param['revision'] = CURRENT_FS_REV
     
     # Update local backend directory structure
-    if isinstance(bucket, local.Bucket):
-        for name in os.listdir(bucket.name):
-            if not name.endswith('.dat'):
-                continue
-            name = name[:-4]
-            newname = bucket.key_to_path(local.unescape(name))
-            oldname = os.path.join(bucket.name, name)
-            if name == newname:
-                continue
-            try:
-                os.rename(oldname + '.dat', newname + '.dat')
-            except OSError as exc:
-                if exc.errno != errno.ENOENT:
-                    raise
-                os.makedirs(os.path.dirname(newname))
-                os.rename(oldname + '.dat', newname + '.dat')
-            os.rename(oldname + '.meta', newname + '.meta')
+    if isinstance(bucket, local.Bucket): 
+        os.rename('%s/s3ql_data' % bucket.name, '%s/s3ql_data_' % bucket.name)
     elif isinstance(bucket, sftp.Bucket):
-        for name in bucket.conn.sftp.listdir(bucket.name):
-            if not name.endswith('.dat'):
-                continue
-            name = name[:-4]
-            newname = bucket.key_to_path(local.unescape(name))
-            oldname = os.path.join(bucket.name, name)
-            if oldname == newname:
-                continue
-            try:
-                bucket.conn.sftp.rename(oldname + '.dat', newname + '.dat')
-            except IOError as exc:
-                if exc.errno != errno.ENOENT:
-                    raise
-                bucket._makedirs(os.path.dirname(newname))
-                bucket.conn.sftp.rename(oldname + '.dat', newname + '.dat')
-            bucket.conn.sftp.rename(oldname + '.meta', newname + '.meta')
-                                
+        bucket.conn.sftp.rename('%s/s3ql_data' % bucket.name, '%s/s3ql_data_' % bucket.name)
 
     # Increase metadata sequence no
     param['seq_no'] += 1

@@ -200,12 +200,25 @@ class Bucket(AbstractBucket):
     def list(self, prefix=''):
         with self.conn.lock:
             if prefix:
-                base = os.path.dirname(self._key_to_path(prefix))
+                base = os.path.dirname(self._key_to_path(prefix))     
             else:
                 base = self.name
                 
-            for (_, _, names) in self._walk(base):
-                for name in names:
+            for (path, dirnames, filenames) in self._walk(base):
+
+                # Do not look in wrong directories
+                if prefix:
+                    rpath = path[len(self.name):] # path relative to base
+                    prefix_l = ''.join(rpath.split('/'))
+                    
+                    dirs_to_walk = list()
+                    for name in dirnames:
+                        prefix_ll = _unescape(prefix_l + name)
+                        if prefix_ll.startswith(prefix[:len(prefix_ll)]):
+                            dirs_to_walk.append(name)
+                    dirnames[:] = dirs_to_walk
+                                    
+                for name in filenames:
                     if not name.endswith('.dat'):
                         continue
                     key = _unescape(name[:-4])

@@ -13,4 +13,4 @@ __all__ = [ 'block_cache', "common", 'daemonize', 'database', 'fs', 'fsck', 'lib
             'CURRENT_FS_REV', 'thread_group', 'upload_manager' ]
 
 VERSION = '0.19'
-CURRENT_FS_REV = 8
+CURRENT_FS_REV = 9

@@ -116,6 +116,7 @@ def main(args=None):
 
         home = get_bucket_home(options.storage_url, options.homedir)
         
+        
         # Get file system parameters
         log.info('Getting file system parameters..')
         seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]

@@ -142,12 +142,25 @@ class Bucket(AbstractBucket):
     def list(self, prefix=None):
         with self.lock:
             if prefix:
-                base = os.path.dirname(self._key_to_path(prefix))
+                base = os.path.dirname(self._key_to_path(prefix))     
             else:
                 base = self.name
                 
-            for (_, _, names) in os.walk(base):
-                for name in names:
+            for (path, dirnames, filenames) in os.walk(base, topdown=True):
+                
+                # Do not look in wrong directories
+                if prefix:
+                    rpath = path[len(self.name):] # path relative to base
+                    prefix_l = ''.join(rpath.split('/'))
+                    
+                    dirs_to_walk = list()
+                    for name in dirnames:
+                        prefix_ll = unescape(prefix_l + name)
+                        if prefix_ll.startswith(prefix[:len(prefix_ll)]):
+                            dirs_to_walk.append(name)
+                    dirnames[:] = dirs_to_walk
+                                                
+                for name in filenames:
                     if not name.endswith('.dat'):
                         continue
                     key = unescape(name[:-4])
@@ -256,13 +269,16 @@ class Bucket(AbstractBucket):
     def _key_to_path(self, key):
         '''Return path for given key'''
         
+        # NOTE: We must not split the path in the middle of an
+        # escape sequence, or list() will fail to work.
+        
         key = escape(key)
         
         if not key.startswith('s3ql_data_'):
             return os.path.join(self.name, key)
         
         no = key[10:]
-        path = [ self.name, 's3ql_data']
+        path = [ self.name, 's3ql_data_']
         for i in range(0, len(no), 3):
             path.append(no[:i])
         path.append(key)
