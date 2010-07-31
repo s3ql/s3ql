@@ -129,7 +129,7 @@ class Bucket(AbstractBucket):
             try:
                 os.unlink(path + '.dat')
                 os.unlink(path + '.meta')
-            except IOError as exc:
+            except OSError as exc:
                 if exc.errno == errno.ENOENT:
                     if force:
                         pass
