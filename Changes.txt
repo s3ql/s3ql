@@ -1,3 +1,9 @@
+xxx, S3QL 0.20
+
+  * Added contrib/make_dummy.py. This script creates a dummy copy
+    of a bucket that contains only the file system metadata. The
+    resulting dummy can be used for debugging.
+
 2010-07-25, S3QL 0.19
 
   * Fixed various smaller bugs, see Mercurial changelog for 
