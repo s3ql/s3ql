@@ -84,13 +84,14 @@ def main(args=None):
     root_logger = logging.getLogger()
     if not root_logger.handlers:
         add_stdout_logging(options.quiet)
-        add_file_logging(os.path.join(options.homedir, 'adm.log'))
+        lh = add_file_logging(os.path.join(options.homedir, 'adm.log'))
         setup_excepthook()
         
         if options.debug:
             root_logger.setLevel(logging.DEBUG)
             if 'all' not in options.debug:
-                root_logger.addFilter(LoggerFilter(options.debug, logging.INFO))
+                # Adding the filter to the root logger has no effect.
+                lh.addFilter(LoggerFilter(options.debug, logging.INFO))
         else:
             root_logger.setLevel(logging.INFO) 
     else:

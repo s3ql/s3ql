@@ -55,13 +55,14 @@ def main(args=None):
     if not root_logger.handlers:
         # Save handler so that we can remove it when daemonizing
         stdout_log_handler = add_stdout_logging(options.quiet)
-        add_file_logging(os.path.join(options.homedir, 'mount.log'))
+        lh = add_file_logging(os.path.join(options.homedir, 'mount.log'))
         setup_excepthook()
         
         if options.debug:
             root_logger.setLevel(logging.DEBUG)
             if 'all' not in options.debug:
-                root_logger.addFilter(LoggerFilter(options.debug, logging.INFO))
+                # Adding the filter to the root logger has no effect.
+                lh.addFilter(LoggerFilter(options.debug, logging.INFO))
         else:
             root_logger.setLevel(logging.INFO) 
     else:
