@@ -1,4 +1,4 @@
-xxx, S3QL 0.20
+2010-08-01, S3QL 0.20
 
   * Added contrib/make_dummy.py. This script creates a dummy copy
     of a bucket that contains only the file system metadata. The
@@ -6,18 +6,18 @@ xxx, S3QL 0.20
 
   * Mounting with the local and sftp backends is now significantly
     faster, because the object tree is no longer traversed completely.
-    
+
   * Fixed a race condition that occasionally produced errors when
     deleting large files (spanning multiple blocks).
-  
+
   * The file system now stays responsive to other requests while
     compressing blocks.
 
   * s3qlstat is now much faster since the size after de-duplication
     does not need to be queried from the backend anymore but is
     stored in the metadata.
-     
-       
+
+
 2010-07-25, S3QL 0.19
 
   * Fixed various smaller bugs, see Mercurial changelog for 
