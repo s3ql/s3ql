@@ -78,6 +78,9 @@ def main(args=None):
             and os.path.exists(ctrlfile)):
         raise QuietError('Mountpoint is not an S3QL file system')
 
+    if os.stat(ctrlfile).st_uid != os.geteuid() and os.geteuid() != 0:
+        raise QuietError('Only root and the mounting user may run s3qlctrl.')
+    
     if options.action == 'stacktrace':
         libc.setxattr(ctrlfile, 'stacktrace', 'dummy')
         

@@ -99,8 +99,8 @@ def main(args=None):
     if not (CTRL_NAME not in libc.listdir(parent) and os.path.exists(ctrlfile)):
         raise QuietError('Source and target are not on an S3QL file system')
 
-    if os.stat(ctrlfile).st_uid != os.geteuid():
-        raise QuietError('Only root and the mounting user have permission to run s3qlcp.')
+    if os.stat(ctrlfile).st_uid != os.geteuid() and os.geteuid() != 0:
+        raise QuietError('Only root and the mounting user may run s3qlcp.')
         
     try:
         os.mkdir(options.target)

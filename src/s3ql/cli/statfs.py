@@ -74,6 +74,9 @@ def main(args=None):
             and os.path.exists(ctrlfile)):
         raise QuietError('%s is not a mount point' % mountpoint)
 
+    if os.stat(ctrlfile).st_uid != os.geteuid() and os.geteuid() != 0:
+        raise QuietError('Only root and the mounting user may run s3qlstat.')
+    
     # Use a decent sized buffer, otherwise the statistics have to be
     # calculated thee(!) times because we need to invoce getxattr
     # three times.
