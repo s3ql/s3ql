@@ -105,6 +105,8 @@ def main():
                          's3qlstat = s3ql.cli.statfs:main',
                          's3qladm = s3ql.cli.adm:main',
                          's3qlctrl = s3ql.cli.ctrl:main',
+                         's3qllock = s3ql.cli.lock:main',
+                         's3qlrm = s3ql.cli.remove:main',
                          ]
                           },
           install_requires=['apsw >= 3.6.19',

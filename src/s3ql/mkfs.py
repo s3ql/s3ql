@@ -59,7 +59,8 @@ def setup_tables(conn):
         refcount  INT NOT NULL,
         target    BLOB(256) ,
         size      INT NOT NULL DEFAULT 0,
-        rdev      INT NOT NULL DEFAULT 0
+        rdev      INT NOT NULL DEFAULT 0,
+        locked    BOOLEAN NOT NULL DEFAULT 0
     )
     """)
 
