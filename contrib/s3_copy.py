@@ -13,10 +13,8 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function, absolute_import
 
 import sys
-import time
 import os
 import logging
-import re
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
