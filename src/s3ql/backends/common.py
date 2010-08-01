@@ -18,6 +18,7 @@ import cPickle as pickle
 import time
 import hashlib
 import zlib
+import os
 import bz2
 import lzma
 from base64 import b64decode, b64encode
@@ -174,6 +175,8 @@ class AbstractBucket(object):
         If no metadata is required, one can simply assign to the subscripted
         bucket instead of using this function: ``bucket[key] = val`` is
         equivalent to ``bucket.store(key, val)``.
+        
+        Returns the size of the stored object (after compression).
         """
         if isinstance(val, unicode):
             val = val.encode('us-ascii')
@@ -182,7 +185,7 @@ class AbstractBucket(object):
             raise TypeError('key must be of type str')
 
         fh = StringIO(val)
-        self.store_fh(key, fh, metadata)
+        return self.store_fh(key, fh, metadata)
 
     def _get_meta(self, meta_raw, plain=False):
         '''Get metadata & decompressor factory
@@ -261,15 +264,21 @@ class AbstractBucket(object):
         
         `metadata` can be a dict of additional attributes to store with the
         object.
+        
+        Returns the size of the stored object (after compression).
         """
-        return self.prep_store_fh(key, fh, metadata)()
+        (size, fn) = self.prep_store_fh(key, fh, metadata)
+        fn()
+        return size 
 
     def prep_store_fh(self, key, fh, metadata=None):
         """Prepare to store data in `fh` under `key`
         
         `metadata` can be a dict of additional attributes to store with the
-        object. The method compresses and encrypts the data and 
-        returns a function that does the actual network transaction.
+        object. The method compresses and encrypts the data and returns a tuple
+        `(size, fn)`, where `fn` is a function that does the actual network
+        transaction and `size` is the size of the object after compression
+        and encryption.
         """
 
         if not isinstance(key, str):
@@ -312,8 +321,10 @@ class AbstractBucket(object):
             compress_encrypt_fh(fh, tmp, self.passphrase, nonce, compr)
         else:
             compress_fh(fh, tmp, compr)
+        tmp.seek(0, os.SEEK_END)
+        size = tmp.tell()
         tmp.seek(0)
-        return lambda: self.raw_store(key, tmp, meta_raw)
+        return (size, lambda: self.raw_store(key, tmp, meta_raw))
 
     @abstractmethod
     def read_after_create_consistent(self):

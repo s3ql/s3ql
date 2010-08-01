@@ -41,10 +41,11 @@ class UploadManager(object):
     def add(self, el, lock):
         '''Upload cache entry `el` asynchronously
         
-        Return size of cache entry.
+        Return (uncompressed) size of cache entry.
         
-        If the maximum number of upload threads has been reached,
-        `lock` is released while the method waits for a free slot. 
+        `lock` is released while the cache entry is compressed and
+        while waiting for a free upload slot if the maximum number
+        of parallel uploads has been reached.
         '''
         
         log.debug('UploadManager.add(%s): start', el)
@@ -101,18 +102,21 @@ class UploadManager(object):
         
         if need_upload or to_delete:
             if need_upload:
-                with self.transit_size_lock:
-                    self.transit_size += size
-                fn = self.bucket.prep_store_fh('s3ql_data_%d' % el.obj_id, el)
+                # Create a new fd so that we don't get confused if another
+                # thread repositions the cursor
+                with without(lock):
+                    (compr_size, fn) = self.bucket.prep_store_fh('s3ql_data_%d' % el.obj_id, 
+                                                                 open(el.name, 'rb'))
+                                     
                 def doit():
                     t = time.time()
                     fn()
                     t = time.time() - t
                     log.debug('add(inode=%d, blockno=%d): '
                              'transferred %d bytes in %.3f seconds, %.2f MB/s',
-                              el.inode, el.blockno, size, t, size / (1024**2 * t))
+                              el.inode, el.blockno, compr_size, t, compr_size / (1024**2 * t))
                     with self.transit_size_lock:
-                        self.transit_size -= size
+                        self.transit_size -= compr_size
                     if to_delete:
                         retry_exc(300, [ NoSuchObject ], self.bucket.delete,
                                   's3ql_data_%d' % old_obj_id)
@@ -120,18 +124,21 @@ class UploadManager(object):
             elif to_delete:
                 doit = lambda : retry_exc(300, [ NoSuchObject ], self.bucket.delete,
                                           's3ql_data_%d' % old_obj_id)
+                compr_size = 0
                 
                 
             # If we already have the minimum transit size, do not start more
             # than two threads
             log.debug('add(%s): starting upload thread', el)
             if self.transit_size > MIN_TRANSIT_SIZE:
-                with without(lock):
-                    self.threads.add(doit, max_threads=2)
+                max_threads = 2
             else:
-                with without(lock):
-                    self.threads.add(doit)
-
+                max_threads = None
+            with self.transit_size_lock:
+                self.transit_size += compr_size        
+            with without(lock):
+                self.threads.add(doit, max_threads)
+                
         log.debug('add(%s): end', el)
         return size
 

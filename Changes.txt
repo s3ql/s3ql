@@ -10,6 +10,9 @@ xxx, S3QL 0.20
   * Fixed a race condition that occasionally produced errors when
     deleting large files (spanning multiple blocks).
   
+  * The file system now stays responsive to other requests while
+    compressing blocks.
+
   
 2010-07-25, S3QL 0.19
 
