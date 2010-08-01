@@ -13,7 +13,11 @@ xxx, S3QL 0.20
   * The file system now stays responsive to other requests while
     compressing blocks.
 
-  
+  * s3qlstat is now much faster since the size after de-duplication
+    does not need to be queried from the backend anymore but is
+    stored in the metadata.
+     
+       
 2010-07-25, S3QL 0.19
 
   * Fixed various smaller bugs, see Mercurial changelog for 

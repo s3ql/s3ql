@@ -255,21 +255,6 @@ class Bucket(AbstractBucket):
             err = OSError('Entry already exists: %s' % cur)
             err.errno = errno.EEXIST
             raise err
-            
-        
-    def get_size(self):
-        with self.conn.lock:
-            size = 0
-            to_visit = [ self.name ]
-            while to_visit: 
-                base = to_visit.pop()
-                for attr in self.conn.sftp.listdir_attr(base):
-                    if stat.S_ISDIR(attr.st_mode):
-                        to_visit.append('%s/%s' % (base, attr.filename))
-                    elif attr.filename.endswith('.dat'):
-                        size += attr.st_size            
-                
-            return size
 
     def raw_fetch(self, key, fh):
         with self.conn.lock:       

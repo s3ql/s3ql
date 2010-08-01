@@ -246,14 +246,6 @@ class Bucket(AbstractBucket):
             for bkey in boto.list(prefix):
                 yield bkey.name
 
-    def get_size(self):
-        with self._get_boto() as boto:
-            size = 0
-            for bkey in boto.list():
-                size += bkey.size
-
-        return size
-
     def raw_fetch(self, key, fh):
         with self._get_boto() as boto:
             bkey = retry_boto(boto.get_key, key)

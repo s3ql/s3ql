@@ -560,26 +560,17 @@ class Operations(llfuse.Operations):
     def extstat(self):
         '''Return extended file system statistics'''
 
-        self.inodes.flush()
-        self.lock.release()
-        try:
-            with dbcm.conn() as conn:
-                entries = conn.get_val("SELECT COUNT(rowid) FROM contents")
-                blocks = conn.get_val("SELECT COUNT(id) FROM objects")
-                inodes = conn.get_val("SELECT COUNT(id) FROM inodes")
-                size_1 = conn.get_val('SELECT SUM(size) FROM inodes')
-                size_2 = conn.get_val('SELECT SUM(size) FROM objects')
+        with dbcm.conn() as conn:
+            entries = conn.get_val("SELECT COUNT(rowid) FROM contents")
+            blocks = conn.get_val("SELECT COUNT(id) FROM objects")
+            inodes = conn.get_val("SELECT COUNT(id) FROM inodes")
+            fs_size = conn.get_val('SELECT SUM(size) FROM inodes') or 0
+            dedup_size = conn.get_val('SELECT SUM(size) FROM objects') or 0
+            compr_size = conn.get_val('SELECT SUM(compr_size) FROM objects') or 0
 
-            if not size_1:
-                size_1 = 1
-            if not size_2:
-                size_2 = 1
+        return struct.pack('QQQQQQQ', entries, blocks, inodes, fs_size, dedup_size,
+                           compr_size, dbcm.get_db_size())
 
-            return struct.pack('QQQQQQQ', entries, blocks, inodes, size_1, size_2,
-                               self.cache.get_bucket_size(),
-                               dbcm.get_db_size())
-        finally:
-            self.lock.acquire()
 
     def statfs(self):
         stat_ = dict()

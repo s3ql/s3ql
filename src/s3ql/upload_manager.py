@@ -107,7 +107,9 @@ class UploadManager(object):
                 with without(lock):
                     (compr_size, fn) = self.bucket.prep_store_fh('s3ql_data_%d' % el.obj_id, 
                                                                  open(el.name, 'rb'))
-                                     
+                dbcm.execute('UPDATE objects SET compr_size=? WHERE id=?', 
+                             (compr_size, el.obj_id))
+                                       
                 def doit():
                     t = time.time()
                     fn()

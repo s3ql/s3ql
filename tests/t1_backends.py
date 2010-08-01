@@ -86,23 +86,6 @@ class BackendTests(object):
         time.sleep(self.delay)
         self.assertEquals(len(list(self.bucket)), 0)
 
-    def test_size(self):
-        # We can't test exactly because of compression, metadata etc.
-        key1 = self.newname()
-        key2 = self.newname()
-        self.bucket[key1] = self.newname()
-        time.sleep(self.delay)
-        size1 = self.bucket.get_size()
-        self.assertTrue(size1 > 0)
-        self.bucket[key2] = self.newname()
-        time.sleep(self.delay)
-        size2 = self.bucket.get_size()
-        self.assertTrue(size2 > size1)
-        del self.bucket[key1]
-        time.sleep(self.delay)
-        size3 = self.bucket.get_size()
-        self.assertTrue(size3 < size2)
-
     def test_list(self):
 
         keys = [ self.newname() for dummy in range(12) ]

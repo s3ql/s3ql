@@ -92,7 +92,8 @@ def setup_tables(conn):
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
         refcount  INT NOT NULL,
         hash      BLOB(16) UNIQUE,
-        size      INT NOT NULL                 
+        size      INT NOT NULL,
+        compr_size INT                  
     )""")
 
 
@@ -102,7 +103,7 @@ def setup_tables(conn):
         inode     INTEGER NOT NULL REFERENCES inodes(id),
         blockno   INT NOT NULL,
         obj_id    INTEGER NOT NULL REFERENCES objects(id),
- 
+         
         PRIMARY KEY (inode, blockno)
     )""")
     

@@ -167,18 +167,6 @@ class Bucket(AbstractBucket):
                     
                     if not prefix or key.startswith(prefix):
                         yield key
-            
-
-    def get_size(self):
-        with self.lock:
-            size = 0
-            for (path, _, names) in os.walk(self.name):
-                for name in names:
-                    if not name.endswith('.dat'):
-                        continue
-                    size += os.path.getsize(os.path.join(path, name))
-    
-            return size
 
     def raw_fetch(self, key, fh):
         with self.lock:

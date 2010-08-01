@@ -373,11 +373,6 @@ class AbstractBucket(object):
         pass
 
     @abstractmethod
-    def get_size(self):
-        """Get total size of bucket"""
-        pass
-
-    @abstractmethod
     def raw_fetch(self, key, fh):
         '''Fetch contents stored under `key` and write them into `fh`'''
         pass
