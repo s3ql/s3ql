@@ -1,3 +1,9 @@
+s3ql (0.20.1ubuntu1) lucid; urgency=low
+
+  * Added build depends on python-apsw.
+
+ -- Nikolaus Rath <Nikolaus@rath.org>  Mon, 02 Aug 2010 09:22:58 -0400
+
 s3ql (0.20.1) lucid; urgency=low
 
   * New release.
