@@ -299,10 +299,9 @@ def main(args=None):
         fsck.fsck(home + '-cache', bucket, param)
 
         log.info("Compressing & uploading metadata..")
-        if dbcm.is_active():
-            raise RuntimeError("Database connection not closed.")
-         
+        dbcm.execute('PRAGMA wal_checkpoint')
         dbcm.execute('VACUUM')
+        dbcm.close()
         fh = open(home + '.db', 'rb')        
         param['needs_fsck'] = False
         param['last_fsck'] = time.time() - time.timezone

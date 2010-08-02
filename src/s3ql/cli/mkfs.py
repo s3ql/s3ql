@@ -148,11 +148,10 @@ def main(args=None):
             param['last_fsck'] = time.time() - time.timezone
             bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
 
-            log.info("Compressing & uploading metadata..")
-            if dbcm.is_active():
-                raise RuntimeError("Database connection not closed.")
-             
+            log.info("Compressing & uploading metadata..")         
+            dbcm.execute('PRAGMA wal_checkpoint')
             dbcm.execute('VACUUM')
+            dbcm.close()
             fh = open(home + '.db', 'rb')        
             bucket.store_fh("s3ql_metadata", fh, param)
             fh.close()

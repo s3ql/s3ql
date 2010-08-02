@@ -48,7 +48,7 @@ from .common import QuietError
 
 __all__ = [ "init", 'execute', 'get_db_size', 'get_row', 'get_val', 'has_val',
            'rowid', 'write_lock', 'WrappedConnection', 'NoUniqueValueError',
-           'conn', 'NoSuchRowError' ]
+           'conn', 'NoSuchRowError', 'close' ]
 
 log = logging.getLogger("database")
 
@@ -58,10 +58,11 @@ if sqlite_ver < (3, 7, 0):
         
 # Globals
 dbfile = None
-initsql = ('PRAGMA synchronous = off;'
-           'PRAGMA foreign_keys = on;'
-           'PRAGMA recursize_triggers = on;'
-           'PRAGMA legacy_file_format = off;'
+initsql = ('PRAGMA foreign_keys = on',
+           'PRAGMA synchronous = NORMAL',
+           'PRAGMA journal_mode = WAL',
+           'PRAGMA recursize_triggers = on',
+           'PRAGMA legacy_file_format = off',
            )
 retrytime = 120000
 pool = list()
@@ -83,6 +84,17 @@ def init(dbfile_):
     global provided
     provided = dict()
 
+def close():
+    '''Close all database connections'''
+    
+    if provided:
+        raise RuntimeError('some connections are still provided to threads')
+    
+    for conn in pool:
+        conn.conn.close()
+        
+    del pool[:]
+    
 @contextmanager
 def conn():
     '''Provide a WrappedConnection instance.
@@ -132,7 +144,8 @@ def _pop_conn():
             conn_ = apsw.Connection(dbfile)
             conn_.setbusytimeout(retrytime)
             if initsql:
-                conn_.cursor().execute(initsql)
+                for s in initsql:
+                    conn_.cursor().execute(s)
             conn_ = WrappedConnection(conn_)
     
         return conn_
@@ -180,11 +193,6 @@ def get_db_size():
         return os.path.getsize(dbfile)
     else:
         return 0
-
-def is_active():
-    '''True if any connections are provided at the moment'''
-    
-    return len(provided) != 0
     
     
 class WrappedConnection(object):

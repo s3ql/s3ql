@@ -229,9 +229,6 @@ def main(args=None):
         else:       
             param['seq_no'] += 1
 
-        if dbcm.is_active():
-            raise RuntimeError("Database connection not closed.")
-        
         if options.strip_meta:
             log.info('Saving metadata...')
             param['DB-Format'] = 'dump'
@@ -240,6 +237,8 @@ def main(args=None):
         else:
             param['DB-Format'] = 'sqlite'
             dbcm.execute('VACUUM')
+            dbcm.execute('PRAGMA wal_checkpoint')
+            dbcm.close()
             fh = open(dbcm.dbfile, 'rb')   
                 
         log.info("Compressing & uploading metadata..")
