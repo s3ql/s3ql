@@ -1,3 +1,7 @@
+2010-08-01, S3QL 0.20.1
+
+  * Hotfix for s3qladm upgrade.
+
 2010-08-01, S3QL 0.20
 
   * Added contrib/make_dummy.py. This script creates a dummy copy

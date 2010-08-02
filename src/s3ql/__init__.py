@@ -12,5 +12,5 @@ __all__ = [ 'block_cache', "common", 'daemonize', 'database', 'fs', 'fsck', 'lib
             'libc', "mkfs", 'multi_lock', 'optparse', 'ordered_dict', 'VERSION', 
             'CURRENT_FS_REV', 'thread_group', 'upload_manager' ]
 
-VERSION = '0.20'
+VERSION = '0.20.1'
 CURRENT_FS_REV = 9
