@@ -248,7 +248,7 @@ def upgrade(conn, bucket):
     # Add compr_size column
     if param['DB-Format'] == 'sqlite':
         dbcm.execute('ALTER TABLE objects ADD COLUMN compr_size INT')
-        dbcm.execute('ALTER TABLE contents ADD COLUMN locked BOOLEAN NOT NULL DEFAULT 0')
+        dbcm.execute('ALTER TABLE inodes ADD COLUMN locked BOOLEAN NOT NULL DEFAULT 0')
     
     # Add missing values for compr_size
     log.info('Requesting all object sizes, this may take some time...')
