@@ -12,8 +12,6 @@ from getpass import getpass
 from time import sleep
 import hashlib
 import os
-from . import database as dbcm
-from .database import NoSuchRowError
 import stat
 import sys
 import apsw
@@ -225,6 +223,7 @@ metadata_to_dump = [('inodes', 'id'),
                ('objects', 'id'),
                ('blocks', 'inode, blockno')]
 def dump_metadata(ofh):
+    from . import database as dbcm
     pickler = pickle.Pickler(ofh, 2)
     data_start = 2048
     bufsize = 256
@@ -266,6 +265,7 @@ def dump_metadata(ofh):
 
 def copy_metadata(fh):
     from . import mkfs
+    from . import database as dbcm
     
     conn = apsw.Connection(fh.name)
     mkfs.setup_tables(conn.cursor())
@@ -297,7 +297,8 @@ def copy_metadata(fh):
 
 def restore_metadata(ifh):
     from . import mkfs
-
+    from . import database as dbcm
+    
     unpickler = pickle.Unpickler(ifh)
 
     (data_start, to_dump, sizes, columns) = unpickler.load()
@@ -364,7 +365,8 @@ def inode_for_path(path, conn):
     
      Raises `KeyError` if the path does not exist.
     """
-
+    from .database import NoSuchRowError
+    
     if not isinstance(path, bytes):
         raise TypeError('path must be of type bytes')
 

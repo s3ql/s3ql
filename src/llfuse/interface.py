@@ -49,6 +49,7 @@ import errno
 import logging
 import sys
 import stat as fstat
+from s3ql.common import QuietError
 
 
 __all__ = [ 'FUSEError', 'ENOATTR', 'ENOTSUP', 'init', 'main', 'close',
@@ -959,3 +960,7 @@ def fuse_write(req, inode, buf, size, off, fi):
         libfuse.fuse_reply_write(req, written)
     except DiscardedRequest:
         pass
+    
+# Enforce correct version
+if fuse_version() < 28:
+    raise QuietError('FUSE version too old, must be 2.8 or newer!\n')    

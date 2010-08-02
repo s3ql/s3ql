@@ -44,6 +44,7 @@ import os
 import types
 import thread
 import threading
+from .common import QuietError
 
 __all__ = [ "init", 'execute', 'get_db_size', 'get_row', 'get_val', 'has_val',
            'rowid', 'write_lock', 'WrappedConnection', 'NoUniqueValueError',
@@ -51,6 +52,10 @@ __all__ = [ "init", 'execute', 'get_db_size', 'get_row', 'get_val', 'has_val',
 
 log = logging.getLogger("database")
 
+sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
+if sqlite_ver < (3, 7, 0):
+    raise QuietError('SQLite version too old, must be 3.7.0 or newer!\n')
+        
 # Globals
 dbfile = None
 initsql = ('PRAGMA synchronous = off;'
@@ -281,16 +286,11 @@ class WrappedConnection(object):
         else:
             newbindings = bindings
 
-        try:
-            if bindings is not None:
-                return cur.execute(statement, newbindings)
-            else:
-                return cur.execute(statement)
-        except apsw.ConstraintError:
-            # Work around SQLite bug, http://code.google.com/p/apsw/issues/detail?id=99
-            for i in range(100):
-                cur.execute('SELECT null' + ' ' * i)
-            raise
+        if bindings is not None:
+            return cur.execute(statement, newbindings)
+        else:
+            return cur.execute(statement)
+
 
 
     def has_val(self, *a, **kw):

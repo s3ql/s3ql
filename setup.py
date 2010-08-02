@@ -109,10 +109,10 @@ def main():
                          's3qlrm = s3ql.cli.remove:main',
                          ]
                           },
-          install_requires=['apsw >= 3.6.19',
+          install_requires=['apsw >= 3.7.0',
                             'pycryptopp',
                             'pyliblzma >= 0.5.3' ],
-          tests_require=['apsw >= 3.6.19', 'unittest2',
+          tests_require=['apsw >= 3.7.0', 'unittest2',
                          'pycryptopp',
                          'pyliblzma >= 0.5.3' ],
           test_suite='tests',
@@ -284,17 +284,6 @@ class test(setuptools_test.test):
 
 
     def run_tests(self):
-
-        # Enforce correct SQLite version
-        import apsw
-        sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
-        if sqlite_ver < (3, 6, 19):
-            raise QuietError('SQLite version too old, must be 3.6.19 or newer!\n')
-
-        # Check FUSE version
-        import llfuse
-        if llfuse.fuse_version() < 28:
-            raise QuietError('FUSE version too old, must be 2.8 or newer!\n')
 
         # Add test modules
         sys.path.insert(0, os.path.join(basedir, 'tests'))
