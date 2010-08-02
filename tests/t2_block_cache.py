@@ -287,6 +287,12 @@ class TestBucket(object):
         self.no_del = no_del
         self.bucket = bucket
 
+    def read_after_create_consistent(self):
+        return self.bucket.read_after_create_consistent()
+    
+    def read_after_write_consistent(self):
+        return self.bucket.read_after_write_consistent()    
+    
     def verify(self):
         if self.no_fetch != 0:
             raise RuntimeError('Got too few fetch calls')

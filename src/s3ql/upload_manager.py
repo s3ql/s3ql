@@ -10,15 +10,14 @@ from __future__ import division, print_function, absolute_import
 
 from .backends.common import NoSuchObject
 from .common import sha256_fh, without, TimeoutError
-from .thread_group import ThreadGroup
+from .thread_group import ThreadGroup, Thread
 from . import database as dbcm
 from .database import NoSuchRowError
 import logging
 import os
-import threading
 import time
 
-__all__ = [ "UploadManager", 'retry_exc' ]
+__all__ = [ "UploadManager", 'retry_exc', 'RemoveThread' ]
 
 # standard logger for this module
 log = logging.getLogger("UploadManager")
@@ -32,11 +31,11 @@ class UploadManager(object):
     network bandwidth and CPU time.
     '''
     
-    def __init__(self, bucket):
+    def __init__(self, bucket, removal_queue):
         self.threads = ThreadGroup(MAX_UPLOAD_THREADS)
+        self.removal_queue = removal_queue
         self.bucket = bucket
         self.transit_size = 0
-        self.transit_size_lock = threading.Lock()
         
     def add(self, el, lock):
         '''Upload cache entry `el` asynchronously
@@ -96,39 +95,17 @@ class UploadManager(object):
                     conn.execute('DELETE FROM objects WHERE id=?', (old_obj_id,))
                     to_delete = True
 
+        if need_upload:
+            el.modified_after_upload = False
+            
+            # Create a new fd so that we don't get confused if another
+            # thread repositions the cursor
+            with without(lock):
+                (compr_size, fn) = self.bucket.prep_store_fh('s3ql_data_%d' % el.obj_id, 
+                                                             open(el.name + '.d', 'rb'))
+            dbcm.execute('UPDATE objects SET compr_size=? WHERE id=?', 
+                         (compr_size, el.obj_id))
 
-        el.dirty = False
-        os.rename(el.name + '.d', el.name)
-        
-        if need_upload or to_delete:
-            if need_upload:
-                # Create a new fd so that we don't get confused if another
-                # thread repositions the cursor
-                with without(lock):
-                    (compr_size, fn) = self.bucket.prep_store_fh('s3ql_data_%d' % el.obj_id, 
-                                                                 open(el.name, 'rb'))
-                dbcm.execute('UPDATE objects SET compr_size=? WHERE id=?', 
-                             (compr_size, el.obj_id))
-                                       
-                def doit():
-                    t = time.time()
-                    fn()
-                    t = time.time() - t
-                    log.debug('add(inode=%d, blockno=%d): '
-                             'transferred %d bytes in %.3f seconds, %.2f MB/s',
-                              el.inode, el.blockno, compr_size, t, compr_size / (1024**2 * t))
-                    with self.transit_size_lock:
-                        self.transit_size -= compr_size
-                    if to_delete:
-                        retry_exc(300, [ NoSuchObject ], self.bucket.delete,
-                                  's3ql_data_%d' % old_obj_id)
-
-            elif to_delete:
-                doit = lambda : retry_exc(300, [ NoSuchObject ], self.bucket.delete,
-                                          's3ql_data_%d' % old_obj_id)
-                compr_size = 0
-                
-                
             # If we already have the minimum transit size, do not start more
             # than two threads
             log.debug('add(%s): starting upload thread', el)
@@ -136,11 +113,21 @@ class UploadManager(object):
                 max_threads = 2
             else:
                 max_threads = None
-            with self.transit_size_lock:
-                self.transit_size += compr_size        
+            self.transit_size += compr_size        
             with without(lock):
-                self.threads.add(doit, max_threads)
+                self.threads.add_thread(UploadThread(fn, el, compr_size, self), 
+                                        max_threads)
+        else:
+            el.dirty = False
+            el.modified_after_upload = False
+            os.rename(el.name + '.d', el.name)
                 
+        if to_delete:
+            log.debug('add(%s): removing object %d', el, old_obj_id)
+            with without(lock):
+                self.removal_queue.add_thread(RemoveThread(old_obj_id,
+                                                           self.bucket))
+                                
         log.debug('add(%s): end', el)
         return size
 
@@ -149,11 +136,51 @@ class UploadManager(object):
 
     def join_one(self):
         self.threads.join_one()
-                
+            
     def upload_in_progress(self):
         return len(self.threads) > 0
-
-
+    
+                    
+class UploadThread(Thread):
+    '''
+    Uploads a cache entry with the function passed in the constructor.
+    '''
+    
+    def __init__(self, fn, el, size, um):
+        super(UploadThread, self).__init__()
+        self.fn = fn
+        self.el = el
+        self.size = size
+        self.time = 0
+        self.um = um
+        
+    def run_protected(self):
+        '''Call self.fn() and time execution
+        
+        This method expects to run in a separate thread.
+        '''
+        self.time = time.time()
+        self.fn()
+        self.time = time.time() - self.time           
+                      
+    def finalize(self):
+        '''Mark cache entry as uploaded
+        
+        This function should be called from the main thread once
+        the thread running `run_protected` has finished. 
+        '''
+        
+        self.um.transit_size -= self.size
+        log.debug('UploadThread(inode=%d, blockno=%d): '
+                 'transferred %d bytes in %.3f seconds, %.2f MB/s',
+                  self.el.inode, self.el.blockno, self.size, 
+                  self.time, self.size / (1024**2 * self.time))     
+                
+        if not self.el.modified_after_upload:
+            self.el.dirty = False
+            os.rename(self.el.name + '.d', self.el.name)          
+        
+      
 def retry_exc(timeout, exc_types, fn, *a, **kw):
     """Wait for fn(*a, **kw) to succeed
     
@@ -181,3 +208,20 @@ def retry_exc(timeout, exc_types, fn, *a, **kw):
             step *= 2
 
     raise TimeoutError()
+
+class RemoveThread(Thread):
+    '''
+    Remove an object from backend
+    '''
+
+    def __init__(self, id_, bucket):
+        super(RemoveThread, self).__init__()
+        self.id = id_
+        self.bucket = bucket
+            
+    def run_protected(self): 
+        if self.bucket.read_after_create_consistent():
+            self.bucket.delete('s3ql_data_%d' % self.id)
+        else:
+            retry_exc(300, [ NoSuchObject ], self.bucket.delete,
+                      's3ql_data_%d' % self.id)

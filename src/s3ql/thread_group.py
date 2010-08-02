@@ -15,16 +15,30 @@ from .common import EmbeddedException
 
 log = logging.getLogger("thread_group")
 
+__all__ = [ 'Thread', 'ThreadGroup' ]
+
 class Thread(threading.Thread):
 
-    def __init__(self, group):
+    def __init__(self):
         super(Thread, self).__init__()
 
         self._exc = None
         self._tb = None
         self._joined = False
-        self._group = group
+        self._group = None
     
+    def run_protected(self):
+        pass
+    
+    def finalize(self):
+        pass
+    
+    def start(self):
+        if not self._group:
+            raise ValueError('Must set _group attribute first')
+        
+        super(Thread, self).start()
+        
     def run(self):
         try:
             try:
@@ -76,25 +90,26 @@ class ThreadGroup(object):
         self.finished_threads = list()
         self.lock = threading.Condition(threading.RLock())
         
-    def add(self, fn, max_threads=None, *a, **kw):
-        '''Add new thread that runs given function
+    def add_thread(self, t, max_threads=None):
+        '''Add new thread
+        
+        `t` must be a `Thread` instance that has overridden
+        the `run_protected` and possibly `finalize` methods. 
         
         This method waits until there are less than `max_threads` active
         threads, then it starts a new thread executing `fn`.
                 
         If `max_threads` is `None`, the `max_threads` value passed
-        to the constructor is used instead.
+        to the constructor is used instead.       
         '''
+        
+        if not isinstance(t, Thread):
+            raise TypeError('Parameter must be `Thread` instance')
+        t._group = self
         
         if max_threads is None:
             max_threads = self.max_threads
-            
-        t = Thread(self)
-        
-        # Attribute defined outside init
-        #pylint: disable-msg=W0201
-        t.run_protected = lambda: fn(*a, **kw)
-        
+                
         with self.lock:
             while len(self) >= max_threads:
                 self.join_one()
@@ -106,13 +121,18 @@ class ThreadGroup(object):
     def join_one(self):
         '''Wait for any one thread to finish
         
+        When the thread has finished, its `finalize` method is called.
+        
         If the thread terminated with an exception, the exception
-        is encapsulated in `EmbeddedException` and raised again. If there are
-        no active threads, the call returns without doing anything.
+        is encapsulated in `EmbeddedException` and raised again. In
+        that case the `finalize` method is not run.
+        
+        If there are no active threads, the call returns without doing
+        anything.
                 
         If more than one thread has called `join_one`, a single thread
         that finishes execution will cause all pending `join_one` calls
-        to return.
+        to return. 
         '''
         
         with self.lock:
@@ -120,11 +140,21 @@ class ThreadGroup(object):
                 return
             
             try:
-                self.finished_threads.pop().join_and_raise()
+                t = self.finished_threads.pop()
+                t.join_and_raise()
+                t.finalize()
             except IndexError:
                 # Wait for thread to terminate
                 log.debug('join_one: wait()')
                 self.lock.wait()
+                
+                try:
+                    t = self.finished_threads.pop()
+                    t.join_and_raise()
+                    t.finalize()
+                except IndexError:
+                    pass
+                    
             
     def join_all(self):
         '''Call join_one() until all threads have terminated'''

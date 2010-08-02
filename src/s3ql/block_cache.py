@@ -15,7 +15,7 @@ from .ordered_dict import OrderedDict
 from .common import EmbeddedException, without
 from .thread_group import ThreadGroup
 from . import database as dbcm
-from .upload_manager import UploadManager, retry_exc
+from .upload_manager import UploadManager, RemoveThread, retry_exc
 from .database import NoSuchRowError
 import logging
 import os
@@ -35,13 +35,29 @@ class CacheEntry(file):
     
     If `obj_id` is `None`, then the object has not yet been
     uploaded to the backend. 
+    
+    Attributes:
+    -----------
+    
+    :modified_after_upload:
+        This attribute is only significant when the cache entry
+        is currently being uploaded. At the beginning of the upload,
+        it is set to False. For any write access, it is set to True.
+        If it is still False when the upload has completed, 
+        `dirty` is set to False and the object looses the ``.d`` suffix
+        in its name.
+        
+        If `dirty` is set and `modified_after_upload` is not, then
+        the upload is currently in progress.
     """
 
-    __slots__ = [ 'dirty', 'obj_id', 'inode', 'blockno', 'last_access' ]
+    __slots__ = [ 'dirty', 'obj_id', 'inode', 'blockno', 'last_access',
+                  'modified_after_upload' ]
 
     def __init__(self, inode, blockno, obj_id, filename, mode):
         super(CacheEntry, self).__init__(filename, mode)
         self.dirty = False
+        self.modified_after_upload = False
         self.obj_id = obj_id
         self.inode = inode
         self.blockno = blockno
@@ -51,18 +67,21 @@ class CacheEntry(file):
         if not self.dirty:
             os.rename(self.name, self.name + '.d')
             self.dirty = True
+        self.modified_after_upload = True
         return super(CacheEntry, self).truncate(*a, **kw)
 
     def write(self, *a, **kw):
         if not self.dirty:
             os.rename(self.name, self.name + '.d')
             self.dirty = True
+        self.modified_after_upload = True
         return super(CacheEntry, self).write(*a, **kw)
 
     def writelines(self, *a, **kw):
         if not self.dirty:
             os.rename(self.name, self.name + '.d')
             self.dirty = True
+        self.modified_after_upload = True
         return super(CacheEntry, self).writelines(*a, **kw)
 
     def __str__(self):
@@ -105,7 +124,7 @@ class BlockCache(object):
         self.mlock = MultiLock()
         self.lock = lock
         self.removal_queue = ThreadGroup(MAX_REMOVAL_THREADS)
-        self.upload_manager = UploadManager(bucket)
+        self.upload_manager = UploadManager(bucket, self.removal_queue)
         self.commit_thread = CommitThread(self)
 
     def init(self):
@@ -228,8 +247,12 @@ class BlockCache(object):
             # Try to expire entries that are not dirty
             for el in self.cache.values_rev():
                 if el.dirty:
-                    log.debug('expire: %s is dirty, trying to flush', el)
-                    break
+                    if not el.modified_after_upload:
+                        # Object is currently being uploaded
+                        continue
+                    else:
+                        log.debug('expire: %s is dirty, trying to flush', el)
+                        break
                 
                 del self.cache[(el.inode, el.blockno)]
                 size = os.fstat(el.fileno()).st_size
@@ -250,7 +273,7 @@ class BlockCache(object):
             if not self.upload_manager.upload_in_progress():
                 for el in self.cache.values_rev():
                     log.debug('expire: uploading %s..', el)
-                    if el.dirty:
+                    if el.dirty and el.modified_after_upload:
                         freed = self.upload_manager.add(el, self.lock)
                         need_size -= freed
                     else:
@@ -341,20 +364,8 @@ class BlockCache(object):
                     to_delete = True
         
             if to_delete:
-                # Note: lambda: obj_id=obj_is *crucial* to make sure that the
-                # closure captures the *current* value of obj_id. Otherwise
-                # 'obj_id' is a name with function scope whose binding will
-                # change. Using a parameter with a default value circumvents
-                # this, because the default value is evaluated when the
-                # (lambda-) function is defined.
-                if self.bucket.read_after_create_consistent():
-                    fn = lambda obj_id=obj_id: self.bucket.delete('s3ql_data_%d' % obj_id)
-                else:
-                    fn = lambda obj_id=obj_id: retry_exc(300, [ NoSuchObject ], 
-                                                         self.bucket.delete,
-                                                         's3ql_data_%d' % obj_id)
                 with without(self.lock):
-                    self.removal_queue.add(fn)
+                    self.removal_queue.add_thread(RemoveThread(obj_id, self.bucket))
 
         log.debug('remove(inode=%d, start=%d, end=%s): end',
                   inode, start_no, end_no)
@@ -430,12 +441,14 @@ class CommitThread(threading.Thread):
                 for el in self.bcache.cache.values_rev():
                     if stamp - el.last_access < 10:
                         break
-                    if not el.dirty:
+                    if (not el.dirty or
+                        not el.modified_after_upload):
                         continue
                             
                     # UploadManager is not threadsafe
                     with self.bcache.lock:
-                        if not el.dirty: # Object may have been accessed
+                        if (not el.dirty or # Object may have been accessed
+                            not el.modified_after_upload): 
                             continue
                         self.bcache.upload_manager.add(el, self.bcache.lock)
                     did_sth = True
