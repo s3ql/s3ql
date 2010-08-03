@@ -22,6 +22,11 @@ Known Issues
   write buffers. Although this is not really a bug in the program,
   it might be worth to ask the program's authors for help.
 
+* S3QL always updates file and directory access times as if the ``relatime``
+  mount option has been specified: the access time ("atime") is only updated
+  if it is currently earlier than either the status change time
+  ("ctime") or modification time ("mtime"). 
+
 * S3QL directories always have an `st_nlink` value of 1. This may confuse
   programs that rely on directories having `st_nlink` values of *(2 +
   number of sub directories)*.

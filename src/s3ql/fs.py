@@ -163,8 +163,8 @@ class Operations(llfuse.Operations):
     def readlink(self, id_):
         timestamp = time.time()
         inode = self.inodes[id_]
-        inode.atime = timestamp
-        inode.ctime = timestamp
+        if inode.atime < inode.ctime or inode.atime < inode.mtime:
+            inode.atime = timestamp 
         return inode.target
 
     def opendir(self, id_):
@@ -178,15 +178,15 @@ class Operations(llfuse.Operations):
         args.append('no_remote_lock')
 
     def readdir(self, id_, off):
-        timestamp = time.time()
-
         if off == 0:
             off = -1
             
         # The inode cache may need to write to the database 
         # while our SELECT query is running
         with dbcm.write_lock() as conn:
-            self.inodes[id_].atime = timestamp 
+            inode = self.inodes[id_]
+            if inode.atime < inode.ctime or inode.atime < inode.mtime:
+                inode.atime = time.time() 
 
             # The ResultSet is automatically deleted
             # when yield raises GeneratorExit.  
@@ -195,7 +195,6 @@ class Operations(llfuse.Operations):
             for (next_, name, cid_) in res:
                 yield (name, self.inodes[cid_], next_)
 
-                
 
     def getxattr(self, id_, name):
         # Handle S3QL commands
@@ -570,15 +569,15 @@ class Operations(llfuse.Operations):
 
         if 'st_atime' in attr:
             inode.atime = attr['st_atime']
-            inode.ctime = timestamp
 
         if 'st_mtime' in attr:
             inode.mtime = attr['st_mtime']
-            inode.ctime = timestamp
 
         if 'st_ctime' in attr:
             inode.ctime = attr['st_ctime']
-
+        else:
+            inode.ctime = timestamp
+            
         return inode
 
     def mknod(self, id_p, name, mode, rdev, ctx):
@@ -717,9 +716,8 @@ class Operations(llfuse.Operations):
         # Inode may have expired from cache 
         inode = self.inodes[fh]
 
-        timestamp = time.time()
-        inode.atime = timestamp
-        inode.ctime = timestamp
+        if inode.atime < inode.ctime or inode.atime < inode.mtime:
+            inode.atime = time.time()
 
         return buf.getvalue()
 

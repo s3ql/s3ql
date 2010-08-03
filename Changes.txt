@@ -1,3 +1,9 @@
+xxx, S3QL 0.21
+
+  * The metadata is now only uploaded if there have been any
+    changes.
+    
+
 2010-08-01, S3QL 0.20.1
 
   * Hotfix for s3qladm upgrade.
