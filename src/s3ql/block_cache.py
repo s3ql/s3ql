@@ -381,7 +381,8 @@ class BlockCache(object):
         """Upload all dirty blocks
         
         When the method returns, all blocks have been registered
-        in the database and uploaded to the backend.
+        in the database, but the actual uploads may still be 
+        in progress.
         
         This method releases the instance `lock` passed in the
         constructor. 
@@ -393,8 +394,6 @@ class BlockCache(object):
             
             self.upload_manager.add(el, self.lock)
     
-        with without(self.lock):
-            self.upload_manager.join_all()
         
     def clear(self):
         """Upload all dirty data and clear cache

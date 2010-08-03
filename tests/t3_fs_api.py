@@ -591,7 +591,16 @@ class fs_api_tests(TestCase):
         self.server.cache.commit()
         queue = list()
         id_cache = dict()
-        self.assertEqual(self.server._copy_tree(src_inode.id, dst_inode.id, queue, id_cache), 4)
+        (no, in_transit) = self.server._copy_tree(src_inode.id, dst_inode.id, queue, id_cache)
+        self.assertEqual(no, 4)
+        
+        # Wait for objects in transit
+        while in_transit:
+            in_transit = [ x for x in in_transit 
+                           if x in self.server.cache.upload_manager.in_transit ]
+            if in_transit:
+                self.server.cache.upload_manager.join_one()
+      
 
         # Change files
         fh = self.server.open(f1_inode.id, os.O_RDWR)
@@ -627,7 +636,7 @@ class fs_api_tests(TestCase):
 
         # Copy again
         (tmp1, tmp2) = queue.pop()
-        self.assertEqual(self.server._copy_tree(tmp1, tmp2, queue, id_cache), 2)
+        self.assertEqual(self.server._copy_tree(tmp1, tmp2, queue, id_cache)[0], 2)
 
         # Update attributes
         d2_inode_c = self.server.lookup(d1_inode_c.id, 'dir2')

@@ -36,6 +36,7 @@ class UploadManager(object):
         self.removal_queue = removal_queue
         self.bucket = bucket
         self.transit_size = 0
+        self.in_transit = set()
         
     def add(self, el, lock):
         '''Upload cache entry `el` asynchronously
@@ -97,6 +98,7 @@ class UploadManager(object):
 
         if need_upload:
             el.modified_after_upload = False
+            self.in_transit.add(el.obj_id)
             
             # Create a new fd so that we don't get confused if another
             # thread repositions the cursor
@@ -133,6 +135,7 @@ class UploadManager(object):
 
     def join_all(self):
         self.threads.join_all()
+        assert not self.in_transit
 
     def join_one(self):
         self.threads.join_one()
@@ -171,6 +174,7 @@ class UploadThread(Thread):
         '''
         
         self.um.transit_size -= self.size
+        self.um.in_transit.remove(self.el.obj_id)
         log.debug('UploadThread(inode=%d, blockno=%d): '
                  'transferred %d bytes in %.3f seconds, %.2f MB/s',
                   self.el.inode, self.el.blockno, self.size, 

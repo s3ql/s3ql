@@ -265,7 +265,7 @@ class Operations(llfuse.Operations):
     def copy_tree(self, src_id, target_id):
         '''Efficiently copy directory tree'''
 
-        # First we have to flush the cache
+        # First we make sure that all blocks are in the database
         self.cache.commit()
 
         # Copy target attributes
@@ -274,21 +274,47 @@ class Operations(llfuse.Operations):
         for attr in ('atime', 'ctime', 'mtime', 'mode', 'uid', 'gid'):
             setattr(target_inode, attr, getattr(src_inode, attr))
 
-        queue = [ (src_id, target_id) ]
+        # We first replicate into a dummy inode 
+        timestamp = time.time()
+        tmp = self.inodes.create_inode(mtime=timestamp, ctime=timestamp, atime=timestamp,
+                                       uid=0, gid=0, mode=0, refcount=0)
+        
+        queue = [ (src_id, tmp.id) ]
         id_cache = dict()
         processed = 0
+        in_transit = set()
         while queue:
             (src_id, target_id) = queue.pop()
-            processed += self._copy_tree(src_id, target_id, queue, id_cache)
+            (t1, t2) = self._copy_tree(src_id, target_id, queue, id_cache)
+            processed += t1
+            in_transit.update(t2)
 
             # Give other threads a chance to access the db
             processed += 1
             if processed > 5000:
                 self.lock.release()
-                time.sleep(0.2)
+                time.sleep(0.1)
                 self.lock.acquire()
                 processed = 0
 
+        # If we replicated blocks whose associated objects where still in
+        # transit, we have to wait for the transit to complete before we make
+        # the replicated tree visible to the user. Otherwise access to the newly
+        # created blocks will raise a NoSuchObject exception.
+        while in_transit:
+            in_transit = [ x for x in in_transit 
+                           if x in self.cache.upload_manager.in_transit ]
+            if in_transit:
+                self.lock.release()
+                try:
+                    self.cache.upload_manager.join_one()
+                finally:
+                    self.lock.acquire() 
+            
+        # Make replication visible
+        dbcm.execute('UPDATE contents SET parent_inode=? WHERE parent_inode=?',
+                     (target_inode.id, tmp.id))
+        del self.inodes[tmp.id]
         llfuse.invalidate_inode(target_inode.id)
 
     def _copy_tree(self, src_id, target_id, queue, id_cache):
@@ -297,6 +323,7 @@ class Operations(llfuse.Operations):
         make_inode = self.inodes.create_inode
 
         processed = 0
+        in_transit = set()
         with dbcm.write_lock() as conn:
             for (name, id_) in conn.query('SELECT name, inode FROM contents WHERE parent_inode=?',
                                            (src_id,)):
@@ -324,6 +351,9 @@ class Operations(llfuse.Operations):
                         conn.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
                                      (id_new, blockno, obj_id))
                         conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?', (obj_id,))
+                        
+                        if obj_id in self.cache.upload_manager.in_transit:
+                            in_transit.add(obj_id)
 
                     if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
                         queue.append((id_, id_new))
@@ -335,7 +365,7 @@ class Operations(llfuse.Operations):
                              (name, id_new, target_id))
                 processed += 1
 
-            return processed
+            return (processed, in_transit)
 
     def unlink(self, id_p, name):
         inode = self.lookup(id_p, name)
