@@ -127,7 +127,7 @@ def main(args=None):
                 s3.retry_boto(boto.copy_key, key, src_bucket.name, key,
                               storage_class=options.storage_class)
 
-        t = ExceptionStoringThread(cp, log)
+        t = ExceptionStoringThread(cp)
         t.start()
         threads.append(t)
 
