@@ -129,6 +129,8 @@ the prefix for a given bucket at will, but you really should not do
 this because different parts of your file system would then be stored
 with different durability guarantees.
 
+Bucket names must conform to the `S3 Bucket Name Restrictions`_.
+
 The Amazon S3 backend provides read-after-create consistency for the
 EU, Asia-Pacific and US-West storage regions. *For the US-Standard
 storage region, Amazon S3 provides only eventual consistency* (please
@@ -144,7 +146,7 @@ with `s3` as a backend will be used. For example ::
 Note that the bucket names come from a global pool, so chances are
 that your favorite name has already been taken by another S3 user.
 Usually a longer bucket name containing some random numbers, like
-`19283712_yourname_s3ql`, will work better.
+`19283712_yourname_s3ql`, will work better. 
 
 If you do not already have one, you need to obtain an Amazon S3
 account from `Amazon AWS <http://aws.amazon.com/>`_. The account is
@@ -156,6 +158,9 @@ and password that you use to log into the Amazon Webpage, but the "AWS
 access key id" and "AWS secret access key" shown under `My
 Account/Access Identifiers
 <https://aws-portal.amazon.com/gp/aws/developer/account/index.html?ie=UTF8&action=access-key>`_.
+
+.. _`S3 Bucket Name Restrictions`: http://docs.amazonwebservices.com/AmazonS3/2006-03-01/dev/BucketRestrictions.html
+
 
 The Local Backend
 =================

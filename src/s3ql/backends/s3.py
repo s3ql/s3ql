@@ -21,6 +21,7 @@ from s3ql.common import (TimeoutError, ExceptionStoringThread)
 import logging
 import errno
 import httplib
+import re
 import time
 import threading
 
@@ -113,6 +114,9 @@ class Connection(AbstractConnection):
         """
         # Argument number deliberately differs from base class
         #pylint: disable-msg=W0221
+        
+        if not re.match('^[a-z][a-z0-9.-]{1,60}[a-z0-9]$', name):
+            raise InvalidBucketNameError()
 
         with self._get_boto() as boto:
             try:
@@ -128,12 +132,17 @@ class Connection(AbstractConnection):
     def get_bucket(self, name, passphrase=None, compression='lzma'):
         """Return a bucket instance for the bucket `name`"""
 
+        if not re.match('^[a-z][a-z0-9.-]{1,60}[a-z0-9]$', name):
+            raise InvalidBucketNameError()
+        
         with self._get_boto() as boto:
             try:
                 boto.get_bucket(name)
             except exception.S3ResponseError as e:
                 if e.status == 404:
                     raise NoSuchBucket(name)
+                elif e.code == 'InvalidBucketName':
+                    raise InvalidBucketNameError()
                 else:
                     raise
         return Bucket(self, name, passphrase, compression)
