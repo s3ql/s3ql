@@ -21,6 +21,7 @@ from .block_cache import BlockCache
 from cStringIO import StringIO
 from . import database as dbcm
 from .database import NoSuchRowError
+from .backends.common import NoSuchObject
 import struct
 from llfuse.interface import FUSEError
 
@@ -548,9 +549,14 @@ class Operations(llfuse.Operations):
 
             # Get last object before truncation
             if len_ != 0:
-                with self.cache.get(id_, last_block) as fh:
-                    fh.truncate(len_ - self.blocksize * last_block)
-
+                try:
+                    with self.cache.get(id_, last_block) as fh:
+                        fh.truncate(len_ - self.blocksize * last_block)
+                except NoSuchObject as exc:
+                    log.warn('Backend lost object %s!', exc.key)
+                    self.encountered_errors = True
+                    raise FUSEError(errno.EIO)
+        
             # Inode may have expired from cache 
             inode = self.inodes[id_]
             inode.size = len_
@@ -739,16 +745,22 @@ class Operations(llfuse.Operations):
         if offset_rel + length > self.blocksize:
             length = self.blocksize - offset_rel
 
-        with self.cache.get(id_, blockno) as fh:
-            fh.seek(offset_rel)
-            buf = fh.read(length)
+        try:
+            with self.cache.get(id_, blockno) as fh:
+                fh.seek(offset_rel)
+                buf = fh.read(length)
+                
+        except NoSuchObject as exc:
+            log.warn('Backend lost object %s!', exc.key)
+            self.encountered_errors = True
+            raise FUSEError(errno.EIO)
 
-            if len(buf) == length:
-                return buf
-            else:
-                # If we can't read enough, add null bytes
-                return buf + b"\0" * (length - len(buf))
-
+        if len(buf) == length:
+            return buf
+        else:
+            # If we can't read enough, add null bytes
+            return buf + b"\0" * (length - len(buf))
+                
     def write(self, fh, offset, buf):
         '''Handle FUSE write requests.
         
@@ -791,10 +803,15 @@ class Operations(llfuse.Operations):
         if offset_rel + len(buf) > self.blocksize:
             buf = buf[:self.blocksize - offset_rel]
 
-        with self.cache.get(id_, blockno) as fh:
-            fh.seek(offset_rel)
-            fh.write(buf)
-
+        try:
+            with self.cache.get(id_, blockno) as fh:
+                fh.seek(offset_rel)
+                fh.write(buf)
+        except NoSuchObject as exc:
+            log.warn('Backend lost object %s!', exc.key)
+            self.encountered_errors = True
+            raise FUSEError(errno.EIO)
+        
         return len(buf)
 
     def fsync(self, fh, datasync):

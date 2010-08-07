@@ -131,6 +131,7 @@ def get_backend(storage_url, homedir):
         bucketname = storage_url[len('s3://'):]
 
     elif storage_url.startswith('s3rr://'):
+        log.warn('Warning: Using S3 reduced redundancy storage (S3) is *not* recommended!')
         (login, password) = get_backend_credentials(homedir, 's3', None)
         conn = s3.Connection(login, password, reduced_redundancy=True)
         bucketname = storage_url[len('s3rr://'):]

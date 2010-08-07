@@ -193,11 +193,15 @@ class BlockCache(object):
                     log.debug('get(inode=%d, block=%d): downloading block', inode, blockno)
                     el = CacheEntry(inode, blockno, obj_id, filename, "w+b")
                     with without(self.lock):
-                        if self.bucket.read_after_create_consistent():
-                            self.bucket.fetch_fh('s3ql_data_%d' % obj_id, el)
-                        else:
-                            retry_exc(300, [ NoSuchObject ], self.bucket.fetch_fh,
-                                      's3ql_data_%d' % obj_id, el)
+                        try:
+                            if self.bucket.read_after_create_consistent():
+                                self.bucket.fetch_fh('s3ql_data_%d' % obj_id, el)
+                            else:
+                                retry_exc(300, [ NoSuchObject ], self.bucket.fetch_fh,
+                                          's3ql_data_%d' % obj_id, el)
+                        except:
+                            os.unlink(filename)
+                            raise
                     self.size += os.fstat(el.fileno()).st_size
     
                 self.cache[(inode, blockno)] = el

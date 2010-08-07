@@ -224,10 +224,18 @@ class Bucket(AbstractBucket):
 
     def read_after_write_consistent(self):
         return False
-                
+             
+
+                        
+    
     def raw_lookup(self, key):
+        '''Retrieve metadata for `key`
+        
+        If the key has been lost (S3 returns 405), it is automatically
+        deleted so that it will no longer be returned by list_keys.
+        '''
         with self._get_boto() as boto:
-            bkey = retry_boto(boto.get_key, key)
+            bkey = _get_boto_key(boto, key)
 
         if bkey is None:
             raise NoSuchObject(key)
@@ -256,8 +264,15 @@ class Bucket(AbstractBucket):
                 yield bkey.name
 
     def raw_fetch(self, key, fh):
+        '''Fetch `key` and store in `fh`
+        
+        If the key has been lost (S3 returns 405), it is automatically
+        deleted so that it will no longer be returned by list_keys.
+        '''        
+        
         with self._get_boto() as boto:
-            bkey = retry_boto(boto.get_key, key)
+            bkey = _get_boto_key(boto, key)
+                    
             if bkey is None:
                 raise NoSuchObject(key)
             fh.seek(0)
@@ -283,6 +298,24 @@ class Bucket(AbstractBucket):
         with self._get_boto() as boto:
             retry_boto(boto.copy_key, dest, self.name, src)
 
+def _get_boto_key(boto, key):
+    '''Get boto key object for `key`
+    
+    If the key has been lost (S3 returns 405), it is automatically
+    deleted so that it will no longer be returned by list_keys.
+    '''
+    
+    try:
+        return retry_boto(boto.get_key, key)
+    except exception.S3ResponseError as exc:
+        if exc.error_code != 'MethodNotAllowed':
+            raise
+        
+        # Object was lost
+        log.warn('Object %s has been lost by Amazon, deleting..', key)
+        retry_boto(boto.delete_key, key)
+        return None
+        
 def retry_boto(fn, *a, **kw):
     """Wait for fn(*a, **kw) to succeed
     

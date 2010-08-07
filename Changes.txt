@@ -6,6 +6,13 @@ xxx, S3QL 0.21
   * mount.s3ql now supports several parallel compression and
     encryption threads with the --compression-threads option. 
 
+  * The S3 backend now correctly handles lost objects.
+
+  * Using S3 RRS is now deprecated, see User's Guide for details.
+
+  * fsck.s3ql now moves damaged files due to data lost
+    by a backend into /lost+found/
+
   * expire_backups is no longer installed automatically and
     can now be found in the contrib/ directory.
 
