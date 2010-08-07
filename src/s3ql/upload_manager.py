@@ -50,6 +50,9 @@ class UploadManager(object):
         
         log.debug('UploadManager.add(%s): start', el)
 
+        if (el.inode, el.blockno) in self.in_transit:
+            raise ValueError('Block already in transit')
+        
         size = os.fstat(el.fileno()).st_size
         el.seek(0)
         hash_ = sha256_fh(el)
@@ -98,27 +101,30 @@ class UploadManager(object):
 
         if need_upload:
             el.modified_after_upload = False
-            self.in_transit.add(el.obj_id)
-            
-            # Create a new fd so that we don't get confused if another
-            # thread repositions the cursor
-            with without(lock):
-                (compr_size, fn) = self.bucket.prep_store_fh('s3ql_data_%d' % el.obj_id, 
-                                                             open(el.name + '.d', 'rb'))
-            dbcm.execute('UPDATE objects SET compr_size=? WHERE id=?', 
-                         (compr_size, el.obj_id))
-
-            # If we already have the minimum transit size, do not start more
-            # than two threads
-            log.debug('add(%s): starting upload thread', el)
-            if self.transit_size > MIN_TRANSIT_SIZE:
-                max_threads = 2
-            else:
-                max_threads = None
-            self.transit_size += compr_size        
-            with without(lock):
-                self.threads.add_thread(UploadThread(fn, el, compr_size, self), 
-                                        max_threads)
+            self.in_transit.add((el.inode, el.blockno))
+            try:
+                # Create a new fd so that we don't get confused if another
+                # thread repositions the cursor
+                with without(lock):
+                    (compr_size, fn) = self.bucket.prep_store_fh('s3ql_data_%d' % el.obj_id, 
+                                                                 open(el.name + '.d', 'rb'))
+                dbcm.execute('UPDATE objects SET compr_size=? WHERE id=?', 
+                             (compr_size, el.obj_id))
+    
+                # If we already have the minimum transit size, do not start more
+                # than two threads
+                log.debug('add(%s): starting upload thread', el)
+                if self.transit_size > MIN_TRANSIT_SIZE:
+                    max_threads = 2
+                else:
+                    max_threads = None
+                self.transit_size += compr_size        
+                with without(lock):
+                    self.threads.add_thread(UploadThread(fn, el, compr_size, self), 
+                                            max_threads)
+            except:
+                self.in_transit.remove((el.inode, el.blockno))
+                raise
         else:
             el.dirty = False
             el.modified_after_upload = False
@@ -174,7 +180,7 @@ class UploadThread(Thread):
         '''
         
         self.um.transit_size -= self.size
-        self.um.in_transit.remove(self.el.obj_id)
+        self.um.in_transit.remove((self.el.inode, self.el.blockno))
         log.debug('UploadThread(inode=%d, blockno=%d): '
                  'transferred %d bytes in %.3f seconds, %.2f MB/s',
                   self.el.inode, self.el.blockno, self.size, 

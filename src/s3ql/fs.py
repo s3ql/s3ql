@@ -351,8 +351,8 @@ class Operations(llfuse.Operations):
                                      (id_new, blockno, obj_id))
                         conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?', (obj_id,))
                         
-                        if obj_id in self.cache.upload_manager.in_transit:
-                            in_transit.add(obj_id)
+                        if (id_, blockno) in self.cache.upload_manager.in_transit:
+                            in_transit.add((id_, blockno))
 
                     if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
                         queue.append((id_, id_new))

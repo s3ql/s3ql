@@ -46,9 +46,7 @@ class CacheEntry(file):
         If it is still False when the upload has completed, 
         `dirty` is set to False and the object looses the ``.d`` suffix
         in its name.
-        
-        If `dirty` is set and `modified_after_upload` is not, then
-        the upload is currently in progress.
+
     """
 
     __slots__ = [ 'dirty', 'obj_id', 'inode', 'blockno', 'last_access',
@@ -246,18 +244,15 @@ class BlockCache(object):
             
             # Try to expire entries that are not dirty
             for el in self.cache.values_rev():
-                if el.dirty:
-                    if not el.modified_after_upload:
-                        # Object is currently being uploaded
-                        continue
-                    else:
-                        log.debug('expire: %s is dirty, trying to flush', el)
-                        break
+                if el.dirty and not (el.inode, el.blockno) in self.upload_manager.in_transit:
+                    log.debug('expire: %s is dirty, trying to flush', el)
+                    break
+                elif el.dirty: # currently in transit
+                    continue
                 
                 del self.cache[(el.inode, el.blockno)]
                 size = os.fstat(el.fileno()).st_size
-                # We do not close the file, maybe it is still 
-                # being uploaded
+                el.close()
                 os.unlink(el.name)
                 need_entries -= 1
                 self.size -= size
@@ -273,7 +268,7 @@ class BlockCache(object):
             if not self.upload_manager.upload_in_progress():
                 for el in self.cache.values_rev():
                     log.debug('expire: uploading %s..', el)
-                    if el.dirty and el.modified_after_upload:
+                    if el.dirty and (el.inode, el.blockno) not in self.upload_manager.in_transit:
                         freed = self.upload_manager.add(el, self.lock)
                         need_size -= freed
                     else:
@@ -441,13 +436,13 @@ class CommitThread(threading.Thread):
                     if stamp - el.last_access < 10:
                         break
                     if (not el.dirty or
-                        not el.modified_after_upload):
+                        (el.inode, el.blockno) in self.bcache.upload_manager.in_transit):
                         continue
                             
                     # UploadManager is not threadsafe
                     with self.bcache.lock:
                         if (not el.dirty or # Object may have been accessed
-                            not el.modified_after_upload): 
+                            (el.inode, el.blockno) in self.bcache.upload_manager.in_transit):
                             continue
                         self.bcache.upload_manager.add(el, self.bcache.lock)
                     did_sth = True
