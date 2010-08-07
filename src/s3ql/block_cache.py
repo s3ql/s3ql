@@ -134,10 +134,10 @@ class BlockCache(object):
 
     def destroy(self):
         log.debug('destroy: start')
-        self.commit_thread.stop()    
+        self.commit_thread.stop()
         self.clear()
-        self.removal_queue.join_all()
-        self.upload_manager.join_all()        
+        self.upload_manager.join_all()
+        self.removal_queue.join_all()        
         os.rmdir(self.cachedir)
         log.debug('destroy: end')
 
