@@ -18,6 +18,9 @@ log = logging.getLogger("thread_group")
 __all__ = [ 'Thread', 'ThreadGroup' ]
 
 class Thread(threading.Thread):
+    '''
+    A thread that can be executed in a `ThreadGroup`.
+    '''
 
     def __init__(self):
         super(Thread, self).__init__()
@@ -28,9 +31,29 @@ class Thread(threading.Thread):
         self._group = None
     
     def run_protected(self):
+        '''Perform task asynchronously
+        
+        This method must be overridden in derived classes. It will
+        be called in a separate thread. Exceptions will be
+        encapsulated in `EmbeddedException` and re-raised when
+        the thread is joined.
+        '''
         pass
     
     def finalize(self):
+        '''Clean Up after successful run
+        
+        This method will be called from `join_one` after the
+        `run_protected` method has finished successfully,  
+        '''
+        pass
+    
+    def handle_exc(self, exc):
+        '''Clean Up after failed run
+        
+        This method will be called from `join_one` after the
+        `run_protected` method has terminated with an exception.
+        '''        
         pass
     
     def start(self):
@@ -125,7 +148,8 @@ class ThreadGroup(object):
         
         If the thread terminated with an exception, the exception
         is encapsulated in `EmbeddedException` and raised again. In
-        that case the `finalize` method is not run.
+        that case the `handle_exc` method is called instead of
+        `finalize`.
         
         If there are no active threads, the call returns without doing
         anything.
@@ -136,24 +160,30 @@ class ThreadGroup(object):
         '''
         
         with self.lock:
+
+            # Make sure that at least 1 thread is joined
             if len(self) == 0:
                 return
-            
+                        
             try:
                 t = self.finished_threads.pop()
-                t.join_and_raise()
-                t.finalize()
             except IndexError:
                 # Wait for thread to terminate
                 log.debug('join_one: wait()')
                 self.lock.wait()
-                
                 try:
                     t = self.finished_threads.pop()
-                    t.join_and_raise()
-                    t.finalize()
                 except IndexError:
-                    pass
+                    # Already joined by other waiting thread
+                    return
+                   
+        try:
+            t.join_and_raise()
+        except EmbeddedException as exc:
+            t.handle_exc(exc)
+            raise
+        else:
+            t.finalize()
                     
             
     def join_all(self):
