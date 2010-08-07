@@ -56,8 +56,8 @@ For a full list of available options, run `mount.s3ql --help`.
 
 .. _bucket_pw:
 
-Storing Bucket Encryption Passwords
-===================================
+Storing Encryption Passwords
+============================
 
 If you are trying to mount an encrypted bucket, `mount.s3ql` will first
 try to read the password from the `.s3ql/authinfo` file (the same file
@@ -109,6 +109,26 @@ algorithm that is fast enough to saturate your network connection.
 Obviously you should make sure that there is little other system load
 when you run `benchmark.py` (i.e., don't compile software or encode
 videos at the same time).
+
+
+Parallel Compression
+====================
+
+If you are running S3QL on a system with multiple cores, you might
+want to set ``--compression-threads`` to a value bigger than one. This
+will instruct S3QL to compress and encrypt several blocks at the same
+time.
+
+If you want to do this in combination with using the LZMA compression
+algorithm, you should keep an eye on memory usage though. Every
+LZMA compression threads requires about 200 MB of RAM.
+
+
+.. NOTE::
+
+   To determine the optimal compression algorithm for your network
+   connection when using multiple threads, you can pass the
+   ``--compression-threads`` option to  `contrib/benchmark.py`.
 
 
 Notes about Caching

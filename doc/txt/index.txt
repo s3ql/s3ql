@@ -13,12 +13,10 @@
    mkfs
    adm
    mount
-   ctrl
-   cp
-   stat
+   special
    umount
    fsck
-   backup
    contrib
+   tips
    issues
    resources

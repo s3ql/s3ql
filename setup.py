@@ -101,7 +101,6 @@ def main():
                          'mount.s3ql = s3ql.cli.mount:main',
                          'umount.s3ql = s3ql.cli.umount:main',
                          's3qlcp = s3ql.cli.cp:main',
-                         'expire_backups = s3ql.cli.expire_backups:main',
                          's3qlstat = s3ql.cli.statfs:main',
                          's3qladm = s3ql.cli.adm:main',
                          's3qlctrl = s3ql.cli.ctrl:main',

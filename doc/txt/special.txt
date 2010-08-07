@@ -1,6 +1,10 @@
 .. -*- mode: rst -*-
 
-==============================
+
+======================
+Advanced S3QL Features
+======================
+
 Snapshotting and Copy-on-Write
 ==============================
 
@@ -55,7 +59,7 @@ For a full list of available options, run `s3qlcp --help`.
 
 
 Snapshotting vs Hardlinking
-===========================
+---------------------------
 
 Snapshot support in S3QL is inspired by the hardlinking feature that
 is offered by programs like `rsync <http://www.samba.org/rsync>`_ or
@@ -75,3 +79,45 @@ has two large disadvantages:
 
 S3QL snapshots do not have these problems, and they can be used with
 any backup program.
+
+
+Getting Statistics
+==================
+
+You can get more information about a mounted S3QL file system with the
+`s3qlstat` command. It has the following syntax::
+
+  s3qlstat [options] <mountpoint>
+
+Probably the most interesting numbers are the total size of your data,
+the total size after duplication, and the final size after
+de-duplication and compression.
+
+`s3qlstat` can only be called by the user that mounted the file system
+and (if the file system was mounted with `--allow-other` or `--allow-root`)
+the root user. This limitation might be removed in the future (see `issue 155
+<http://code.google.com/p/s3ql/issues/detail?id=155>`_).
+
+For a full list of available options, run `s3qlstat --help`.
+
+
+Runtime Configuration
+=====================
+
+
+The `s3qlctrl` can be used to control a mounted S3QL file system. Its
+syntax is ::
+
+ s3qlctrl [options] <action> <mountpoint>
+
+`<mountpoint>` must be the location of a mounted S3QL file system. 
+For a list of valid options, run `s3qlctrl --help`. `<action>`
+may be either of:
+
+  :flushcache:
+              Flush file system cache. The command blocks until the cache has
+              been flushed.
+  :stacktrace:  Dump stack trace for all active threads into logfile. This is for
+              debugging purposes only.
+
+
