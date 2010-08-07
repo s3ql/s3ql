@@ -423,7 +423,7 @@ class CommitThread(threading.Thread):
         self.bcache = bcache
         
         self.stop_event = threading.Event()
-        self.name = 'IO Thread'
+        self.name = 'CommitThread'
             
                 
     def run(self):
