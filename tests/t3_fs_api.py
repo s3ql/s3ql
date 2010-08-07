@@ -216,7 +216,6 @@ class fs_api_tests(TestCase):
         self.assertTrue(self.server.read(fh, off, len_) == data)
         inode_after = self.server.getattr(inode.id)
         self.assertGreater(inode_after.atime, inode_before.atime)
-        self.assertGreater(inode_after.ctime, inode_before.ctime)
         self.assertTrue(self.server.read(fh, 0, len_) == b"\0" * off + data[:off])
         self.assertTrue(self.server.read(fh, self.blocksize, len_) == data[off:])
         self.server.release(fh)
