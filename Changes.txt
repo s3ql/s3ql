@@ -6,6 +6,12 @@ xxx, S3QL 0.21
   * mount.s3ql now supports several parallel compression and
     encryption threads with the --compression-threads option. 
 
+  * expire_backups is no longer installed automatically and
+    can now be found in the contrib/ directory.
+
+  * S3QL now comes with sample backup script in contrib/s3_backup.sh
+  
+  
 2010-08-01, S3QL 0.20.1
 
   * Hotfix for s3qladm upgrade.
