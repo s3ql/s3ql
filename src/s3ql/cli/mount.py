@@ -381,7 +381,11 @@ def parse_args(args):
                       default=24*60*60, metavar='<seconds>',
                       help='Interval in seconds between complete metadata uploads. '
                       'default: 24h.')
-
+    parser.add_option("--compression-threads", action="store", type='int',
+                      default=1, metavar='<no>',
+                      help='Number of parallel compression and encryption threads '
+                           'to use (default: %default).')
+    
     (options, pps) = parser.parse_args(args)
 
     #
@@ -408,6 +412,9 @@ def parse_args(args):
     if not os.path.exists(options.homedir):
         os.mkdir(options.homedir, 0700)
                 
+    from .. import upload_manager
+    upload_manager.MAX_COMPRESS_THREADS = options.compression_threads
+    
     return options
 
 class MetadataUploadThread(threading.Thread):

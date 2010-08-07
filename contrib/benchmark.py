@@ -51,6 +51,10 @@ def parse_args(args):
                       help="Activate debugging output")
     parser.add_option("--quiet", action="store_true", default=False,
                       help="Be really quiet")
+    parser.add_option("--compression-threads", action="store", type='int',
+                      default=1, metavar='<no>',
+                      help='Number of parallel compression and encryption threads '
+                           'to use (default: %default).')
     (options, pps) = parser.parse_args(args)
 
     #
@@ -138,6 +142,12 @@ def main(args=None):
         log.info('done. Network Uplink Speed:  %.2f KB per second', net_speed)
 
 
+    print('Assuming mount.s3ql will be called with --compression-threads %d'
+          % options.compression_threads)
+    lzma_speed *= options.compression_threads
+    bzip2_speed *= options.compression_threads
+    zlib_speed *= options.compression_threads
+    
     if lzma_speed > net_speed:
         print('You should use LZMA compression.')
     elif bzip2_speed > net_speed:

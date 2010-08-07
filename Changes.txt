@@ -2,7 +2,9 @@ xxx, S3QL 0.21
 
   * The metadata is now only uploaded if there have been any
     changes.
-    
+   
+  * mount.s3ql now supports several parallel compression and
+    encryption threads with the --compression-threads option. 
 
 2010-08-01, S3QL 0.20.1
 

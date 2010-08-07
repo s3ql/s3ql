@@ -14,8 +14,10 @@ from .thread_group import ThreadGroup, Thread
 from . import database as dbcm
 from .database import NoSuchRowError
 import logging
+import threading
 import os
 import time
+from s3ql.common import EmbeddedException
 
 __all__ = [ "UploadManager", 'retry_exc', 'RemoveThread' ]
 
@@ -24,6 +26,7 @@ log = logging.getLogger("UploadManager")
      
 
 MAX_UPLOAD_THREADS = 10
+MAX_COMPRESS_THREADS = 1
 MIN_TRANSIT_SIZE = 1024 * 1024
 class UploadManager(object):
     '''
@@ -32,10 +35,12 @@ class UploadManager(object):
     '''
     
     def __init__(self, bucket, removal_queue):
-        self.threads = ThreadGroup(MAX_UPLOAD_THREADS)
+        self.upload_threads = ThreadGroup(MAX_UPLOAD_THREADS)
+        self.compress_threads = ThreadGroup(MAX_COMPRESS_THREADS)
         self.removal_queue = removal_queue
         self.bucket = bucket
         self.transit_size = 0
+        self.transit_size_lock = threading.Lock()
         self.in_transit = set()
         
     def add(self, el, lock):
@@ -43,9 +48,8 @@ class UploadManager(object):
         
         Return (uncompressed) size of cache entry.
         
-        `lock` is released while the cache entry is compressed and
-        while waiting for a free upload slot if the maximum number
-        of parallel uploads has been reached.
+        If there are no free compression or upload slots, `lock` is released
+        while waiting for a free slot.
         '''
         
         log.debug('UploadManager.add(%s): start', el)
@@ -100,57 +104,108 @@ class UploadManager(object):
                     to_delete = True
 
         if need_upload:
+            log.debug('add(inode=%d, blockno=%d): starting compression thread', 
+                      el.inode, el.blockno)
             el.modified_after_upload = False
             self.in_transit.add((el.inode, el.blockno))
-            try:
-                # Create a new fd so that we don't get confused if another
-                # thread repositions the cursor (and do so before unlocking)
-                with open(el.name + '.d', 'rb') as fh:
-                    with without(lock):
-                        (compr_size, fn) = self.bucket.prep_store_fh('s3ql_data_%d' % el.obj_id, 
-                                                                     fh)
-                dbcm.execute('UPDATE objects SET compr_size=? WHERE id=?', 
-                             (compr_size, el.obj_id))
-    
-                # If we already have the minimum transit size, do not start more
-                # than two threads
-                log.debug('add(%s): starting upload thread', el)
-                if self.transit_size > MIN_TRANSIT_SIZE:
-                    max_threads = 2
-                else:
-                    max_threads = None
-                self.transit_size += compr_size        
-                with without(lock):
-                    self.threads.add_thread(UploadThread(fn, el, compr_size, self), 
-                                            max_threads)
-            except:
-                self.in_transit.remove((el.inode, el.blockno))
-                raise
+            
+            # Create a new fd so that we don't get confused if another
+            # thread repositions the cursor (and do so before unlocking)
+            fh = open(el.name + '.d', 'rb')
+            with without(lock):
+                self.compress_threads.add_thread(CompressThread(el, fh, self))
+
         else:
             el.dirty = False
             el.modified_after_upload = False
             os.rename(el.name + '.d', el.name)
                 
         if to_delete:
-            log.debug('add(%s): removing object %d', el, old_obj_id)
+            log.debug('add(inode=%d, blockno=%d): removing object %d', 
+                      el.inode, el.blockno, old_obj_id)
             with without(lock):
-                self.removal_queue.add_thread(RemoveThread(old_obj_id,
-                                                           self.bucket))
+                self.removal_queue.add_thread(RemoveThread(old_obj_id, self.bucket))
                                 
-        log.debug('add(%s): end', el)
+        log.debug('add(inode=%d, blockno=%d): end', el.inode, el.blockno)
         return size
 
     def join_all(self):
-        self.threads.join_all()
+        '''Wait until all blocks in transit have been uploaded'''
+        
+        self.compress_threads.join_all()
+        self.upload_threads.join_all()
         assert not self.in_transit
 
     def join_one(self):
-        self.threads.join_one()
+        '''Wait until one block has been uploaded
+        
+        If there are no blocks in transit, return immediately.
+        '''
+        
+        if len(self.upload_threads) == 0:
+            self.compress_threads.join_one()
+            
+        self.upload_threads.join_one()
             
     def upload_in_progress(self):
-        return len(self.threads) > 0
+        '''Return True if there are any blocks in transit'''
+        
+        return len(self.compress_threads) + len(self.upload_threads) > 0
     
-                    
+    
+class CompressThread(Thread):
+    '''
+    Compress a block and then pass it on for uploading.
+    '''
+    
+    def __init__(self, el, fh, um):
+        super(CompressThread, self).__init__()
+        self.el = el
+        self.fh = fh
+        self.um = um
+        
+    def run_protected(self):
+        '''Compress block
+        
+        After compression:
+         - the file handle is closed
+         - the compressed block size is updated in the database
+         - an UploadThread instance started for uploading the data.
+         
+        In case of an exception, the block is removed from the in_transit
+        set. 
+        '''
+                     
+        (size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.el.obj_id, 
+                                                  self.fh)
+        self.fh.close()
+        
+        dbcm.execute('UPDATE objects SET compr_size=? WHERE id=?', 
+                     (size, self.el.obj_id))
+
+        # If we already have the minimum transit size, do not start more
+        # than two threads
+        log.debug('CompressThread(%s): starting upload thread', self.el)
+        with self.um.transit_size_lock:
+            if self.um.transit_size > MIN_TRANSIT_SIZE:
+                max_threads = 2
+            else:
+                max_threads = None
+                
+            self.um.transit_size += size    
+            
+        self.um.upload_threads.add_thread(UploadThread(fn, self.el, size, self.um), 
+                                          max_threads)
+            
+    def handle_exc(self, exc):
+        '''Remove block from in_transit unless UploadThread has been started'''
+        
+        if not isinstance(exc, EmbeddedException):
+            self.um.in_transit.remove((self.el.inode, self.el.blockno))
+            with self.um.transit_size_lock:
+                self.um.transit_size -= self.size
+            
+                
 class UploadThread(Thread):
     '''
     Uploads a cache entry with the function passed in the constructor.
@@ -165,23 +220,30 @@ class UploadThread(Thread):
         self.um = um
         
     def run_protected(self):
-        '''Call self.fn() and time execution
+        '''Upload block by calling self.fn()
         
-        This method expects to run in a separate thread.
+        The upload duration is timed. After the upload (or if an exception
+        occurs), the block is removed from in_transit.      
         '''
         self.time = time.time()
         self.fn()
         self.time = time.time() - self.time           
-                      
-    def finalize(self):
-        '''Mark cache entry as uploaded
+              
+                
+    def handle_exc(self):
+        '''Remove block from in_transit'''
         
-        This function should be called from the main thread once
-        the thread running `run_protected` has finished. 
-        '''
-        
-        self.um.transit_size -= self.size
         self.um.in_transit.remove((self.el.inode, self.el.blockno))
+        with self.um.transit_size_lock:
+            self.um.transit_size -= self.size
+            
+    def finalize(self):
+        '''Mark block as uploaded'''
+        
+        self.um.in_transit.remove((self.el.inode, self.el.blockno))
+        with self.um.transit_size_lock:
+            self.um.transit_size -= self.size
+            
         log.debug('UploadThread(inode=%d, blockno=%d): '
                  'transferred %d bytes in %.3f seconds, %.2f MB/s',
                   self.el.inode, self.el.blockno, self.size, 
