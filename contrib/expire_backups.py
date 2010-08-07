@@ -12,15 +12,23 @@ from __future__ import division, print_function, absolute_import
 
 import sys
 import os
-from ..common import (QuietError, add_stdout_logging, setup_excepthook)
-from s3ql.optparse import OptionParser
 from datetime import datetime, timedelta
 import logging
 import re
 import textwrap
 import shutil
 
-log = logging.getLogger()
+# We are running from the S3QL source directory, make sure
+# that we use modules from this directory
+basedir = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), '..'))
+if (os.path.exists(os.path.join(basedir, 'setup.py')) and
+    os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
+    sys.path = [os.path.join(basedir, 'src')] + sys.path
+    
+from s3ql.common import (QuietError, add_stdout_logging, setup_excepthook)
+from s3ql.optparse import OptionParser
+    
+log = logging.getLogger('expire_backups')
 
 
 def parse_args(args):
