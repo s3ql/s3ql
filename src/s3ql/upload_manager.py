@@ -104,10 +104,11 @@ class UploadManager(object):
             self.in_transit.add((el.inode, el.blockno))
             try:
                 # Create a new fd so that we don't get confused if another
-                # thread repositions the cursor
-                with without(lock):
-                    (compr_size, fn) = self.bucket.prep_store_fh('s3ql_data_%d' % el.obj_id, 
-                                                                 open(el.name + '.d', 'rb'))
+                # thread repositions the cursor (and do so before unlocking)
+                with open(el.name + '.d', 'rb') as fh:
+                    with without(lock):
+                        (compr_size, fn) = self.bucket.prep_store_fh('s3ql_data_%d' % el.obj_id, 
+                                                                     fh)
                 dbcm.execute('UPDATE objects SET compr_size=? WHERE id=?', 
                              (compr_size, el.obj_id))
     
