@@ -8,3 +8,49 @@ Tips & Tricks
 Improving copy performance
 ==========================
 
+If you want to copy a lot of smaller files *from* an S3QL file system
+(e.g. for a system restore) you will probably notice that the
+performance is rather bad.
+
+The reason for this is intrinsic to the way S3QL works. Whenever you
+read a file, S3QL first has to retrieve this file over the network
+from the storage backend. This takes a minimum amount of time (the
+network latency), no matter how big or small the file is. So when you
+copy lots of small files, 99% of the time is actually spend waiting
+for network data.
+
+Theoretically, this problem is easy to solve: you just have to copy
+several files at the same time. In practice, however, almost all unix
+utilities (``cp``, ``rsync``, ``tar`` and friends) insist on copying
+data one file at a time. This makes a lot of sense when copying data
+on the local hard disk, but in case of S3QL this is really
+unfortunate.
+
+The best workaround that has been found so far is to copy files by
+starting several rsync processes at once and use exclusion rules to
+make sure that they work on different sets of files.
+
+For example, the following script will start 3 rsync instances. The
+first instance handles all filenames starting with a-f, the second the
+filenames from g-l and the third covers the rest. The ``+ */`` rule
+ensures that every instance looks into all directories. ::
+
+  #!/bin/bash
+
+  RSYNC_ARGS="-aHv /mnt/s3ql/ /home/restore/"
+
+  rsync -f "+ */" -f "-! [a-f]*" $RSYNC_ARGS &
+  rsync -f "+ */" -f "-! [g-l]*" $RSYNC_ARGS &
+  rsync -f "+ */" -f "- [a-l]*" $RSYNC_ARGS &
+
+  wait
+
+Increasing the number of processes from 1 to 3 already improves
+performance dramatically (for a set of 100 files with sizes around 0.5
+kB, the transfer time reduces from 40 to 16 seconds).
+
+You should be able to easily generalize this procedure to higher
+numbers of processes. The optimum number depends on your network
+connection and the size of the files that you want to transfer.
+However, starting about 10 processes seems to be a good compromise
+that increases performance dramatically in almost all situations. 
