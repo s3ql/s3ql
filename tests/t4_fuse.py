@@ -53,7 +53,9 @@ class fuse_tests(TestCase):
         # because the db file is being removed
         if self.mount_thread:
             self.mount_thread.join(5)
-
+            if not self.mount_thread.is_alive():
+                self.mount_thread.join_and_raise()
+                
         shutil.rmtree(self.mnt_dir)
         shutil.rmtree(self.cache_dir)
         shutil.rmtree(self.bucket_dir)
