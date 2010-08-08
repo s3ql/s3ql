@@ -574,7 +574,14 @@ class ChecksumError(Exception):
     """
     Raised if there is a checksum error in the data that we received.
     """
-    pass
+    
+    def __init__(self, str_):
+        super(ChecksumError, self).__init__()
+        self.str = str_
+    
+    def __str__(self):
+        return self.str
+    
 
 class ObjectNotEncrypted(Exception):
     '''

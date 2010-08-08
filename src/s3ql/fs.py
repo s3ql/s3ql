@@ -21,7 +21,7 @@ from .block_cache import BlockCache
 from cStringIO import StringIO
 from . import database as dbcm
 from .database import NoSuchRowError
-from .backends.common import NoSuchObject
+from .backends.common import NoSuchObject, ChecksumError
 import struct
 import cPickle as pickle
 from llfuse.interface import FUSEError
@@ -133,6 +133,9 @@ class Operations(llfuse.Operations):
     def destroy(self):
         self.inodes.destroy()
         self.cache.destroy()
+        
+        if self.cache.encountered_errors:
+            self.encountered_errors = True
 
     def lookup(self, id_p, name):
         with dbcm.conn() as conn:
@@ -681,9 +684,16 @@ class Operations(llfuse.Operations):
                 try:
                     with self.cache.get(id_, last_block) as fh:
                         fh.truncate(len_ - self.blocksize * last_block)
+                        
                 except NoSuchObject as exc:
-                    log.warn('Backend lost object %s!', exc.key)
+                    log.warn('Backend lost block %d of inode %d (id %s)!', 
+                             last_block, id_, exc.key)
                     self.encountered_errors = True
+                    raise FUSEError(errno.EIO)
+                
+                except ChecksumError as exc:
+                    log.warn('Backend returned malformed data for block %d of inode %d (%s)',
+                             last_block, id_, exc)
                     raise FUSEError(errno.EIO)
         
             # Inode may have expired from cache 
@@ -888,8 +898,14 @@ class Operations(llfuse.Operations):
                 buf = fh.read(length)
                 
         except NoSuchObject as exc:
-            log.warn('Backend lost object %s!', exc.key)
+            log.warn('Backend lost block %d of inode %d (id %s)!', 
+                     blockno, id_, exc.key)
             self.encountered_errors = True
+            raise FUSEError(errno.EIO)
+        
+        except ChecksumError as exc:
+            log.warn('Backend returned malformed data for block %d of inode %d (%s)',
+                     blockno, id_, exc)
             raise FUSEError(errno.EIO)
 
         if len(buf) == length:
@@ -948,11 +964,18 @@ class Operations(llfuse.Operations):
             with self.cache.get(id_, blockno) as fh:
                 fh.seek(offset_rel)
                 fh.write(buf)
+                
         except NoSuchObject as exc:
-            log.warn('Backend lost object %s!', exc.key)
+            log.warn('Backend lost block %d of inode %d (id %s)!', 
+                     blockno, id_, exc.key)
             self.encountered_errors = True
             raise FUSEError(errno.EIO)
-        
+                            
+        except ChecksumError as exc:
+            log.warn('Backend returned malformed data for block %d of inode %d (%s)',
+                     blockno, id_, exc)
+            raise FUSEError(errno.EIO)
+                
         return len(buf)
 
     def fsync(self, fh, datasync):

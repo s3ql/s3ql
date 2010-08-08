@@ -32,6 +32,14 @@ class UploadManager(object):
     '''
     Schedules and executes object uploads to make optimum usage
     network bandwidth and CPU time.
+    
+    Attributes:
+    -----------
+    
+    :encountered_errors: This attribute is set if some non-fatal errors
+            were encountered during asynchronous operations (for
+            example, an object that was supposed to be deleted did
+            not exist).    
     '''
     
     def __init__(self, bucket, removal_queue):
@@ -42,6 +50,7 @@ class UploadManager(object):
         self.transit_size = 0
         self.transit_size_lock = threading.Lock()
         self.in_transit = set()
+        self.encountered_errors = False        
         
     def add(self, el, lock):
         '''Upload cache entry `el` asynchronously
@@ -123,9 +132,18 @@ class UploadManager(object):
         if to_delete:
             log.debug('add(inode=%d, blockno=%d): removing object %d', 
                       el.inode, el.blockno, old_obj_id)
-            with without(lock):
-                self.removal_queue.add_thread(RemoveThread(old_obj_id, self.bucket))
-                                
+            
+            try:
+                with without(lock):
+                    self.removal_queue.add_thread(RemoveThread(old_obj_id, self.bucket))
+            except EmbeddedException as exc:
+                exc = exc.exc
+                if isinstance(exc, NoSuchObject):
+                    log.warn('Backend seems to have lost object %s', exc.key)
+                    self.encountered_errors = True
+                else:
+                    raise
+                                                
         log.debug('add(inode=%d, blockno=%d): end', el.inode, el.blockno)
         return size
 

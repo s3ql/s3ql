@@ -108,7 +108,10 @@ class BlockCache(object):
     :lock:  Synchronizes instance access
     :mlock: locks on (inode, blockno) during `get`, so that we do not
             download the same object with more than one thread.
-    
+    :encountered_errors: This attribute is set if some non-fatal errors
+            were encountered during asynchronous operations (for
+            example, an object that was supposed to be deleted did
+            not exist).
     """
 
     def __init__(self, bucket, lock, cachedir, max_size, max_entries=768):
@@ -124,6 +127,7 @@ class BlockCache(object):
         self.removal_queue = ThreadGroup(MAX_REMOVAL_THREADS)
         self.upload_manager = UploadManager(bucket, self.removal_queue)
         self.commit_thread = CommitThread(self)
+        self.encountered_errors = False
 
     def init(self):
         log.debug('init: start')
@@ -137,7 +141,11 @@ class BlockCache(object):
         self.commit_thread.stop()
         self.clear()
         self.upload_manager.join_all()
-        self.removal_queue.join_all()        
+        self.removal_queue.join_all()
+        
+        if self.upload_manager.encountered_errors:
+            self.encountered_errors = True
+            
         os.rmdir(self.cachedir)
         log.debug('destroy: end')
 
@@ -363,8 +371,16 @@ class BlockCache(object):
                     to_delete = True
         
             if to_delete:
-                with without(self.lock):
-                    self.removal_queue.add_thread(RemoveThread(obj_id, self.bucket))
+                try:
+                    with without(self.lock):
+                        self.removal_queue.add_thread(RemoveThread(obj_id, self.bucket))
+                except EmbeddedException as exc:
+                    exc = exc.exc
+                    if isinstance(exc, NoSuchObject):
+                        log.warn('Backend seems to have lost object %s', exc.key)
+                        self.encountered_errors = True
+                    else:
+                        raise
 
         log.debug('remove(inode=%d, start=%d, end=%s): end',
                   inode, start_no, end_no)
