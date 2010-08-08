@@ -14,7 +14,7 @@ from s3ql.common import (get_backend, QuietError, unlock_bucket, LoggerFilter,
                       add_file_logging, add_stdout_logging, setup_excepthook)
 from s3ql.optparse import (OptionParser, ArgumentGroup)
 from s3ql import CURRENT_FS_REV
-from s3ql.mkfs import create_indices
+#from s3ql.mkfs import create_indices
 from getpass import getpass
 import sys
 from s3ql.backends import s3, local, sftp
