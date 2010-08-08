@@ -22,10 +22,10 @@ __all__ = [ 'InodeCache', 'OutOfInodesError' ]
 log = logging.getLogger('inode_cache')
 
 CACHE_SIZE = 100
-ATTRIBUTES = ('mode', 'refcount', 'uid', 'gid', 'size',
+ATTRIBUTES = ('mode', 'refcount', 'uid', 'gid', 'size', 'locked',
               'rdev', 'target', 'atime', 'mtime', 'ctime', 'id')
 ATTRIBUTE_STR = ', '.join(ATTRIBUTES)
-UPDATE_ATTRS = ('mode', 'refcount', 'uid', 'gid', 'size',
+UPDATE_ATTRS = ('mode', 'refcount', 'uid', 'gid', 'size', 'locked',
               'rdev', 'target', 'atime', 'mtime', 'ctime')
 UPDATE_STR = ', '.join('%s=?' % x for x in UPDATE_ATTRS)
 TIMEZONE = time.timezone

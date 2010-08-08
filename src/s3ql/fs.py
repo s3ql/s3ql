@@ -23,6 +23,7 @@ from . import database as dbcm
 from .database import NoSuchRowError
 from .backends.common import NoSuchObject
 import struct
+import cPickle as pickle
 from llfuse.interface import FUSEError
 
 __all__ = [ "Server" ]
@@ -102,7 +103,7 @@ class Operations(llfuse.Operations):
         This method marks the file system as needing fsck and logs the
         error.
         '''
-
+        
         log.error("Unexpected internal filesystem error.\n"
                   "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n"
                   "Please report this bug on http://code.google.com/p/s3ql/.")
@@ -229,7 +230,7 @@ class Operations(llfuse.Operations):
         return names
 
     def setxattr(self, id_, name, value):
-
+        
         # Handle S3QL commands
         if id_ == CTRL_INODE:
             if name == b's3ql_flushcache!':
@@ -245,23 +246,129 @@ class Operations(llfuse.Operations):
             elif name == 'copy':
                 self.copy_tree(*struct.unpack('II', value))
 
+            elif name == 'lock':
+                self.lock_tree(*pickle.loads(value))
+                
+            elif name == 'rmtree':
+                self.remove_tree(*pickle.loads(value))
+                                
             elif name == 'stacktrace':
                 log_stacktraces()
                 
             else:
                 raise llfuse.FUSEError(errno.EINVAL)
         else:
+            if self.inodes[id_].locked:
+                raise FUSEError(errno.EPERM)
+                    
             dbcm.execute('INSERT OR REPLACE INTO ext_attributes (inode, name, value) '
                               'VALUES(?, ?, ?)', (id_, name, value))
             self.inodes[id_].ctime = time.time()
 
     def removexattr(self, id_, name):
+        
+        if self.inodes[id_].locked:
+            raise FUSEError(errno.EPERM)
+            
         changes = dbcm.execute('DELETE FROM ext_attributes WHERE inode=? AND name=?',
                                     (id_, name))
         if changes == 0:
             raise llfuse.FUSEError(llfuse.ENOATTR)
         self.inodes[id_].ctime = time.time()
 
+    def lock_tree(self, id_):
+        '''Lock directory tree'''
+        
+        log.debug('lock_tree(%d): start', id_)
+        queue = [ id_ ]  
+        self.inodes[id_].locked = True
+        while queue:    
+            processed = 0
+            with dbcm.write_lock() as conn:
+                while queue:
+                    processed += self._lock_tree(queue, conn)    
+                
+                    if processed > 10000:
+                        break
+            
+            self.yield_lock()
+
+        log.debug('lock_tree(%d): end', id_)
+        
+    def _lock_tree(self, queue, conn):
+        
+        processed = 0    
+        id_ = queue.pop()
+        
+        log.debug('_lock_tree(): working on %d', id_)
+        
+        for (id_,) in conn.query('SELECT inode FROM contents WHERE parent_inode=?',
+                                 (id_,)):
+            self.inodes[id_].locked = True
+            processed += 1
+            
+            if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
+                queue.append(id_)
+        
+        log.debug('_lock_tree(): end', id_)
+        return processed
+
+    def remove_tree(self, id_p, name):
+        '''Remove directory tree'''
+               
+        log.debug('remove_tree(%d, %s): start', id_p, name)
+         
+        if self.inodes[id_p].locked:
+            raise FUSEError(errno.EPERM)
+            
+        id_ = self.lookup(id_p, name).id
+        queue = [ id_ ]
+        while queue:
+            processed = 0    
+            with dbcm.write_lock() as conn:
+                while queue:
+                    processed += self._remove_tree(queue, conn)    
+                
+                    if processed > 1000:
+                        break
+                else:
+                    self._remove(id_p, name, id_, force=True)
+            
+            self.yield_lock()
+
+        llfuse.invalidate_inode(id_p)
+        
+        log.debug('remove_tree(%d, %s): end', id_p, name)
+
+
+    def yield_lock(self):
+        '''Temporarily release global lock'''
+        
+        log.debug('yield_lock(): releasing global lock')
+        self.lock.release()
+        time.sleep(0.001)
+        self.lock.acquire()
+        
+    def _remove_tree(self, queue, conn):
+        
+        processed = 0
+        found_subdirs = False
+        id_p = queue.pop()
+        for (name, id_) in conn.query('SELECT name, inode FROM contents WHERE parent_inode=?',
+                                      (id_p,)):
+               
+            if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
+                if not found_subdirs:
+                    found_subdirs = True
+                    queue.append(id_p)
+                queue.append(id_)
+                
+            else:
+                self._remove(id_p, name, id_, force=True)
+                processed += 1
+      
+        return processed
+    
     def copy_tree(self, src_id, target_id):
         '''Efficiently copy directory tree'''
 
@@ -281,21 +388,22 @@ class Operations(llfuse.Operations):
         
         queue = [ (src_id, tmp.id) ]
         id_cache = dict()
-        processed = 0
+        
         in_transit = set()
         while queue:
-            (src_id, target_id) = queue.pop()
-            (t1, t2) = self._copy_tree(src_id, target_id, queue, id_cache)
-            processed += t1
-            in_transit.update(t2)
+            processed = 0
+            with dbcm.write_lock() as conn:
+                while queue:
+                    (t1, t2) = self._copy_tree(conn, queue, id_cache)
+                    processed += t1
+                    in_transit.update(t2)
 
-            # Give other threads a chance to access the db
-            processed += 1
-            if processed > 5000:
-                self.lock.release()
-                time.sleep(0.1)
-                self.lock.acquire()
-                processed = 0
+                    # Give other threads a chance to access the db
+                    if processed > 5000:
+                        break
+                    
+            self.yield_lock()
+  
 
         # If we replicated blocks whose associated objects where still in
         # transit, we have to wait for the transit to complete before we make
@@ -317,55 +425,55 @@ class Operations(llfuse.Operations):
         del self.inodes[tmp.id]
         llfuse.invalidate_inode(target_inode.id)
 
-    def _copy_tree(self, src_id, target_id, queue, id_cache):
+    def _copy_tree(self, conn, queue, id_cache):
 
         # To avoid lookups and make code tidier
         make_inode = self.inodes.create_inode
 
         processed = 0
         in_transit = set()
-        with dbcm.write_lock() as conn:
-            for (name, id_) in conn.query('SELECT name, inode FROM contents WHERE parent_inode=?',
-                                           (src_id,)):
+        (src_id, target_id) = queue.pop()
+                
+        for (name, id_) in conn.query('SELECT name, inode FROM contents WHERE parent_inode=?',
+                                       (src_id,)):
+            if id_ not in id_cache:
+                inode = self.inodes[id_]
 
-                if id_ not in id_cache:
-                    inode = self.inodes[id_]
+                try:
+                    inode_new = make_inode(refcount=1, mode=inode.mode, size=inode.size,
+                                           uid=inode.uid, gid=inode.gid,
+                                           mtime=inode.mtime, atime=inode.atime,
+                                           ctime=inode.ctime, target=inode.target,
+                                           rdev=inode.rdev)
+                except OutOfInodesError:
+                    log.warn('Could not find a free inode')
+                    raise FUSEError(errno.ENOSPC)
 
-                    try:
-                        inode_new = make_inode(refcount=1, mode=inode.mode, size=inode.size,
-                                               uid=inode.uid, gid=inode.gid,
-                                               mtime=inode.mtime, atime=inode.atime,
-                                               ctime=inode.ctime, target=inode.target,
-                                               rdev=inode.rdev)
-                    except OutOfInodesError:
-                        log.warn('Could not find a free inode')
-                        raise FUSEError(errno.ENOSPC)
+                id_new = inode_new.id
 
-                    id_new = inode_new.id
+                if inode.refcount != 1:
+                    id_cache[id_] = id_new
 
-                    if inode.refcount != 1:
-                        id_cache[id_] = id_new
+                for (obj_id, blockno) in conn.query('SELECT obj_id, blockno FROM blocks '
+                                                    'WHERE inode=?', (id_,)):
+                    conn.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
+                                 (id_new, blockno, obj_id))
+                    conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?', (obj_id,))
+                    
+                    if (id_, blockno) in self.cache.upload_manager.in_transit:
+                        in_transit.add((id_, blockno))
 
-                    for (obj_id, blockno) in conn.query('SELECT obj_id, blockno FROM blocks '
-                                                        'WHERE inode=?', (id_,)):
-                        conn.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
-                                     (id_new, blockno, obj_id))
-                        conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?', (obj_id,))
-                        
-                        if (id_, blockno) in self.cache.upload_manager.in_transit:
-                            in_transit.add((id_, blockno))
+                if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
+                    queue.append((id_, id_new))
+            else:
+                id_new = id_cache[id_]
+                self.inodes[id_new].refcount += 1
 
-                    if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
-                        queue.append((id_, id_new))
-                else:
-                    id_new = id_cache[id_]
-                    self.inodes[id_new].refcount += 1
+            conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
+                         (name, id_new, target_id))
+            processed += 1
 
-                conn.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
-                             (name, id_new, target_id))
-                processed += 1
-
-            return (processed, in_transit)
+        return (processed, in_transit)
 
     def unlink(self, id_p, name):
         inode = self.lookup(id_p, name)
@@ -378,16 +486,20 @@ class Operations(llfuse.Operations):
     def rmdir(self, id_p, name):
         inode = self.lookup(id_p, name)
 
+        if self.inodes[id_p].locked:
+            raise FUSEError(errno.EPERM)
+            
         if not stat.S_ISDIR(inode.mode):
             raise llfuse.FUSEError(errno.ENOTDIR)
 
         self._remove(id_p, name, inode.id)
 
 
-    def _remove(self, id_p, name, id_):
+    def _remove(self, id_p, name, id_, force=False):
         '''Remove entry `name` with parent inode `id_p` 
         
-        `id_` must be the inode of `name`
+        `id_` must be the inode of `name`. If `force` is True, then
+        the `locked` attribute is ignored.
         '''
 
         timestamp = time.time()
@@ -400,12 +512,15 @@ class Operations(llfuse.Operations):
                           get_path(id_p, conn, name))
                 raise llfuse.FUSEError(errno.ENOTEMPTY)
 
+            if self.inodes[id_p].locked and not force:
+                raise FUSEError(errno.EPERM)
+            
             conn.execute("DELETE FROM contents WHERE name=? AND parent_inode=?",
                          (name, id_p))
             inode = self.inodes[id_]
             inode.refcount -= 1
             inode.ctime = timestamp
-
+            
             inode_p = self.inodes[id_p]
             inode_p.mtime = timestamp
             inode_p.ctime = timestamp
@@ -431,6 +546,10 @@ class Operations(llfuse.Operations):
                           get_path(id_p_new, conn, name_new))
             raise llfuse.FUSEError(errno.EACCES)
 
+        if (self.inodes[id_p_old].locked
+            or self.inodes[id_p_new].locked):
+            raise FUSEError(errno.EPERM) 
+            
         inode_old = self.lookup(id_p_old, name_old)
 
         try:
@@ -443,6 +562,7 @@ class Operations(llfuse.Operations):
         else:
             target_exists = True
 
+
         if target_exists:
             self._replace(id_p_old, name_old, id_p_new, name_new,
                           inode_old.id, inode_new.id)
@@ -453,7 +573,7 @@ class Operations(llfuse.Operations):
     def _rename(self, id_p_old, name_old, id_p_new, name_new, id_):
         timestamp = time.time()
 
-        with dbcm.write_lock() as conn:
+        with dbcm.write_lock() as conn:       
             conn.execute("UPDATE contents SET name=?, parent_inode=? WHERE name=? "
                          "AND parent_inode=?", (name_new, id_p_new,
                                                 name_old, id_p_old))
@@ -476,23 +596,24 @@ class Operations(llfuse.Operations):
                           get_path(id_p_new, conn, name_new))
                 raise llfuse.FUSEError(errno.EINVAL)
 
-            inode_p_old = self.inodes[id_p_old]
-            inode_p_new = self.inodes[id_p_new]
-
             # Replace target
             conn.execute("UPDATE contents SET inode=? WHERE name=? AND parent_inode=?",
                         (id_old, name_new, id_p_new))
-            inode_new = self.inodes[id_new]
+            
 
             # Delete old name
             conn.execute('DELETE FROM contents WHERE name=? AND parent_inode=?',
                         (name_old, id_p_old))
 
+            inode_new = self.inodes[id_new]
             inode_new.refcount -= 1
             inode_new.ctime = timestamp
 
+            inode_p_old = self.inodes[id_p_old]
             inode_p_old.ctime = timestamp
             inode_p_old.mtime = timestamp
+            
+            inode_p_new = self.inodes[id_p_new]
             inode_p_new.ctime = timestamp
             inode_p_new.mtime = timestamp
 
@@ -514,10 +635,15 @@ class Operations(llfuse.Operations):
         timestamp = time.time()
         with dbcm.write_lock() as conn:
             inode_p = self.inodes[new_id_p]
+            
             if inode_p.refcount == 0:
                 log.warn('Attempted to create entry %s with unlinked parent %d',
                          new_name, new_id_p)
                 raise FUSEError(errno.EINVAL)
+            
+            if inode_p.locked:
+                raise FUSEError(errno.EPERM)
+            
             inode_p.ctime = timestamp
             inode_p.mtime = timestamp
 
@@ -539,6 +665,9 @@ class Operations(llfuse.Operations):
         inode = self.inodes[id_]
         timestamp = time.time()
 
+        if inode.locked:
+            raise FUSEError(errno.EPERM)
+        
         if 'st_size' in attr:
             len_ = attr['st_size']
 
@@ -646,6 +775,10 @@ class Operations(llfuse.Operations):
         return stat_
 
     def open(self, id_, flags):
+        if (self.inodes[id_].locked and
+            (flags & os.O_RDWR or flags & os.O_WRONLY)):
+            raise FUSEError(errno.EPERM)
+        
         self.open_inodes[id_] += 1
         return id_
 
@@ -676,6 +809,10 @@ class Operations(llfuse.Operations):
         timestamp = time.time()
         with dbcm.write_lock() as conn:
             inode_p = self.inodes[id_p]
+            
+            if inode_p.locked:
+                raise FUSEError(errno.EPERM)
+                        
             if inode_p.refcount == 0:
                 log.warn('Attempted to create entry %s with unlinked parent %d',
                          name, id_p)
@@ -766,6 +903,10 @@ class Operations(llfuse.Operations):
         
         This method releases the global lock while it is running.
         '''
+        
+        if self.inodes[fh].locked:
+            raise FUSEError(errno.EPERM)
+            
         total = len(buf)
         minsize = offset + total
         while buf:

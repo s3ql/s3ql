@@ -13,7 +13,7 @@ import os
 import logging
 from s3ql.common import (add_stdout_logging, setup_excepthook, CTRL_NAME, QuietError)
 from s3ql.optparse import OptionParser
-import struct
+import cPickle as pickle
 import textwrap
 import sys
 
@@ -23,10 +23,10 @@ def parse_args(args):
     '''Parse command line'''
 
     parser = OptionParser(
-        usage="%prog [options] <directory>\n"
+        usage="%prog [options] <name(s)>\n"
               "%prog --help",
         description=textwrap.dedent('''\
-        Makes the given directory tree immutable. No changes of any sort can
+        Makes the given directory tree(s) immutable. No changes of any sort can
         be performed on the tree after that. Immutable entries can only be
         deleted with s3qlrm. 
         '''))
@@ -39,9 +39,9 @@ def parse_args(args):
     (options, pps) = parser.parse_args(args)
 
     # Verify parameters
-    if len(pps) != 2:
+    if len(pps) < 1:
         parser.error("Incorrect number of arguments.")
-    options.name = pps[0].rstrip('/')
+    options.pps = [ x.rstrip('/') for x in pps ]
 
     return options
 
@@ -66,24 +66,26 @@ def main(args=None):
     else:
         log.info("Logging already initialized.")
 
-    if not os.path.exists(options.name):
-        raise QuietError('%r does not exist' % options.name)
+    for name in options.pps:
+        if not os.path.exists(name):
+            raise QuietError('%r does not exist' % name)
+        
+        parent = os.path.dirname(os.path.abspath(name))
+        fstat_p = os.stat(parent)
+        fstat = os.stat(name)
+        
+        if fstat_p.st_dev != fstat.st_dev:
+            raise QuietError('%s is a mount point itself.' % name)
+        
+        ctrlfile = os.path.join(parent, CTRL_NAME)
+        if not (CTRL_NAME not in libc.listdir(parent) and os.path.exists(ctrlfile)):
+            raise QuietError('%s is not on an S3QL file system' % name)
     
-    parent = os.path.dirname(os.path.abspath(options.name))
-    fstat_p = os.stat(parent)
-    fstat = os.stat(options.name)
+        if os.stat(ctrlfile).st_uid != os.geteuid():
+            raise QuietError('Only root and the mounting user may run s3qllock.')
     
-    if fstat_p.st_dev != fstat.st_dev:
-        raise QuietError('%s is a mount point itself.' % options.name)
-    
-    ctrlfile = os.path.join(parent, CTRL_NAME)
-    if not (CTRL_NAME not in libc.listdir(parent) and os.path.exists(ctrlfile)):
-        raise QuietError('%s is not on an S3QL file system' % options.name)
-
-    if os.stat(ctrlfile).st_uid != os.geteuid():
-        raise QuietError('Only root and the mounting user may run s3qllock.')
-
-    libc.setxattr(ctrlfile, 'lock', struct.pack('I', fstat.st_ino))
+        libc.setxattr(ctrlfile, 'lock', pickle.dumps((fstat.st_ino,), 
+                                                     pickle.HIGHEST_PROTOCOL))
 
 if __name__ == '__main__':
     main(sys.argv[1:])

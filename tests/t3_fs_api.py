@@ -19,6 +19,7 @@ import os
 import stat
 import time
 import unittest2 as unittest
+import errno
 import shutil
 import threading
 import tempfile
@@ -497,7 +498,7 @@ class fs_api_tests(TestCase):
         self.assertLess(inode_p_before.ctime, inode_p_after.ctime)
 
         self.assertFalse(dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
-                                           'parent_inode = ?', (name, ROOT_INODE)))
+                                      'parent_inode = ?', (name, ROOT_INODE)))
         self.assertFalse(dbcm.has_val('SELECT id FROM inodes WHERE id=?', (inode.id,)))
 
         self.fsck()
@@ -588,9 +589,10 @@ class fs_api_tests(TestCase):
 
         # Replicate
         self.server.cache.commit()
-        queue = list()
+        queue = [ (src_inode.id, dst_inode.id) ]
         id_cache = dict()
-        (no, in_transit) = self.server._copy_tree(src_inode.id, dst_inode.id, queue, id_cache)
+        with dbcm.write_lock() as conn:
+            (no, in_transit) = self.server._copy_tree(conn, queue, id_cache)
         self.assertEqual(no, 4)
         
         # Wait for objects in transit
@@ -634,8 +636,8 @@ class fs_api_tests(TestCase):
         self.assertNotEqual(d1_inode.id, d1_inode_c.id)
 
         # Copy again
-        (tmp1, tmp2) = queue.pop()
-        self.assertEqual(self.server._copy_tree(tmp1, tmp2, queue, id_cache)[0], 2)
+        with dbcm.write_lock() as conn:
+            self.assertEqual(self.server._copy_tree(conn, queue, id_cache)[0], 2)
 
         # Update attributes
         d2_inode_c = self.server.lookup(d1_inode_c.id, 'dir2')
@@ -648,7 +650,100 @@ class fs_api_tests(TestCase):
         self.assertEqual(f2_h_inode_c.id, f2_inode_c.id)
         self.assertEqual(self.server.getattr(f2_inode_c.id).refcount, 3)
 
+    def test_lock_tree(self):
 
+        inode1 = self.server.mkdir(ROOT_INODE, 'source', self.dir_mode(), Ctx())
+
+        # Create file
+        (fh, inode1a) = self.server.create(inode1.id, 'file1',
+                                            self.file_mode(), Ctx())
+        self.server.write(fh, 0, 'file1 contents')
+        self.server.release(fh)
+
+        # Create subdirectory
+        inode2 = self.server.mkdir(ROOT_INODE, 'dir1', self.dir_mode(), Ctx())
+        (fh, inode3) = self.server.create(ROOT_INODE, 'file1',
+                                          self.file_mode(), Ctx())
+
+        # Lock
+        queue = [ ROOT_INODE ]
+        with dbcm.write_lock() as conn:
+            processed = self.server._lock_tree(queue, conn)
+        self.assertEqual(processed, 4)
+        self.assertSequenceEqual(queue, [ inode1.id ])
+        
+        # Remove
+        with self.assertRaises(FUSEError) as cm:
+            self.server._remove(inode1.id, 'file1', inode1a.id)
+        self.assertEqual(cm.exception.errno, errno.EPERM)
+        
+        # Rename / Replace
+        with self.assertRaises(FUSEError) as cm:
+            self.server.rename(ROOT_INODE, 'dir1', inode1.id, 'dir1')
+        self.assertEqual(cm.exception.errno, errno.EPERM)
+        with self.assertRaises(FUSEError) as cm:
+            self.server.rename(inode1.id, 'file1', ROOT_INODE, 'file2')
+        self.assertEqual(cm.exception.errno, errno.EPERM)
+                
+        # Open
+        with self.assertRaises(FUSEError) as cm:
+            self.server.open(inode3.id, os.O_RDWR)
+        self.assertEqual(cm.exception.errno, errno.EPERM)
+        with self.assertRaises(FUSEError) as cm:
+            self.server.open(inode3.id, os.O_WRONLY)
+        self.assertEqual(cm.exception.errno, errno.EPERM)
+        self.server.release(self.server.open(inode1a.id, os.O_WRONLY))
+                
+        # Write
+        fh = self.server.open(inode3.id, os.O_RDONLY)
+        with self.assertRaises(FUSEError) as cm:
+            self.server.write(fh, 0, 'foo')
+        self.assertEqual(cm.exception.errno, errno.EPERM)
+        self.server.release(fh)
+        
+        # Create
+        with self.assertRaises(FUSEError) as cm:
+            self.server._create(inode2.id, 'dir1', self.dir_mode(), Ctx())
+        self.assertEqual(cm.exception.errno, errno.EPERM)
+                 
+        # Setattr
+        with self.assertRaises(FUSEError) as cm:
+            self.server.setattr(inode3.id, dict())
+        self.assertEqual(cm.exception.errno, errno.EPERM)
+        
+        # xattr
+        with self.assertRaises(FUSEError) as cm:
+            self.server.setxattr(inode2.id, 'name', 'value')
+        self.assertEqual(cm.exception.errno, errno.EPERM)        
+        with self.assertRaises(FUSEError) as cm:
+            self.server.removexattr(inode2.id, 'name')
+        self.assertEqual(cm.exception.errno, errno.EPERM)        
+
+    def test_remove_tree(self):
+
+        inode1 = self.server.mkdir(ROOT_INODE, 'source', self.dir_mode(), Ctx())
+
+        # Create file
+        (fh, inode1a) = self.server.create(inode1.id, 'file1',
+                                            self.file_mode(), Ctx())
+        self.server.write(fh, 0, 'file1 contents')
+        self.server.release(fh)
+
+        # Create subdirectory
+        inode2 = self.server.mkdir(inode1.id, 'dir1', self.dir_mode(), Ctx())
+        (fh, _) = self.server.create(inode2.id, 'file1',
+                                          self.file_mode(), Ctx())
+
+        # Remove
+        queue = [ inode1.id ]
+        with dbcm.write_lock() as conn:
+            processed = self.server._remove_tree(queue, conn)
+        self.assertEqual(processed, 1)
+        self.assertSequenceEqual(queue, [ inode1.id, inode2.id ])
+        self.assertFalse(dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
+                                      'parent_inode = ?', ('file1', inode1.id)))
+        self.assertFalse(dbcm.has_val('SELECT id FROM inodes WHERE id=?', (inode1a.id,)))
+        
 
 def suite():
     return unittest.makeSuite(fs_api_tests)

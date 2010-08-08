@@ -13,7 +13,7 @@ import os
 import logging
 from s3ql.common import (add_stdout_logging, setup_excepthook, CTRL_NAME, QuietError)
 from s3ql.optparse import OptionParser
-import struct
+import cPickle as pickle
 import textwrap
 import sys
 
@@ -23,7 +23,7 @@ def parse_args(args):
     '''Parse command line'''
 
     parser = OptionParser(
-        usage="%prog [options] <name> \n"
+        usage="%prog [options] <name(s)>\n"
               "%prog --help",
         description=textwrap.dedent('''\
         Recursively delete files and directories in an S3QL file system,
@@ -38,9 +38,9 @@ def parse_args(args):
     (options, pps) = parser.parse_args(args)
 
     # Verify parameters
-    if len(pps) != 1:
+    if len(pps) < 1:
         parser.error("Incorrect number of arguments.")
-    options.name = pps[0].rstrip('/')
+    options.pps = [ x.rstrip('/') for x  in pps ]
 
     return options
 
@@ -65,24 +65,27 @@ def main(args=None):
     else:
         log.info("Logging already initialized.")
 
-    if not os.path.exists(options.name):
-        raise QuietError('%r does not exist' % options.name)
-
-    parent = os.path.dirname(os.path.abspath(options.name))
-    fstat_p = os.stat(parent)
-    fstat = os.stat(options.name)
-
-    if fstat_p.st_dev != fstat.st_dev:
-        raise QuietError('%s is a mount point itself.' % options.name)
+    for name in options.pps:
+        if not os.path.exists(name):
+            raise QuietError('%r does not exist' % name)
     
-    ctrlfile = os.path.join(parent, CTRL_NAME)
-    if not (CTRL_NAME not in libc.listdir(parent) and os.path.exists(ctrlfile)):
-        raise QuietError('%s is not on an S3QL file system' % options.name)
-
-    if os.stat(ctrlfile).st_uid != os.geteuid():
-        raise QuietError('Only root and the mounting user may run s3qlrm.')
-
-    libc.setxattr(ctrlfile, 'rm', struct.pack('I', fstat_p.st_ino) + options.name)
+        parent = os.path.dirname(os.path.abspath(name))
+        fstat_p = os.stat(parent)
+        fstat = os.stat(name)
+    
+        if fstat_p.st_dev != fstat.st_dev:
+            raise QuietError('%s is a mount point itself.' % name)
+        
+        ctrlfile = os.path.join(parent, CTRL_NAME)
+        if not (CTRL_NAME not in libc.listdir(parent) and os.path.exists(ctrlfile)):
+            raise QuietError('%s is not on an S3QL file system' % name)
+    
+        if os.stat(ctrlfile).st_uid != os.geteuid():
+            raise QuietError('Only root and the mounting user may run s3qlrm.')
+    
+        libc.setxattr(ctrlfile, 'rmtree', pickle.dumps((fstat_p.st_ino, 
+                                                        os.path.basename(name)),
+                                                       pickle.HIGHEST_PROTOCOL))
 
 
 if __name__ == '__main__':
