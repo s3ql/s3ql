@@ -259,7 +259,7 @@ def get_cflags(pkg, cflags=True, ldflags=False):
 
 # Add as subcommand of build
 distutils.command.build.build.sub_commands.insert(0, ('build_ctypes', None))
-
+  
 class test(setuptools_test.test):
 
     description = "Run self-tests"
@@ -278,6 +278,7 @@ class test(setuptools_test.test):
 
     def finalize_options(self):
         setuptools_test.test.finalize_options(self)
+        self.test_loader = "ScanningLoader"
         if self.debug:
             self.debug = [ x.strip() for x  in self.debug.split(',') ]
 
@@ -317,10 +318,37 @@ class test(setuptools_test.test):
                 pw = sys.stdin.readline().rstrip()
             _common.aws_credentials = (self.awskey, pw)
 
-        # Force setuptools to use unittest2
-        sys.modules['unittest'] = unittest
-        setuptools_test.test.run_tests(self)
-
+        # Define our own test loader to order modules alphabetically
+        from pkg_resources import resource_listdir, resource_exists
+        class ScanningLoader(unittest.TestLoader):
+            def loadTestsFromModule(self, module):
+                """Return a suite of all tests cases contained in the given module"""
+                tests = []
+                if module.__name__!='setuptools.tests.doctest':  # ugh
+                    tests.append(unittest.TestLoader.loadTestsFromModule(self,module))
+                if hasattr(module, "additional_tests"):
+                    tests.append(module.additional_tests())
+                if hasattr(module, '__path__'):
+                    for file in sorted(resource_listdir(module.__name__, '')):
+                        if file.endswith('.py') and file!='__init__.py':
+                            submodule = module.__name__+'.'+file[:-3]
+                        else:
+                            if resource_exists(
+                                module.__name__, file+'/__init__.py'
+                            ):
+                                submodule = module.__name__+'.'+file
+                            else:
+                                continue
+                        tests.append(self.loadTestsFromName(submodule))
+                if len(tests)!=1:
+                    return self.suiteClass(tests)
+                else:
+                    return tests[0] # don't create a nested suite for only one return
+                
+        unittest.main(
+            None, None, [unittest.__file__]+self.test_args,
+            testLoader = ScanningLoader())
+        
 
 class upload_docs(setuptools.Command):
     user_options = []
