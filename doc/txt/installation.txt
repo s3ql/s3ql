@@ -54,7 +54,7 @@ that is not the case.
     python -c 'import apsw; print apsw.apswversion(), apsw.sqlitelibversion()'
 
   If APSW is installed, this should print two version numbers which
-  both have to be at least 3.6.19. To install APSW manually, download
+  both have to be at least 3.7.0. To install APSW manually, download
   it from the website, extract it and run `python setup.py fetch
   --sqlite install`. You will get a lot of compiler warnings add this
   step, but this is expected and no cause for concern.
