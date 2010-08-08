@@ -1,23 +1,22 @@
 xxx, S3QL 0.21
 
-  * The metadata is now only uploaded if there have been any
-    changes.
+  * The metadata is now only uploaded if there have been any changes.
    
   * mount.s3ql now supports several parallel compression and
-    encryption threads with the --compression-threads option. 
-
-  * The S3 backend now correctly handles lost objects.
+    encryption threads with the --compression-threads option.
 
   * Using S3 RRS is now deprecated, see User's Guide for details.
 
-  * fsck.s3ql now moves damaged files due to data lost
-    by a backend into /lost+found/
+  * fsck.s3ql now moves damaged files due to data lost by a backend
+    into /lost+found/
 
-  * expire_backups is no longer installed automatically and
-    can now be found in the contrib/ directory.
+  * expire_backups is no longer installed automatically and can now be
+    found in the contrib/ directory.
 
   * S3QL now comes with sample backup script in contrib/s3_backup.sh
   
+  * Added contrib/pcp.py, an rsync wrapper to recursively copy
+    directory trees with several parallel rsync processes.
   
 2010-08-01, S3QL 0.20.1
 
@@ -25,9 +24,9 @@ xxx, S3QL 0.21
 
 2010-08-01, S3QL 0.20
 
-  * Added contrib/make_dummy.py. This script creates a dummy copy
-    of a bucket that contains only the file system metadata. The
-    resulting dummy can be used for debugging.
+  * Added contrib/make_dummy.py. This script creates a dummy copy of a
+    bucket that contains only the file system metadata. The resulting
+    dummy can be used for debugging.
 
   * Mounting with the local and sftp backends is now significantly
     faster, because the object tree is no longer traversed completely.
@@ -39,25 +38,24 @@ xxx, S3QL 0.21
     compressing blocks.
 
   * s3qlstat is now much faster since the size after de-duplication
-    does not need to be queried from the backend anymore but is
-    stored in the metadata.
+    does not need to be queried from the backend anymore but is stored
+    in the metadata.
 
 
 2010-07-25, S3QL 0.19
 
-  * Fixed various smaller bugs, see Mercurial changelog for 
-    details.
+  * Fixed various smaller bugs, see Mercurial changelog for details.
 
 2010-07-11, S3QL 0.18
 
   * Added --strip-meta option to mount.s3ql
 
-  * Added --metadata-upload-interval option to mount.s3ql. This allows 
+  * Added --metadata-upload-interval option to mount.s3ql. This allows
     to periodically upload updated metadata even while the file system
     is mounted.
 
-  * stat.s3ql, tune.s3ql and cp.s3ql have been renamed to
-    s3qlstat, s3qladm and s3qlcp respectively.
+  * stat.s3ql, tune.s3ql and cp.s3ql have been renamed to s3qlstat,
+    s3qladm and s3qlcp respectively.
 
   * sftp backend is working again
 
@@ -65,7 +63,7 @@ xxx, S3QL 0.21
 
 2010-06-29, S3QL 0.17
 
-  * The local and sftp backends now spread their files into different 
+  * The local and sftp backends now spread their files into different
     sub-directories.
      
   * Amazon S3 Reduced Redundancy Storage (RRS) is now supported. To
@@ -85,17 +83,18 @@ xxx, S3QL 0.21
 
 2010-05-28, S3QL 0.15
 
-  * Fixed test cases to handle systems with low system clock resolution.
+  * Fixed test cases to handle systems with low system clock
+    resolution.
 
   * Corrected installation instructions for Debian
 
-  * mount.s3ql: instead of --bzip2, --zlib and --no-compress, there
-    is now just one option --compress=<alg>.
+  * mount.s3ql: instead of --bzip2, --zlib and --no-compress, there is
+    now just one option --compress=<alg>.
 
-  * File system metadata is now uploaded with all indices. This
-    makes mounting the file system much faster. Only if LZMA
-    compression has been chosen, indices are stripped for storage and
-    regenerated on the next mount.
+  * File system metadata is now uploaded with all indices. This makes
+    mounting the file system much faster. Only if LZMA compression has
+    been chosen, indices are stripped for storage and regenerated on
+    the next mount.
 
 2010-05-14, S3QL 0.14
 
@@ -109,29 +108,30 @@ xxx, S3QL 0.21
 
   * S3QL now works with Ubuntu Karmic / 10.04 LTS
 
-  * The test command no longer produces bogus error messages after
-    all tests have completed.
+  * The test command no longer produces bogus error messages after all
+    tests have completed.
 
   * The umount.s3ql command now properly handles the 'fuser' output
     with Kernel 2.6.32 (before it always refused to unmount, claiming
     that the mount point was busy).
 
-  * The compression can now be specified independently from the encryption,
-    so it is possible to have an unencrypted, but compressed file system.
+  * The compression can now be specified independently from the
+    encryption, so it is possible to have an unencrypted, but
+    compressed file system.
 
   * Apart from zlib, bzip2 and lzma, data can now also be stored
     without any compression.
 
   * S3QL no longer emulates the . and .. directory entries since this
     is not required by POSIX and makes the code much simpler. This
-    also means that the st_nlink value of a directory is not longer
-    2 + number of subdirectories.
+    also means that the st_nlink value of a directory is not longer 2
+    + number of subdirectories.
 
   * Fixed a bug that caused files to be listed with wrong sizes under
     certain conditions.
 
-  * Added `expire_backups` command and instructions for a simple backup
-    solution using S3QL and rsync.
+  * Added `expire_backups` command and instructions for a simple
+    backup solution using S3QL and rsync.
 
 2010-04-27, S3QL 0.12
 
@@ -139,19 +139,19 @@ xxx, S3QL 0.21
     input and requires a --force option to check the file system even
     if it is marked as clean.
 
-  * Fixed a bug in cp.s3ql that caused incorrect st_nlink values in the
-    copy.
+  * Fixed a bug in cp.s3ql that caused incorrect st_nlink values in
+    the copy.
 
   * fsck.s3ql has been even more optimized.
 
   * Fixed a problem with running out of file descriptors when lots of
     objects are deleted.
 
-  * Bucket encryption passwords can now also be stored in
-    the ~/.s3ql/authinfo file.
+  * Bucket encryption passwords can now also be stored in the
+    ~/.s3ql/authinfo file.
 
-  * mount.s3ql doesn't complain any more if it receives any of the standard
-    mount(8) mount options.
+  * mount.s3ql doesn't complain any more if it receives any of the
+    standard mount(8) mount options.
 
 
 2010-04-24, S3QL 0.11
@@ -164,14 +164,14 @@ xxx, S3QL 0.21
 
   * Extended attributes can now be listed.
 
-  * It is now possible to choose between zlib, BZip2 and LZMA compression
-    every time the file system is mounted.
+  * It is now possible to choose between zlib, BZip2 and LZMA
+    compression every time the file system is mounted.
 
   * Added contrib/benchmark.py to find out optimal compression method
     for given network bandwidth.
 
-  * fsck.s3ql no longer uses mknod(3) , since that lead to errors on e.g.
-    NFS mounted volumes under Fedora.
+  * fsck.s3ql no longer uses mknod(3) , since that lead to errors on
+    e.g. NFS mounted volumes under Fedora.
 
   * File access, modification and inode change times before 1972 are
     now supported.
@@ -182,31 +182,35 @@ xxx, S3QL 0.21
 
   * S3QL now depends on FUSE version 2.8
 
-  * Cached blocks are now flushed to the backend as soon as they have not
-    been accessed for more than 10 seconds.
+  * Cached blocks are now flushed to the backend as soon as they have
+    not been accessed for more than 10 seconds.
 
-  * The setup script now automatically checks and, if necessary, installs
-    the Python module dependencies.
+  * The setup script now automatically checks and, if necessary,
+    installs the Python module dependencies.
 
-  * mkfs.s3ql now creates compressed and encrypted file systems by default.
+  * mkfs.s3ql now creates compressed and encrypted file systems by
+    default.
 
   * Data is now compressed with LZMA instead of Bzip2.
 
-  * Data compression and data upload is now done in parallel, so the full network
-    can bandwidth is continuously without breaks for data compression.
+  * Data compression and data upload is now done in parallel, so the
+    full network can bandwidth is continuously without breaks for data
+    compression.
 
-  * fsck.s3ql is now several orders of magnitude faster. The code has been
-    optimized and some special database indices are now precalculated.
+  * fsck.s3ql is now several orders of magnitude faster. The code has
+    been optimized and some special database indices are now
+    precalculated.
 
   * When running cp.s3ql, the attributes of the target directory are
     now immediately refreshed (so that e.g. ls immediately shows the
     correct number of hard links).
 
-  * File removal is now significantly faster, since the network transactions
-    are carried out asynchronously as part of the cache expiration.
+  * File removal is now significantly faster, since the network
+    transactions are carried out asynchronously as part of the cache
+    expiration.
 
-  * mount.s3ql no longer tries to create files with mknod(), since that
-    lead to errors on NFS mounted volumes under Fedora.
+  * mount.s3ql no longer tries to create files with mknod(), since
+    that lead to errors on NFS mounted volumes under Fedora.
 
   * This releases includes a lot of new code, so it may be slightly
     more beta-ish than usual.
@@ -214,28 +218,30 @@ xxx, S3QL 0.21
 
 2010-04-04, S3QL 0.9
 
-  * The --cachedir, --logfile, --awskey and --credfile options are gone and
-    have been replaced by --homedir.
+  * The --cachedir, --logfile, --awskey and --credfile options are
+    gone and have been replaced by --homedir.
 
-  * ~/.awssecret is no longer read, instead there is a common file with
-    authentication data for all backends in ~/.s3ql/authinfo
+  * ~/.awssecret is no longer read, instead there is a common file
+    with authentication data for all backends in ~/.s3ql/authinfo
 
-  * The syntax for mounting S3 buckets is now s3://bucketname instead of
-    just the bucket name
+  * The syntax for mounting S3 buckets is now s3://bucketname instead
+    of just the bucket name
 
-  * There is now an SFTP backend. Thanks to Ron Knapp <ron.siesta@gmail.com> for
-    most of the code.
+  * There is now an SFTP backend. Thanks to Ron Knapp
+    <ron.siesta@gmail.com> for most of the code.
 
 
 2010-03-07, S3QL 0.8
 
-  * S3QL now uses Python's default unittest.py instead of shipping its own.
+  * S3QL now uses Python's default unittest.py instead of shipping its
+    own.
 
-  * Most documentation has been moved from the Wiki into the tarball, so that
-    it always corresponds to the correct version.
+  * Most documentation has been moved from the Wiki into the tarball,
+    so that it always corresponds to the correct version.
 
-  * setuptools is now used for installation. This allows .egg creation, dependency
-    resolution and generation of the HTML documentation.
+  * setuptools is now used for installation. This allows .egg
+    creation, dependency resolution and generation of the HTML
+    documentation.
 
   * The S3 part of boto has been integrated into S3QL.
 
@@ -250,7 +256,8 @@ xxx, S3QL 0.21
 
   * Added testcase for tune.s3ql --change-passphrase
 
-  * Internal S3 errors are now handled properly by retrying the upload.
+  * Internal S3 errors are now handled properly by retrying the
+    upload.
 
 2010-02-19, beta6
 
@@ -268,10 +275,11 @@ xxx, S3QL 0.21
 
     * tune.s3ql now has a --copy option to copy buckets
 
-    * Storage location for new buckets can be specified in mkfs.s3ql and
-      tune.s3ql with --s3-location
+    * Storage location for new buckets can be specified in mkfs.s3ql
+      and tune.s3ql with --s3-location
 
-    * Fixed a deadlock in mount.s3ql when using local buckets without --fg
+    * Fixed a deadlock in mount.s3ql when using local buckets without
+      --fg
 
     * The local: bucket specifier is no longer artificially slow.
 
@@ -279,12 +287,12 @@ xxx, S3QL 0.21
 
 2010-02-04, beta3
 
-    * Fixed a deadlock that caused umount.s3ql to hang indefinitely when
-      mount was called without --fg
+    * Fixed a deadlock that caused umount.s3ql to hang indefinitely
+      when mount was called without --fg
 
-    * The '.' and '..' directory entries are no longer explicitly stored
-      in the database.
+    * The '.' and '..' directory entries are no longer explicitly
+      stored in the database.
 
-    * Rewrote the mechanism to handle delayed updates. Now it no longer depends
-      on a small object being propagated relatively fast, but is able to handle
-      arbitrary network outages.
+    * Rewrote the mechanism to handle delayed updates. Now it no
+      longer depends on a small object being propagated relatively
+      fast, but is able to handle arbitrary network outages.

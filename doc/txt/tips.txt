@@ -5,6 +5,8 @@ Tips & Tricks
 =============
 
 
+.. _copy_performance:
+
 Improving copy performance
 ==========================
 
@@ -45,12 +47,12 @@ ensures that every instance looks into all directories. ::
 
   wait
 
-Increasing the number of processes from 1 to 3 already improves
-performance dramatically (for a set of 100 files with sizes around 0.5
-kB, the transfer time reduces from 40 to 16 seconds).
-
-You should be able to easily generalize this procedure to higher
-numbers of processes. The optimum number depends on your network
+The optimum number of parallel processes depends on your network
 connection and the size of the files that you want to transfer.
 However, starting about 10 processes seems to be a good compromise
-that increases performance dramatically in almost all situations. 
+that increases performance dramatically in almost all situations.
+
+S3QL comes with a script named ``pcp.py`` in the ``contrib`` directory
+that can be used to transfer files in parallel without having to write
+an explicit script first. See the description of :ref:`pcp` for
+details.

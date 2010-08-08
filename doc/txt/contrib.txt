@@ -25,6 +25,23 @@ This program physically duplicates Amazon S3 bucket. It can be used to
 migrate buckets to a different storage region or storage class
 (standard or reduced redundancy).
 
+.. _pcp:
+
+pcp.py
+======
+
+``pcp.py`` is a wrapper program that starts several rsync processes to
+copy directory trees in parallel. This is important because
+transferring files in parallel significantly enhances performance when
+copying data from an S3QL file system (see :ref:`copy_performance` for
+details).
+
+To recursively copy the directory ``/mnt/home-backup`` into
+``/home/joe`` using 8 parallel processes and preserving permissions,
+you would execute ::
+
+  pcp.py -a --processes=8 /mnt/home-backup/ /home/joe
+
 
 s3_backup.sh
 ============
