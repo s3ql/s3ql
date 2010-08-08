@@ -51,6 +51,10 @@ The most important options are:
   --metadata-upload-interval=<seconds>
                         Interval in seconds between complete metadata uploads.
                         default: 24h.
+  --compression-threads=<no>
+                        Number of parallel compression and encryption threads
+                        to use (default: 1).
+
 
 For a full list of available options, run `mount.s3ql --help`.
 
