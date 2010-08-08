@@ -242,10 +242,12 @@ class WrappedConnection(object):
             yield
         else:
             self._execute(self.cur, 'BEGIN IMMEDIATE')
+            self.in_trx = True
             try:
                 yield
             finally:
                 self._execute(self.cur, 'COMMIT')
+                self.in_trx = False
 
     def query(self, *a, **kw):
         '''Execute the given SQL statement. Return ResultSet.
