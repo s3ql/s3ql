@@ -55,6 +55,7 @@ The `s3_backup.sh` script automates the following steps:
 #. Mount the file system
 #. Replicate the previous backup with `s3qlcp`
 #. Update the new copy with the data from the backup source using rsync
+#. Make the new backup immutable with ``s3qllock``
 #. Delete old backups that are no longer needed
 #. Unmount the file system
 

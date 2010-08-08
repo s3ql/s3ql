@@ -27,6 +27,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     
 from s3ql.common import (QuietError, add_stdout_logging, setup_excepthook)
 from s3ql.optparse import OptionParser
+import s3ql.cli.remove
     
 log = logging.getLogger('expire_backups')
 
@@ -52,7 +53,9 @@ def parse_args(args):
                       help="Dry run. Just show which backups would be deleted.")
     parser.add_option("--debug", action="store_true",
                       help="Activate debugging output")
-    
+    parser.add_option("--use-s3qlrm", action="store_true",
+                      help="Use `s3qlrm` command to delete directories.")
+        
     (options, pps) = parser.parse_args(args)
 
     # Verify parameters
@@ -197,7 +200,10 @@ def main(args=None):
     for name in [ available[i][0] for i in range(len(available)) if i not in keep ]:
         log.info('Backup %s is no longer needed, removing...', name)
         if not options.n:
-            shutil.rmtree(name)
+            if options.use_s3qlrm:
+                s3ql.cli.remove.main([name])
+            else:
+                shutil.rmtree(name)
 
 
 if __name__ == '__main__':

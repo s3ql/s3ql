@@ -32,6 +32,10 @@ new_backup=`date "+%Y-%m-%d_%H:%M:%S"`
 if [ -n "$last_backup" ]; then
     echo "Copying $last_backup to $new_backup..."
     s3qlcp "$last_backup" "$new_backup"
+
+    # Make the last backup immutable
+    # (in case the previous backup was interrupted prematurely)
+    s3qllock "$last_backup"
 fi
 
 # ..and update the copy
@@ -42,5 +46,8 @@ rsync -aHAXx --delete-during --delete-excluded --partial -v \
     --exclude /tmp/ \
     "/home/my_username/" "./$new_backup/"
 
+# Make the new backup immutable
+s3qllock "$new_backup"
+
 # Expire old backups, keep 6 generations with specified relative ages
-expire_backups 9h 1d 7d 14d 31d 150d 150d
+expire_backups --use-s3qlrm 9h 1d 7d 14d 31d 150d 150d

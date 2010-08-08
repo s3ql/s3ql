@@ -6,15 +6,15 @@
 
 S3QL is a file system that stores all its data online. It supports
 `Amazon S3 <http://aws.amazon.com/s3 Amazon S3>`_ as well as arbitrary
-SFTP servers and effectively provides you with a hard disk of infinite
-capacity that can be accessed from any computer with internet access.
+SFTP servers and effectively provides you with a hard disk of dynamic,
+infinite capacity that can be accessed from any computer with internet
+access.
 
 S3QL is providing a standard, full featured UNIX file system that is
 conceptually indistinguishable from any local file system.
 Furthermore, S3QL has additional features like compression,
-encryption, data de-duplication, snapshotting and dynamic file
-system size. This makes S3QL especially suitable for online backup and
-archival.
+encryption, data de-duplication, immutable trees and snapshotting
+which make it especially suitable for online backup and archival.
 
 S3QL is designed to favor simplicity and elegance over performance and
 feature-creep. Care has been taken to make the source code as
@@ -46,6 +46,11 @@ Features
   files stored in the file system, and also if only some parts of the
   files are identical while other parts differ.
 
+* **Immutable Trees.** Directory trees can be made immutable, so that
+  their contents can no longer be changed in any way whatsoever. This
+  can be used to ensure that backups can not be modified after they
+  have been made.
+
 * **Copy-on-Write/Snapshotting.** S3QL can replicate entire directory
   trees without using any additional storage space. Only if one of the
   copies is modified, the part of the data that has been modified will
@@ -76,14 +81,13 @@ Development Status
 
 **S3QL is in beta stage.** This means that:
 
-* **There are still plenty of bugs in the code and you should be ready
-  to deal with them**. Please report problems on the `mailing list
-  <http://groups.google.com/group/s3ql>`_ or the `issue tracker
-  <http://code.google.com/p/s3ql/issues/list>`_, usually they are
-  resolved in less than a day.
-
-  Nevertheless, you can be reasonably confident that the bugs
-  (although inconvenient) will not endanger your stored data.
+* When using S3QL you should be subscribed to the `mailing list
+  <http://groups.google.com/group/s3ql>`_.
+ 
+* There are still plenty of bugs in the code and you should be ready
+  to deal with them. Nevertheless, you can be reasonably confident
+  that the bugs (although inconvenient) will not endanger your stored
+  data.
 
 * The author is using this version of S3QL as his main backup system
   on several computers and stores about 300 GB of data. Daily
@@ -98,3 +102,7 @@ Development Status
   stage.
 
 * Future versions of S3QL will be backwards compatible.
+
+Please report any problems on the `mailing list
+<http://groups.google.com/group/s3ql>`_ or the `issue tracker
+<http://code.google.com/p/s3ql/issues/list>`_.
