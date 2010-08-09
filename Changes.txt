@@ -1,9 +1,13 @@
 xxx, S3QL 0.21
 
   * The metadata is now only uploaded if there have been any changes.
-   
+
   * mount.s3ql now supports several parallel compression and
     encryption threads with the --compression-threads option.
+
+  * S3QL now supports "immutable directories". This important
+    new feature can be used to protect backups from modification after they have
+    completed. See the User's Guide for details.
 
   * Using S3 RRS is now deprecated, see User's Guide for details.
 
