@@ -1,4 +1,4 @@
-xxx, S3QL 0.21
+2010-08-09, S3QL 0.21
 
   * The metadata is now only uploaded if there have been any changes.
 
