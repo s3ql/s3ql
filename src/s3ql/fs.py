@@ -15,7 +15,7 @@ import llfuse
 import collections
 import logging
 from .inode_cache import InodeCache, OutOfInodesError
-from .common import (get_path, CTRL_NAME, CTRL_INODE, log_stacktraces)
+from .common import (get_path, CTRL_NAME, CTRL_INODE, log_stacktraces, without)
 import time
 from .block_cache import BlockCache
 from cStringIO import StringIO
@@ -224,11 +224,8 @@ class Operations(llfuse.Operations):
                 self.cache.clear()
                 
                 # Force all entries out of the cache
-                self.lock.release()
-                try:
+                with without(self.lock):
                     self.cache.upload_manager.join_all()
-                finally:
-                    self.lock.acquire()
 
             elif name == 'copy':
                 self.copy_tree(*struct.unpack('II', value))
@@ -332,9 +329,8 @@ class Operations(llfuse.Operations):
         '''Temporarily release global lock'''
         
         log.debug('yield_lock(): releasing global lock')
-        self.lock.release()
-        time.sleep(0.001)
-        self.lock.acquire()
+        with without(self.lock):
+            time.sleep(0.001)
         
     def _remove_tree(self, queue, conn):
         
@@ -400,11 +396,9 @@ class Operations(llfuse.Operations):
             in_transit = [ x for x in in_transit 
                            if x in self.cache.upload_manager.in_transit ]
             if in_transit:
-                self.lock.release()
-                try:
+                with without(self.lock):
                     self.cache.upload_manager.join_one()
-                finally:
-                    self.lock.acquire() 
+
             
         # Make replication visible
         dbcm.execute('UPDATE contents SET parent_inode=? WHERE parent_inode=?',
