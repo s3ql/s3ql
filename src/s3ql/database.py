@@ -43,8 +43,9 @@ import apsw
 import os
 import types
 import thread
+import time
 import threading
-from .common import QuietError
+from .common import QuietError, log_stacktraces
 
 __all__ = [ "init", 'execute', 'get_db_size', 'get_row', 'get_val', 'has_val',
            'rowid', 'write_lock', 'WrappedConnection', 'NoUniqueValueError',
@@ -296,11 +297,20 @@ class WrappedConnection(object):
         else:
             newbindings = bindings
 
-        if bindings is not None:
-            return cur.execute(statement, newbindings)
-        else:
-            return cur.execute(statement)
-
+        stamp = time.time()
+        try:
+            if bindings is not None:
+                return cur.execute(statement, newbindings)
+            else:
+                return cur.execute(statement)
+        except apsw.BusyError:
+            dt = time.time() - stamp
+            if dt < retrytime/1000:
+                log.warn('SQLite detected deadlock')
+            else:
+                log.warn('Unable to access db after waiting for %.2f seconds', dt)
+            log_stacktraces()
+            raise
 
 
     def has_val(self, *a, **kw):

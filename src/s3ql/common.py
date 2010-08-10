@@ -28,7 +28,8 @@ __all__ = ["get_bucket_home", 'sha256', 'sha256_fh', 'add_stdout_logging',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'QuietError', 'get_backend', 'add_file_logging', 'setup_excepthook',
            'cycle_metadata', 'restore_metadata', 'dump_metadata', 'copy_metadata',
-           'without', 'OptionParser', 'ArgumentGroup', 'canonicalize_storage_url' ]
+           'without', 'OptionParser', 'ArgumentGroup', 'canonicalize_storage_url',
+           'log_stacktraces' ]
 
 
 
@@ -37,6 +38,19 @@ AUTHINFO_BUCKET_PATTERN = r'^storage-url\s+(\S+)\s+password\s+(\S+)$'
 
 log = logging.getLogger('common')
 
+def log_stacktraces():
+    '''Log stack trace for every running thread'''
+    
+    code = list()
+    for threadId, frame in sys._current_frames().items():
+        code.append("\n# ThreadID: %s" % threadId)
+        for filename, lineno, name, line in traceback.extract_stack(frame):
+            code.append('%s:%d, in %s' % (os.path.basename(filename), lineno, name))
+            if line:
+                code.append("    %s" % (line.strip()))
+
+    log.error("\n".join(code))
+    
 @contextmanager
 def without(lock):
     '''Execute managed block with released lock'''

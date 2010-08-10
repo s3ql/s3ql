@@ -15,7 +15,7 @@ import llfuse
 import collections
 import logging
 from .inode_cache import InodeCache, OutOfInodesError
-from .common import (get_path, CTRL_NAME, CTRL_INODE)
+from .common import (get_path, CTRL_NAME, CTRL_INODE, log_stacktraces)
 import time
 from .block_cache import BlockCache
 from cStringIO import StringIO
@@ -30,22 +30,6 @@ __all__ = [ "Server" ]
 
 # standard logger for this module
 log = logging.getLogger("fs")
-        
-def log_stacktraces():
-    '''Log stack trace for every running thread'''
-    
-    import sys
-    import traceback
-    
-    code = list()
-    for threadId, frame in sys._current_frames().items():
-        code.append("\n# ThreadID: %s" % threadId)
-        for filename, lineno, name, line in traceback.extract_stack(frame):
-            code.append('%s:%d, in %s' % (os.path.basename(filename), lineno, name))
-            if line:
-                code.append("    %s" % (line.strip()))
-
-    log.error("\n".join(code))
 
 class Operations(llfuse.Operations):
     """A full-featured file system for online data storage
