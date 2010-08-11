@@ -19,7 +19,7 @@ from s3ql.common import (add_stdout_logging, get_backend, get_bucket_home,
                          QuietError, unlock_bucket, add_file_logging, LoggerFilter,
                          cycle_metadata, dump_metadata, restore_metadata, 
                          canonicalize_storage_url,
-                         EmbeddedException, copy_metadata, setup_excepthook)
+                         ExceptionStoringThread, copy_metadata, setup_excepthook)
 from s3ql.optparse import OptionParser
 import s3ql.database as dbcm
 import llfuse
@@ -417,75 +417,54 @@ def parse_args(args):
     
     return options
 
-class MetadataUploadThread(threading.Thread):
+class MetadataUploadThread(ExceptionStoringThread):
 
     def __init__(self, bucket, options, param):
         super(MetadataUploadThread, self).__init__()
-
-        self._exc = None
-        self._tb = None
-        self._joined = False
         self.bucket = bucket
         self.options = options
         self.param = param
         self.db_mtime = os.stat(dbcm.dbfile).st_mtime 
-        
         self.stop_event = threading.Event()
         self.name = 'Metadata-Upload-Thread'
            
-    def run(self):
+    def run_protected(self):
         log.debug('MetadataUploadThread: start')
-        try:
-            self.stop_event.wait(self.options.metadata_upload_interval)
-            while not self.stop_event.is_set():
-                dbcm.execute('PRAGMA wal_checkpoint')
-                new_mtime = os.stat(dbcm.dbfile).st_mtime 
-                if self.db_mtime == new_mtime:
-                    log.info('File system unchanged, not uploading metadata.')
+        
+        self.stop_event.wait(self.options.metadata_upload_interval)
+        
+        while not self.stop_event.is_set():
+            dbcm.execute('PRAGMA wal_checkpoint')
+            new_mtime = os.stat(dbcm.dbfile).st_mtime 
+            if self.db_mtime == new_mtime:
+                log.info('File system unchanged, not uploading metadata.')
+            else:
+                log.info('Saving metadata...')
+        
+                if self.options.strip_meta:
+                    self.param['DB-Format'] = 'dump'
+                    fh = tempfile.TemporaryFile()
+                    dump_metadata(fh) 
                 else:
-                    log.info('Saving metadata...')
+                    self.param['DB-Format'] = 'sqlite'
+                    fh = tempfile.NamedTemporaryFile()
+                    copy_metadata(fh)
+                        
+                log.info("Compressing & uploading metadata..")
+                cycle_metadata(self.bucket)
+                fh.seek(0)
+                self.bucket.store_fh("s3ql_metadata", fh, self.param)
             
-                    if self.options.strip_meta:
-                        self.param['DB-Format'] = 'dump'
-                        fh = tempfile.TemporaryFile()
-                        dump_metadata(fh) 
-                    else:
-                        self.param['DB-Format'] = 'sqlite'
-                        fh = tempfile.NamedTemporaryFile()
-                        copy_metadata(fh)
-                            
-                    log.info("Compressing & uploading metadata..")
-                    cycle_metadata(self.bucket)
-                    fh.seek(0)
-                    self.bucket.store_fh("s3ql_metadata", fh, self.param)
-                
-                self.db_mtime = new_mtime    
-                self.stop_event.wait(self.options.metadata_upload_interval)
-                    
-        except BaseException as exc:
-            self._exc = exc
-            self._tb = sys.exc_info()[2] # This creates a circular reference chain
+            self.db_mtime = new_mtime    
+            self.stop_event.wait(self.options.metadata_upload_interval)
         
         log.debug('MetadataUploadThread: end')    
         
     def stop(self):
         '''Wait for thread to finish, raise any occurred exceptions'''
         
-        self._joined = True
-        
         self.stop_event.set()
-        if self.is_alive():
-            self.join()
-        
-        if self._exc is not None:
-            # Break reference chain
-            tb = self._tb
-            del self._tb
-            raise EmbeddedException(self._exc, tb, self.name)
-
-    def __del__(self):
-        if not self._joined:
-            raise RuntimeError("Thread was destroyed without calling stop()!")
+        self.join_and_raise()
 
 if __name__ == '__main__':
     main(sys.argv[1:])

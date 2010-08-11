@@ -24,7 +24,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
 from s3ql.common import (add_stdout_logging, setup_excepthook, QuietError,
-                         get_backend_credentials, ExceptionStoringThread,
+                         get_backend_credentials, AsyncFn,
                          LoggerFilter)
 from s3ql.backends import s3
 from s3ql.backends.boto.s3.connection import Location
@@ -127,7 +127,7 @@ def main(args=None):
                 s3.retry_boto(boto.copy_key, key, src_bucket.name, key,
                               storage_class=options.storage_class)
 
-        t = ExceptionStoringThread(cp)
+        t = AsyncFn(cp)
         t.start()
         threads.append(t)
 
@@ -139,6 +139,7 @@ def main(args=None):
     for t in threads:
         t.join_and_raise()
 
+        
 
 if __name__ == '__main__':
     main(sys.argv[1:])

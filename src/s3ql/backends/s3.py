@@ -17,7 +17,7 @@ from time import sleep
 from .boto.s3.connection import S3Connection
 from contextlib import contextmanager
 from .boto import exception
-from s3ql.common import (TimeoutError, ExceptionStoringThread)
+from s3ql.common import (TimeoutError, AsyncFn)
 import logging
 import errno
 import httplib
@@ -195,7 +195,7 @@ class Bucket(AbstractBucket):
             log.debug('Deleting key %s', s3key)
 
             # Ignore missing objects when clearing bucket
-            t = ExceptionStoringThread(self.delete, s3key, True)
+            t = AsyncFn(self.delete, s3key, True)
             t.start()
             threads.append(t)
 

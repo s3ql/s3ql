@@ -11,7 +11,7 @@ from _common import TestCase
 from cStringIO import StringIO
 from os.path import basename
 from s3ql import libc
-from s3ql.common import retry, ExceptionStoringThread
+from s3ql.common import retry, AsyncFn
 import filecmp
 import os.path
 import s3ql.cli.fsck
@@ -69,7 +69,7 @@ class fuse_tests(TestCase):
             self.fail("mkfs.s3ql failed: %s" % exc)
 
         sys.stdin = StringIO('%s\n' % self.passphrase)
-        self.mount_thread = ExceptionStoringThread(s3ql.cli.mount.main,
+        self.mount_thread = AsyncFn(s3ql.cli.mount.main,
                                                    ["--fg", '--homedir', self.cache_dir, 
                                                     self.bucketname, self.mnt_dir])
         self.mount_thread.start()

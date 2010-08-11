@@ -11,7 +11,7 @@ from __future__ import division, print_function
 import unittest2 as unittest
 from s3ql.multi_lock import MultiLock
 import time
-from s3ql.common import ExceptionStoringThread
+from s3ql.common import AsyncFn
 from _common import TestCase
 
 BASE_DELAY = 1
@@ -28,7 +28,7 @@ class MultiLockTests(TestCase):
             time.sleep(2 * BASE_DELAY)
             mlock.release(key)
 
-        t = ExceptionStoringThread(hold)
+        t = AsyncFn(hold)
         t.start()
         time.sleep(BASE_DELAY)
 
@@ -49,7 +49,7 @@ class MultiLockTests(TestCase):
             time.sleep(2 * BASE_DELAY)
             mlock.release(key1)
 
-        t = ExceptionStoringThread(hold)
+        t = AsyncFn(hold)
         t.start()
         time.sleep(BASE_DELAY)
 
@@ -71,11 +71,11 @@ class MultiLockTests(TestCase):
             time.sleep(2 * BASE_DELAY)
             mlock.release(key)
 
-        t1 = ExceptionStoringThread(lock)
+        t1 = AsyncFn(lock)
         t1.start()
         t1.join_and_raise()
 
-        t2 = ExceptionStoringThread(unlock)
+        t2 = AsyncFn(unlock)
         t2.start()
 
         stamp = time.time()

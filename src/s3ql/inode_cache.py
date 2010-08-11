@@ -15,8 +15,9 @@ import sys
 import database as dbcm
 from random import randint
 import apsw
-from .common import EmbeddedException
+from .common import ExceptionStoringThread
 from .database import NoSuchRowError
+from s3ql.common import EmbeddedException
 
 __all__ = [ 'InodeCache', 'OutOfInodesError' ]
 log = logging.getLogger('inode_cache')
@@ -254,7 +255,10 @@ class InodeCache(object):
     def destroy(self):
         '''Finalize cache'''
 
-        self.flush_thread.stop()
+        try:
+            self.flush_thread.stop()
+        except EmbeddedException:
+            log.error('FlushThread terminated with exception.')
 
         for i in xrange(len(self.cached_rows)):
             id_ = self.cached_rows[i]
@@ -290,51 +294,29 @@ class InodeCache(object):
             raise RuntimeError('InodeCache instance was destroyed without calling close()')
 
 
-class FlushThread(threading.Thread):
+class FlushThread(ExceptionStoringThread):
 
     def __init__(self, cache):
         super(FlushThread, self).__init__()
-
-        self._exc = None
-        self._tb = None
-        self._joined = False
         self.cache = cache
-        
         self.stop_event = threading.Event()
         self.name = 'Inode Flush Thread'
-        self.daemon = True
-            
+        self.daemon = True 
                 
-    def run(self):
+    def run_protected(self):
         log.debug('FlushThread: start')
-        try:
-            while not self.stop_event.is_set():
-                self.cache.flush()
-                self.stop_event.wait(5)
-                    
-        except BaseException as exc:
-            self._exc = exc
-            self._tb = sys.exc_info()[2] # This creates a circular reference chain
+
+        while not self.stop_event.is_set():
+            self.cache.flush()
+            self.stop_event.wait(5)
         
         log.debug('FlushThread: end')    
         
     def stop(self):
         '''Wait for thread to finish, raise any occurred exceptions'''
         
-        self._joined = True
-        
         self.stop_event.set()           
-        self.join()
-        
-        if self._exc is not None:
-            # Break reference chain
-            tb = self._tb
-            del self._tb
-            raise EmbeddedException(self._exc, tb, self.name)
-
-    def __del__(self):
-        if not self._joined:
-            raise RuntimeError("Thread was destroyed without calling stop()!")
+        self.join_and_raise()
         
         
 class OutOfInodesError(Exception):

@@ -11,23 +11,19 @@ from __future__ import division, print_function, absolute_import
 import threading
 import sys
 import logging
-from .common import EmbeddedException
+from .common import EmbeddedException, ExceptionStoringThread
 
 log = logging.getLogger("thread_group")
 
 __all__ = [ 'Thread', 'ThreadGroup' ]
 
-class Thread(threading.Thread):
+class Thread(ExceptionStoringThread):
     '''
     A thread that can be executed in a `ThreadGroup`.
     '''
 
     def __init__(self):
         super(Thread, self).__init__()
-
-        self._exc = None
-        self._tb = None
-        self._joined = False
         self._group = None
     
     def run_protected(self):
@@ -48,11 +44,12 @@ class Thread(threading.Thread):
         '''
         pass
     
-    def handle_exc(self, exc):
+    def handle_exc(self, exc_info):
         '''Clean Up after failed run
         
         This method will be called from `join_one` after the
-        `run_protected` method has terminated with an exception.
+        `run_protected` method has terminated with an exception. 
+        `exc_info` is a tuple as returned by `sys.exc_info()`.
         '''        
         pass
     
@@ -73,27 +70,8 @@ class Thread(threading.Thread):
                     self._group.active_threads.remove(self)
                     self._group.finished_threads.append(self)
                     self._group.lock.notifyAll()
-        except BaseException as exc:
-            self._exc = exc
-            self._tb = sys.exc_info()[2] # This creates a circular reference chain           
-
-    def join_and_raise(self):
-        '''Wait for the thread to finish, raise any occurred exceptions'''
-        
-        self._joined = True
-        self.join()
-        if self._exc is not None:
-            # Break reference chain
-            tb = self._tb
-            del self._tb
-            raise EmbeddedException(self._exc, tb, self.name)
-
-
-    def __del__(self):
-        if not self._joined:
-            raise RuntimeError("Thread was destroyed without calling join_and_raise()!")
-
-
+        except: 
+            self._exc_info = sys.exc_info() # This creates a circular reference chain           
 
 class ThreadGroup(object):
     '''Represents a group of threads.
@@ -180,7 +158,7 @@ class ThreadGroup(object):
         try:
             t.join_and_raise()
         except EmbeddedException as exc:
-            t.handle_exc(exc)
+            t.handle_exc(exc._exc_info)
             raise
         else:
             t.finalize()

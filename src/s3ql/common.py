@@ -29,8 +29,7 @@ __all__ = ["get_bucket_home", 'sha256', 'sha256_fh', 'add_stdout_logging',
            'QuietError', 'get_backend', 'add_file_logging', 'setup_excepthook',
            'cycle_metadata', 'restore_metadata', 'dump_metadata', 'copy_metadata',
            'without', 'OptionParser', 'ArgumentGroup', 'canonicalize_storage_url',
-           'log_stacktraces' ]
-
+           'log_stacktraces', 'AsyncFn' ]
 
 
 AUTHINFO_BACKEND_PATTERN = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(\S+)$'
@@ -529,63 +528,71 @@ CTRL_NAME = b'.__s3ql__ctrl__'
 CTRL_INODE = 2
 
 class ExceptionStoringThread(threading.Thread):
-    '''Catch all exceptions and store them'''
-
-    def __init__(self, target, *args, **kwargs):
-        # Default value isn't dangerous
-        #pylint: disable-msg=W0102
+    def __init__(self):
         super(ExceptionStoringThread, self).__init__()
-        self.target = target
-        self.exc = None
-        self.tb = None
-        self.joined = False
-        self.args = args
-        self.kwargs = kwargs
+        self._exc_info = None
+        self._joined = False
 
+    def run_protected(self):
+        pass
+    
     def run(self):
         try:
-            self.target(*self.args, **self.kwargs)
-        except BaseException as exc:
-            self.exc = exc
-            self.tb = sys.exc_info()[2] # This creates a circular reference chain
+            self.run_protected()
+        except:
+            # This creates a circular reference chain
+            self._exc_info = sys.exc_info() 
 
     def join_get_exc(self):
-        self.joined = True
+        self._joined = True
         self.join()
-        return self.exc
+        return self._exc_info
 
     def join_and_raise(self):
-        '''Wait for the thread to finish, raise any occurred exceptions
-        '''
-        self.joined = True
-        self.join()
-        if self.exc is not None:
+        '''Wait for the thread to finish, raise any occurred exceptions'''
+        
+        self._joined = True
+        if self.is_alive():
+            self.join()
+      
+        if self._exc_info is not None:
             # Break reference chain
-            tb = self.tb
-            del self.tb
-            raise EmbeddedException(self.exc, tb, self.name)
-
+            exc_info = self._exc_info
+            del self._exc_info
+            raise EmbeddedException(exc_info, self.name)
 
     def __del__(self):
-        if not self.joined:
+        if not self._joined:
             raise RuntimeError("ExceptionStoringThread instance was destroyed "
                                "without calling join_and_raise()!")
 
+
+class AsyncFn(ExceptionStoringThread):
+    def __init__(self, fn, *args, **kwargs):
+        super(AsyncFn, self).__init__()
+        self.target = fn
+        self.args = args
+        self.kwargs = kwargs
+        
+    def run_protected(self):
+        self.target(*self.args, **self.kwargs)
+        
 class EmbeddedException(Exception):
     '''Encapsulates an exception that happened in a different thread
     '''
 
-    def __init__(self, exc, tb, threadname):
+    def __init__(self, exc_info, threadname):
         super(EmbeddedException, self).__init__()
-        self.exc = exc
-        self.tb = tb
+        self.exc_info = exc_info
         self.threadname = threadname
+        
+        log.error('Thread %s terminated with exception:\n%s',
+                  self.threadname, traceback.format_exception(*self.exc_info))               
 
     def __str__(self):
         return ''.join(['caused by an exception in thread %s.\n' % self.threadname,
-                       'Original/inner traceback (most recent call last): \n' ] + 
-                       traceback.format_tb(self.tb) + 
-                       traceback.format_exception_only(type(self.exc), self.exc))
+                       'Original/inner traceback (most recent call last): \n' ] +  
+                       traceback.format_exception(*self.exc_info))
 
 
 def sha256_fh(fh):

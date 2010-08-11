@@ -12,14 +12,13 @@ from contextlib import contextmanager
 from .multi_lock import MultiLock
 from .backends.common import NoSuchObject
 from .ordered_dict import OrderedDict
-from .common import EmbeddedException, without
+from .common import EmbeddedException, without, ExceptionStoringThread
 from .thread_group import ThreadGroup
 from . import database as dbcm
 from .upload_manager import UploadManager, RemoveThread, retry_exc
 from .database import NoSuchRowError
 import logging
 import os
-import sys
 import threading
 import time
 import stat
@@ -138,11 +137,50 @@ class BlockCache(object):
 
     def destroy(self):
         log.debug('destroy: start')
-        self.commit_thread.stop()
-        self.clear()
-        self.upload_manager.join_all()
-        self.removal_queue.join_all()
         
+        # If there were errors, we still want to try to finalize
+        # as much as we can
+        try:
+            self.commit_thread.stop()
+        except Exception as exc:
+            self.encountered_errors = True
+            if isinstance(exc, EmbeddedException):
+                log.error('CommitThread encountered exception.')
+            else:
+                log.exception()
+            
+        try:
+            self.clear()
+        except:
+            self.encountered_errors = True
+            log.exception()
+            
+        while True:
+            try:
+                self.upload_manager.join_all()
+            except Exception as exc:
+                self.encountered_errors = True
+                if isinstance(exc, EmbeddedException):
+                    log.error('UploadManager encountered exception.')
+                else:
+                    log.exception()
+                    break
+            else:
+                break
+            
+        while True:
+            try:
+                self.removal_queue.join_all()
+            except Exception as exc:
+                self.encountered_errors = True
+                if isinstance(exc, EmbeddedException):
+                    log.error('RemovalQueue encountered exception.')
+                else:
+                    log.exception()
+                    break
+            else:
+                break
+                            
         if self.upload_manager.encountered_errors:
             self.encountered_errors = True
             
@@ -375,7 +413,7 @@ class BlockCache(object):
                     with without(self.lock):
                         self.removal_queue.add_thread(RemoveThread(obj_id, self.bucket))
                 except EmbeddedException as exc:
-                    exc = exc.exc
+                    exc = exc.exc_info[1]
                     if isinstance(exc, NoSuchObject):
                         log.warn('Backend seems to have lost object %s', exc.key)
                         self.encountered_errors = True
@@ -432,68 +470,46 @@ class BlockCache(object):
         if len(self.cache) > 0:
             raise RuntimeError("BlockCache instance was destroyed without calling destroy()!")
 
-class CommitThread(threading.Thread):
+class CommitThread(ExceptionStoringThread):
 
     def __init__(self, bcache):
         super(CommitThread, self).__init__()
-
-        self._exc = None
-        self._tb = None
-        self._joined = False
-        self.bcache = bcache
-        
+        self.bcache = bcache 
         self.stop_event = threading.Event()
         self.name = 'CommitThread'
-            
-                
-    def run(self):
+                    
+    def run_protected(self):
         log.debug('CommitThread: start')
-        try:
-            while not self.stop_event.is_set():
-                did_sth = False
-                stamp = time.time()
-                for el in self.bcache.cache.values_rev():
-                    if stamp - el.last_access < 10:
-                        break
-                    if (not el.dirty or
+ 
+        while not self.stop_event.is_set():
+            did_sth = False
+            stamp = time.time()
+            for el in self.bcache.cache.values_rev():
+                if stamp - el.last_access < 10:
+                    break
+                if (not el.dirty or
+                    (el.inode, el.blockno) in self.bcache.upload_manager.in_transit):
+                    continue
+                        
+                # UploadManager is not threadsafe
+                with self.bcache.lock:
+                    if (not el.dirty or # Object may have been accessed
                         (el.inode, el.blockno) in self.bcache.upload_manager.in_transit):
                         continue
-                            
-                    # UploadManager is not threadsafe
-                    with self.bcache.lock:
-                        if (not el.dirty or # Object may have been accessed
-                            (el.inode, el.blockno) in self.bcache.upload_manager.in_transit):
-                            continue
-                        self.bcache.upload_manager.add(el, self.bcache.lock)
-                    did_sth = True
-    
-                    if self.stop_event.is_set():
-                        break
-                
-                if not did_sth:
-                    self.stop_event.wait(5)
-                    
-        except BaseException as exc:
-            self._exc = exc
-            self._tb = sys.exc_info()[2] # This creates a circular reference chain
-        
+                    self.bcache.upload_manager.add(el, self.bcache.lock)
+                did_sth = True
+
+                if self.stop_event.is_set():
+                    break
+            
+            if not did_sth:
+                self.stop_event.wait(5)
+
         log.debug('CommitThread: end')    
         
     def stop(self):
         '''Wait for thread to finish, raise any occurred exceptions'''
         
-        self._joined = True
-        
-        self.stop_event.set()           
-        self.join()
-        
-        if self._exc is not None:
-            # Break reference chain
-            tb = self._tb
-            del self._tb
-            raise EmbeddedException(self._exc, tb, self.name)
-
-    def __del__(self):
-        if not self._joined:
-            raise RuntimeError("Thread was destroyed without calling stop()!")
+        self.stop_event.set()
+        self.join_and_raise()
         
