@@ -330,7 +330,7 @@ class Operations(llfuse.Operations):
         
         log.debug('yield_lock(): releasing global lock')
         with without(self.lock):
-            time.sleep(0.001)
+            time.sleep(0.01)
         
     def _remove_tree(self, queue, conn):
         
