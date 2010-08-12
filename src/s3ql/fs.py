@@ -272,7 +272,7 @@ class Operations(llfuse.Operations):
                 while queue:
                     processed += self._lock_tree(queue, conn)    
                 
-                    if processed > 10000:
+                    if processed > 500:
                         break
             
             self.yield_lock()
@@ -309,11 +309,11 @@ class Operations(llfuse.Operations):
         queue = [ id_ ]
         while queue:
             processed = 0    
-            with dbcm.write_lock() as conn:
+            with dbcm.conn() as conn:
                 while queue:
                     processed += self._remove_tree(queue, conn)    
                 
-                    if processed > 1000:
+                    if processed > 500:
                         break
                 else:
                     self._remove(id_p, name, id_, force=True)
@@ -382,7 +382,7 @@ class Operations(llfuse.Operations):
                     in_transit.update(t2)
 
                     # Give other threads a chance to access the db
-                    if processed > 5000:
+                    if processed > 250:
                         break
                     
             self.yield_lock()
@@ -481,6 +481,8 @@ class Operations(llfuse.Operations):
         
         `id_` must be the inode of `name`. If `force` is True, then
         the `locked` attribute is ignored.
+        
+        This method releases the global lock.
         '''
 
         timestamp = time.time()
