@@ -23,54 +23,40 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.common import (add_stdout_logging, setup_excepthook, QuietError,
-                         get_backend_credentials, AsyncFn,
-                         LoggerFilter)
+from s3ql.common import (setup_logging, QuietError,
+                         get_backend_credentials, AsyncFn )
 from s3ql.backends import s3
 from s3ql.backends.boto.s3.connection import Location
-from s3ql.optparse import OptionParser
+from s3ql.argparse import ArgumentParser
 
 log = logging.getLogger('s3_copy')
 
 def parse_args(args):
     '''Parse command line'''
 
-    parser = OptionParser(
-        usage="%prog [options] <source-bucket> <dest-bucket>\n"
-              "%prog --help",
+    parser = ArgumentParser(
         description="Remote-copy source-bucket to dest-bucket, optionally changing "
                     'storage region and storage class.')
 
-    parser.add_option("--homedir", type="string",
-                      default=os.path.expanduser("~/.s3ql"),
-                      help='Directory for log files, cache and authentication info. '
-                      'Default: ~/.s3ql')
-    parser.add_option("--debug", action="append",
-                      help="Activate debugging output from specified module. Use 'all' "
-                           "to get debug messages from all modules. This option can be "
-                           "specified multiple times.")
-    parser.add_option("--quiet", action="store_true", default=False,
-                      help="Be really quiet")
-    parser.add_option("--location", type="string", default='EU',
-                      help="New storage location. Allowed values: EU,"
-                           'us-west-1, ap-southeast-1, or us-standard.')
-    parser.add_option("--rrs", action="store_true", default=False,
+    parser.add_homedir()
+    parser.add_quiet()
+    parser.add_debug_modules()
+    parser.add_version()
+
+    parser.add_argument("src", metavar='<source bucket>',
+                        help='Source bucket name')
+    parser.add_argument("dest", metavar='<dest bucket>',
+                        help='Destination bucket name')
+    parser.add_argument("--location", default='EU', metavar='<name>',
+                        choices=('EU', 'us-west-1', 'us-standard', 'ap-southeast-1'),
+                        help="Storage location for new bucket. Allowed values: `EU`, "
+                        '`us-west-1`, `ap-southeast-1`, or `us-standard`.')
+    
+    parser.add_argument("--rrs", action="store_true", default=False,
                       help="Use reduced redundancy storage (RSS) for new "
                            'bucket. If not specified, standard storage is used.')        
     
-    (options, pps) = parser.parse_args(args)
-
-    #
-    # Verify parameters
-    #
-    if len(pps) != 2:
-        parser.error("Incorrect number of arguments.")
-    options.src = pps[0]
-    options.dest = pps[1]
-
-    if options.location not in ('EU', 'us-west-1', 'us-standard', 'ap-southeast-1'):
-        parser.error("Invalid S3 storage location. "
-                     "Allowed values: EU, us-west-1, ap-southeast-1, us-standard")
+    options = parser.parse_args(args)
         
     if options.location == 'us-standard':
         options.location = Location.DEFAULT
@@ -88,22 +74,8 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-
-    # Initialize logging if not yet initialized
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        handler = add_stdout_logging(options.quiet)
-        setup_excepthook()  
-        if options.debug:
-            root_logger.setLevel(logging.DEBUG)
-            handler.setLevel(logging.DEBUG)
-            if 'all' not in options.debug:
-                root_logger.addFilter(LoggerFilter(options.debug, logging.INFO))
-        else:
-            root_logger.setLevel(logging.INFO) 
-    else:
-        log.info("Logging already initialized.")
-
+    setup_logging(options)
+    
     (login, password) = get_backend_credentials(options.homedir, 's3', None)
     conn = s3.Connection(login, password)
 

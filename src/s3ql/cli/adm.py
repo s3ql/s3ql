@@ -9,10 +9,10 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function, absolute_import
 
 import logging
-from s3ql.common import (get_backend, QuietError, unlock_bucket, LoggerFilter,
-                      cycle_metadata, dump_metadata, restore_metadata, canonicalize_storage_url,
-                      add_file_logging, add_stdout_logging, setup_excepthook)
-from s3ql.optparse import (OptionParser, ArgumentGroup)
+from s3ql.common import (get_backend, QuietError, unlock_bucket,
+                         cycle_metadata, dump_metadata, restore_metadata,
+                         setup_logging)
+from s3ql.argparse import ArgumentParser
 from s3ql import CURRENT_FS_REV
 #from s3ql.mkfs import create_indices
 from getpass import getpass
@@ -29,38 +29,33 @@ log = logging.getLogger("adm")
 def parse_args(args):
     '''Parse command line'''
 
-    parser = OptionParser(
-        usage="%prog [options] <action> <storage-url>\n"
-              "%prog --help",
-        description="Manage S3QL Buckets.")
+    parser = ArgumentParser(
+        description="Manage S3QL Buckets.",
+        epilog=textwrap.dedent('''\
+               Hint: run `%(prog)s <action> --help` to get help on the additional
+               arguments that the different actions take.'''))
 
-    group = ArgumentGroup(parser, "<action> may be either of")
-    group.add_argument("passphrase", "Change bucket passphrase")
-    group.add_argument("upgrade", "Upgrade file system to newest revision.")
-    group.add_argument("delete", "Completely delete a bucket with all contents.")
-    parser.add_option_group(group)
+    pparser = ArgumentParser(add_help=False, epilog=textwrap.dedent('''\
+               Hint: run `%(prog)s --help` to get help on other available actions and
+               optional arguments that can be used with all actions.'''))
+    pparser.add_storage_url()
     
-    parser.add_option("--debug", action="append", metavar='<module>',
-                      help="Activate debugging output from <module>. Use `all` "
-                           "to get debug messages from all modules. This option can be "
-                           "specified multiple times.")
-    parser.add_option("--quiet", action="store_true", default=False,
-                      help="Be really quiet")
-    parser.add_option("--homedir", type="string", metavar='<path>',
-                      default=os.path.expanduser("~/.s3ql"),
-                      help='Directory for log files, cache and authentication info. '
-                      'Default: ~/.s3ql')
+    subparsers = parser.add_subparsers(metavar='<action>', dest='action',
+                                       help='may be either of') 
+    subparsers.add_parser("passphrase", help="change bucket passphrase", 
+                          parents=[pparser])
+    subparsers.add_parser("upgrade", help="upgrade file system to newest revision",
+                          parents=[pparser])
+    subparsers.add_parser("delete", help="completely delete a bucket with all contents",
+                          parents=[pparser])                                        
+            
+    parser.add_debug_modules()
+    parser.add_quiet()
+    parser.add_homedir()
+    parser.add_version()
 
-    (options, pps) = parser.parse_args(args)
-    if len(pps) != 2:
-        parser.error("Incorrect number of arguments.")
-
-    options.action = pps[0]
-    options.storage_url = canonicalize_storage_url(pps[1])
-
-    if options.action not in group.arguments:
-        parser.error("Invalid <action>: %s" % options.action)
-        
+    options = parser.parse_args(args)
+    
     if not os.path.exists(options.homedir):
         os.mkdir(options.homedir, 0700)
         
@@ -79,24 +74,7 @@ def main(args=None):
         pass
 
     options = parse_args(args)
-    
-    # Initialize logging if not yet initialized
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        add_stdout_logging(options.quiet)
-        lh = add_file_logging(os.path.join(options.homedir, 'adm.log'))
-        setup_excepthook()
-        
-        if options.debug:
-            root_logger.setLevel(logging.DEBUG)
-            if 'all' not in options.debug:
-                # Adding the filter to the root logger has no effect.
-                lh.addFilter(LoggerFilter(options.debug, logging.INFO))
-        else:
-            root_logger.setLevel(logging.INFO) 
-    else:
-        log.info("Logging already initialized.")
-
+    setup_logging(options, 'adm.log')
 
     with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
         if not bucketname in conn:

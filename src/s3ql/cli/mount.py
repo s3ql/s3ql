@@ -15,12 +15,11 @@ from s3ql import fs, CURRENT_FS_REV
 from s3ql.mkfs import create_indices
 from s3ql.daemonize import daemonize
 from s3ql.backends.common import (ChecksumError, NoSuchObject)
-from s3ql.common import (add_stdout_logging, get_backend, get_bucket_home,
-                         QuietError, unlock_bucket, add_file_logging, LoggerFilter,
+from s3ql.common import (setup_logging, get_backend, get_bucket_home,
+                         QuietError, unlock_bucket,  
                          cycle_metadata, dump_metadata, restore_metadata, 
-                         canonicalize_storage_url,
-                         ExceptionStoringThread, copy_metadata, setup_excepthook)
-from s3ql.optparse import OptionParser
+                         ExceptionStoringThread, copy_metadata)
+from s3ql.argparse import ArgumentParser
 import s3ql.database as dbcm
 import llfuse
 import tempfile
@@ -49,24 +48,9 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-    
-    # Initialize logging if not yet initialized
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        # Save handler so that we can remove it when daemonizing
-        stdout_log_handler = add_stdout_logging(options.quiet)
-        lh = add_file_logging(os.path.join(options.homedir, 'mount.log'))
-        setup_excepthook()
-        
-        if options.debug:
-            root_logger.setLevel(logging.DEBUG)
-            if 'all' not in options.debug:
-                # Adding the filter to the root logger has no effect.
-                lh.addFilter(LoggerFilter(options.debug, logging.INFO))
-        else:
-            root_logger.setLevel(logging.INFO) 
-    else:
-        log.info("Logging already initialized.")
+
+    # Save handler so that we can remove it when daemonizing
+    stdout_log_handler = setup_logging(options, 'mount.log')
 
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.')
@@ -210,7 +194,8 @@ def main(args=None):
                     log.error('Waiting for thread %s', t)
                     t.join()
   
-                logging.getLogger().removeHandler(stdout_log_handler)
+                if stdout_log_handler:
+                    logging.getLogger().removeHandler(stdout_log_handler)
                 daemonize(options.homedir)
                 conn.finish_fork()
             
@@ -326,75 +311,65 @@ def parse_args(args):
                     raise QuietError('Read-only mounting not supported.')
                 args.insert(pos, '--' + opt)
 
-    parser = OptionParser(
-        usage="%prog [options] <storage-url> <mountpoint>\n"
-              "%prog --help",
+    parser = ArgumentParser(
         description="Mount an S3QL file system.")
 
-    parser.add_option("--homedir", type="string", metavar='<path>',
-                      default=os.path.expanduser("~/.s3ql"),
-                      help='Directory for log files, cache and authentication info. '
-                      'Default: ~/.s3ql')
-    parser.add_option("--cachesize", type="int", default=102400, metavar='<size>', 
+    parser.add_homedir()
+    parser.add_debug_modules()
+    parser.add_quiet()
+    parser.add_version()
+    parser.add_storage_url()
+    
+    parser.add_argument("mountpoint", metavar='<mountpoint>',
+                        type=(lambda x: x.rstrip('/')),
+                        help='Where to mount the file system')
+        
+    parser.add_argument("--cachesize", type=int, default=102400, metavar='<size>', 
                       help="Cache size in kb (default: 102400 (100 MB)). Should be at least 10 times "
                       "the blocksize of the filesystem, otherwise an object may be retrieved and "
                       "written several times during a single write() or read() operation.")
-    parser.add_option("--max-cache-entries", type="int", default=768, metavar='<num>',
-                      help="Maximum number of entries in cache (default: %default). "
+    parser.add_argument("--max-cache-entries", type=int, default=768, metavar='<num>',
+                      help="Maximum number of entries in cache (default: %(default)d). "
                       'Each cache entry requires one file descriptor, so if you increase '
                       'this number you have to make sure that your process file descriptor '
                       'limit (as set with `ulimit -n`) is high enough (at least the number ' 
                       'of cache entries + 100).')
-    parser.add_option("--debug", action="append", metavar='<module>',
-                      help="Activate debugging output from <module>. Use `all` "
-                           "to get debug messages from all modules. This option can be "
-                           "specified multiple times.")
-    parser.add_option("--quiet", action="store_true", default=False,
-                      help="Be really quiet")
-    parser.add_option("--allow-other", action="store_true", default=False, help=
+    parser.add_argument("--allow-other", action="store_true", default=False, help=
                       'Normally, only the user who called `mount.s3ql` can access the mount '
                       'point. This user then also has full access to it, independent of '
                       'individual file permissions. If the `--allow-other` option is '
                       'specified, other users can access the mount point as well and '
                       'individual file permissions are taken into account for all users.')
-    parser.add_option("--allow-root", action="store_true", default=False,
+    parser.add_argument("--allow-root", action="store_true", default=False,
                       help='Like `--allow-other`, but restrict access to the mounting '
                            'user and the root user.')
-    parser.add_option("--fg", action="store_true", default=False,
+    parser.add_argument("--fg", action="store_true", default=False,
                       help="Do not daemonize, stay in foreground")
-    parser.add_option("--single", action="store_true", default=False,
+    parser.add_argument("--single", action="store_true", default=False,
                       help="Run in single threaded mode. If you don't understand this, "
                            "then you don't need it.")
-    parser.add_option("--profile", action="store_true", default=False,
+    parser.add_argument("--profile", action="store_true", default=False,
                       help="Create profiling information. If you don't understand this, "
                            "then you don't need it.")
-    parser.add_option("--compress", action="store", default='lzma', metavar='<name>',
+    parser.add_argument("--compress", action="store", default='lzma', metavar='<name>',
                       choices=('lzma', 'bzip2', 'zlib', 'none'),
                       help="Compression algorithm to use when storing new data. Allowed "
-                           "values: `lzma`, `bzip2`, `zlib`, none. (default: `%default`)")
-    parser.add_option("--strip-meta", action="store_true", default=False,
+                           "values: `lzma`, `bzip2`, `zlib`, none. (default: `%(default)s`)")
+    parser.add_argument("--strip-meta", action="store_true", default=False,
                       help='Strip metadata of all redundancies (like indices) before '
                       'uploading. This will significantly reduce the size of the data '
                       'at the expense of additional CPU time during the next unmount '
                       'and mount.')
-    parser.add_option("--metadata-upload-interval", action="store", type='int',
+    parser.add_argument("--metadata-upload-interval", action="store", type=int,
                       default=24*60*60, metavar='<seconds>',
                       help='Interval in seconds between complete metadata uploads. '
                       'default: 24h.')
-    parser.add_option("--compression-threads", action="store", type='int',
+    parser.add_argument("--compression-threads", action="store", type=int,
                       default=1, metavar='<no>',
                       help='Number of parallel compression and encryption threads '
-                           'to use (default: %default).')
+                           'to use (default: %(default)s).')
     
-    (options, pps) = parser.parse_args(args)
-
-    #
-    # Verify parameters
-    #
-    if len(pps) != 2:
-        parser.error("Incorrect number of arguments.")
-    options.storage_url = canonicalize_storage_url(pps[0])
-    options.mountpoint = pps[1]
+    options = parser.parse_args(args)
 
     if options.allow_other and options.allow_root:
         parser.error("--allow-other and --allow-root are mutually exclusive.")

@@ -17,6 +17,7 @@ import logging
 import re
 import textwrap
 import shutil
+import argparse
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
@@ -25,8 +26,8 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
     
-from s3ql.common import (QuietError, add_stdout_logging, setup_excepthook)
-from s3ql.optparse import OptionParser
+from s3ql.common import (setup_logging)
+from s3ql.argparse import ArgumentParser
 import s3ql.cli.remove
     
 log = logging.getLogger('expire_backups')
@@ -35,9 +36,7 @@ log = logging.getLogger('expire_backups')
 def parse_args(args):
     '''Parse command line'''
 
-    parser = OptionParser(
-        usage="%prog [options] <age> <age> ... \n"
-              "%prog --help",
+    parser = ArgumentParser(
         description=textwrap.dedent('''\
         This program deletes backups that are no longer needed as defined by the
         specified backup strategy. It uses a sophisticated algorithm that
@@ -47,23 +46,28 @@ def parse_args(args):
         S3QL dokumentation for details.
         '''))
 
-    parser.add_option("--quiet", action="store_true", default=False,
-                      help="Be really quiet")
-    parser.add_option("-n", action="store_true", default=False,
-                      help="Dry run. Just show which backups would be deleted.")
-    parser.add_option("--debug", action="store_true",
-                      help="Activate debugging output")
-    parser.add_option("--use-s3qlrm", action="store_true",
+    parser.add_quiet()
+    parser.add_debug()
+    parser.add_version()
+    
+    def age_type(s):
+        if s.endswith('h'):
+            return timedelta(seconds=int(s[:-1]) * 3600)
+        elif s.endswith('d'):
+            return timedelta(days=int(s[:-1]))
+        else:
+            raise argparse.ArgumentTypeError('%s is not a valid age.' % s)          
+        
+    parser.add_argument('generations', nargs='+', help='backup ages to keep',
+                        type=age_type, metavar='<age>')
+
+    parser.add_argument("-n", action="store_true", default=False,
+                        help="Dry run. Just show which backups would be deleted.")
+
+    parser.add_argument("--use-s3qlrm", action="store_true",
                       help="Use `s3qlrm` command to delete directories.")
         
-    (options, pps) = parser.parse_args(args)
-
-    # Verify parameters
-    if len(pps) < 2:
-        parser.error("Incorrect number of arguments.")
-    options.generations = pps
-
-    return options
+    return parser.parse_args(args)
 
 def main(args=None):
 
@@ -71,35 +75,17 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-
-    # Initialize logging if not yet initialized
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        handler = add_stdout_logging(options.quiet)
-        setup_excepthook()  
-        if options.debug:
-            root_logger.setLevel(logging.DEBUG)
-            handler.setLevel(logging.DEBUG)
-        else:
-            root_logger.setLevel(logging.INFO)         
-    else:
-        log.info("Logging already initialized.")
+    setup_logging(options)
 
     # Relative generation ages
-    generations = list()
-    for (i, txt_gen) in enumerate(options.generations):
-        if txt_gen.endswith('h'):
-            generations.append(timedelta(seconds=int(txt_gen[:-1]) * 3600))
-        elif txt_gen.endswith('d'):
-            generations.append(timedelta(days=int(txt_gen[:-1])))
-        else:
-            raise QuietError('Invalid backup age: %r' % txt_gen)
+    generations = options.generations
+    for (i, gen) in enumerate(options.generations):
         if i == 0:
             log.info('Generation %d starts %s after most recent backup',
-                     i+1, txt_gen)
+                     i+1, gen)
         else:
             log.info('Generation %d starts %s after first backup of generation %d',
-                     i+1, txt_gen, i)
+                     i+1, gen, i)
 
     # Determine available backups
     available_txt = sorted(x for x in os.listdir('.')

@@ -46,6 +46,13 @@ that is not the case.
   PyCrypto++, download it from the website, extract it and run `python
   setup.py install`.
 
+* The `argparse Python Module
+  <http://pypi.python.org/pypi/argparse>`_ is probably 
+  available as a package. To check if this module is installed, try to
+  execute `python -c 'import argparse'`. To manually install
+  argparse, download it from the website, extract it and run `python
+  setup.py install`.
+  
 * The `APSW Python Module <http://code.google.com/p/apsw/>`_ may be
   available as a package, but most likely the version of the package
   will not be recent enough. To check which version of APWS is

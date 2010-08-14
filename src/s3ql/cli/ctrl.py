@@ -11,44 +11,46 @@ from __future__ import division, print_function, absolute_import
 from s3ql import libc
 import os
 import logging
-from s3ql.common import (CTRL_NAME, QuietError, add_stdout_logging, setup_excepthook)
-from s3ql.optparse import (OptionParser, ArgumentGroup)
+from s3ql.common import (CTRL_NAME, QuietError, setup_logging)
+from s3ql.argparse import ArgumentParser
+import textwrap
 import sys
 
 log = logging.getLogger("ctrl")
 
 def parse_args(args):
     '''Parse command line'''
-
-    parser = OptionParser(
-        usage="%prog [options] <action> <mountpoint>\n"
-              "%prog --help",
-        description='''Control a mounted S3QL File System''')
-
-    group = ArgumentGroup(parser, "<action> may be either of")
-    group.add_argument("stacktrace", "Dump stack trace for all active threads into logfile.")
-    group.add_argument("flushcache", "Flush file system cache. The command blocks until "
-                                      "the cache has been flushed.")
-    parser.add_option_group(group)
-
-    parser.add_option("--debug", action="store_true",
-                      help="Activate debugging output")
-    parser.add_option("--quiet", action="store_true", default=False,
-                      help="Be really quiet")
-
-    (options, pps) = parser.parse_args(args)
     
-    # Verify parameters
-    if len(pps) != 2:
-        parser.error("Incorrect number of arguments.")
-    options.action = pps[0]
-    options.mountpoint = pps[1].rstrip('/')
+    parser = ArgumentParser(
+        description='''Control a mounted S3QL File System''',
+        epilog=textwrap.dedent('''\
+               Hint: run `%(prog)s <action> --help` to get help on the additional
+               arguments that the different actions take.'''))
 
-    if options.action not in group.arguments:
-        parser.error("Invalid <action>: %s" % options.action)
+    pparser = ArgumentParser(add_help=False, epilog=textwrap.dedent('''\
+               Hint: run `%(prog)s --help` to get help on other available actions and
+               optional arguments that can be used with all actions.'''))
+    pparser.add_argument("mountpoint", metavar='<mountpoint>',
+                         type=(lambda x: x.rstrip('/')),
+                         help='Mountpoint of the file system')    
         
+    parser.add_debug()
+    parser.add_quiet()
+    parser.add_version()
+    
+    subparsers = parser.add_subparsers(metavar='<action>', dest='action',
+                                       help='may be either of')                               
+    subparsers.add_parser('flushcache', help='flush file system cache',
+                          parents=[pparser])
+
+    subparsers.add_parser('stacktrace', help='Print stack trace',
+                          parents=[pparser])
+            
+    options = parser.parse_args(args)
+    
     return options
 
+    
 def main(args=None):
     '''Control a mounted S3QL File System.'''
 
@@ -56,25 +58,15 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
+    setup_logging(options)
 
-    # Initialize logging if not yet initialized
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        handler = add_stdout_logging(options.quiet)
-        setup_excepthook()  
-        if options.debug:
-            root_logger.setLevel(logging.DEBUG)
-            handler.setLevel(logging.DEBUG)
-        else:
-            root_logger.setLevel(logging.INFO)    
-    else:
-        log.info("Logging already initialized.")
-
-    if not os.path.exists(options.mountpoint):
-        raise QuietError('Mountpoint %r does not exist' % options.mountpoint)
-
-    ctrlfile = os.path.join(options.mountpoint, CTRL_NAME)
-    if not (CTRL_NAME not in libc.listdir(options.mountpoint) 
+    path = options.mountpoint
+    
+    if not os.path.exists(path):
+        raise QuietError('Mountpoint %r does not exist' % path)
+    
+    ctrlfile = os.path.join(path, CTRL_NAME)
+    if not (CTRL_NAME not in libc.listdir(path) 
             and os.path.exists(ctrlfile)):
         raise QuietError('Mountpoint is not an S3QL file system')
 
@@ -83,9 +75,9 @@ def main(args=None):
     
     if options.action == 'stacktrace':
         libc.setxattr(ctrlfile, 'stacktrace', 'dummy')
-        
     elif options.action == 'flushcache':
         libc.setxattr(ctrlfile, 's3ql_flushcache!', 'dummy')
+    
         
 
 if __name__ == '__main__':

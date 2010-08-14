@@ -12,12 +12,12 @@ from s3ql import libc
 import sys
 import os
 import logging
-from s3ql.common import (CTRL_NAME, QuietError, add_stdout_logging, 
-                         setup_excepthook)
-from s3ql.optparse import OptionParser
+from s3ql.common import (CTRL_NAME, QuietError, setup_logging)
+from s3ql.argparse import ArgumentParser
 import posixpath
 import subprocess
 import time
+import textwrap
 
 log = logging.getLogger("umount")
 DONTWAIT = False
@@ -29,32 +29,29 @@ def parse_args(args):
     of throwing an exception if it encounters errors.
     '''
 
-    parser = OptionParser(
-        usage="%prog [options] <mountpoint>\n"
-              "%prog --help",
-        description="Unmounts an S3QL file system. The command returns only after "
-        'all data has been uploaded to the backend. If any file system errors occurred while '
-        'the file system was mounted, a warning message is printed. Note that errors '
-        'occuring during the unmount (e.g. a failure to upload the metadata) can not '
-        'be detected and appear only in the logging messages of the mount program.')
+    parser = ArgumentParser(
+        description=textwrap.dedent('''\ 
+        Unmounts an S3QL file system. The command returns only after all data
+        has been uploaded to the backend. If any file system errors occurred
+        while the file system was mounted, a warning message is printed. Note
+        that errors occuring during the unmount (e.g. a failure to upload the
+        metadata) can not be detected and appear only in the logging messages of
+        the mount program.'''))
 
-    parser.add_option("--debug", action="store_true",
-                      help="Activate debugging output")
-    parser.add_option("--quiet", action="store_true", default=False,
-                      help="Be really quiet")
-    parser.add_option('--lazy', "-z", action="store_true", default=False,
+    parser.add_debug()
+    parser.add_quiet()
+    parser.add_version()
+    parser.add_argument("mountpoint", metavar='<mountpoint>',
+                        type=(lambda x: x.rstrip('/')),
+                        help='Mount point to un-mount')
+    
+    parser.add_argument('--lazy', "-z", action="store_true", default=False,
                       help="Lazy umount. Detaches the file system immediately, even if there "
                       'are still open files. The data will be uploaded in the background '
                       'once all open files have been closed.')
 
-    (options, pps) = parser.parse_args(args)
+    return parser.parse_args(args)
 
-    # Verify parameters
-    if len(pps) != 1:
-        parser.error("Incorrect number of arguments.")
-    options.mountpoint = pps[0].rstrip('/')
-
-    return options
 
 def main(args=None):
     '''Umount S3QL file system
@@ -67,20 +64,8 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
+    setup_logging(options)
     mountpoint = options.mountpoint
-    
-    # Initialize logging if not yet initialized
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        handler = add_stdout_logging(options.quiet)
-        setup_excepthook()  
-        if options.debug:
-            root_logger.setLevel(logging.DEBUG)
-            handler.setLevel(logging.DEBUG)
-        else:
-            root_logger.setLevel(logging.INFO) 
-    else:
-        log.info("Logging already initialized.")
         
     # Check if it's a mount point
     if not posixpath.ismount(mountpoint):

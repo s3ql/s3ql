@@ -14,10 +14,9 @@ from getpass import getpass
 import shutil
 import logging
 from s3ql import mkfs, CURRENT_FS_REV
-from s3ql.common import (get_backend, get_bucket_home, add_stdout_logging, 
-                         add_file_logging, setup_excepthook, LoggerFilter,
-                         QuietError, canonicalize_storage_url)
-from s3ql.optparse import OptionParser
+from s3ql.common import (get_backend, get_bucket_home, setup_logging,
+                         QuietError)
+from s3ql.argparse import ArgumentParser
 import s3ql.database as dbcm
 from s3ql.backends.boto.s3.connection import Location
 from s3ql.backends import s3
@@ -27,44 +26,31 @@ log = logging.getLogger("mkfs")
 
 def parse_args(args):
 
-    parser = OptionParser(
-        usage="%prog [options] <storage-url>\n" \
-              "%prog --help",
+    parser = ArgumentParser(
         description="Initializes an S3QL file system")
 
-    parser.add_option("--s3-location", type="string", default='EU', metavar='<name>',
-                      help="Specify storage location for new bucket. Allowed values: `EU`, "
+    parser.add_homedir()
+    parser.add_debug_modules()
+    parser.add_quiet()
+    parser.add_version()
+    parser.add_storage_url()
+    
+    parser.add_argument("--s3-location", default='EU', metavar='<name>',
+                      choices=('EU', 'us-west-1', 'us-standard', 'ap-southeast-1'),
+                      help="Storage location for new S3 buckets. Allowed values: `EU`, "
                            '`us-west-1`, `ap-southeast-1`, or `us-standard`.')
-    parser.add_option("--homedir", type="string", metavar='<path>',
-                      default=os.path.expanduser("~/.s3ql"),
-                      help='Directory for log files, cache and authentication info. '
-                      'Default: ~/.s3ql')
-    parser.add_option("-L", type="string", default='', help="Filesystem label",
+    parser.add_argument("-L", default='', help="Filesystem label",
                       dest="label", metavar='<name>',)
-    parser.add_option("--blocksize", type="int", default=10240, metavar='<size>',
-                      help="Maximum block size in KB (default: %default)")
-    parser.add_option("--plain", action="store_true", default=False,
+    parser.add_argument("--blocksize", type=int, default=10240, metavar='<size>',
+                      help="Maximum block size in KB (default: %(default)d)")
+    parser.add_argument("--plain", action="store_true", default=False,
                       help="Create unencrypted file system.")
-    parser.add_option("--debug", action="append", metavar='<module>',
-                      help="Activate debugging output from <module>. Use `all` "
-                           "to get debug messages from all modules. This option can be "
-                           "specified multiple times.")
-    parser.add_option("--quiet", action="store_true", default=False,
-                      help="Be really quiet")
 
 
-    (options, pps) = parser.parse_args(args)
-
-    if options.s3_location not in ('EU', 'us-west-1', 'us-standard', 'ap-southeast-1'):
-        parser.error("Invalid S3 storage location. "
-                     "Allowed values: EU, us-west-1, ap-southeast-1, us-standard")
+    options = parser.parse_args(args)
 
     if options.s3_location == 'us-standard':
         options.s3_location = Location.DEFAULT
-
-    if len(pps) != 1:
-        parser.error("Incorrect number of arguments.")
-    options.storage_url = canonicalize_storage_url(pps[0])
 
     if not os.path.exists(options.homedir):
         os.mkdir(options.homedir, 0700)
@@ -77,22 +63,7 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-
-    # Initialize logging if not yet initialized
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        add_stdout_logging(options.quiet)
-        lh = add_file_logging(os.path.join(options.homedir, 'mkfs.log'))
-        setup_excepthook()  
-        if options.debug:
-            root_logger.setLevel(logging.DEBUG)
-            if 'all' not in options.debug:
-                # Adding the filter to the root logger has no effect.
-                lh.addFilter(LoggerFilter(options.debug, logging.INFO))
-        else:
-            root_logger.setLevel(logging.INFO) 
-    else:
-        log.info("Logging already initialized.")
+    setup_logging(options)
 
     with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
         if conn.bucket_exists(bucketname):

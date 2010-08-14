@@ -28,8 +28,7 @@ __all__ = ["get_bucket_home", 'sha256', 'sha256_fh', 'add_stdout_logging',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'QuietError', 'get_backend', 'add_file_logging', 'setup_excepthook',
            'cycle_metadata', 'restore_metadata', 'dump_metadata', 'copy_metadata',
-           'without', 'OptionParser', 'ArgumentGroup', 'canonicalize_storage_url',
-           'log_stacktraces', 'AsyncFn' ]
+           'without', 'setup_logging',  'log_stacktraces', 'AsyncFn' ]
 
 
 AUTHINFO_BACKEND_PATTERN = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(\S+)$'
@@ -60,6 +59,38 @@ def without(lock):
     finally:
         lock.acquire()
         
+def setup_logging(options, logfile=None):        
+    root_logger = logging.getLogger()
+    if root_logger.handlers:
+        log.debug("Logging already initialized.")
+        return
+        
+    sh = add_stdout_logging(options.quiet)
+    if logfile:
+        lh = add_file_logging(os.path.join(options.homedir, logfile))
+    else:
+        lh = None
+    setup_excepthook()
+    
+    if options.debug:
+        root_logger.setLevel(logging.DEBUG)
+        if isinstance(options.debug, list) and 'all' not in options.debug:
+            # Adding the filter to the root logger has no effect.
+            if lh:
+                lh.addFilter(LoggerFilter(options.debug, logging.INFO))
+            else:
+                sh.addFilter(LoggerFilter(options.debug, logging.INFO))
+                sh.setLevel(logging.DEBUG)
+        elif lh:
+            lh.setLevel(logging.DEBUG)
+        else:
+            sh.setLevel(logging.DEBUG)
+    else:
+        root_logger.setLevel(logging.INFO)
+        
+    return sh 
+ 
+                        
 class LoggerFilter(object):
     """
     For use with the logging module as a message filter.
@@ -111,18 +142,6 @@ def add_file_logging(logfile):
     root_logger.addHandler(handler)
     return handler
 
-
-def canonicalize_storage_url(storage_url):
-    '''Return canonicalized storage URL
-    
-    For the local backend, this converts the path into an absolute
-    path.
-    '''
-    
-    if storage_url.startswith('local://'):
-        return 'local://%s' % os.path.abspath(storage_url[len('local://'):])
-    else:
-        return storage_url    
     
 @contextmanager
 def get_backend(storage_url, homedir):

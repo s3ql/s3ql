@@ -11,11 +11,10 @@ from __future__ import division, print_function, absolute_import
 import os
 import stat
 import time
-from s3ql.common import (get_bucket_home, cycle_metadata, add_stdout_logging, 
-                         add_file_logging, setup_excepthook, LoggerFilter, 
+from s3ql.common import (get_bucket_home, cycle_metadata, setup_logging,  
                          unlock_bucket, QuietError, get_backend, restore_metadata,
-                         canonicalize_storage_url)
-from s3ql.optparse import OptionParser
+                         )
+from s3ql.argparse import ArgumentParser
 from s3ql import CURRENT_FS_REV
 import s3ql.database as dbcm
 from s3ql.mkfs import create_indices
@@ -32,36 +31,24 @@ log = logging.getLogger("fsck")
 
 def parse_args(args):
 
-    parser = OptionParser(
-        usage="%prog [options] <storage-url>\n"
-              "%prog --help",
+    parser = ArgumentParser(
         description="Checks and repairs an S3QL filesystem.")
 
-    parser.add_option("--homedir", type="string", metavar='<path>',
-                      default=os.path.expanduser("~/.s3ql"),
-                      help='Directory for log files, cache and authentication info. '
-                      'Default: ~/.s3ql')
-    parser.add_option("--debug", action="append", metavar='<module>',
-                      help="Activate debugging output from <module>. Use `all` "
-                           "to get debug messages from all modules. This option can be "
-                           "specified multiple times.")
-    parser.add_option("--quiet", action="store_true", default=False,
-                      help="Be really quiet")
-    parser.add_option("--batch", action="store_true", default=False,
+    parser.add_homedir()
+    parser.add_debug_modules()
+    parser.add_quiet()
+    parser.add_version()
+    parser.add_storage_url()
+
+    parser.add_argument("--batch", action="store_true", default=False,
                       help="If user input is required, exit without prompting.")
-    parser.add_option("--force", action="store_true", default=False,
+    parser.add_argument("--force", action="store_true", default=False,
                       help="Force checking even if file system is marked clean.")
 
+    options = parser.parse_args(args)
 
-    (options, pps) = parser.parse_args(args)
-
-    if len(pps) != 1:
-        parser.error("Incorrect number of arguments.")
-        
     if not os.path.exists(options.homedir):
         os.mkdir(options.homedir, 0700)
-        
-    options.storage_url = canonicalize_storage_url(pps[0])
 
     return options
 
@@ -78,23 +65,7 @@ def main(args=None):
         pass
 
     options = parse_args(args)
-
-    # Initialize logging if not yet initialized
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        add_stdout_logging(options.quiet)
-        lh = add_file_logging(os.path.join(options.homedir, 'fsck.log'))
-        setup_excepthook()
-        
-        if options.debug:
-            root_logger.setLevel(logging.DEBUG)
-            if 'all' not in options.debug:
-                # Adding the filter to the root logger has no effect.
-                lh.addFilter(LoggerFilter(options.debug, logging.INFO))
-        else:
-            root_logger.setLevel(logging.INFO) 
-    else:
-        log.info("Logging already initialized.")
+    setup_logging(options, 'fsck.log')
 
     with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
 

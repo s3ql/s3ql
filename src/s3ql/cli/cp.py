@@ -11,8 +11,8 @@ from __future__ import division, print_function, absolute_import
 from s3ql import libc
 import os
 import logging
-from s3ql.common import (add_stdout_logging, setup_excepthook, CTRL_NAME, QuietError)
-from s3ql.optparse import OptionParser
+from s3ql.common import (setup_logging, CTRL_NAME, QuietError)
+from s3ql.argparse import ArgumentParser
 import struct
 import stat
 import textwrap
@@ -24,9 +24,7 @@ log = logging.getLogger("cp")
 def parse_args(args):
     '''Parse command line'''
 
-    parser = OptionParser(
-        usage="%prog [options] <source> <target>\n"
-              "%prog --help",
+    parser = ArgumentParser(
         description=textwrap.dedent('''\
         Replicates the contents of the directory <source> in the
         directory <target>. <source> has to be an existing directory and
@@ -38,18 +36,16 @@ def parse_args(args):
         additional storage space.
         '''))
 
-    parser.add_option("--debug", action="store_true",
-                      help="Activate debugging output")
-    parser.add_option("--quiet", action="store_true", default=False,
-                      help="Be really quiet")
+    parser.add_debug()
+    parser.add_quiet()
+    parser.add_version()
+    
+    parser.add_argument('source', help='source directory', 
+                        type=(lambda x: x.rstrip('/')))
+    parser.add_argument('target', help='target directory',
+                        type=(lambda x: x.rstrip('/')))
 
-    (options, pps) = parser.parse_args(args)
-
-    # Verify parameters
-    if len(pps) != 2:
-        parser.error("Incorrect number of arguments.")
-    options.source = pps[0].rstrip('/')
-    options.target = pps[1].rstrip('/')
+    options = parser.parse_args(args)
 
     return options
 
@@ -60,19 +56,7 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-
-    # Initialize logging if not yet initialized
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        handler = add_stdout_logging(options.quiet)
-        setup_excepthook()  
-        if options.debug:
-            root_logger.setLevel(logging.DEBUG)
-            handler.setLevel(logging.DEBUG)
-        else:
-            root_logger.setLevel(logging.INFO)     
-    else:
-        log.info("Logging already initialized.")
+    setup_logging(options)
 
     if not os.path.exists(options.source):
         raise QuietError('Source directory %r does not exist' % options.source)

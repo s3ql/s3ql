@@ -27,50 +27,36 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.common import (add_stdout_logging, setup_excepthook, QuietError,
-                         unlock_bucket, restore_metadata, 
-                         get_backend, LoggerFilter, canonicalize_storage_url)
+from s3ql.common import (setup_logging, QuietError,
+                         unlock_bucket, get_backend)
 from s3ql.backends.common import ChecksumError
-from s3ql.optparse import OptionParser
-import s3ql.database as dbcm
+from s3ql.argparse import ArgumentParser, storage_url_type
 
 log = logging.getLogger('make_dummy')
 
 def parse_args(args):
     '''Parse command line'''
 
-    parser = OptionParser(
-        usage="%prog [options] <source-storage-url> <dest-storage-url>\n"
-              "%prog --help",
+    parser = ArgumentParser(
         description="Create a dummy-copy of the source bucket. The target will "
                     'contain a file system with the same structure, but all files'
                     'will just contain \\0 bytes.')
 
-    parser.add_option("--homedir", type="string",
-                      default=os.path.expanduser("~/.s3ql"),
-                      help='Directory for log files, cache and authentication info. '
-                      'Default: ~/.s3ql')
-    parser.add_option("--debug", action="append",
-                      help="Activate debugging output from specified module. Use 'all' "
-                           "to get debug messages from all modules. This option can be "
-                           "specified multiple times.")
-    parser.add_option("--quiet", action="store_true", default=False,
-                      help="Be really quiet")      
-    parser.add_option("--scramble", action="store_true", default=False,
-                      help="Also irreversible scramble all file and directory names."
-                           "Not yet implemented.")    
-        
-    (options, pps) = parser.parse_args(args)
+    parser.add_homedir()
+    parser.add_quiet()
+    parser.add_debug_modules()
+    parser.add_version()
 
-    #
-    # Verify parameters
-    #
-    if len(pps) != 2:
-        parser.error("Incorrect number of arguments.")
-    options.src = canonicalize_storage_url(pps[0])
-    options.dest = canonicalize_storage_url(pps[1])
+    parser.add_argument("src", metavar='<source storage-url>',
+                        type=storage_url_type, 
+                        help='Source storage URL')
+
+    parser.add_argument("dest", metavar='<dest storage-url>',
+                        type=storage_url_type, 
+                        help='Destination storage URL')
+
         
-    return options
+    return parser.parse_args(args)
 
 
 def main(args=None):
@@ -78,22 +64,7 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-
-    # Initialize logging if not yet initialized
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        handler = add_stdout_logging(options.quiet)
-        setup_excepthook()  
-        if options.debug:
-            root_logger.setLevel(logging.DEBUG)
-            handler.setLevel(logging.DEBUG)
-            if 'all' not in options.debug:
-                root_logger.addFilter(LoggerFilter(options.debug, logging.INFO))
-        else:
-            root_logger.setLevel(logging.INFO) 
-    else:
-        log.info("Logging already initialized.")
-
+    setup_logging(options)
 
     with get_backend(options.src, options.homedir) as (src_conn, src_name):
         
@@ -115,33 +86,7 @@ def main(args=None):
             dest_bucket = dest_conn.create_bucket(dest_name, compression=None)            
 
             copy_objects(src_bucket, dest_bucket)
-
-            if options.scramble:
-                scramble(dest_bucket)
                     
-        
-def scramble(bucket):
-    '''Scramble all metadata in bucket'''
-    
-    for key in bucket.list('s3ql_metadata'): 
-        log.info("Scrambling %s...", key)
-        fh = tempfile.NamedTemporaryFile()
-        param = bucket.fetch_fh(key, fh)
-        
-        if param['DB-Format'] == 'dump':
-            fh2 = tempfile.TemporaryFile()
-            dbcm.init(fh2.name)
-            fh.seek(0)
-            log.info('Reading metadata...')
-            restore_metadata(fh)
-            fh.close()
-        elif param['DB-Format'] == 'sqlite':
-            fh.flush()
-            dbcm.init(fh.name)
-        else:
-            raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
-        
-        
                 
 def copy_objects(src_bucket, dest_bucket):        
         

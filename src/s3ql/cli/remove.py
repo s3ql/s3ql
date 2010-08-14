@@ -11,8 +11,8 @@ from __future__ import division, print_function, absolute_import
 from s3ql import libc
 import os
 import logging
-from s3ql.common import (add_stdout_logging, setup_excepthook, CTRL_NAME, QuietError)
-from s3ql.optparse import OptionParser
+from s3ql.common import (setup_logging, CTRL_NAME, QuietError)
+from s3ql.argparse import ArgumentParser
 import cPickle as pickle
 import textwrap
 import sys
@@ -22,27 +22,22 @@ log = logging.getLogger("remove")
 def parse_args(args):
     '''Parse command line'''
 
-    parser = OptionParser(
-        usage="%prog [options] <name(s)>\n"
-              "%prog --help",
+    parser = ArgumentParser(
         description=textwrap.dedent('''\
         Recursively delete files and directories in an S3QL file system,
         including immutable entries. 
         '''))
 
-    parser.add_option("--debug", action="store_true",
-                      help="Activate debugging output")
-    parser.add_option("--quiet", action="store_true", default=False,
-                      help="Be really quiet")
+    parser.add_debug()
+    parser.add_quiet()
+    parser.add_version()
+    
+    parser.add_argument('path', metavar='<path>', nargs='+',
+                        help='Directories to remove',
+                         type=(lambda x: x.rstrip('/')))
 
-    (options, pps) = parser.parse_args(args)
+    return parser.parse_args(args)
 
-    # Verify parameters
-    if len(pps) < 1:
-        parser.error("Incorrect number of arguments.")
-    options.pps = [ x.rstrip('/') for x  in pps ]
-
-    return options
 
 def main(args=None):
     '''Recursively delete files and directories in an S3QL file system'''
@@ -51,21 +46,9 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-
-    # Initialize logging if not yet initialized
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        handler = add_stdout_logging(options.quiet)
-        setup_excepthook()  
-        if options.debug:
-            root_logger.setLevel(logging.DEBUG)
-            handler.setLevel(logging.DEBUG)
-        else:
-            root_logger.setLevel(logging.INFO)     
-    else:
-        log.info("Logging already initialized.")
-
-    for name in options.pps:
+    setup_logging(options)
+    
+    for name in options.path:
         if not os.path.exists(name):
             raise QuietError('%r does not exist' % name)
     

@@ -24,59 +24,46 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.common import (add_stdout_logging, setup_excepthook)
-from s3ql.optparse import OptionParser
+from s3ql.common import (setup_logging)
+from s3ql.argparse import ArgumentParser
 
 log = logging.getLogger('pcp')
 
 def parse_args(args):
     '''Parse command line'''
 
-    parser = OptionParser(
-        usage="%prog [options] <source> ... <destination>\n"
-              "%prog --help",
+    parser = ArgumentParser(
         description='Recursively copy source(s) to destination using multiple '
                     'parallel rsync processes.')
 
-    parser.add_option("--debug", action="store_true", default=False,
-                      help="Activate debugging output")
-    parser.add_option("--quiet", action="store_true", default=False,
-                      help="Be really quiet.")
-    parser.add_option("-a", action="store_true",
-                      help='Pass -a option to rsync.')
-    parser.add_option("-H", action="store_true",
-                      help='Pass -H option to rsync.')
-    parser.add_option("--processes", action="store", type="int", metavar='<no>',
-                      default=10,
-                      help='Number of rsync processes to use (default: %default).')
+    parser.add_quiet()
+    parser.add_debug()
+    parser.add_version()
     
-    (options, pps) = parser.parse_args(args)
-
-    if len(pps) < 2:
-        parser.error("Incorrect number of arguments.")
-    options.pps = pps
+    parser.add_argument("-a", action="store_true",
+                      help='Pass -a option to rsync.')
+    parser.add_argument("-H", action="store_true",
+                      help='Pass -H option to rsync.')
+    parser.add_argument("--processes", action="store", type=int, metavar='<no>',
+                      default=10,
+                      help='Number of rsync processes to use (default: %(default)s).')
+    
+    parser.add_argument('source', metavar='<source>', nargs='+',
+                        help='Directories to copy')
+    parser.add_argument('dest', metavar='<destination>',
+                        help="Target directory")
+    
+    options = parser.parse_args(args)
+    options.pps = options.source + [ options.dest ]
 
     return options
-
 
 def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
     options = parse_args(args)
-
-    # Initialize logging if not yet initialized
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        handler = add_stdout_logging(options.quiet)
-        setup_excepthook()  
-        if options.debug:
-            root_logger.setLevel(logging.DEBUG)
-            handler.setLevel(logging.DEBUG)
-        else:
-            root_logger.setLevel(logging.INFO) 
-    else:
-        log.info("Logging already initialized.")
+    setup_logging(options)
 
     pool = ( 'abcdefghijklmnopqrstuvwxyz',
              'ABCDEFGHIJKLMNOPQRSTUVWXYZ',

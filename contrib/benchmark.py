@@ -29,43 +29,34 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
 from s3ql.backends.common import compress_encrypt_fh
-from s3ql.common import (get_backend, QuietError, add_stdout_logging, setup_excepthook)
-from s3ql.optparse import OptionParser
+from s3ql.common import (get_backend, QuietError,setup_logging)
+from s3ql.argparse import ArgumentParser
+import argparse
 
 log = logging.getLogger('benchmark')
 
 def parse_args(args):
     '''Parse command line'''
 
-    parser = OptionParser(
+    parser = ArgumentParser(
         usage="%prog [options] <storage-url> <test-file>\n"
               "%prog --help",
         description="Transfers and compresses the test file and gives a recommendation "
                     "for the compression algorithm to use.")
 
-    parser.add_option("--homedir", type="string",
-                      default=os.path.expanduser("~/.s3ql"),
-                      help='Directory for log files, cache and authentication info. '
-                      'Default: ~/.s3ql')
-    parser.add_option("--debug", action="store_true",
-                      help="Activate debugging output")
-    parser.add_option("--quiet", action="store_true", default=False,
-                      help="Be really quiet")
-    parser.add_option("--compression-threads", action="store", type='int',
+    parser.add_homedir()
+    parser.add_quiet()
+    parser.add_debug()
+    parser.add_version()
+    
+    parser.add_storage_url()
+    parser.add_argument('file', metavar='<file>', type=argparse.FileType(mode='rb'),
+                        help='File to transfer')
+    parser.add_argument("--compression-threads", action="store", type=int,
                       default=1, metavar='<no>',
                       help='Number of parallel compression and encryption threads '
-                           'to use (default: %default).')
-    (options, pps) = parser.parse_args(args)
-
-    #
-    # Verify parameters
-    #
-    if len(pps) != 2:
-        parser.error("Incorrect number of arguments.")
-    options.storage_url = pps[0]
-    options.testfile = pps[1]
-
-    return options
+                           'to use (default: %(default)s).')
+    return parser.parse_args(args)
 
 
 def main(args=None):
@@ -79,22 +70,7 @@ def main(args=None):
         pass
 
     options = parse_args(args)
-
-    # Initialize logging if not yet initialized
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        handler = add_stdout_logging(options.quiet)
-        setup_excepthook()  
-        if options.debug:
-            root_logger.setLevel(logging.DEBUG)
-            handler.setLevel(logging.DEBUG)
-        else:
-            root_logger.setLevel(logging.INFO)         
-    else:
-        log.info("Logging already initialized.")
-
-    if not os.path.exists(options.testfile):
-        raise QuietError('Mountpoint does not exist.')
+    setup_logging(options)
 
     with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
 
@@ -102,7 +78,7 @@ def main(args=None):
             raise QuietError("Bucket does not exist.")
         bucket = conn.get_bucket(bucketname)
 
-        ifh = open(options.testfile, 'rb')
+        ifh = options.testfile
         ofh = open('/dev/null', 'r+b')
         size = os.fstat(ifh.fileno()).st_size / 1024
         log.info('Test file size: %.2f MB', (size / 1024))
