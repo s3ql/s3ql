@@ -158,7 +158,7 @@ class ThreadGroup(object):
         try:
             t.join_and_raise()
         except EmbeddedException as exc:
-            t.handle_exc(exc._exc_info)
+            t.handle_exc(exc.exc_info)
             raise
         else:
             t.finalize()
