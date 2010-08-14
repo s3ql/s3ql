@@ -176,7 +176,7 @@ class BlockCache(object):
                 if isinstance(exc, EmbeddedException):
                     log.error('RemovalQueue encountered exception.')
                 else:
-                    log.exception()
+                    log.exception('Error when waiting for removal queue:')
                     break
             else:
                 break
@@ -411,7 +411,9 @@ class BlockCache(object):
             if to_delete:
                 try:
                     with without(self.lock):
-                        self.removal_queue.add_thread(RemoveThread(obj_id, self.bucket))
+                        self.removal_queue.add_thread(RemoveThread(obj_id, self.bucket,
+                                                                   (inode, blockno),
+                                                                   self.upload_manager))
                 except EmbeddedException as exc:
                     exc = exc.exc_info[1]
                     if isinstance(exc, NoSuchObject):

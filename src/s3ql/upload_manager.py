@@ -16,6 +16,7 @@ from .database import NoSuchRowError
 import logging
 import threading
 import os
+import errno
 import time
 from s3ql.common import EmbeddedException
 
@@ -135,6 +136,7 @@ class UploadManager(object):
             
             try:
                 with without(lock):
+                    # Old object can not be in transit
                     self.removal_queue.add_thread(RemoveThread(old_obj_id, self.bucket))
             except EmbeddedException as exc:
                 exc = exc.exc
@@ -270,7 +272,12 @@ class UploadThread(Thread):
                 
         if not self.el.modified_after_upload:
             self.el.dirty = False
-            os.rename(self.el.name + '.d', self.el.name)          
+            try:
+                os.rename(self.el.name + '.d', self.el.name)
+            except OSError as exc:
+                # Entry may have been removed while being uploaded
+                if exc.errno != errno.ENOENT:
+                    raise
         
       
 def retry_exc(timeout, exc_types, fn, *a, **kw):
@@ -303,15 +310,22 @@ def retry_exc(timeout, exc_types, fn, *a, **kw):
 
 class RemoveThread(Thread):
     '''
-    Remove an object from backend
+    Remove an object from backend. If a transit key is specified, the
+    thread first waits until the object is no longer in transit.
     '''
 
-    def __init__(self, id_, bucket):
+    def __init__(self, id_, bucket, transit_key=None, upload_manager=None):
         super(RemoveThread, self).__init__()
         self.id = id_
         self.bucket = bucket
+        self.transit_key = transit_key
+        self.um = upload_manager
             
     def run_protected(self): 
+        if self.transit_key:
+            while self.transit_key in self.um.in_transit:
+                self.um.join_one()
+                           
         if self.bucket.read_after_create_consistent():
             self.bucket.delete('s3ql_data_%d' % self.id)
         else:
