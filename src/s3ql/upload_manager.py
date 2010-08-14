@@ -181,6 +181,7 @@ class CompressThread(Thread):
         self.el = el
         self.fh = fh
         self.um = um
+        self.size = None
         
     def run_protected(self):
         '''Compress block
@@ -194,12 +195,12 @@ class CompressThread(Thread):
         set. 
         '''
                      
-        (size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.el.obj_id, 
+        (self.size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.el.obj_id, 
                                                   self.fh)
         self.fh.close()
         
         dbcm.execute('UPDATE objects SET compr_size=? WHERE id=?', 
-                     (size, self.el.obj_id))
+                     (self.size, self.el.obj_id))
 
         # If we already have the minimum transit size, do not start more
         # than two threads
@@ -210,9 +211,9 @@ class CompressThread(Thread):
             else:
                 max_threads = None
                 
-            self.um.transit_size += size    
+            self.um.transit_size += self.size    
             
-        self.um.upload_threads.add_thread(UploadThread(fn, self.el, size, self.um), 
+        self.um.upload_threads.add_thread(UploadThread(fn, self.el, self.size, self.um), 
                                           max_threads)
             
     def handle_exc(self, exc):
@@ -248,7 +249,7 @@ class UploadThread(Thread):
         self.time = time.time() - self.time           
               
                 
-    def handle_exc(self):
+    def handle_exc(self, _):
         '''Remove block from in_transit'''
         
         self.um.in_transit.remove((self.el.inode, self.el.blockno))
