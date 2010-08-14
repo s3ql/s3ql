@@ -11,7 +11,6 @@ from __future__ import division, print_function
 import time
 import logging
 import threading
-import sys
 import database as dbcm
 from random import randint
 import apsw
