@@ -53,8 +53,11 @@ class Connection(AbstractConnection):
         #self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         self._client.load_host_keys(os.path.expanduser('~/.ssh/known_hosts'))
         self._client.connect(self.host, port=self.port, username=self.login, password=self.password)
-        self.sftp = self._client.open_sftp()
-
+        #self.sftp = self._client.open_sftp()
+        self.t = paramiko.Transport((self.host, self.port))
+        self.t.connect(username=self.login, password=self.password)
+        self.sftp = paramiko.SFTPClient.from_transport(self.t)
+        
         # We don't want the connection to time out
         self._client.get_transport().set_keepalive(300)
 
@@ -113,6 +116,8 @@ class Connection(AbstractConnection):
     def close(self):
         with self.lock:
             self._client.close()
+            self.t.close()
+            
 
     def prepare_fork(self):
         with self.lock:
@@ -261,11 +266,13 @@ class Bucket(AbstractBucket):
             path = self._key_to_path(key)
             try:
                 src = self.conn.sftp.open(path + '.dat', 'r')
+                src.prefetch()
                 fh.seek(0)
                 shutil.copyfileobj(src, fh)
                 src.close()
     
                 src = self.conn.sftp.open(path + '.meta', 'r')
+                src.prefetch()
                 metadata = pickle.load(src)
                 src.close()
     
@@ -284,16 +291,19 @@ class Bucket(AbstractBucket):
             
             try:
                 dest = self.conn.sftp.open(path + '.dat', 'w')
+                dest.set_pipelined(True)
             except IOError as exc:
                 if exc.errno != errno.ENOENT:
                     raise
                 self._makedirs(os.path.dirname(path))
                 dest = self.conn.sftp.open(path + '.dat', 'w')
+                dest.set_pipelined(True)
                 
             shutil.copyfileobj(fh, dest)
             dest.close()
                     
             dest = self.conn.sftp.open(path + '.meta', 'w')
+            dest.set_pipelined(True)
             pickle.dump(metadata, dest, 2)
             dest.close()
 
