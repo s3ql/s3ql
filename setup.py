@@ -14,12 +14,12 @@ import sys
 import os
 import tempfile
 import subprocess
-import re
 import logging
 import ctypes.util
 
 # Work around setuptools bug
 # http://bitbucket.org/tarek/distribute/issue/152/
+#pylint: disable=W0611
 import multiprocessing
 try:
     import psyco
@@ -263,7 +263,8 @@ def get_cflags(pkg, cflags=True, ldflags=False):
 distutils.command.build.build.sub_commands.insert(0, ('build_ctypes', None))
   
 class test(setuptools_test.test):
-
+    # Attributes defined outside init, required by setuptools.
+    # pylint: disable=W0201
     description = "Run self-tests"
     user_options = (setuptools_test.test.user_options + 
                     [('debug=', None, 'Activate debugging for specified modules '
@@ -291,7 +292,6 @@ class test(setuptools_test.test):
         sys.path.insert(0, os.path.join(basedir, 'tests'))
         import unittest2 as unittest
         import _common
-        import s3ql.common
         from s3ql.common import (setup_excepthook, add_file_logging, add_stdout_logging,
                                  LoggerFilter)
         from getpass import getpass
@@ -309,9 +309,8 @@ class test(setuptools_test.test):
             else:
                 root_logger.setLevel(logging.INFO) 
         else:
-            log.info("Logging already initialized.")
+            root_logger.debug("Logging already initialized.")
         
-
         # Init AWS
         if self.awskey:
             if sys.stdin.isatty():
@@ -323,6 +322,8 @@ class test(setuptools_test.test):
         # Define our own test loader to order modules alphabetically
         from pkg_resources import resource_listdir, resource_exists
         class ScanningLoader(unittest.TestLoader):
+            # Yes, this is a nasty hack
+            # pylint: disable=W0232,W0221,W0622
             def loadTestsFromModule(self, module):
                 """Return a suite of all tests cases contained in the given module"""
                 tests = []
@@ -361,7 +362,7 @@ class upload_docs(setuptools.Command):
         pass
 
     def finalize_options(self):
-       pass
+        pass
 
     def run(self):
         subprocess.check_call(['rsync', '-aHv', '--del', os.path.join(basedir, 'doc', 'html') + '/',
