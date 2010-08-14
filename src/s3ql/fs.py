@@ -316,11 +316,10 @@ class Operations(llfuse.Operations):
                     if processed > 500:
                         break
                 else:
+                    llfuse.invalidate_entry(id_p, name)
                     self._remove(id_p, name, id_, force=True)
             
             self.yield_lock()
-
-        llfuse.invalidate_inode(id_p)
         
         log.debug('remove_tree(%d, %s): end', id_p, name)
 
@@ -347,6 +346,7 @@ class Operations(llfuse.Operations):
                 queue.append(id_)
                 
             else:
+                llfuse.invalidate_entry(id_p, name)
                 self._remove(id_p, name, id_, force=True)
                 processed += 1
       
@@ -550,10 +550,10 @@ class Operations(llfuse.Operations):
             self._replace(id_p_old, name_old, id_p_new, name_new,
                           inode_old.id, inode_new.id)
         else:
-            self._rename(id_p_old, name_old, id_p_new, name_new, inode_old.id)
+            self._rename(id_p_old, name_old, id_p_new, name_new)
 
 
-    def _rename(self, id_p_old, name_old, id_p_new, name_new, id_):
+    def _rename(self, id_p_old, name_old, id_p_new, name_new):
         timestamp = time.time()
 
         with dbcm.write_lock() as conn:       
@@ -779,8 +779,8 @@ class Operations(llfuse.Operations):
         when permission checking is disabled (if permission checking is
         enabled, the `default_permissions` FUSE option should be set).
         '''
-        # Yeah, could be a function
-        #pylint: disable-msg=R0201 
+        # Yeah, could be a function and has unused arguments
+        #pylint: disable=R0201,W0613
 
         return True
 
