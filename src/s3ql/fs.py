@@ -235,7 +235,10 @@ class Operations(llfuse.Operations):
                 
             elif name == 'rmtree':
                 self.remove_tree(*pickle.loads(value))
-                                
+
+            elif name == 'cachesize':
+                self.cache.max_size = pickle.loads(value)
+                                                
             elif name == 'stacktrace':
                 log_stacktraces()
                 

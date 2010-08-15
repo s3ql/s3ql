@@ -15,6 +15,7 @@ from s3ql.common import (CTRL_NAME, QuietError, setup_logging)
 from s3ql.argparse import ArgumentParser
 import textwrap
 import sys
+import cPickle as pickle
 
 log = logging.getLogger("ctrl")
 
@@ -45,7 +46,12 @@ def parse_args(args):
 
     subparsers.add_parser('stacktrace', help='Print stack trace',
                           parents=[pparser])
-            
+
+    sparser = subparsers.add_parser('cachesize', help='Print stack trace',
+                                    parents=[pparser])
+    sparser.add_argument('cachesize', metavar='<size>', type=int,
+                         help='New cache size in KB')
+                
     options = parser.parse_args(args)
     
     return options
@@ -77,7 +83,8 @@ def main(args=None):
         libc.setxattr(ctrlfile, 'stacktrace', 'dummy')
     elif options.action == 'flushcache':
         libc.setxattr(ctrlfile, 's3ql_flushcache!', 'dummy')
-    
+    elif options.action == 'cachesize':
+        libc.setxattr(ctrlfile, 'cachesize', pickle.dumps(options.cachesize*1024))    
         
 
 if __name__ == '__main__':
