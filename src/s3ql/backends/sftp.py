@@ -53,10 +53,7 @@ class Connection(AbstractConnection):
         #self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         self._client.load_host_keys(os.path.expanduser('~/.ssh/known_hosts'))
         self._client.connect(self.host, port=self.port, username=self.login, password=self.password)
-        #self.sftp = self._client.open_sftp()
-        self.t = paramiko.Transport((self.host, self.port))
-        self.t.connect(username=self.login, password=self.password)
-        self.sftp = paramiko.SFTPClient.from_transport(self.t)
+        self.sftp = self._client.open_sftp()
         
         # We don't want the connection to time out
         self._client.get_transport().set_keepalive(300)
@@ -115,9 +112,7 @@ class Connection(AbstractConnection):
 
     def close(self):
         with self.lock:
-            self._client.close()
-            self.t.close()
-            
+            self._client.close()        
 
     def prepare_fork(self):
         with self.lock:
