@@ -15,6 +15,7 @@ from s3ql.common import (CTRL_NAME, QuietError, setup_logging)
 from s3ql.argparse import ArgumentParser
 import textwrap
 import sys
+import cPickle as pickle
 
 log = logging.getLogger("ctrl")
 
@@ -45,8 +46,21 @@ def parse_args(args):
 
     subparsers.add_parser('stacktrace', help='Print stack trace',
                           parents=[pparser])
-            
+
+    sparser = subparsers.add_parser('log', help='Change log level',
+                                    parents=[pparser])
+    sparser.add_argument('level', choices=('debug', 'info', 'warn'),
+                         metavar='<level>',
+                         help='Desired new log level for mount.s3ql process. '
+                              'Allowed values: %(choices)s')
+    sparser.add_argument('modules', nargs='*', metavar='<module>', 
+                         help='Modules to enable debugging output for. Specify '
+                              '`all` to enable debugging for all modules.')
+                
     options = parser.parse_args(args)
+    
+    if options.level != 'debug' and options.modules:
+        parser.error('Modules can only be specified with `debug` logging level.')
     
     return options
 
@@ -77,7 +91,10 @@ def main(args=None):
         libc.setxattr(ctrlfile, 'stacktrace', 'dummy')
     elif options.action == 'flushcache':
         libc.setxattr(ctrlfile, 's3ql_flushcache!', 'dummy')
-    
+    elif options.action == 'log':
+        libc.setxattr(ctrlfile, 'logging', 
+                      pickle.dumps((options.level, options.modules),
+                                   pickle.HIGHEST_PROTOCOL))
         
 
 if __name__ == '__main__':

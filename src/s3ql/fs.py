@@ -235,7 +235,11 @@ class Operations(llfuse.Operations):
                 
             elif name == 'rmtree':
                 self.remove_tree(*pickle.loads(value))
-                                
+            
+            elif name == 'logging':
+                # TODO: Change logging
+                pass
+                                          
             elif name == 'stacktrace':
                 log_stacktraces()
                 
