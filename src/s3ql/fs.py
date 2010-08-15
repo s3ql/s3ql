@@ -333,11 +333,18 @@ class Operations(llfuse.Operations):
         
     def _remove_tree(self, queue, conn):
         
-        processed = 0
+        # It seems that if we execute a write statement with this connection while the 
+        # query is still active, the connection keeps the write lock until the query is
+        # finished. This then causes problems with the inode flush thread. However, 
+        # instead of timing out the statement immediately terminates. This is a
+        # temporary workaround, we still need to look into this.
+        
         found_subdirs = False
         id_p = queue.pop()
-        for (name, id_) in conn.query('SELECT name, inode FROM contents WHERE parent_inode=?',
-                                      (id_p,)):
+        entries = conn.get_list('SELECT name, inode FROM contents WHERE parent_inode=? '
+                                'LIMIT 250', (id_p,))
+        
+        for (name, id_) in entries:
                
             if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
                 if not found_subdirs:
@@ -348,9 +355,12 @@ class Operations(llfuse.Operations):
             else:
                 llfuse.invalidate_entry(id_p, name)
                 self._remove(id_p, name, id_, force=True)
-                processed += 1
-      
-        return processed
+        
+        if (not found_subdirs and 
+            conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_p,))):
+            queue.append(id_p)
+            
+        return len(entries)
     
     def copy_tree(self, src_id, target_id):
         '''Efficiently copy directory tree'''
