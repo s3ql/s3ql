@@ -400,6 +400,7 @@ class MetadataUploadThread(ExceptionStoringThread):
         self.options = options
         self.param = param
         self.lock = lock
+        self.daemon = True
         self.db_mtime = os.stat(dbcm.dbfile).st_mtime 
         self.stop_event = threading.Event()
         self.name = 'Metadata-Upload-Thread'
