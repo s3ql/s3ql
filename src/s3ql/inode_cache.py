@@ -10,13 +10,10 @@ from __future__ import division, print_function
 
 import time
 import logging
-import threading
 import database as dbcm
 from random import randint
 import apsw
-from .common import ExceptionStoringThread
 from .database import NoSuchRowError
-from s3ql.common import EmbeddedException
 
 __all__ = [ 'InodeCache', 'OutOfInodesError' ]
 log = logging.getLogger('inode_cache')
@@ -142,13 +139,7 @@ class InodeCache(object):
             self.cached_rows.append(None)
 
         self.pos = 0
-        self.flush_thread = None
 
-    def init(self):
-        '''Initialize background flush thread'''
-
-        self.flush_thread = FlushThread(self)
-        self.flush_thread.start()
 
     def __delitem__(self, inode):
         if dbcm.execute('DELETE FROM inodes WHERE id=?', (inode,)) != 1:
@@ -254,11 +245,6 @@ class InodeCache(object):
     def destroy(self):
         '''Finalize cache'''
 
-        try:
-            self.flush_thread.stop()
-        except EmbeddedException:
-            log.error('FlushThread terminated with exception.')
-
         for i in xrange(len(self.cached_rows)):
             id_ = self.cached_rows[i]
             self.cached_rows[i] = None
@@ -292,30 +278,6 @@ class InodeCache(object):
         if self.attrs:
             raise RuntimeError('InodeCache instance was destroyed without calling close()')
 
-
-class FlushThread(ExceptionStoringThread):
-
-    def __init__(self, cache):
-        super(FlushThread, self).__init__()
-        self.cache = cache
-        self.stop_event = threading.Event()
-        self.name = 'Inode Flush Thread'
-        self.daemon = True 
-                
-    def run_protected(self):
-        log.debug('FlushThread: start')
-
-        while not self.stop_event.is_set():
-            self.cache.flush()
-            self.stop_event.wait(5)
-        
-        log.debug('FlushThread: end')    
-        
-    def stop(self):
-        '''Wait for thread to finish, raise any occurred exceptions'''
-        
-        self.stop_event.set()           
-        self.join_and_raise()
         
         
 class OutOfInodesError(Exception):

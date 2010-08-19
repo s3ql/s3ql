@@ -25,10 +25,6 @@ class cache_tests(TestCase):
         mkfs.setup_tables(dbcm)
         mkfs.init_tables(dbcm)
         self.cache = inode_cache.InodeCache()
-        self.cache.init()
-        
-        # We don't want background flushing
-        self.cache.flush_thread.stop()
 
     def tearDown(self):
         self.cache.destroy()

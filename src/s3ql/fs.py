@@ -15,7 +15,8 @@ import llfuse
 import collections
 import logging
 from .inode_cache import InodeCache, OutOfInodesError
-from .common import (get_path, CTRL_NAME, CTRL_INODE, log_stacktraces, without)
+from .common import (get_path, CTRL_NAME, CTRL_INODE, log_stacktraces, without,
+                     EmbeddedException, ExceptionStoringThread)
 import time
 from .block_cache import BlockCache
 from cStringIO import StringIO
@@ -24,6 +25,7 @@ from .database import NoSuchRowError
 from .backends.common import NoSuchObject, ChecksumError
 import struct
 import cPickle as pickle
+import threading
 from llfuse.interface import FUSEError
 
 __all__ = [ "Server" ]
@@ -63,13 +65,6 @@ class Operations(llfuse.Operations):
     it is nevertheless possible for multiple handlers to run at the same time, as
     long as the concurrency is orchestrated by the instance itself.
     
-    Since  threads may block both when (re-)acquiring the global lock and when
-    trying to access the database, it is important that these two operations are
-    always carried out in the same order. The convention is that if a method
-    needs both a database lock and the global lock, the global lock is always
-    acquired first. In other words, no method will ever try to obtain the global
-    lock during an active database transaction.
-    
  
     Directory Entry Types
     ----------------------
@@ -100,6 +95,7 @@ class Operations(llfuse.Operations):
 
         self.encountered_errors = False
         self.inodes = InodeCache()
+        self.inode_flush_thread = None
         self.lock = lock
         self.open_inodes = collections.defaultdict(lambda: 0)
         self.blocksize = blocksize
@@ -112,9 +108,16 @@ class Operations(llfuse.Operations):
 
     def init(self):
         self.cache.init()
-        self.inodes.init()
+        self.inode_flush_thread = InodeFlushThread(self.inodes, self.lock)
+        self.inode_flush_thread.start()
 
     def destroy(self):
+        try:
+            self.inode_flush_thread.stop()
+        except EmbeddedException:
+            log.error('FlushThread terminated with exception.')
+            self.encountered_errors = True
+            
         self.inodes.destroy()
         self.cache.destroy()
         
@@ -1003,3 +1006,29 @@ class Operations(llfuse.Operations):
         if not datasync:
             self.inodes.flush_id(fh)
 
+
+class InodeFlushThread(ExceptionStoringThread):
+
+    def __init__(self, cache, lock):
+        super(InodeFlushThread, self).__init__()
+        self.cache = cache
+        self.stop_event = threading.Event()
+        self.name = 'Inode Flush Thread'
+        self.daemon = True 
+        self.lock = lock
+                
+    def run_protected(self):
+        log.debug('FlushThread: start')
+
+        while not self.stop_event.is_set():
+            with self.lock:
+                self.cache.flush()
+            self.stop_event.wait(5)
+        
+        log.debug('FlushThread: end')    
+        
+    def stop(self):
+        '''Wait for thread to finish, raise any occurred exceptions'''
+        
+        self.stop_event.set()           
+        self.join_and_raise()
