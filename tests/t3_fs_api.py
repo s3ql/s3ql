@@ -58,7 +58,7 @@ class fs_api_tests(TestCase):
 
         # We don't want background flushing
         self.server.cache.commit_thread.stop()
-        self.server.inodes.flush_thread.stop()
+        self.server.inode_flush_thread.stop()
 
         # Keep track of unused filenames
         self.name_cnt = 0
@@ -738,7 +738,7 @@ class fs_api_tests(TestCase):
         queue = [ inode1.id ]
         with dbcm.write_lock() as conn:
             processed = self.server._remove_tree(queue, conn)
-        self.assertEqual(processed, 1)
+        self.assertEqual(processed, 2)
         self.assertSequenceEqual(queue, [ inode1.id, inode2.id ])
         self.assertFalse(dbcm.has_val('SELECT inode FROM contents WHERE name=? AND '
                                       'parent_inode = ?', ('file1', inode1.id)))
