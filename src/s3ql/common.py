@@ -14,7 +14,6 @@ import hashlib
 import os
 import stat
 import sys
-import apsw
 import threading
 import logging.handlers
 import traceback
@@ -39,6 +38,8 @@ log = logging.getLogger('common')
 def log_stacktraces():
     '''Log stack trace for every running thread'''
     
+    # Access to protected member
+    #pylint: disable=W0212
     code = list()
     for threadId, frame in sys._current_frames().items():
         code.append("\n# ThreadID: %s" % threadId)
@@ -255,108 +256,82 @@ metadata_to_dump = [('inodes', 'id'),
                ('ext_attributes', 'inode, name'),
                ('objects', 'id'),
                ('blocks', 'inode, blockno')]
-def dump_metadata(ofh):
-    from . import database as dbcm
+def dump_metadata(ofh, conn):
     pickler = pickle.Pickler(ofh, 2)
     data_start = 2048
     bufsize = 256
     buf = range(bufsize)
 
-    with dbcm.write_lock() as conn:
+    columns = dict()
+    for (table, _) in metadata_to_dump:
+        columns[table] = list()
+        for row in conn.query('PRAGMA table_info(%s)' % table):
+            columns[table].append(row[1])
 
-        columns = dict()
-        for (table, _) in metadata_to_dump:
-            columns[table] = list()
-            for row in conn.query('PRAGMA table_info(%s)' % table):
-                columns[table].append(row[1])
-
-        ofh.seek(data_start)
-        sizes = dict()
-        for (table, order) in metadata_to_dump:
-            log.info('Saving %s' % table)
-            pickler.clear_memo()
-            sizes[table] = 0
-            i = 0
-            for row in conn.query('SELECT * FROM %s ORDER BY %s' % (table, order)):
-                buf[i] = row
-                i += 1
-                if i == bufsize:
-                    pickler.dump(buf)
-                    pickler.clear_memo()
-                    sizes[table] += 1
-                    i = 0
-
-            if i != 0:
-                pickler.dump(buf[:i])
+    ofh.seek(data_start)
+    sizes = dict()
+    for (table, order) in metadata_to_dump:
+        log.info('Saving %s' % table)
+        pickler.clear_memo()
+        sizes[table] = 0
+        i = 0
+        for row in conn.query('SELECT * FROM %s ORDER BY %s' % (table, order)):
+            buf[i] = row
+            i += 1
+            if i == bufsize:
+                pickler.dump(buf)
+                pickler.clear_memo()
                 sizes[table] += 1
+                i = 0
 
+        if i != 0:
+            pickler.dump(buf[:i])
+            sizes[table] += 1
 
     ofh.seek(0)
     pickler.dump((data_start, metadata_to_dump, sizes, columns))
     assert ofh.tell() < data_start
 
 
-def copy_metadata(fh):
+def copy_metadata(fh, conn):
     from . import mkfs
-    from . import database as dbcm
+    from .database import Connection
     
-    conn = apsw.Connection(fh.name)
-    mkfs.setup_tables(conn.cursor())
-    conn.close()
+    conn2 = Connection(fh.name)
+    mkfs.setup_tables(conn2)
+    conn2.close()
     
-    dbcm.execute('ATTACH ? AS dst', (fh.name,))
+    conn.execute('ATTACH ? AS dst', (fh.name,))
     try:
-        # Speed things up
-        dbcm.execute('PRAGMA foreign_keys = OFF;'
-                     'PRAGMA recursize_triggers = OFF;')        
-        try:
-            with dbcm.write_lock() as conn:
-                for (table, order) in metadata_to_dump:
-                    columns = list()
-                    for row in conn.query('PRAGMA table_info(%s)' % table):
-                        columns.append(row[1])
-                    columns = ', '.join(columns)
-                    
-                    dbcm.execute('INSERT INTO dst.%s (%s) SELECT %s FROM %s ORDER BY %s'
-                                 % (table, columns, columns, table, order))
-                                  
-        finally:
-            dbcm.execute('PRAGMA foreign_keys = ON;'
-                         'PRAGMA recursize_triggers = ON')
+        for (table, order) in metadata_to_dump:
+            columns = list()
+            for row in conn.query('PRAGMA table_info(%s)' % table):
+                columns.append(row[1])
+            columns = ', '.join(columns)
+            
+            conn.execute('INSERT INTO dst.%s (%s) SELECT %s FROM %s ORDER BY %s'
+                          % (table, columns, columns, table, order))
+
     finally:
-        dbcm.execute('DETACH dst')
+        conn.execute('DETACH dst')
                 
     return fh
 
-def restore_metadata(ifh):
+def restore_metadata(ifh, conn):
     from . import mkfs
-    from . import database as dbcm
-    
     unpickler = pickle.Unpickler(ifh)
-
     (data_start, to_dump, sizes, columns) = unpickler.load()
     ifh.seek(data_start)
-
-    with dbcm.conn() as conn:
-        mkfs.setup_tables(conn)
-
-        # Speed things up
-        conn.execute('PRAGMA foreign_keys = OFF;'
-                     'PRAGMA recursize_triggers = OFF;')
-        try:
-            with conn.write_lock():
-                for (table, _) in to_dump:
-                    log.info('Loading %s', table)
-                    col_str = ', '.join(columns[table])
-                    val_str = ', '.join('?' for _ in columns[table])
-                    sql_str = 'INSERT INTO %s (%s) VALUES(%s)' % (table, col_str, val_str)
-                    for _ in xrange(sizes[table]):
-                        buf = unpickler.load()
-                        for row in buf:
-                            conn.execute(sql_str, row)
-        finally:
-            conn.execute('PRAGMA foreign_keys = ON;'
-                         'PRAGMA recursize_triggers = ON')
+    mkfs.setup_tables(conn)
+    for (table, _) in to_dump:
+        log.info('Loading %s', table)
+        col_str = ', '.join(columns[table])
+        val_str = ', '.join('?' for _ in columns[table])
+        sql_str = 'INSERT INTO %s (%s) VALUES(%s)' % (table, col_str, val_str)
+        for _ in xrange(sizes[table]):
+            buf = unpickler.load()
+            for row in buf:
+                conn.execute(sql_str, row)
 
 
 class QuietError(Exception):

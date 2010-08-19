@@ -20,7 +20,7 @@ from s3ql.common import (setup_logging, get_backend, get_bucket_home,
                          cycle_metadata, dump_metadata, restore_metadata, 
                          ExceptionStoringThread, copy_metadata)
 from s3ql.argparse import ArgumentParser
-import s3ql.database as dbcm
+from s3ql.database import Connection
 import llfuse
 import tempfile
 import textwrap
@@ -135,17 +135,17 @@ def main(args=None):
         try:
             if param['DB-Format'] == 'dump':
                 fh.close()
-                dbcm.init(home + '.db')
+                db = Connection(home + '.db')
                 fh = tempfile.TemporaryFile()
                 bucket.fetch_fh("s3ql_metadata", fh)
                 fh.seek(0)
                 log.info('Reading metadata...')
-                restore_metadata(fh)
+                restore_metadata(fh, db)
                 fh.close()
             elif param['DB-Format'] == 'sqlite':
                 bucket.fetch_fh("s3ql_metadata", fh)
                 fh.close()
-                dbcm.init(home + '.db')
+                db = Connection(home + '.db')
             else:
                 raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
         except:
@@ -154,8 +154,8 @@ def main(args=None):
             raise
         
         log.info('Indexing...')
-        create_indices(dbcm)
-        dbcm.execute('ANALYZE')
+        create_indices(db)
+        db.execute('ANALYZE')
         
         # Increase metadata sequence no, save parameters 
         param['seq_no'] += 1
@@ -175,12 +175,13 @@ def main(args=None):
                 except NoSuchObject:
                     pass # Key list may not be up to date
 
-        operations = fs.Operations(bucket, cachedir=home + '-cache', lock=lock,
+        operations = fs.Operations(bucket, db, cachedir=home + '-cache', lock=lock,
                                    blocksize=param['blocksize'],
                                    cache_size=options.cachesize * 1024,
                                    cache_entries=options.max_cache_entries)
  
-        metadata_upload_thread = MetadataUploadThread(bucket, options, param, lock)
+        metadata_upload_thread = MetadataUploadThread(bucket, options, param, lock,
+                                                      db)
 
         log.info('Mounting filesystem...')
         llfuse.init(operations, options.mountpoint, fuse_opts, lock)
@@ -216,7 +217,6 @@ def main(args=None):
         else:       
             param['seq_no'] += 1
 
-        dbcm.execute('PRAGMA wal_checkpoint')
         if db_mtime == os.stat(home + '.db').st_mtime:
             log.info('File system unchanged, not uploading metadata.')
             del bucket['s3ql_seq_no_%d' % param['seq_no']]     
@@ -225,13 +225,12 @@ def main(args=None):
                 log.info('Saving metadata...')
                 param['DB-Format'] = 'dump'
                 fh = tempfile.TemporaryFile()
-                dump_metadata(fh) 
+                dump_metadata(fh, db) 
             else:
                 param['DB-Format'] = 'sqlite'
-                dbcm.execute('VACUUM')
-                dbcm.execute('PRAGMA wal_checkpoint')
-                dbcm.close()
-                fh = open(dbcm.dbfile, 'rb')   
+                db.execute('VACUUM')
+                db.close()
+                fh = open(db.file, 'rb')   
                     
             log.info("Compressing & uploading metadata..")
             cycle_metadata(bucket)
@@ -394,14 +393,15 @@ def parse_args(args):
 
 class MetadataUploadThread(ExceptionStoringThread):
 
-    def __init__(self, bucket, options, param, lock):
+    def __init__(self, bucket, options, param, lock, db):
         super(MetadataUploadThread, self).__init__()
         self.bucket = bucket
         self.options = options
         self.param = param
         self.lock = lock
+        self.db = db
         self.daemon = True
-        self.db_mtime = os.stat(dbcm.dbfile).st_mtime 
+        self.db_mtime = os.stat(db.file).st_mtime 
         self.stop_event = threading.Event()
         self.name = 'Metadata-Upload-Thread'
            
@@ -412,8 +412,7 @@ class MetadataUploadThread(ExceptionStoringThread):
             self.stop_event.wait(self.options.metadata_upload_interval)
             
             with self.lock:
-                dbcm.execute('PRAGMA wal_checkpoint')
-                new_mtime = os.stat(dbcm.dbfile).st_mtime 
+                new_mtime = os.stat(self.db.file).st_mtime 
                 if self.db_mtime == new_mtime:
                     log.info('File system unchanged, not uploading metadata.')
                     continue
@@ -422,11 +421,11 @@ class MetadataUploadThread(ExceptionStoringThread):
                 if self.options.strip_meta:
                     self.param['DB-Format'] = 'dump'
                     fh = tempfile.TemporaryFile()
-                    dump_metadata(fh) 
+                    dump_metadata(fh, self.db) 
                 else:
                     self.param['DB-Format'] = 'sqlite'
                     fh = tempfile.NamedTemporaryFile()
-                    copy_metadata(fh)
+                    copy_metadata(fh, self.db)
                         
             log.info("Compressing & uploading metadata..")
             cycle_metadata(self.bucket)

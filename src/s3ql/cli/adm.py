@@ -20,7 +20,7 @@ import sys
 from s3ql.backends import s3, local, sftp
 from s3ql.backends.common import ChecksumError
 import os
-import s3ql.database as dbcm
+from s3ql.database import Connection
 import tempfile
 import textwrap
 
@@ -131,6 +131,9 @@ def delete_bucket(conn, bucketname):
 def upgrade(conn, bucket):
     '''Upgrade file system to newest revision'''
 
+    # Access to protected member
+    #pylint: disable=W0212
+            
     print(textwrap.dedent('''
         I am about to update the file system to the newest revision. Note that:
         
@@ -194,18 +197,18 @@ def upgrade(conn, bucket):
     log.info("Downloading & uncompressing metadata...")
     if param['DB-Format'] == 'dump':
         dbfile = tempfile.NamedTemporaryFile()
-        dbcm.init(dbfile.name)
+        db = Connection(dbfile.name)
         fh = tempfile.TemporaryFile()
         bucket.fetch_fh("s3ql_metadata", fh)
         fh.seek(0)
         log.info('Reading metadata...')
-        restore_metadata(fh)
+        restore_metadata(fh, db)
         fh.close()
     elif param['DB-Format'] == 'sqlite':
         dbfile = tempfile.NamedTemporaryFile()
         bucket.fetch_fh("s3ql_metadata", dbfile)
         dbfile.flush()
-        dbcm.init(dbfile.name)
+        db = Connection(dbfile.name)
     else:
         raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
     
@@ -225,8 +228,8 @@ def upgrade(conn, bucket):
 
     # Add compr_size column
     if param['DB-Format'] == 'sqlite':
-        dbcm.execute('ALTER TABLE objects ADD COLUMN compr_size INT')
-        dbcm.execute('ALTER TABLE inodes ADD COLUMN locked BOOLEAN NOT NULL DEFAULT 0')
+        db.execute('ALTER TABLE objects ADD COLUMN compr_size INT')
+        db.execute('ALTER TABLE inodes ADD COLUMN locked BOOLEAN NOT NULL DEFAULT 0')
     
     # Add missing values for compr_size
     log.info('Requesting all object sizes, this may take some time...')
@@ -236,26 +239,24 @@ def upgrade(conn, bucket):
         elif isinstance(bucket, sftp.Bucket):
             get_size = lambda p: bucket.conn.sftp.lstat(p).st_size
         
-        with dbcm.write_lock() as conn:
-            for (no, (obj_id,)) in enumerate(conn.query('SELECT id FROM objects')):
-                if no != 0 and no % 5000 == 0:
-                    log.info('Checked %d objects so far..', no)
-                
-                path = bucket._key_to_path('s3ql_data_%d' % obj_id) + '.dat'
-                conn.execute('UPDATE objects SET compr_size=? WHERE id=?',
-                             (get_size(path), obj_id))
+        for (no, (obj_id,)) in enumerate(conn.query('SELECT id FROM objects')):
+            if no != 0 and no % 5000 == 0:
+                log.info('Checked %d objects so far..', no)
+            
+            path = bucket._key_to_path('s3ql_data_%d' % obj_id) + '.dat'
+            conn.execute('UPDATE objects SET compr_size=? WHERE id=?',
+                         (get_size(path), obj_id))
                                   
     elif isinstance(bucket, s3.Bucket):
-        with dbcm.write_lock() as conn:
-            with bucket._get_boto() as boto:
-                for bkey in boto.list('s3ql_data_'):
-                    obj_id = int(bkey.name[10:])
-                    conn.execute('UPDATE objects SET compr_size=? WHERE id=?',
-                                 (bkey.size, obj_id))
-                    
-                if conn.has_val('SELECT 1 FROM objects WHERE compr_size IS NULL'):
-                    log.warn('Could not determine sizes for all S3 objects, '
-                             's3qlstat output will be incorrect.')
+        with bucket._get_boto() as boto:
+            for bkey in boto.list('s3ql_data_'):
+                obj_id = int(bkey.name[10:])
+                conn.execute('UPDATE objects SET compr_size=? WHERE id=?',
+                             (bkey.size, obj_id))
+                
+            if conn.has_val('SELECT 1 FROM objects WHERE compr_size IS NULL'):
+                log.warn('Could not determine sizes for all S3 objects, '
+                         's3qlstat output will be incorrect.')
     
     # Increase metadata sequence no
     param['seq_no'] += 1
@@ -268,7 +269,7 @@ def upgrade(conn, bucket):
     # table definitions on the next mount.
     param['DB-Format'] = 'dump'
     fh = tempfile.TemporaryFile()
-    dump_metadata(fh)
+    dump_metadata(fh, db)
     fh.seek(0)
     log.info("Uploading database..")
     cycle_metadata(bucket)

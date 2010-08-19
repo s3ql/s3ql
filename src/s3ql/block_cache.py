@@ -14,7 +14,6 @@ from .backends.common import NoSuchObject
 from .ordered_dict import OrderedDict
 from .common import EmbeddedException, without, ExceptionStoringThread
 from .thread_group import ThreadGroup
-from . import database as dbcm
 from .upload_manager import UploadManager, RemoveThread, retry_exc
 from .database import NoSuchRowError
 import logging
@@ -113,18 +112,19 @@ class BlockCache(object):
             not exist).
     """
 
-    def __init__(self, bucket, lock, cachedir, max_size, max_entries=768):
+    def __init__(self, bucket, lock, db, cachedir, max_size, max_entries=768):
         log.debug('Initializing')
         self.cache = OrderedDict()
         self.cachedir = cachedir
         self.max_size = max_size
         self.max_entries = max_entries
         self.size = 0
+        self.db = db
         self.bucket = bucket
         self.mlock = MultiLock()
         self.lock = lock
         self.removal_queue = ThreadGroup(MAX_REMOVAL_THREADS)
-        self.upload_manager = UploadManager(bucket, self.removal_queue)
+        self.upload_manager = UploadManager(bucket, db, self.removal_queue)
         self.commit_thread = CommitThread(self)
         self.encountered_errors = False
 
@@ -226,7 +226,7 @@ class BlockCache(object):
                 filename = os.path.join(self.cachedir,
                                         'inode_%d_block_%d' % (inode, blockno))
                 try:
-                    obj_id = dbcm.get_val("SELECT obj_id FROM blocks WHERE inode=? AND blockno=?",
+                    obj_id = self.db.get_val("SELECT obj_id FROM blocks WHERE inode=? AND blockno=?",
                                           (inode, blockno))
     
                 # No corresponding object
@@ -382,7 +382,7 @@ class BlockCache(object):
 
             else:
                 try:
-                    obj_id = dbcm.get_val('SELECT obj_id FROM blocks WHERE inode=? '
+                    obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE inode=? '
                                           'AND blockno = ?', (inode, blockno))
                 except NoSuchRowError:
                     log.debug('remove(inode=%d, blockno=%d): block does not exist',
@@ -391,22 +391,21 @@ class BlockCache(object):
 
                 log.debug('remove(inode=%d, blockno=%d): block only in db ', inode, blockno)
 
-            with dbcm.write_lock() as conn:
-                conn.execute('DELETE FROM blocks WHERE inode=? AND blockno=?',
-                             (inode, blockno))
-                    
-                refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?', (obj_id,))
-                if refcount > 1:
-                    log.debug('remove(inode=%d, blockno=%d): decreasing refcount for object %d',
-                              inode, blockno, obj_id)                    
-                    conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
-                                 (obj_id,))
-                    to_delete = False
-                else:
-                    log.debug('remove(inode=%d, blockno=%d): deleting object %d',
-                              inode, blockno, obj_id)     
-                    conn.execute('DELETE FROM objects WHERE id=?', (obj_id,))
-                    to_delete = True
+            self.db.execute('DELETE FROM blocks WHERE inode=? AND blockno=?',
+                         (inode, blockno))
+                
+            refcount = self.db.get_val('SELECT refcount FROM objects WHERE id=?', (obj_id,))
+            if refcount > 1:
+                log.debug('remove(inode=%d, blockno=%d): decreasing refcount for object %d',
+                          inode, blockno, obj_id)                    
+                self.db.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
+                             (obj_id,))
+                to_delete = False
+            else:
+                log.debug('remove(inode=%d, blockno=%d): deleting object %d',
+                          inode, blockno, obj_id)     
+                self.db.execute('DELETE FROM objects WHERE id=?', (obj_id,))
+                to_delete = True
         
             if to_delete:
                 try:

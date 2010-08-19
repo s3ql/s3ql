@@ -11,7 +11,6 @@ from __future__ import division, print_function, absolute_import
 from .backends.common import NoSuchObject
 from .common import sha256_fh, without, TimeoutError
 from .thread_group import ThreadGroup, Thread
-from . import database as dbcm
 from .database import NoSuchRowError
 import logging
 import threading
@@ -43,11 +42,12 @@ class UploadManager(object):
             not exist).    
     '''
     
-    def __init__(self, bucket, removal_queue):
+    def __init__(self, bucket, db, removal_queue):
         self.upload_threads = ThreadGroup(MAX_UPLOAD_THREADS)
         self.compress_threads = ThreadGroup(MAX_COMPRESS_THREADS)
         self.removal_queue = removal_queue
         self.bucket = bucket
+        self.db = db
         self.transit_size = 0
         self.transit_size_lock = threading.Lock()
         self.in_transit = set()
@@ -71,47 +71,47 @@ class UploadManager(object):
         el.seek(0)
         hash_ = sha256_fh(el)
         old_obj_id = el.obj_id
-        with dbcm.write_lock() as conn:
-            try:
-                el.obj_id = conn.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
 
-            except NoSuchRowError:
-                need_upload = True
-                el.obj_id = conn.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
-                                      (1, hash_, size))
-                log.debug('add(inode=%d, blockno=%d): created new object %d',
-                          el.inode, el.blockno, el.obj_id)
+        try:
+            el.obj_id = self.db.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
 
+        except NoSuchRowError:
+            need_upload = True
+            el.obj_id = self.db.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
+                                  (1, hash_, size))
+            log.debug('add(inode=%d, blockno=%d): created new object %d',
+                      el.inode, el.blockno, el.obj_id)
+
+        else:
+            need_upload = False
+            log.debug('add(inode=%d, blockno=%d): (re)linking to %d',
+                      el.inode, el.blockno, el.obj_id)
+            self.db.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
+                         (el.obj_id,))
+            
+        to_delete = False
+        if old_obj_id is None:
+            log.debug('add(inode=%d, blockno=%d): no previous object',
+                      el.inode, el.blockno)
+            self.db.execute('INSERT INTO blocks (obj_id, inode, blockno) VALUES(?,?,?)',
+                         (el.obj_id, el.inode, el.blockno))    
+        else:
+            self.db.execute('UPDATE blocks SET obj_id=? WHERE inode=? AND blockno=?',
+                         (el.obj_id, el.inode, el.blockno))
+            refcount = self.db.get_val('SELECT refcount FROM objects WHERE id=?',
+                                    (old_obj_id,))
+            if refcount > 1:
+                log.debug('add(inode=%d, blockno=%d): '
+                          'decreased refcount for prev. obj: %d',
+                          el.inode, el.blockno, old_obj_id)
+                self.db.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
+                             (old_obj_id,))
             else:
-                need_upload = False
-                log.debug('add(inode=%d, blockno=%d): (re)linking to %d',
-                          el.inode, el.blockno, el.obj_id)
-                conn.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
-                             (el.obj_id,))
-                
-            to_delete = False
-            if old_obj_id is None:
-                log.debug('add(inode=%d, blockno=%d): no previous object',
-                          el.inode, el.blockno)
-                conn.execute('INSERT INTO blocks (obj_id, inode, blockno) VALUES(?,?,?)',
-                             (el.obj_id, el.inode, el.blockno))    
-            else:
-                conn.execute('UPDATE blocks SET obj_id=? WHERE inode=? AND blockno=?',
-                             (el.obj_id, el.inode, el.blockno))
-                refcount = conn.get_val('SELECT refcount FROM objects WHERE id=?',
-                                        (old_obj_id,))
-                if refcount > 1:
-                    log.debug('add(inode=%d, blockno=%d): '
-                              'decreased refcount for prev. obj: %d',
-                              el.inode, el.blockno, old_obj_id)
-                    conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
-                                 (old_obj_id,))
-                else:
-                    log.debug('add(inode=%d, blockno=%d): '
-                              'prev. obj %d marked for removal',
-                              el.inode, el.blockno, old_obj_id)
-                    conn.execute('DELETE FROM objects WHERE id=?', (old_obj_id,))
-                    to_delete = True
+                log.debug('add(inode=%d, blockno=%d): '
+                          'prev. obj %d marked for removal',
+                          el.inode, el.blockno, old_obj_id)
+                self.db.execute('DELETE FROM objects WHERE id=?', (old_obj_id,))
+                to_delete = True
 
         if need_upload:
             log.debug('add(inode=%d, blockno=%d): starting compression thread', 
@@ -224,8 +224,8 @@ class CompressThread(Thread):
                 self.um.transit_size -= self.size
             
     def finalize(self):
-        dbcm.execute('UPDATE objects SET compr_size=? WHERE id=?', 
-                     (self.size, self.el.obj_id))
+        self.um.db.execute('UPDATE objects SET compr_size=? WHERE id=?', 
+                           (self.size, self.el.obj_id))
                 
 class UploadThread(Thread):
     '''

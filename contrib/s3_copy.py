@@ -95,6 +95,8 @@ def main(args=None):
             log.info('Copied %d objects so far..', no)
 
         def cp(key=key):
+            # Access to protected member
+            #pylint: disable=W0212
             with dest_bucket._get_boto() as boto:
                 s3.retry_boto(boto.copy_key, key, src_bucket.name, key,
                               storage_class=options.storage_class)

@@ -38,18 +38,12 @@ Module Attributes:
 from __future__ import division, print_function
 
 import logging
-from contextlib import contextmanager
 import apsw
 import os
 import types
-import thread
-import time
-import threading
-from .common import QuietError, log_stacktraces
+from .common import QuietError
 
-__all__ = [ "init", 'execute', 'get_db_size', 'get_row', 'get_val', 'has_val',
-           'rowid', 'write_lock', 'WrappedConnection', 'NoUniqueValueError',
-           'conn', 'NoSuchRowError', 'close' ]
+__all__ = ['Connection', 'NoUniqueValueError', 'NoSuchRowError' ]
 
 log = logging.getLogger("database")
 
@@ -57,146 +51,15 @@ sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
 if sqlite_ver < (3, 7, 0):
     raise QuietError('SQLite version too old, must be 3.7.0 or newer!\n')
         
-# Globals
-dbfile = None
-initsql = ('PRAGMA foreign_keys = on',
-           'PRAGMA synchronous = NORMAL',
-           'PRAGMA journal_mode = WAL',
+initsql = ('PRAGMA foreign_keys = OFF',
+           'PRAGMA synchronous = OFF',
+           'PRAGMA journal_mode = OFF',
+           'PRAGMA locking_mode = EXCLUSIVE',
            'PRAGMA recursize_triggers = on',
            'PRAGMA legacy_file_format = off',
            )
-retrytime = 120000
-pool = list()
-provided = dict()
-lock = threading.RLock()
-
-def init(dbfile_):
-    '''Initialize Module'''
-
-    global dbfile
-    dbfile = dbfile_
-
-    # http://code.google.com/p/apsw/issues/detail?id=59
-    apsw.enablesharedcache(False)
-
-    global pool
-    pool = list()
-
-    global provided
-    provided = dict()
-
-def close():
-    '''Close all database connections'''
     
-    if provided:
-        raise RuntimeError('some connections are still provided to threads')
-    
-    for conn in pool:
-        conn.conn.close()
-        
-    del pool[:]
-    
-@contextmanager
-def conn():
-    '''Provide a WrappedConnection instance.
-    
-    This context manager acquires a connection from the pool and
-    returns a WrappedConnection instance. If this function is
-    called again by the same thread in the managed block, it will
-    always return the same WrappedConnection instance. 
-    '''
-
-    try:
-        wconn = provided[thread.get_ident()]
-    except KeyError:
-        pass
-    else:
-        yield wconn
-        return
-
-    with lock:
-        conn_ = _pop_conn()
-        provided[thread.get_ident()] = conn_
-    try:
-        yield conn_
-    finally:
-        with lock:
-            del provided[thread.get_ident()]
-            _push_conn(conn_)
-
-@contextmanager
-def write_lock():
-    """Acquire WrappedConnection and run its write_lock method"""
-    with conn() as wconn:
-        with wconn.write_lock():
-            yield wconn
-
-
-def _pop_conn():
-    '''Return database connection from the pool'''
-
-    with lock:
-        try:
-            conn_ = pool.pop()
-        except IndexError:
-            # Need to create a new connection
-            log.debug("Creating new db connection (active conns: %d",
-                      len(provided))
-            conn_ = apsw.Connection(dbfile)
-            conn_.setbusytimeout(retrytime)
-            if initsql:
-                for s in initsql:
-                    conn_.cursor().execute(s)
-            conn_ = WrappedConnection(conn_)
-    
-        return conn_
-
-def _push_conn(conn_):
-    '''Put a database connection back into the pool'''
-
-    with lock:
-        pool.append(conn_)
-
-def get_val(*a, **kw):
-    """Acquire WrappedConnection and run its get_val method """
-
-    with conn() as conn_:
-        return conn_.get_val(*a, **kw)
-
-def rowid(*a, **kw):
-    """Acquire WrappedConnection and run its rowid method"""
-
-    with conn() as conn_:
-        return conn_.rowid(*a, **kw)
-
-def has_val(*a, **kw):
-    """Acquire WrappedConnection and run its has_val method"""
-
-    with conn() as conn_:
-        return conn_.has_val(*a, **kw)
-
-def get_row(*a, **kw):
-    """"Acquire WrappedConnection and run its get_row method"""
-
-    with conn() as conn_:
-        return conn_.get_row(*a, **kw)
-
-def execute(*a, **kw):
-    """"Acquire WrappedConnection and run its execute method"""
-
-    with conn() as conn_:
-        return conn_.execute(*a, **kw)
-
-def get_db_size():
-    '''Return size of database file'''
-
-    if dbfile is not None and dbfile not in ('', ':memory:'):
-        return os.path.getsize(dbfile)
-    else:
-        return 0
-    
-    
-class WrappedConnection(object):
+class Connection(object):
     '''
     This class wraps an APSW connection object. It should be used instead of any
     native APSW cursors.
@@ -204,10 +67,10 @@ class WrappedConnection(object):
     It provides methods to directly execute SQL commands and creates apsw
     cursors dynamically.
     
-    WrappedConnections are not thread safe. They can be passed between threads,
+    Instances are not thread safe. They can be passed between threads,
     but must not be called concurrently.
     
-    WrappedConnection also takes care of converting bytes objects into buffer
+    Instances also takes care of converting bytes objects into buffer
     objects and back, so that they are stored as BLOBS in the database. If you
     want to store TEXT, you need to supply unicode objects instead. (This
     functionality is only needed under Python 2.x, under Python 3.x the apsw
@@ -220,36 +83,28 @@ class WrappedConnection(object):
     :cur:      default cursor, to be used for all queries
                that do not return a ResultSet (i.e., that finalize
                the cursor when they return)
-    :in_trx:   Is an active BEGIN IMMEDIATE transaction?
     '''
 
-    def __init__(self, conn_):
-        self.conn = conn_
-        self.cur = conn_.cursor()
-        self.in_trx = False
-
-    @contextmanager
-    def write_lock(self):
-        '''Execute block with write_lock on db
-    
-        This context manager acquires a connection from the pool
-        and ensures that a BEGIN IMMEDIATE transaction is active.
+    def __init__(self, file_):
+        self.conn = apsw.Connection(file_)
+        self.cur = self.conn.cursor()
+        self.file = file_
         
-        The transaction will be committed when the block has
-        executed, even if execution was aborted with an exception.
-        '''
+        for s in initsql:
+            self.cur.execute(s)
 
-        if self.in_trx:
-            yield
+    def close(self):
+        self.cur.close()
+        self.conn.close()
+        
+    def get_size(self):
+        '''Return size of database file'''
+    
+        if self.file is not None and self.file not in ('', ':memory:'):
+            return os.path.getsize(self.file)
         else:
-            self._execute(self.cur, 'BEGIN IMMEDIATE')
-            self.in_trx = True
-            try:
-                yield
-            finally:
-                self._execute(self.cur, 'COMMIT')
-                self.in_trx = False
-
+            return 0
+            
     def query(self, *a, **kw):
         '''Execute the given SQL statement. Return ResultSet.
         
@@ -297,21 +152,10 @@ class WrappedConnection(object):
         else:
             newbindings = bindings
 
-        stamp = time.time()
-        try:
-            if bindings is not None:
-                return cur.execute(statement, newbindings)
-            else:
-                return cur.execute(statement)
-        except apsw.BusyError:
-            dt = time.time() - stamp
-            if dt < retrytime/1000:
-                log.warn('SQLite detected deadlock')
-            else:
-                log.warn('Unable to access db after waiting for %.2f seconds', dt)
-            log_stacktraces()
-            raise
-
+        if bindings is not None:
+            return cur.execute(statement, newbindings)
+        else:
+            return cur.execute(statement)
 
     def has_val(self, *a, **kw):
         '''Execute statement and check if it gives result rows'''
@@ -368,7 +212,7 @@ class WrappedConnection(object):
         return self.conn.last_insert_rowid()
 
     def changes(self):
-        """Return number of rows affected by most recent sql statement in current thread"""
+        """Return number of rows affected by most recent sql statement"""
 
         return self.conn.changes()
 

@@ -12,7 +12,7 @@ from s3ql import mkfs
 from s3ql.block_cache import BlockCache
 from s3ql.backends import local
 from s3ql.backends.common import NoSuchObject
-from s3ql import database as dbcm
+from s3ql.database import Connection
 import os
 import tempfile
 from _common import TestCase
@@ -33,13 +33,13 @@ class cache_tests(TestCase):
         self.blocksize = 1024
         
         self.dbfile = tempfile.NamedTemporaryFile()
-        dbcm.init(self.dbfile.name)
-        mkfs.setup_tables(dbcm)
-        mkfs.init_tables(dbcm)
+        self.db =  Connection(self.dbfile.name)
+        mkfs.setup_tables(self.db)
+        mkfs.init_tables(self.db)
 
         # Create an inode we can work with
         self.inode = 42
-        dbcm.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,size) "
+        self.db.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,size) "
                           "VALUES (?,?,?,?,?,?,?,?,?)",
                           (self.inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                            | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
@@ -47,7 +47,7 @@ class cache_tests(TestCase):
 
         lock = threading.Lock()
         lock.acquire()
-        self.cache = BlockCache(self.bucket, lock, self.cachedir, 
+        self.cache = BlockCache(self.bucket, lock, self.db, self.cachedir, 
                                 100 * self.blocksize)
         self.cache.init()
         

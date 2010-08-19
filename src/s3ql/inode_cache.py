@@ -10,7 +10,6 @@ from __future__ import division, print_function
 
 import time
 import logging
-import database as dbcm
 from random import randint
 import apsw
 from .database import NoSuchRowError
@@ -129,9 +128,10 @@ class InodeCache(object):
     to the effects of the current method call.
     '''
 
-    def __init__(self):
+    def __init__(self, db):
         self.attrs = dict()
         self.cached_rows = list()
+        self.db = db
 
         # Fill the cache with dummy data, so that we don't have to
         # check if the cache is full or not (it will always be full)        
@@ -142,7 +142,7 @@ class InodeCache(object):
 
 
     def __delitem__(self, inode):
-        if dbcm.execute('DELETE FROM inodes WHERE id=?', (inode,)) != 1:
+        if self.db.execute('DELETE FROM inodes WHERE id=?', (inode,)) != 1:
             raise KeyError('No such inode')
         try:
             del self.attrs[inode]
@@ -174,7 +174,7 @@ class InodeCache(object):
             return inode
 
     def getattr(self, id_):
-        attrs = dbcm.get_row("SELECT %s FROM inodes WHERE id=? " % ATTRIBUTE_STR,
+        attrs = self.db.get_row("SELECT %s FROM inodes WHERE id=? " % ATTRIBUTE_STR,
                                   (id_,))
         inode = _Inode()
 
@@ -182,6 +182,8 @@ class InodeCache(object):
             setattr(inode, id_, attrs[i])
 
         # Convert to local time
+        # Pylint does not detect the attributes
+        #pylint: disable=E1101
         inode.atime += TIMEZONE
         inode.mtime += TIMEZONE
         inode.ctime += TIMEZONE
@@ -213,7 +215,7 @@ class InodeCache(object):
             #pylint: disable-msg=W0201
             inode.id = randint(0, 2 ** 32 - 1)
             try:
-                dbcm.execute(sql, [inode.id] + bindings)
+                self.db.execute(sql, [inode.id] + bindings)
             except apsw.ConstraintError:
                 pass
             else:
@@ -235,7 +237,7 @@ class InodeCache(object):
         inode.mtime -= TIMEZONE
         inode.ctime -= TIMEZONE
 
-        dbcm.execute("UPDATE inodes SET %s WHERE id=?" % UPDATE_STR,
+        self.db.execute("UPDATE inodes SET %s WHERE id=?" % UPDATE_STR,
                           [ getattr(inode, x) for x in UPDATE_ATTRS ] + [inode.id])
 
     def flush_id(self, id_):
