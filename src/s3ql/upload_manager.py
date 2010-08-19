@@ -200,9 +200,6 @@ class CompressThread(Thread):
         (self.size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.el.obj_id, 
                                                   self.fh)
         self.fh.close()
-        
-        dbcm.execute('UPDATE objects SET compr_size=? WHERE id=?', 
-                     (self.size, self.el.obj_id))
 
         # If we already have the minimum transit size, do not start more
         # than two threads
@@ -226,6 +223,9 @@ class CompressThread(Thread):
             with self.um.transit_size_lock:
                 self.um.transit_size -= self.size
             
+    def finalize(self):
+        dbcm.execute('UPDATE objects SET compr_size=? WHERE id=?', 
+                     (self.size, self.el.obj_id))
                 
 class UploadThread(Thread):
     '''
