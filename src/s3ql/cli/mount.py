@@ -408,8 +408,11 @@ class MetadataUploadThread(ExceptionStoringThread):
     def run_protected(self):
         log.debug('MetadataUploadThread: start')
         
-        while not self.stop_event.is_set():
+        while True:
             self.stop_event.wait(self.options.metadata_upload_interval)
+            
+            if self.stop_event.is_set():
+                break
             
             with self.lock:
                 new_mtime = os.stat(self.db.file).st_mtime 
