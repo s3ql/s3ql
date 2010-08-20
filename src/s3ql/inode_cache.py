@@ -107,8 +107,6 @@ class InodeCache(object):
     Notes
     -----
     
-    This class is not thread-safe.
-    
     Callers should keep in mind that the changes of the returned inode
     object will only be written to the database if the inode is still
     in the cache when its attributes are updated: it is possible for 

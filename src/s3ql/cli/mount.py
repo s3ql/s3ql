@@ -21,6 +21,7 @@ from s3ql.common import (setup_logging, get_backend, get_bucket_home,
                          ExceptionStoringThread, copy_metadata)
 from s3ql.argparse import ArgumentParser
 from s3ql.database import Connection
+from global_lock import lock
 import llfuse
 import tempfile
 import textwrap
@@ -82,7 +83,6 @@ def main(args=None):
             raise QuietError('Local cache files exist, file system has not been unmounted\n'
                              'cleanly. You need to run fsck.s3ql.')
 
-        lock = threading.Lock()
         fuse_opts = get_fuse_opts(options)
 
         # Get file system parameters
@@ -175,16 +175,15 @@ def main(args=None):
                 except NoSuchObject:
                     pass # Key list may not be up to date
 
-        operations = fs.Operations(bucket, db, cachedir=home + '-cache', lock=lock,
+        operations = fs.Operations(bucket, db, cachedir=home + '-cache', 
                                    blocksize=param['blocksize'],
                                    cache_size=options.cachesize * 1024,
                                    cache_entries=options.max_cache_entries)
  
-        metadata_upload_thread = MetadataUploadThread(bucket, options, param, lock,
-                                                      db)
+        metadata_upload_thread = MetadataUploadThread(bucket, options, param, db)
 
         log.info('Mounting filesystem...')
-        llfuse.init(operations, options.mountpoint, fuse_opts, lock)
+        llfuse.init(operations, options.mountpoint, fuse_opts)
         try:
             if not options.fg:
                 conn.prepare_fork()
@@ -392,13 +391,19 @@ def parse_args(args):
     return options
 
 class MetadataUploadThread(ExceptionStoringThread):
-
-    def __init__(self, bucket, options, param, lock, db):
+    '''
+    Periodically commit dirty inodes.
+    
+    This class uses the `global_lock` module. When calling objects
+    passed in the constructor, the global lock is acquired first.
+    '''    
+    
+    
+    def __init__(self, bucket, options, param, db):
         super(MetadataUploadThread, self).__init__()
         self.bucket = bucket
         self.options = options
         self.param = param
-        self.lock = lock
         self.db = db
         self.daemon = True
         self.db_mtime = os.stat(db.file).st_mtime 
@@ -414,7 +419,7 @@ class MetadataUploadThread(ExceptionStoringThread):
             if self.stop_event.is_set():
                 break
             
-            with self.lock:
+            with lock:
                 new_mtime = os.stat(self.db.file).st_mtime 
                 if self.db_mtime == new_mtime:
                     log.info('File system unchanged, not uploading metadata.')
@@ -439,10 +444,17 @@ class MetadataUploadThread(ExceptionStoringThread):
         log.debug('MetadataUploadThread: end')    
         
     def stop(self):
-        '''Wait for thread to finish, raise any occurred exceptions'''
+        '''Wait for thread to finish, raise any occurred exceptions.
+        
+        This  method releases the global lock.
+        '''
         
         self.stop_event.set()
-        self.join_and_raise()
+        lock.release()
+        try:
+            self.join_and_raise()
+        finally:
+            lock.acquire()
 
 if __name__ == '__main__':
     main(sys.argv[1:])

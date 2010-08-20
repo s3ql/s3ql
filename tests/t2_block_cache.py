@@ -18,7 +18,6 @@ import tempfile
 from _common import TestCase
 import unittest2 as unittest
 import stat
-import threading
 import time
 import shutil
 
@@ -45,9 +44,7 @@ class cache_tests(TestCase):
                            | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                            os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 32))
 
-        lock = threading.Lock()
-        lock.acquire()
-        self.cache = BlockCache(self.bucket, lock, self.db, self.cachedir, 
+        self.cache = BlockCache(self.bucket, self.db, self.cachedir, 
                                 100 * self.blocksize)
         self.cache.init()
         
@@ -144,7 +141,7 @@ class cache_tests(TestCase):
             fh.seek(0)
             fh.write(data1)
             el1 = fh
-        mngr.add(el1, self.cache.lock)
+        mngr.add(el1)
         mngr.join_all()
         self.cache.removal_queue.join_all()
         self.cache.upload_manager.bucket.verify()
@@ -155,7 +152,7 @@ class cache_tests(TestCase):
             fh.seek(0)
             fh.write(data1)
             el2 = fh
-        mngr.add(el2, self.cache.lock)
+        mngr.add(el2)
         mngr.join_all()
         self.cache.removal_queue.join_all()
         self.cache.upload_manager.bucket.verify()
@@ -165,7 +162,7 @@ class cache_tests(TestCase):
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data2)
-        mngr.add(el1, self.cache.lock)
+        mngr.add(el1)
         mngr.join_all()
         self.cache.removal_queue.join_all()
         self.cache.upload_manager.bucket.verify()
@@ -176,7 +173,7 @@ class cache_tests(TestCase):
         with self.cache.get(inode, blockno2) as fh:
             fh.seek(0)
             fh.write(data3)
-        mngr.add(el2, self.cache.lock)
+        mngr.add(el2)
         mngr.join_all()
         self.cache.removal_queue.join_all()
         self.cache.upload_manager.bucket.verify()
@@ -186,7 +183,7 @@ class cache_tests(TestCase):
         with self.cache.get(inode, blockno2) as fh:
             fh.seek(0)
             fh.write(data2)
-        mngr.add(el2, self.cache.lock)
+        mngr.add(el2)
         mngr.join_all()
         self.cache.removal_queue.join_all()
         self.cache.upload_manager.bucket.verify()
@@ -199,7 +196,7 @@ class cache_tests(TestCase):
             fh.seek(0)
             fh.write(data1)
             el3 = fh
-        mngr.add(el3, self.cache.lock)
+        mngr.add(el3)
         mngr.join_all()
         self.cache.removal_queue.join_all()
         self.cache.upload_manager.bucket.verify()
@@ -208,7 +205,7 @@ class cache_tests(TestCase):
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data1)
-        mngr.add(el1, self.cache.lock)
+        mngr.add(el1)
         mngr.join_all()
         self.cache.removal_queue.join_all()
         self.cache.upload_manager.bucket.verify()
@@ -373,7 +370,7 @@ def commit(self, inode, block=None):
         if block is not None and el.blockno != block:
             continue
         
-        self.upload_manager.add(el, self.lock)
+        self.upload_manager.add(el)
         
     self.upload_manager.join_all()
 

@@ -16,6 +16,7 @@ from .common import EmbeddedException, without, ExceptionStoringThread
 from .thread_group import ThreadGroup
 from .upload_manager import UploadManager, RemoveThread, retry_exc
 from .database import NoSuchRowError
+from global_lock import lock
 import logging
 import os
 import threading
@@ -91,19 +92,13 @@ class BlockCache(object):
     This class manages access to file blocks. It takes care of creation,
     uploading, downloading and deduplication.
  
-    This class is partially threadsafe: the constructor accepts a lock
-    object, and it is safe to call any instance method (except for
-    `destroy`) when the caller has acquired the lock.
-    
-    To allow limited concurrency, the lock is released by
-    some instance methods for time consuming operations. 
-    However, the caller must not hold any prior locks when calling
-    such a method, since this may lead to deadlocks.
+    This class uses the `global_lock` module. Methods which release the
+    global lock have are marked as such in their docstring.
+
             
     Attributes:
     -----------
     
-    :lock:  Synchronizes instance access
     :mlock: locks on (inode, blockno) during `get`, so that we do not
             download the same object with more than one thread.
     :encountered_errors: This attribute is set if some non-fatal errors
@@ -112,7 +107,7 @@ class BlockCache(object):
             not exist).
     """
 
-    def __init__(self, bucket, lock, db, cachedir, max_size, max_entries=768):
+    def __init__(self, bucket, db, cachedir, max_size, max_entries=768):
         log.debug('Initializing')
         self.cache = OrderedDict()
         self.cachedir = cachedir
@@ -122,7 +117,6 @@ class BlockCache(object):
         self.db = db
         self.bucket = bucket
         self.mlock = MultiLock()
-        self.lock = lock
         self.removal_queue = ThreadGroup(MAX_REMOVAL_THREADS)
         self.upload_manager = UploadManager(bucket, db, self.removal_queue)
         self.commit_thread = CommitThread(self)
@@ -200,11 +194,10 @@ class BlockCache(object):
     def get(self, inode, blockno):
         """Get file handle for block `blockno` of `inode`
         
-        This method releases the instance `lock` passed in the
-        constructor.
+        This method releases the global lock.
         
-        Note: if `get` and `remove` are called concurrently, then it
-        is possible that a block that has been requested with `get` and
+        Note: if `get` and `remove` are called concurrently, then it is
+        possible that a block that has been requested with `get` and
         passed to `remove` for deletion will not be deleted.
         """
 
@@ -214,9 +207,9 @@ class BlockCache(object):
             self.expire()
 
         # Need to release global lock to acquire mlock to prevent deadlocking
-        self.lock.release()
+        lock.release()
         with self.mlock(inode, blockno):
-            self.lock.acquire()
+            lock.acquire()
             
             try:
                 el = self.cache[(inode, blockno)]
@@ -238,7 +231,7 @@ class BlockCache(object):
                 else:
                     log.debug('get(inode=%d, block=%d): downloading block', inode, blockno)
                     el = CacheEntry(inode, blockno, obj_id, filename, "w+b")
-                    with without(self.lock):
+                    with without(lock):
                         try:
                             if self.bucket.read_after_create_consistent():
                                 self.bucket.fetch_fh('s3ql_data_%d' % obj_id, el)
@@ -277,8 +270,7 @@ class BlockCache(object):
     def expire(self):
         """Perform cache expiry
         
-        This method releases the instance `lock` passed in the
-        constructor.
+        This method releases the global lock.
         """
 
         # Note that we have to make sure that the cache entry is written into
@@ -319,7 +311,7 @@ class BlockCache(object):
                 for el in self.cache.values_rev():
                     log.debug('expire: uploading %s..', el)
                     if el.dirty and (el.inode, el.blockno) not in self.upload_manager.in_transit:
-                        freed = self.upload_manager.add(el, self.lock)
+                        freed = self.upload_manager.add(el) # Releases global lock
                         need_size -= freed
                     else:
                         need_size -= os.fstat(el.fileno()).st_size
@@ -330,8 +322,7 @@ class BlockCache(object):
                                     
             # Wait for the next entry  
             log.debug('expire: waiting for upload threads..')
-            with without(self.lock):
-                self.upload_manager.join_one()
+            self.upload_manager.join_one() # Releases global lock
 
         log.debug('expire: end')
 
@@ -343,8 +334,7 @@ class BlockCache(object):
         Otherwise removes all blocks from `start_no` to, but not including,
          `end_no`. 
         
-        This method releases the instance `lock` passed in the
-        constructor.
+        This method releases the global lock.
         
         Note: if `get` and `remove` are called concurrently, then it
         is possible that a block that has been requested with `get` and
@@ -409,10 +399,10 @@ class BlockCache(object):
         
             if to_delete:
                 try:
-                    with without(self.lock):
-                        self.removal_queue.add_thread(RemoveThread(obj_id, self.bucket,
-                                                                   (inode, blockno),
-                                                                   self.upload_manager))
+                    # Releases global lock:
+                    self.removal_queue.add_thread(RemoveThread(obj_id, self.bucket,
+                                                               (inode, blockno),
+                                                               self.upload_manager))
                 except EmbeddedException as exc:
                     exc = exc.exc_info[1]
                     if isinstance(exc, NoSuchObject):
@@ -438,15 +428,14 @@ class BlockCache(object):
         in the database, but the actual uploads may still be 
         in progress.
         
-        This method releases the instance `lock` passed in the
-        constructor. 
+        This method releases the global lock.
         """
     
         for el in self.cache.itervalues():
             if not el.dirty:
                 continue
             
-            self.upload_manager.add(el, self.lock)
+            self.upload_manager.add(el) # Releases global lock
     
         
     def clear(self):
@@ -456,14 +445,13 @@ class BlockCache(object):
         in the database, but the actual uploads may still be 
         in progress.
         
-        This method releases the instance `lock` passed in the
-        constructor.         
+        This method releases the global lock.
         """
 
         log.debug('clear: start')
         bak = self.max_entries
         self.max_entries = 0
-        self.expire()
+        self.expire() # Releases global lock
         self.max_entries = bak
         log.debug('clear: end')
 
@@ -472,6 +460,13 @@ class BlockCache(object):
             raise RuntimeError("BlockCache instance was destroyed without calling destroy()!")
 
 class CommitThread(ExceptionStoringThread):
+    '''
+    Periodically upload dirty blocks.
+    
+    This class uses the `global_lock` module. When calling objects
+    passed in the constructor, the global lock is acquired first.
+    '''    
+    
 
     def __init__(self, bcache):
         super(CommitThread, self).__init__()
@@ -492,12 +487,12 @@ class CommitThread(ExceptionStoringThread):
                     (el.inode, el.blockno) in self.bcache.upload_manager.in_transit):
                     continue
                         
-                # UploadManager is not threadsafe
-                with self.bcache.lock:
+                # Acquire global lock to access UploadManager instance
+                with lock:
                     if (not el.dirty or # Object may have been accessed
                         (el.inode, el.blockno) in self.bcache.upload_manager.in_transit):
                         continue
-                    self.bcache.upload_manager.add(el, self.bcache.lock)
+                    self.bcache.upload_manager.add(el)
                 did_sth = True
 
                 if self.stop_event.is_set():
@@ -509,8 +504,15 @@ class CommitThread(ExceptionStoringThread):
         log.debug('CommitThread: end')    
         
     def stop(self):
-        '''Wait for thread to finish, raise any occurred exceptions'''
+        '''Wait for thread to finish, raise any occurred exceptions.
+        
+        This  method releases the global lock.
+        '''
         
         self.stop_event.set()
-        self.join_and_raise()
+        lock.release()
+        try:
+            self.join_and_raise()
+        finally:
+            lock.acquire()
         

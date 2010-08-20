@@ -14,6 +14,10 @@ Note that all "string-like" quantities (e.g. file names, extended attribute
 names & values) are represented as bytes, since POSIX doesn't require any of
 them to be valid unicode strings.
 
+This module uses the `global_lock` module. Methods of the operations
+instance will be called with an acquired global lock. If the instance
+wants to process several requests concurrently, it may explicitly
+release the lock.
 
 Exception Handling
 ------------------
@@ -35,10 +39,13 @@ The return value and any raised exceptions of `handle_exc` are ignored.
 # Since we are using ctype Structures, we often have to
 # access attributes that are not defined in __init__
 # (since they are defined in _fields_ instead)
-#pylint: disable-msg=W0212
+#pylint: disable=W0212
 
 # We need globals
-#pylint: disable-msg=W0603
+#pylint: disable=W0603
+
+# And many unused arguments can not be avoided
+#pylint: disable=W0613
 
 from __future__ import division, print_function, absolute_import
 
@@ -50,7 +57,7 @@ import logging
 import sys
 import stat as fstat
 from s3ql.common import QuietError
-
+from global_lock import lock
 
 __all__ = [ 'FUSEError', 'ENOATTR', 'ENOTSUP', 'init', 'main', 'close',
             'fuse_version', 'invalidate_entry', 'invalidate_inode' ]
@@ -68,7 +75,6 @@ fuse_ops = None
 mountpoint = None
 session = None
 channel = None
-handler_lock = None
 
 class DiscardedRequest(Exception):
     '''Request was interrupted and reply discarded. '''
@@ -205,11 +211,9 @@ def op_wrapper(func, req, *args):
     application.)
     '''
 
-    if handler_lock:
-        handler_lock.acquire()
-
     try:
-        func(req, *args)
+        with lock:
+            func(req, *args)
     except FUSEError as e:
         log.debug('op_wrapper caught FUSEError, calling reply_err(%s)',
                   errno.errorcode.get(e.errno, str(e.errno)))
@@ -223,7 +227,8 @@ def op_wrapper(func, req, *args):
         # Report error to filesystem
         if hasattr(operations, 'handle_exc'):
             try:
-                operations.handle_exc(exc)
+                with lock:
+                    operations.handle_exc(exc)
             except:
                 pass
 
@@ -236,9 +241,7 @@ def op_wrapper(func, req, *args):
                 libfuse.fuse_reply_err(req, errno.EIO)
             except DiscardedRequest:
                 pass
-    finally:
-        if handler_lock:
-            handler_lock.release()
+
 
 def fuse_version():
     '''Return version of loaded fuse library'''
@@ -246,7 +249,7 @@ def fuse_version():
     return libfuse.fuse_version()
 
 
-def init(operations_, mountpoint_, args, lock=None):
+def init(operations_, mountpoint_, args):
     '''Initialize and mount FUSE file system
             
     `operations_` has to be an instance of the `Operations` class (or another
@@ -269,14 +272,12 @@ def init(operations_, mountpoint_, args, lock=None):
     global mountpoint
     global session
     global channel
-    global handler_lock
 
     # Give operations instance a chance to check and change
     # the FUSE options
     operations_.check_args(args)
 
     mountpoint = mountpoint_
-    handler_lock = lock
     operations = operations_
     fuse_ops = libfuse.fuse_lowlevel_ops()
     fuse_args = make_fuse_args(args)
@@ -369,8 +370,12 @@ def main(single=False):
             raise RuntimeError("fuse_session_loop() failed")
     else:
         log.debug('Calling fuse_session_loop_mt')
-        if libfuse.fuse_session_loop_mt(session) != 0:
-            raise RuntimeError("fuse_session_loop_mt() failed")
+        lock.release()
+        try:
+            if libfuse.fuse_session_loop_mt(session) != 0:
+                raise RuntimeError("fuse_session_loop_mt() failed")
+        finally:
+            lock.acquire()
 
 def close():
     '''Unmount file system and clean up'''

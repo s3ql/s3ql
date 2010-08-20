@@ -21,10 +21,15 @@ import s3ql.cli.umount
 import shutil
 import stat
 import subprocess
+from global_lock import lock
 import sys
 import tempfile
 import time
 import unittest2 as unittest
+
+# Looks like a pylint bug
+#pylint: disable=E1101
+
 
 class fuse_tests(TestCase):
     
@@ -43,6 +48,9 @@ class fuse_tests(TestCase):
 
         self.mount_thread = None
         self.name_cnt = 0
+        
+        # We need to run in parallel to the mount thread
+        lock.release()
 
     def tearDown(self):
         # Umount if still mounted
@@ -59,6 +67,8 @@ class fuse_tests(TestCase):
         shutil.rmtree(self.mnt_dir)
         shutil.rmtree(self.cache_dir)
         shutil.rmtree(self.bucket_dir)
+        
+        lock.acquire()
 
     def mount(self):
         sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
@@ -69,9 +79,9 @@ class fuse_tests(TestCase):
             self.fail("mkfs.s3ql failed: %s" % exc)
 
         sys.stdin = StringIO('%s\n' % self.passphrase)
-        self.mount_thread = AsyncFn(s3ql.cli.mount.main,
-                                                   ["--fg", '--homedir', self.cache_dir, 
-                                                    self.bucketname, self.mnt_dir])
+        self.mount_thread = LockedAsyncFn(s3ql.cli.mount.main,
+                                          ["--fg", '--homedir', self.cache_dir, 
+                                           self.bucketname, self.mnt_dir])
         self.mount_thread.start()
 
         # Wait for mountpoint to come up
@@ -261,7 +271,12 @@ class fuse_tests(TestCase):
         os.close(fd)
         os.unlink(filename)
 
-
+class LockedAsyncFn(AsyncFn):  
+    def run_protected(self):
+        with lock:
+            super(LockedAsyncFn, self).run_protected()
+            
+        
 # Somehow important according to pyunit documentation
 def suite():
     return unittest.makeSuite(fuse_tests)

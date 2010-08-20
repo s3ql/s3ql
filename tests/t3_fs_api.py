@@ -21,9 +21,7 @@ import time
 import unittest2 as unittest
 import errno
 import shutil
-import threading
 import tempfile
-
         
 # We need to access to protected members
 #pylint: disable=W0212
@@ -55,10 +53,8 @@ class fs_api_tests(TestCase):
         mkfs.setup_tables(self.db)
         mkfs.init_tables(self.db)
 
-        self.lock = threading.Lock()
         self.server = fs.Operations(self.bucket, self.db, self.cachedir,
-                                    self.lock, self.blocksize, 
-                                    cache_size=self.blocksize * 5)
+                                    self.blocksize, cache_size=self.blocksize * 5)
         self.server.init()
 
         # We don't want background flushing
@@ -67,8 +63,6 @@ class fs_api_tests(TestCase):
 
         # Keep track of unused filenames
         self.name_cnt = 0
-
-        self.lock.acquire()
 
     def tearDown(self):
         self.server.destroy()

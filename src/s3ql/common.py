@@ -570,7 +570,7 @@ class AsyncFn(ExceptionStoringThread):
         
     def run_protected(self):
         self.target(*self.args, **self.kwargs)
-        
+                
 class EmbeddedException(Exception):
     '''Encapsulates an exception that happened in a different thread
     '''
@@ -581,7 +581,7 @@ class EmbeddedException(Exception):
         self.threadname = threadname
         
         log.error('Thread %s terminated with exception:\n%s',
-                  self.threadname, traceback.format_exception(*self.exc_info))               
+                  self.threadname, ''.join(traceback.format_exception(*self.exc_info)))               
 
     def __str__(self):
         return ''.join(['caused by an exception in thread %s.\n' % self.threadname,

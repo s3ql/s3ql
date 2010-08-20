@@ -26,6 +26,7 @@ import struct
 import cPickle as pickle
 import threading
 from llfuse.interface import FUSEError
+from global_lock import lock
 
 __all__ = [ "Server" ]
 
@@ -48,7 +49,6 @@ class Operations(llfuse.Operations):
     -----------
 
     :cache:       Holds information about cached blocks
-    :lock:        Global lock to synchronize request processing
     :encountered_errors: Is set to true if a request handler raised an exception
     :inode_cache: A cache for the attributes of the currently opened inodes.
     :open_inodes: dict of currently opened inodes. This is used to not remove
@@ -57,12 +57,8 @@ class Operations(llfuse.Operations):
     Multithreading
     --------------
     
-    This class is not thread safe. Methods must only be called when the caller
-    holds the global lock `lock` that is also passed to the constructor.
-    
-    However, some handlers do release the global lock while they are running. So
-    it is nevertheless possible for multiple handlers to run at the same time, as
-    long as the concurrency is orchestrated by the instance itself.
+    This class uses the `global_lock` module. All methods are reentrant
+    and may release the global lock while they are running.
     
  
     Directory Entry Types
@@ -88,7 +84,7 @@ class Operations(llfuse.Operations):
         self.encountered_errors = True
 
 
-    def __init__(self, bucket, db, cachedir, lock, blocksize, cache_size,
+    def __init__(self, bucket, db, cachedir, blocksize, cache_size,
                  cache_entries=768):
         super(Operations, self).__init__()
 
@@ -96,11 +92,9 @@ class Operations(llfuse.Operations):
         self.inodes = InodeCache(db)
         self.db = db
         self.inode_flush_thread = None
-        self.lock = lock
         self.open_inodes = collections.defaultdict(lambda: 0)
         self.blocksize = blocksize
-        self.cache = BlockCache(bucket, lock, db, cachedir, cache_size, 
-                                cache_entries)
+        self.cache = BlockCache(bucket, db, cachedir, cache_size, cache_entries)
 
         # Make sure the control file is only writable by the user
         # who mounted the file system
@@ -109,7 +103,7 @@ class Operations(llfuse.Operations):
 
     def init(self):
         self.cache.init()
-        self.inode_flush_thread = InodeFlushThread(self.inodes, self.lock)
+        self.inode_flush_thread = InodeFlushThread(self.inodes)
         self.inode_flush_thread.start()
 
     def destroy(self):
@@ -220,10 +214,7 @@ class Operations(llfuse.Operations):
         if id_ == CTRL_INODE:
             if name == b's3ql_flushcache!':
                 self.cache.clear()
-                
-                # Force all entries out of the cache
-                with without(self.lock):
-                    self.cache.upload_manager.join_all()
+                self.cache.upload_manager.join_all()
 
             elif name == 'copy':
                 self.copy_tree(*struct.unpack('II', value))
@@ -338,7 +329,7 @@ class Operations(llfuse.Operations):
         '''Temporarily release global lock'''
         
         log.debug('yield_lock(): releasing global lock')
-        with without(self.lock):
+        with without(lock):
             time.sleep(0.01)
         
     
@@ -385,8 +376,7 @@ class Operations(llfuse.Operations):
             in_transit = [ x for x in in_transit 
                            if x in self.cache.upload_manager.in_transit ]
             if in_transit:
-                with without(self.lock):
-                    self.cache.upload_manager.join_one()
+                self.cache.upload_manager.join_one()
 
             
         # Make replication visible
@@ -621,10 +611,7 @@ class Operations(llfuse.Operations):
         return inode
 
     def setattr(self, id_, attr):
-        """Handles FUSE setattr() requests
-        
-        This method may release the global lock while it is running.
-        """
+        """Handles FUSE setattr() requests"""
 
         inode = self.inodes[id_]
         timestamp = time.time()
@@ -969,27 +956,42 @@ class Operations(llfuse.Operations):
 
 
 class InodeFlushThread(ExceptionStoringThread):
-
-    def __init__(self, cache, lock):
+    '''
+    Periodically commit dirty inodes.
+    
+    This class uses the `global_lock` module. When calling objects
+    passed in the constructor, the global lock is acquired first.
+    '''    
+    
+    def __init__(self, cache):
         super(InodeFlushThread, self).__init__()
         self.cache = cache
         self.stop_event = threading.Event()
         self.name = 'Inode Flush Thread'
         self.daemon = True 
-        self.lock = lock
                 
     def run_protected(self):
         log.debug('FlushThread: start')
 
         while not self.stop_event.is_set():
-            with self.lock:
+            with lock:
                 self.cache.flush()
             self.stop_event.wait(5)
         
         log.debug('FlushThread: end')    
         
     def stop(self):
-        '''Wait for thread to finish, raise any occurred exceptions'''
+        '''Wait for thread to finish, raise any occurred exceptions.
         
-        self.stop_event.set()           
-        self.join_and_raise()
+        This  method releases the global lock.
+        '''
+        
+        self.stop_event.set()
+        lock.release()
+        try:
+            self.join_and_raise()
+        finally:
+            lock.acquire()
+            
+        
+        

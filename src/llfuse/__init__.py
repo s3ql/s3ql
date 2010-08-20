@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 ''' 
 
 from __future__ import division, print_function, absolute_import
-
+    
 __all__ = [ 'ctypes_api', 'interface', 'operations' ]
 
 # Wildcard imports desired
