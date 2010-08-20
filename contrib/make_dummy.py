@@ -92,7 +92,7 @@ def copy_objects(src_bucket, dest_bucket):
         
     log.info('Copying...')
     
-    fh = tempfile.TemporaryFile()
+    
     for (no, key) in enumerate(src_bucket):
         if no != 0 and no % 5000 == 0:
             log.info('Copied %d objects so far..', no)
@@ -104,10 +104,11 @@ def copy_objects(src_bucket, dest_bucket):
         else:
             log.info('Copying %s..', key)
         
-            fh.seek(0)
+            fh = tempfile.TemporaryFile()
             meta = src_bucket.fetch_fh(key, fh, plain=True)
             fh.seek(0)
             dest_bucket.store_fh(key, fh, meta)
+            fh.close()
             
     log.info('Done.')
 
