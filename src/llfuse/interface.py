@@ -612,7 +612,7 @@ def fuse_listxattr(req, inode, size):
     if size == 0:
         try:
             log.debug('listxattr(%d): calling reply_xattr', inode)
-            libfuse.fuse_reply_xattr(req, len(names))
+            libfuse.fuse_reply_xattr(req, buf_size)
         except DiscardedRequest:
             pass
 
