@@ -97,7 +97,12 @@ class ThreadGroup(object):
         if max_threads is None:
             max_threads = self.max_threads
                 
+        # Module level lock may be acquired by other threads,
+        # so we have to make sure to release the global lock
+        # (so that locking is always in the same order)
+        lock.release()
         with self.lock:
+            lock.acquire()
             while len(self) >= max_threads:
                 self.join_one()
                 
@@ -121,7 +126,9 @@ class ThreadGroup(object):
         This method may release the global lock.
         '''
         
+        lock.release()
         with self.lock:
+            lock.acquire()
 
             # Make sure that at least 1 thread is joined
             if len(self) == 0:
@@ -153,5 +160,7 @@ class ThreadGroup(object):
                 self.join_one()    
                 
     def __len__(self):
+        lock.release()
         with self.lock:
+            lock.acquire()
             return len(self.active_threads) + len(self.finished_threads)
