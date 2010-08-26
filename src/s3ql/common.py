@@ -20,6 +20,7 @@ import traceback
 import re
 import cPickle as pickle
 from contextlib import contextmanager
+from llfuse import ROOT_INODE
 
 __all__ = ["get_bucket_home", 'sha256', 'sha256_fh', 'add_stdout_logging',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
@@ -27,28 +28,13 @@ __all__ = ["get_bucket_home", 'sha256', 'sha256_fh', 'add_stdout_logging',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'QuietError', 'get_backend', 'add_file_logging', 'setup_excepthook',
            'cycle_metadata', 'restore_metadata', 'dump_metadata', 'copy_metadata',
-           'without', 'setup_logging',  'log_stacktraces', 'AsyncFn' ]
+           'without', 'setup_logging', 'AsyncFn' ]
 
 
 AUTHINFO_BACKEND_PATTERN = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(\S+)$'
 AUTHINFO_BUCKET_PATTERN = r'^storage-url\s+(\S+)\s+password\s+(\S+)$'
 
 log = logging.getLogger('common')
-
-def log_stacktraces():
-    '''Log stack trace for every running thread'''
-    
-    # Access to protected member
-    #pylint: disable=W0212
-    code = list()
-    for threadId, frame in sys._current_frames().items():
-        code.append("\n# ThreadID: %s" % threadId)
-        for filename, lineno, name, line in traceback.extract_stack(frame):
-            code.append('%s:%d, in %s' % (os.path.basename(filename), lineno, name))
-            if line:
-                code.append("    %s" % (line.strip()))
-
-    log.error("\n".join(code))
     
 @contextmanager
 def without(lock):
@@ -511,11 +497,6 @@ class TimeoutError(Exception):
     '''Raised by `retry()` when a timeout is reached.'''
 
     pass
-
-
-
-# Define inode of root directory
-ROOT_INODE = 1
 
 # Name and inode of the special s3ql control file
 CTRL_NAME = b'.__s3ql__ctrl__'

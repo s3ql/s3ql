@@ -56,16 +56,18 @@ import errno
 import logging
 import sys
 import stat as fstat
-from s3ql.common import QuietError
 from global_lock import lock
 
 __all__ = [ 'FUSEError', 'ENOATTR', 'ENOTSUP', 'init', 'main', 'close',
-            'fuse_version', 'invalidate_entry', 'invalidate_inode' ]
+            'fuse_version', 'invalidate_entry', 'invalidate_inode',
+            'ROOT_INODE' ]
 
 # These should really be defined in the errno module, but
 # unfortunately they are missing
 ENOATTR = libfuse.ENOATTR
 ENOTSUP = libfuse.ENOTSUP
+
+ROOT_INODE = 1
 
 log = logging.getLogger("fuse")
 
@@ -212,8 +214,7 @@ def op_wrapper(func, req, *args):
     '''
 
     try:
-        with lock:
-            func(req, *args)
+        func(req, *args)
     except FUSEError as e:
         log.debug('op_wrapper caught FUSEError, calling reply_err(%s)',
                   errno.errorcode.get(e.errno, str(e.errno)))
@@ -407,7 +408,8 @@ def fuse_lookup(req, parent_inode, name):
 
     log.debug('lookup(%d, %s): start', parent_inode, string_at(name))
 
-    attr = operations.lookup(parent_inode, string_at(name))
+    with lock:
+        attr = operations.lookup(parent_inode, string_at(name))
     entry = dict_to_entry(attr)
 
     log.debug('lookup(%d, %s): calling reply_entry(ino=%d)',
@@ -421,13 +423,15 @@ def fuse_init(userdata_p, conn_info_p):
     '''Initialize Operations'''
     
     log.debug('init(): start')
-    operations.init()
+    with lock:
+        operations.init()
     log.debug('init(): end')
 
 def fuse_destroy(userdata_p):
     '''Cleanup Operations'''
     log.debug('destroy(): start')
-    operations.destroy()
+    with lock:
+        operations.destroy()
     log.debug('destroy(): end')
 
 def fuse_getattr(req, ino, _unused):
@@ -435,7 +439,8 @@ def fuse_getattr(req, ino, _unused):
 
     log.debug('getattr(%d): start', ino)
 
-    attr = operations.getattr(ino)
+    with lock:
+        attr = operations.getattr(ino)
 
     attr_timeout = attr.attr_timeout
     stat = dict_to_stat(attr)
@@ -470,7 +475,8 @@ def fuse_access(req, ino, mask):
 
         return [ buf[i].value for i in range(ret) ]
 
-    ret = operations.access(ino, mask, ctx, get_gids)
+    with lock:
+        ret = operations.access(ino, mask, ctx, get_gids)
 
     log.debug('access(%d, %o): calling reply_err', ino, mask)
     try:
@@ -490,8 +496,9 @@ def fuse_create(req, ino_parent, name, mode, fi):
     # FUSE doesn't set any type information
     mode = (mode & ~fstat.S_IFMT(mode)) | fstat.S_IFREG
 
-    (fh, attr) = operations.create(ino_parent, string_at(name), mode,
-                                   libfuse.fuse_req_ctx(req).contents)
+    with lock:
+        (fh, attr) = operations.create(ino_parent, string_at(name), mode,
+                                       libfuse.fuse_req_ctx(req).contents)
     fi.contents.fh = fh
     fi.contents.keep_cache = 1
     entry = dict_to_entry(attr)
@@ -501,7 +508,8 @@ def fuse_create(req, ino_parent, name, mode, fi):
     try:
         libfuse.fuse_reply_create(req, entry, fi)
     except DiscardedRequest:
-        operations.release(fh)
+        with lock:
+            operations.release(fh)
 
 
 def fuse_flush(req, ino, fi):
@@ -511,7 +519,8 @@ def fuse_flush(req, ino, fi):
     '''
 
     log.debug('flush(%d): start', fi.contents.fh)
-    operations.flush(fi.contents.fh)
+    with lock:
+        operations.flush(fi.contents.fh)
     log.debug('flush(%d): calling reply_err', fi.contents.fh)
     try:
         libfuse.fuse_reply_err(req, 0)
@@ -527,7 +536,8 @@ def fuse_fsync(req, ino, datasync, fi):
     '''
 
     log.debug('fsync(%d, %s): start', fi.contents.fh, datasync != 0)
-    operations.fsync(fi.contents.fh, datasync != 0)
+    with lock:
+        operations.fsync(fi.contents.fh, datasync != 0)
     log.debug('fsync(%d, %s): calling reply_err',
               fi.contents.fh, datasync != 0)
     try:
@@ -544,7 +554,8 @@ def fuse_fsyncdir(req, ino, datasync, fi):
     '''
 
     log.debug('fsyncdir(%d, %s): start', fi.contents.fh, datasync != 0)
-    operations.fsyncdir(fi.contents.fh, datasync != 0)
+    with lock:
+        operations.fsyncdir(fi.contents.fh, datasync != 0)
     log.debug('fsyncdir(%d, %s): calling reply_err',
               fi.contents.fh, datasync != 0)
     try:
@@ -558,7 +569,8 @@ def fuse_getxattr(req, ino, name, size):
     '''
 
     log.debug('getxattr(%d, %r, %d): start', ino, string_at(name), size)
-    val = operations.getxattr(ino, string_at(name))
+    with lock:
+        val = operations.getxattr(ino, string_at(name))
     if not isinstance(val, bytes):
         raise TypeError("getxattr return value must be of type bytes")
 
@@ -582,7 +594,8 @@ def fuse_link(req, ino, new_parent_ino, new_name):
 
     log.debug('link(%d, %d, %s): start',
               ino, new_parent_ino, string_at(new_name))
-    attr = operations.link(ino, new_parent_ino, string_at(new_name))
+    with lock:
+        attr = operations.link(ino, new_parent_ino, string_at(new_name))
     entry = dict_to_entry(attr)
 
     log.debug('link(%d, %d, %s): calling reply_entry',
@@ -596,7 +609,8 @@ def fuse_listxattr(req, inode, size):
     '''List extended attributes for `inode`'''
 
     log.debug('listxattr(%d): start', inode)
-    names = operations.listxattr(inode)
+    with lock:
+        names = operations.listxattr(inode)
 
     if not all([ isinstance(name, bytes) for name in names]):
         raise TypeError("listxattr return value must be list of bytes")
@@ -635,8 +649,9 @@ def fuse_mkdir(req, inode_parent, name, mode):
 
     # FUSE doesn't set any type information
     mode = (mode & ~fstat.S_IFMT(mode)) | fstat.S_IFDIR
-    attr = operations.mkdir(inode_parent, string_at(name), mode,
-                            libfuse.fuse_req_ctx(req).contents)
+    with lock:
+        attr = operations.mkdir(inode_parent, string_at(name), mode,
+                                libfuse.fuse_req_ctx(req).contents)
     entry = dict_to_entry(attr)
 
     log.debug('mkdir(%d, %s, %o): calling reply_entry(ino=%d)',
@@ -651,8 +666,9 @@ def fuse_mknod(req, inode_parent, name, mode, rdev):
 
     log.debug('mknod(%d, %s, %o, %d): start',
               inode_parent, string_at(name), mode, rdev)
-    attr = operations.mknod(inode_parent, string_at(name), mode, rdev,
-                            libfuse.fuse_req_ctx(req).contents)
+    with lock:
+        attr = operations.mknod(inode_parent, string_at(name), mode, rdev,
+                                libfuse.fuse_req_ctx(req).contents)
     entry = dict_to_entry(attr)
 
     log.debug('mknod(%d, %s, %o, %d): calling reply_entry(ino=%d)',
@@ -666,7 +682,8 @@ def fuse_open(req, inode, fi):
     '''Open a file'''
     
     log.debug('open(%d, %d): start', inode, fi.contents.flags)
-    fi.contents.fh = operations.open(inode, fi.contents.flags)
+    with lock:
+        fi.contents.fh = operations.open(inode, fi.contents.flags)
     fi.contents.keep_cache = 1
 
     log.debug('open(%d, %d): calling reply_open',
@@ -674,20 +691,23 @@ def fuse_open(req, inode, fi):
     try:
         libfuse.fuse_reply_open(req, fi)
     except DiscardedRequest:
-        operations.release(inode, fi.contents.fh)
+        with lock:
+            operations.release(inode, fi.contents.fh)
 
 def fuse_opendir(req, inode, fi):
     '''Open a directory'''
 
     log.debug('opendir(%d): start', inode)
-    fi.contents.fh = operations.opendir(inode)
+    with lock:
+        fi.contents.fh = operations.opendir(inode)
 
     log.debug('opendir(%d): calling reply_open(fh=%d)',
                inode, fi.contents.fh)
     try:
         libfuse.fuse_reply_open(req, fi)
     except DiscardedRequest:
-        operations.releasedir(fi.contents.fh)
+        with lock:
+            operations.releasedir(fi.contents.fh)
 
 
 def fuse_read(req, ino, size, off, fi):
@@ -695,7 +715,8 @@ def fuse_read(req, ino, size, off, fi):
 
     log.debug('read(ino=%d, off=%d, size=%d): start',
               fi.contents.fh, off, size)
-    data = operations.read(fi.contents.fh, off, size)
+    with lock:
+        data = operations.read(fi.contents.fh, off, size)
 
     if not isinstance(data, bytes):
         raise TypeError("read() must return bytes")
@@ -715,7 +736,8 @@ def fuse_readlink(req, inode):
     '''Read target of symbolic link'''
 
     log.debug('readlink(%d): start', inode)
-    target = operations.readlink(inode)
+    with lock:
+        target = operations.readlink(inode)
     log.debug('readlink(%d): calling reply_readlink', inode)
     try:
         libfuse.fuse_reply_readlink(req, target)
@@ -732,18 +754,19 @@ def fuse_readdir(req, ino, bufsize, off, fi):
     # Collect as much entries as we can return
     entries = list()
     size = 0
-    for (name, attr, next_) in operations.readdir(fi.contents.fh, off):
-        if not isinstance(name, bytes):
-            raise TypeError("readdir() must return entry names as bytes")
-
-        stat = dict_to_stat(attr)
-
-        entry_size = libfuse.fuse_add_direntry(req, None, 0, name, stat, 0)
-        if size + entry_size > bufsize:
-            break
-
-        entries.append((name, stat, next_))
-        size += entry_size
+    with lock:
+        for (name, attr, next_) in operations.readdir(fi.contents.fh, off):
+            if not isinstance(name, bytes):
+                raise TypeError("readdir() must return entry names as bytes")
+    
+            stat = dict_to_stat(attr)
+    
+            entry_size = libfuse.fuse_add_direntry(req, None, 0, name, stat, 0)
+            if size + entry_size > bufsize:
+                break
+    
+            entries.append((name, stat, next_))
+            size += entry_size
 
     log.debug('readdir(%d, %d, %d, %d): gathered %d entries, total size %d',
               ino, bufsize, off, fi.contents.fh, len(entries), size)
@@ -778,7 +801,8 @@ def fuse_release(req, inode, fi):
     '''Release open file'''
 
     log.debug('release(%d): start', fi.contents.fh)
-    operations.release(fi.contents.fh)
+    with lock:
+        operations.release(fi.contents.fh)
     log.debug('release(%d): calling reply_err', fi.contents.fh)
     try:
         libfuse.fuse_reply_err(req, 0)
@@ -789,7 +813,8 @@ def fuse_releasedir(req, inode, fi):
     '''Release open directory'''
 
     log.debug('releasedir(%d): start', fi.contents.fh)
-    operations.releasedir(fi.contents.fh)
+    with lock:
+        operations.releasedir(fi.contents.fh)
     log.debug('releasedir(%d): calling reply_err', fi.contents.fh)
     try:
         libfuse.fuse_reply_err(req, 0)
@@ -800,7 +825,8 @@ def fuse_removexattr(req, inode, name):
     '''Remove extended attribute'''
 
     log.debug('removexattr(%d, %s): start', inode, string_at(name))
-    operations.removexattr(inode, string_at(name))
+    with lock:
+        operations.removexattr(inode, string_at(name))
     log.debug('removexattr(%d, %s): calling reply_err',
               inode, string_at(name))
     try:
@@ -813,8 +839,9 @@ def fuse_rename(req, parent_inode_old, name_old, parent_inode_new, name_new):
 
     log.debug('rename(%d, %r, %d, %r): start', parent_inode_old, string_at(name_old),
               parent_inode_new, string_at(name_new))
-    operations.rename(parent_inode_old, string_at(name_old), parent_inode_new,
-                      string_at(name_new))
+    with lock:
+        operations.rename(parent_inode_old, string_at(name_old), parent_inode_new,
+                          string_at(name_new))
     log.debug('rename(%d, %r, %d, %r): calling reply_err', parent_inode_old,
               string_at(name_old), parent_inode_new, string_at(name_new))
     try:
@@ -826,7 +853,8 @@ def fuse_rmdir(req, inode_parent, name):
     '''Remove a directory'''
 
     log.debug('rmdir(%d, %r): start', inode_parent, string_at(name))
-    operations.rmdir(inode_parent, string_at(name))
+    with lock:
+        operations.rmdir(inode_parent, string_at(name))
     log.debug('rmdir(%d, %r): calling reply_err',
               inode_parent, string_at(name))
     try:
@@ -864,7 +892,8 @@ def fuse_setattr(req, inode, stat, to_set, fi):
     if (to_set & libfuse.FUSE_SET_ATTR_SIZE) != 0:
         attr['st_size'] = attr_all['st_size']
 
-    attr = operations.setattr(inode, attr)
+    with lock:
+        attr = operations.setattr(inode, attr)
 
     attr_timeout = attr.attr_timeout
     stat = dict_to_stat(attr)
@@ -875,30 +904,53 @@ def fuse_setattr(req, inode, stat, to_set, fi):
     except DiscardedRequest:
         pass
 
+import traceback
+import os
+def log_stacktraces():
+    '''Log stack trace for every running thread'''
+    
+    # Access to protected member
+    #pylint: disable=W0212
+    code = list()
+    for threadId, frame in sys._current_frames().items():
+        code.append("\n# ThreadID: %s" % threadId)
+        for filename, lineno, name, line in traceback.extract_stack(frame):
+            code.append('%s:%d, in %s' % (os.path.basename(filename), lineno, name))
+            if line:
+                code.append("    %s" % (line.strip()))
+
+    log.error("\n".join(code))
+    
 def fuse_setxattr(req, inode, name, val, size, flags):
     '''Set an extended attribute'''
 
     log.debug('setxattr(%d, %r, %r, %d): start', inode, string_at(name),
               string_at(val, size), flags)
 
+    if inode == ROOT_INODE and string_at(name) == 'fuse_stacktrace':
+        log_stacktraces()
+        libfuse.fuse_reply_err(req, 0)
+        return
+    
     # Make sure we know all the flags
     if (flags & ~(libfuse.XATTR_CREATE | libfuse.XATTR_REPLACE)) != 0:
         raise ValueError('unknown flag')
 
-    if (flags & libfuse.XATTR_CREATE) != 0:
-        try:
+    with lock:
+        if (flags & libfuse.XATTR_CREATE) != 0:
+            try:
+                operations.getxattr(inode, string_at(name))
+            except FUSEError as e:
+                if e.errno == ENOATTR:
+                    pass
+                raise
+            else:
+                raise FUSEError(errno.EEXIST)
+        elif (flags & libfuse.XATTR_REPLACE) != 0:
+            # Exception can be passed on if the attribute does not exist
             operations.getxattr(inode, string_at(name))
-        except FUSEError as e:
-            if e.errno == ENOATTR:
-                pass
-            raise
-        else:
-            raise FUSEError(errno.EEXIST)
-    elif (flags & libfuse.XATTR_REPLACE) != 0:
-        # Exception can be passed on if the attribute does not exist
-        operations.getxattr(inode, string_at(name))
-
-    operations.setxattr(inode, string_at(name), string_at(val, size))
+    
+        operations.setxattr(inode, string_at(name), string_at(val, size))
 
     log.debug('setxattr(%d, %r, %r, %d): calling reply_err',
               inode, string_at(name), string_at(val, size), flags)
@@ -911,7 +963,8 @@ def fuse_statfs(req, inode):
     '''Return filesystem statistics'''
 
     log.debug('statfs(%d): start', inode)
-    attr = operations.statfs()
+    with lock:
+        attr = operations.statfs()
     statfs = libfuse.statvfs()
 
     for (key, val) in attr.iteritems():
@@ -928,8 +981,9 @@ def fuse_symlink(req, target, parent_inode, name):
 
     log.debug('symlink(%d, %r, %r): start',
               parent_inode, string_at(name), string_at(target))
-    attr = operations.symlink(parent_inode, string_at(name), string_at(target),
-                              libfuse.fuse_req_ctx(req).contents)
+    with lock:
+        attr = operations.symlink(parent_inode, string_at(name), string_at(target),
+                                  libfuse.fuse_req_ctx(req).contents)
     entry = dict_to_entry(attr)
 
     log.debug('symlink(%d, %r, %r): calling reply_entry(ino=%d)',
@@ -944,7 +998,8 @@ def fuse_unlink(req, parent_inode, name):
     '''Delete a file'''
 
     log.debug('unlink(%d, %r): start', parent_inode, string_at(name))
-    operations.unlink(parent_inode, string_at(name))
+    with lock:
+        operations.unlink(parent_inode, string_at(name))
     log.debug('unlink(%d, %r): calling reply_err',
               parent_inode, string_at(name))
     try:
@@ -957,7 +1012,8 @@ def fuse_write(req, inode, buf, size, off, fi):
 
     log.debug('write(fh=%d, off=%d, size=%d): start',
               fi.contents.fh, off, size)
-    written = operations.write(fi.contents.fh, off, string_at(buf, size))
+    with lock:
+        written = operations.write(fi.contents.fh, off, string_at(buf, size))
 
     log.debug('write(fh=%d, off=%d, size=%d): calling reply_write',
               fi.contents.fh, off, size)
@@ -968,4 +1024,4 @@ def fuse_write(req, inode, buf, size, off, fi):
     
 # Enforce correct version
 if fuse_version() < 28:
-    raise QuietError('FUSE version too old, must be 2.8 or newer!\n')    
+    raise SystenExit('FUSE version too old, must be 2.8 or newer!\n')    

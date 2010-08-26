@@ -15,7 +15,7 @@ import llfuse
 import collections
 import logging
 from .inode_cache import InodeCache, OutOfInodesError
-from .common import (get_path, CTRL_NAME, CTRL_INODE, log_stacktraces, without,
+from .common import (get_path, CTRL_NAME, CTRL_INODE, without,
                      EmbeddedException, ExceptionStoringThread)
 import time
 from .block_cache import BlockCache
@@ -215,22 +215,14 @@ class Operations(llfuse.Operations):
             if name == b's3ql_flushcache!':
                 self.cache.clear()
                 self.cache.upload_manager.join_all()
-
             elif name == 'copy':
                 self.copy_tree(*struct.unpack('II', value))
-
             elif name == 'lock':
-                self.lock_tree(*pickle.loads(value))
-                
+                self.lock_tree(*pickle.loads(value))  
             elif name == 'rmtree':
                 self.remove_tree(*pickle.loads(value))
-
             elif name == 'cachesize':
-                self.cache.max_size = pickle.loads(value)
-                                                
-            elif name == 'stacktrace':
-                log_stacktraces()
-                
+                self.cache.max_size = pickle.loads(value)      
             else:
                 raise llfuse.FUSEError(errno.EINVAL)
         else:
@@ -336,8 +328,11 @@ class Operations(llfuse.Operations):
     def copy_tree(self, src_id, target_id):
         '''Efficiently copy directory tree'''
 
+        log.debug('copy_tree(%d, %d): start', src_id, target_id)
+        
         # First we make sure that all blocks are in the database
         self.cache.commit()
+        log.debug('copy_tree(%d, %d): commited cache', src_id, target_id)
 
         # Copy target attributes
         src_inode = self.inodes[src_id]
@@ -362,6 +357,9 @@ class Operations(llfuse.Operations):
             if not queue:
                 break
             
+            log.debug('copy_tree(%d, %d): processed %d entries', 
+                      src_id, target_id, processed)
+            
             # Give other threads a chance to access the db
             if processed > 250:
                 processed = 0
@@ -373,6 +371,8 @@ class Operations(llfuse.Operations):
         # the replicated tree visible to the user. Otherwise access to the newly
         # created blocks will raise a NoSuchObject exception.
         while in_transit:
+            log.debug('copy_tree(%d, %d): in_transit: %s', src_id, target_id,
+                      in_transit)
             in_transit = [ x for x in in_transit 
                            if x in self.cache.upload_manager.in_transit ]
             if in_transit:
@@ -384,6 +384,8 @@ class Operations(llfuse.Operations):
                      (target_inode.id, tmp.id))
         del self.inodes[tmp.id]
         llfuse.invalidate_inode(target_inode.id)
+        
+        log.debug('copy_tree(%d, %d): start', src_id, target_id)
 
     def _copy_tree(self, queue, id_cache):
 
