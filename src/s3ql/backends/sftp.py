@@ -162,6 +162,8 @@ class Bucket(AbstractBucket):
         return True
     
     def clear(self):
+        # Access to protected member ok
+        #pylint: disable=W0212
         with self.conn.lock:
             self.conn._rmtree(self.name)
 
