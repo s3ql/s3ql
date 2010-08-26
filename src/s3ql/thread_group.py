@@ -61,6 +61,14 @@ class ThreadGroup(object):
     
     This class uses the `global_lock` module. Methods which release the
     global lock have are marked as such in their docstring.
+    
+    Implementation Note:
+    --------------------
+            
+    ThreadGroup instances have an internal lock object that is used to
+    communicate with the started threads. These threads do not hold the global
+    lock when they start and finish. To prevent deadlocks, the instance-level
+    lock must therefore only be acquired when the global lock is not held.
     '''
     
     def __init__(self, max_threads):
@@ -97,9 +105,6 @@ class ThreadGroup(object):
         if max_threads is None:
             max_threads = self.max_threads
                 
-        # Module level lock may be acquired by other threads,
-        # so we have to make sure to release the global lock
-        # (so that locking is always in the same order)
         lock.release()
         with self.lock:
             lock.acquire()
