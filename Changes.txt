@@ -1,3 +1,8 @@
+xxx, S3QL 0.23
+
+  * Fixed problem with global_lock.py not being installed by
+    setup.py
+
 2010-08-31, S3QL 0.22
 
   * Fixed a bug that could cause file system errors when calling
