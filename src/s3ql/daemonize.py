@@ -29,6 +29,9 @@ from __future__ import division, print_function
 
 import os
 import sys
+import logging
+
+log = logging.getLogger('daemonize')
 
 __all__ = [ 'daemonize' ]
 
@@ -61,6 +64,9 @@ def detach_process_context():
 
         pid = os.fork()
         if pid > 0:
+            log.info('Daemonizing, new PID is %d', pid)
+            # Protected member
+            #pylint: disable=W0212
             os._exit(0)
 
     fork_then_exit_parent()
