@@ -1024,4 +1024,4 @@ def fuse_write(req, inode, buf, size, off, fi):
     
 # Enforce correct version
 if fuse_version() < 28:
-    raise SystenExit('FUSE version too old, must be 2.8 or newer!\n')    
+    raise SystemExit('FUSE version too old, must be 2.8 or newer!\n')    
