@@ -895,6 +895,8 @@ def fuse_setattr(req, inode, stat, to_set, fi):
     with lock:
         attr = operations.setattr(inode, attr)
 
+    # Type inference fails here
+    #pylint: disable=E1103
     attr_timeout = attr.attr_timeout
     stat = dict_to_stat(attr)
 
