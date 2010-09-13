@@ -26,6 +26,12 @@ try:
 except ImportError:
     pass
 
+# Work around pycryptopp bug if we need to install it
+try:
+    import pycryptopp
+except ImportError:
+    pycryptopp = None
+
 # These are the definitions that we need
 fuse_export_regex = ['^FUSE_SET_.*', '^XATTR_.*', 'fuse_reply_.*' ]
 fuse_export_symbols = ['fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
@@ -109,7 +115,9 @@ def main():
                          ]
                           },
           install_requires=['apsw >= 3.7.0',
-                            'pycryptopp',
+                            # Earlier versions of pycryptopp have bug in installation
+                            # procedure, see http://tahoe-lafs.org/trac/pycryptopp/ticket/51
+                            'pycryptopp' if pycryptopp else 'pycryptopp >= 0.5.19',
                             'argparse',
                             'pyliblzma >= 0.5.3' ],
           tests_require=['apsw >= 3.7.0', 'unittest2',
