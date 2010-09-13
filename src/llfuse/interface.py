@@ -57,6 +57,8 @@ import logging
 import sys
 import stat as fstat
 from global_lock import lock
+import traceback
+import os
 
 __all__ = [ 'FUSEError', 'ENOATTR', 'ENOTSUP', 'init', 'main', 'close',
             'fuse_version', 'invalidate_entry', 'invalidate_inode',
@@ -78,6 +80,21 @@ mountpoint = None
 session = None
 channel = None
 
+def log_stacktraces(*a):
+    '''Log stack trace for every running thread'''
+    
+    # Access to protected member
+    #pylint: disable=W0212
+    code = list()
+    for threadId, frame in sys._current_frames().items():
+        code.append("\n# ThreadID: %s" % threadId)
+        for filename, lineno, name, line in traceback.extract_stack(frame):
+            code.append('%s:%d, in %s' % (os.path.basename(filename), lineno, name))
+            if line:
+                code.append("    %s" % (line.strip()))
+
+    log.error("\n".join(code))
+       
 class DiscardedRequest(Exception):
     '''Request was interrupted and reply discarded. '''
     pass
@@ -282,7 +299,7 @@ def init(operations_, mountpoint_, args):
     operations = operations_
     fuse_ops = libfuse.fuse_lowlevel_ops()
     fuse_args = make_fuse_args(args)
-
+    
     # Init fuse_ops
     module = globals()
     for (name, prototype) in libfuse.fuse_lowlevel_ops._fields_:
@@ -303,6 +320,7 @@ def init(operations_, mountpoint_, args):
             log.debug('Calling fuse_set_signal_handlers')
             if libfuse.fuse_set_signal_handlers(session) == -1:
                 raise RuntimeError("fuse_set_signal_handlers() failed")
+            
             try:
                 log.debug('Calling fuse_session_add_chan')
                 libfuse.fuse_session_add_chan(session, channel)
@@ -906,23 +924,7 @@ def fuse_setattr(req, inode, stat, to_set, fi):
     except DiscardedRequest:
         pass
 
-import traceback
-import os
-def log_stacktraces():
-    '''Log stack trace for every running thread'''
-    
-    # Access to protected member
-    #pylint: disable=W0212
-    code = list()
-    for threadId, frame in sys._current_frames().items():
-        code.append("\n# ThreadID: %s" % threadId)
-        for filename, lineno, name, line in traceback.extract_stack(frame):
-            code.append('%s:%d, in %s' % (os.path.basename(filename), lineno, name))
-            if line:
-                code.append("    %s" % (line.strip()))
 
-    log.error("\n".join(code))
-    
 def fuse_setxattr(req, inode, name, val, size, flags):
     '''Set an extended attribute'''
 
