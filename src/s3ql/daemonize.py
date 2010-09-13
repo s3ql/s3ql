@@ -59,19 +59,20 @@ def detach_process_context():
         Addison-Wesley.
         """
 
-    def fork_then_exit_parent():
-        """ Fork a child process, then exit the parent process"""
-
-        pid = os.fork()
-        if pid > 0:
-            log.info('Daemonizing, new PID is %d', pid)
-            # Protected member
-            #pylint: disable=W0212
-            os._exit(0)
-
-    fork_then_exit_parent()
+    # Protected member
+    #pylint: disable=W0212
+        
+    pid = os.fork()
+    if pid > 0:
+        os._exit(0)
+        
     os.setsid()
-    fork_then_exit_parent()
+    
+    pid = os.fork()
+    if pid > 0:
+        log.info('Daemonizing, new PID is %d', pid)
+        os._exit(0)
+
 
 def redirect_stream(system_stream, target_stream):
     """ Redirect a system stream to a specified file.
