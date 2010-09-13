@@ -11,7 +11,7 @@ from __future__ import division, print_function, absolute_import
 import logging
 from s3ql.common import (get_backend, QuietError, unlock_bucket,
                          cycle_metadata, dump_metadata, restore_metadata,
-                         setup_logging)
+                         setup_logging, get_bucket_home)
 from s3ql.argparse import ArgumentParser
 from s3ql import CURRENT_FS_REV
 #from s3ql.mkfs import create_indices
@@ -23,6 +23,7 @@ import os
 from s3ql.database import Connection
 import tempfile
 import textwrap
+import shutil
 
 log = logging.getLogger("adm")
 
@@ -80,9 +81,10 @@ def main(args=None):
         if not bucketname in conn:
             raise QuietError("Bucket does not exist.")
         bucket = conn.get_bucket(bucketname)
-
+        home = get_bucket_home(options.storage_url, options.homedir)
+        
         if options.action == 'delete':
-            return delete_bucket(conn, bucketname)
+            return delete_bucket(conn, bucketname, home)
 
         try:
             unlock_bucket(options.homedir, options.storage_url, bucket)
@@ -114,7 +116,7 @@ def change_passphrase(bucket):
     bucket.passphrase = wrap_pw
     bucket['s3ql_passphrase'] = data_pw
 
-def delete_bucket(conn, bucketname):
+def delete_bucket(conn, bucketname, home):
     print('I am about to delete the bucket %s with ALL contents.' % bucketname,
           'Please enter "yes" to continue.', '> ', sep='\n', end='')
 
@@ -124,6 +126,15 @@ def delete_bucket(conn, bucketname):
     log.info('Deleting...')
     conn.delete_bucket(bucketname, recursive=True)
 
+    for suffix in ('.db', '.params'):
+        name = home + suffix
+        if os.path.exists(name):
+            os.unlink(name)
+            
+    name = home + '-cache'
+    if os.path.exists(name):
+        shutil.rmtree(name)
+    
     print('Bucket deleted.')
     if isinstance(conn, s3.Connection):
         print('Note that it may take a while until the removal becomes visible.')
