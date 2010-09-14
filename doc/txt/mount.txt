@@ -49,8 +49,8 @@ The most important options are:
                         size of the data at the expense of additional CPU time
                         during the next unmount and mount.
   --metadata-upload-interval=<seconds>
-                        Interval in seconds between complete metadata uploads.
-                        default: 24h.
+                        Interval in seconds between complete metadata uploads. Set
+                        to 0 to disable. Default: 24h.
   --compression-threads=<no>
                         Number of parallel compression and encryption threads
                         to use (default: 1).

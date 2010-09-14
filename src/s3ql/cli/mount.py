@@ -199,7 +199,8 @@ def main(args=None):
                 daemonize(options.homedir)
                 conn.finish_fork()
             
-            metadata_upload_thread.start()
+            if options.metadata_upload_interval:
+                metadata_upload_thread.start()
             if options.profile:
                 prof.runcall(llfuse.main, options.single)
             else:
@@ -207,8 +208,8 @@ def main(args=None):
 
         finally:
             llfuse.close()
-
-        metadata_upload_thread.stop()
+            metadata_upload_thread.stop()
+                
         db_mtime = metadata_upload_thread.db_mtime
         
         if operations.encountered_errors:
@@ -361,7 +362,7 @@ def parse_args(args):
     parser.add_argument("--metadata-upload-interval", action="store", type=int,
                       default=24*60*60, metavar='<seconds>',
                       help='Interval in seconds between complete metadata uploads. '
-                      'default: 24h.')
+                           'Set to 0 to disable. Default: 24h.')
     parser.add_argument("--compression-threads", action="store", type=int,
                       default=1, metavar='<no>',
                       help='Number of parallel compression and encryption threads '
