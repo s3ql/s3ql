@@ -250,22 +250,22 @@ def upgrade(conn, bucket):
         elif isinstance(bucket, sftp.Bucket):
             get_size = lambda p: bucket.conn.sftp.lstat(p).st_size
         
-        for (no, (obj_id,)) in enumerate(conn.query('SELECT id FROM objects')):
+        for (no, (obj_id,)) in enumerate(db.query('SELECT id FROM objects')):
             if no != 0 and no % 5000 == 0:
                 log.info('Checked %d objects so far..', no)
             
             path = bucket._key_to_path('s3ql_data_%d' % obj_id) + '.dat'
-            conn.execute('UPDATE objects SET compr_size=? WHERE id=?',
+            db.execute('UPDATE objects SET compr_size=? WHERE id=?',
                          (get_size(path), obj_id))
                                   
     elif isinstance(bucket, s3.Bucket):
         with bucket._get_boto() as boto:
             for bkey in boto.list('s3ql_data_'):
                 obj_id = int(bkey.name[10:])
-                conn.execute('UPDATE objects SET compr_size=? WHERE id=?',
+                db.execute('UPDATE objects SET compr_size=? WHERE id=?',
                              (bkey.size, obj_id))
                 
-            if conn.has_val('SELECT 1 FROM objects WHERE compr_size IS NULL'):
+            if db.has_val('SELECT 1 FROM objects WHERE compr_size IS NULL'):
                 log.warn('Could not determine sizes for all S3 objects, '
                          's3qlstat output will be incorrect.')
     
