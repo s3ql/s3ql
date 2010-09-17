@@ -20,9 +20,48 @@ or indirectly releases the lock is explicitly marked as such.
 '''
 
 import threading
+import thread
+from contextlib import contextmanager
 
 __all__ = [ 'lock' ]
 
-lock = threading.RLock()
+class Lock(object):
+    
+    def __init__(self):
+        self.holder = None
+        self.lock = threading.Lock()
+        super(Lock, self).__init__()
+        
+    def acquire(self):
+        me = thread.get_ident()
+        if self.holder == me:
+            raise RuntimeError('Global lock already acquired')
+        self.lock.acquire()
+        self.holder = me
+        
+    def release(self):
+        if self.holder != thread.get_ident():
+            raise RuntimeError('Global lock may only be released by the holding thread')
+        self.lock.release()
+        self.holder = None
+    
+    __enter__ = acquire
+    
+    def __exit__(self, type_, value, tb):
+        self.release()
+        return False
+        
+    @contextmanager
+    def unlocked(self):
+        self.release()
+        try:
+            yield
+        finally:
+            self.acquire()
+        
+    def held_by(self):
+        return self.holder
+
+lock = Lock()
 lock.acquire()
 

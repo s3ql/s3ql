@@ -11,7 +11,7 @@ from __future__ import division, print_function, absolute_import
 import threading
 import sys
 import logging
-from .common import without, ExceptionStoringThread
+from .common import ExceptionStoringThread
 from global_lock import lock
 
 log = logging.getLogger("thread_group")
@@ -144,7 +144,7 @@ class ThreadGroup(object):
             except IndexError:
                 # Wait for thread to terminate
                 log.debug('join_one: wait()')
-                with without(lock):
+                with lock.unlocked():
                     self.lock.wait()
                 try:
                     t = self.finished_threads.pop()

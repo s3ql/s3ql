@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from .multi_lock import MultiLock
 from .backends.common import NoSuchObject
 from .ordered_dict import OrderedDict
-from .common import EmbeddedException, without, ExceptionStoringThread
+from .common import EmbeddedException, ExceptionStoringThread
 from .thread_group import ThreadGroup
 from .upload_manager import UploadManager, RemoveThread, retry_exc
 from .database import NoSuchRowError
@@ -231,7 +231,7 @@ class BlockCache(object):
                 else:
                     log.debug('get(inode=%d, block=%d): downloading block', inode, blockno)
                     el = CacheEntry(inode, blockno, obj_id, filename, "w+b")
-                    with without(lock):
+                    with lock.unlocked():
                         try:
                             if self.bucket.read_after_create_consistent():
                                 self.bucket.fetch_fh('s3ql_data_%d' % obj_id, el)

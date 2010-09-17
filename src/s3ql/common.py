@@ -19,8 +19,10 @@ import logging.handlers
 import traceback
 import re
 import cPickle as pickle
+import thread
 from contextlib import contextmanager
 from llfuse import ROOT_INODE
+from global_lock import lock
 
 __all__ = ["get_bucket_home", 'sha256', 'sha256_fh', 'add_stdout_logging',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
@@ -28,23 +30,13 @@ __all__ = ["get_bucket_home", 'sha256', 'sha256_fh', 'add_stdout_logging',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'QuietError', 'get_backend', 'add_file_logging', 'setup_excepthook',
            'cycle_metadata', 'restore_metadata', 'dump_metadata', 'copy_metadata',
-           'without', 'setup_logging', 'AsyncFn' ]
+           'setup_logging', 'AsyncFn' ]
 
 
 AUTHINFO_BACKEND_PATTERN = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(\S+)$'
 AUTHINFO_BUCKET_PATTERN = r'^storage-url\s+(\S+)\s+password\s+(\S+)$'
 
 log = logging.getLogger('common')
-    
-@contextmanager
-def without(lock):
-    '''Execute managed block with released lock'''
-    
-    lock.release()
-    try:
-        yield
-    finally:
-        lock.acquire()
         
 def setup_logging(options, logfile=None):        
     root_logger = logging.getLogger()
@@ -517,6 +509,10 @@ class ExceptionStoringThread(threading.Thread):
         except:
             # This creates a circular reference chain
             self._exc_info = sys.exc_info() 
+        finally:
+            if lock.held_by() == thread.get_ident():
+                log.error('Thread terminated while holding global lock')
+                lock.release()
 
     def join_get_exc(self):
         self._joined = True

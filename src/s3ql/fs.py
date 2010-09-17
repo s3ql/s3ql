@@ -15,7 +15,7 @@ import llfuse
 import collections
 import logging
 from .inode_cache import InodeCache, OutOfInodesError
-from .common import (get_path, CTRL_NAME, CTRL_INODE, without,
+from .common import (get_path, CTRL_NAME, CTRL_INODE, 
                      EmbeddedException, ExceptionStoringThread)
 import time
 from .block_cache import BlockCache
@@ -321,7 +321,7 @@ class Operations(llfuse.Operations):
         '''Temporarily release global lock'''
         
         log.debug('yield_lock(): releasing global lock')
-        with without(lock):
+        with lock.unlocked():
             time.sleep(0.01)
         
     
