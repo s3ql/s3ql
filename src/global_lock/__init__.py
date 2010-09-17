@@ -40,10 +40,11 @@ class Lock(object):
         self.holder = me
         
     def release(self):
-        if self.holder != thread.get_ident():
+        me = thread.get_ident()
+        if self.holder != me:
             raise RuntimeError('Global lock may only be released by the holding thread')
-        self.lock.release()
         self.holder = None
+        self.lock.release()
     
     __enter__ = acquire
     
