@@ -294,7 +294,8 @@ class BlockCache(object):
                 if el.dirty and not (el.inode, el.blockno) in self.upload_manager.in_transit:
                     log.debug('expire: %s is dirty, trying to flush', el)
                     break
-                elif el.dirty: # currently in transit
+                elif el.dirty and not el.modified_after_upload: 
+                    # currently in transit, will be available for removal
                     continue
                 
                 del self.cache[(el.inode, el.blockno)]
