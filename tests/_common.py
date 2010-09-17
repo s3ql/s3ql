@@ -50,10 +50,10 @@ class TestCase(unittest.TestCase):
             handler.setLevel(logging.DEBUG)
             root_logger.setLevel(logging.WARN)
             
-            # For debugging:)
+            # For debugging:
             #root_logger.setLevel(logging.DEBUG)
-            #root_logger.addFilter(LoggerFilter(['fs'], 
-            #                                   logging.INFO))
+            #handler.addFilter(LoggerFilter(['UploadManager'], 
+            #                               logging.INFO))
 
     def run(self, result=None):
         if result is None:
