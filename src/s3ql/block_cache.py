@@ -431,7 +431,7 @@ class BlockCache(object):
         This method releases the global lock.
         """
     
-        in_transit = list()
+        in_transit = set()
         
         for el in self.cache.itervalues():
             if not el.dirty:
@@ -442,17 +442,16 @@ class BlockCache(object):
                     continue
                 
                 # We need to wait for the current upload to complete
-                in_transit.append(el)
+                in_transit.add(el)
             else:
                 self.upload_manager.add(el) # Releases global lock
     
         while in_transit:
-            log.debug('commit(): in_transit: %s', in_transit)
+            log.warn('commit(): in_transit: %s', in_transit)
             self.upload_manager.join_one()
-            finished = [ x for x in in_transit 
-                        if x not in self.upload_manager.in_transit ]
-            in_transit = [ x for x in in_transit 
-                           if x in self.upload_manager.in_transit ]            
+            finished = in_transit.difference(self.upload_manager.in_transit)
+            in_transit = in_transit.intersection(self.upload_manager.in_transit)    
+                    
             for el in finished:
                 # Object may no longer be dirty or already in transit
                 # if a different thread initiated the object while
