@@ -241,6 +241,11 @@ class BlockCache(object):
                         except:
                             os.unlink(filename)
                             raise
+                        
+                    # Writing will have set dirty flag
+                    el.dirty = False
+                    os.rename(el.name + '.d', el.name)
+                    
                     self.size += os.fstat(el.fileno()).st_size
     
                 self.cache[(inode, blockno)] = el

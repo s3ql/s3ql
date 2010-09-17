@@ -3,6 +3,9 @@ xxx, S3QL 0.24
   * Fixed a deadlock that could cause the mount.s3ql process
     to hang around after umount.
     
+  * Fixed a bug that caused S3QL to consider all downloaded
+    blocks as dirty and resulted in unneccessary checksum
+    calculations on expiration.
 
 2010-09-03, S3QL 0.23
 
