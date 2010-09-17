@@ -1,3 +1,9 @@
+xxx, S3QL 0.24
+
+  * Fixed a deadlock that could cause the mount.s3ql process
+    to hang around after umount.
+    
+
 2010-09-03, S3QL 0.23
 
   * Fixed problem with global_lock.py not being installed by

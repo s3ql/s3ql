@@ -448,8 +448,9 @@ def fuse_init(userdata_p, conn_info_p):
 def fuse_destroy(userdata_p):
     '''Cleanup Operations'''
     log.debug('destroy(): start')
-    with lock:
-        operations.destroy()
+    # Called by fuse_session_destroy(), so we already hold the
+    # global lock
+    operations.destroy()
     log.debug('destroy(): end')
 
 def fuse_getattr(req, ino, _unused):
