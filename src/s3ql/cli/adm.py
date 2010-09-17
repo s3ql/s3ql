@@ -95,7 +95,7 @@ def main(args=None):
             return change_passphrase(bucket)
 
         if options.action == 'upgrade':
-            return upgrade(conn, bucket)
+            return upgrade(bucket)
 
 
 def change_passphrase(bucket):
@@ -139,7 +139,7 @@ def delete_bucket(conn, bucketname, home):
     if isinstance(conn, s3.Connection):
         print('Note that it may take a while until the removal becomes visible.')
 
-def upgrade(conn, bucket):
+def upgrade(bucket):
     '''Upgrade file system to newest revision'''
 
     # Access to protected member
