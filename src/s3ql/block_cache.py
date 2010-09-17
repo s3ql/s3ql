@@ -141,13 +141,13 @@ class BlockCache(object):
             if isinstance(exc, EmbeddedException):
                 log.error('CommitThread encountered exception.')
             else:
-                log.exception()
+                log.exception('Error when stopping commit thread')
             
         try:
             self.clear()
         except:
             self.encountered_errors = True
-            log.exception()
+            log.exception('Error when clearing cache')
             
         while True:
             try:
@@ -157,7 +157,7 @@ class BlockCache(object):
                 if isinstance(exc, EmbeddedException):
                     log.error('UploadManager encountered exception.')
                 else:
-                    log.exception()
+                    log.exception('Error when joining UploadManager')
                     break
             else:
                 break
