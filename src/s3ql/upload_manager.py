@@ -87,6 +87,14 @@ class UploadManager(object):
 
         else:
             need_upload = False
+            if old_obj_id == el.obj_id:
+                log.debug('add(inode=%d, blockno=%d): unchanged, obj_id=%d',
+                          el.inode, el.blockno, el.obj_id)
+                el.dirty = False
+                el.modified_after_upload = False
+                os.rename(el.name + '.d', el.name)
+                return size
+                  
             log.debug('add(inode=%d, blockno=%d): (re)linking to %d',
                       el.inode, el.blockno, el.obj_id)
             self.db.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
