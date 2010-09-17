@@ -332,7 +332,7 @@ class Operations(llfuse.Operations):
         
         # First we make sure that all blocks are in the database
         self.cache.commit()
-        log.debug('copy_tree(%d, %d): commited cache', src_id, target_id)
+        log.debug('copy_tree(%d, %d): committed cache', src_id, target_id)
 
         # Copy target attributes
         src_inode = self.inodes[src_id]
