@@ -1,4 +1,4 @@
-xxx, S3QL 0.24
+2010-09-18, S3QL 0.24
 
   * Fixed a deadlock that could cause the mount.s3ql process
     to hang around after umount.
