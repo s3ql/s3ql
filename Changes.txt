@@ -9,6 +9,13 @@ xxx, S3QL 0.24
 
   * s3qlctrl can now change the log level at runtime.
   
+  * s3qladm delete now also deletes any local stale cache
+    files.
+    
+  * Periodic metadata upload can now be disabled completely
+    by specifying an interval of zero.
+    
+  
 2010-09-03, S3QL 0.23
 
   * Fixed problem with global_lock.py not being installed by
