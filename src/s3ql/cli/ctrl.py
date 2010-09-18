@@ -62,15 +62,16 @@ def parse_args(args):
                 
     options = parser.parse_args(args)
     
-    if options.level != 'debug' and options.modules:
-        parser.error('Modules can only be specified with `debug` logging level.')
-    if not options.modules:
-        options.modules = [ 'all' ]
-    
-    if options.level:
-        # Protected member ok, hopefully this won't break
-        #pylint: disable=W0212
-        options.level = logging._levelNames[options.level.upper()]
+    if options.action == 'log':
+        if options.level != 'debug' and options.modules:
+            parser.error('Modules can only be specified with `debug` logging level.')
+        if not options.modules:
+            options.modules = [ 'all' ]
+        
+        if options.level:
+            # Protected member ok, hopefully this won't break
+            #pylint: disable=W0212
+            options.level = logging._levelNames[options.level.upper()]
                              
     return options
 
