@@ -89,8 +89,8 @@ def main(args=None):
         rsync_args.append('-a')
     
     processes = list()
-    for filter in filters:
-        cmd = rsync_args + [ '-f', filter ] + options.pps
+    for filter_ in filters:
+        cmd = rsync_args + [ '-f', filter_ ] + options.pps
         log.debug('Calling %s', cmd)
         processes.append(subprocess.Popen(cmd))
         
