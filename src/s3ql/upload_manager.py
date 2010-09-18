@@ -70,11 +70,20 @@ class UploadManager(object):
         if (el.inode, el.blockno) in self.in_transit:
             raise ValueError('Block already in transit')
         
+        old_obj_id = el.obj_id
         size = os.fstat(el.fileno()).st_size
         el.seek(0)
-        hash_ = sha256_fh(el)
-        old_obj_id = el.obj_id
-
+        if log.isEnabledFor(logging.DEBUG):
+            time_ = time.time()
+            hash_ = sha256_fh(el)
+            time_ = time.time() - time
+            log.debug('UploadManager(inode=%d, blockno=%d): '
+                     'hashed %d bytes in %.3f seconds, %.2f MB/s',
+                      el.inode, el.blockno, size, 
+                      time_, size / (1024**2 * time_))             
+        else:
+            hash_ = sha256_fh(el)
+        
         try:
             el.obj_id = self.db.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
 
@@ -133,7 +142,7 @@ class UploadManager(object):
             # Create a new fd so that we don't get confused if another
             # thread repositions the cursor (and do so before unlocking)
             fh = open(el.name + '.d', 'rb')
-            self.compress_threads.add_thread(CompressThread(el, fh, self)) # Releases global lock
+            self.compress_threads.add_thread(CompressThread(el, fh, self, size)) # Releases global lock
 
         else:
             el.dirty = False
@@ -193,14 +202,16 @@ class CompressThread(Thread):
     
     This class uses the `global_lock` module. When calling objects
     passed in the constructor, the global lock is acquired first.
+    
+    The `size` attribute will be updated to the compressed size.
     '''
     
-    def __init__(self, el, fh, um):
+    def __init__(self, el, fh, um, size):
         super(CompressThread, self).__init__()
         self.el = el
         self.fh = fh
         self.um = um
-        self.size = None
+        self.size = size
         
     def run_protected(self):
         '''Compress block
@@ -215,8 +226,20 @@ class CompressThread(Thread):
         '''
                      
         try:
-            (self.size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.el.obj_id, 
-                                                  self.fh)
+            if log.isEnabledFor(logging.DEBUG):
+                oldsize = self.size
+                time_ = time.time()
+                (self.size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.el.obj_id, 
+                                                               self.fh)
+                time_ = time.time() - time
+                log.debug('CompressionThread(inode=%d, blockno=%d): '
+                         'compressed %d bytes in %.3f seconds, %.2f MB/s',
+                          self.el.inode, self.el.blockno, oldsize, 
+                          time_, oldsize / (1024**2 * time_))             
+            else:
+                (self.size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.el.obj_id, 
+                                                               self.fh)      
+            
             self.fh.close()
     
             with lock:
@@ -257,7 +280,6 @@ class UploadThread(Thread):
         self.fn = fn
         self.el = el
         self.size = size
-        self.time = 0
         self.um = um
         
     def run_protected(self):
@@ -267,9 +289,17 @@ class UploadThread(Thread):
         occurs), the block is removed from in_transit.      
         '''
         try:
-            self.time = time.time()
-            self.fn()
-            self.time = time.time() - self.time
+            if log.isEnabledFor(logging.DEBUG):
+                time_ = time.time()
+                self.fn()
+                time_ = time.time() - time
+                log.debug('CompressionThread(inode=%d, blockno=%d): '
+                         'compressed %d bytes in %.3f seconds, %.2f MB/s',
+                          self.el.inode, self.el.blockno, self.size, 
+                          time_, self.size / (1024**2 * time_))             
+            else:
+                self.fn()
+                            
         except:       
             with lock:
                 self.um.in_transit.remove((self.el.inode, self.el.blockno))
@@ -279,11 +309,6 @@ class UploadThread(Thread):
         with lock:
             self.um.in_transit.remove((self.el.inode, self.el.blockno))
             self.um.transit_size -= self.size
-                
-            log.debug('UploadThread(inode=%d, blockno=%d): '
-                     'transferred %d bytes in %.3f seconds, %.2f MB/s',
-                      self.el.inode, self.el.blockno, self.size, 
-                      self.time, self.size / (1024**2 * self.time))     
                     
             if not self.el.modified_after_upload:
                 self.el.dirty = False
