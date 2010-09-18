@@ -6,6 +6,8 @@ xxx, S3QL 0.22
   * The sftp backend is now significantly faster, thanks to skyang2009
     for the patch.
 
+  * s3qlctrl can now change the log level at runtime.
+  
 2010-08-09, S3QL 0.21
 
   * The metadata is now only uploaded if there have been any changes.

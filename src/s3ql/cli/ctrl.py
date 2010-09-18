@@ -50,7 +50,7 @@ def parse_args(args):
     sparser = subparsers.add_parser('log', help='Change log level',
                                     parents=[pparser])
     sparser.add_argument('level', choices=('debug', 'info', 'warn'),
-                         metavar='<level>',
+                         metavar='<level>', 
                          help='Desired new log level for mount.s3ql process. '
                               'Allowed values: %(choices)s')
     sparser.add_argument('modules', nargs='*', metavar='<module>', 
@@ -61,7 +61,14 @@ def parse_args(args):
     
     if options.level != 'debug' and options.modules:
         parser.error('Modules can only be specified with `debug` logging level.')
+    if not options.modules:
+        options.modules = [ 'all' ]
     
+    if options.level:
+        # Protected member ok, hopefully this won't break
+        #pylint: disable=W0212
+        options.level = logging._levelNames[options.level.upper()]
+                             
     return options
 
     

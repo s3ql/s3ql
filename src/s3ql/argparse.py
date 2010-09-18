@@ -145,7 +145,7 @@ class ArgumentParser(argparse.ArgumentParser):
                           "specified multiple times.")
 
     def add_debug(self):
-        self.add_argument("--debug", action="store_true",
+        self.add_argument("--debug", action="store_const", const=['all'],
                           help="activate debugging output")
                         
     def add_homedir(self):

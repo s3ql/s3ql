@@ -65,30 +65,23 @@ def setup_logging(options, logfile=None):
         log.debug("Logging already initialized.")
         return
         
-    sh = add_stdout_logging(options.quiet)
+    stdout_handler = add_stdout_logging(options.quiet)
     if logfile:
-        lh = add_file_logging(os.path.join(options.homedir, logfile))
+        debug_handler = add_file_logging(os.path.join(options.homedir, logfile))
     else:
-        lh = None
+        debug_handler = stdout_handler
     setup_excepthook()
     
     if options.debug:
         root_logger.setLevel(logging.DEBUG)
-        if isinstance(options.debug, list) and 'all' not in options.debug:
+        debug_handler.setLevel(logging.NOTSET)
+        if 'all' not in options.debug:
             # Adding the filter to the root logger has no effect.
-            if lh:
-                lh.addFilter(LoggerFilter(options.debug, logging.INFO))
-            else:
-                sh.addFilter(LoggerFilter(options.debug, logging.INFO))
-                sh.setLevel(logging.DEBUG)
-        elif lh:
-            lh.setLevel(logging.DEBUG)
-        else:
-            sh.setLevel(logging.DEBUG)
+            debug_handler.addFilter(LoggerFilter(options.debug, logging.INFO))
     else:
         root_logger.setLevel(logging.INFO)
         
-    return sh 
+    return stdout_handler 
  
                         
 class LoggerFilter(object):
