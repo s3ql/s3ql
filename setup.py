@@ -93,7 +93,7 @@ def main():
                     'deduplication', 'aws', 's3' ],
           package_dir={'': 'src'},
           packages=setuptools.find_packages('src'),
-          provides=['s3ql', 'llfuse'],
+          provides=['s3ql', 'llfuse', 'global_lock'],
           entry_points={ 'console_scripts':
                         [
                          'mkfs.s3ql = s3ql.cli.mkfs:main',
