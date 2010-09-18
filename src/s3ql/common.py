@@ -64,8 +64,10 @@ def setup_logging(options, logfile=None):
             lh.setLevel(logging.DEBUG)
         else:
             sh.setLevel(logging.DEBUG)
+        logging.disable(logging.NOTSET)
     else:
         root_logger.setLevel(logging.INFO)
+        logging.disable(logging.DEBUG)
         
     return sh 
  
