@@ -14,7 +14,6 @@ import stat
 import time
 import logging
 import re
-from . import database as dbcm
 from .database import NoSuchRowError
 from .backends.common import NoSuchObject
 from .common import (ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh, get_path)
@@ -24,7 +23,8 @@ __all__ = [ "fsck" ]
 log = logging.getLogger("fsck")
 
 # Init globals
-conn = None
+# FIXME: Get rid of the globals
+#pylint: disable=W0603
 cachedir = None
 bucket = None
 expect_errors = False
@@ -34,14 +34,13 @@ blocksize = None
 S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK | 
           stat.S_IFCHR | stat.S_IFIFO | stat.S_IFLNK)
 
-def fsck(cachedir_, bucket_, param):
+def fsck(cachedir_, bucket_, param, db):
     """Check file system
     
     Sets module variable `found_errors`. Throws `FatalFsckError` 
     if the filesystem can not be repaired.
     """
 
-    global conn
     global cachedir
     global bucket
     global found_errors
@@ -52,17 +51,14 @@ def fsck(cachedir_, bucket_, param):
     found_errors = False
     blocksize = param['blocksize']
 
-    with dbcm.write_lock() as conn_:
-        conn = conn_
-
-        check_cache()
-        check_lof()
-        check_loops()
-        check_inode_refcount()
-        check_inode_sizes()
-        check_inode_unix()
-        check_obj_refcounts()
-        check_keylist()
+    check_cache(db)
+    check_lof(db)
+    check_loops(db)
+    check_inode_refcount(db)
+    check_inode_sizes(db)
+    check_inode_unix(db)
+    check_obj_refcounts(db)
+    check_keylist(db)
 
 
 def log_error(*a, **kw):
@@ -79,7 +75,7 @@ class FatalFsckError(Exception):
     pass
 
 
-def check_cache():
+def check_cache(conn):
     """Commit uncommitted cache files"""
 
     global found_errors
@@ -156,7 +152,7 @@ def check_cache():
             fh.close()
         os.unlink(os.path.join(cachedir, filename))
 
-def check_lof():
+def check_lof(conn):
     """Ensure that there is a lost+found directory"""
 
     global found_errors
@@ -194,7 +190,7 @@ def check_lof():
 
 
 
-def check_loops():
+def check_loops(conn):
     """Ensure that all directories can be reached from root"""
 
     global found_errors
@@ -225,7 +221,7 @@ def check_loops():
     conn.execute("DROP TABLE loopcheck")
     conn.execute("DROP TABLE loopcheck2")
 
-def check_inode_sizes():
+def check_inode_sizes(conn):
     """Check if inode sizes agree with blocks"""
 
     global found_errors
@@ -258,7 +254,7 @@ def check_inode_sizes():
         conn.execute('DROP TABLE min_sizes')
         conn.execute('DROP TABLE IF EXISTS wrong_sizes')
         
-def check_inode_refcount():
+def check_inode_refcount(conn):
     """Check inode reference counters"""
 
     global found_errors
@@ -285,7 +281,7 @@ def check_inode_refcount():
             
             found_errors = True
             if cnt is None:
-                (id_p, name) = resolve_free(b"/lost+found", b"inode-%d" % id_)
+                (id_p, name) = resolve_free(b"/lost+found", b"inode-%d" % id_, conn)
                 log_error("Inode %d not referenced, adding as /lost+found/%s", id_, name)
                 conn.execute("INSERT INTO contents (name, inode, parent_inode) "
                              "VALUES (?,?,?)", (basename(name), id_, id_p))
@@ -300,7 +296,7 @@ def check_inode_refcount():
         conn.execute('DROP TABLE IF EXISTS wrong_refcounts')
 
 
-def check_inode_unix():
+def check_inode_unix(conn):
     """Check inode attributes for agreement with UNIX conventions
     
     This means:
@@ -357,7 +353,7 @@ def check_inode_unix():
                        inode, get_path(inode, conn))
 
 
-def check_obj_refcounts():
+def check_obj_refcounts(conn):
     """Check object reference counts"""
 
     global found_errors
@@ -390,7 +386,7 @@ def check_obj_refcounts():
         conn.execute('DROP TABLE refcounts')
         conn.execute('DROP TABLE IF EXISTS wrong_refcounts')
 
-def check_keylist():
+def check_keylist(conn):
     """Check the list of objects.
 
     Checks that:
@@ -451,7 +447,7 @@ def check_keylist():
         conn.execute('DROP TABLE IF EXISTS missing')
 
 
-def resolve_free(path, name):
+def resolve_free(path, name, conn):
     '''Return parent inode and name of an unused directory entry
     
     The directory entry will be in `path`. If an entry `name` already

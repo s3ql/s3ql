@@ -44,11 +44,14 @@ def parse_args(args):
     subparsers.add_parser('flushcache', help='flush file system cache',
                           parents=[pparser])
 
-    subparsers.add_parser('stacktrace', help='Print stack trace',
-                          parents=[pparser])
-
+    sparser = subparsers.add_parser('cachesize', help='Change cache size',
+                                    parents=[pparser])          
+    sparser.add_argument('cachesize', metavar='<size>', type=int,
+                         help='New cache size in KB')
+    
     sparser = subparsers.add_parser('log', help='Change log level',
                                     parents=[pparser])
+
     sparser.add_argument('level', choices=('debug', 'info', 'warn'),
                          metavar='<level>', 
                          help='Desired new log level for mount.s3ql process. '
@@ -94,14 +97,17 @@ def main(args=None):
     if os.stat(ctrlfile).st_uid != os.geteuid() and os.geteuid() != 0:
         raise QuietError('Only root and the mounting user may run s3qlctrl.')
     
-    if options.action == 'stacktrace':
-        libc.setxattr(ctrlfile, 'stacktrace', 'dummy')
-    elif options.action == 'flushcache':
+    if options.action == 'flushcache':
         libc.setxattr(ctrlfile, 's3ql_flushcache!', 'dummy')
+
     elif options.action == 'log':
         libc.setxattr(ctrlfile, 'logging', 
                       pickle.dumps((options.level, options.modules),
                                    pickle.HIGHEST_PROTOCOL))
+
+    elif options.action == 'cachesize':
+        libc.setxattr(ctrlfile, 'cachesize', pickle.dumps(options.cachesize*1024))    
+
         
 
 if __name__ == '__main__':

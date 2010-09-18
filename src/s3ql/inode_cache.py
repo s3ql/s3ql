@@ -10,13 +10,9 @@ from __future__ import division, print_function
 
 import time
 import logging
-import threading
-import database as dbcm
 from random import randint
 import apsw
-from .common import ExceptionStoringThread
 from .database import NoSuchRowError
-from s3ql.common import EmbeddedException
 
 __all__ = [ 'InodeCache', 'OutOfInodesError' ]
 log = logging.getLogger('inode_cache')
@@ -111,8 +107,6 @@ class InodeCache(object):
     Notes
     -----
     
-    This class is not thread-safe.
-    
     Callers should keep in mind that the changes of the returned inode
     object will only be written to the database if the inode is still
     in the cache when its attributes are updated: it is possible for 
@@ -132,9 +126,10 @@ class InodeCache(object):
     to the effects of the current method call.
     '''
 
-    def __init__(self):
+    def __init__(self, db):
         self.attrs = dict()
         self.cached_rows = list()
+        self.db = db
 
         # Fill the cache with dummy data, so that we don't have to
         # check if the cache is full or not (it will always be full)        
@@ -142,16 +137,10 @@ class InodeCache(object):
             self.cached_rows.append(None)
 
         self.pos = 0
-        self.flush_thread = None
 
-    def init(self):
-        '''Initialize background flush thread'''
-
-        self.flush_thread = FlushThread(self)
-        self.flush_thread.start()
 
     def __delitem__(self, inode):
-        if dbcm.execute('DELETE FROM inodes WHERE id=?', (inode,)) != 1:
+        if self.db.execute('DELETE FROM inodes WHERE id=?', (inode,)) != 1:
             raise KeyError('No such inode')
         try:
             del self.attrs[inode]
@@ -183,7 +172,7 @@ class InodeCache(object):
             return inode
 
     def getattr(self, id_):
-        attrs = dbcm.get_row("SELECT %s FROM inodes WHERE id=? " % ATTRIBUTE_STR,
+        attrs = self.db.get_row("SELECT %s FROM inodes WHERE id=? " % ATTRIBUTE_STR,
                                   (id_,))
         inode = _Inode()
 
@@ -191,6 +180,8 @@ class InodeCache(object):
             setattr(inode, id_, attrs[i])
 
         # Convert to local time
+        # Pylint does not detect the attributes
+        #pylint: disable=E1101
         inode.atime += TIMEZONE
         inode.mtime += TIMEZONE
         inode.ctime += TIMEZONE
@@ -222,7 +213,7 @@ class InodeCache(object):
             #pylint: disable-msg=W0201
             inode.id = randint(0, 2 ** 32 - 1)
             try:
-                dbcm.execute(sql, [inode.id] + bindings)
+                self.db.execute(sql, [inode.id] + bindings)
             except apsw.ConstraintError:
                 pass
             else:
@@ -244,7 +235,7 @@ class InodeCache(object):
         inode.mtime -= TIMEZONE
         inode.ctime -= TIMEZONE
 
-        dbcm.execute("UPDATE inodes SET %s WHERE id=?" % UPDATE_STR,
+        self.db.execute("UPDATE inodes SET %s WHERE id=?" % UPDATE_STR,
                           [ getattr(inode, x) for x in UPDATE_ATTRS ] + [inode.id])
 
     def flush_id(self, id_):
@@ -253,11 +244,6 @@ class InodeCache(object):
 
     def destroy(self):
         '''Finalize cache'''
-
-        try:
-            self.flush_thread.stop()
-        except EmbeddedException:
-            log.error('FlushThread terminated with exception.')
 
         for i in xrange(len(self.cached_rows)):
             id_ = self.cached_rows[i]
@@ -292,30 +278,6 @@ class InodeCache(object):
         if self.attrs:
             raise RuntimeError('InodeCache instance was destroyed without calling close()')
 
-
-class FlushThread(ExceptionStoringThread):
-
-    def __init__(self, cache):
-        super(FlushThread, self).__init__()
-        self.cache = cache
-        self.stop_event = threading.Event()
-        self.name = 'Inode Flush Thread'
-        self.daemon = True 
-                
-    def run_protected(self):
-        log.debug('FlushThread: start')
-
-        while not self.stop_event.is_set():
-            self.cache.flush()
-            self.stop_event.wait(5)
-        
-        log.debug('FlushThread: end')    
-        
-    def stop(self):
-        '''Wait for thread to finish, raise any occurred exceptions'''
-        
-        self.stop_event.set()           
-        self.join_and_raise()
         
         
 class OutOfInodesError(Exception):

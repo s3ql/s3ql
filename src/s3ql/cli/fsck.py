@@ -16,7 +16,7 @@ from s3ql.common import (get_bucket_home, cycle_metadata, setup_logging,
                          )
 from s3ql.argparse import ArgumentParser
 from s3ql import CURRENT_FS_REV
-import s3ql.database as dbcm
+from s3ql.database import Connection
 from s3ql.mkfs import create_indices
 import logging
 from s3ql import fsck
@@ -126,14 +126,14 @@ def main(args=None):
                 else:
                     log.info('Using local cache files.')
                     param['seq_no'] = seq_no
-                    dbcm.init(home + '.db')
+                    db = Connection(home + '.db')
                     metadata_loaded = True
 
             elif param['seq_no'] > seq_no:
                 raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
             else:
                 log.info('Using locally cached metadata.')
-                dbcm.init(home + '.db')
+                db = Connection(home + '.db')
                 metadata_loaded = True
         else:
             if os.path.exists(home + '-cache'):
@@ -176,7 +176,7 @@ def main(args=None):
                     raise QuietError('(in batch mode, exiting)')
                 choice = sys.stdin.readline().strip().lower()
                 if choice == 'use':
-                    dbcm.init(home + '.db')
+                    db = Connection(home + '.db')
                     metadata_loaded = True
                 elif choice == 'discard':
                     os.unlink(home + '.db')
@@ -236,23 +236,23 @@ def main(args=None):
                                    stat.S_IRUSR | stat.S_IWUSR), 'w+b')
             if param['DB-Format'] == 'dump':
                 fh.close()
-                dbcm.init(home + '.db')
+                db = Connection(home + '.db')
                 fh = tempfile.TemporaryFile()
                 bucket.fetch_fh("s3ql_metadata", fh)
                 fh.seek(0)
                 log.info('Reading metadata...')
-                restore_metadata(fh)
+                restore_metadata(fh, db)
                 fh.close()
             elif param['DB-Format'] == 'sqlite':
                 bucket.fetch_fh("s3ql_metadata", fh)
                 fh.close()
-                dbcm.init(home + '.db')
+                db = Connection(home + '.db')
             else:
                 raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
 
             log.info("Indexing...")
-            create_indices(dbcm)
-            dbcm.execute('ANALYZE')
+            create_indices(db)
+            db.execute('ANALYZE')
     
         # Increase metadata sequence no
         param['seq_no'] += 1
@@ -267,12 +267,11 @@ def main(args=None):
         if not os.path.exists(home + '-cache'):
             os.mkdir(home + '-cache', stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
-        fsck.fsck(home + '-cache', bucket, param)
+        fsck.fsck(home + '-cache', bucket, param, db)
 
         log.info("Compressing & uploading metadata..")
-        dbcm.execute('PRAGMA wal_checkpoint')
-        dbcm.execute('VACUUM')
-        dbcm.close()
+        db.execute('VACUUM')
+        db.close()
         fh = open(home + '.db', 'rb')        
         param['needs_fsck'] = False
         param['last_fsck'] = time.time() - time.timezone

@@ -11,7 +11,8 @@ from __future__ import division, print_function, absolute_import
 import threading
 import sys
 import logging
-from .common import EmbeddedException, ExceptionStoringThread
+from .common import ExceptionStoringThread
+from global_lock import lock
 
 log = logging.getLogger("thread_group")
 
@@ -29,28 +30,10 @@ class Thread(ExceptionStoringThread):
     def run_protected(self):
         '''Perform task asynchronously
         
-        This method must be overridden in derived classes. It will
-        be called in a separate thread. Exceptions will be
-        encapsulated in `EmbeddedException` and re-raised when
-        the thread is joined.
+        This method must be overridden in derived classes. It will be
+        called in a separate thread. Exceptions will be encapsulated in
+        `EmbeddedException` and re-raised when the thread is joined.
         '''
-        pass
-    
-    def finalize(self):
-        '''Clean Up after successful run
-        
-        This method will be called from `join_one` after the
-        `run_protected` method has finished successfully,  
-        '''
-        pass
-    
-    def handle_exc(self, exc_info):
-        '''Clean Up after failed run
-        
-        This method will be called from `join_one` after the
-        `run_protected` method has terminated with an exception. 
-        `exc_info` is a tuple as returned by `sys.exc_info()`.
-        '''        
         pass
     
     def start(self):
@@ -76,8 +59,17 @@ class Thread(ExceptionStoringThread):
 class ThreadGroup(object):
     '''Represents a group of threads.
     
-    This class is threadsafe, instance methods can safely be
-    called concurrently.'''
+    This class uses the `global_lock` module. Methods which release the
+    global lock have are marked as such in their docstring.
+    
+    Implementation Note:
+    --------------------
+            
+    ThreadGroup instances have an internal lock object that is used to
+    communicate with the started threads. These threads do not hold the global
+    lock when they start and finish. To prevent deadlocks, the instance-level
+    lock must therefore only be acquired when the global lock is not held.
+    '''
     
     def __init__(self, max_threads):
         '''Initialize thread group
@@ -101,7 +93,9 @@ class ThreadGroup(object):
         threads, then it starts a new thread executing `fn`.
                 
         If `max_threads` is `None`, the `max_threads` value passed
-        to the constructor is used instead.       
+        to the constructor is used instead.   
+        
+        This method may release the global lock.    
         '''
         
         if not isinstance(t, Thread):
@@ -111,7 +105,9 @@ class ThreadGroup(object):
         if max_threads is None:
             max_threads = self.max_threads
                 
+        lock.release()
         with self.lock:
+            lock.acquire()
             while len(self) >= max_threads:
                 self.join_one()
                 
@@ -121,13 +117,9 @@ class ThreadGroup(object):
     
     def join_one(self):
         '''Wait for any one thread to finish
-        
-        When the thread has finished, its `finalize` method is called.
-        
+
         If the thread terminated with an exception, the exception
-        is encapsulated in `EmbeddedException` and raised again. In
-        that case the `handle_exc` method is called instead of
-        `finalize`.
+        is encapsulated in `EmbeddedException` and raised again.
         
         If there are no active threads, the call returns without doing
         anything.
@@ -135,9 +127,13 @@ class ThreadGroup(object):
         If more than one thread has called `join_one`, a single thread
         that finishes execution will cause all pending `join_one` calls
         to return. 
+        
+        This method may release the global lock.
         '''
         
+        lock.release()
         with self.lock:
+            lock.acquire()
 
             # Make sure that at least 1 thread is joined
             if len(self) == 0:
@@ -148,29 +144,28 @@ class ThreadGroup(object):
             except IndexError:
                 # Wait for thread to terminate
                 log.debug('join_one: wait()')
-                self.lock.wait()
+                with lock.unlocked():
+                    self.lock.wait()
                 try:
                     t = self.finished_threads.pop()
                 except IndexError:
                     # Already joined by other waiting thread
                     return
                    
-        try:
-            t.join_and_raise()
-        except EmbeddedException as exc:
-            t.handle_exc(exc.exc_info)
-            raise
-        else:
-            t.finalize()
-                    
+        t.join_and_raise()             
             
     def join_all(self):
-        '''Call join_one() until all threads have terminated'''
+        '''Call join_one() until all threads have terminated
+        
+         This method may release the global lock.
+         '''
         
         with self.lock:
             while len(self) > 0: 
                 self.join_one()    
                 
     def __len__(self):
+        lock.release()
         with self.lock:
+            lock.acquire()
             return len(self.active_threads) + len(self.finished_threads)

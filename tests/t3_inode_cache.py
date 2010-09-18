@@ -11,7 +11,7 @@ from __future__ import division, print_function
 
 from s3ql import inode_cache
 from s3ql import mkfs
-from s3ql import database as dbcm
+from s3ql.database import Connection
 from _common import TestCase
 import unittest2 as unittest
 import time
@@ -21,14 +21,10 @@ class cache_tests(TestCase):
 
     def setUp(self):
         self.dbfile = tempfile.NamedTemporaryFile()
-        dbcm.init(self.dbfile.name)
-        mkfs.setup_tables(dbcm)
-        mkfs.init_tables(dbcm)
-        self.cache = inode_cache.InodeCache()
-        self.cache.init()
-        
-        # We don't want background flushing
-        self.cache.flush_thread.stop()
+        self.db = Connection(self.dbfile.name)
+        mkfs.setup_tables(self.db)
+        mkfs.init_tables(self.db)
+        self.cache = inode_cache.InodeCache(self.db)
 
     def tearDown(self):
         self.cache.destroy()
@@ -50,7 +46,7 @@ class cache_tests(TestCase):
         for key in attrs.keys():
             self.assertEqual(attrs[key], getattr(inode, key))
 
-        self.assertTrue(dbcm.has_val('SELECT 1 FROM inodes WHERE id=?',
+        self.assertTrue(self.db.has_val('SELECT 1 FROM inodes WHERE id=?',
                                           (inode.id,)))
 
 
@@ -67,7 +63,7 @@ class cache_tests(TestCase):
                 'mtime': time.time() }
         inode = self.cache.create_inode(**attrs)
         del self.cache[inode.id]
-        self.assertFalse(dbcm.has_val('SELECT 1 FROM inodes WHERE id=?', (inode.id,)))
+        self.assertFalse(self.db.has_val('SELECT 1 FROM inodes WHERE id=?', (inode.id,)))
         self.assertRaises(KeyError, self.cache.__delitem__, inode.id)
 
     def test_get(self):
@@ -84,7 +80,7 @@ class cache_tests(TestCase):
         inode = self.cache.create_inode(**attrs)
         self.assertEqual(inode, self.cache[inode.id])
 
-        dbcm.execute('DELETE FROM inodes WHERE id=?', (inode.id,))
+        self.db.execute('DELETE FROM inodes WHERE id=?', (inode.id,))
         # Entry should still be in cache
         self.assertEqual(inode, self.cache[inode.id])
 

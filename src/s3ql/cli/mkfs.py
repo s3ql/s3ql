@@ -17,7 +17,7 @@ from s3ql import mkfs, CURRENT_FS_REV
 from s3ql.common import (get_backend, get_bucket_home, setup_logging,
                          QuietError)
 from s3ql.argparse import ArgumentParser
-import s3ql.database as dbcm
+from s3ql.database import Connection
 from s3ql.backends.boto.s3.connection import Location
 from s3ql.backends import s3
 import time
@@ -105,9 +105,9 @@ def main(args=None):
 
         try:
             log.info('Creating metadata tables...')
-            dbcm.init(home + '.db')
-            mkfs.setup_tables(dbcm)
-            mkfs.init_tables(dbcm)
+            db = Connection(home + '.db')
+            mkfs.setup_tables(db)
+            mkfs.init_tables(db)
 
             param = dict()
             param['revision'] = CURRENT_FS_REV
@@ -120,16 +120,15 @@ def main(args=None):
             bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
 
             log.info("Compressing & uploading metadata..")         
-            dbcm.execute('PRAGMA wal_checkpoint')
-            dbcm.execute('VACUUM')
-            dbcm.close()
+            db.execute('VACUUM')
+            db.close()
             fh = open(home + '.db', 'rb')        
             bucket.store_fh("s3ql_metadata", fh, param)
             fh.close()
 
         finally:
-            if os.path.exists(dbcm.dbfile):
-                os.unlink(dbcm.dbfile)
+            if os.path.exists(db.file):
+                os.unlink(db.file)
 
 
 if __name__ == '__main__':

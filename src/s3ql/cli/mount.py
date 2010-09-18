@@ -20,7 +20,8 @@ from s3ql.common import (setup_logging, get_backend, get_bucket_home,
                          cycle_metadata, dump_metadata, restore_metadata, 
                          ExceptionStoringThread, copy_metadata)
 from s3ql.argparse import ArgumentParser
-import s3ql.database as dbcm
+from s3ql.database import Connection
+from global_lock import lock
 import llfuse
 import tempfile
 import textwrap
@@ -82,7 +83,6 @@ def main(args=None):
             raise QuietError('Local cache files exist, file system has not been unmounted\n'
                              'cleanly. You need to run fsck.s3ql.')
 
-        lock = threading.Lock()
         fuse_opts = get_fuse_opts(options)
 
         # Get file system parameters
@@ -135,17 +135,17 @@ def main(args=None):
         try:
             if param['DB-Format'] == 'dump':
                 fh.close()
-                dbcm.init(home + '.db')
+                db = Connection(home + '.db')
                 fh = tempfile.TemporaryFile()
                 bucket.fetch_fh("s3ql_metadata", fh)
                 fh.seek(0)
                 log.info('Reading metadata...')
-                restore_metadata(fh)
+                restore_metadata(fh, db)
                 fh.close()
             elif param['DB-Format'] == 'sqlite':
                 bucket.fetch_fh("s3ql_metadata", fh)
                 fh.close()
-                dbcm.init(home + '.db')
+                db = Connection(home + '.db')
             else:
                 raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
         except:
@@ -154,8 +154,8 @@ def main(args=None):
             raise
         
         log.info('Indexing...')
-        create_indices(dbcm)
-        dbcm.execute('ANALYZE')
+        create_indices(db)
+        db.execute('ANALYZE')
         
         # Increase metadata sequence no, save parameters 
         param['seq_no'] += 1
@@ -175,15 +175,15 @@ def main(args=None):
                 except NoSuchObject:
                     pass # Key list may not be up to date
 
-        operations = fs.Operations(bucket, cachedir=home + '-cache', lock=lock,
+        operations = fs.Operations(bucket, db, cachedir=home + '-cache', 
                                    blocksize=param['blocksize'],
                                    cache_size=options.cachesize * 1024,
                                    cache_entries=options.max_cache_entries)
  
-        metadata_upload_thread = MetadataUploadThread(bucket, options, param)
+        metadata_upload_thread = MetadataUploadThread(bucket, options, param, db)
 
         log.info('Mounting filesystem...')
-        llfuse.init(operations, options.mountpoint, fuse_opts, lock)
+        llfuse.init(operations, options.mountpoint, fuse_opts)
         try:
             if not options.fg:
                 conn.prepare_fork()
@@ -199,7 +199,8 @@ def main(args=None):
                 daemonize(options.homedir)
                 conn.finish_fork()
             
-            metadata_upload_thread.start()
+            if options.metadata_upload_interval:
+                metadata_upload_thread.start()
             if options.profile:
                 prof.runcall(llfuse.main, options.single)
             else:
@@ -207,8 +208,8 @@ def main(args=None):
 
         finally:
             llfuse.close()
-
-        metadata_upload_thread.stop()
+            metadata_upload_thread.stop()
+                
         db_mtime = metadata_upload_thread.db_mtime
         
         if operations.encountered_errors:
@@ -216,7 +217,6 @@ def main(args=None):
         else:       
             param['seq_no'] += 1
 
-        dbcm.execute('PRAGMA wal_checkpoint')
         if db_mtime == os.stat(home + '.db').st_mtime:
             log.info('File system unchanged, not uploading metadata.')
             del bucket['s3ql_seq_no_%d' % param['seq_no']]     
@@ -225,13 +225,12 @@ def main(args=None):
                 log.info('Saving metadata...')
                 param['DB-Format'] = 'dump'
                 fh = tempfile.TemporaryFile()
-                dump_metadata(fh) 
+                dump_metadata(fh, db) 
             else:
                 param['DB-Format'] = 'sqlite'
-                dbcm.execute('VACUUM')
-                dbcm.execute('PRAGMA wal_checkpoint')
-                dbcm.close()
-                fh = open(dbcm.dbfile, 'rb')   
+                db.execute('VACUUM')
+                db.close()
+                fh = open(db.file, 'rb')   
                     
             log.info("Compressing & uploading metadata..")
             cycle_metadata(bucket)
@@ -363,7 +362,7 @@ def parse_args(args):
     parser.add_argument("--metadata-upload-interval", action="store", type=int,
                       default=24*60*60, metavar='<seconds>',
                       help='Interval in seconds between complete metadata uploads. '
-                      'default: 24h.')
+                           'Set to 0 to disable. Default: 24h.')
     parser.add_argument("--compression-threads", action="store", type=int,
                       default=1, metavar='<no>',
                       help='Number of parallel compression and encryption threads '
@@ -393,53 +392,70 @@ def parse_args(args):
     return options
 
 class MetadataUploadThread(ExceptionStoringThread):
-
-    def __init__(self, bucket, options, param):
+    '''
+    Periodically commit dirty inodes.
+    
+    This class uses the `global_lock` module. When calling objects
+    passed in the constructor, the global lock is acquired first.
+    '''    
+    
+    
+    def __init__(self, bucket, options, param, db):
         super(MetadataUploadThread, self).__init__()
         self.bucket = bucket
         self.options = options
         self.param = param
-        self.db_mtime = os.stat(dbcm.dbfile).st_mtime 
+        self.db = db
+        self.daemon = True
+        self.db_mtime = os.stat(db.file).st_mtime 
         self.stop_event = threading.Event()
         self.name = 'Metadata-Upload-Thread'
            
     def run_protected(self):
         log.debug('MetadataUploadThread: start')
         
-        self.stop_event.wait(self.options.metadata_upload_interval)
-        
-        while not self.stop_event.is_set():
-            dbcm.execute('PRAGMA wal_checkpoint')
-            new_mtime = os.stat(dbcm.dbfile).st_mtime 
-            if self.db_mtime == new_mtime:
-                log.info('File system unchanged, not uploading metadata.')
-            else:
+        while True:
+            self.stop_event.wait(self.options.metadata_upload_interval)
+            
+            if self.stop_event.is_set():
+                break
+            
+            with lock:
+                new_mtime = os.stat(self.db.file).st_mtime 
+                if self.db_mtime == new_mtime:
+                    log.info('File system unchanged, not uploading metadata.')
+                    continue
+                
                 log.info('Saving metadata...')
-        
                 if self.options.strip_meta:
                     self.param['DB-Format'] = 'dump'
                     fh = tempfile.TemporaryFile()
-                    dump_metadata(fh) 
+                    dump_metadata(fh, self.db) 
                 else:
                     self.param['DB-Format'] = 'sqlite'
                     fh = tempfile.NamedTemporaryFile()
-                    copy_metadata(fh)
+                    copy_metadata(fh, self.db)
                         
-                log.info("Compressing & uploading metadata..")
-                cycle_metadata(self.bucket)
-                fh.seek(0)
-                self.bucket.store_fh("s3ql_metadata", fh, self.param)
-            
+            log.info("Compressing & uploading metadata..")
+            cycle_metadata(self.bucket)
+            fh.seek(0)
+            self.bucket.store_fh("s3ql_metadata", fh, self.param)
             self.db_mtime = new_mtime    
-            self.stop_event.wait(self.options.metadata_upload_interval)
-        
+
         log.debug('MetadataUploadThread: end')    
         
     def stop(self):
-        '''Wait for thread to finish, raise any occurred exceptions'''
+        '''Wait for thread to finish, raise any occurred exceptions.
+        
+        This  method releases the global lock.
+        '''
         
         self.stop_event.set()
-        self.join_and_raise()
+        lock.release()
+        try:
+            self.join_and_raise()
+        finally:
+            lock.acquire()
 
 if __name__ == '__main__':
     main(sys.argv[1:])
