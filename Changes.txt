@@ -1,3 +1,10 @@
+xxx, S3QL 0.25
+
+  * The semantics of contrib/expire_backups.py have changed 
+    slightly to better cope with gaps in the backup series
+    (previously such a gap could persist indefinitely and 
+    mess up the entire removal strategy).
+
 2010-09-18, S3QL 0.24
 
   * Fixed a deadlock that could cause the mount.s3ql process
