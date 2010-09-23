@@ -1,9 +1,13 @@
 xxx, S3QL 0.25
 
-  * The semantics of contrib/expire_backups.py have changed 
-    slightly to better cope with gaps in the backup series
-    (previously such a gap could persist indefinitely and 
-    mess up the entire removal strategy).
+  * A critical bug that could cause backups to be deleted too 
+    early and potentially break the whole backup strategy has 
+    been fixed in contrib/expire_backups.py.
+    
+    The new version has changed semantics that and also copes
+    significantly better when backups are made in irregular time
+    intervals.  
+
 
 2010-09-18, S3QL 0.24
 

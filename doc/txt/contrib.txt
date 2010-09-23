@@ -53,90 +53,68 @@ powerful backup solution using S3QL and `rsync
 The `s3_backup.sh` script automates the following steps:
 
 #. Mount the file system
-#. Replicate the previous backup with `s3qlcp`
+#. Replicate the previous backup with :ref:`s3qlcp <s3qlcp>`
 #. Update the new copy with the data from the backup source using rsync
-#. Make the new backup immutable with ``s3qllock``
+#. Make the new backup immutable with :ref:`s3qllock <s3qllock>`
 #. Delete old backups that are no longer needed
 #. Unmount the file system
 
-The
-backups are stored in directories of the form `YYYY-MM-DD_HH:mm:SS` and the
-`expire_backups.py`_ command is used to delete old backups.
+The backups are stored in directories of the form
+`YYYY-MM-DD_HH:mm:SS` and the `expire_backups.py`_ command is used to
+delete old backups.
 
 
 expire_backups.py
 =================
 
-The ``expire_backups.py`` command deletes backups that are no longer
-needed as defined by a specific backup strategy. A backup strategy is
-defined by specifying a number of backup *generations* with their
-relative ages.
+``expire_backups.py`` is a program to intelligently remove old backups
+that are no longer needed.
 
-Let's illustrate this with an example. A very common idea of a backup
-strategy is to keep backups such that there is always at least one
-backup from given number of points in the past. Naively, you could
-formalize this by saying that you always want to have backups
-available from the following dates:
+To define what backups you want to keep for how long, you define a
+number of *age ranges*. ``expire_backups`` ensures that you will
+have at least one backup in each age range at all times. It will keep
+exactly as many backups as are required for that and delete any
+backups that become redundant.
 
-* Yesterday
-* 3 days ago
-* A week ago
-* A month ago
-* 6 months ago
+Age ranges are specified by giving a list of range boundaries in terms
+of backup cycles. Every time you create a new backup, the existing
+backups age by one cycle.
 
-The first thing that you should realize is that this is actually most
-likely *not* what you really want, because it would require you to do
-daily backups and keep *every* backup for the full 6 months (otherwise
-you wouldn't always have a backup that has *exactly* the requested
-age). So what you probably mean by the above is that you would like to
-have backups that are from different date *ranges*, like this:
+Example: when ``expire_backups`` is called with the age range
+definition ``1 3 7 14 31``, it will guarantee that you
+always have the following backups available:
 
-* 1 hour to 24 hours ago
-* 24 hours to 3 days ago
-* 3 days to 7 days ago
-* 7 days to 31 days ago
-* 31 days to 6*31 ~ 180 days ago
+#. A backup that is 0 to 1 cycles old (i.e, the most recent backup)
+#. A backup that is 1 to 3 cycles old
+#. A backup that is 3 to 7 cycles old
+#. A backup that is 7 to 14 cycles old
+#. A backup that is 14 to 31 cycles old
 
-However, this still is not perfect. Imagine that you go on vacation
-for three weeks and don't do any backups. When you come back and do a
-fresh backup, a program following your prescription would delete the
-backups that you did right before your vacation because they're now 3
-weeks old. So if later that day you want to recover a document that
-you deleted one day before going on vacation, you'd be in for a big
-disappointment because that backup has already been deleted.
+.. NOTE::
 
-The problem is that logically the backup that you did right before
-your vacation is only 1 day old: since you did not change any data
-while on vacation, this period can not be taken into account for
-calculating backup ages. A really good backup strategy therefore only
-considers *relative* ages between backup *generations*, e.g.
+  If you do backups in fixed intervals, then one cycle will be
+  equivalent to the backup interval. The advantage of specifying the
+  age ranges in terms of backup cycles rather than days or weeks is
+  that it allows you to gracefully handle irregular backup intervals.
+  Imagine that for some reason you do not turn on your computer for
+  one month. Now all your backups are at least a month old, and if you
+  had specified the above backup strategy in terms of absolute ages,
+  they would all be deleted! Specifying age ranges in terms of backup
+  cycles avoids these sort of problems.
+  
 
-* Generation one: backups made 1 hour to 24 hours before the
-  current backup
-* Generation two: backups made 24 hours to 2 days before the first
-  backup of generation one
-* Generation three: backups made 2 days to 5 days before the first
-  backup of generation two
-* Generation four: backups made * 5 days to 26 days before the
-  first backup of generation three
-* Generation five: backups made * 26 days to 154 days before the
-  first backup of generation four
-
-The ``expire_backups.py`` command allows you to specify your backup
-strategy in terms of such generations. It uses a sophisticated
-algorithm that ensures that there will always be at least one backup
-available in each generation. It deletes backups are deleted as soon
-as they will no longer be required for any generation at any time
-(both now and in the future).
-
-``expire_backups.py`` usage is simple. It requires backups to have names of
-the forms `year-month-day_hour:minute:seconds` (`YYYY-MM-DD_HH:mm:ss`)
-and works on all backups in the current directory. The desired backup
-generations are specified by listing their relative ages. So for the
+``expire_backups`` usage is simple. It requires backups to have names of
+the forms ``year-month-day_hour:minute:seconds`` (``YYYY-MM-DD_HH:mm:ss``)
+and works on all backups in the current directory. So for the
 above backup strategy, the correct invocation would be::
 
-  expire_backups.py 1h 24h 2d 5d 26d 154d
+  expire_backups.py 1 3 7 14 31
 
+When storing your backups on an S3QL file system, you probably want to
+specify the ``--use-s3qlrm`` option as well. This tells
+``expire_backups`` to use the :ref:`s3qlrm <s3qlrm>` command to delete
+directories.
 
-For a full list of available options, run ``expire_backups.py --help``.
+For a full list of available options, run ``expire_backups.py
+--help``.
 

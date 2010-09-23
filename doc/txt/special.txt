@@ -5,6 +5,7 @@
  Advanced S3QL Features
 ========================
 
+.. _s3qlcp:
 
 Snapshotting and Copy-on-Write
 ==============================
@@ -81,6 +82,7 @@ has two large disadvantages:
 S3QL snapshots do not have these problems, and they can be used with
 any backup program.
 
+.. _s3qlstat:
 
 Getting Statistics
 ==================
@@ -101,6 +103,7 @@ the root user. This limitation might be removed in the future (see `issue 155
 
 For a full list of available options, run `s3qlstat --help`.
 
+.. _s3qllock:
 
 
 Immutable Trees
@@ -147,7 +150,7 @@ Unless you happen to run into a virus that was specifically programmed
 to attack S3QL file systems, backups can be neither deleted nor
 changed after they have been made immutable.
 
-
+.. _s3qlrm:
 
 Fast Recursive Removal
 ======================
@@ -163,6 +166,7 @@ simple::
 Be warned that there is no additional confirmation. The directory will
 be removed entirely and immediately.
 
+.. _s3qlctrl:
 
 Runtime Configuration
 =====================

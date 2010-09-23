@@ -2,7 +2,7 @@
 '''
 expire_backups.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
-Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
+Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 
 This program can be distributed under the terms of the GNU LGPL.
 '''
@@ -12,12 +12,13 @@ from __future__ import division, print_function, absolute_import
 
 import sys
 import os
-from datetime import datetime, timedelta
 import logging
 import re
 import textwrap
 import shutil
-import argparse
+import cPickle as pickle
+from datetime import datetime, timedelta
+from collections import defaultdict
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
@@ -26,7 +27,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
     
-from s3ql.common import (setup_logging)
+from s3ql.common import setup_logging
 from s3ql.argparse import ArgumentParser
 import s3ql.cli.remove
     
@@ -38,39 +39,43 @@ def parse_args(args):
 
     parser = ArgumentParser(
         description=textwrap.dedent('''\
-        This program deletes backups that are no longer needed as defined by the
-        specified backup strategy. It uses a sophisticated algorithm that
-        ensures that there will always be at least one backup available in each
-        of a number of age ranges. Age ranges are defined by giving the end
-        of each range relative to the end of the previous range. The
-        first range ends with the most recent backup. If there is no backup
-        available for a age range, the ends of all previous ranges are
-        shifted backwards in time until there is a backup available.
+        ``expire_backups.py`` is a program to intelligently remove old backups
+        that are no longer needed.
+
+        To define what backups you want to keep for how long, you define a
+        number of *age ranges*. ``expire_backups`` ensures that you will
+        have at least one backup in each age range at all times. It will keep
+        exactly as many backups as are required for that and delete any
+        backups that become redundant.
+        
+        Age ranges are specified by giving a list of range boundaries in terms
+        of backup cycles. Every time you create a new backup, the existing
+        backups age by one cycle.
+
         Please refer to the S3QL documentation for details.
         '''))
 
     parser.add_quiet()
     parser.add_debug()
     parser.add_version()
-    
-    def age_type(s):
-        if s.endswith('h'):
-            return -timedelta(seconds=int(s[:-1]) * 3600)
-        elif s.endswith('d'):
-            return -timedelta(days=int(s[:-1]))
-        else:
-            raise argparse.ArgumentTypeError('%s is not a valid age.' % s)          
-        
-    parser.add_argument('ages', nargs='+', help='Relative beginnings of age ranges to keep',
-                        type=age_type, metavar='<age>')
 
+    parser.add_argument('cycles', nargs='+',  type=int, metavar='<age>',
+                        help='Age range boundaries in terms of backup cycles')
+    parser.add_argument('--state', metavar='<file>', type=str,
+                        default='./.expire_backups.dat',
+                        help='File to save state information in (default: %(default)s')
     parser.add_argument("-n", action="store_true", default=False,
                         help="Dry run. Just show which backups would be deleted.")
 
     parser.add_argument("--use-s3qlrm", action="store_true",
                       help="Use `s3qlrm` command to delete backups.")
+    
+    options = parser.parse_args(args) 
+    
+    if sorted(options.cycles) != options.cycles:
+        parser.error('Age range boundaries must be in increasing order')
         
-    return parser.parse_args(args)
+    return options
 
 def main(args=None):
 
@@ -79,122 +84,195 @@ def main(args=None):
 
     options = parse_args(args)
     setup_logging(options)
-
-    # Relative generation ages
-    ages = options.ages
-    log.info('Age range 0 ends with most recent backup')
-    for (i, gen) in enumerate(ages):
-        log.info('Age range %d ends %s hours before end of range %d',
-                 i+1, -gen, i)
-
+    
     # Determine available backups
-    available_txt = sorted(x for x in os.listdir('.')
-                           if re.match(r'^\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d$', x))
+    backup_list = set(x for x in os.listdir('.')
+                      if re.match(r'^\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d$', x))
 
-    # Get most recent backup
-    now = datetime.strptime(available_txt.pop(), '%Y-%m-%d_%H:%M:%S')
-    log.info('Most recent backup is from %s', now)
-
-    # Backups that are available
-    available = list()
-    i = 0
-    for name in reversed(available_txt):
-        age = datetime.strptime(name, '%Y-%m-%d_%H:%M:%S')
-        available.append((name, age))
-        i += 1
-        log.info('Backup %d is from %s, age: %s hours', i, name, age)
- 
-    if not available:
-        return
-    step = -max(ages)
-    log.debug('Stepsize is %s hours', step)
-
-    if now - available[0][1] < step:
-        log.warn('NOTE: Your most recent backup is %s hours old, but according to your backup\n'
-                 'strategy, it should be at least %s hours old before creating a new backup.\n'
-                 'Are you sure that you specified the age ranges correctly?',
-                 now - available[0][1], step)
-
-    # Backups that need to be kept
-    keep = dict()
-
-    # Go forward in time to see what backups need to be kept
-    simulated = timedelta(0)
-    warn_missing = True
-    while True:
-        log.debug('Considering situation on %s', now + simulated)
-
-        # Determine age ranges
-        ranges = list()
-        beginning = available[0][1] + simulated # beginning of current range
-        for (i, min_rel_age) in enumerate(ages):
-            beginning += min_rel_age
-            log.debug('Age range %d ends at %s', i+1, beginning)
-            ranges.append(beginning)
+    if not os.path.exists(options.state):
+        log.warn('No existing state file, assuming first-time run.')
+        if len(backup_list) > 1:
+            state = upgrade_to_state(backup_list)
+        else:
+            state = dict()
+    else:
+        log.info('Reading state...')
+        state = pickle.load(open(options.state, 'rb'))
             
-        for i in range(len(ranges)-1):
-            
-            # If that range is actually in the future, we don't need a backup
-            # for it
-            if ranges[i] > now:
-                continue
-            
-            for (j, age) in enumerate((a[1] for a in available[1:])):
-                if age < ranges[i]:
-                    if age <= ranges[i+1]:
-                        dt = age - ranges[i+1]
-                        log.debug('No backup for age range %d, moving subsequent '
-                                  'ranges backward by %s hours', i+1, -dt)
-                        for k in range(i+1, len(ranges)):
-                            ranges[k] += dt
-                            log.debug('Age range %d now ends at %s', k+1, ranges[k])
-                            
-                    if j not in keep:
-                        log.info('Keeping backup %d, for age range %d%s',
-                                 j+1, i + 1, format_future(simulated))
-                    else:
-                        log.debug('Keeping backup %d, for age range %d%s',
-                                  j+1, i + 1, format_future(simulated))
-                    keep[j] = True
-                    break
-            else:
-                if available:
-                    keep[len(available) - 1] = True
-                    if warn_missing:
-                        log.warn('There will be no sufficiently old backup for age range %d%s '
-                                 'keeping backup %d instead.\n'
-                                 '(further warnings about missing backups will be suppressed)',
-                                 i + 1, format_future(simulated), len(available))
-                        warn_missing = False
-                else:
-                    if warn_missing:
-                        log.warn('There will be no backup for age range %d%s\n'
-                                 '(further warnings about missing backups will be suppressed)',
-                                 format_future(simulated), i + 1)
-                        warn_missing = False
-                break
-
-        # If all ranges are in the future, we are done
-        if ranges[-1] > now:
-            break
-        
-        simulated += step
-
-
-    # Remove what's left
-    for name in [ available[i][0] for i in range(len(available)) if i not in keep ]:
-        log.info('Backup %s is no longer needed, removing...', name)
+    to_delete = process_backups(backup_list, state, options.cycles)
+   
+    for x in to_delete:
+        log.info('Backup %s is no longer needed, removing...', x)
         if not options.n:
             if options.use_s3qlrm:
-                s3ql.cli.remove.main([name])
+                s3ql.cli.remove.main([x])
             else:
-                shutil.rmtree(name)
-
-def format_future(delta):
-    if delta:
-        return ' in %s hours' % delta
-    else:
-        return ''
+                shutil.rmtree(x)
+           
+    if options.n:
+        log.info('Dry run, not saving state.')
+    else: 
+        log.info('Saving state..')    
+        pickle.dump(state, open(options.state, 'wb'), 2)
+       
+def upgrade_to_state(backup_list):
+    log.info('Several existing backups detected, trying to convert absolute ages to cycles')
     
+    now = datetime.now()
+    age = dict()
+    for x in sorted(backup_list):
+        age[x] = now - datetime.strptime(x, '%Y-%m-%d_%H:%M:%S')
+        log.info('Backup %s is %s hours old', x, age[x])
+        
+    deltas = [ abs(x - y) for x in age.itervalues() 
+                          for y in age.itervalues() if x != y ]
+    step = min(deltas)   
+    log.info('Assuming backup interval of %s hours', step)
+    
+    state = dict()
+    for x in sorted(age):
+        state[x] = 0
+        while age[x] > timedelta(0):
+            state[x] += 1
+            age[x] -= step
+        log.info('Backup %s is %d cycles old', x, state[x])
+        
+    log.info('State construction complete.')
+    return state
+                        
+def simulate(args):
+
+    options = parse_args(args)
+    setup_logging(options)
+        
+    state = dict()
+    backup_list = set()
+    for i in xrange(50):
+        backup_list.add('backup-%2d' % i)
+        delete = process_backups(backup_list, state, options.cycles)
+        log.info('Deleting %s', delete)
+        backup_list -= delete
+
+        log.info('Available backups on day %d:', i)
+        for x in sorted(backup_list):
+            log.info(x)  
+    
+def process_backups(backup_list, state, cycles):
+        
+    # New backups
+    new_backups = backup_list - set(state)
+    for x in sorted(new_backups):
+        log.info('Found new backup %s', x)
+        for y in state:
+            state[y] += 1
+        state[x] = 0
+    
+    for x in state:
+        log.debug('Backup %s has age %d', x, state[x])
+                
+    # Missing backups
+    missing_backups = set(state) - backup_list
+    for x in missing_backups:
+        log.warn('Warning: backup %s is missing. Did you delete it manually?', x)
+        del state[x]
+
+    # Ranges
+    ranges = [ (0, cycles[0]) ]
+    for i in range(1, len(cycles)):
+        ranges.append((cycles[i-1], cycles[i]))
+    
+    # Go forward in time to see what backups need to be kept
+    simstate = dict()
+    keep = set()
+    missing = defaultdict(list)
+    for step in xrange(max(cycles)):
+        
+        log.debug('Considering situation after %d more backups', step)
+        for x in simstate:
+            simstate[x] += 1
+            log.debug('Backup x now has simulated age %d', simstate[x])
+            
+        # Add the hypothetical backup that has been made "just now"
+        if step != 0:
+            simstate[step] = 0
+        
+        for (min_, max_) in ranges:
+            log.debug('Looking for backup for age range %d to %d', min_, max_)
+            
+            # Look in simstate
+            found = False
+            for (backup, age) in simstate.iteritems():
+                if min_ <= age < max_:
+                    found = True
+                    break
+            if found:
+                # backup and age will be defined
+                #pylint: disable=W0631
+                log.debug('Using backup %s (age %d)', backup, age)
+                continue
+            
+            # Look in state
+            for (backup, age) in state.iteritems():
+                age += step
+                if min_ <= age < max_:
+                    log.info('Keeping backup %s (current age %d) for age range %d to %d%s',
+                             backup, state[backup], min_, max_,
+                             (' in %d cycles' % step) if step else '')
+                    simstate[backup] = age
+                    keep.add(backup)
+                    break
+                
+            else:
+                if step == 0:
+                    log.info('Note: there is currently no backup available '
+                             'for age range %d to %d', min_, max_)
+                else:
+                    missing['%d to %d' % (min_, max_)].append(step)
+                    
+    for range_ in sorted(missing):
+        log.info('Note: there will be no backup for age range %s '
+                 'in (forthcoming) cycle(s): %s', 
+                 range_, format_list(missing[range_]))
+  
+    to_delete = set(state) - keep
+    for x in to_delete:
+        del state[x]
+        
+    return to_delete
+
+    
+def format_list(l):
+    if not l:
+        return ''
+    l = l[:]
+    
+    # Append bogus end element
+    l.append(l[-1] + 2)
+    
+    range_start = l.pop(0)
+    cur = range_start
+    res = list()
+    for n in l:
+        if n == cur+1:
+            pass
+        elif range_start == cur:
+            res.append('%d' % cur)
+        elif range_start == cur - 1:
+            res.append('%d' % range_start)
+            res.append('%d' % cur)
+        else:
+            res.append('%d-%d' % (range_start, cur))
+        
+        if n != cur+1:
+            range_start = n
+        cur = n
+            
+    if len(res) > 1:
+        return ('%s and %s' % (', '.join(res[:-1]), res[-1])) 
+    else:
+        return ', '.join(res)
+        
+        
 if __name__ == '__main__':
+    #simulate(sys.argv[1:])
     main(sys.argv[1:])
