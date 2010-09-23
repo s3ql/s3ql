@@ -12,10 +12,13 @@ override_dh_installchangelogs:
 override_dh_compress:
 	dh_compress -X.txt -X.js -X.py
 
-# Fakeroot breaks testing
-#override_dh_install:
-#	python setup.py test
-#	dh_install
+
+override_dh_install:
+    # Fakeroot breaks testing
+	#python setup.py test
+	dh_install
+	cp contrib/expire_backups.py debian/s3ql/usr/bin/expire_backups
+	cp contrib/pcp.py debian/s3ql/usr/bin/pcp
 
 override_dh_installdocs:
 	python2.6 setup.py build_sphinx
