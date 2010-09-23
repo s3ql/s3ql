@@ -14,7 +14,7 @@ override_dh_compress:
 
 
 override_dh_install:
-    # Fakeroot breaks testing
+	# Fakeroot breaks testing
 	#python setup.py test
 	dh_install
 	cp contrib/expire_backups.py debian/s3ql/usr/bin/expire_backups
@@ -23,6 +23,14 @@ override_dh_install:
 override_dh_installdocs:
 	python2.6 setup.py build_sphinx
 	dh_installdocs
+	rm debian/s3ql/usr/share/doc/s3ql/contrib/expire_backups.py \
+	   debian/s3ql/usr/share/doc/s3ql/contrib/pcp.py
+	ln -sf txt/about.txt debian/s3ql/usr/share/doc/s3ql/README.txt
+
+override_dh_fixperms:
+	dh_fixperms
+	chmod +x debian/s3ql/usr/share/doc/s3ql/contrib/*.py \
+	         debian/s3ql/usr/share/doc/s3ql/contrib/*.sh
 
 override_dh_auto_clean:
 	dh_auto_clean
