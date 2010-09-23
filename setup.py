@@ -149,7 +149,7 @@ class build_ctypes(setuptools.Command):
 
         print('Creating ctypes API from local fuse headers...')
 
-        cflags = get_cflags('fuse')
+        cflags = pkg_config('fuse', min_ver='2.8.0')
         print('Using cflags: %s' % ' '.join(cflags))
 
         fuse_path = 'fuse'
@@ -237,9 +237,20 @@ class build_ctypes(setuptools.Command):
         print('Code generation complete.')
 
 
-def get_cflags(pkg, cflags=True, ldflags=False):
-    '''Get cflags required to compile with fuse library'''
+def pkg_config(pkg, cflags=True, ldflags=False, min_ver=None):
+    '''Frontend to ``pkg-config``'''
 
+    if min_ver:
+        cmd = ['pkg-config', pkg, '--atleast-version', min_ver ]
+        
+        if subprocess.call(cmd) != 0:
+            cmd = ['pkg-config', '--modversion', pkg ]
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+            version = proc.communicate()[0].strip()
+            print('%s version too old (found: %s, required: %s)' 
+                  % (pkg, version, min_ver), file=sys.stderr)
+            sys.exit(1)
+    
     cmd = ['pkg-config', pkg ]
     if cflags:
         cmd.append('--cflags')
@@ -250,10 +261,9 @@ def get_cflags(pkg, cflags=True, ldflags=False):
     cflags = proc.stdout.readline().rstrip()
     proc.stdout.close()
     if proc.wait() != 0:
-        sys.stderr.write('Failed to execute pkg-config. Exit code: %d.\n'
-                         % proc.returncode)
-        sys.stderr.write('Check that the %s development package been installed properly.\n'
-                         % pkg)
+        print('Failed to execute pkg-config. Exit code: %d.\n'
+              'Check that the %s development package been installed properly.'
+              % (proc.returncode, pkg), file=sys.stderr)
         sys.exit(1)
 
     return cflags.split()
