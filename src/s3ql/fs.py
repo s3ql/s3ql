@@ -33,6 +33,12 @@ __all__ = [ "Server" ]
 # standard logger for this module
 log = logging.getLogger("fs")
 
+# For long requests, we force a GIL release in the following interval
+GIL_RELEASE_INTERVAL = 0.1
+
+# The GIL is released by sleeping for this amount
+GIL_SLEEP_TIME = 0.0001
+
 class Operations(llfuse.Operations):
     """A full-featured file system for online data storage
 
@@ -174,7 +180,7 @@ class Operations(llfuse.Operations):
         # The ResultSet is automatically deleted
         # when yield raises GeneratorExit.  
         res = self.db.query("SELECT rowid, name, inode FROM contents WHERE parent_inode=? "
-                         'AND rowid > ? ORDER BY rowid', (id_, off))
+                            'AND rowid > ? ORDER BY rowid', (id_, off))
         for (next_, name, cid_) in res:
             yield (name, self.inodes[cid_], next_)
 
@@ -252,7 +258,9 @@ class Operations(llfuse.Operations):
         log.debug('lock_tree(%d): start', id0)
         queue = [ id0 ]  
         self.inodes[id0].locked = True
-        processed = 0
+        processed = 0 # Number of steps since last GIL release
+        stamp = time.time() # Time of last GIL release
+        gil_step = 1000 # Approx. number of steps between GIL releases
         while True:    
             id_p = queue.pop()
             for (id_,) in self.db.query('SELECT inode FROM contents WHERE parent_inode=?',
@@ -266,9 +274,13 @@ class Operations(llfuse.Operations):
             if not queue:
                 break
                             
-            if processed > 1000:
-                processed = 0
-                self.yield_lock()
+            if processed > gil_step:
+                with lock.unlocked():
+                    dt = time.time() - stamp
+                    gil_step *= GIL_RELEASE_INTERVAL / dt 
+                    processed = 0
+                    time.sleep(GIL_SLEEP_TIME) # This just forces a GIL release
+                stamp = time.time()
 
         log.debug('lock_tree(%d): end', id0)
 
@@ -282,7 +294,9 @@ class Operations(llfuse.Operations):
             
         id0 = self.lookup(id_p0, name0).id
         queue = [ id0 ]
-        processed = 0
+        processed = 0 # Number of steps since last GIL release
+        stamp = time.time() # Time of last GIL release
+        gil_step = 100 # Approx. number of steps between GIL releases
         while True:
             found_subdirs = False
             id_p = queue.pop()  
@@ -301,8 +315,7 @@ class Operations(llfuse.Operations):
                     self._remove(id_p, name, id_, force=True)
                 
                 processed += 1   
-                if processed > 500:
-                    processed = 0           
+                if processed > gil_step:     
                     if not found_subdirs:
                         found_subdirs = True
                         queue.append(id_p)
@@ -312,19 +325,16 @@ class Operations(llfuse.Operations):
                 llfuse.invalidate_entry(id_p0, name0)
                 self._remove(id_p0, name0, id0, force=True)
                 break              
-            
-            if processed == 0:
-                self.yield_lock()        
+          
+            if processed > gil_step:  
+                with lock.unlocked():
+                    dt = time.time() - stamp
+                    gil_step *= GIL_RELEASE_INTERVAL / dt 
+                    processed = 0
+                    time.sleep(GIL_SLEEP_TIME) # This just forces a GIL release
+                stamp = time.time()    
         
         log.debug('remove_tree(%d, %s): end', id_p0, name0)
-
-
-    def yield_lock(self):
-        '''Temporarily release global lock'''
-        
-        log.debug('yield_lock(): releasing global lock')
-        with lock.unlocked():
-            time.sleep(0.01)
         
     
     def copy_tree(self, src_id, target_id):
@@ -349,7 +359,9 @@ class Operations(llfuse.Operations):
         
         queue = [ (src_id, tmp.id) ]
         id_cache = dict()
-        processed = 0
+        processed = 0 # Number of steps since last GIL release
+        stamp = time.time() # Time of last GIL release
+        gil_step = 1000 # Approx. number of steps between GIL releases
         in_transit = set()
         while True:
             (t1, t2) = self._copy_tree(queue, id_cache)
@@ -362,10 +374,13 @@ class Operations(llfuse.Operations):
             log.debug('copy_tree(%d, %d): processed %d entries', 
                       src_id, target_id, processed)
             
-            # Give other threads a chance to access the db
-            if processed > 250:
-                processed = 0
-                self.yield_lock()
+            if processed > gil_step:
+                with lock.unlocked():
+                    dt = time.time() - stamp
+                    gil_step *= GIL_RELEASE_INTERVAL / dt 
+                    processed = 0
+                    time.sleep(GIL_SLEEP_TIME) # This just forces a GIL release
+                stamp = time.time()
   
 
         # If we replicated blocks whose associated objects where still in
@@ -393,13 +408,14 @@ class Operations(llfuse.Operations):
 
         # To avoid lookups and make code tidier
         make_inode = self.inodes.create_inode
-
+        db = self.db
+        
         processed = 0
         in_transit = set()
         (src_id, target_id) = queue.pop()
                 
-        for (name, id_) in self.db.query('SELECT name, inode FROM contents WHERE parent_inode=?',
-                                         (src_id,)):
+        for (name, id_) in db.query('SELECT name, inode FROM contents WHERE parent_inode=?',
+                                    (src_id,)):
             if id_ not in id_cache:
                 inode = self.inodes[id_]
 
@@ -418,25 +434,27 @@ class Operations(llfuse.Operations):
                 if inode.refcount != 1:
                     id_cache[id_] = id_new
 
-                for (obj_id, blockno) in self.db.query('SELECT obj_id, blockno FROM blocks '
-                                                    'WHERE inode=?', (id_,)):
-                    self.db.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
-                                 (id_new, blockno, obj_id))
-                    self.db.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?', (obj_id,))
+                for (obj_id, blockno) in db.query('SELECT obj_id, blockno FROM blocks '
+                                                  'WHERE inode=?', (id_,)):
+                    processed += 1
+                    db.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
+                               (id_new, blockno, obj_id))
+                    db.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?', (obj_id,))
                     
                     if (id_, blockno) in self.cache.upload_manager.in_transit:
                         in_transit.add((id_, blockno))
 
-                if self.db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
+                if db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
                     queue.append((id_, id_new))
             else:
                 id_new = id_cache[id_]
                 self.inodes[id_new].refcount += 1
 
-            self.db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
-                         (name, id_new, target_id))
+            db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
+                       (name, id_new, target_id))
+            
             processed += 1
-
+            
         return (processed, in_transit)
 
     def unlink(self, id_p, name):

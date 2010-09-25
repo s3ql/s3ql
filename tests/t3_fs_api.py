@@ -591,7 +591,7 @@ class fs_api_tests(TestCase):
         queue = [ (src_inode.id, dst_inode.id) ]
         id_cache = dict()
         (no, in_transit) = self.server._copy_tree(queue, id_cache)
-        self.assertEqual(no, 4)
+        self.assertEqual(no, 6)
         
         # Wait for objects in transit
         while in_transit:
