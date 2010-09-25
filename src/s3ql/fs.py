@@ -34,7 +34,7 @@ __all__ = [ "Server" ]
 log = logging.getLogger("fs")
 
 # For long requests, we force a GIL release in the following interval
-GIL_RELEASE_INTERVAL = 0.1
+GIL_RELEASE_INTERVAL = 0.05
 
 # The GIL is released by sleeping for this amount
 GIL_SLEEP_TIME = 0.0001
@@ -260,7 +260,7 @@ class Operations(llfuse.Operations):
         self.inodes[id0].locked = True
         processed = 0 # Number of steps since last GIL release
         stamp = time.time() # Time of last GIL release
-        gil_step = 1000 # Approx. number of steps between GIL releases
+        gil_step = 500 # Approx. number of steps between GIL releases
         while True:    
             id_p = queue.pop()
             for (id_,) in self.db.query('SELECT inode FROM contents WHERE parent_inode=?',
@@ -277,7 +277,9 @@ class Operations(llfuse.Operations):
             if processed > gil_step:
                 with lock.unlocked():
                     dt = time.time() - stamp
-                    gil_step *= GIL_RELEASE_INTERVAL / dt 
+                    gil_step = int(gil_step * GIL_RELEASE_INTERVAL / dt)
+                    log.debug('lock_tree(%d): Adjusting gil_step to %d', 
+                              id0, gil_step)  
                     processed = 0
                     time.sleep(GIL_SLEEP_TIME) # This just forces a GIL release
                 stamp = time.time()
@@ -296,7 +298,7 @@ class Operations(llfuse.Operations):
         queue = [ id0 ]
         processed = 0 # Number of steps since last GIL release
         stamp = time.time() # Time of last GIL release
-        gil_step = 100 # Approx. number of steps between GIL releases
+        gil_step = 50 # Approx. number of steps between GIL releases
         while True:
             found_subdirs = False
             id_p = queue.pop()  
@@ -329,7 +331,9 @@ class Operations(llfuse.Operations):
             if processed > gil_step:  
                 with lock.unlocked():
                     dt = time.time() - stamp
-                    gil_step *= GIL_RELEASE_INTERVAL / dt 
+                    gil_step = int(gil_step * GIL_RELEASE_INTERVAL / dt)
+                    log.debug('remove_tree(%d, %s): Adjusting gil_step to %d', 
+                              id_p0, name0, gil_step)  
                     processed = 0
                     time.sleep(GIL_SLEEP_TIME) # This just forces a GIL release
                 stamp = time.time()    
@@ -341,7 +345,11 @@ class Operations(llfuse.Operations):
         '''Efficiently copy directory tree'''
 
         log.debug('copy_tree(%d, %d): start', src_id, target_id)
-        
+
+        # To avoid lookups and make code tidier
+        make_inode = self.inodes.create_inode
+        db = self.db
+                
         # First we make sure that all blocks are in the database
         self.cache.commit()
         log.debug('copy_tree(%d, %d): committed cache', src_id, target_id)
@@ -354,30 +362,74 @@ class Operations(llfuse.Operations):
 
         # We first replicate into a dummy inode 
         timestamp = time.time()
-        tmp = self.inodes.create_inode(mtime=timestamp, ctime=timestamp, atime=timestamp,
-                                       uid=0, gid=0, mode=0, refcount=0)
+        tmp = make_inode(mtime=timestamp, ctime=timestamp, atime=timestamp,
+                         uid=0, gid=0, mode=0, refcount=0)
         
-        queue = [ (src_id, tmp.id) ]
+        queue = [ (src_id, tmp.id, 0) ]
         id_cache = dict()
         processed = 0 # Number of steps since last GIL release
         stamp = time.time() # Time of last GIL release
-        gil_step = 1000 # Approx. number of steps between GIL releases
+        gil_step = 100 # Approx. number of steps between GIL releases
         in_transit = set()
-        while True:
-            (t1, t2) = self._copy_tree(queue, id_cache)
-            processed += t1
-            in_transit.update(t2)
+        while queue:
+            (src_id, target_id, rowid) = queue.pop()
+            log.debug('copy_tree(%d, %d): Processing directory (%d, %d, %d)', 
+                      src_inode.id, target_inode.id, src_id, target_id, rowid)
+            for (name, id_, rowid) in db.query('SELECT name, inode, rowid FROM contents '
+                                               'WHERE parent_inode=? AND rowid > ? '
+                                               'ORDER BY rowid', (src_id, rowid)):
 
-            if not queue:
-                break
-            
-            log.debug('copy_tree(%d, %d): processed %d entries', 
-                      src_id, target_id, processed)
+                if id_ not in id_cache:
+                    inode = self.inodes[id_]
+    
+                    try:
+                        inode_new = make_inode(refcount=1, mode=inode.mode, size=inode.size,
+                                               uid=inode.uid, gid=inode.gid,
+                                               mtime=inode.mtime, atime=inode.atime,
+                                               ctime=inode.ctime, target=inode.target,
+                                               rdev=inode.rdev)
+                    except OutOfInodesError:
+                        log.warn('Could not find a free inode')
+                        raise FUSEError(errno.ENOSPC)
+    
+                    id_new = inode_new.id
+    
+                    if inode.refcount != 1:
+                        id_cache[id_] = id_new
+    
+                    for (obj_id, blockno) in db.query('SELECT obj_id, blockno FROM blocks '
+                                                      'WHERE inode=?', (id_,)):
+                        processed += 1
+                        db.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
+                                   (id_new, blockno, obj_id))
+                        db.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?', (obj_id,))
+                        
+                        if (id_, blockno) in self.cache.upload_manager.in_transit:
+                            in_transit.add((id_, blockno))
+    
+                    if db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
+                        queue.append((id_, id_new, 0))
+                else:
+                    id_new = id_cache[id_]
+                    self.inodes[id_new].refcount += 1
+    
+                db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
+                           (name, id_new, target_id))
+                
+                processed += 1
+                
+                if processed > gil_step:
+                    log.debug('copy_tree(%d, %d): Requeueing (%d, %d, %d) to yield lock', 
+                              src_inode.id, target_inode.id, src_id, target_id, rowid)
+                    queue.append((src_id, target_id, rowid))
+                    break
             
             if processed > gil_step:
                 with lock.unlocked():
                     dt = time.time() - stamp
-                    gil_step *= GIL_RELEASE_INTERVAL / dt 
+                    gil_step = int(gil_step * GIL_RELEASE_INTERVAL / dt)
+                    log.debug('copy_tree(%d, %d): Adjusting gil_step to %d', 
+                              src_inode.id, target_inode.id, gil_step) 
                     processed = 0
                     time.sleep(GIL_SLEEP_TIME) # This just forces a GIL release
                 stamp = time.time()
@@ -388,8 +440,8 @@ class Operations(llfuse.Operations):
         # the replicated tree visible to the user. Otherwise access to the newly
         # created blocks will raise a NoSuchObject exception.
         while in_transit:
-            log.debug('copy_tree(%d, %d): in_transit: %s', src_id, target_id,
-                      in_transit)
+            log.debug('copy_tree(%d, %d): in_transit: %s', 
+                      src_inode.id, target_inode.id, in_transit)
             in_transit = [ x for x in in_transit 
                            if x in self.cache.upload_manager.in_transit ]
             if in_transit:
@@ -402,60 +454,8 @@ class Operations(llfuse.Operations):
         del self.inodes[tmp.id]
         llfuse.invalidate_inode(target_inode.id)
         
-        log.debug('copy_tree(%d, %d): start', src_id, target_id)
+        log.debug('copy_tree(%d, %d): end', src_inode.id, target_inode.id)
 
-    def _copy_tree(self, queue, id_cache):
-
-        # To avoid lookups and make code tidier
-        make_inode = self.inodes.create_inode
-        db = self.db
-        
-        processed = 0
-        in_transit = set()
-        (src_id, target_id) = queue.pop()
-                
-        for (name, id_) in db.query('SELECT name, inode FROM contents WHERE parent_inode=?',
-                                    (src_id,)):
-            if id_ not in id_cache:
-                inode = self.inodes[id_]
-
-                try:
-                    inode_new = make_inode(refcount=1, mode=inode.mode, size=inode.size,
-                                           uid=inode.uid, gid=inode.gid,
-                                           mtime=inode.mtime, atime=inode.atime,
-                                           ctime=inode.ctime, target=inode.target,
-                                           rdev=inode.rdev)
-                except OutOfInodesError:
-                    log.warn('Could not find a free inode')
-                    raise FUSEError(errno.ENOSPC)
-
-                id_new = inode_new.id
-
-                if inode.refcount != 1:
-                    id_cache[id_] = id_new
-
-                for (obj_id, blockno) in db.query('SELECT obj_id, blockno FROM blocks '
-                                                  'WHERE inode=?', (id_,)):
-                    processed += 1
-                    db.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
-                               (id_new, blockno, obj_id))
-                    db.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?', (obj_id,))
-                    
-                    if (id_, blockno) in self.cache.upload_manager.in_transit:
-                        in_transit.add((id_, blockno))
-
-                if db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
-                    queue.append((id_, id_new))
-            else:
-                id_new = id_cache[id_]
-                self.inodes[id_new].refcount += 1
-
-            db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
-                       (name, id_new, target_id))
-            
-            processed += 1
-            
-        return (processed, in_transit)
 
     def unlink(self, id_p, name):
         inode = self.lookup(id_p, name)

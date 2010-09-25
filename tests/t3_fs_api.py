@@ -587,19 +587,7 @@ class fs_api_tests(TestCase):
         f2_inode = self.server.link(f2_inode.id, d1_inode.id, 'file2_hardlink')
 
         # Replicate
-        self.server.cache.commit()
-        queue = [ (src_inode.id, dst_inode.id) ]
-        id_cache = dict()
-        (no, in_transit) = self.server._copy_tree(queue, id_cache)
-        self.assertEqual(no, 6)
-        
-        # Wait for objects in transit
-        while in_transit:
-            in_transit = [ x for x in in_transit 
-                           if x in self.server.cache.upload_manager.in_transit ]
-            if in_transit:
-                self.server.cache.upload_manager.join_one()
-      
+        self.server.copy_tree(src_inode.id, dst_inode.id)
 
         # Change files
         fh = self.server.open(f1_inode.id, os.O_RDWR)
@@ -615,7 +603,9 @@ class fs_api_tests(TestCase):
         f2_inode_c = self.server.lookup(dst_inode.id, 'file2')
         f2h_inode_c = self.server.lookup(dst_inode.id, 'file2_hardlink')
         d1_inode_c = self.server.lookup(dst_inode.id, 'dir1')
-
+        d2_inode_c = self.server.lookup(d1_inode_c.id, 'dir2')
+        f2_h_inode_c = self.server.lookup(d1_inode_c.id, 'file2_hardlink')
+        
         # Check file1
         fh = self.server.open(f1_inode_c.id, os.O_RDWR)
         self.assertEqual(self.server.read(fh, 0, 42), 'file1 contents')
@@ -627,25 +617,13 @@ class fs_api_tests(TestCase):
         self.assertTrue(self.server.read(fh, 0, 42) == 'file2 contents')
         self.server.release(fh)
         self.assertEqual(f2_inode_c.id, f2h_inode_c.id)
-        self.assertEqual(f2_inode_c.refcount, 2)
+        self.assertEqual(f2_inode_c.refcount, 3)
         self.assertNotEqual(f2_inode.id, f2_inode_c.id)
-
+        self.assertEqual(f2_h_inode_c.id, f2_inode_c.id)
+        
         # Check subdir1
         self.assertNotEqual(d1_inode.id, d1_inode_c.id)
-
-        # Copy again
-        self.assertEqual(self.server._copy_tree(queue, id_cache)[0], 2)
-
-        # Update attributes
-        d2_inode_c = self.server.lookup(d1_inode_c.id, 'dir2')
-        f2_h_inode_c = self.server.lookup(d1_inode_c.id, 'file2_hardlink')
-
-        # Check subdir1
-        self.assertNotEqual(d2_inode.id, d2_inode_c.id)
-
-        # Check file2
-        self.assertEqual(f2_h_inode_c.id, f2_inode_c.id)
-        self.assertEqual(self.server.getattr(f2_inode_c.id).refcount, 3)
+        self.assertNotEqual(d2_inode.id, d2_inode_c.id)     
         
         self.fsck()
 

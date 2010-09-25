@@ -8,6 +8,9 @@ xxx, S3QL 0.25
     significantly better when backups are made in irregular time
     intervals.  
 
+  * S3QL should now respond with more consistent performance when
+    accessing the file system while s3qlcp, s3qllock or s3qlrm
+    is running at the same time. 
 
 2010-09-18, S3QL 0.24
 
