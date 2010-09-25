@@ -38,7 +38,8 @@ def parse_args(args):
     parser.add_argument("--s3-location", default='EU', metavar='<name>',
                       choices=('EU', 'us-west-1', 'us-standard', 'ap-southeast-1'),
                       help="Storage location for new S3 buckets. Allowed values: `EU`, "
-                           '`us-west-1`, `ap-southeast-1`, or `us-standard`.')
+                           '`us-west-1`, `ap-southeast-1`, or `us-standard`. '
+                           '(default: %(default)s)')
     parser.add_argument("-L", default='', help="Filesystem label",
                       dest="label", metavar='<name>',)
     parser.add_argument("--blocksize", type=int, default=10240, metavar='<size>',
