@@ -11,6 +11,10 @@ xxx, S3QL 0.25
   * S3QL should now respond with more consistent performance when
     accessing the file system while s3qlcp, s3qllock or s3qlrm
     is running at the same time. 
+    
+  * When enabling debug output for the `UploadManager` module,
+    S3QL now logs detailed messages about de-duplication, upload
+    and compression performance.     
 
 2010-09-18, S3QL 0.24
 
