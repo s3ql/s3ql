@@ -32,6 +32,9 @@ are:
     
 '''
 
+# Pylint really gets confused by this module
+#pylint: disable-all
+
 from __future__ import division, print_function, absolute_import
 
 import s3ql
