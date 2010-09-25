@@ -76,7 +76,7 @@ class UploadManager(object):
         if log.isEnabledFor(logging.DEBUG):
             time_ = time.time()
             hash_ = sha256_fh(el)
-            time_ = time.time() - time
+            time_ = time.time() - time_
             log.debug('UploadManager(inode=%d, blockno=%d): '
                      'hashed %d bytes in %.3f seconds, %.2f MB/s',
                       el.inode, el.blockno, size, 
@@ -231,7 +231,7 @@ class CompressThread(Thread):
                 time_ = time.time()
                 (self.size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.el.obj_id, 
                                                                self.fh)
-                time_ = time.time() - time
+                time_ = time.time() - time_
                 log.debug('CompressionThread(inode=%d, blockno=%d): '
                          'compressed %d bytes in %.3f seconds, %.2f MB/s',
                           self.el.inode, self.el.blockno, oldsize, 
@@ -292,7 +292,7 @@ class UploadThread(Thread):
             if log.isEnabledFor(logging.DEBUG):
                 time_ = time.time()
                 self.fn()
-                time_ = time.time() - time
+                time_ = time.time() - time_
                 log.debug('CompressionThread(inode=%d, blockno=%d): '
                          'compressed %d bytes in %.3f seconds, %.2f MB/s',
                           self.el.inode, self.el.blockno, self.size, 
