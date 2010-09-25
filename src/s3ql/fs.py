@@ -277,7 +277,7 @@ class Operations(llfuse.Operations):
             if processed > gil_step:
                 with lock.unlocked():
                     dt = time.time() - stamp
-                    gil_step = int(gil_step * GIL_RELEASE_INTERVAL / dt)
+                    gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 1)
                     log.debug('lock_tree(%d): Adjusting gil_step to %d', 
                               id0, gil_step)  
                     processed = 0
@@ -331,7 +331,7 @@ class Operations(llfuse.Operations):
             if processed > gil_step:  
                 with lock.unlocked():
                     dt = time.time() - stamp
-                    gil_step = int(gil_step * GIL_RELEASE_INTERVAL / dt)
+                    gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 1)
                     log.debug('remove_tree(%d, %s): Adjusting gil_step to %d', 
                               id_p0, name0, gil_step)  
                     processed = 0
@@ -427,7 +427,7 @@ class Operations(llfuse.Operations):
             if processed > gil_step:
                 with lock.unlocked():
                     dt = time.time() - stamp
-                    gil_step = int(gil_step * GIL_RELEASE_INTERVAL / dt)
+                    gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 1)
                     log.debug('copy_tree(%d, %d): Adjusting gil_step to %d', 
                               src_inode.id, target_inode.id, gil_step) 
                     processed = 0
