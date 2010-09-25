@@ -454,9 +454,12 @@ class AWSAuthConnection(object):
                     continue
             except KeyboardInterrupt:
                 sys.exit('Keyboard Interrupt')
+            except httplib.BadStatusLine as e:
+                boto.log.warn('Bad status line: %r, retrying..', e.line)
+                connection = self.new_http_connection(host, self.is_secure)
             except self.http_exceptions, e:
-                boto.log.debug('encountered %s exception, reconnecting' % \
-                                  e.__class__.__name__)
+                boto.log.warn('encountered http exception, reconnecting',
+                              exc_info=True)
                 connection = self.new_http_connection(host, self.is_secure)
             time.sleep(2 ** i)
             i += 1
