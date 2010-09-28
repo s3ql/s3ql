@@ -1,4 +1,4 @@
-xxx, S3QL 0.25
+2010-09-28, S3QL 0.25
 
   * A critical bug that could cause backups to be deleted too 
     early and potentially break the whole backup strategy has 
