@@ -49,5 +49,8 @@ rsync -aHAXx --delete-during --delete-excluded --partial -v \
 # Make the new backup immutable
 s3qllock "$new_backup"
 
-# Expire old backups, keep 6 generations with specified relative ages
-expire_backups --use-s3qlrm 9h 1d 7d 14d 31d 150d 150d
+# Expire old backups
+
+# Note that expire_backups.py comes from contrib/ and is not installed
+# by default
+expire_backups.py --use-s3qlrm 1 7 14 31 90 180 360
