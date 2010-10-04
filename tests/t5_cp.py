@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function
 import os.path
-import s3ql.cli.cp
+from s3ql.cli.cp import main as s3qlcp
 import subprocess
 import tarfile
 import tempfile
@@ -47,7 +47,7 @@ class cpTests(t4_fuse.fuse_tests):
 
         # copy
         try:
-            s3ql.cli.cp.main([os.path.join(self.mnt_dir, 'orig'),
+            s3qlcp([os.path.join(self.mnt_dir, 'orig'),
                               os.path.join(self.mnt_dir, 'copy')])
         except BaseException as exc:
             self.fail("s3qlcp failed: %s" % exc)

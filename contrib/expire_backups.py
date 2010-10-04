@@ -29,7 +29,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     
 from s3ql.common import setup_logging
 from s3ql.argparse import ArgumentParser
-import s3ql.cli.remove
+from s3ql.cli.remove import main as s3qlrm
     
 log = logging.getLogger('expire_backups')
 
@@ -105,7 +105,7 @@ def main(args=None):
         log.info('Backup %s is no longer needed, removing...', x)
         if not options.n:
             if options.use_s3qlrm:
-                s3ql.cli.remove.main([x])
+                s3qlrm([x])
             else:
                 shutil.rmtree(x)
            
