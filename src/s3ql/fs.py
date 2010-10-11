@@ -102,11 +102,6 @@ class Operations(llfuse.Operations):
         self.blocksize = blocksize
         self.cache = BlockCache(bucket, db, cachedir, cache_size, cache_entries)
 
-        # Make sure the control file is only writable by the user
-        # who mounted the file system
-        self.inodes[CTRL_INODE].uid = os.getuid()
-        self.inodes[CTRL_INODE].gid = os.getgid()
-
     def init(self):
         self.cache.init()
         self.inode_flush_thread = InodeFlushThread(self.inodes)
@@ -127,8 +122,15 @@ class Operations(llfuse.Operations):
 
     def lookup(self, id_p, name):
         if name == CTRL_NAME:
-            return self.inodes[CTRL_INODE]
-
+            inode = self.inodes[CTRL_INODE]
+            
+            # Make sure the control file is only writable by the user
+            # who mounted the file system (but don't mark inode as dirty)
+            object.__setattr__(inode, 'uid', os.getuid())
+            object.__setattr__(inode, 'gid', os.getgid())
+            
+            return inode
+            
         if name == '.':
             return self.inodes[id_p]
 
@@ -145,6 +147,14 @@ class Operations(llfuse.Operations):
         return self.inodes[id_]
 
     def getattr(self, id_):
+        if id_ == CTRL_INODE:
+            # Make sure the control file is only writable by the user
+            # who mounted the file system (but don't mark inode as dirty)
+            inode = self.inodes[CTRL_INODE]
+            object.__setattr__(inode, 'uid', os.getuid())
+            object.__setattr__(inode, 'gid', os.getgid())
+            return inode
+            
         try:
             return self.inodes[id_]
         except KeyError:
