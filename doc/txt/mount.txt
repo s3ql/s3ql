@@ -183,14 +183,13 @@ it to `/etc/fstab` like any other file system, or you can create
 a dedicated init script.
 
 The first option is simpler, but not recommended. Since file systems
-mounted in `/etc/fstab` will always be unmounted with the `umount`
-command, the call will *not* block until all data has been uploaded
-(this is a FUSE limitation, see `issue 159
-<http://code.google.com/p/s3ql/issues/detail?id=159>`_) and your
-system will shut down (or restart) before the upload is complete. If
+mounted in `/etc/fstab` will be unmounted with the `umount` command,
+your system will not wait until all data has been uploaded but
+shutdown (or restart) immediately (this is a FUSE limitation, see
+`issue 159 <http://code.google.com/p/s3ql/issues/detail?id=159>`_). If
 for some reason you want to do this nevertheless, you have to copy the
-`mount.s3ql` program to `/sbin` and use the `_netdev`
-mount option, e.g. ::
+`mount.s3ql` program to `/sbin` and use the `_netdev` mount option,
+e.g. ::
 
   s3://my_s3ql_bucket     /mnt/s3     s3ql    allow-other,_netdev  0  0
 
