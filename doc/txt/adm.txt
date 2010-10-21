@@ -29,22 +29,14 @@ The passphrase can only be changed when the bucket is not mounted.
 Upgrading the file system
 -------------------------
 
-If you have installed a new version of S3QL, is usually necessary to
-upgrade your file system metadata. Note that afterwards the file system
-can no longer be accessed with older versions of S3QL.
+If you have installed a new version of S3QL, it may sometimes be
+necessary to upgrade the file system metadata as well. Note that in
+this case the file system can no longer be accessed with older
+versions of S3QL after the upgrade.
 
-Before you upgrade the file system, you should run `fsck.s3ql` (from
-the S3QL release that you are upgrading from).
-
-During the upgrade you have to make very sure that the command is not
-interrupted, and that no one else tries to mount, fsck or upgrade the
+During the upgrade you have to make sure that the command is not
+interrupted, and that no one else tries to mount, check or upgrade the
 file system at the same time.
-
-Finally, note that `s3qladm` can only upgrade from the *previous*
-S3QL release, so you cannot directly upgrade e.g. from version 0.10 to
-version 0.12. You first have to download S3QL 0.11 and upgrade the
-file system from 0.10 to 0.11 before you can install S3QL 0.12 and
-upgrade the file system from 0.11 to 0.12.
 
 To upgrade a file system from the previous to the current revision,
 execute ::

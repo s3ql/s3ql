@@ -12,6 +12,13 @@ override_dh_installchangelogs:
 override_dh_compress:
 	dh_compress -X.txt -X.js -X.py
 
+override_dh_auto_build:
+	dh_auto_build
+
+        # Generate the docs from the doc sources
+	[ ! -e doc/html ] && python setup.py build_sphinx
+	[ ! -e doc/doctrees ] || rm -rf doc/doctrees
+	[ ! -e doc/html/.buildinfo ] || rm -rf doc/html/.buildinfo
 
 override_dh_install:
 	# Fakeroot breaks testing
@@ -21,7 +28,6 @@ override_dh_install:
 	cp contrib/pcp.py debian/s3ql/usr/bin/pcp
 
 override_dh_installdocs:
-	python2.6 setup.py build_sphinx
 	dh_installdocs
 	rm debian/s3ql/usr/share/doc/s3ql/contrib/expire_backups.py \
 	   debian/s3ql/usr/share/doc/s3ql/contrib/pcp.py
@@ -35,6 +41,5 @@ override_dh_fixperms:
 override_dh_auto_clean:
 	dh_auto_clean
 	rm -rf dist
-	rm -rf doc/html
 	rm -rf doc/doctrees
 	rm -rf setup.log
