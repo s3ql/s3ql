@@ -308,8 +308,14 @@ class Bucket(AbstractBucket):
         with self.conn.lock:
             src_path = self._key_to_path(src)
             dest_path = self._key_to_path(dest)
-            if not os.path.exists(src_path + '.dat'):
-                raise NoSuchObject(src)
+            
+            try:
+                self.conn.sftp.lstat(src_path + '.dat')
+            except IOError as exc:
+                if exc.errno == errno.ENOENT:
+                    raise NoSuchObject(src)
+                else:
+                    raise
                
             try: 
                 self.conn.sftp.rename(src_path + '.dat', dest_path + '.dat')
