@@ -1,3 +1,11 @@
+2010-10-30, S3QL 0.26
+
+  * Fixed a problem with the sftp backend failing because it
+    tries to access a file locally.
+
+  * Various minor bugfixes
+
+
 2010-09-28, S3QL 0.25
 
   * A critical bug that could cause backups to be deleted too 

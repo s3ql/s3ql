@@ -13,5 +13,5 @@ __all__ = [ 'backends', 'cli', 'argparse', 'block_cache', "common", 'daemonize',
             'libc', "mkfs", 'multi_lock', 'ordered_dict', 'thread_group',
             'upload_manager', 'VERSION', 'CURRENT_FS_REV' ]
 
-VERSION = '0.25'
+VERSION = '0.26'
 CURRENT_FS_REV = 9
