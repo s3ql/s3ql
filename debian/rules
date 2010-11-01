@@ -16,7 +16,7 @@ override_dh_auto_build:
 	dh_auto_build
 
         # Generate the docs from the doc sources
-	[ ! -e doc/html ] && python setup.py build_sphinx
+	[ -e doc/html ] || python setup.py build_sphinx
 	[ ! -e doc/doctrees ] || rm -rf doc/doctrees
 	[ ! -e doc/html/.buildinfo ] || rm -rf doc/html/.buildinfo
 
