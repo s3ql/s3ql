@@ -33,8 +33,8 @@ __all__ = ["get_bucket_home", 'sha256', 'sha256_fh', 'add_stdout_logging',
            'setup_logging', 'AsyncFn' ]
 
 
-AUTHINFO_BACKEND_PATTERN = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(\S+)$'
-AUTHINFO_BUCKET_PATTERN = r'^storage-url\s+(\S+)\s+password\s+(\S+)$'
+AUTHINFO_BACKEND_PATTERN = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(.+)$'
+AUTHINFO_BUCKET_PATTERN = r'^storage-url\s+(\S+)\s+password\s+(.+)$'
 
 log = logging.getLogger('common')
         

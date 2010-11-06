@@ -1,10 +1,15 @@
+xx, S3QL 0.27
+
+  * The authinfo file now supports passwords that include 
+    white space. 
+  
+  
 2010-10-30, S3QL 0.26
 
   * Fixed a problem with the sftp backend failing because it
     tries to access a file locally.
 
   * Various minor bugfixes
-
 
 2010-09-28, S3QL 0.25
 
