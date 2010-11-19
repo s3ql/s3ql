@@ -22,7 +22,7 @@ from s3ql.backends.common import ChecksumError
 import os
 from s3ql.database import Connection
 import tempfile
-from datetime import date as Date
+from datetime import datetime as Datetime
 import textwrap
 import shutil
 import stat
@@ -122,7 +122,7 @@ def download_metadata(bucket, storage_url):
     for (i, name) in enumerate(backups):
         params = bucket.lookup(name)
         if 'last-modified' in params:
-            date = Date.fromtimestamp(params['last-modified']).strftime('%Y-%m-%d %H:%M:%S')
+            date = Datetime.fromtimestamp(params['last-modified']).strftime('%Y-%m-%d %H:%M:%S')
         else:
             # (metadata might from an older fs revision)
             date = '(unknown)'
