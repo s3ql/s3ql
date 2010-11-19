@@ -115,9 +115,7 @@ class Connection(AbstractConnection):
         # Argument number deliberately differs from base class
         #pylint: disable-msg=W0221
         
-        if not re.match('^[a-z][a-z0-9.-]{1,60}[a-z0-9]$', name):
-            raise InvalidBucketNameError()
-
+        self.check_name(name)
         with self._get_boto() as boto:
             try:
                 boto.create_bucket(name, location=location)
@@ -129,11 +127,23 @@ class Connection(AbstractConnection):
 
         return Bucket(self, name, passphrase, compression)
 
+    def check_name(self, name):
+        '''Check if bucket name conforms to requirements
+        
+        Raises `InvalidBucketName` for invalid names.
+        '''
+        
+        if (not re.match('^[a-z0-9][a-z0-9.-]{1,60}[a-z0-9]$', name) 
+            or '..' in name
+            or '.-' in name
+            or '-.' in name
+            or re.match('^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$', name)):
+            raise InvalidBucketNameError()
+        
     def get_bucket(self, name, passphrase=None, compression='lzma'):
         """Return a bucket instance for the bucket `name`"""
 
-        if not re.match('^[a-z][a-z0-9.-]{1,60}[a-z0-9]$', name):
-            raise InvalidBucketNameError()
+        self.check_name(name)
         
         with self._get_boto() as boto:
             try:
