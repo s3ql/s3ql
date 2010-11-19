@@ -3,6 +3,9 @@ xx, S3QL 0.27
   * The authinfo file now supports passwords that include 
     white space. 
   
+  * The s3qladm command can now be used to download metadata
+    backups.
+  
   
 2010-10-30, S3QL 0.26
 

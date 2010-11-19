@@ -22,8 +22,12 @@ from s3ql.backends.common import ChecksumError
 import os
 from s3ql.database import Connection
 import tempfile
+from datetime import date as Date
 import textwrap
 import shutil
+import stat
+import time
+import cPickle as pickle
 
 log = logging.getLogger("adm")
 
@@ -49,7 +53,11 @@ def parse_args(args):
                           parents=[pparser])
     subparsers.add_parser("delete", help="completely delete a bucket with all contents",
                           parents=[pparser])                                        
-            
+    subparsers.add_parser("download-metadata", 
+                          help="Interactively download metadata backups. "
+                               "Use only if you know what you are doing.",
+                          parents=[pparser])    
+                
     parser.add_debug_modules()
     parser.add_quiet()
     parser.add_homedir()
@@ -96,6 +104,71 @@ def main(args=None):
 
         if options.action == 'upgrade':
             return upgrade(bucket)
+
+        if options.action == 'download-metadata':
+            return download_metadata(bucket, options.storage_url)
+        
+
+def download_metadata(bucket, storage_url):
+    '''Download old metadata backups'''
+    
+    backups = sorted(bucket.list('s3ql_metadata_bak_'))
+    
+    if not backups:
+        raise QuietError('No metadata backups found.')
+    
+    log.info('The following backups are available:')
+    log.info('%3s  %-23s %-15s', 'No', 'Name', 'Date')
+    for (i, name) in enumerate(backups):
+        params = bucket.lookup(name)
+        if 'last-modified' in params:
+            date = Date.fromtimestamp(params['last-modified']).strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            # (metadata might from an older fs revision)
+            date = '(unknown)'
+            
+        log.info('%3d  %-23s %-15s', i, name, date)
+        
+    name = None
+    while name is None:
+        buf = raw_input('Enter no to download: ')
+        try:
+            name = backups[int(buf.strip())]
+        except:
+            log.warn('Invalid input')
+        
+    log.info('Downloading %s...', name)
+    
+    home = get_bucket_home(storage_url, '.')
+    for i in ('.db', '.params'):
+        if os.path.exists(home + i):
+            raise QuietError('%s already exists, aborting.' % home+i)
+    
+    fh = os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
+                           stat.S_IRUSR | stat.S_IWUSR), 'w+b')
+    param = bucket.lookup(name)
+    try:
+        if param['DB-Format'] == 'dump':
+            fh.close()
+            db = Connection(home + '.db')
+            fh = tempfile.TemporaryFile()
+            bucket.fetch_fh(name, fh)
+            fh.seek(0)
+            log.info('Reading metadata...')
+            restore_metadata(fh, db)
+            fh.close()
+        elif param['DB-Format'] == 'sqlite':
+            bucket.fetch_fh(name, fh)
+            fh.close()
+
+        else:
+            raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
+    except:
+        # Don't keep file if it doesn't contain anything sensible
+        os.unlink(home + '.db')
+        raise
+    pickle.dump(param, open(home + '.params', 'wb'), 2)
+    
 
 
 def change_passphrase(bucket):
@@ -284,6 +357,7 @@ def upgrade(bucket):
     fh.seek(0)
     log.info("Uploading database..")
     cycle_metadata(bucket)
+    param['last-modified'] = time.time() - time.timezone
     bucket.store_fh("s3ql_metadata", fh, param)
     fh.close()
 

@@ -52,3 +52,26 @@ A file system can be deleted with::
   s3qladm delete <storage url>
 
 This physically deletes all the data and file system structures.
+
+
+Restoring Metadata Backups
+--------------------------
+
+If the most-recent copy of the file system metadata has been damaged
+irreparably, it is possible to restore one of the automatically
+created backup copies.
+
+The command ::
+
+  s3qladm download-metadata <storage url>
+
+will give you a list of the available metadata backups and allow you
+to download them. This will create two new files in the current
+directory, ending in ``.db`` and ``.params``. To actually use the
+downloaded backup, you need to move these files into the ``~/.s3ql/``
+directory and run ``fsck.s3ql``.
+
+.. WARNING::
+
+   You should probably not use this functionality without having asked
+   for help on the mailing list first (see :ref:`resources`).
