@@ -276,6 +276,7 @@ def main(args=None):
         param['needs_fsck'] = False
         param['last_fsck'] = time.time() - time.timezone
         param['DB-Format'] = 'sqlite'
+        param['last-modified'] = time.time() - time.timezone
         cycle_metadata(bucket)
         bucket.store_fh("s3ql_metadata", fh, param)
         fh.close()

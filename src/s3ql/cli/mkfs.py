@@ -118,6 +118,7 @@ def main(args=None):
             param['needs_fsck'] = False
             param['DB-Format'] = 'sqlite'
             param['last_fsck'] = time.time() - time.timezone
+            param['last-modified'] = time.time() - time.timezone
             bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
 
             log.info("Compressing & uploading metadata..")         

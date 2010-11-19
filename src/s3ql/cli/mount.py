@@ -235,6 +235,7 @@ def main(args=None):
             log.info("Compressing & uploading metadata..")
             cycle_metadata(bucket)
             fh.seek(0)
+            param['last-modified'] = time.time() - time.timezone
             bucket.store_fh("s3ql_metadata", fh, param)
             fh.close()
         
@@ -439,6 +440,7 @@ class MetadataUploadThread(ExceptionStoringThread):
             log.info("Compressing & uploading metadata..")
             cycle_metadata(self.bucket)
             fh.seek(0)
+            self.param['last-modified'] = time.time() - time.timezone
             self.bucket.store_fh("s3ql_metadata", fh, self.param)
             self.db_mtime = new_mtime    
 
