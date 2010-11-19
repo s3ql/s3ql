@@ -401,7 +401,7 @@ def check_keylist(conn):
     lof_id = conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
                           (b"lost+found", ROOT_INODE))
 
-    # We use this table to keep track of the object that we have
+    # We use this table to keep track of the objects that we have
     # seen
     conn.execute("CREATE TEMP TABLE obj_ids (id INTEGER PRIMARY KEY)")
     try:
@@ -423,7 +423,7 @@ def check_keylist(conn):
                 del bucket['s3ql_data_%d' % obj_id]
             except NoSuchObject:
                 if bucket.read_after_write_consistent():
-                    raise               
+                    raise
     
         conn.execute('CREATE TEMPORARY TABLE missing AS '
                      'SELECT id FROM objects EXCEPT SELECT id FROM obj_ids')
