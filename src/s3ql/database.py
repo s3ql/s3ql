@@ -56,6 +56,7 @@ initsql = ('PRAGMA foreign_keys = OFF',
            'PRAGMA journal_mode = OFF',
            'PRAGMA locking_mode = EXCLUSIVE',
            'PRAGMA recursize_triggers = on',
+           'PRAGMA temp_store = FILE',
            'PRAGMA legacy_file_format = off',
            )
     
