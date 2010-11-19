@@ -437,6 +437,11 @@ def check_keylist(conn):
                     path = get_path(id_p, conn, name)
                     log_error(path)
                     newname = path[1:].replace('_', '__').replace('/', '_')
+                    
+                    # Maybe there is a problem in this code path
+                    # See http://code.google.com/p/s3ql/issues/detail?id=217
+                    assert len(newname) < 10240    
+                        
                     conn.execute('UPDATE contents SET name=?, parent_inode=? '
                                  'WHERE inode=?', (newname, lof_id, id_))
                     
