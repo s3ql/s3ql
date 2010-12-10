@@ -9,7 +9,8 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 from random import randint
-from s3ql import fs, fsck
+from s3ql.fsck import Fsck
+from s3ql import fs
 from s3ql.backends import local
 from s3ql.common import ROOT_INODE, create_tables, init_tables
 from llfuse import FUSEError
@@ -79,8 +80,9 @@ class fs_api_tests(TestCase):
         self.server.cache.clear()
         self.server.cache.upload_manager.join_all()
         self.server.inodes.flush()
-        fsck.fsck(self.cachedir, self.bucket,
+        fsck = Fsck(self.cachedir, self.bucket,
                   { 'blocksize': self.blocksize }, self.db)
+        fsck.check()
         self.assertFalse(fsck.found_errors)
 
     def newname(self):

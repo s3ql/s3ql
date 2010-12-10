@@ -18,7 +18,7 @@ from s3ql.argparse import ArgumentParser
 from s3ql import CURRENT_FS_REV
 from s3ql.database import Connection
 import logging
-from s3ql import fsck
+from s3ql.fsck import Fsck
 from s3ql.backends.common import ChecksumError
 import sys
 import shutil
@@ -267,7 +267,8 @@ def main(args=None):
         if not os.path.exists(home + '-cache'):
             os.mkdir(home + '-cache', stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
-        fsck.fsck(home + '-cache', bucket, param, db)
+        fsck = Fsck(home + '-cache', bucket, param, db)
+        fsck.check()
 
         log.info('Saving metadata...')
         fh = tempfile.TemporaryFile()

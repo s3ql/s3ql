@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 import unittest2 as unittest
-from s3ql import fsck
+from s3ql.fsck import Fsck
 from s3ql.backends import local
 from s3ql.database import Connection
 from s3ql.common import ROOT_INODE, create_tables, init_tables
@@ -34,12 +34,9 @@ class fsck_tests(TestCase):
         create_tables(self.db)
         init_tables(self.db)
 
-        fsck.cachedir = self.cachedir
-        fsck.bucket = self.bucket
-        fsck.checkonly = False
-        fsck.expect_errors = True
-        fsck.blocksize = self.blocksize
-        fsck.found_errors = False
+        self.fsck = Fsck(self.cachedir, self.bucket,
+                  { 'blocksize': self.blocksize }, self.db)
+        self.fsck.expect_errors = True
 
     def tearDown(self):
         shutil.rmtree(self.cachedir)
@@ -48,12 +45,13 @@ class fsck_tests(TestCase):
     def assert_fsck(self, fn):
         '''Check that fn detects and corrects an error'''
 
-        fsck.found_errors = False
-        fn(self.db)
-        self.assertTrue(fsck.found_errors)
-        fsck.found_errors = False
-        fn(self.db)
-        self.assertFalse(fsck.found_errors)
+        
+        self.fsck.found_errors = False
+        fn()
+        self.assertTrue(self.fsck.found_errors)
+        self.fsck.found_errors = False
+        fn()
+        self.assertFalse(self.fsck.found_errors)
 
     def test_cache(self):
         inode = 6
@@ -67,14 +65,14 @@ class fsck_tests(TestCase):
         fh.write('somedata')
         fh.close()
 
-        self.assert_fsck(fsck.check_cache)
+        self.assert_fsck(self.fsck.check_cache)
         self.assertEquals(self.bucket['s3ql_data_1'], 'somedata')
 
         fh = open(self.cachedir + 'inode_%d_block_1' % inode, 'wb')
         fh.write('otherdata')
         fh.close()
 
-        self.assert_fsck(fsck.check_cache)
+        self.assert_fsck(self.fsck.check_cache)
         self.assertEquals(self.bucket['s3ql_data_1'], 'somedata')
 
 
@@ -87,14 +85,14 @@ class fsck_tests(TestCase):
         self.db.execute('UPDATE inodes SET mode=?, size=? WHERE id=?',
                         (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR, 0, inode))
 
-        self.assert_fsck(fsck.check_lof)
+        self.assert_fsck(self.fsck.check_lof)
 
     def test_lof2(self):
         # Remove lost+found
         self.db.execute('DELETE FROM contents WHERE name=? and parent_inode=?',
                         (b'lost+found', ROOT_INODE))
 
-        self.assert_fsck(fsck.check_lof)
+        self.assert_fsck(self.fsck.check_lof)
 
     def test_inode_refcount(self):
 
@@ -104,7 +102,7 @@ class fsck_tests(TestCase):
                      (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                       0, 0, time.time(), time.time(), time.time(), 2, 0))
 
-        self.assert_fsck(fsck.check_inode_refcount)
+        self.assert_fsck(self.fsck.check_inode_refcount)
 
         # Create an inode with wrong refcount
         inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
@@ -116,7 +114,7 @@ class fsck_tests(TestCase):
         self.db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
                      (b'name2', inode, ROOT_INODE))
 
-        self.assert_fsck(fsck.check_inode_refcount)
+        self.assert_fsck(self.fsck.check_inode_refcount)
 
     def test_inode_sizes(self):
 
@@ -135,19 +133,19 @@ class fsck_tests(TestCase):
                      (id_, 0, obj_id))
 
 
-        self.assert_fsck(fsck.check_inode_sizes)
+        self.assert_fsck(self.fsck.check_inode_sizes)
 
 
 
     def test_keylist(self):
         # Create an object that only exists in the bucket
         self.bucket['s3ql_data_4364'] = 'Testdata'
-        self.assert_fsck(fsck.check_keylist)
+        self.assert_fsck(self.fsck.check_keylist)
 
         # Create an object that does not exist in the bucket
         self.db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
                           (34, 1, 0))
-        self.assert_fsck(fsck.check_keylist)
+        self.assert_fsck(self.fsck.check_keylist)
 
     @staticmethod
     def random_data(len_):
@@ -170,11 +168,11 @@ class fsck_tests(TestCase):
                          (bytes(inode), inode, last))
             last = inode
 
-        fsck.found_errors = False
-        fsck.check_inode_refcount(self.db)
-        self.assertFalse(fsck.found_errors)
-        fsck.check_loops(self.db)
-        self.assertTrue(fsck.found_errors)
+        self.fsck.found_errors = False
+        self.fsck.check_inode_refcount()
+        self.assertFalse(self.fsck.found_errors)
+        self.fsck.check_loops()
+        self.assertTrue(self.fsck.found_errors)
         # We can't fix loops yet
 
     def test_obj_refcounts(self):
@@ -193,16 +191,16 @@ class fsck_tests(TestCase):
         self.db.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
                      (inode, 2, obj_id))
 
-        fsck.found_errors = False
-        fsck.check_obj_refcounts(self.db)
-        self.assertFalse(fsck.found_errors)
+        self.fsck.found_errors = False
+        self.fsck.check_obj_refcounts()
+        self.assertFalse(self.fsck.found_errors)
 
         self.db.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
                      (inode, 3, obj_id))
-        self.assert_fsck(fsck.check_obj_refcounts)
+        self.assert_fsck(self.fsck.check_obj_refcounts)
 
         self.db.execute('DELETE FROM blocks WHERE obj_id=?', (obj_id,))
-        self.assert_fsck(fsck.check_obj_refcounts)
+        self.assert_fsck(self.fsck.check_obj_refcounts)
 
     def test_unix_size(self):
 
@@ -215,13 +213,13 @@ class fsck_tests(TestCase):
         self.db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                      ('test-entry', inode, ROOT_INODE))
 
-        fsck.found_errors = False
-        fsck.check_inode_unix(self.db)
-        self.assertFalse(fsck.found_errors)
+        self.fsck.found_errors = False
+        self.fsck.check_inode_unix()
+        self.assertFalse(self.fsck.found_errors)
 
         self.db.execute('UPDATE inodes SET size = 1 WHERE id=?', (inode,))
-        fsck.check_inode_unix(self.db)
-        self.assertTrue(fsck.found_errors)
+        self.fsck.check_inode_unix()
+        self.assertTrue(self.fsck.found_errors)
 
     def test_unix_target(self):
 
@@ -234,13 +232,13 @@ class fsck_tests(TestCase):
         self.db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                      ('test-entry', inode, ROOT_INODE))
 
-        fsck.found_errors = False
-        fsck.check_inode_unix(self.db)
-        self.assertFalse(fsck.found_errors)
+        self.fsck.found_errors = False
+        self.fsck.check_inode_unix()
+        self.assertFalse(self.fsck.found_errors)
 
         self.db.execute('UPDATE inodes SET target = ? WHERE id=?', ('foo', inode))
-        fsck.check_inode_unix(self.db)
-        self.assertTrue(fsck.found_errors)
+        self.fsck.check_inode_unix()
+        self.assertTrue(self.fsck.found_errors)
 
     def test_unix_rdev(self):
 
@@ -252,13 +250,13 @@ class fsck_tests(TestCase):
         self.db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                      ('test-entry', inode, ROOT_INODE))
 
-        fsck.found_errors = False
-        fsck.check_inode_unix(self.db)
-        self.assertFalse(fsck.found_errors)
+        self.fsck.found_errors = False
+        self.fsck.check_inode_unix()
+        self.assertFalse(self.fsck.found_errors)
 
         self.db.execute('UPDATE inodes SET rdev=? WHERE id=?', (42, inode))
-        fsck.check_inode_unix(self.db)
-        self.assertTrue(fsck.found_errors)
+        self.fsck.check_inode_unix()
+        self.assertTrue(self.fsck.found_errors)
 
     def test_unix_child(self):
 
@@ -270,13 +268,13 @@ class fsck_tests(TestCase):
         self.db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                      ('test-entry', inode, ROOT_INODE))
 
-        fsck.found_errors = False
-        fsck.check_inode_unix(self.db)
-        self.assertFalse(fsck.found_errors)
+        self.fsck.found_errors = False
+        self.fsck.check_inode_unix()
+        self.assertFalse(self.fsck.found_errors)
         self.db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                      ('foo', ROOT_INODE, inode))
-        fsck.check_inode_unix(self.db)
-        self.assertTrue(fsck.found_errors)
+        self.fsck.check_inode_unix()
+        self.assertTrue(self.fsck.found_errors)
 
     def test_unix_blocks(self):
 
@@ -289,16 +287,16 @@ class fsck_tests(TestCase):
         self.db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
                      ('test-entry', inode, ROOT_INODE))
 
-        fsck.found_errors = False
-        fsck.check_inode_unix(self.db)
-        self.assertFalse(fsck.found_errors)
+        self.fsck.found_errors = False
+        self.fsck.check_inode_unix()
+        self.assertFalse(self.fsck.found_errors)
 
         self.db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
                      (obj_id, 2, 0))
         self.db.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
                      (inode, 1, obj_id))
-        fsck.check_inode_unix(self.db)
-        self.assertTrue(fsck.found_errors)
+        self.fsck.check_inode_unix()
+        self.assertTrue(self.fsck.found_errors)
 
 
 # Somehow important according to pyunit documentation
