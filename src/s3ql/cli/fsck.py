@@ -254,6 +254,16 @@ def main(args=None):
             create_indices(db)
             db.execute('ANALYZE')
     
+        log.info('Checking DB integrity...')
+        res = db.get_list('PRAGMA integrity_check(20)')
+        if res[0][0] != u'ok':
+            log.error('\n'.join(x[0] for x in res ))
+            if not metadata_loaded:
+                os.unlink(home + '.db')
+            raise QuietError('You probably need to restore an old metadata backup with '
+                             's3qladm, the SQLite database is corrupted.')
+                
+    
         # Increase metadata sequence no
         param['seq_no'] += 1
         bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
