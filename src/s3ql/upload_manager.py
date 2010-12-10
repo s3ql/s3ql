@@ -77,10 +77,13 @@ class UploadManager(object):
             time_ = time.time()
             hash_ = sha256_fh(el)
             time_ = time.time() - time_
+            if time_ != 0:
+                rate = size / (1024**2 * time_)
+            else:
+                rate = 0
             log.debug('UploadManager(inode=%d, blockno=%d): '
                      'hashed %d bytes in %.3f seconds, %.2f MB/s',
-                      el.inode, el.blockno, size, 
-                      time_, size / (1024**2 * time_))             
+                      el.inode, el.blockno, size, time_, rate)             
         else:
             hash_ = sha256_fh(el)
         
@@ -232,10 +235,14 @@ class CompressThread(Thread):
                 (self.size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.el.obj_id, 
                                                                self.fh)
                 time_ = time.time() - time_
+                if time_ != 0:
+                    rate = oldsize / (1024**2 * time_)
+                else:
+                    rate = 0
                 log.debug('CompressionThread(inode=%d, blockno=%d): '
                          'compressed %d bytes in %.3f seconds, %.2f MB/s',
                           self.el.inode, self.el.blockno, oldsize, 
-                          time_, oldsize / (1024**2 * time_))             
+                          time_, rate)             
             else:
                 (self.size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.el.obj_id, 
                                                                self.fh)      
@@ -293,10 +300,14 @@ class UploadThread(Thread):
                 time_ = time.time()
                 self.fn()
                 time_ = time.time() - time_
+                if time_ != 0:
+                    rate = self.size / (1024**2 * time_)
+                else:
+                    rate = 0
                 log.debug('CompressionThread(inode=%d, blockno=%d): '
                          'compressed %d bytes in %.3f seconds, %.2f MB/s',
                           self.el.inode, self.el.blockno, self.size, 
-                          time_, self.size / (1024**2 * time_))             
+                          time_, rate)             
             else:
                 self.fn()
                             
