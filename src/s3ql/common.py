@@ -17,6 +17,7 @@ import sys
 import threading
 import logging.handlers
 import traceback
+import time
 import re
 import cPickle as pickle
 import thread
@@ -29,8 +30,9 @@ __all__ = ["get_bucket_home", 'sha256', 'sha256_fh', 'add_stdout_logging',
            "ROOT_INODE", "ExceptionStoringThread", 'retry', 'LoggerFilter',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'QuietError', 'get_backend', 'add_file_logging', 'setup_excepthook',
-           'cycle_metadata', 'restore_metadata', 'dump_metadata', 'copy_metadata',
-           'setup_logging', 'AsyncFn' ]
+           'cycle_metadata', 'restore_metadata', 'dump_metadata', 
+           'setup_logging', 'AsyncFn', 'init_tables', 'create_indices',
+           'create_tables' ]
 
 
 AUTHINFO_BACKEND_PATTERN = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(.+)$'
@@ -224,26 +226,27 @@ def unlock_bucket(homedir, storage_url, bucket):
     data_pw = bucket['s3ql_passphrase']
     bucket.passphrase = data_pw
 
-metadata_to_dump = [('inodes', 'id'),
-               ('contents', 'name, parent_inode'),
-               ('ext_attributes', 'inode, name'),
-               ('objects', 'id'),
-               ('blocks', 'inode, blockno')]
+
 def dump_metadata(ofh, conn):
     pickler = pickle.Pickler(ofh, 2)
     data_start = 2048
     bufsize = 256
     buf = range(bufsize)
+    tables_to_dump = [('inodes', 'id'),
+                      ('contents', 'name, parent_inode'),
+                      ('ext_attributes', 'inode, name'),
+                      ('objects', 'id'),
+                      ('blocks', 'inode, blockno')]
 
     columns = dict()
-    for (table, _) in metadata_to_dump:
+    for (table, _) in tables_to_dump:
         columns[table] = list()
         for row in conn.query('PRAGMA table_info(%s)' % table):
             columns[table].append(row[1])
 
     ofh.seek(data_start)
     sizes = dict()
-    for (table, order) in metadata_to_dump:
+    for (table, order) in tables_to_dump:
         log.info('Saving %s' % table)
         pickler.clear_memo()
         sizes[table] = 0
@@ -262,40 +265,15 @@ def dump_metadata(ofh, conn):
             sizes[table] += 1
 
     ofh.seek(0)
-    pickler.dump((data_start, metadata_to_dump, sizes, columns))
+    pickler.dump((data_start, tables_to_dump, sizes, columns))
     assert ofh.tell() < data_start
 
-
-def copy_metadata(fh, conn):
-    from . import mkfs
-    from .database import Connection
-    
-    conn2 = Connection(fh.name)
-    mkfs.setup_tables(conn2)
-    conn2.close()
-    
-    conn.execute('ATTACH ? AS dst', (fh.name,))
-    try:
-        for (table, order) in metadata_to_dump:
-            columns = list()
-            for row in conn.query('PRAGMA table_info(%s)' % table):
-                columns.append(row[1])
-            columns = ', '.join(columns)
-            
-            conn.execute('INSERT INTO dst.%s (%s) SELECT %s FROM %s ORDER BY %s'
-                          % (table, columns, columns, table, order))
-
-    finally:
-        conn.execute('DETACH dst')
-                
-    return fh
-
 def restore_metadata(ifh, conn):
-    from . import mkfs
+
     unpickler = pickle.Unpickler(ifh)
     (data_start, to_dump, sizes, columns) = unpickler.load()
     ifh.seek(data_start)
-    mkfs.setup_tables(conn)
+    create_tables(conn)
     for (table, _) in to_dump:
         log.info('Loading %s', table)
         col_str = ', '.join(columns[table])
@@ -306,7 +284,9 @@ def restore_metadata(ifh, conn):
             for row in buf:
                 conn.execute(sql_str, row)
 
-
+    create_indices(conn)
+    conn.execute('ANALYZE')
+    
 class QuietError(Exception):
     '''
     QuietError is the base class for exceptions that should not result
@@ -524,7 +504,7 @@ class ExceptionStoringThread(threading.Thread):
         if self._exc_info is not None:
             # Break reference chain
             exc_info = self._exc_info
-            del self._exc_info
+            self._exc_info = None
             raise EmbeddedException(exc_info, self.name)
 
     def __del__(self):
@@ -576,3 +556,103 @@ def sha256_fh(fh):
 
 def sha256(s):
     return hashlib.sha256(s).digest()
+
+def init_tables(conn):
+    # Insert root directory
+    timestamp = time.time() - time.timezone
+    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
+                   "VALUES (?,?,?,?,?,?,?,?)",
+                   (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
+                   | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
+                    os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
+
+    # Insert control inode, the actual values don't matter that much 
+    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
+                 "VALUES (?,?,?,?,?,?,?,?)",
+                 (CTRL_INODE, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
+                  0, 0, timestamp, timestamp, timestamp, 42))
+
+    # Insert lost+found directory
+    inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                       "VALUES (?,?,?,?,?,?,?)",
+                       (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
+                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
+    conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
+                 (b"lost+found", inode, ROOT_INODE))
+
+def create_tables(conn):
+    # Table with filesystem metadata
+    # The number of links `refcount` to an inode can in theory
+    # be determined from the `contents` table. However, managing
+    # this separately should be significantly faster (the information
+    # is required for every getattr!)
+    conn.execute("""
+    CREATE TABLE inodes (
+        -- id has to specified *exactly* as follows to become
+        -- an alias for the rowid.
+        id        INTEGER PRIMARY KEY,
+        uid       INT NOT NULL,
+        gid       INT NOT NULL,
+        mode      INT NOT NULL,
+        mtime     REAL NOT NULL,
+        atime     REAL NOT NULL,
+        ctime     REAL NOT NULL,
+        refcount  INT NOT NULL,
+        target    BLOB(256) ,
+        size      INT NOT NULL DEFAULT 0,
+        rdev      INT NOT NULL DEFAULT 0,
+        locked    BOOLEAN NOT NULL DEFAULT 0
+    )
+    """)
+
+    # Table of filesystem objects
+    # id is used by readdir() to restart at the correct
+    # position
+    conn.execute("""
+    CREATE TABLE contents (
+        rowid     INTEGER PRIMARY KEY AUTOINCREMENT,
+        name      BLOB(256) NOT NULL,
+        inode     INT NOT NULL REFERENCES inodes(id),
+        parent_inode INT NOT NULL REFERENCES inodes(id),
+        
+        UNIQUE (name, parent_inode)
+    )""")
+
+    # Extended attributes
+    conn.execute("""
+    CREATE TABLE ext_attributes (
+        inode     INTEGER NOT NULL REFERENCES inodes(id),
+        name      BLOB NOT NULL,
+        value     BLOB NOT NULL,
+ 
+        PRIMARY KEY (inode, name)               
+    )""")
+
+    # Refcount is included for performance reasons
+    conn.execute("""
+    CREATE TABLE objects (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        refcount  INT NOT NULL,
+        hash      BLOB(16) UNIQUE,
+        size      INT NOT NULL,
+        compr_size INT                  
+    )""")
+
+
+    # Maps blocks to objects
+    conn.execute("""
+    CREATE TABLE blocks (
+        inode     INTEGER NOT NULL REFERENCES inodes(id),
+        blockno   INT NOT NULL,
+        obj_id    INTEGER NOT NULL REFERENCES objects(id),
+         
+        PRIMARY KEY (inode, blockno)
+    )""")
+    
+def create_indices(conn):
+    conn.execute('CREATE INDEX IF NOT EXISTS ix_contents_parent_inode ON contents(parent_inode)')
+    conn.execute('CREATE INDEX IF NOT EXISTS ix_contents_inode ON contents(inode)')
+    conn.execute('CREATE INDEX IF NOT EXISTS ix_ext_attributes_inode ON ext_attributes(inode)')
+    conn.execute('CREATE INDEX IF NOT EXISTS ix_objects_hash ON objects(hash)')
+    conn.execute('CREATE INDEX IF NOT EXISTS ix_blocks_obj_id ON blocks(obj_id)')
+    conn.execute('CREATE INDEX IF NOT EXISTS ix_blocks_inode ON blocks(inode)')

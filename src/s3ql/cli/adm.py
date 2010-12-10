@@ -12,12 +12,11 @@ import logging
 from s3ql.common import (get_backend, QuietError, unlock_bucket,
                          cycle_metadata, dump_metadata, restore_metadata,
                          setup_logging, get_bucket_home)
+from s3ql.backends import s3
 from s3ql.argparse import ArgumentParser
 from s3ql import CURRENT_FS_REV
-#from s3ql.mkfs import create_indices
 from getpass import getpass
 import sys
-from s3ql.backends import s3, local, sftp
 from s3ql.backends.common import ChecksumError
 import os
 from s3ql.database import Connection
@@ -148,21 +147,14 @@ def download_metadata(bucket, storage_url):
                            stat.S_IRUSR | stat.S_IWUSR), 'w+b')
     param = bucket.lookup(name)
     try:
-        if param['DB-Format'] == 'dump':
-            fh.close()
-            db = Connection(home + '.db')
-            fh = tempfile.TemporaryFile()
-            bucket.fetch_fh(name, fh)
-            fh.seek(0)
-            log.info('Reading metadata...')
-            restore_metadata(fh, db)
-            fh.close()
-        elif param['DB-Format'] == 'sqlite':
-            bucket.fetch_fh(name, fh)
-            fh.close()
-
-        else:
-            raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
+        fh.close()
+        db = Connection(home + '.db')
+        fh = tempfile.TemporaryFile()
+        bucket.fetch_fh(name, fh)
+        fh.seek(0)
+        log.info('Reading metadata...')
+        restore_metadata(fh, db)
+        fh.close()
     except:
         # Don't keep file if it doesn't contain anything sensible
         os.unlink(home + '.db')
@@ -296,51 +288,10 @@ def upgrade(bucket):
     else:
         raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
     
-    #log.info("Indexing...")
-    #create_indices(dbcm)
-    #dbcm.execute('ANALYZE')
-    
     log.info('Upgrading from revision %d to %d...', CURRENT_FS_REV - 1,
              CURRENT_FS_REV)
     param['revision'] = CURRENT_FS_REV
-    
-    # Update backend directory structure
-    if isinstance(bucket, local.Bucket): 
-        os.rename('%s/s3ql_data' % bucket.name, '%s/s3ql_data_' % bucket.name)
-    elif isinstance(bucket, sftp.Bucket):
-        bucket.conn.sftp.rename('%s/s3ql_data' % bucket.name, '%s/s3ql_data_' % bucket.name)
-
-    # Add compr_size column
-    if param['DB-Format'] == 'sqlite':
-        db.execute('ALTER TABLE objects ADD COLUMN compr_size INT')
-        db.execute('ALTER TABLE inodes ADD COLUMN locked BOOLEAN NOT NULL DEFAULT 0')
-    
-    # Add missing values for compr_size
-    log.info('Requesting all object sizes, this may take some time...')
-    if isinstance(bucket, (local.Bucket, sftp.Bucket)):
-        if isinstance(bucket, local.Bucket):
-            get_size = os.path.getsize
-        elif isinstance(bucket, sftp.Bucket):
-            get_size = lambda p: bucket.conn.sftp.lstat(p).st_size
-        
-        for (no, (obj_id,)) in enumerate(db.query('SELECT id FROM objects')):
-            if no != 0 and no % 5000 == 0:
-                log.info('Checked %d objects so far..', no)
-            
-            path = bucket._key_to_path('s3ql_data_%d' % obj_id) + '.dat'
-            db.execute('UPDATE objects SET compr_size=? WHERE id=?',
-                         (get_size(path), obj_id))
-                                  
-    elif isinstance(bucket, s3.Bucket):
-        with bucket._get_boto() as boto:
-            for bkey in boto.list('s3ql_data_'):
-                obj_id = int(bkey.name[10:])
-                db.execute('UPDATE objects SET compr_size=? WHERE id=?',
-                             (bkey.size, obj_id))
-                
-            if db.has_val('SELECT 1 FROM objects WHERE compr_size IS NULL'):
-                log.warn('Could not determine sizes for all S3 objects, '
-                         's3qlstat output will be incorrect.')
+    del param['DB-Format']
     
     # Increase metadata sequence no
     param['seq_no'] += 1
@@ -349,9 +300,7 @@ def upgrade(bucket):
         if i < param['seq_no'] - 5:
             del bucket['s3ql_seq_no_%d' % i ]
 
-    # Upload metadata in dump format, so that we have the newest
-    # table definitions on the next mount.
-    param['DB-Format'] = 'dump'
+    # Upload metadata
     fh = tempfile.TemporaryFile()
     dump_metadata(fh, db)
     fh.seek(0)

@@ -6,6 +6,8 @@ xx, S3QL 0.27
   * The s3qladm command can now be used to download metadata
     backups.
   
+  * The --strip-meta option for mount.s3ql has been removed,
+    redundant data is now always stripped before upload.
   
 2010-10-30, S3QL 0.26
 

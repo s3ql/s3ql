@@ -8,10 +8,10 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function
 
-from s3ql import mkfs
 from s3ql.block_cache import BlockCache
 from s3ql.backends import local
 from s3ql.backends.common import NoSuchObject
+from s3ql.common import create_tables, init_tables
 from s3ql.database import Connection
 import os
 import tempfile
@@ -33,8 +33,8 @@ class cache_tests(TestCase):
         
         self.dbfile = tempfile.NamedTemporaryFile()
         self.db =  Connection(self.dbfile.name)
-        mkfs.setup_tables(self.db)
-        mkfs.init_tables(self.db)
+        create_tables(self.db)
+        init_tables(self.db)
 
         # Create an inode we can work with
         self.inode = 42

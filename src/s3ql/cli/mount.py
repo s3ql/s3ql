@@ -12,13 +12,11 @@ from __future__ import division, print_function, absolute_import
 # be directly executed.
 import sys
 from s3ql import fs, CURRENT_FS_REV
-from s3ql.mkfs import create_indices
 from s3ql.daemonize import daemonize
 from s3ql.backends.common import (ChecksumError, NoSuchObject)
 from s3ql.common import (setup_logging, get_backend, get_bucket_home,
-                         QuietError, unlock_bucket,  
-                         cycle_metadata, dump_metadata, restore_metadata, 
-                         ExceptionStoringThread, copy_metadata)
+                         QuietError, unlock_bucket,  ExceptionStoringThread,
+                         cycle_metadata, dump_metadata, restore_metadata)
 from s3ql.argparse import ArgumentParser
 from s3ql.database import Connection
 from global_lock import lock
@@ -130,32 +128,20 @@ def main(args=None):
 
         # Download metadata
         log.info("Downloading & uncompressing metadata...")
-        fh = os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
-                               stat.S_IRUSR | stat.S_IWUSR), 'w+b')
+        fh = tempfile.TemporaryFile()
+        bucket.fetch_fh("s3ql_metadata", fh)
+        os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
+                          stat.S_IRUSR | stat.S_IWUSR), 'w+b')
         try:
-            if param['DB-Format'] == 'dump':
-                fh.close()
-                db = Connection(home + '.db')
-                fh = tempfile.TemporaryFile()
-                bucket.fetch_fh("s3ql_metadata", fh)
-                fh.seek(0)
-                log.info('Reading metadata...')
-                restore_metadata(fh, db)
-                fh.close()
-            elif param['DB-Format'] == 'sqlite':
-                bucket.fetch_fh("s3ql_metadata", fh)
-                fh.close()
-                db = Connection(home + '.db')
-            else:
-                raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
+            db = Connection(home + '.db')
+            fh.seek(0)
+            log.info('Reading metadata...')
+            restore_metadata(fh, db)
+            fh.close()
         except:
             # Don't keep file if it doesn't contain anything sensible
             os.unlink(home + '.db')
             raise
-        
-        log.info('Indexing...')
-        create_indices(db)
-        db.execute('ANALYZE')
         
         # Increase metadata sequence no, save parameters 
         param['seq_no'] += 1
@@ -221,16 +207,9 @@ def main(args=None):
             log.info('File system unchanged, not uploading metadata.')
             del bucket['s3ql_seq_no_%d' % param['seq_no']]     
         else:
-            if options.strip_meta:
-                log.info('Saving metadata...')
-                param['DB-Format'] = 'dump'
-                fh = tempfile.TemporaryFile()
-                dump_metadata(fh, db) 
-            else:
-                param['DB-Format'] = 'sqlite'
-                db.execute('VACUUM')
-                db.close()
-                fh = open(db.file, 'rb')   
+            log.info('Saving metadata...')
+            fh = tempfile.TemporaryFile()
+            dump_metadata(fh, db)  
                     
             log.info("Compressing & uploading metadata..")
             cycle_metadata(bucket)
@@ -355,11 +334,6 @@ def parse_args(args):
                       choices=('lzma', 'bzip2', 'zlib', 'none'),
                       help="Compression algorithm to use when storing new data. Allowed "
                            "values: `lzma`, `bzip2`, `zlib`, none. (default: `%(default)s`)")
-    parser.add_argument("--strip-meta", action="store_true", default=False,
-                      help='Strip metadata of all redundancies (like indices) before '
-                      'uploading. This will significantly reduce the size of the data '
-                      'at the expense of additional CPU time during the next unmount '
-                      'and mount.')
     parser.add_argument("--metadata-upload-interval", action="store", type=int,
                       default=24*60*60, metavar='<seconds>',
                       help='Interval in seconds between complete metadata uploads. '
@@ -379,10 +353,6 @@ def parse_args(args):
 
     if options.compress == 'none':
         options.compress = None
-
-    if options.strip_meta and options.compress is None:
-        parser.error('--strip-meta and --compress=none does not make much sense and '
-                     'is really not a good idea.')
         
     if not os.path.exists(options.homedir):
         os.mkdir(options.homedir, 0700)
@@ -428,14 +398,8 @@ class MetadataUploadThread(ExceptionStoringThread):
                     continue
                 
                 log.info('Saving metadata...')
-                if self.options.strip_meta:
-                    self.param['DB-Format'] = 'dump'
-                    fh = tempfile.TemporaryFile()
-                    dump_metadata(fh, self.db) 
-                else:
-                    self.param['DB-Format'] = 'sqlite'
-                    fh = tempfile.NamedTemporaryFile()
-                    copy_metadata(fh, self.db)
+                fh = tempfile.TemporaryFile()
+                dump_metadata(fh, self.db) 
                         
             log.info("Compressing & uploading metadata..")
             cycle_metadata(self.bucket)

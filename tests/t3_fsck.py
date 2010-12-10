@@ -9,10 +9,10 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 import unittest2 as unittest
-from s3ql import mkfs, fsck
+from s3ql import fsck
 from s3ql.backends import local
 from s3ql.database import Connection
-from s3ql.common import ROOT_INODE
+from s3ql.common import ROOT_INODE, create_tables, init_tables
 from _common import TestCase
 import os
 import stat
@@ -31,8 +31,8 @@ class fsck_tests(TestCase):
 
         self.dbfile = tempfile.NamedTemporaryFile()
         self.db = Connection(self.dbfile.name)
-        mkfs.setup_tables(self.db)
-        mkfs.init_tables(self.db)
+        create_tables(self.db)
+        init_tables(self.db)
 
         fsck.cachedir = self.cachedir
         fsck.bucket = self.bucket

@@ -9,9 +9,9 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function
 
 from random import randint
-from s3ql import mkfs, fs, fsck
+from s3ql import fs, fsck
 from s3ql.backends import local
-from s3ql.common import ROOT_INODE
+from s3ql.common import ROOT_INODE, create_tables, init_tables
 from llfuse import FUSEError
 from s3ql.database import Connection
 from _common import TestCase
@@ -50,8 +50,8 @@ class fs_api_tests(TestCase):
 
         self.dbfile = tempfile.NamedTemporaryFile()
         self.db = Connection(self.dbfile.name)
-        mkfs.setup_tables(self.db)
-        mkfs.init_tables(self.db)
+        create_tables(self.db)
+        init_tables(self.db)
 
         self.server = fs.Operations(self.bucket, self.db, self.cachedir,
                                     self.blocksize, cache_size=self.blocksize * 5)

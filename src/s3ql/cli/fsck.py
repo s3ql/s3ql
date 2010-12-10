@@ -12,12 +12,11 @@ import os
 import stat
 import time
 from s3ql.common import (get_bucket_home, cycle_metadata, setup_logging,  
-                         unlock_bucket, QuietError, get_backend, restore_metadata,
-                         )
+                         unlock_bucket, QuietError, get_backend, 
+                         restore_metadata, dump_metadata)
 from s3ql.argparse import ArgumentParser
 from s3ql import CURRENT_FS_REV
 from s3ql.database import Connection
-from s3ql.mkfs import create_indices
 import logging
 from s3ql import fsck
 from s3ql.backends.common import ChecksumError
@@ -230,40 +229,31 @@ def main(args=None):
                 return
 
         # Download metadata
-        if not metadata_loaded:
+        if metadata_loaded:
+            log.info('Checking DB integrity...')
+            res = db.get_list('PRAGMA integrity_check(20)')
+            if res[0][0] != u'ok':
+                log.error('\n'.join(x[0] for x in res ))
+                raise QuietError('You probably need to restore an old metadata backup with '
+                                 's3qladm, the SQLite database is corrupted.')    
+        else:
             log.info("Downloading & uncompressing metadata...")
-            fh = os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
+            fh = tempfile.TemporaryFile()
+            bucket.fetch_fh("s3ql_metadata", fh)
+            os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
                                    stat.S_IRUSR | stat.S_IWUSR), 'w+b')
-            if param['DB-Format'] == 'dump':
-                fh.close()
+            try:
                 db = Connection(home + '.db')
-                fh = tempfile.TemporaryFile()
-                bucket.fetch_fh("s3ql_metadata", fh)
                 fh.seek(0)
                 log.info('Reading metadata...')
                 restore_metadata(fh, db)
                 fh.close()
-            elif param['DB-Format'] == 'sqlite':
-                bucket.fetch_fh("s3ql_metadata", fh)
-                fh.close()
-                db = Connection(home + '.db')
-            else:
-                raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
-
-            log.info("Indexing...")
-            create_indices(db)
-            db.execute('ANALYZE')
-    
-        log.info('Checking DB integrity...')
-        res = db.get_list('PRAGMA integrity_check(20)')
-        if res[0][0] != u'ok':
-            log.error('\n'.join(x[0] for x in res ))
-            if not metadata_loaded:
+            except:
+                # Don't keep file if it doesn't contain anything sensible
                 os.unlink(home + '.db')
-            raise QuietError('You probably need to restore an old metadata backup with '
-                             's3qladm, the SQLite database is corrupted.')
+                raise
+ 
                 
-    
         # Increase metadata sequence no
         param['seq_no'] += 1
         bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
@@ -279,15 +269,16 @@ def main(args=None):
 
         fsck.fsck(home + '-cache', bucket, param, db)
 
+        log.info('Saving metadata...')
+        fh = tempfile.TemporaryFile()
+        dump_metadata(fh, db)  
+                
         log.info("Compressing & uploading metadata..")
-        db.execute('VACUUM')
-        db.close()
-        fh = open(home + '.db', 'rb')        
+        cycle_metadata(bucket)
+        fh.seek(0)
         param['needs_fsck'] = False
         param['last_fsck'] = time.time() - time.timezone
-        param['DB-Format'] = 'sqlite'
         param['last-modified'] = time.time() - time.timezone
-        cycle_metadata(bucket)
         bucket.store_fh("s3ql_metadata", fh, param)
         fh.close()
 

@@ -10,7 +10,7 @@ from __future__ import division, print_function
 
 
 from s3ql import inode_cache
-from s3ql import mkfs
+from s3ql.common import create_tables, init_tables
 from s3ql.database import Connection
 from _common import TestCase
 import unittest2 as unittest
@@ -22,8 +22,8 @@ class cache_tests(TestCase):
     def setUp(self):
         self.dbfile = tempfile.NamedTemporaryFile()
         self.db = Connection(self.dbfile.name)
-        mkfs.setup_tables(self.db)
-        mkfs.init_tables(self.db)
+        create_tables(self.db)
+        init_tables(self.db)
         self.cache = inode_cache.InodeCache(self.db)
 
     def tearDown(self):
