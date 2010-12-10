@@ -30,7 +30,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
 from s3ql.common import (setup_logging, QuietError,
                          unlock_bucket, get_backend)
 from s3ql.backends.common import ChecksumError
-from s3ql.argparse import ArgumentParser, storage_url_type
+from s3ql.parse_args import ArgumentParser, storage_url_type
 
 log = logging.getLogger('make_dummy')
 

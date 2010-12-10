@@ -27,7 +27,7 @@ from s3ql.common import (setup_logging, QuietError,
                          get_backend_credentials, AsyncFn )
 from s3ql.backends import s3
 from s3ql.backends.boto.s3.connection import Location
-from s3ql.argparse import ArgumentParser
+from s3ql.parse_args import ArgumentParser
 
 log = logging.getLogger('s3_copy')
 

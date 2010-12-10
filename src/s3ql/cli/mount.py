@@ -17,7 +17,7 @@ from s3ql.backends.common import (ChecksumError, NoSuchObject)
 from s3ql.common import (setup_logging, get_backend, get_bucket_home,
                          QuietError, unlock_bucket,  ExceptionStoringThread,
                          cycle_metadata, dump_metadata, restore_metadata)
-from s3ql.argparse import ArgumentParser
+from s3ql.parse_args import ArgumentParser
 from s3ql.database import Connection
 from global_lock import lock
 import llfuse

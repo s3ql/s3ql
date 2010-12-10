@@ -28,7 +28,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     sys.path = [os.path.join(basedir, 'src')] + sys.path
     
 from s3ql.common import setup_logging
-from s3ql.argparse import ArgumentParser
+from s3ql.parse_args import ArgumentParser
 from s3ql.cli.remove import main as s3qlrm
     
 log = logging.getLogger('expire_backups')
@@ -57,7 +57,7 @@ def parse_args(args):
 
     parser.add_quiet()
     parser.add_debug()
-    parser.add_version()
+    parser.add_version() 
 
     parser.add_argument('cycles', nargs='+',  type=int, metavar='<age>',
                         help='Age range boundaries in terms of backup cycles')

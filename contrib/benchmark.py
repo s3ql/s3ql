@@ -30,7 +30,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
 
 from s3ql.backends.common import compress_encrypt_fh
 from s3ql.common import (get_backend, QuietError,setup_logging)
-from s3ql.argparse import ArgumentParser
+from s3ql.parse_args import ArgumentParser
 import argparse
 
 log = logging.getLogger('benchmark')

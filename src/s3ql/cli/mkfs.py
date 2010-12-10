@@ -17,7 +17,7 @@ from s3ql import CURRENT_FS_REV
 from s3ql.common import (get_backend, get_bucket_home, setup_logging,
                          QuietError, dump_metadata, create_tables,
                          init_tables)
-from s3ql.argparse import ArgumentParser
+from s3ql.parse_args import ArgumentParser
 from s3ql.database import Connection
 from s3ql.backends.boto.s3.connection import Location
 from s3ql.backends import s3

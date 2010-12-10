@@ -13,7 +13,7 @@ from s3ql.common import (get_backend, QuietError, unlock_bucket,
                          cycle_metadata, dump_metadata, restore_metadata,
                          setup_logging, get_bucket_home)
 from s3ql.backends import s3
-from s3ql.argparse import ArgumentParser
+from s3ql.parse_args import ArgumentParser
 from s3ql import CURRENT_FS_REV
 from getpass import getpass
 import sys

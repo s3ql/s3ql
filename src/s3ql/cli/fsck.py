@@ -14,7 +14,7 @@ import time
 from s3ql.common import (get_bucket_home, cycle_metadata, setup_logging,  
                          unlock_bucket, QuietError, get_backend, 
                          restore_metadata, dump_metadata)
-from s3ql.argparse import ArgumentParser
+from s3ql.parse_args import ArgumentParser
 from s3ql import CURRENT_FS_REV
 from s3ql.database import Connection
 import logging

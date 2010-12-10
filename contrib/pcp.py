@@ -25,7 +25,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
 from s3ql.common import (setup_logging)
-from s3ql.argparse import ArgumentParser
+from s3ql.parse_args import ArgumentParser
 
 log = logging.getLogger('pcp')
 

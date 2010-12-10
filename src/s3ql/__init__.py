@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function
 
-__all__ = [ 'backends', 'cli', 'argparse', 'block_cache', "common", 'daemonize', 
+__all__ = [ 'backends', 'cli', 'parse_args', 'block_cache', "common", 'daemonize', 
             'database', 'fs', 'fsck', 'libc_api',
             'libc', "mkfs", 'multi_lock', 'ordered_dict', 'thread_group',
             'upload_manager', 'VERSION', 'CURRENT_FS_REV' ]

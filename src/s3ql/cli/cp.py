@@ -12,7 +12,7 @@ from s3ql import libc
 import os
 import logging
 from s3ql.common import (setup_logging, CTRL_NAME, QuietError)
-from s3ql.argparse import ArgumentParser
+from s3ql.parse_args import ArgumentParser
 import struct
 import stat
 import textwrap
