@@ -120,7 +120,7 @@ def blocking_umount(mountpoint):
 
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
     
-    log.info('Flushing cache...')
+    log.debug('Flushing cache...')
     libc.setxattr(ctrlfile, b's3ql_flushcache!', b'dummy')
 
     if not warn_if_error(mountpoint):
@@ -137,14 +137,14 @@ def blocking_umount(mountpoint):
     log.debug('cmdline is %r', cmdline)
 
     # Unmount
-    log.info('Unmounting...')
+    log.debug('Unmounting...')
     # This seems to be necessary to prevent weird busy errors
     time.sleep(3)
     if subprocess.call(['fusermount', '-u', mountpoint]) != 0:
         sys.exit(1)
 
     # Wait for daemon
-    log.info('Uploading metadata...')
+    log.debug('Uploading metadata...')
     step = 0.5
     while True:
         try:
