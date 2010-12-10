@@ -37,8 +37,7 @@ S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK |
 def fsck(cachedir_, bucket_, param, db):
     """Check file system
     
-    Sets module variable `found_errors`. Throws `FatalFsckError` 
-    if the filesystem can not be repaired.
+    Sets module variable `found_errors`.
     """
 
     global cachedir
@@ -66,14 +65,6 @@ def log_error(*a, **kw):
 
     if not expect_errors:
         return log.warn(*a, **kw)
-
-class FatalFsckError(Exception):
-    """An uncorrectable error has been found in the file system.
-
-    """
-
-    pass
-
 
 def check_cache(conn):
     """Commit uncommitted cache files"""
