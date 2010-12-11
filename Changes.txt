@@ -1,4 +1,4 @@
-xx, S3QL 0.27
+2010-12-11, S3QL 0.27
 
   * The authinfo file now supports passwords that include 
     white space. 
