@@ -113,7 +113,7 @@ def main(args=None):
         log.info('Dry run, not saving state.')
     else: 
         log.info('Saving state..')    
-        pickle.dump(state, open(options.state, 'wb'), 2)
+        pickle.dump(state, open(options.state, 'wb'), pickle.HIGHEST_PROTOCOL)
        
 def upgrade_to_state(backup_list):
     log.info('Several existing backups detected, trying to convert absolute ages to cycles')

@@ -15,6 +15,15 @@ xx, S3QL 0.27
     
   * s3qlctrl now has an 'upload-meta' command to trigger a metadata
     upload while the file system is mounted.
+
+  * Fixed a bug that preserved old data when truncating a file
+    to zero. If you ever had fsck errors of the form
+
+    Size of inode [ddd] ([filename]) does not agree with number of blocks
+
+    then the affected files may contain additional, old data
+    at the end that is not supposed to be there.
+    
   
 2010-10-30, S3QL 0.26
 

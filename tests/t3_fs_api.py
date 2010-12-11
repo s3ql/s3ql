@@ -420,7 +420,7 @@ class fs_api_tests(TestCase):
 
 
     def test_truncate(self):
-        len_ = 2 * self.blocksize
+        len_ = int(2.7 * self.blocksize)
         data = self.random_data(len_)
 
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(), self.file_mode(), Ctx())
@@ -434,6 +434,23 @@ class fs_api_tests(TestCase):
 
         self.fsck()
 
+    def test_truncate_0(self):
+        len1 = 158
+        len2 = 133
+
+        (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
+                                         self.file_mode(), Ctx())
+        self.server.write(fh, 0, self.random_data(len1))
+        self.server.release(fh)
+        self.server.inodes.flush()
+        
+        fh = self.server.open(inode.id, os.O_RDWR)     
+        self.server.setattr(inode.id, { 'st_size': 0 })
+        self.server.write(fh, 0, self.random_data(len2))
+        self.server.release(fh)
+
+        self.fsck()
+        
     def test_setxattr(self):
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
                                          self.file_mode(), Ctx())

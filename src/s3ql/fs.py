@@ -24,6 +24,7 @@ from .database import NoSuchRowError
 from .backends.common import NoSuchObject, ChecksumError
 import struct
 import cPickle as pickle
+import math
 import threading
 from llfuse.interface import FUSEError
 from global_lock import lock
@@ -525,7 +526,7 @@ class Operations(llfuse.Operations):
         inode_p.ctime = timestamp
 
         if inode.refcount == 0 and id_ not in self.open_inodes:
-            self.cache.remove(id_, 0, inode.size // self.blocksize + 1)
+            self.cache.remove(id_, 0, int(math.ceil(inode.size / self.blocksize)))
             # Since the inode is not open, it's not possible that new blocks
             # get created at this point and we can safely delete the inode
             self.db.execute('DELETE FROM ext_attributes WHERE inode=?', (id_,))
@@ -614,7 +615,8 @@ class Operations(llfuse.Operations):
         inode_p_new.mtime = timestamp
 
         if inode_new.refcount == 0 and id_new not in self.open_inodes:
-            self.cache.remove(id_new, 0, inode_new.size // self.blocksize + 1)
+            self.cache.remove(id_new, 0, 
+                              int(math.ceil(inode_new.size / self.blocksize)))
             # Since the inode is not open, it's not possible that new blocks
             # get created at this point and we can safely delete the inode
             self.db.execute('DELETE FROM ext_attributes WHERE inode=?', (id_new,))
@@ -661,16 +663,23 @@ class Operations(llfuse.Operations):
         if 'st_size' in attr:
             len_ = attr['st_size']
 
-            # Delete all truncated blocks
+            # Determine blocks to delete
             last_block = len_ // self.blocksize
-            total_blocks = inode.size // self.blocksize + 1
-            self.cache.remove(id_, last_block + 1, total_blocks)
-
-            # Get last object before truncation
-            if len_ != 0:
+            cutoff = len_ % self.blocksize
+            total_blocks = int(math.ceil(inode.size / self.blocksize)) 
+            
+            # Adjust file size
+            inode.size = len_
+            
+            # Delete blocks and truncate last one if required 
+            if cutoff == 0:
+                self.cache.remove(id_, last_block, total_blocks)
+            else:
+                self.cache.remove(id_, last_block + 1, total_blocks)
+                
                 try:
                     with self.cache.get(id_, last_block) as fh:
-                        fh.truncate(len_ - self.blocksize * last_block)
+                        fh.truncate(cutoff)
                         
                 except NoSuchObject as exc:
                     log.warn('Backend lost block %d of inode %d (id %s)!', 
@@ -682,10 +691,7 @@ class Operations(llfuse.Operations):
                     log.warn('Backend returned malformed data for block %d of inode %d (%s)',
                              last_block, id_, exc)
                     raise FUSEError(errno.EIO)
-        
-            # Inode may have expired from cache 
-            inode = self.inodes[id_]
-            inode.size = len_
+            
 
         if 'st_mode' in attr:
             inode.mode = attr['st_mode']
@@ -978,11 +984,11 @@ class Operations(llfuse.Operations):
 
             inode = self.inodes[fh]
             if inode.refcount == 0:
-                self.cache.remove(inode.id, 0, inode.size // self.blocksize + 1)
+                self.cache.remove(inode.id, 0, 
+                                  int(math.ceil(inode.size // self.blocksize)))
                 # Since the inode is not open, it's not possible that new blocks
                 # get created at this point and we can safely delete the in
                 del self.inodes[fh]
-
 
 
     # Called for close() calls. 
