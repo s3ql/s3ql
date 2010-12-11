@@ -211,19 +211,13 @@ def upgrade(bucket):
     #pylint: disable=W0212
             
     print(textwrap.dedent('''
-        I am about to update the file system to the newest revision. Note that:
+        I am about to update the file system to the newest revision. 
+        You will not be able to access the file system with any older version
+        of S3QL after this operation. 
         
-         - You should make very sure that this command is not interrupted and
-           that no one else tries to mount, fsck or upgrade the file system at
-           the same time.
-        
-         - You will not be able to access the file system with any older version
-           of S3QL after this operation. 
-           
-         - The upgrade can only be done from the *previous* revision. If you
-           skipped an intermediate revision, you have to use an intermediate
-           version of S3QL to first upgrade the file system to the previous
-           revision.
+        You should make very sure that this command is not interrupted and
+        that no one else tries to mount, fsck or upgrade the file system at
+        the same time.
         '''))
 
     print('Please enter "yes" to continue.', '> ', sep='\n', end='')
@@ -234,13 +228,26 @@ def upgrade(bucket):
     log.info('Getting file system parameters..')
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
     if not seq_nos:
-        raise QuietError('File system revision too old to upgrade.')
+        raise QuietError(textwrap.dedent(''' 
+            File system revision too old to upgrade!
+            
+            You need to use an older S3QL version to upgrade to a more recent
+            revision before you can use this version to upgrade to the newest
+            revision.
+            '''))
+                         
     seq_no = max(seq_nos)
     param = bucket.lookup('s3ql_metadata')
 
     # Check revision
     if param['revision'] < CURRENT_FS_REV - 1:
-        raise QuietError('File system revision too old to upgrade.')
+        raise QuietError(textwrap.dedent(''' 
+            File system revision too old to upgrade!
+            
+            You need to use an older S3QL version to upgrade to a more recent
+            revision before you can use this version to upgrade to the newest
+            revision.
+            '''))
 
     elif param['revision'] >= CURRENT_FS_REV:
         print('File system already at most-recent revision')
