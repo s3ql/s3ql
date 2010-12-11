@@ -44,6 +44,7 @@ class Fsck(object):
     
         self.check_cache()
         self.check_lof()
+        self.check_contents()
         self.check_loops()
         self.check_inode_refcount()
         self.check_inode_sizes()
@@ -169,7 +170,19 @@ class Fsck(object):
             self.conn.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
                        (inode_l, b"lost+found", ROOT_INODE))
     
-    
+    def check_contents(self):
+        """Check direntry names"""
+
+        log.info('Checking directory entry names...')
+        
+        for (name, id_p) in self.conn.query('SELECT name, parent_inode FROM contents '
+                                            'WHERE LENGTH(name) > 255'):
+            path = get_path(id_p, self.conn, name)
+            self.log_error('Entry name %s... in %s has more than 255 characters, '
+                           'this could cause problems',
+                           name[:40], path[:-len(name)])
+            self.found_errors = True            
+            
     
     def check_loops(self):
         """Ensure that all directories can be reached from root"""
@@ -408,14 +421,11 @@ class Fsck(object):
                                                    'WHERE inode=?', (id_,)):
                         path = get_path(id_p, self.conn, name)
                         self.log_error(path)
-                        newname = path[1:].replace('_', '__').replace('/', '_')
-                        
-                        # Maybe there is a problem in this code path
-                        # See http://code.google.com/p/s3ql/issues/detail?id=217
-                        assert len(newname) < 10240    
+                        (_, newname) = self.resolve_free(b"/lost+found",
+                                                            path[1:].replace('_', '__').replace('/', '_')) 
                             
                         self.conn.execute('UPDATE contents SET name=?, parent_inode=? '
-                                     'WHERE inode=?', (newname, lof_id, id_))
+                                          'WHERE inode=?', (newname, lof_id, id_))
                         
                 self.conn.execute("DELETE FROM blocks WHERE obj_id=?", (obj_id,))
                 self.conn.execute("DELETE FROM objects WHERE id=?", (obj_id,))
@@ -449,4 +459,7 @@ class Fsck(object):
         except NoSuchRowError:
             pass
     
+        # Debugging http://code.google.com/p/s3ql/issues/detail?id=217
+        assert len(newname) < 256
+                        
         return (inode_p, newname)
