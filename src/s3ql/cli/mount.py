@@ -25,6 +25,7 @@ import tempfile
 import textwrap
 import os
 import stat
+import signal
 import time
 import threading
 import logging
@@ -187,6 +188,8 @@ def main(args=None):
             
             if options.metadata_upload_interval:
                 metadata_upload_thread.start()
+            if options.upstart:
+                os.kill(os.getpid(), signal.SIGSTOP)
             if options.profile:
                 prof.runcall(llfuse.main, options.single)
             else:
@@ -259,11 +262,7 @@ def get_fuse_opts(options):
 
 
 def parse_args(args):
-    '''Parse command line
-    
-    This function writes to stdout/stderr and may call `system.exit()` instead 
-    of throwing an exception if it encounters errors.
-    '''
+    '''Parse command line'''
 
     # Parse fstab-style -o options
     if '--' in args:
@@ -327,6 +326,9 @@ def parse_args(args):
     parser.add_argument("--single", action="store_true", default=False,
                       help="Run in single threaded mode. If you don't understand this, "
                            "then you don't need it.")
+    parser.add_argument("--upstart", action="store_true", default=False,
+                      help="Stay in foreground and raise SIGSTOP once mountpoint "
+                           "is up.")
     parser.add_argument("--profile", action="store_true", default=False,
                       help="Create profiling information. If you don't understand this, "
                            "then you don't need it.")
@@ -351,6 +353,9 @@ def parse_args(args):
     if options.profile:
         options.single = True
 
+    if options.upstart:
+        options.fg = True
+        
     if options.compress == 'none':
         options.compress = None
         
@@ -406,6 +411,7 @@ class MetadataUploadThread(ExceptionStoringThread):
             fh.seek(0)
             self.param['last-modified'] = time.time() - time.timezone
             self.bucket.store_fh("s3ql_metadata", fh, self.param)
+            fh.close()
             self.db_mtime = new_mtime    
 
         log.debug('MetadataUploadThread: end')    

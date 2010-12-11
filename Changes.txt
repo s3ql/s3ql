@@ -8,6 +8,10 @@ xx, S3QL 0.27
   
   * The --strip-meta option for mount.s3ql has been removed,
     redundant data is now always stripped before upload.
+
+  * mount.s3ql now has a --upstart option so that it can easily
+    run as an upstart job. An example job definition is included
+    in contrib/s3ql.conf.
   
 2010-10-30, S3QL 0.26
 
