@@ -161,14 +161,15 @@ def main(args=None):
                     del bucket['s3ql_seq_no_%d' % i ]
                 except NoSuchObject:
                     pass # Key list may not be up to date
-
+ 
+        metadata_upload_thread = MetadataUploadThread(bucket, param, db,
+                                                      options.metadata_upload_interval)
         operations = fs.Operations(bucket, db, cachedir=home + '-cache', 
                                    blocksize=param['blocksize'],
                                    cache_size=options.cachesize * 1024,
+                                   upload_event=metadata_upload_thread.event,
                                    cache_entries=options.max_cache_entries)
- 
-        metadata_upload_thread = MetadataUploadThread(bucket, options, param, db)
-
+        
         log.info('Mounting filesystem...')
         llfuse.init(operations, options.mountpoint, fuse_opts)
         try:
@@ -376,24 +377,26 @@ class MetadataUploadThread(ExceptionStoringThread):
     '''    
     
     
-    def __init__(self, bucket, options, param, db):
+    def __init__(self, bucket, param, db, interval):
         super(MetadataUploadThread, self).__init__()
         self.bucket = bucket
-        self.options = options
         self.param = param
         self.db = db
+        self.interval = interval
         self.daemon = True
         self.db_mtime = os.stat(db.file).st_mtime 
-        self.stop_event = threading.Event()
+        self.event = threading.Event()
+        self.quit = False
         self.name = 'Metadata-Upload-Thread'
            
     def run_protected(self):
         log.debug('MetadataUploadThread: start')
         
         while True:
-            self.stop_event.wait(self.options.metadata_upload_interval)
+            self.event.wait(self.interval)
+            self.event.clear()
             
-            if self.stop_event.is_set():
+            if self.quit:
                 break
             
             with lock:
@@ -422,7 +425,8 @@ class MetadataUploadThread(ExceptionStoringThread):
         This  method releases the global lock.
         '''
         
-        self.stop_event.set()
+        self.quit = True
+        self.event.set()
         lock.release()
         try:
             self.join_and_raise()

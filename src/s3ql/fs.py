@@ -59,6 +59,7 @@ class Operations(llfuse.Operations):
     :inode_cache: A cache for the attributes of the currently opened inodes.
     :open_inodes: dict of currently opened inodes. This is used to not remove
                   the blocks of unlinked inodes that are still open.
+    :upload_event: If set, triggers a metadata upload
  
     Multithreading
     --------------
@@ -91,12 +92,13 @@ class Operations(llfuse.Operations):
 
 
     def __init__(self, bucket, db, cachedir, blocksize, cache_size,
-                 cache_entries=768):
+                 cache_entries=768, upload_event=None):
         super(Operations, self).__init__()
 
         self.encountered_errors = False
         self.inodes = InodeCache(db)
         self.db = db
+        self.upload_event = upload_event
         self.inode_flush_thread = None
         self.open_inodes = collections.defaultdict(lambda: 0)
         self.blocksize = blocksize
@@ -233,6 +235,11 @@ class Operations(llfuse.Operations):
                 self.cache.upload_manager.join_all()
             elif name == 'copy':
                 self.copy_tree(*struct.unpack('II', value))
+            elif name == 'upload-meta':
+                if self.upload_event is not None:
+                    self.upload_event.set()
+                else:
+                    raise llfuse.FUSEError(errno.ENOTTY)
             elif name == 'lock':
                 self.lock_tree(*pickle.loads(value))  
             elif name == 'rmtree':

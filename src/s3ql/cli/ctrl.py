@@ -43,7 +43,9 @@ def parse_args(args):
                                        help='may be either of')                               
     subparsers.add_parser('flushcache', help='flush file system cache',
                           parents=[pparser])
-
+    subparsers.add_parser('upload-meta', help='Upload metadata',
+                          parents=[pparser])
+    
     sparser = subparsers.add_parser('cachesize', help='Change cache size',
                                     parents=[pparser])          
     sparser.add_argument('cachesize', metavar='<size>', type=int,
@@ -101,6 +103,9 @@ def main(args=None):
     if options.action == 'flushcache':
         libc.setxattr(ctrlfile, 's3ql_flushcache!', 'dummy')
 
+    if options.action == 'upload-meta':
+        libc.setxattr(ctrlfile, 'upload-meta', 'dummy')
+        
     elif options.action == 'log':
         libc.setxattr(ctrlfile, 'logging', 
                       pickle.dumps((options.level, options.modules),

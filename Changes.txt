@@ -12,6 +12,9 @@ xx, S3QL 0.27
   * mount.s3ql now has a --upstart option so that it can easily
     run as an upstart job. An example job definition is included
     in contrib/s3ql.conf.
+    
+  * s3qlctrl now has an 'upload-meta' command to trigger a metadata
+    upload while the file system is mounted.
   
 2010-10-30, S3QL 0.26
 

@@ -7,6 +7,29 @@ Tips & Tricks
 
 .. _copy_performance:
 
+
+Permanently mounted backup file system
+======================================
+
+If you use S3QL as a backup file system, it can be useful to mount the
+file system permanently (rather than just mounting it for a backup and
+unmounting it afterwards). Especially if your file system becomes
+large, this saves you long mount- and unmount times if you only want
+to restore a single file.
+
+If you decide to do so, you should make sure to
+
+* Use :command:`s3qllock` to ensure that backups are immutable after they have
+  been made.
+
+* Call :command:`s3qlctrl upload-meta` right after a every backup to
+  make sure that the newest metadata is stored safely (if you do
+  backups often enough, this may also allow you to set the
+  :option:`--metdata-upload-interval` option of :command:`mount.s3ql`
+  to zero).
+
+
+
 Improving copy performance
 ==========================
 
