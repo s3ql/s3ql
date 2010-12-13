@@ -187,8 +187,7 @@ def main(args=None):
                 daemonize(options.homedir)
                 conn.finish_fork()
             
-            if options.metadata_upload_interval:
-                metadata_upload_thread.start()
+            metadata_upload_thread.start()
             if options.upstart:
                 os.kill(os.getpid(), signal.SIGSTOP)
             if options.profile:
@@ -356,6 +355,9 @@ def parse_args(args):
 
     if options.upstart:
         options.fg = True
+        
+    if options.metadata_upload_interval == 0:
+        options.metadata_upload_interval = None
         
     if options.compress == 'none':
         options.compress = None
