@@ -170,7 +170,7 @@ def get_backend(storage_url, homedir):
 def cycle_metadata(bucket):
     from .backends.common import UnsupportedError
 
-    for i in reversed(range(5)):
+    for i in reversed(range(10)):
         if "s3ql_metadata_bak_%d" % i in bucket:
             try:
                 bucket.rename("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
