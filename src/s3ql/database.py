@@ -5,31 +5,10 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 
 This program can be distributed under the terms of the GNU LGPL.
 
-This module manages access to the SQLite database. Its main objective
-is to ensure that every thread works with a thread-local connection. 
-This allows to rely on SQLite to take care of locking procedures
-and ensures that one can uniquely retrieve the last inserted rowid and the
-number of rows affected by the last statement.
-
-Note that threading.local() does not work when the threads are
-not started by threading.Thread() but some C library (like fuse).
-The python implementation in _threading_local does work, but
-it is not clear if and when local objects are being destroyed.
-Therefore we maintain a pool of connections that are
-shared between all threads.
-
-Public functions (not starting with an underscore) of this module
-are threadsafe and safe to call concurrently from several threads.
 
 Module Attributes:
 -----------
 
-:retrytime:    In case the database is locked by another thread,
-               we wait for the lock to be released for at most
-               `retrytime` milliseconds.
-:pool:         List of available cursors (one for each database connection)
-:provided:     Dict of currently provided ConnectionWrapper instances
-:dbfile:       Filename of the database
 :initsql:      SQL commands that are executed whenever a new
                connection is created.
                  
