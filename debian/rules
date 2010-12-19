@@ -15,10 +15,9 @@ override_dh_compress:
 override_dh_auto_build:
 	dh_auto_build
 
-        # Generate the docs from the doc sources
-	[ -e doc/html ] || python setup.py build_sphinx
-	[ ! -e doc/doctrees ] || rm -rf doc/doctrees
-	[ ! -e doc/html/.buildinfo ] || rm -rf doc/html/.buildinfo
+        # Docs should be included in release
+	[ -e doc/html ]
+	[ -e doc/manual.pdf ]
 
 override_dh_install:
 	# Fakeroot breaks testing
@@ -41,5 +40,4 @@ override_dh_fixperms:
 override_dh_auto_clean:
 	dh_auto_clean
 	rm -rf dist
-	rm -rf doc/doctrees
 	rm -rf setup.log
