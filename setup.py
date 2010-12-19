@@ -39,14 +39,6 @@ fuse_export_symbols = ['fuse_mount', 'fuse_lowlevel_new', 'fuse_add_direntry',
 libc_export_symbols = [ 'setxattr', 'getxattr', 'readdir', 'opendir',
                        'closedir' ]
 
-# C components
-#cflags = ['-std=c99', '-Wall', '-Wextra', '-pedantic', '-Wswitch-enum',
-#          '-Wswitch-default']
-#lzma_c_files = list()
-#for file_ in ['liblzma.c', 'liblzma_compressobj.c', 'liblzma_decompressobj.c',
-#              'liblzma_file.c', 'liblzma_fileobj.c', 'liblzma_options.c',
-#              'liblzma_util.c']:
-#    lzma_c_files.append(os.path.join('src', 's3ql', 'lzma', file_))
 
 # Add S3QL sources
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
@@ -59,17 +51,49 @@ use_setuptools(version='0.6.14', download_delay=5)
 import setuptools
 import setuptools.command.test as setuptools_test
 
+# Import sphinx
+try:
+    from sphinx.setup_command import BuildDoc
+except ImportError:
+    BuildDoc = object
+                       
+class build_docs(BuildDoc):
+
+    def initialize_options(self):
+        BuildDoc.initialize_options(self)
+        self.source_dir = 'doc/txt'
+        self.build_dir = 'doc'
+        self.builder = 'html'
+                
+    def run(self):
+        BuildDoc.run(self)
+        self.builder = 'latex'
+        self.builder_target_dir = os.path.join(self.build_dir, self.builder)
+        self.mkpath(self.builder_target_dir)
+        BuildDoc.run(self)
+        
+        print('Running pdflatex...')
+        for _ in range(3):
+            subprocess.check_call(['pdflatex', '-interaction',
+                                   'batchmode', 'manual.tex'],
+                                  cwd=self.builder_target_dir, 
+                                  stdout=open('/dev/null', 'wb'))
+        os.rename(os.path.join(self.builder_target_dir, 'manual.pdf'),
+                  os.path.join(self.build_dir, 'manual.pdf'))
+                  
+    
 def main():
 
     with open(os.path.join(basedir, 'doc', 'txt', 'about.txt'), 'r') as fh:
         long_desc = fh.read()
 
-    #compile_args = list()
-    #compile_args.extend(cflags)
-    #compile_args.extend(get_cflags('liblzma'))
-    #extens = [setuptools.Extension('s3ql.lzma', lzma_c_files, extra_compile_args=compile_args,
-    #                             extra_link_args=get_cflags('liblzma', False, True))
-
+    cmdclass = {'test': test,
+                'build_ctypes': build_ctypes,
+                'upload_docs': upload_docs, }
+    
+    if hasattr(build_docs, 'run'):
+        cmdclass['build_sphinx'] = build_docs 
+    
     setuptools.setup(
           name='s3ql',
           zip_safe=True,
@@ -117,10 +141,10 @@ def main():
                          'argparse',
                          'pyliblzma >= 0.5.3' ],
           test_suite='tests',
-          #ext_modules=extens,
-          cmdclass={'test': test,
-                    'build_ctypes': build_ctypes,
-                    'upload_docs': upload_docs, }
+          cmdclass=cmdclass,
+          command_options = { 'sdist': { 'formats': ('setup.py', 'bztar') },
+                              'build_sphinx': { 'version': ('setup.py', s3ql.VERSION),
+                                                'release': ('setup.py', s3ql.VERSION), } }, 
          )
 
 class build_ctypes(setuptools.Command):

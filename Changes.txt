@@ -7,6 +7,7 @@ xxx, S3QL 0.28
     significantly reduces the time required to mount the file
     system.
     
+  * The documentation is now also included in PDF format.
 
 2010-12-11, S3QL 0.27
 
