@@ -27,10 +27,6 @@ import tempfile
 import time
 import unittest2 as unittest
 
-# Looks like a pylint bug
-#pylint: disable=E1101
-
-
 class fuse_tests(TestCase):
     
     def setUp(self):
@@ -98,7 +94,7 @@ class fuse_tests(TestCase):
         s3ql.cli.umount.DONTWAIT = True
         try:
             s3ql.cli.umount.main([self.mnt_dir])
-        except SystemExit as exc:
+        except BaseException as exc:
             self.fail("Umount failed: %s" % exc)
 
         # Now wait for server process
