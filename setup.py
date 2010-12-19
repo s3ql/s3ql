@@ -401,6 +401,8 @@ class upload_docs(setuptools.Command):
     def run(self):
         subprocess.check_call(['rsync', '-aHv', '--del', os.path.join(basedir, 'doc', 'html') + '/',
                                'ebox.rath.org:/var/www/s3ql-docs/'])
+        subprocess.check_call(['rsync', '-aHv', '--del', os.path.join(basedir, 'doc', 'manual.pdf'),
+                               'ebox.rath.org:/var/www/s3ql-docs/'])
 
 if __name__ == '__main__':
     main()
