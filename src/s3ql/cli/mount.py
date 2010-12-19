@@ -13,8 +13,8 @@ from __future__ import division, print_function, absolute_import
 import sys
 from s3ql import fs, CURRENT_FS_REV
 from s3ql.daemonize import daemonize
-from s3ql.backends.common import (ChecksumError, NoSuchObject)
-from s3ql.common import (setup_logging, get_backend, get_bucket_home,
+from s3ql.backends.common import (ChecksumError)
+from s3ql.common import (setup_logging, get_backend, get_bucket_home, get_seq_no,
                          QuietError, unlock_bucket,  ExceptionStoringThread,
                          cycle_metadata, dump_metadata, restore_metadata)
 from s3ql.parse_args import ArgumentParser
@@ -48,10 +48,11 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-
+    fuse_opts = get_fuse_opts(options)
+    
     # Save handler so that we can remove it when daemonizing
     stdout_log_handler = setup_logging(options, 'mount.log')
-
+    
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.')
 
@@ -75,93 +76,9 @@ def main(args=None):
         # Get paths
         home = get_bucket_home(options.storage_url, options.homedir)
 
-        # Check for unclean shutdown on this computer
-        if (os.path.exists(home + '.db')
-            or os.path.exists(home + '.params')
-            or os.path.exists(home + '-cache')):
-            raise QuietError('Local cache files exist, file system has not been unmounted\n'
-                             'cleanly. You need to run fsck.s3ql.')
-
-        fuse_opts = get_fuse_opts(options)
-
-        # Get file system parameters
-        log.info('Getting file system parameters..')
-        seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
-        if not seq_nos:
-            raise QuietError('Old file system revision, please run `s3qladm upgrade` first.')
-        seq_no = max(seq_nos)
-        param = bucket.lookup('s3ql_metadata')
-
-        # Check revision
-        if param['revision'] < CURRENT_FS_REV:
-            raise QuietError('File system revision too old, please run `s3qladm upgrade` first.')
-        elif param['revision'] > CURRENT_FS_REV:
-            raise QuietError('File system revision too new, please update your '
-                             'S3QL installation.')
-
-        # Check that the fs itself is clean
-        if param['needs_fsck']:
-            raise QuietError("File system damaged, run fsck!")
-
-        # Check for unclean shutdown on other computer
-        if param['seq_no'] < seq_no:
-            if bucket.read_after_write_consistent():
-                raise QuietError(textwrap.fill(textwrap.dedent('''\
-                    It appears that the file system is still mounted somewhere else. If this is not
-                    the case, the file system may have not been unmounted cleanly and you should try
-                    to run fsck on the computer where the file system has been mounted most recently.
-                    ''')))
-            else:                
-                raise QuietError(textwrap.fill(textwrap.dedent('''\
-                    It appears that the file system is still mounted somewhere else. If this is not the
-                    case, the file system may have not been unmounted cleanly or the data from the 
-                    most-recent mount may have not yet propagated through the backend. In the later case,
-                    waiting for a while should fix the problem, in the former case you should try to run
-                    fsck on the computer where the file system has been mounted most recently.
-                    ''')))
-
-        elif param['seq_no'] > seq_no:
-            raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
-
-        if (time.time() - time.timezone) - param['last_fsck'] > 60 * 60 * 24 * 31:
-            log.warn('Last file system check was more than 1 month ago, '
-                     'running fsck.s3ql is recommended.')
-
-        # Download metadata
-        log.info("Downloading & uncompressing metadata...")
-        fh = tempfile.TemporaryFile()
-        bucket.fetch_fh("s3ql_metadata", fh)
-        os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
-                          stat.S_IRUSR | stat.S_IWUSR), 'w+b')
-        try:
-            db = Connection(home + '.db')
-            fh.seek(0)
-            log.info('Reading metadata...')
-            restore_metadata(fh, db)
-            fh.close()
-        except:
-            # Don't keep file if it doesn't contain anything sensible
-            os.unlink(home + '.db')
-            raise
+        # Retrieve metadata
+        (param, db) = get_metadata(bucket, home)
         
-        # Increase metadata sequence no, save parameters 
-        param['seq_no'] += 1
-        try:
-            pickle.dump(param, open(home + '.params', 'wb'), 2)
-            bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
-        except:
-            os.unlink(home + '.params')
-            os.unlink(home + '.db')
-            raise
-        param['seq_no'] -= 1
-                    
-        for i in seq_nos:
-            if i < param['seq_no'] - 5:
-                try:
-                    del bucket['s3ql_seq_no_%d' % i ]
-                except NoSuchObject:
-                    pass # Key list may not be up to date
- 
         metadata_upload_thread = MetadataUploadThread(bucket, param, db,
                                                       options.metadata_upload_interval)
         operations = fs.Operations(bucket, db, cachedir=home + '-cache', 
@@ -204,27 +121,31 @@ def main(args=None):
         if operations.encountered_errors:
             param['needs_fsck'] = True
         else:       
-            param['seq_no'] += 1
-
+            param['needs_fsck'] = False
+            
+        seq_no = get_seq_no(bucket)
+        pickle.dump(param, open(home + '.params', 'wb'), 2)
         if db_mtime == os.stat(home + '.db').st_mtime:
             log.info('File system unchanged, not uploading metadata.')
-            del bucket['s3ql_seq_no_%d' % param['seq_no']]     
-        else:
+            del bucket['s3ql_seq_no_%d' % param['seq_no']]
+        elif seq_no == param['seq_no']:
             log.info('Saving metadata...')
             fh = tempfile.TemporaryFile()
-            dump_metadata(fh, db)  
-                    
+            dump_metadata(fh, db)          
             log.info("Compressing & uploading metadata..")
             cycle_metadata(bucket)
             fh.seek(0)
             param['last-modified'] = time.time() - time.timezone
             bucket.store_fh("s3ql_metadata", fh, param)
             fh.close()
-        
-        if not operations.encountered_errors:
-            log.debug("Cleaning up...")
-            os.unlink(home + '.db')
-            os.unlink(home + '.params')
+        else:
+            log.error('Remote metadata is newer than local (%d vs %d), '
+                      'refusing to overwrite!', seq_no, param['seq_no'])
+            log.error('The local metadata will be kept in cache but will be *lost* the '
+                      'next time the file system is mounted or checked! If you do not '
+                      'want that, *you need to take action now*!')    
+    
+    db.close() 
 
     if options.profile:
         tmp = tempfile.NamedTemporaryFile()
@@ -242,6 +163,85 @@ def main(args=None):
     if operations.encountered_errors:
         raise QuietError('Some errors were encountered while the file system was mounted,\n'
                          'you should run fsck.s3ql and examine ~/.s3ql/mount.log.')
+
+
+def get_metadata(bucket, home):
+    '''Retrieve metadata
+    
+    Checks:
+    - Revision
+    - Unclean mounts
+    
+    Locally cached metadata is used if up-to-date.
+    '''
+           
+    seq_no = get_seq_no(bucket)
+
+    # Check for cached metadata
+    db = None
+    if os.path.exists(home + '.params'):
+        param = pickle.load(open(home + '.params', 'rb'))
+        if param['seq_no'] < seq_no:
+            log.info('Ignoring locally cached metadata (outdated).')
+            param = bucket.lookup('s3ql_metadata')
+        else:
+            log.info('Using cached metadata.')
+            db = Connection(home + '.db')
+    else:
+        param = bucket.lookup('s3ql_metadata')
+
+    # Check for unclean shutdown
+    if param['seq_no'] < seq_no:
+        if (bucket.read_after_write_consistent() and
+            bucket.read_after_delete_consistent()):
+            raise QuietError(textwrap.fill(textwrap.dedent('''\
+                It appears that the file system is still mounted somewhere else. If this is not
+                the case, the file system may have not been unmounted cleanly and you should try
+                to run fsck on the computer where the file system has been mounted most recently.
+                ''')))
+        else:                
+            raise QuietError(textwrap.fill(textwrap.dedent('''\
+                It appears that the file system is still mounted somewhere else. If this is not the
+                case, the file system may have not been unmounted cleanly or the data from the 
+                most-recent mount may have not yet propagated through the backend. In the later case,
+                waiting for a while should fix the problem, in the former case you should try to run
+                fsck on the computer where the file system has been mounted most recently.
+                ''')))
+       
+    # Check revision
+    if param['revision'] < CURRENT_FS_REV:
+        raise QuietError('File system revision too old, please run `s3qladm upgrade` first.')
+    elif param['revision'] > CURRENT_FS_REV:
+        raise QuietError('File system revision too new, please update your '
+                         'S3QL installation.')
+        
+    # Check that the fs itself is clean
+    if param['needs_fsck']:
+        raise QuietError("File system damaged or not unmounted cleanly, run fsck!")        
+    if (time.time() - time.timezone) - param['last_fsck'] > 60 * 60 * 24 * 31:
+        log.warn('Last file system check was more than 1 month ago, '
+                 'running fsck.s3ql is recommended.')
+    
+    # Download metadata
+    if not db:
+        log.info("Downloading & uncompressing metadata...")
+        fh = tempfile.TemporaryFile()
+        bucket.fetch_fh("s3ql_metadata", fh)
+        os.close(os.open(home + '.db', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                         stat.S_IRUSR | stat.S_IWUSR)) 
+        db = Connection(home + '.db')
+        fh.seek(0)
+        log.info('Reading metadata...')
+        restore_metadata(fh, db)
+        fh.close()
+ 
+    # Increase metadata sequence no 
+    param['seq_no'] += 1
+    param['needs_fsck'] = True
+    bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
+    pickle.dump(param, open(home + '.params', 'wb'), 2)
+    
+    return (param, db)
 
 
 def get_fuse_opts(options):
@@ -410,12 +410,24 @@ class MetadataUploadThread(ExceptionStoringThread):
                 log.info('Saving metadata...')
                 fh = tempfile.TemporaryFile()
                 dump_metadata(fh, self.db) 
-                        
+              
+            seq_no = get_seq_no(self.bucket)
+            if seq_no != self.param['seq_no']:
+                log.error('Remote metadata is newer than local (%d vs %d), '
+                          'refusing to overwrite!', seq_no, self.param['seq_no'])
+                fh.close()
+                continue
+                          
             log.info("Compressing & uploading metadata..")
             cycle_metadata(self.bucket)
             fh.seek(0)
             self.param['last-modified'] = time.time() - time.timezone
+            
+            # Temporarily decrease sequence no, this is not the final upload
+            self.param['seq_no'] -= 1
             self.bucket.store_fh("s3ql_metadata", fh, self.param)
+            self.param['seq_no'] += 1
+            
             fh.close()
             self.db_mtime = new_mtime    
 

@@ -24,15 +24,16 @@ import thread
 from contextlib import contextmanager
 from llfuse import ROOT_INODE
 from global_lock import lock
+from .backends.common import NoSuchObject
 
-__all__ = ["get_bucket_home", 'sha256', 'sha256_fh', 'add_stdout_logging',
+__all__ = ["get_bucket_home", 'sha256_fh', 'add_stdout_logging',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
            "ROOT_INODE", "ExceptionStoringThread", 'retry', 'LoggerFilter',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
            'QuietError', 'get_backend', 'add_file_logging', 'setup_excepthook',
            'cycle_metadata', 'restore_metadata', 'dump_metadata', 
            'setup_logging', 'AsyncFn', 'init_tables', 'create_indices',
-           'create_tables' ]
+           'create_tables', 'get_seq_no' ]
 
 
 AUTHINFO_BACKEND_PATTERN = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(.+)$'
@@ -166,6 +167,21 @@ def get_backend(storage_url, homedir):
         yield (conn, bucketname)
     finally:
         conn.close()
+
+def get_seq_no(bucket):
+    '''Get current metadata sequence number'''
+        
+    seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
+    if not seq_nos:
+        raise QuietError('Old file system revision, please run `s3qladm upgrade` first.')
+    seq_no = max(seq_nos) 
+    for i in [ x for x in seq_nos if x < seq_no - 10 ]:
+        try:
+            del bucket['s3ql_seq_no_%d' % i ]
+        except NoSuchObject:
+            pass # Key list may not be up to date
+        
+    return seq_no   
 
 def cycle_metadata(bucket):
     from .backends.common import UnsupportedError
@@ -552,10 +568,6 @@ def sha256_fh(fh):
         sha.update(buf)
 
     return sha.digest()
-
-
-def sha256(s):
-    return hashlib.sha256(s).digest()
 
 def init_tables(conn):
     # Insert root directory

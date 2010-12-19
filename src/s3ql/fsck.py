@@ -64,6 +64,9 @@ class Fsck(object):
     
     
         log.info("Checking cached objects...")
+        if not os.path.exists(self.cachedir):
+            return
+        
         for filename in os.listdir(self.cachedir):
             self.found_errors = True
     
@@ -134,6 +137,7 @@ class Fsck(object):
     
                 fh.close()
             os.unlink(os.path.join(self.cachedir, filename))
+            
     
     def check_lof(self):
         """Ensure that there is a lost+found directory"""

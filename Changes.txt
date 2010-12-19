@@ -1,3 +1,13 @@
+xxx, S3QL 0.28
+
+  * "s3qlctrl upload-meta" now works even if the file system has
+    been mounted with --metadata-upload-interval=0.
+    
+  * File system metadata is now permanently cached locally. This
+    significantly reduces the time required to mount the file
+    system.
+    
+
 2010-12-11, S3QL 0.27
 
   * The authinfo file now supports passwords that include 

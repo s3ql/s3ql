@@ -12,7 +12,7 @@ import os
 import stat
 import time
 from s3ql.common import (get_bucket_home, cycle_metadata, setup_logging,  
-                         unlock_bucket, QuietError, get_backend, 
+                         unlock_bucket, QuietError, get_backend, get_seq_no,
                          restore_metadata, dump_metadata)
 from s3ql.parse_args import ArgumentParser
 from s3ql import CURRENT_FS_REV
@@ -21,7 +21,6 @@ import logging
 from s3ql.fsck import Fsck
 from s3ql.backends.common import ChecksumError
 import sys
-import shutil
 import tempfile
 import cPickle as pickle
 import textwrap
@@ -86,105 +85,26 @@ def main(args=None):
             raise QuietError('Checksum error - incorrect password?')
 
         home = get_bucket_home(options.storage_url, options.homedir)
-        
-        
-        # Get file system parameters
-        log.info('Getting file system parameters..')
-        seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
-        if not seq_nos:
-            raise QuietError('Old file system revision, please run `s3qladm upgrade` first.')
-        seq_no = max(seq_nos)
-
-        param = None
-        metadata_loaded = False
-        fsck_required = False 
+        seq_no = get_seq_no(bucket)
+        db = None
         
         if os.path.exists(home + '.params'):
-            fsck_required = True
+            assert os.path.exists(home + '.db')
             param = pickle.load(open(home + '.params', 'rb'))
             if param['seq_no'] < seq_no:
-                choice = None
-                print('Local cache files exist, but file system appears to have \n'
-                      'been mounted elsewhere after the unclean shutdown.\n'
-                      'You can either:\n'
-                      '  a) Remove the local cache files and lose the changes in there\n'
-                      '  b) Use the local cache and lose the changes performed during\n'
-                      '     all mounts after the unclean shutdown.\n')
-                if options.batch:
-                    raise QuietError('(in batch mode, exiting)')
-                while choice not in ('a', 'b'):
-                    print('Your choice [ab]? ', end='')
-                    choice = sys.stdin.readline().strip().lower()
-
-                if choice == 'a':
-                    log.info('Removing local cache files..')
-                    os.unlink(home + '.db')
-                    os.unlink(home + '.params')
-                    shutil.rmtree(home + '-cache')
-                    param = None
-                else:
-                    log.info('Using local cache files.')
-                    param['seq_no'] = seq_no
-                    db = Connection(home + '.db')
-                    metadata_loaded = True
-
-            elif param['seq_no'] > seq_no:
-                raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
+                log.info('Ignoring locally cached metadata (outdated).')
+                param = bucket.lookup('s3ql_metadata')
             else:
-                log.info('Using locally cached metadata.')
+                log.info('Using cached metadata.')
                 db = Connection(home + '.db')
-                metadata_loaded = True
+                assert not os.path.exists(home + '-cache') or param['needs_fsck']
+ 
         else:
-            if os.path.exists(home + '-cache'):
-                fsck_required = True
-                print(textwrap.dedent('''\
-                      Local cache files exist, but fsck can not determine what to do with it. If you
-                      commit the existing data, you may lose changes performed after the data has been
-                      generated. If you discard the existing data, you may lose the changes contained in
-                      the data.
-                      
-                      Please report this problem in the issue tracker on
-                      http://code.google.com/p/s3ql/issues/list and include the file ~/.s3ql/mount.log.
-                      '''))
-                print('Enter "use" to use the existing data or "discard" to discard it.',
-                      '> ', sep='\n', end='')
-                if options.batch:
-                    raise QuietError('(in batch mode, exiting)')
-                choice = sys.stdin.readline().strip().lower()
-                if choice == 'use':
-                    pass
-                elif choice == 'discard':
-                    shutil.rmtree(home + '-cache')
-                else:
-                    raise QuietError('Invalid input, aborting.')
-
-            if os.path.exists(home + '.db'):
-                fsck_required = True
-                print(textwrap.dedent('''\
-                      Local metadata exist, but fsck can not determine what to do with it. If you use the
-                      existing metadata, you may lose changes performed after the local metadata has
-                      been saved. If you discard the existing metadata, you may lose changes contained
-                      therein.
-                      
-                      Please report this problem in the issue tracker on
-                      http://code.google.com/p/s3ql/issues/list and include the file ~/.s3ql/mount.log.
-                      '''))
-                print('Enter "use" to use the existing metadata or "discard" to discard it.',
-                      '> ', sep='\n', end='')
-                if options.batch:
-                    raise QuietError('(in batch mode, exiting)')
-                choice = sys.stdin.readline().strip().lower()
-                if choice == 'use':
-                    db = Connection(home + '.db')
-                    metadata_loaded = True
-                elif choice == 'discard':
-                    os.unlink(home + '.db')
-                else:
-                    raise QuietError('Invalid input, aborting.')
-
-        if param is None:
             param = bucket.lookup('s3ql_metadata')
-
+            assert not os.path.exists(home + '-cache')
+            # .db might exist if mount.s3ql is killed at exactly the right instant
+            # and should just be ignored.
+           
         # Check revision
         if param['revision'] < CURRENT_FS_REV:
             raise QuietError('File system revision too old, please run `s3qladm upgrade` first.')
@@ -193,11 +113,12 @@ def main(args=None):
                              'S3QL installation.')
 
         if param['seq_no'] < seq_no:
-            if bucket.read_after_write_consistent():
+            if (bucket.read_after_write_consistent() and
+                bucket.read_after_delete_consistent()):
                 print(textwrap.fill(textwrap.dedent('''\
                       Up to date metadata is not available. Probably the file system has not
-                      been unmounted and you should try to run fsck on the computer where
-                      the file system has been mounted most recently.
+                      been properly unmounted and you should try to run fsck on the computer 
+                      where the file system has been mounted most recently.
                       ''')))
             else:
                 print(textwrap.fill(textwrap.dedent('''\
@@ -214,13 +135,13 @@ def main(args=None):
                 raise QuietError('(in batch mode, exiting)')
             if sys.stdin.readline().strip() != 'continue':
                 raise QuietError(1)
+            
             param['seq_no'] = seq_no
+            param['needs_fsck'] = True
 
-        elif param['seq_no'] > seq_no:
-            raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
-        elif (not param['needs_fsck'] 
-              and not fsck_required 
-              and ((time.time() - time.timezone) - param['last_fsck'])
+
+        if (not param['needs_fsck'] 
+            and ((time.time() - time.timezone) - param['last_fsck'])
                  < 60 * 60 * 24 * 31): # last check more than 1 month ago
             if options.force:
                 log.info('File system seems clean, checking anyway.')
@@ -228,48 +149,39 @@ def main(args=None):
                 log.info('File system is marked as clean. Use --force to force checking.')
                 return
 
-        # Download metadata
-        if metadata_loaded:
+        # If using local metadata, check consistency
+        if db:
             log.info('Checking DB integrity...')
             res = db.get_list('PRAGMA integrity_check(20)')
             if res[0][0] != u'ok':
                 log.error('\n'.join(x[0] for x in res ))
                 raise QuietError('You probably need to restore an old metadata backup with '
-                                 's3qladm, the SQLite database is corrupted.')    
+                                 's3qladm, the SQLite database is corrupted.')   
+                 
         else:
             log.info("Downloading & uncompressing metadata...")
             fh = tempfile.TemporaryFile()
             bucket.fetch_fh("s3ql_metadata", fh)
-            os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
-                                   stat.S_IRUSR | stat.S_IWUSR), 'w+b')
-            try:
-                db = Connection(home + '.db')
-                fh.seek(0)
-                log.info('Reading metadata...')
-                restore_metadata(fh, db)
-                fh.close()
-            except:
-                # Don't keep file if it doesn't contain anything sensible
-                os.unlink(home + '.db')
-                raise
- 
-                
-        # Increase metadata sequence no
+            os.close(os.open(home + '.db', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                             stat.S_IRUSR | stat.S_IWUSR)) 
+            db = Connection(home + '.db')
+            fh.seek(0)
+            log.info('Reading metadata...')
+            restore_metadata(fh, db)
+            fh.close()
+
+        # Increase metadata sequence no 
         param['seq_no'] += 1
+        param['needs_fsck'] = True
         bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
-        for i in seq_nos:
-            if i < param['seq_no'] - 5:
-                del bucket['s3ql_seq_no_%d' % i ]
-
-        # Save parameters
         pickle.dump(param, open(home + '.params', 'wb'), 2)
-
-        if not os.path.exists(home + '-cache'):
-            os.mkdir(home + '-cache', stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
         fsck = Fsck(home + '-cache', bucket, param, db)
         fsck.check()
 
+        if os.path.exists(home + '-cache'):
+            os.rmdir(home + '-cache')
+            
         log.info('Saving metadata...')
         fh = tempfile.TemporaryFile()
         dump_metadata(fh, db)  
@@ -282,12 +194,8 @@ def main(args=None):
         param['last-modified'] = time.time() - time.timezone
         bucket.store_fh("s3ql_metadata", fh, param)
         fh.close()
+        pickle.dump(param, open(home + '.params', 'wb'), 2)
 
-        # Remove database
-        log.debug("Cleaning up...")
-        os.unlink(home + '.db')
-        os.unlink(home + '.params')
-        os.rmdir(home + '-cache')
 
 if __name__ == '__main__':
     main(sys.argv[1:])

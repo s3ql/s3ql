@@ -13,6 +13,7 @@ import os
 from getpass import getpass
 import shutil
 import logging
+import cPickle as pickle
 from s3ql import CURRENT_FS_REV
 from s3ql.common import (get_backend, get_bucket_home, setup_logging,
                          QuietError, dump_metadata, create_tables,
@@ -106,34 +107,30 @@ def main(args=None):
         if os.path.exists(home + '-cache'):
             shutil.rmtree(home + '-cache')
 
-        try:
-            log.info('Creating metadata tables...')
-            db = Connection(home + '.db')
-            create_tables(db)
-            init_tables(db)
+        log.info('Creating metadata tables...')
+        db = Connection(home + '.db')
+        create_tables(db)
+        init_tables(db)
 
-            param = dict()
-            param['revision'] = CURRENT_FS_REV
-            param['seq_no'] = 0
-            param['label'] = options.label
-            param['blocksize'] = options.blocksize * 1024
-            param['needs_fsck'] = False
-            param['last_fsck'] = time.time() - time.timezone
-            param['last-modified'] = time.time() - time.timezone
-            bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
+        param = dict()
+        param['revision'] = CURRENT_FS_REV
+        param['seq_no'] = 0
+        param['label'] = options.label
+        param['blocksize'] = options.blocksize * 1024
+        param['needs_fsck'] = False
+        param['last_fsck'] = time.time() - time.timezone
+        param['last-modified'] = time.time() - time.timezone
+        bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
 
-            log.info('Saving metadata...')
-            fh = tempfile.TemporaryFile()
-            dump_metadata(fh, db)  
-            
-            log.info("Compressing & uploading metadata..")         
-            fh.seek(0)
-            bucket.store_fh("s3ql_metadata", fh, param)
-            fh.close()
-
-        finally:
-            if os.path.exists(db.file):
-                os.unlink(db.file)
+        log.info('Saving metadata...')
+        fh = tempfile.TemporaryFile()
+        dump_metadata(fh, db)  
+        
+        log.info("Compressing & uploading metadata..")         
+        fh.seek(0)
+        bucket.store_fh("s3ql_metadata", fh, param)
+        fh.close()
+        pickle.dump(param, open(home + '.params', 'wb'), 2)
 
 
 if __name__ == '__main__':
