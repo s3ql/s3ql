@@ -145,6 +145,8 @@ def main(args=None):
                       'next time the file system is mounted or checked! If you do not '
                       'want that, *you need to take action now*!')    
     
+    db.execute('ANALYZE')
+    db.execute('VACUUM')
     db.close() 
 
     if options.profile:

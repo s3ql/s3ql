@@ -155,9 +155,10 @@ def main(args=None):
             res = db.get_list('PRAGMA integrity_check(20)')
             if res[0][0] != u'ok':
                 log.error('\n'.join(x[0] for x in res ))
-                raise QuietError('You probably need to restore an old metadata backup with '
-                                 's3qladm, the SQLite database is corrupted.')   
-                 
+                raise QuietError('Local metadata is corrupted. Remove or repair the following '
+                                 'files manually and re-run fsck:\n'
+                                 + home + '.db (corrupted)\n'
+                                 + home + '.param (intact)')
         else:
             log.info("Downloading & uncompressing metadata...")
             fh = tempfile.TemporaryFile()
@@ -195,7 +196,10 @@ def main(args=None):
         bucket.store_fh("s3ql_metadata", fh, param)
         fh.close()
         pickle.dump(param, open(home + '.params', 'wb'), 2)
-
+        
+    db.execute('ANALYZE')
+    db.execute('VACUUM')
+    db.close() 
 
 if __name__ == '__main__':
     main(sys.argv[1:])
