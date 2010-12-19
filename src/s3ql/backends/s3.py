@@ -235,9 +235,9 @@ class Bucket(AbstractBucket):
     def read_after_write_consistent(self):
         return False
              
-
-                        
-    
+    def read_after_delete_consistent(self):
+        return False
+ 
     def raw_lookup(self, key):
         '''Retrieve metadata for `key`
         

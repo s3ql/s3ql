@@ -9,7 +9,6 @@ This program can be distributed under the terms of the GNU LGPL.
 from __future__ import division, print_function, absolute_import
 
 from cStringIO import StringIO
-from ..common import sha256
 import tempfile
 import hmac
 import logging
@@ -29,6 +28,9 @@ log = logging.getLogger("backend")
 
 __all__ = [ 'AbstractConnection', 'AbstractBucket', 'ChecksumError', 'UnsupportedError',
             'NoSuchObject', 'NoSuchBucket' ]
+
+def sha256(s):
+    return hashlib.sha256(s).digest()
 
 class AbstractConnection(object):
     '''This class contains functionality shared between all backends.
@@ -333,9 +335,17 @@ class AbstractBucket(object):
     
     @abstractmethod
     def read_after_write_consistent(self):
-        '''Does this backend provide read-after-write consistency?'''
+        '''Does this backend provide read-after-write consistency?
+        
+        (This does not includes read-after-delete)
+        '''
         pass
         
+    @abstractmethod
+    def read_after_delete_consistent(self):
+        '''Does this backend provide read-after-delete consistency?'''
+        pass
+            
     @abstractmethod
     def __str__(self):
         pass
@@ -385,7 +395,6 @@ class AbstractBucket(object):
         '''
         pass
 
-
     def copy(self, src, dest):
         """Copy data stored under key `src` to key `dest`
         
@@ -393,6 +402,8 @@ class AbstractBucket(object):
         is done on the remote side. If the backend does not support
         this operation, raises `UnsupportedError`.
         """
+        # Unused arguments
+        #pylint: disable=W0613        
         raise UnsupportedError('Backend does not support remote copy')
 
     def rename(self, src, dest):
@@ -402,6 +413,8 @@ class AbstractBucket(object):
         is done on the remote side. If the backend does not support
         this operation, raises `UnsupportedError`.
         """
+        # Unused arguments
+        #pylint: disable=W0613  
         raise UnsupportedError('Backend does not support remote rename')
 
 

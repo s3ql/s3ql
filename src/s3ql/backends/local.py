@@ -87,7 +87,10 @@ class Bucket(AbstractBucket):
 
     def read_after_write_consistent(self):
         return True
-        
+
+    def read_after_delete_consistent(self):
+        return True
+            
     def clear(self):
         """Delete all objects in bucket"""
         with self.lock:
