@@ -85,14 +85,16 @@ def main(args=None):
     setup_logging(options, 'adm.log')
 
     with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
-        if not bucketname in conn:
-            raise QuietError("Bucket does not exist.")
-        bucket = conn.get_bucket(bucketname)
         home = get_bucket_home(options.storage_url, options.homedir)
-        
+               
         if options.action == 'delete':
             return delete_bucket(conn, bucketname, home)
 
+        if not bucketname in conn:
+            raise QuietError("Bucket does not exist.")
+        
+        bucket = conn.get_bucket(bucketname)
+        
         try:
             unlock_bucket(options.homedir, options.storage_url, bucket)
         except ChecksumError:
@@ -189,8 +191,7 @@ def delete_bucket(conn, bucketname, home):
         raise QuietError(1)
 
     log.info('Deleting...')
-    conn.delete_bucket(bucketname, recursive=True)
-
+    
     for suffix in ('.db', '.params'):
         name = home + suffix
         if os.path.exists(name):
@@ -199,7 +200,10 @@ def delete_bucket(conn, bucketname, home):
     name = home + '-cache'
     if os.path.exists(name):
         shutil.rmtree(name)
-    
+        
+    if bucketname in conn:
+        conn.delete_bucket(bucketname, recursive=True)
+
     print('Bucket deleted.')
     if isinstance(conn, s3.Connection):
         print('Note that it may take a while until the removal becomes visible.')
