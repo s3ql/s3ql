@@ -39,5 +39,4 @@ override_dh_fixperms:
 
 override_dh_auto_clean:
 	dh_auto_clean
-	rm -rf dist
-	rm -rf setup.log
+	rm -rf dist setup.log build 
