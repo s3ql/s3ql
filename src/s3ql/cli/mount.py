@@ -128,6 +128,8 @@ def main(args=None):
         if db_mtime == os.stat(home + '.db').st_mtime:
             log.info('File system unchanged, not uploading metadata.')
             del bucket['s3ql_seq_no_%d' % param['seq_no']]
+            param['seq_no'] -= 1
+            pickle.dump(param, open(home + '.params', 'wb'), 2)                  
         elif seq_no == param['seq_no']:
             log.info('Saving metadata...')
             fh = tempfile.TemporaryFile()
