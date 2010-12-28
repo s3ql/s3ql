@@ -134,7 +134,7 @@ def main(args=None):
             if options.batch:
                 raise QuietError('(in batch mode, exiting)')
             if sys.stdin.readline().strip() != 'continue':
-                raise QuietError(1)
+                raise QuietError()
             
             param['seq_no'] = seq_no
             param['needs_fsck'] = True

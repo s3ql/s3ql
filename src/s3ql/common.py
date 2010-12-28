@@ -313,7 +313,7 @@ class QuietError(Exception):
     string containing sufficient information about the problem.
     '''
     
-    def __init__(self, msg):
+    def __init__(self, msg=''):
         super(QuietError, self).__init__()
         self.msg = msg
 
