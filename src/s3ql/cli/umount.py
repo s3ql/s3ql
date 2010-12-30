@@ -116,7 +116,7 @@ def blocking_umount(mountpoint):
         print('Cannot unmount, the following processes still access the mountpoint:')
         subprocess.call(['fuser', '-v', '-m', mountpoint], stdout=sys.stdout,
                         stderr=sys.stdout)
-        raise QuietError(1)
+        raise QuietError()
 
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
     

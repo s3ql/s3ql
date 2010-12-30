@@ -188,7 +188,7 @@ def delete_bucket(conn, bucketname, home):
           'Please enter "yes" to continue.', '> ', sep='\n', end='')
 
     if sys.stdin.readline().strip().lower() != 'yes':
-        raise QuietError(1)
+        raise QuietError()
 
     log.info('Deleting...')
     
@@ -227,7 +227,7 @@ def upgrade(bucket):
     print('Please enter "yes" to continue.', '> ', sep='\n', end='')
 
     if sys.stdin.readline().strip().lower() != 'yes':
-        raise QuietError(1)
+        raise QuietError()
 
     log.info('Getting file system parameters..')
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
