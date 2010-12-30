@@ -19,7 +19,6 @@ from s3ql.common import (setup_logging, get_backend, get_bucket_home, get_seq_no
                          cycle_metadata, dump_metadata, restore_metadata)
 from s3ql.parse_args import ArgumentParser
 from s3ql.database import Connection
-from global_lock import lock
 import llfuse
 import tempfile
 import textwrap
@@ -127,7 +126,9 @@ def main(args=None):
         pickle.dump(param, open(home + '.params', 'wb'), 2)
         if db_mtime == os.stat(home + '.db').st_mtime:
             log.info('File system unchanged, not uploading metadata.')
-            del bucket['s3ql_seq_no_%d' % param['seq_no']]
+            del bucket['s3ql_seq_no_%d' % param['seq_no']]         
+            param['seq_no'] -= 1
+            pickle.dump(param, open(home + '.params', 'wb'), 2)         
         elif seq_no == param['seq_no']:
             log.info('Saving metadata...')
             fh = tempfile.TemporaryFile()
@@ -375,9 +376,6 @@ def parse_args(args):
 class MetadataUploadThread(ExceptionStoringThread):
     '''
     Periodically commit dirty inodes.
-    
-    This class uses the `global_lock` module. When calling objects
-    passed in the constructor, the global lock is acquired first.
     '''    
     
     
@@ -403,7 +401,7 @@ class MetadataUploadThread(ExceptionStoringThread):
             if self.quit:
                 break
             
-            with lock:
+            with llfuse.lock:
                 new_mtime = os.stat(self.db.file).st_mtime 
                 if self.db_mtime == new_mtime:
                     log.info('File system unchanged, not uploading metadata.')
@@ -443,11 +441,8 @@ class MetadataUploadThread(ExceptionStoringThread):
         
         self.quit = True
         self.event.set()
-        lock.release()
-        try:
-            self.join_and_raise()
-        finally:
-            lock.acquire()
+        self.join_and_raise()
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])

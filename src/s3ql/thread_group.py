@@ -12,7 +12,7 @@ import threading
 import sys
 import logging
 from .common import ExceptionStoringThread
-from global_lock import lock
+from llfuse import lock
 
 log = logging.getLogger("thread_group")
 
@@ -59,7 +59,7 @@ class Thread(ExceptionStoringThread):
 class ThreadGroup(object):
     '''Represents a group of threads.
     
-    This class uses the `global_lock` module. Methods which release the
+    This class uses the llfuse global lock. Methods which release the
     global lock have are marked as such in their docstring.
     
     Implementation Note:

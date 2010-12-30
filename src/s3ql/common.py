@@ -23,7 +23,7 @@ import cPickle as pickle
 import thread
 from contextlib import contextmanager
 from llfuse import ROOT_INODE
-from global_lock import lock
+from llfuse import lock
 from .backends.common import NoSuchObject
 
 __all__ = ["get_bucket_home", 'sha256_fh', 'add_stdout_logging',

@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
-from s3ql import libc
+import llfuse
 import os
 import logging
 from s3ql.common import (CTRL_NAME, QuietError, setup_logging)
@@ -93,7 +93,7 @@ def main(args=None):
         raise QuietError('Mountpoint %r does not exist' % path)
     
     ctrlfile = os.path.join(path, CTRL_NAME)
-    if not (CTRL_NAME not in libc.listdir(path) 
+    if not (CTRL_NAME not in llfuse.listdir(path)
             and os.path.exists(ctrlfile)):
         raise QuietError('Mountpoint is not an S3QL file system')
 
@@ -101,18 +101,18 @@ def main(args=None):
         raise QuietError('Only root and the mounting user may run s3qlctrl.')
     
     if options.action == 'flushcache':
-        libc.setxattr(ctrlfile, 's3ql_flushcache!', 'dummy')
+        llfuse.setxattr(ctrlfile, 's3ql_flushcache!', 'dummy')
 
     if options.action == 'upload-meta':
-        libc.setxattr(ctrlfile, 'upload-meta', 'dummy')
+        llfuse.setxattr(ctrlfile, 'upload-meta', 'dummy')
         
     elif options.action == 'log':
-        libc.setxattr(ctrlfile, 'logging', 
+        llfuse.setxattr(ctrlfile, 'logging', 
                       pickle.dumps((options.level, options.modules),
                                    pickle.HIGHEST_PROTOCOL))
 
     elif options.action == 'cachesize':
-        libc.setxattr(ctrlfile, 'cachesize', pickle.dumps(options.cachesize*1024))    
+        llfuse.setxattr(ctrlfile, 'cachesize', pickle.dumps(options.cachesize*1024))    
 
         
 

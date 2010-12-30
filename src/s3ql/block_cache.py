@@ -16,7 +16,7 @@ from .common import EmbeddedException, ExceptionStoringThread
 from .thread_group import ThreadGroup
 from .upload_manager import UploadManager, RemoveThread, retry_exc
 from .database import NoSuchRowError
-from global_lock import lock
+from llfuse import lock
 import logging
 import os
 import threading
@@ -92,8 +92,8 @@ class BlockCache(object):
     This class manages access to file blocks. It takes care of creation,
     uploading, downloading and deduplication.
  
-    This class uses the `global_lock` module. Methods which release the
-    global lock have are marked as such in their docstring.
+    This class uses the llfuse global lock. Methods which release the lock have
+    are marked as such in their docstring.
 
             
     Attributes:
@@ -495,7 +495,7 @@ class CommitThread(ExceptionStoringThread):
     '''
     Periodically upload dirty blocks.
     
-    This class uses the `global_lock` module. When calling objects
+    This class uses the llfuse global lock. When calling objects
     passed in the constructor, the global lock is acquired first.
     '''    
     

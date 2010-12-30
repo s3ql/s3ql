@@ -10,7 +10,6 @@ from __future__ import division, print_function
 from _common import TestCase
 from cStringIO import StringIO
 from os.path import basename
-from s3ql import libc
 from s3ql.common import retry, AsyncFn
 import filecmp
 import os.path
@@ -20,8 +19,8 @@ import s3ql.cli.mount
 import s3ql.cli.umount
 import shutil
 import stat
+import llfuse
 import subprocess
-from global_lock import lock
 import sys
 import tempfile
 import time
@@ -44,9 +43,6 @@ class fuse_tests(TestCase):
 
         self.mount_thread = None
         self.name_cnt = 0
-        
-        # We need to run in parallel to the mount thread
-        lock.release()
 
     def tearDown(self):
         # Umount if still mounted
@@ -63,8 +59,6 @@ class fuse_tests(TestCase):
         shutil.rmtree(self.mnt_dir)
         shutil.rmtree(self.cache_dir)
         shutil.rmtree(self.bucket_dir)
-        
-        lock.acquire()
 
     def mount(self):
         sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
@@ -75,9 +69,9 @@ class fuse_tests(TestCase):
             self.fail("mkfs.s3ql failed: %s" % exc)
 
         sys.stdin = StringIO('%s\n' % self.passphrase)
-        self.mount_thread = LockedAsyncFn(s3ql.cli.mount.main,
-                                          ["--fg", '--homedir', self.cache_dir, 
-                                           self.bucketname, self.mnt_dir])
+        self.mount_thread = AsyncFn(s3ql.cli.mount.main,
+                                    ["--fg", '--homedir', self.cache_dir, 
+                                     self.bucketname, self.mnt_dir])
         self.mount_thread.start()
 
         # Wait for mountpoint to come up
@@ -136,12 +130,12 @@ class fuse_tests(TestCase):
         os.mkdir(fullname)
         fstat = os.stat(fullname)
         self.assertTrue(stat.S_ISDIR(fstat.st_mode))
-        self.assertEquals(libc.listdir(fullname), [])
+        self.assertEquals(llfuse.listdir(fullname), [])
         self.assertEquals(fstat.st_nlink, 1)
-        self.assertTrue(dirname in libc.listdir(self.mnt_dir))
+        self.assertTrue(dirname in llfuse.listdir(self.mnt_dir))
         os.rmdir(fullname)
         self.assertRaises(OSError, os.stat, fullname)
-        self.assertTrue(dirname not in libc.listdir(self.mnt_dir))
+        self.assertTrue(dirname not in llfuse.listdir(self.mnt_dir))
 
     def tst_symlink(self):
         linkname = self.newname()
@@ -151,10 +145,10 @@ class fuse_tests(TestCase):
         self.assertTrue(stat.S_ISLNK(fstat.st_mode))
         self.assertEquals(os.readlink(fullname), "/imaginary/dest")
         self.assertEquals(fstat.st_nlink, 1)
-        self.assertTrue(linkname in libc.listdir(self.mnt_dir))
+        self.assertTrue(linkname in llfuse.listdir(self.mnt_dir))
         os.unlink(fullname)
         self.assertRaises(OSError, os.lstat, fullname)
-        self.assertTrue(linkname not in libc.listdir(self.mnt_dir))
+        self.assertTrue(linkname not in llfuse.listdir(self.mnt_dir))
 
     def tst_mknod(self):
         filename = os.path.join(self.mnt_dir, self.newname())
@@ -163,11 +157,11 @@ class fuse_tests(TestCase):
         fstat = os.lstat(filename)
         self.assertTrue(stat.S_ISREG(fstat.st_mode))
         self.assertEquals(fstat.st_nlink, 1)
-        self.assertTrue(basename(filename) in libc.listdir(self.mnt_dir))
+        self.assertTrue(basename(filename) in llfuse.listdir(self.mnt_dir))
         self.assertTrue(filecmp.cmp(src, filename, False))
         os.unlink(filename)
         self.assertRaises(OSError, os.stat, filename)
-        self.assertTrue(basename(filename) not in libc.listdir(self.mnt_dir))
+        self.assertTrue(basename(filename) not in llfuse.listdir(self.mnt_dir))
 
     def tst_chown(self):
         filename = os.path.join(self.mnt_dir, self.newname())
@@ -190,7 +184,7 @@ class fuse_tests(TestCase):
 
         os.rmdir(filename)
         self.assertRaises(OSError, os.stat, filename)
-        self.assertTrue(basename(filename) not in libc.listdir(self.mnt_dir))
+        self.assertTrue(basename(filename) not in llfuse.listdir(self.mnt_dir))
 
 
     def tst_write(self):
@@ -219,7 +213,7 @@ class fuse_tests(TestCase):
         self.assertEquals(fstat1, fstat2)
         self.assertEquals(fstat1.st_nlink, 2)
 
-        self.assertTrue(basename(name2) in libc.listdir(self.mnt_dir))
+        self.assertTrue(basename(name2) in llfuse.listdir(self.mnt_dir))
         self.assertTrue(filecmp.cmp(name1, name2, False))
         os.unlink(name2)
         fstat1 = os.lstat(name1)
@@ -238,7 +232,7 @@ class fuse_tests(TestCase):
         os.mkdir(subdir)
         shutil.copyfile(src, subfile)
 
-        listdir_is = libc.listdir(dir_)
+        listdir_is = llfuse.listdir(dir_)
         listdir_is.sort()
         listdir_should = [ basename(file_), basename(subdir) ]
         listdir_should.sort()
@@ -266,11 +260,6 @@ class fuse_tests(TestCase):
 
         os.close(fd)
         os.unlink(filename)
-
-class LockedAsyncFn(AsyncFn):  
-    def run_protected(self):
-        with lock:
-            super(LockedAsyncFn, self).run_protected()
             
         
 # Somehow important according to pyunit documentation

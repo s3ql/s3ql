@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
-from s3ql import libc
+import llfuse
 import os
 import logging
 from s3ql.common import (CTRL_NAME, QuietError, setup_logging) 
@@ -50,7 +50,7 @@ def main(args=None):
 
     # Check if it's an S3QL mountpoint
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
-    if not (CTRL_NAME not in libc.listdir(mountpoint)
+    if not (CTRL_NAME not in llfuse.listdir(mountpoint)
             and os.path.exists(ctrlfile)):
         raise QuietError('%s is not a mount point' % mountpoint)
 
@@ -60,7 +60,7 @@ def main(args=None):
     # Use a decent sized buffer, otherwise the statistics have to be
     # calculated thee(!) times because we need to invoce getxattr
     # three times.
-    buf = libc.getxattr(ctrlfile, b's3qlstat', size_guess=256)
+    buf = llfuse.getxattr(ctrlfile, b's3qlstat', size_guess=256)
 
     (entries, blocks, inodes, fs_size, dedup_size,
      compr_size, db_size) = struct.unpack('QQQQQQQ', buf)

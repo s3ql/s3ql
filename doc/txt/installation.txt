@@ -19,9 +19,8 @@ installation instructions
 <http://code.google.com/p/s3ql/w/list?q=label:Installation>`_ on the wiki.
 
 
-
-Runtime Dependencies
-====================
+Dependencies
+============
 
 The following is a list of the programs and libraries required for
 running S3QL. Generally, you should first check if your distribution
@@ -36,109 +35,42 @@ that is not the case.
   installed on your system. However, you have to make sure that you
   have at least version 2.8.0. 
 
-* The `XZ Utils <http://tukaani.org/xz/>`_ (formerly known as LZMA
-  Utils) are probably available as a package for your system.
-
 * The `PyCrypto++ Python Module
-  <http://pypi.python.org/pypi/pycryptopp>`_ may or may not be
-  available as a package. To check if this module is installed, try to
-  execute `python -c 'import pycryptopp'`. To manually install
-  PyCrypto++, download it from the website, extract it and run `python
-  setup.py install`.
+  <http://pypi.python.org/pypi/pycryptopp>`_. To check if this module
+  is installed, try to execute `python -c 'import pycryptopp'`. 
 
 * The `argparse Python Module
-  <http://pypi.python.org/pypi/argparse>`_ is probably 
-  available as a package. To check if this module is installed, try to
-  execute `python -c 'import argparse'`. To manually install
-  argparse, download it from the website, extract it and run `python
-  setup.py install`.
+  <http://pypi.python.org/pypi/argparse>`_. To check if this module is
+  installed, try to execute `python -c 'import argparse'`.
   
-* The `APSW Python Module <http://code.google.com/p/apsw/>`_ may be
-  available as a package, but most likely the version of the package
-  will not be recent enough. To check which version of APWS is
-  installed, run the command ::
+* The `APSW Python Module <http://code.google.com/p/apsw/>`_. To check
+  which (if any) version of APWS is installed, run the command ::
 
     python -c 'import apsw; print apsw.apswversion(), apsw.sqlitelibversion()'
 
   If APSW is installed, this should print two version numbers which
-  both have to be at least 3.7.0. To install APSW manually, download
-  it from the website, extract it and run `python setup.py fetch
-  --sqlite install`. You will get a lot of compiler warnings add this
-  step, but this is expected and no cause for concern.
+  both have to be at least 3.7.0.
 
 * The `PyLibLZMA Python module
-  <http://pypi.python.org/pypi/pyliblzma>`_ is probably not yet
-  available as a package. It will, however, be automatically
-  downloaded and installed during the S3QL installation if required.
+  <http://pypi.python.org/pypi/pyliblzma>`_. To check if this module
+  is installed, execute `python -c 'import lzma; print
+  lzma.__version__'`. This should print a version number. You need at
+  least version 0.5.3.
 
-  If you want to check if the module is installed, try to execute
-  `python -c 'import lzma; print lzma.__version__'`. This should print
-  a version number. You need at least version 0.5.3.
+* The `Python LLFUSE module
+  <http://code.google.com/p/python-llfuse/>`_. To check if this module
+  is installed, execute `python -c 'import llfuse; print
+  llfuse.__version__'`. This should print a version number. You need at
+  least version 0.29.
+
+  Note that earlier S3QL versions shipped with a builtin version of
+  this module. If you are upgrading from such a version, make sure to
+  completely remove the old S3QL version first.
 
 * If you want to use the SFTP backend, then you also need the
-  `Paramiko Python Module <http://www.lag.net/paramiko/>`_. It may or
-  may not be available as a package. To check if this module is
-  installed, try to execute `python -c 'import paramiko'`. 
-
-  
-Build Dependencies
-==================
-
-To build S3QL from source, you must have installed both the runtime
-dependencies listed above and the following compile-time dependencies.
-Once S3QL has been installed, the compile-time dependencies can be
-removed again.
-
-* The **Python development headers** should be available as a
-  package in your distribution. The package is typically called
-  something like `python-dev`, `python-devel` or `python2.6-devel`.
-  To check if this package is installed, try to execute
-  `python-config` (it should print out a brief help message).
-
-* The **extended attribute development headers** should be available as a
-  package in your distribution. The package is typically called
-  something like `libattr-dev`, `libattr1-dev`, `libattr-devel` or
-  `libattr1-devel`. To see if this package is installed, check for a
-  file called `xattr.h` in either `/usr/include/attr/` or
-  `/usr/local/include/attr/`.
-
-* The **pkg-config** program.
-
-* The **FUSE development headers**. If you installed FUSE from source,
-  the headers are already installed. If you installed FUSE from a
-  package, you probably need to install another package called
-  something like `fuse-dev`, `libfuse-dev`, `fuse-devel` or
-  `libfuse-devel`.
-
-  To test if the FUSE development headers are installed, run the
-  command `pkg-config --modversion fuse`. It should print a version
-  number.
-
-* The **XZ-Utils development headers**. If you installed XZ-Utils from
-  source, the headers are already installed. If you installed XZ-Utils
-  from a package, you probably need to install another package called
-  something like `liblzma-dev`, `libxz-dev`, `liblzma-devel` or
-  `libxz-devel`.
-
-  To test if the XZ-Utils development headers are installed, run the
-  command `pkg-config --modversion liblzma`. It should print a version
-  number.
-
-* The `GCC-XML compiler <http://www.gccxml.org>`_ compiler may or may
-  not be available as a package. To check if GCC-XML is installed, try
-  to run `gccxml --version`. If you need to install GCC-XML manually,
-  please refer to the instructions for installing under Fedora or the
-  `GCC-XML installation instructions
-  <http://www.gccxml.org/HTML/Install.html>`_.
-
-* The `unittest2 Python module <http://pypi.python.org/pypi/pyliblzma>`_ is
-  probably not available as a package. It will, however, be
-  automatically downloaded and installed during the S3QL installation
-  if required.
-
-  If you want to check if the module is installed, try to execute
-  `python -c 'import unittest2`. The command should succeed without
-  printing anything.
+  `Paramiko Python Module <http://www.lag.net/paramiko/>`_. To check
+  if this module is installed, try to execute `python -c 'import
+  paramiko'`.
 
 
 .. _inst-s3ql:
@@ -150,7 +82,6 @@ To install S3QL itself, proceed as follows:
 
 1. Download S3QL from http://code.google.com/p/s3ql/downloads/list
 2. Unpack it into a folder of your choice
-3. Run `python setup.py build_ctypes` to build the package
 4. Run `python setup.py test` to run a self-test. If this fails, ask
    for help on the `mailing list
    <http://groups.google.com/group/s3ql>`_ or report a bug in the

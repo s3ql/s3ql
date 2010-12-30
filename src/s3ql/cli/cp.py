@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
-from s3ql import libc
+import llfuse
 import os
 import logging
 from s3ql.common import (setup_logging, CTRL_NAME, QuietError)
@@ -80,7 +80,7 @@ def main(args=None):
         raise QuietError('Source and target are not on the same file system.')
 
     ctrlfile = os.path.join(parent, CTRL_NAME)
-    if not (CTRL_NAME not in libc.listdir(parent) and os.path.exists(ctrlfile)):
+    if not (CTRL_NAME not in llfuse.listdir(parent) and os.path.exists(ctrlfile)):
         raise QuietError('Source and target are not on an S3QL file system')
 
     if os.stat(ctrlfile).st_uid != os.geteuid() and os.geteuid() != 0:
@@ -95,7 +95,7 @@ def main(args=None):
             raise
     
     fstat_t = os.stat(options.target)
-    libc.setxattr(ctrlfile, 'copy', struct.pack('II', fstat_s.st_ino, fstat_t.st_ino))
+    llfuse.setxattr(ctrlfile, 'copy', struct.pack('II', fstat_s.st_ino, fstat_t.st_ino))
 
 
 if __name__ == '__main__':

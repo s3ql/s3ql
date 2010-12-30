@@ -16,7 +16,7 @@ import logging
 import threading
 import os
 import errno
-from global_lock import lock
+from llfuse import lock
 import time
 from s3ql.common import EmbeddedException
 
@@ -34,7 +34,7 @@ class UploadManager(object):
     Schedules and executes object uploads to make optimum usage
     network bandwidth and CPU time.
     
-    This class uses the `global_lock` module. Methods which release the
+    Methods which release the
     global lock have are marked as such in their docstring.
         
     Attributes:
@@ -203,7 +203,7 @@ class CompressThread(Thread):
     '''
     Compress a block and then pass it on for uploading.
     
-    This class uses the `global_lock` module. When calling objects
+    This class uses the llfuse global lock. When calling objects
     passed in the constructor, the global lock is acquired first.
     
     The `size` attribute will be updated to the compressed size.
@@ -278,7 +278,7 @@ class UploadThread(Thread):
     '''
     Uploads a cache entry with the function passed in the constructor.
     
-    This class uses the `global_lock` module. When calling objects
+    This class uses the llfuse global lock. When calling objects
     passed in the constructor, the global lock is acquired first.    
     '''
     
@@ -364,7 +364,7 @@ class RemoveThread(Thread):
     Remove an object from backend. If a transit key is specified, the
     thread first waits until the object is no longer in transit.
     
-    This class uses the `global_lock` module. When calling objects
+    TThis class uses the llfuse global lock. When calling objects
     passed in the constructor, the global lock is acquired first.        
     '''
 

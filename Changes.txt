@@ -1,3 +1,12 @@
+xxx, S3QL 0.29
+
+  * The FUSE interface has been rewritten using Cython and factored
+    out into a separate package, http://code.google.com/p/python-llfuse/.
+    
+    This should result in easier installation, better performance
+    and better maintainability.
+
+
 2010-12-19, S3QL 0.28
 
   * "s3qlctrl upload-meta" now works even if the file system has

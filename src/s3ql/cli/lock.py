@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
-from s3ql import libc
+import llfuse
 import os
 import logging
 from s3ql.common import (setup_logging, CTRL_NAME, QuietError)
@@ -59,16 +59,16 @@ def main(args=None):
         
         if fstat_p.st_dev != fstat.st_dev:
             raise QuietError('%s is a mount point itself.' % name)
-        
+    
         ctrlfile = os.path.join(parent, CTRL_NAME)
-        if not (CTRL_NAME not in libc.listdir(parent) and os.path.exists(ctrlfile)):
+        if not (CTRL_NAME not in llfuse.listdir(parent) and os.path.exists(ctrlfile)):
             raise QuietError('%s is not on an S3QL file system' % name)
     
         if os.stat(ctrlfile).st_uid != os.geteuid():
             raise QuietError('Only root and the mounting user may run s3qllock.')
     
-        libc.setxattr(ctrlfile, 'lock', pickle.dumps((fstat.st_ino,), 
-                                                     pickle.HIGHEST_PROTOCOL))
+        llfuse.setxattr(ctrlfile, 'lock', pickle.dumps((fstat.st_ino,), 
+                                                       pickle.HIGHEST_PROTOCOL))
 
 if __name__ == '__main__':
     main(sys.argv[1:])

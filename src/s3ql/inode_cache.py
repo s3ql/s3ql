@@ -6,7 +6,7 @@ Copyright (C) 2008-2010 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU LGPL.
 '''
 
-from __future__ import division, print_function
+from __future__ import division, print_function, absolute_import
 
 import time
 import logging

@@ -26,8 +26,7 @@ import struct
 import cPickle as pickle
 import math
 import threading
-from llfuse.interface import FUSEError
-from global_lock import lock
+from llfuse import FUSEError, lock
 
 __all__ = [ "Server" ]
 
@@ -36,9 +35,6 @@ log = logging.getLogger("fs")
 
 # For long requests, we force a GIL release in the following interval
 GIL_RELEASE_INTERVAL = 0.05
-
-# The GIL is released by sleeping for this amount
-GIL_SLEEP_TIME = 0.0001
 
 class Operations(llfuse.Operations):
     """A full-featured file system for online data storage
@@ -65,8 +61,8 @@ class Operations(llfuse.Operations):
     Multithreading
     --------------
     
-    This class uses the `global_lock` module. All methods are reentrant
-    and may release the global lock while they are running.
+    All methods are reentrant and may release the global lock while they
+    are running.
     
  
     Directory Entry Types
@@ -85,6 +81,8 @@ class Operations(llfuse.Operations):
         This method marks the file system as needing fsck and logs the
         error.
         '''
+        # Unused argument
+        #pylint: disable=W0613
         
         log.error("Unexpected internal filesystem error.\n"
                   "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n"
@@ -299,7 +297,7 @@ class Operations(llfuse.Operations):
                     log.debug('lock_tree(%d): Adjusting gil_step to %d', 
                               id0, gil_step)  
                     processed = 0
-                    time.sleep(GIL_SLEEP_TIME) # This just forces a GIL release
+                    llfuse.lock.yield_()
                 stamp = time.time()
 
         log.debug('lock_tree(%d): end', id0)
@@ -353,7 +351,7 @@ class Operations(llfuse.Operations):
                     log.debug('remove_tree(%d, %s): Adjusting gil_step to %d', 
                               id_p0, name0, gil_step)  
                     processed = 0
-                    time.sleep(GIL_SLEEP_TIME) # This just forces a GIL release
+                    llfuse.lock.yield_()
                 stamp = time.time()    
         
         log.debug('remove_tree(%d, %s): end', id_p0, name0)
@@ -449,10 +447,9 @@ class Operations(llfuse.Operations):
                     log.debug('copy_tree(%d, %d): Adjusting gil_step to %d', 
                               src_inode.id, target_inode.id, gil_step) 
                     processed = 0
-                    time.sleep(GIL_SLEEP_TIME) # This just forces a GIL release
+                    llfuse.lock.yield_()
                 stamp = time.time()
   
-
         # If we replicated blocks whose associated objects where still in
         # transit, we have to wait for the transit to complete before we make
         # the replicated tree visible to the user. Otherwise access to the newly
@@ -660,7 +657,7 @@ class Operations(llfuse.Operations):
         if inode.locked:
             raise FUSEError(errno.EPERM)
         
-        if 'st_size' in attr:
+        if attr.st_size is not None:
             len_ = attr['st_size']
 
             # Determine blocks to delete
@@ -693,26 +690,26 @@ class Operations(llfuse.Operations):
                     raise FUSEError(errno.EIO)
             
 
-        if 'st_mode' in attr:
-            inode.mode = attr['st_mode']
+        if attr.st_mode is not None:
+            inode.mode = attr.st_mode
 
-        if 'st_uid' in attr:
-            inode.uid = attr['st_uid']
+        if attr.st_uid is not None:
+            inode.uid = attr.st_uid
 
-        if 'st_gid' in attr:
-            inode.gid = attr['st_gid']
+        if attr.st_gid is not None:
+            inode.gid = attr.st_gid
 
-        if 'st_rdev' in attr:
-            inode.rdev = attr['st_rdev']
+        if attr.st_rdev is not None:
+            inode.rdev = attr.st_rdev
 
-        if 'st_atime' in attr:
-            inode.atime = attr['st_atime']
+        if attr.st_atime is not None:
+            inode.atime = attr.st_atime
 
-        if 'st_mtime' in attr:
-            inode.mtime = attr['st_mtime']
+        if attr.st_mtime is not None:
+            inode.mtime = attr.st_mtime
 
-        if 'st_ctime' in attr:
-            inode.ctime = attr['st_ctime']
+        if attr.st_ctime is not None:
+            inode.ctime = attr.st_ctime
         else:
             inode.ctime = timestamp
             
@@ -783,7 +780,7 @@ class Operations(llfuse.Operations):
         self.open_inodes[id_] += 1
         return id_
 
-    def access(self, id_, mode, ctx, get_sup_gids):
+    def access(self, id_, mode, ctx):
         '''Check if requesting process has `mode` rights on `inode`.
         
         This method always returns true, since it should only be called
@@ -828,7 +825,7 @@ class Operations(llfuse.Operations):
             raise FUSEError(errno.ENOSPC)
 
         self.db.execute("INSERT INTO contents(name, inode, parent_inode) VALUES(?,?,?)",
-                     (name, inode.id, id_p))
+                        (name, inode.id, id_p))
 
         return inode
 
@@ -974,6 +971,8 @@ class Operations(llfuse.Operations):
         self.cache.flush(fh)
 
     def releasedir(self, fh):
+        # Unused argument
+        #pylint: disable=W0613
         return
 
     def release(self, fh):
@@ -1020,7 +1019,7 @@ class InodeFlushThread(ExceptionStoringThread):
     '''
     Periodically commit dirty inodes.
     
-    This class uses the `global_lock` module. When calling objects
+    This class uses the llfuse global lock. When calling objects
     passed in the constructor, the global lock is acquired first.
     '''    
     

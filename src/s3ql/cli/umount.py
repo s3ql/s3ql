@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU LGPL.
 
 from __future__ import division, print_function, absolute_import
 
-from s3ql import libc
+import llfuse
 import sys
 import os
 import logging
@@ -74,7 +74,7 @@ def main(args=None):
 
     # Check if it's an S3QL mountpoint
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
-    if not (CTRL_NAME not in libc.listdir(mountpoint)
+    if not (CTRL_NAME not in llfuse.listdir(mountpoint)
             and os.path.exists(ctrlfile)):
         print('Not an S3QL file system.', file=sys.stderr)
         sys.exit(1)
@@ -121,14 +121,14 @@ def blocking_umount(mountpoint):
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
     
     log.debug('Flushing cache...')
-    libc.setxattr(ctrlfile, b's3ql_flushcache!', b'dummy')
+    llfuse.setxattr(ctrlfile, b's3ql_flushcache!', b'dummy')
 
     if not warn_if_error(mountpoint):
         found_errors = True
 
     # Get pid
     log.debug('Trying to get pid')
-    pid = int(libc.getxattr(ctrlfile, b's3ql_pid?'))
+    pid = int(llfuse.getxattr(ctrlfile, b's3ql_pid?'))
     log.debug('PID is %d', pid)
 
     # Get command line to make race conditions less-likely
@@ -190,7 +190,7 @@ def warn_if_error(mountpoint):
 
     log.debug('Trying to get error status')
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
-    status = libc.getxattr(ctrlfile, 's3ql_errors?')
+    status = llfuse.getxattr(ctrlfile, 's3ql_errors?')
 
     if status != 'no errors':
         print('Some errors occurred while the file system was mounted.\n'

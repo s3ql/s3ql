@@ -3,13 +3,13 @@ Section: misc
 XS-Python-Version: >= 2.6
 Priority: optional
 Maintainer: Nikolaus Rath <Nikolaus@rath.org>
-Build-Depends: debhelper (>= 7.0.50~), libfuse-dev (>= 2.8.0), gccxml, libattr1-dev, python-support, python-all, pkg-config, python-setuptools (>= 0.6.14), python-apsw (>= 3.7.0), python-argparse
+Build-Depends: debhelper (>= 7.0.50~), python-support, python-all, python-setuptools (>= 0.6.14), python-apsw (>= 3.7.0), python-argparse, python-llfuse (>= 0.29)
 Standards-Version: 3.8.4
 Homepage: http://code.google.com/p/s3ql/
 
 Package: s3ql
 Architecture: any
-Depends: ${misc:Depends}, ${python:Depends}, libfuse2 (>= 2.8.0), python-apsw (>= 3.7.0), python-pyliblzma (>= 0.5.3), python-paramiko, python-pycryptopp, python-setuptools, fuse-utils, psmisc, python-argparse
+Depends: ${misc:Depends}, ${python:Depends}, python-apsw (>= 3.7.0), python-pyliblzma (>= 0.5.3), python-paramiko, python-pycryptopp, python-setuptools, fuse-utils, psmisc, python-argparse, python-llfuse (>= 0.29)
 Description: a full-featured file system for online data storage
  S3QL is a file system that stores all its data online. It supports
  online storage services like Amazon S3 as well as arbitrary FTP or
