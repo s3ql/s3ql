@@ -12,7 +12,7 @@ import errno
 import s3ql.cli.ctrl
 import s3ql.cli.lock
 import s3ql.cli.remove
-from s3ql import libc
+import llfuse
 import unittest2 as unittest
 import t4_fuse
 
@@ -62,7 +62,7 @@ class cliTests(t4_fuse.fuse_tests):
         except BaseException as exc:
             self.fail("s3qlrm failed: %s" % exc)        
 
-        self.assertTrue('lock_dir' not in libc.listdir(self.mnt_dir))
+        self.assertTrue('lock_dir' not in llfuse.listdir(self.mnt_dir))
 
 # Somehow important according to pyunit documentation
 def suite():
