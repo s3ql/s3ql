@@ -733,7 +733,7 @@ class Operations(llfuse.Operations):
 
 
     def statfs(self):
-        stat_ = dict()
+        stat_ = llfuse.StatvfsData
 
         # Get number of blocks & inodes
         blocks = self.db.get_val("SELECT COUNT(id) FROM objects")
@@ -747,25 +747,25 @@ class Operations(llfuse.Operations):
         # It would be more appropriate to switch f_bsize and f_frsize,
         # but since df and stat ignore f_frsize, this way we can
         # export more information  
-        stat_["f_bsize"] = int(size // blocks) if blocks != 0 else self.blocksize
-        stat_['f_frsize'] = self.blocksize
+        stat_.f_bsize = int(size // blocks) if blocks != 0 else self.blocksize
+        stat_.f_frsize = self.blocksize
 
         # size of fs in f_frsize units 
         # (since backend is supposed to be unlimited, always return a half-full filesystem,
         # but at least 50 GB)
-        if stat_['f_bsize'] != 0:
-            total_blocks = int(max(2 * blocks, 50 * 1024 ** 3 // stat_['f_bsize']))
+        if stat_.f_bsize != 0:
+            total_blocks = int(max(2 * blocks, 50 * 1024 ** 3 // stat_.f_bsize))
         else:
             total_blocks = 2 * blocks
 
-        stat_["f_blocks"] = total_blocks
-        stat_["f_bfree"] = total_blocks - blocks
-        stat_["f_bavail"] = total_blocks - blocks # free for non-root
+        stat_.f_blocks = total_blocks
+        stat_.f_bfree = total_blocks - blocks
+        stat_.f_bavail = total_blocks - blocks # free for non-root
 
         total_inodes = max(2 * inodes, 50000)
-        stat_["f_files"] = total_inodes
-        stat_["f_ffree"] = total_inodes - inodes
-        stat_["f_favail"] = total_inodes - inodes # free for non-root
+        stat_.f_files = total_inodes
+        stat_.f_ffree = total_inodes - inodes
+        stat_.f_favail = total_inodes - inodes # free for non-root
 
         return stat_
 
