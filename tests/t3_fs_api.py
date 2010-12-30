@@ -408,33 +408,38 @@ class fs_api_tests(TestCase):
         self.server.release(fh)
         inode_old = self.server.getattr(inode.id).copy()
 
-        attr = {
-                'st_mode': self.file_mode(),
-                'st_uid': randint(0, 2 ** 32),
-                'st_gid': randint(0, 2 ** 32),
-                'st_rdev': randint(0, 2 ** 32),
-                'st_atime': time.timezone + randint(0, 2 ** 32) / 10 ** 6,
-                'st_mtime': time.timezone + randint(0, 2 ** 32) / 10 ** 6
-                }
+        attr = llfuse.EntryAttributes()
+        attr.st_mode = self.file_mode()
+        attr.st_uid = randint(0, 2 ** 32)
+        attr.st_gid = randint(0, 2 ** 32)
+        attr.st_rdev = randint(0, 2 ** 32)
+        attr.st_atime = time.timezone + randint(0, 2 ** 32) / 10 ** 6
+        attr.st_mtime = time.timezone + randint(0, 2 ** 32) / 10 ** 6
 
         time.sleep(CLOCK_GRANULARITY)
         self.server.setattr(inode.id, attr)
         inode_new = self.server.getattr(inode.id)
         self.assertGreater(inode_new.ctime, inode_old.ctime)
 
-        for key in attr:
-            self.assertEquals(attr[key], getattr(inode_new, key))
+        for key in attr.__slots__:
+            if getattr(attr, key) is not None:
+                self.assertEquals(getattr(attr, key), 
+                                  getattr(inode_new, key))
 
 
     def test_truncate(self):
         len_ = int(2.7 * self.blocksize)
         data = self.random_data(len_)
+        attr = llfuse.EntryAttributes()
 
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(), self.file_mode(), Ctx())
         self.server.write(fh, 0, data)
-        self.server.setattr(inode.id, { 'st_size': len_ // 2 })
+        
+        attr.st_size = len_ // 2
+        self.server.setattr(inode.id, attr)
         self.assertTrue(self.server.read(fh, 0, len_) == data[:len_ // 2])
-        self.server.setattr(inode.id, { 'st_size': len_ })
+        attr.st_size = len_ 
+        self.server.setattr(inode.id, attr)
         self.assertTrue(self.server.read(fh, 0, len_)
                         == data[:len_ // 2] + b'\0' * (len_ // 2))
         self.server.release(fh)
@@ -444,7 +449,8 @@ class fs_api_tests(TestCase):
     def test_truncate_0(self):
         len1 = 158
         len2 = 133
-
+        attr = llfuse.EntryAttributes()
+        
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
                                          self.file_mode(), Ctx())
         self.server.write(fh, 0, self.random_data(len1))
@@ -452,7 +458,8 @@ class fs_api_tests(TestCase):
         self.server.inodes.flush()
         
         fh = self.server.open(inode.id, os.O_RDWR)     
-        self.server.setattr(inode.id, { 'st_size': 0 })
+        attr.st_size = 0
+        self.server.setattr(inode.id, attr)
         self.server.write(fh, 0, self.random_data(len2))
         self.server.release(fh)
 
