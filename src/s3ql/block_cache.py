@@ -231,7 +231,7 @@ class BlockCache(object):
                 else:
                     log.debug('get(inode=%d, block=%d): downloading block', inode, blockno)
                     el = CacheEntry(inode, blockno, obj_id, filename, "w+b")
-                    with lock.unlocked():
+                    with lock_released:
                         try:
                             if self.bucket.read_after_create_consistent():
                                 self.bucket.fetch_fh('s3ql_data_%d' % obj_id, el)

@@ -12,7 +12,7 @@ import threading
 import sys
 import logging
 from .common import ExceptionStoringThread
-from llfuse import lock
+from llfuse import lock, lock_released
 
 log = logging.getLogger("thread_group")
 
@@ -144,7 +144,7 @@ class ThreadGroup(object):
             except IndexError:
                 # Wait for thread to terminate
                 log.debug('join_one: wait()')
-                with lock.unlocked():
+                with lock_released:
                     self.lock.wait()
                 try:
                     t = self.finished_threads.pop()

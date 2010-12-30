@@ -291,13 +291,12 @@ class Operations(llfuse.Operations):
                 break
                             
             if processed > gil_step:
-                with lock.unlocked():
-                    dt = time.time() - stamp
-                    gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 1)
-                    log.debug('lock_tree(%d): Adjusting gil_step to %d', 
-                              id0, gil_step)  
-                    processed = 0
-                    llfuse.lock.yield_()
+                dt = time.time() - stamp
+                gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 1)
+                log.debug('lock_tree(%d): Adjusting gil_step to %d', 
+                          id0, gil_step)  
+                processed = 0
+                llfuse.lock.yield_()
                 stamp = time.time()
 
         log.debug('lock_tree(%d): end', id0)
@@ -345,13 +344,12 @@ class Operations(llfuse.Operations):
                 break              
           
             if processed > gil_step:  
-                with lock.unlocked():
-                    dt = time.time() - stamp
-                    gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 1)
-                    log.debug('remove_tree(%d, %s): Adjusting gil_step to %d', 
-                              id_p0, name0, gil_step)  
-                    processed = 0
-                    llfuse.lock.yield_()
+                dt = time.time() - stamp
+                gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 1)
+                log.debug('remove_tree(%d, %s): Adjusting gil_step to %d', 
+                          id_p0, name0, gil_step)  
+                processed = 0
+                llfuse.lock.yield_()
                 stamp = time.time()    
         
         log.debug('remove_tree(%d, %s): end', id_p0, name0)
@@ -441,13 +439,12 @@ class Operations(llfuse.Operations):
                     break
             
             if processed > gil_step:
-                with lock.unlocked():
-                    dt = time.time() - stamp
-                    gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 1)
-                    log.debug('copy_tree(%d, %d): Adjusting gil_step to %d', 
-                              src_inode.id, target_inode.id, gil_step) 
-                    processed = 0
-                    llfuse.lock.yield_()
+                dt = time.time() - stamp
+                gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 1)
+                log.debug('copy_tree(%d, %d): Adjusting gil_step to %d', 
+                          src_inode.id, target_inode.id, gil_step) 
+                processed = 0
+                llfuse.lock.yield_()
                 stamp = time.time()
   
         # If we replicated blocks whose associated objects where still in
