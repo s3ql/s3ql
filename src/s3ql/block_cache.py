@@ -16,7 +16,7 @@ from .common import EmbeddedException, ExceptionStoringThread
 from .thread_group import ThreadGroup
 from .upload_manager import UploadManager, RemoveThread, retry_exc
 from .database import NoSuchRowError
-from llfuse import lock
+from llfuse import lock, lock_released
 import logging
 import os
 import threading
@@ -542,9 +542,6 @@ class CommitThread(ExceptionStoringThread):
         '''
         
         self.stop_event.set()
-        lock.release()
-        try:
+        with lock_released:
             self.join_and_raise()
-        finally:
-            lock.acquire()
         

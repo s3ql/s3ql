@@ -26,7 +26,7 @@ import struct
 import cPickle as pickle
 import math
 import threading
-from llfuse import FUSEError, lock
+from llfuse import FUSEError, lock, lock_released
 
 __all__ = [ "Server" ]
 
@@ -1046,9 +1046,6 @@ class InodeFlushThread(ExceptionStoringThread):
         '''
         
         self.stop_event.set()
-        lock.release()
-        try:
+        with lock_released:
             self.join_and_raise()
-        finally:
-            lock.acquire()
 
