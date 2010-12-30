@@ -655,7 +655,7 @@ class Operations(llfuse.Operations):
             raise FUSEError(errno.EPERM)
         
         if attr.st_size is not None:
-            len_ = attr['st_size']
+            len_ = attr.st_size
 
             # Determine blocks to delete
             last_block = len_ // self.blocksize
