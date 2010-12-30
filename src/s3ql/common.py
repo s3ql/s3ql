@@ -20,10 +20,8 @@ import traceback
 import time
 import re
 import cPickle as pickle
-import thread
 from contextlib import contextmanager
 from llfuse import ROOT_INODE
-from llfuse import lock
 from .backends.common import NoSuchObject
 
 __all__ = ["get_bucket_home", 'sha256_fh', 'add_stdout_logging',
@@ -500,10 +498,6 @@ class ExceptionStoringThread(threading.Thread):
         except:
             # This creates a circular reference chain
             self._exc_info = sys.exc_info() 
-        finally:
-            if lock.held_by() == thread.get_ident():
-                log.error('Thread terminated while holding global lock')
-                lock.release()
 
     def join_get_exc(self):
         self._joined = True
