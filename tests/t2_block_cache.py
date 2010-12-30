@@ -19,6 +19,7 @@ from _common import TestCase
 import unittest2 as unittest
 import stat
 import time
+import llfuse
 import shutil
 
 class cache_tests(TestCase):
@@ -48,6 +49,10 @@ class cache_tests(TestCase):
                                 100 * self.blocksize)
         self.cache.init()
         
+        # Tested methods assume that they are called from
+        # file system request handler
+        llfuse.lock.acquire()
+        
         # We do not want background threads
         self.cache.commit_thread.stop()
 
@@ -58,6 +63,8 @@ class cache_tests(TestCase):
         if os.path.exists(self.cachedir):
             shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
+        
+        llfuse.lock.release()
 
     @staticmethod
     def random_data(len_):

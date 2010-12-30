@@ -19,6 +19,7 @@ from _common import TestCase
 import os
 import stat
 import time
+import llfuse
 import unittest2 as unittest
 import errno
 import shutil
@@ -56,6 +57,11 @@ class fs_api_tests(TestCase):
 
         self.server = fs.Operations(self.bucket, self.db, self.cachedir,
                                     self.blocksize, cache_size=self.blocksize * 5)
+        
+        # Tested methods assume that they are called from
+        # file system request handler
+        llfuse.lock.acquire()
+                
         self.server.init()
 
         # We don't want background flushing
@@ -70,6 +76,7 @@ class fs_api_tests(TestCase):
         if os.path.exists(self.cachedir):
             shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
+        llfuse.lock.release()
 
     @staticmethod
     def random_data(len_):
