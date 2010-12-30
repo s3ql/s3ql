@@ -75,13 +75,13 @@ class Operations(llfuse.Operations):
     explicitly checks the st_mode attribute.
     """
 
-    def handle_exc(self, exc):
+    def handle_exc(self, fn, exc):
         '''Handle exceptions that occurred during request processing. 
                 
         This method marks the file system as needing fsck and logs the
         error.
         '''
-        # Unused argument
+        # Unused arguments
         #pylint: disable=W0613
         
         log.error("Unexpected internal filesystem error.\n"
