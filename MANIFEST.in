@@ -5,11 +5,9 @@ graft contrib
 graft tests
 graft debian
 graft bin
-include src/*.py src/*.h src/*.zip
+include src/*.py
 include Changes.txt
 include INSTALL.txt
 include README.txt
 include doc/manual.pdf
-exclude src/llfuse/ctypes_api.py
-exclude src/s3ql/libc_api.py
 exclude MANIFEST.in
