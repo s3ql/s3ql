@@ -1,4 +1,4 @@
-xxx, S3QL 0.29
+2010-12-30, S3QL 0.29
 
   * The FUSE interface has been rewritten using Cython and factored
     out into a separate package, http://code.google.com/p/python-llfuse/.
