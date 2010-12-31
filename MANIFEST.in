@@ -4,6 +4,7 @@ graft doc/latex
 graft contrib
 graft tests
 graft debian
+graft util
 graft bin
 include src/*.py
 include Changes.txt
