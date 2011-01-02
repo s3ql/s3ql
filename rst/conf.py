@@ -200,8 +200,8 @@ latex_documents = [
 man_pages = [         
     ('man/mkfs', 'mkfs.s3ql', u'Create an S3QL file system',
      None, 1),     
-#    ('man/mount', 'mount.s3ql', u'Mount an S3QL file system',
-#     None, 1),
+    ('man/mount', 'mount.s3ql', u'Mount an S3QL file system',
+     None, 1),
 #    ('man/umount', 'umount.s3ql', u'Unmount an S3QL file system',
 #     None, 1),
 #    ('man/fsck', 'fsck.s3ql', u'Check an S3QL file system for errors',
