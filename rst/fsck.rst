@@ -10,10 +10,7 @@ or if you suspect that there might be errors, you should run the
 
  fsck.s3ql [options] <storage url>
 
-Important options are:
+This command accepts the following options:
 
-  --batch           If user input is required, exit without prompting.
-  --force           Force checking even if file system is marked clean.
-  
-For a full list of available options, run `fsck.s3ql --help`.
-
+.. include:: autogen/fsck-help.rst
+   :start-after: show this help message and exit

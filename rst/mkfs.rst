@@ -12,16 +12,10 @@ following syntax::
 If you want to overwrite an existing bucket, you have to delete the
 bucket with `s3qladm --delete` first.
 
-The most important options are:
+This command accepts the following options:
 
-  --s3-location=<name>  Specify storage location for new bucket. Allowed
-                        values: `EU`, `us-west-1`, `ap-southeast-1`,
-                        or `us-standard`. 
-  -L <name>             Filesystem label
-  --blocksize=<size>    Maximum block size in KB (default: 10240)
-  --plain               Create unencrypted file system.
-
-For a full list of available options, run `mkfs.s3ql --help`.
+.. include:: autogen/mkfs-help.rst
+   :start-after: show this help message and exit
 
 Unless you have specified the `--plain` option, `mkfs.s3ql` will ask you
 to enter an encryption password. If you do not want to enter this

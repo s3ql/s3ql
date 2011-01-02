@@ -34,36 +34,83 @@ from distribute_setup import use_setuptools
 use_setuptools(version='0.6.14', download_delay=5)
 import setuptools
 import setuptools.command.test as setuptools_test
-
-# Import sphinx
-try:
-    from sphinx.setup_command import BuildDoc
-except ImportError:
-    BuildDoc = object
                        
-class build_docs(BuildDoc):
-
+class build_docs(setuptools.Command):
+    description = 'Build Sphinx documentation'
+    user_options = [
+        ('fresh-env', 'E', 'discard saved environment'),
+        ('all-files', 'a', 'build all files'),
+    ]
+    boolean_options = ['fresh-env', 'all-files']
+    
     def initialize_options(self):
-        BuildDoc.initialize_options(self)
-        self.source_dir = 'rst'
-        self.build_dir = 'doc'
-        self.builder = 'html'
-                
+        self.fresh_env = False
+        self.all_files = False
+
+    def finalize_options(self):
+        pass
+
     def run(self):
-        BuildDoc.run(self)
-        self.builder = 'latex'
-        self.builder_target_dir = os.path.join(self.build_dir, self.builder)
-        self.mkpath(self.builder_target_dir)
-        BuildDoc.run(self)
+        try:
+            from sphinx.application import Sphinx
+            from docutils.utils import SystemMessage
+        except ImportError:
+            raise QuietError('This command requires Sphinx to be installed.')
+            
+        confoverrides = {}
+        confoverrides['version'] = s3ql.VERSION
+        confoverrides['release'] = s3ql.VERSION
+
+        dest_dir = os.path.join(basedir, 'doc')
+        src_dir = os.path.join(basedir, 'rst')
         
+        print('Updating command help output..')
+        cmd_dest = os.path.join(src_dir, 'autogen')
+        self.mkpath(cmd_dest)
+        for (cmd, dest) in [('mount.s3ql', 'mount-help.rst'),
+                            ('umount.s3ql', 'umount-help.rst'),
+                            ('fsck.s3ql', 'fsck-help.rst'),
+                            ('mkfs.s3ql', 'mkfs-help.rst'),
+                            ('s3qladm', 'adm-help.rst'),
+                            ('s3qlcp', 'cp-help.rst'),
+                            ('s3qlctrl', 'ctrl-help.rst'),
+                            ('s3qllock', 'lock-help.rst'),
+                            ('s3qlrm', 'rm-help.rst'),
+                            ('s3qlstat', 'stat-help.rst') ]:
+            subprocess.check_call([os.path.join('bin', cmd), '--help'],
+                                  stdout=open(os.path.join(cmd_dest, dest), 'w'))
+        
+        
+        for builder in ('html', 'latex', 'man'):
+            print('Running %s builder...' % builder)
+            self.mkpath(os.path.join(dest_dir, builder))
+            app = Sphinx(srcdir=src_dir, confdir=src_dir, 
+                         outdir=os.path.join(dest_dir, builder),
+                         doctreedir=os.path.join(dest_dir, 'doctrees'), 
+                         buildername=builder, confoverrides=confoverrides,
+                         freshenv=self.fresh_env)
+            self.fresh_env = False
+            self.all_files = False
+        
+            try:
+                if self.all_files:
+                    app.builder.build_all()
+                else:
+                    app.builder.build_update()
+            except SystemMessage as err:
+                print('reST markup error:',
+                      err.args[0].encode('ascii', 'backslashreplace'),
+                      file=sys.stderr)
+
+
         print('Running pdflatex...')
         for _ in range(3):
             subprocess.check_call(['pdflatex', '-interaction',
                                    'batchmode', 'manual.tex'],
-                                  cwd=self.builder_target_dir, 
+                                  cwd=os.path.join(dest_dir, 'latex'), 
                                   stdout=open('/dev/null', 'wb'))
-        os.rename(os.path.join(self.builder_target_dir, 'manual.pdf'),
-                  os.path.join(self.build_dir, 'manual.pdf'))
+        os.rename(os.path.join(dest_dir, 'latex', 'manual.pdf'),
+                  os.path.join(dest_dir, 'manual.pdf'))
                   
     
 def main():
@@ -71,12 +118,6 @@ def main():
     with open(os.path.join(basedir, 'rst', 'about.rst'), 'r') as fh:
         long_desc = fh.read()
 
-    cmdclass = {'test': test,
-                'upload_docs': upload_docs, }
-    
-    if hasattr(build_docs, 'run'):
-        cmdclass['build_sphinx'] = build_docs 
-    
     setuptools.setup(
           name='s3ql',
           zip_safe=True,
@@ -126,10 +167,10 @@ def main():
                          'argparse',
                          'pyliblzma >= 0.5.3' ],
           test_suite='tests',
-          cmdclass=cmdclass,
-          command_options = { 'sdist': { 'formats': ('setup.py', 'bztar') },
-                              'build_sphinx': { 'version': ('setup.py', s3ql.VERSION),
-                                                'release': ('setup.py', s3ql.VERSION), } }, 
+          cmdclass={'test': test,
+                    'upload_docs': upload_docs,
+                    'build_sphinx': build_docs }, 
+          command_options = { 'sdist': { 'formats': ('setup.py', 'bztar') } }, 
          )
 
   

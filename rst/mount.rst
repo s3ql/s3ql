@@ -17,42 +17,10 @@ the following syntax::
    or `CIFS <http://en.wikipedia.org/wiki/CIFS>`_. It can only be
    mounted on one computer at a time.
 
-The most important options are:
+This command accepts the following options:
 
-  --cachesize=<size>    Cache size in kb (default: 102400 (100 MB)). Should be
-                        at least 10 times the blocksize of the filesystem,
-                        otherwise an object may be retrieved and written
-                        several times during a single write() or read()
-                        operation.
-  --max-cache-entries=<num>
-                        Maximum number of entries in cache (default: 768).
-                        Each cache entry requires one file descriptor, so if
-                        you increase this number you have to make sure that
-                        your process file descriptor limit (as set with
-                        `ulimit -n`) is high enough (at least the number of
-                        cache entries + 100).
-  --allow-other         Normally, only the user who called `mount.s3ql` can
-                        access the mount point. This user then also has full
-                        access to it, independent of individual file
-                        permissions. If the `--allow-other` option is
-                        specified, other users can access the mount point as
-                        well and individual file permissions are taken into
-                        account for all users.
-  --allow-root          Like `--allow-other`, but restrict access to the
-                        mounting user and the root user.
-  --fg                  Do not daemonize, stay in foreground
-  --compress=<name>     Compression algorithm to use when storing new data.
-                        Allowed values: `lzma`, `bzip2`, `zlib`, `none`. (default:
-                        `lzma`)
-  --metadata-upload-interval=<seconds>
-                        Interval in seconds between complete metadata uploads. Set
-                        to 0 to disable. Default: 24h.
-  --compression-threads=<no>
-                        Number of parallel compression and encryption threads
-                        to use (default: 1).
-
-
-For a full list of available options, run `mount.s3ql --help`.
+.. include:: autogen/mount-help.rst
+   :start-after: show this help message and exit
 
 .. _bucket_pw:
 

@@ -155,7 +155,7 @@ class ArgumentParser(argparse.ArgumentParser):
         self.add_argument("--homedir", type=str, metavar='<path>',
                       default=os.path.expanduser("~/.s3ql"),
                       help='Directory for log files, cache and authentication info. '
-                           '(default: ~/.s3ql)')
+                           '(default: `~/.s3ql)`')
                                           
     def add_storage_url(self):
         self.add_argument("storage_url", metavar='<storage-url>',

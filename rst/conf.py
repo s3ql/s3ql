@@ -62,7 +62,7 @@ copyright = u'2010, Nikolaus Rath'
 
 # List of directories, relative to source directory, that shouldn't be searched
 # for source files.
-exclude_trees = []
+exclude_trees = [ 'autogen', 'include' ]
 
 # The reST default role (used for this markup: `text`) to use for all documents.
 default_role = 'file'
@@ -198,6 +198,24 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [         
-    ('mount', 'mount.s3ql', u'S3QL Documentation',
-     [u'Nikolaus Rath'], 1)
+#    ('man-mkfs', 'mkfs.s3ql', u'Create an S3QL file system',
+#     [u'Nikolaus Rath'], 1),     
+#    ('man-mount', 'mount.s3ql', u'Mount an S3QL file system',
+#     [u'Nikolaus Rath'], 1),
+#    ('man-umount', 'umount.s3ql', u'Unmount an S3QL file system',
+#     [u'Nikolaus Rath'], 1),
+#    ('man-fsck', 'fsck.s3ql', u'Check an S3QL file system for errors',
+#     [u'Nikolaus Rath'], 1),
+#    ('man-ctrl', 's3qlctrl', u'Control a mounted S3QL file system',
+#     [u'Nikolaus Rath'], 1),
+#    ('man-adm', 's3qladm', u'Manage S3QL buckets',
+#     [u'Nikolaus Rath'], 1),
+#    ('man-cp', 's3qlcp', u'Copy-on-write replication on S3QL file systems',
+#     [u'Nikolaus Rath'], 1),
+#    ('man-lock', 's3qllock', u'Make trees on an S3QL file system immutable',
+#     [u'Nikolaus Rath'], 1),
+#    ('man-remove', 's3qlrm', u'Fast tree removal on S3QL file systems',
+#     [u'Nikolaus Rath'], 1),
+#    ('man-statfs', 's3qlstat', u'Gather S3QL file system statistics',
+#     [u'Nikolaus Rath'], 1),      
 ]
