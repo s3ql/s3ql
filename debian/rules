@@ -30,7 +30,6 @@ override_dh_installdocs:
 	dh_installdocs
 	rm debian/s3ql/usr/share/doc/s3ql/contrib/expire_backups.py \
 	   debian/s3ql/usr/share/doc/s3ql/contrib/pcp.py
-	ln -sf txt/about.txt debian/s3ql/usr/share/doc/s3ql/README.txt
 
 override_dh_fixperms:
 	dh_fixperms
