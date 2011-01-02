@@ -1,6 +1,5 @@
-graft doc/html
-graft doc/txt
-graft doc/latex
+graft doc
+graft rst
 graft contrib
 graft tests
 graft debian
@@ -10,5 +9,4 @@ include src/*.py
 include Changes.txt
 include INSTALL.txt
 include README.txt
-include doc/manual.pdf
 exclude MANIFEST.in

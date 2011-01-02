@@ -45,7 +45,7 @@ class build_docs(BuildDoc):
 
     def initialize_options(self):
         BuildDoc.initialize_options(self)
-        self.source_dir = 'doc/txt'
+        self.source_dir = 'rst'
         self.build_dir = 'doc'
         self.builder = 'html'
                 
@@ -68,7 +68,7 @@ class build_docs(BuildDoc):
     
 def main():
 
-    with open(os.path.join(basedir, 'doc', 'txt', 'about.txt'), 'r') as fh:
+    with open(os.path.join(basedir, 'rst', 'about.rst'), 'r') as fh:
         long_desc = fh.read()
 
     cmdclass = {'test': test,

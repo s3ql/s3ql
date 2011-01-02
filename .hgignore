@@ -1,11 +1,7 @@
 syntax: regexp
 ^src/llfuse/ctypes_api\.py$
 ^src/s3ql/libc_api\.py$
-^doc/doctrees$
-^doc/.doctrees$
-^doc/latex$
-^doc/html$
-^doc/manual.pdf$
+^doc/
 ^src/s3ql\.egg-info$
 ^build$
 ^.pydevproject$

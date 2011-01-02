@@ -1,1 +1,0 @@
-doc/txt/about.txt

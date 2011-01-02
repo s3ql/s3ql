@@ -17,13 +17,13 @@ import sys, os
 
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
-#extensions = [ ]
+extensions = [ 'sphinx.ext.ifconfig' ]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
 # The suffix of source filenames.
-source_suffix = '.txt'
+source_suffix = '.rst'
 
 # The encoding of source files.
 source_encoding = 'utf-8'
@@ -197,7 +197,7 @@ latex_documents = [
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [
+man_pages = [         
     ('mount', 'mount.s3ql', u'S3QL Documentation',
      [u'Nikolaus Rath'], 1)
 ]
