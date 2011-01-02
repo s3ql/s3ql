@@ -57,15 +57,22 @@ class build_docs(setuptools.Command):
         except ImportError:
             raise QuietError('This command requires Sphinx to be installed.')
             
+        dest_dir = os.path.join(basedir, 'doc')
+        src_dir = os.path.join(basedir, 'rst')
+                    
+        autogen_dir = 'autogen'
+        include_dir = 'include'
+        
         confoverrides = {}
         confoverrides['version'] = s3ql.VERSION
         confoverrides['release'] = s3ql.VERSION
+        confoverrides['exclude_trees'] = [ autogen_dir, include_dir ]
+        confoverrides['unused_docs'] = [ os.path.join('man', x[:-4]) 
+                                        for x 
+                                        in os.listdir(os.path.join(src_dir, 'man') ) ]
 
-        dest_dir = os.path.join(basedir, 'doc')
-        src_dir = os.path.join(basedir, 'rst')
-        
         print('Updating command help output..')
-        cmd_dest = os.path.join(src_dir, 'autogen')
+        cmd_dest = os.path.join(src_dir, autogen_dir)
         self.mkpath(cmd_dest)
         for (cmd, dest) in [('mount.s3ql', 'mount-help.rst'),
                             ('umount.s3ql', 'umount-help.rst'),
@@ -142,6 +149,8 @@ def main():
           package_dir={'': 'src'},
           packages=setuptools.find_packages('src'),
           provides=['s3ql'],
+          data_files = [ ('share/man/man1', 
+                          [ 'doc/man/mkfs.s3ql.1' ]) ],
           entry_points={ 'console_scripts':
                         [
                          'mkfs.s3ql = s3ql.cli.mkfs:main',
