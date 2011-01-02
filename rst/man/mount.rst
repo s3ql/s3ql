@@ -35,13 +35,6 @@ The |command| command accepts the following options.
    :start-after: show this help message and exit
 
 
-Exit Status
-===========
-
-|command| returns exit code 0 if the operation succeeded
-and -1 if some error occured.
-
-
 Files
 =====
 
@@ -49,13 +42,7 @@ Authentication data for backends and bucket encryption passphrases are
 read from `authinfo` in `~/.s3ql` or the directory specified with
 *--homedir*. Log files are placed in the same directory.
 
-
-See Also
-========
-
-The full S3QL documentation should be available somewhere on your
-system, conventional locations are `/usr/share/doc/s3ql` or
-`/usr/local/doc/s3ql`.
+.. include:: ../include/postman.rst
 
 
 .. |command| replace:: :command:`mount.s3ql` 

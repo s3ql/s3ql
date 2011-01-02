@@ -1,6 +1,5 @@
 .. -*- mode: rst -*-
 
-
 =======
 Manpage
 =======
@@ -42,22 +41,6 @@ The |command| command accepts the following options.
 .. include:: ../autogen/umount-help.rst
    :start-after: show this help message and exit
 
-
-Exit Status
-===========
-
-|command| returns exit code 0 if the operation succeeded
-and -1 if some error occured.
-
-
-
-See Also
-========
-
-The full S3QL documentation should be available somewhere on your
-system, conventional locations are `/usr/share/doc/s3ql` or
-`/usr/local/doc/s3ql`.
-
+.. include:: ../include/postman.rst
 
 .. |command| replace:: :command:`umount.s3ql` 
-
