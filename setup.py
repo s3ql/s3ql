@@ -13,6 +13,7 @@ import sys
 import os
 import subprocess
 import logging
+from glob import glob
 
 # Work around setuptools bug
 # http://bitbucket.org/tarek/distribute/issue/152/
@@ -69,7 +70,7 @@ class build_docs(setuptools.Command):
         confoverrides['exclude_trees'] = [ autogen_dir, include_dir ]
         confoverrides['unused_docs'] = [ os.path.join('man', x[:-4]) 
                                         for x 
-                                        in os.listdir(os.path.join(src_dir, 'man') ) ]
+                                        in glob(os.path.join(src_dir, 'man', '*.rst') ) ]
 
         print('Updating command help output..')
         cmd_dest = os.path.join(src_dir, autogen_dir)
@@ -150,7 +151,8 @@ def main():
           packages=setuptools.find_packages('src'),
           provides=['s3ql'],
           data_files = [ ('share/man/man1', 
-                          [ 'doc/man/mkfs.s3ql.1' ]) ],
+                          [ os.path.join('doc/man/', x) for x
+                            in glob(os.path.join(basedir, 'doc', 'man', '*.1')) ]) ],
           entry_points={ 'console_scripts':
                         [
                          'mkfs.s3ql = s3ql.cli.mkfs:main',
