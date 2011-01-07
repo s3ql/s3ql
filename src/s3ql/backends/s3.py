@@ -57,7 +57,7 @@ class Connection(AbstractConnection):
                 # Need to create a new connection
                 log.debug("Creating new boto connection (active conns: %d)...",
                           self.conn_cnt)
-                conn = S3Connection(self.awskey, self.awspass)
+                conn = S3Connection(self.awskey, self.awspass, is_secure=False)
                 self.conn_cnt += 1
     
             return conn

@@ -197,6 +197,10 @@ storage region, Amazon S3 provides only eventual consistency* (please
 refer to :ref:`eventual_consistency` for information about
 what this entails).
 
+When connecting to Amazon S3, S3QL uses an unencrypted HTTP
+connection, so if you want your data to stay confidential, you have
+to create the S3QL file system with encryption (this is also the default).
+
 When reading the authentication information for the S3 backend from
 the `authinfo` file, the `host` field is ignored, i.e. the first entry
 with `s3` as a backend will be used. For example ::

@@ -1,3 +1,12 @@
+xxx, S3QL 0.30
+
+  * S3QL now uses an unencrypted connection to connect to Amazon S3.
+    This is shown to significantly increase performance. If you want
+    your data to remain confidential, make sure that you created the
+    file system with an encryption password (this is also the
+    default).
+    
+
 2010-12-30, S3QL 0.29
 
   * The FUSE interface has been rewritten using Cython and factored
