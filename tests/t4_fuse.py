@@ -26,6 +26,9 @@ import tempfile
 import time
 import unittest2 as unittest
 
+# For debugging
+USE_VALGRIND = False
+
 class fuse_tests(TestCase):
     
     def setUp(self):
@@ -51,15 +54,18 @@ class fuse_tests(TestCase):
 
         # Try to wait for mount thread to prevent spurious errors
         # because the db file is being removed
-        if self.mount_thread:
+        if self.mount_thread and USE_VALGRIND:
+            retry(20, lambda: self.mount_thread.poll() is not None)
+        elif self.mount_thread:
             self.mount_thread.join(5)
-            if not self.mount_thread.is_alive():
-                self.mount_thread.join_and_raise()
                 
         shutil.rmtree(self.mnt_dir)
         shutil.rmtree(self.cache_dir)
         shutil.rmtree(self.bucket_dir)
 
+        if not USE_VALGRIND and not self.mount_thread.is_alive():
+            self.mount_thread.join_and_raise()
+                    
     def mount(self):
         sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
         try:
@@ -68,17 +74,32 @@ class fuse_tests(TestCase):
         except BaseException as exc:
             self.fail("mkfs.s3ql failed: %s" % exc)
 
-        sys.stdin = StringIO('%s\n' % self.passphrase)
-        self.mount_thread = AsyncFn(s3ql.cli.mount.main,
-                                    ["--fg", '--homedir', self.cache_dir, 
-                                     self.bucketname, self.mnt_dir])
-        self.mount_thread.start()
+        
+        if USE_VALGRIND:
+            if __name__ == '__main__':
+                mypath = sys.argv[0]
+            else:
+                mypath = __file__
+            basedir = os.path.abspath(os.path.join(os.path.dirname(mypath), '..'))
+            self.mount_thread = subprocess.Popen(['valgrind', 'python-dbg', 
+                                                  os.path.join(basedir, 'bin', 'mount.s3ql'), 
+                                                  "--fg", '--homedir', self.cache_dir, 
+                                                  self.bucketname, self.mnt_dir],
+                                                  stdin=subprocess.PIPE)
+            print(self.passphrase, file=self.mount_thread.stdin)
+            retry(30, os.path.ismount, self.mnt_dir)                              
+        else:
+            sys.stdin = StringIO('%s\n' % self.passphrase)
+            self.mount_thread = AsyncFn(s3ql.cli.mount.main,
+                                        ["--fg", '--homedir', self.cache_dir, 
+                                         self.bucketname, self.mnt_dir])
+            self.mount_thread.start()
 
-        # Wait for mountpoint to come up
-        try:
-            retry(3, os.path.ismount, self.mnt_dir)
-        except:
-            self.mount_thread.join_and_raise()
+            # Wait for mountpoint to come up
+            try:
+                retry(3, os.path.ismount, self.mnt_dir)
+            except:
+                self.mount_thread.join_and_raise()
 
     def umount(self):
         time.sleep(0.5)
@@ -92,8 +113,11 @@ class fuse_tests(TestCase):
             self.fail("Umount failed: %s" % exc)
 
         # Now wait for server process
-        exc = self.mount_thread.join_get_exc()
-        self.assertIsNone(exc)
+        if USE_VALGRIND:
+            self.assertEqual(self.mount_thread.wait(), 0)
+        else:
+            exc = self.mount_thread.join_get_exc()
+            self.assertIsNone(exc)
         self.assertFalse(os.path.ismount(self.mnt_dir))
 
         # Now run an fsck
