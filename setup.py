@@ -19,10 +19,6 @@ from glob import glob
 # http://bitbucket.org/tarek/distribute/issue/152/
 #pylint: disable=W0611
 import multiprocessing
-try:
-    import psyco
-except ImportError:
-    pass
 
 # Add S3QL sources
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))

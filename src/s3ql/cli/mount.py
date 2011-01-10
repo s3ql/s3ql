@@ -30,18 +30,15 @@ import threading
 import logging
 import cPickle as pickle
 
+#import psyco
+#psyco.profile()
+
 __all__ = [ 'main' ]
 
 log = logging.getLogger("mount")
 
 def main(args=None):
     '''Mount S3QL file system'''
-
-    try:
-        import psyco
-        psyco.profile()
-    except ImportError:
-        pass
 
     if args is None:
         args = sys.argv[1:]
@@ -54,7 +51,7 @@ def main(args=None):
     
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.')
-
+        
     if options.profile:
         import cProfile
         import pstats

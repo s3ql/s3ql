@@ -56,15 +56,9 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
-    try:
-        import psyco
-        psyco.profile()
-    except ImportError:
-        pass
-
     options = parse_args(args)
     setup_logging(options, 'fsck.log')
-
+        
     with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
 
         # Check if fs is mounted on this computer
