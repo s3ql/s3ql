@@ -207,7 +207,55 @@ def upgrade(bucket):
 
     # Access to protected member
     #pylint: disable=W0212
+    log.info('Getting file system parameters..')
+    seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
+    if not seq_nos:
+        raise QuietError(textwrap.dedent(''' 
+            File system revision too old to upgrade!
             
+            You need to use an older S3QL version to upgrade to a more recent
+            revision before you can use this version to upgrade to the newest
+            revision.
+            '''))                     
+    seq_no = max(seq_nos)
+    param = bucket.lookup('s3ql_metadata')
+
+    # Check for unclean shutdown
+    if param['seq_no'] < seq_no:
+        if (bucket.read_after_write_consistent() and
+            bucket.read_after_delete_consistent()):
+            raise QuietError(textwrap.fill(textwrap.dedent('''\
+                It appears that the file system is still mounted somewhere else. If this is not
+                the case, the file system may have not been unmounted cleanly and you should try
+                to run fsck on the computer where the file system has been mounted most recently.
+                ''')))
+        else:                
+            raise QuietError(textwrap.fill(textwrap.dedent('''\
+                It appears that the file system is still mounted somewhere else. If this is not the
+                case, the file system may have not been unmounted cleanly or the data from the 
+                most-recent mount may have not yet propagated through the backend. In the later case,
+                waiting for a while should fix the problem, in the former case you should try to run
+                fsck on the computer where the file system has been mounted most recently.
+                ''')))    
+
+    # Check that the fs itself is clean
+    if param['needs_fsck']:
+        raise QuietError("File system damaged, run fsck!")
+    
+    # Check revision
+    if param['revision'] < CURRENT_FS_REV - 1:
+        raise QuietError(textwrap.dedent(''' 
+            File system revision too old to upgrade!
+            
+            You need to use an older S3QL version to upgrade to a more recent
+            revision before you can use this version to upgrade to the newest
+            revision.
+            '''))
+
+    elif param['revision'] >= CURRENT_FS_REV:
+        print('File system already at most-recent revision')
+        return
+                
     print(textwrap.dedent('''
         I am about to update the file system to the newest revision. 
         You will not be able to access the file system with any older version
@@ -222,57 +270,6 @@ def upgrade(bucket):
 
     if sys.stdin.readline().strip().lower() != 'yes':
         raise QuietError()
-
-    log.info('Getting file system parameters..')
-    seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
-    if not seq_nos:
-        raise QuietError(textwrap.dedent(''' 
-            File system revision too old to upgrade!
-            
-            You need to use an older S3QL version to upgrade to a more recent
-            revision before you can use this version to upgrade to the newest
-            revision.
-            '''))
-                         
-    seq_no = max(seq_nos)
-    param = bucket.lookup('s3ql_metadata')
-
-    # Check revision
-    if param['revision'] < CURRENT_FS_REV - 1:
-        raise QuietError(textwrap.dedent(''' 
-            File system revision too old to upgrade!
-            
-            You need to use an older S3QL version to upgrade to a more recent
-            revision before you can use this version to upgrade to the newest
-            revision.
-            '''))
-
-    elif param['revision'] >= CURRENT_FS_REV:
-        print('File system already at most-recent revision')
-        return
-
-    # Check that the fs itself is clean
-    if param['needs_fsck']:
-        raise QuietError("File system damaged, run fsck!")
-
-    # Check for unclean shutdown on other computer
-    if param['seq_no'] < seq_no and False:
-        if isinstance(bucket, s3.Bucket):
-            raise QuietError(textwrap.fill(textwrap.dedent('''
-                It appears that the file system is still mounted somewhere else. If this is not
-                the case, the file system may have not been unmounted cleanly or the data from
-                the most-recent mount may have not yet propagated through S3. In the later case,
-                waiting for a while should fix the problem, in the former case you should try to
-                run fsck on the computer where the file system has been mounted most recently.
-                ''')))
-        else:
-            raise QuietError(textwrap.fill(textwrap.dedent('''
-                It appears that the file system is still mounted somewhere else. If this is not
-                the case, the file system may have not been unmounted cleanly and you should try
-                to run fsck on the computer where the file system has been mounted most recently.
-                ''')))
-    elif param['seq_no'] > seq_no:
-        raise RuntimeError('param[seq_no] > seq_no, this should not happen.')
 
     # Download metadata
     log.info("Downloading & uncompressing metadata...")
