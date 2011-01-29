@@ -143,10 +143,14 @@ def main(args=None):
         else:
             log.error('Remote metadata is newer than local (%d vs %d), '
                       'refusing to overwrite!', seq_no, param['seq_no'])
-            log.error('The local metadata will be kept in cache but will be *lost* the '
-                      'next time the file system is mounted or checked! If you do not '
-                      'want that, *you need to take action now*!')    
-    
+            log.error('The locally cached metadata will be *lost* the next time the file system '
+                      'is mounted or checked and has therefore been backed up.')
+            for name in (home + '.params', home + '.db'):
+                for i in reversed(range(4)):
+                    if os.path.exists(name + '.%d' % i):
+                        os.rename(name + '.%d' % i, name + '.%d' % (i+1))     
+                os.rename(name, name + '.0')
+   
     db.execute('ANALYZE')
     db.execute('VACUUM')
     db.close() 
