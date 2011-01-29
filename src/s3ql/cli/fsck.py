@@ -21,6 +21,7 @@ import logging
 from s3ql.fsck import Fsck
 from s3ql.backends.common import ChecksumError
 import sys
+import apsw
 import tempfile
 import cPickle as pickle
 import textwrap
@@ -151,9 +152,13 @@ def main(args=None):
         # If using local metadata, check consistency
         if db:
             log.info('Checking DB integrity...')
-            res = db.get_list('PRAGMA integrity_check(20)')
-            if res[0][0] != u'ok':
-                log.error('\n'.join(x[0] for x in res ))
+            try:
+                # get_list may raise CorruptError itself
+                res = db.get_list('PRAGMA integrity_check(20)')
+                if res[0][0] != u'ok':
+                    log.error('\n'.join(x[0] for x in res ))
+                    raise apsw.CorruptError()
+            except apsw.CorruptError:
                 raise QuietError('Local metadata is corrupted. Remove or repair the following '
                                  'files manually and re-run fsck:\n'
                                  + home + '.db (corrupted)\n'
