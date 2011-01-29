@@ -118,9 +118,12 @@ def main(args=None):
             param['needs_fsck'] = True
         else:       
             param['needs_fsck'] = False
-            
+         
+        # Do not update .params yet, dump_metadata() may
+        # fail if the database is corrupted, in which case we
+        # want to force an fsck.
+           
         seq_no = get_seq_no(bucket)
-        pickle.dump(param, open(home + '.params', 'wb'), 2)
         if db_mtime == os.stat(home + '.db').st_mtime:
             log.info('File system unchanged, not uploading metadata.')
             del bucket['s3ql_seq_no_%d' % param['seq_no']]         
@@ -136,6 +139,7 @@ def main(args=None):
             param['last-modified'] = time.time() - time.timezone
             bucket.store_fh("s3ql_metadata", fh, param)
             fh.close()
+            pickle.dump(param, open(home + '.params', 'wb'), 2)
         else:
             log.error('Remote metadata is newer than local (%d vs %d), '
                       'refusing to overwrite!', seq_no, param['seq_no'])
