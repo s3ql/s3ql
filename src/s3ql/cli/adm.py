@@ -61,7 +61,8 @@ def parse_args(args):
     parser.add_quiet()
     parser.add_homedir()
     parser.add_version()
-
+    parser.add_ssl()
+        
     options = parser.parse_args(args)
     
     if not os.path.exists(options.homedir):
@@ -78,7 +79,8 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options, 'adm.log')
 
-    with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
+    with get_backend(options.storage_url, 
+                     options.homedir, options.ssl) as (conn, bucketname):
         home = get_bucket_home(options.storage_url, options.homedir)
                
         if options.action == 'delete':

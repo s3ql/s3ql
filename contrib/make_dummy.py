@@ -46,6 +46,7 @@ def parse_args(args):
     parser.add_quiet()
     parser.add_debug_modules()
     parser.add_version()
+    parser.add_ssl()
 
     parser.add_argument("src", metavar='<source storage-url>',
                         type=storage_url_type, 
@@ -66,7 +67,8 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    with get_backend(options.src, options.homedir) as (src_conn, src_name):
+    with get_backend(options.src, options.homedir,
+                     options.ssl) as (src_conn, src_name):
         
         if not src_name in src_conn:
             raise QuietError("Source bucket does not exist.")

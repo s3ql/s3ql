@@ -37,6 +37,7 @@ def parse_args(args):
     parser.add_quiet()
     parser.add_version()
     parser.add_storage_url()
+    parser.add_ssl()
     
     parser.add_argument("--s3-location", default='EU', metavar='<name>',
                       choices=('EU', 'us-west-1', 'us-standard', 'ap-southeast-1'),
@@ -69,7 +70,8 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
+    with get_backend(options.storage_url, options.homedir,
+                     options.ssl) as (conn, bucketname):
         if conn.bucket_exists(bucketname):
             raise QuietError("Bucket already exists!\n"
                              "(you can delete an existing bucket with s3qladm --delete)\n")

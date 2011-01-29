@@ -42,6 +42,7 @@ def parse_args(args):
     parser.add_quiet()
     parser.add_debug_modules()
     parser.add_version()
+    parser.add_ssl()
 
     parser.add_argument("src", metavar='<source bucket>',
                         help='Source bucket name')
@@ -77,7 +78,7 @@ def main(args=None):
     setup_logging(options)
     
     (login, password) = get_backend_credentials(options.homedir, 's3', None)
-    conn = s3.Connection(login, password)
+    conn = s3.Connection(login, password, options.ssl)
 
     if conn.bucket_exists(options.dest):
         raise QuietError('Destination bucket already exists.')

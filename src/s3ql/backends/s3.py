@@ -38,13 +38,15 @@ class Connection(AbstractConnection):
     threads.    
     """
 
-    def __init__(self, awskey, awspass, reduced_redundancy=False):
+    def __init__(self, awskey, awspass, use_ssl, 
+                 reduced_redundancy=False):
         super(Connection, self).__init__()
         self.awskey = awskey
         self.awspass = awspass
         self.pool = list()
         self.lock = threading.RLock()
         self.conn_cnt = 0
+        self.use_ssl = use_ssl
         self.reduced_redundancy = reduced_redundancy
 
     def _pop_conn(self):
@@ -57,7 +59,8 @@ class Connection(AbstractConnection):
                 # Need to create a new connection
                 log.debug("Creating new boto connection (active conns: %d)...",
                           self.conn_cnt)
-                conn = S3Connection(self.awskey, self.awspass, is_secure=False)
+                conn = S3Connection(self.awskey, self.awspass, 
+                                    is_secure=self.use_ssl)
                 self.conn_cnt += 1
     
             return conn

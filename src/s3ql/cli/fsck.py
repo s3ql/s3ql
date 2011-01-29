@@ -38,6 +38,7 @@ def parse_args(args):
     parser.add_quiet()
     parser.add_version()
     parser.add_storage_url()
+    parser.add_ssl()
 
     parser.add_argument("--batch", action="store_true", default=False,
                       help="If user input is required, exit without prompting.")
@@ -60,7 +61,8 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options, 'fsck.log')
         
-    with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
+    with get_backend(options.storage_url, options.homedir,
+                     options.ssl) as (conn, bucketname):
 
         # Check if fs is mounted on this computer
         # This is not foolproof but should prevent common mistakes

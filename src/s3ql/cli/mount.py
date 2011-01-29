@@ -57,7 +57,8 @@ def main(args=None):
         import pstats
         prof = cProfile.Profile()
 
-    with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
+    with get_backend(options.storage_url, options.homedir,
+                     options.ssl) as (conn, bucketname):
 
         if not bucketname in conn:
             raise QuietError("Bucket does not exist.")
@@ -305,6 +306,7 @@ def parse_args(args):
     parser.add_quiet()
     parser.add_version()
     parser.add_storage_url()
+    parser.add_ssl()
     
     parser.add_argument("mountpoint", metavar='<mountpoint>',
                         type=(lambda x: x.rstrip('/')),

@@ -119,7 +119,7 @@ def add_file_logging(logfile):
 
     
 @contextmanager
-def get_backend(storage_url, homedir):
+def get_backend(storage_url, homedir, use_ssl):
     '''Return backend connection and bucket name
     
     This is a context manager, since some connections need to be cleaned 
@@ -134,13 +134,13 @@ def get_backend(storage_url, homedir):
 
     elif storage_url.startswith('s3://'):
         (login, password) = get_backend_credentials(homedir, 's3', None)
-        conn = s3.Connection(login, password)
+        conn = s3.Connection(login, password, use_ssl)
         bucketname = storage_url[len('s3://'):]
 
     elif storage_url.startswith('s3rr://'):
         log.warn('Warning: Using S3 reduced redundancy storage (S3) is *not* recommended!')
         (login, password) = get_backend_credentials(homedir, 's3', None)
-        conn = s3.Connection(login, password, reduced_redundancy=True)
+        conn = s3.Connection(login, password, use_ssl, reduced_redundancy=True)
         bucketname = storage_url[len('s3rr://'):]
 
     else:
@@ -151,7 +151,7 @@ def get_backend(storage_url, homedir):
         (backend, host, port, bucketname) = match.groups()
         (login, password) = get_backend_credentials(homedir, backend, host)
 
-        if backend == 'ftp':
+        if backend == 'ftp' and not use_ssl:
             conn = ftp.Connection(host, port, login, password)
         elif backend == 'ftps':
             conn = ftp.TLSConnection(host, port, login, password)

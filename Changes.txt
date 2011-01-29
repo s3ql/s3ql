@@ -1,11 +1,12 @@
 xxx, S3QL 0.30
 
-  * S3QL now uses an unencrypted connection to connect to Amazon S3.
-    This is shown to significantly increase performance. If you want
-    your data to remain confidential, make sure that you created the
-    file system with an encryption password (this is also the
-    default).
-    
+  * S3QL now defaults to use unencrypted HTTP connections, which 
+    significantly improves performance when using the S3 backend.
+    For an encrypted file system, all data is already encrypted
+    anyway, and authentication data is never transmitted in plain text
+    even for unencrypted file systems. Therefore, the use of SSL
+    brings little gain for most users. To force SSL usage, the
+    new --ssl option can be used.    
 
 2010-12-30, S3QL 0.29
 

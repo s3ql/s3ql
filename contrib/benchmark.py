@@ -48,6 +48,7 @@ def parse_args(args):
     parser.add_quiet()
     parser.add_debug()
     parser.add_version()
+    parser.add_ssl()
     
     parser.add_storage_url()
     parser.add_argument('file', metavar='<file>', type=argparse.FileType(mode='rb'),
@@ -66,7 +67,8 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    with get_backend(options.storage_url, options.homedir) as (conn, bucketname):
+    with get_backend(options.storage_url, options.homedir,
+                     options.ssl) as (conn, bucketname):
 
         if not bucketname in conn:
             raise QuietError("Bucket does not exist.")
