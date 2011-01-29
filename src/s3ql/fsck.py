@@ -164,7 +164,7 @@ class Fsck(object):
         if not stat.S_ISDIR(mode):
             self.found_errors = True
             self.log_error('/lost+found is not a directory! Old entry will be saved as '
-                      '/lost+found/inode-%s', inode_l)
+                      '/lost+found/inode-%s*', inode_l)
             # We leave the old inode unassociated, so that it will be added
             # to lost+found later on.
             inode_l = self.conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
