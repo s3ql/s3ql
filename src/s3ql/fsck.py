@@ -429,7 +429,8 @@ class Fsck(object):
                                                             path[1:].replace('_', '__').replace('/', '_')) 
                             
                         self.conn.execute('UPDATE contents SET name=?, parent_inode=? '
-                                          'WHERE inode=?', (newname, lof_id, id_))
+                                          'WHERE name=? AND parent_inode=?', 
+                                          (newname, lof_id, name, id_p))
                         
                 self.conn.execute("DELETE FROM blocks WHERE obj_id=?", (obj_id,))
                 self.conn.execute("DELETE FROM objects WHERE id=?", (obj_id,))
@@ -456,7 +457,7 @@ class Fsck(object):
         try:
             while True:
                 self.conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                             (newname, inode_p))
+                                  (newname, inode_p))
                 i += 1
                 newname = name + bytes(i)
     
