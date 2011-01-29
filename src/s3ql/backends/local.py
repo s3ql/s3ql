@@ -98,7 +98,6 @@ class Bucket(AbstractBucket):
                 path = os.path.join(self.name, name)
                 if os.path.isdir(path):
                     shutil.rmtree(path)
-                    os.rmdir(path)
                 else:
                     os.unlink(path)
 
