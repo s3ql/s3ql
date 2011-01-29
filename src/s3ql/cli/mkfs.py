@@ -50,7 +50,8 @@ def parse_args(args):
                       help="Maximum block size in KB (default: %(default)d)")
     parser.add_argument("--plain", action="store_true", default=False,
                       help="Create unencrypted file system.")
-
+    parser.add_argument("--force", action="store_true", default=False,
+                        help="Overwrite any existing data.")
 
     options = parser.parse_args(args)
 
@@ -73,10 +74,17 @@ def main(args=None):
     with get_backend(options.storage_url, options.homedir,
                      options.ssl) as (conn, bucketname):
         if conn.bucket_exists(bucketname):
-            raise QuietError("Bucket already exists!\n"
-                             "(you can delete an existing bucket with s3qladm --delete)\n")
-
-        if isinstance(conn, s3.Connection):
+            if not options.force:
+                raise QuietError("Bucket already exists! Use --force to overwrite")
+            
+            bucket = conn.get_bucket(bucketname)
+            log.info('Bucket already exists. Purging old file system data..')
+            if not bucket.read_after_delete_consistent():
+                log.info('Please note that the new file system may appear inconsistent\n'
+                         'for a while until the removals have propagated through the backend.')
+            bucket.clear()
+            
+        elif isinstance(conn, s3.Connection):
             bucket = conn.create_bucket(bucketname, location=options.s3_location)
         else:
             bucket = conn.create_bucket(bucketname)

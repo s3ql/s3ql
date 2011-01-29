@@ -8,6 +8,9 @@ xxx, S3QL 0.30
     brings little gain for most users. To force SSL usage, the
     new --ssl option can be used.    
 
+  * mkfs.s3ql now has a --force option to overwrite an existing
+    file system.
+    
 2010-12-30, S3QL 0.29
 
   * The FUSE interface has been rewritten using Cython and factored
