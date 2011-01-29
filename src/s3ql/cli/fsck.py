@@ -80,6 +80,7 @@ def main(args=None):
 
         home = get_bucket_home(options.storage_url, options.homedir)
         seq_no = get_seq_no(bucket)
+        param_remote = bucket.lookup('s3ql_metadata')
         db = None
         
         if os.path.exists(home + '.params'):
@@ -93,8 +94,12 @@ def main(args=None):
                 db = Connection(home + '.db')
                 assert not os.path.exists(home + '-cache') or param['needs_fsck']
  
+            if param_remote['seq_no'] != param['seq_no']:
+                log.warn('Remote metadata is outdated.')
+                param['needs_fsck'] = True
+                
         else:
-            param = bucket.lookup('s3ql_metadata')
+            param = param_remote
             assert not os.path.exists(home + '-cache')
             # .db might exist if mount.s3ql is killed at exactly the right instant
             # and should just be ignored.
