@@ -27,7 +27,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
     
-from s3ql.common import setup_logging
+from s3ql.common import setup_logging, QuietError
 from s3ql.parse_args import ArgumentParser
 from s3ql.cli.remove import main as s3qlrm
     
@@ -66,6 +66,8 @@ def parse_args(args):
                         help='File to save state information in (default: %(default)s')
     parser.add_argument("-n", action="store_true", default=False,
                         help="Dry run. Just show which backups would be deleted.")
+    parser.add_argument('--init', action='store_true', default=False,
+                        help='Create new state file.')
 
     parser.add_argument("--use-s3qlrm", action="store_true",
                       help="Use `s3qlrm` command to delete backups.")
@@ -89,8 +91,11 @@ def main(args=None):
     backup_list = set(x for x in os.listdir('.')
                       if re.match(r'^\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d$', x))
 
-    if not os.path.exists(options.state):
-        log.warn('No existing state file, assuming first-time run.')
+    if not os.path.exists(options.state) and not options.init:
+        raise QuietError('State file not found, use --init to initialize.')
+    
+    if options.init:
+        log.warn('Creating new state file..')
         if len(backup_list) > 1:
             state = upgrade_to_state(backup_list)
         else:
