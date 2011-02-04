@@ -1,4 +1,4 @@
-xxx, S3QL 0.30
+2011-02-04, S3QL 0.30
 
   * S3QL now defaults to use unencrypted HTTP connections, which 
     significantly improves performance when using the S3 backend.
