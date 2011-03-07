@@ -186,6 +186,9 @@ def main(args=None):
         fsck = Fsck(home + '-cache', bucket, param, db)
         fsck.check()
 
+        if fsck.uncorrectable_errors:
+            raise QuietError("Uncorrectable errors found, aborting.")
+            
         if os.path.exists(home + '-cache'):
             os.rmdir(home + '-cache')
             

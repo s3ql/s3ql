@@ -33,6 +33,7 @@ class Fsck(object):
         self.bucket = bucket_
         self.expect_errors = False
         self.found_errors = False
+        self.uncorrectable_errors = False
         self.blocksize = param['blocksize']
         self.conn = conn      
     
@@ -212,8 +213,9 @@ class Fsck(object):
     
         if self.conn.has_val("SELECT 1 FROM loopcheck2"):
             self.found_errors = True
+            self.uncorrectable_errors = True
             self.log_error("Found unreachable filesystem entries!\n"
-                      "This problem cannot be corrected automatically yet.")
+                           "This problem cannot be corrected automatically yet.")
     
         self.conn.execute("DROP TABLE loopcheck")
         self.conn.execute("DROP TABLE loopcheck2")
