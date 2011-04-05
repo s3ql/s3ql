@@ -1,3 +1,9 @@
+xx, S3QL 0.31
+
+  * Fixed a race condition when a block is expired while it is
+    in transit but has already been modified again.
+
+
 2011-02-04, S3QL 0.30
 
   * S3QL now defaults to use unencrypted HTTP connections, which 
