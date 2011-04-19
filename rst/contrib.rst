@@ -61,7 +61,9 @@ The `s3_backup.sh` script automates the following steps:
 
 The backups are stored in directories of the form
 `YYYY-MM-DD_HH:mm:SS` and the `expire_backups.py`_ command is used to
-delete old backups.
+delete old backups (so before making the first backup you have to run
+`expire_backups.py --init` in the backup directory to initialize the
+state).
 
 
 expire_backups.py
@@ -103,10 +105,12 @@ always have the following backups available:
   cycles avoids these sort of problems.
   
 
-``expire_backups`` usage is simple. It requires backups to have names of
-the forms ``year-month-day_hour:minute:seconds`` (``YYYY-MM-DD_HH:mm:ss``)
-and works on all backups in the current directory. So for the
-above backup strategy, the correct invocation would be::
+``expire_backups`` usage is simple. It requires backups to have names
+of the forms ``year-month-day_hour:minute:seconds``
+(``YYYY-MM-DD_HH:mm:ss``) and works on all backups in the current
+directory. Before using it, you have to first initialize the state
+file by calling `expire_backups.py --init`. After that, normal
+invocation for the above backup strategy would be::
 
   expire_backups.py 1 3 7 14 31
 
