@@ -64,9 +64,6 @@ class build_docs(setuptools.Command):
         confoverrides['version'] = s3ql.VERSION
         confoverrides['release'] = s3ql.VERSION
         confoverrides['exclude_trees'] = [ autogen_dir, include_dir ]
-        confoverrides['unused_docs'] = [ os.path.join('man', x[:-4]) 
-                                        for x 
-                                        in glob(os.path.join(src_dir, 'man', '*.rst') ) ]
 
         print('Updating command help output..')
         cmd_dest = os.path.join(src_dir, autogen_dir)
