@@ -66,8 +66,8 @@ def parse_args(args):
                         help='File to save state information in (default: %(default)s')
     parser.add_argument("-n", action="store_true", default=False,
                         help="Dry run. Just show which backups would be deleted.")
-    parser.add_argument('--init', action='store_true', default=False,
-                        help='Create new state file.')
+    parser.add_argument('--reconstruct-state', action='store_true', default=False,
+                        help='Try to reconstruct a missing state file from backup dates.')
 
     parser.add_argument("--use-s3qlrm", action="store_true",
                       help="Use `s3qlrm` command to delete backups.")
@@ -91,14 +91,14 @@ def main(args=None):
     backup_list = set(x for x in os.listdir('.')
                       if re.match(r'^\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d$', x))
 
-    if not os.path.exists(options.state) and not options.init:
-        raise QuietError('State file not found, use --init to initialize.')
-    
-    if options.init:
-        log.warn('Creating new state file..')
-        if len(backup_list) > 1:
-            state = upgrade_to_state(backup_list)
+    if not os.path.exists(options.state) and len(backup_list) > 1: 
+        if not options.reconstruct_state:
+            raise QuietError('Found more than one backup but no state file! Aborting.')
         else:
+            log.warn('Trying to reconstruct state file..')
+            state = upgrade_to_state(backup_list)
+    elif not os.path.exists(options.state):
+        log.warn('Creating state file..')
             state = dict()
     else:
         log.info('Reading state...')

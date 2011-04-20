@@ -3,6 +3,12 @@ xx, S3QL 0.31
   * Fixed a race condition when a block is expired while it is
     in transit but has already been modified again.
 
+  * expire_backups.py no longer has an --init option, the state file
+    is created automatically if this operation is safe. Instead, there
+    is a --reconstruct-state option that can be used to try to
+    reconstruct a lost state file.
+
+  
 2011-02-04, S3QL 0.30
 
   * S3QL now defaults to use unencrypted HTTP connections, which 

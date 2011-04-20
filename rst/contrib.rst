@@ -61,19 +61,17 @@ The `s3_backup.sh` script automates the following steps:
 
 The backups are stored in directories of the form
 `YYYY-MM-DD_HH:mm:SS` and the `expire_backups.py`_ command is used to
-delete old backups (so before making the first backup you have to run
-`expire_backups.py --init` in the backup directory to initialize the
-state).
+delete old backups.
 
 
 expire_backups.py
 =================
 
-``expire_backups.py`` is a program to intelligently remove old backups
+:command:`expire_backups.py` is a program to intelligently remove old backups
 that are no longer needed.
 
 To define what backups you want to keep for how long, you define a
-number of *age ranges*. ``expire_backups`` ensures that you will
+number of *age ranges*. :command:`expire_backups` ensures that you will
 have at least one backup in each age range at all times. It will keep
 exactly as many backups as are required for that and delete any
 backups that become redundant.
@@ -82,7 +80,7 @@ Age ranges are specified by giving a list of range boundaries in terms
 of backup cycles. Every time you create a new backup, the existing
 backups age by one cycle.
 
-Example: when ``expire_backups`` is called with the age range
+Example: when :command:`expire_backups` is called with the age range
 definition ``1 3 7 14 31``, it will guarantee that you
 always have the following backups available:
 
@@ -104,20 +102,33 @@ always have the following backups available:
   they would all be deleted! Specifying age ranges in terms of backup
   cycles avoids these sort of problems.
   
-
-``expire_backups`` usage is simple. It requires backups to have names
+:command:`expire_backups` usage is simple. It requires backups to have names
 of the forms ``year-month-day_hour:minute:seconds``
 (``YYYY-MM-DD_HH:mm:ss``) and works on all backups in the current
-directory. Before using it, you have to first initialize the state
-file by calling `expire_backups.py --init`. After that, normal
-invocation for the above backup strategy would be::
+directory. So for the above backup strategy, the correct invocation
+would be::
 
   expire_backups.py 1 3 7 14 31
 
 When storing your backups on an S3QL file system, you probably want to
 specify the ``--use-s3qlrm`` option as well. This tells
-``expire_backups`` to use the :ref:`s3qlrm <s3qlrm>` command to delete
+:command:`expire_backups` to use the :ref:`s3qlrm <s3qlrm>` command to delete
 directories.
+
+
+:command:`expire_backups` uses a "state file" to keep track which backups
+are how many cycles old (since this cannot be inferred from the dates
+contained in the directory names). The standard name for this state
+file is ``.expire_backups.dat``. If this file gets damaged or deleted,
+:command:`expire_backups` no longer knows the ages of the backups and
+refuses to work. In this case you can use the ``--reconstruct-state``
+option to try to reconstruct the state from the backup dates. However,
+the accuracy of this reconstruction depends strongly on how rigorous
+you have been with making backups (it is only completely correct if
+the time between backups is always exactly equal to the smallest age
+range) , so you really should not tamper with the state file.
+
+
 
 For a full list of available options, run ``expire_backups.py
 --help``.
