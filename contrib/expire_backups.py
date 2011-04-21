@@ -99,7 +99,7 @@ def main(args=None):
             state = upgrade_to_state(backup_list)
     elif not os.path.exists(options.state):
         log.warn('Creating state file..')
-            state = dict()
+        state = dict()
     else:
         log.info('Reading state...')
         state = pickle.load(open(options.state, 'rb'))
