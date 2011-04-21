@@ -31,9 +31,9 @@ if sqlite_ver < (3, 7, 0):
     raise QuietError('SQLite version too old, must be 3.7.0 or newer!\n')
         
 initsql = ('PRAGMA foreign_keys = OFF',
-           'PRAGMA synchronous = NORMAL',
-           'PRAGMA journal_mode = WAL',
+           'PRAGMA synchronous = OFF',
            'PRAGMA locking_mode = EXCLUSIVE',
+           'PRAGMA journal_mode = off',
            'PRAGMA recursize_triggers = on',
            'PRAGMA temp_store = FILE',
            'PRAGMA legacy_file_format = off',
