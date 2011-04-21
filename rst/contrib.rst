@@ -116,18 +116,18 @@ specify the ``--use-s3qlrm`` option as well. This tells
 delete directories.
 
 
-:program:`expire_backups` uses a "state file" to keep track which backups
-are how many cycles old (since this cannot be inferred from the dates
-contained in the directory names). The standard name for this state
-file is ``.expire_backups.dat``. If this file gets damaged or deleted,
-:program:`expire_backups` no longer knows the ages of the backups and
-refuses to work. In this case you can use the *--reconstruct-state*
-option to try to reconstruct the state from the backup dates. However,
-the accuracy of this reconstruction depends strongly on how rigorous
-you have been with making backups (it is only completely correct if
-the time between backups is always exactly equal to the smallest age
-range) , so you really should not tamper with the state file.
-
+:program:`expire_backups` uses a "state file" to keep track which
+backups are how many cycles old (since this cannot be inferred from
+the dates contained in the directory names). The standard name for
+this state file is :file:`.expire_backups.dat`. If this file gets
+damaged or deleted, :program:`expire_backups` no longer knows the ages
+of the backups and refuses to work. In this case you can use the
+*--reconstruct-state* option to try to reconstruct the state from the
+backup dates. However, the accuracy of this reconstruction depends
+strongly on how rigorous you have been with making backups (it is only
+completely correct if the time between subsequent backups has always
+been exactly the same), so it's generally a good idea not to tamper
+with the state file. 
 
 
 For a full list of available options, run ``expire_backups.py
