@@ -67,13 +67,13 @@ delete old backups.
 expire_backups.py
 =================
 
-:program:`expire_backups.py` is a program to intelligently remove old backups
-that are no longer needed.
+:program:`expire_backups.py` is a program to intelligently remove old
+backups that are no longer needed.
 
 To define what backups you want to keep for how long, you define a
-number of *age ranges*. :program:`expire_backups` ensures that you will
-have at least one backup in each age range at all times. It will keep
-exactly as many backups as are required for that and delete any
+number of *age ranges*. :program:`expire_backups` ensures that you
+will have at least one backup in each age range at all times. It will
+keep exactly as many backups as are required for that and delete any
 backups that become redundant.
 
 Age ranges are specified by giving a list of range boundaries in terms
@@ -81,8 +81,8 @@ of backup cycles. Every time you create a new backup, the existing
 backups age by one cycle.
 
 Example: when :program:`expire_backups` is called with the age range
-definition ``1 3 7 14 31``, it will guarantee that you
-always have the following backups available:
+definition ``1 3 7 14 31``, it will guarantee that you always have the
+following backups available:
 
 #. A backup that is 0 to 1 cycles old (i.e, the most recent backup)
 #. A backup that is 1 to 3 cycles old
@@ -102,8 +102,8 @@ always have the following backups available:
   they would all be deleted! Specifying age ranges in terms of backup
   cycles avoids these sort of problems.
   
-:program:`expire_backups` usage is simple. It requires backups to have names
-of the forms ``year-month-day_hour:minute:seconds``
+:program:`expire_backups` usage is simple. It requires backups to have
+names of the forms ``year-month-day_hour:minute:seconds``
 (``YYYY-MM-DD_HH:mm:ss``) and works on all backups in the current
 directory. So for the above backup strategy, the correct invocation
 would be::
@@ -112,8 +112,8 @@ would be::
 
 When storing your backups on an S3QL file system, you probably want to
 specify the ``--use-s3qlrm`` option as well. This tells
-:program:`expire_backups` to use the :ref:`s3qlrm <s3qlrm>` command to delete
-directories.
+:program:`expire_backups` to use the :ref:`s3qlrm <s3qlrm>` command to
+delete directories.
 
 
 :program:`expire_backups` uses a "state file" to keep track which backups
