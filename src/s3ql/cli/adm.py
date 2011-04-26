@@ -275,22 +275,14 @@ def upgrade(bucket):
 
     # Download metadata
     log.info("Downloading & uncompressing metadata...")
-    if param['DB-Format'] == 'dump':
-        dbfile = tempfile.NamedTemporaryFile()
-        db = Connection(dbfile.name)
-        fh = tempfile.TemporaryFile()
-        bucket.fetch_fh("s3ql_metadata", fh)
-        fh.seek(0)
-        log.info('Reading metadata...')
-        restore_metadata(fh, db)
-        fh.close()
-    elif param['DB-Format'] == 'sqlite':
-        dbfile = tempfile.NamedTemporaryFile()
-        bucket.fetch_fh("s3ql_metadata", dbfile)
-        dbfile.flush()
-        db = Connection(dbfile.name)
-    else:
-        raise RuntimeError('Unsupported DB format: %s' % param['DB-Format'])
+    dbfile = tempfile.NamedTemporaryFile()
+    db = Connection(dbfile.name, fast_mode=True)
+    fh = tempfile.TemporaryFile()
+    bucket.fetch_fh("s3ql_metadata", fh)
+    fh.seek(0)
+    log.info('Reading metadata...')
+    restore_metadata(fh, db)
+    fh.close()
     
     log.info('Upgrading from revision %d to %d...', CURRENT_FS_REV - 1,
              CURRENT_FS_REV)

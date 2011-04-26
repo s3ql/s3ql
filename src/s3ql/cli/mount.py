@@ -236,13 +236,16 @@ def get_metadata(bucket, home):
         log.info("Downloading & uncompressing metadata...")
         fh = tempfile.TemporaryFile()
         bucket.fetch_fh("s3ql_metadata", fh)
-        os.close(os.open(home + '.db', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+        os.close(os.open(home + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                          stat.S_IRUSR | stat.S_IWUSR)) 
-        db = Connection(home + '.db')
+        db = Connection(home + '.db.tmp', fast_mode=True)
         fh.seek(0)
         log.info('Reading metadata...')
         restore_metadata(fh, db)
         fh.close()
+        db.close()
+        os.rename(home + '.db.tmp', home + '.db')
+        db = Connection(home + '.db')
  
     # Increase metadata sequence no 
     param['seq_no'] += 1
