@@ -8,6 +8,23 @@
 
 import sys, os
 
+# Add a custom role for command line options that does not try to
+# reference anything.
+def add_literal_role(rolename):
+    from docutils.parsers.rst import roles
+    from docutils import nodes
+    nodeclass = nodes.literal
+    generic = roles.GenericRole(rolename, nodeclass)
+    role = roles.CustomRole(rolename, generic, {'classes': [rolename]})
+    roles.register_local_role(rolename, role)
+add_literal_role('cmdopt')
+add_literal_role('var') # A variable defined in a :samp: role
+
+# Add our own Pygments Lexer
+import pygments.lexers._mapping as pmap
+pmap.LEXERS['CommandLineLexer'] = ('cmdline_lexer', 'CommandLine', 
+                                   ('CommandLine', 'commandline'), (), ())
+
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
@@ -80,7 +97,7 @@ default_role = 'file'
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = 'colorful'
-highlight_language = 'sh'
+highlight_language = 'commandline'
 
 # A list of ignored prefixes for module index sorting.
 #modindex_common_prefix = []
