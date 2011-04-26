@@ -1,6 +1,4 @@
 syntax: regexp
-^src/llfuse/ctypes_api\.py$
-^src/s3ql/libc_api\.py$
 ^doc/
 ^rst/autogen/
 ^src/s3ql\.egg-info$
