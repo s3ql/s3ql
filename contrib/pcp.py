@@ -41,9 +41,7 @@ def parse_args(args):
     parser.add_version()
     
     parser.add_argument("-a", action="store_true",
-                      help='Pass -a option to rsync.')
-    parser.add_argument("-H", action="store_true",
-                      help='Pass -H option to rsync.')
+                      help='Pass -aHAX option to rsync.')      
     parser.add_argument("--processes", action="store", type=int, metavar='<no>',
                       default=10,
                       help='Number of rsync processes to use (default: %(default)s).')
@@ -83,10 +81,8 @@ def main(args=None):
     if not options.quiet:
         rsync_args.append('--out-format')
         rsync_args.append('%n%L')
-    if options.H:
-        rsync_args.append('-H')
     if options.a:
-        rsync_args.append('-a')
+        rsync_args.append('-aHAX')
     
     processes = list()
     for filter_ in filters:
