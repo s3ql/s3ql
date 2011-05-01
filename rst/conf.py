@@ -237,6 +237,4 @@ man_pages = [
 #     None, 1),      
 ]
 
-# Don't warn about man pages being unused when generating 
-# User's Guide
-unused_docs = [ x[0] for x in man_pages ]
+
