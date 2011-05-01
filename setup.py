@@ -57,30 +57,9 @@ class build_docs(setuptools.Command):
         dest_dir = os.path.join(basedir, 'doc')
         src_dir = os.path.join(basedir, 'rst')
                     
-        autogen_dir = 'autogen'
-        include_dir = 'include'
-        
         confoverrides = {}
         confoverrides['version'] = s3ql.VERSION
         confoverrides['release'] = s3ql.VERSION
-        confoverrides['exclude_trees'] = [ autogen_dir, include_dir ]
-
-        print('Updating command help output..')
-        cmd_dest = os.path.join(src_dir, autogen_dir)
-        self.mkpath(cmd_dest)
-        for (cmd, dest) in [('mount.s3ql', 'mount-help.rst'),
-                            ('umount.s3ql', 'umount-help.rst'),
-                            ('fsck.s3ql', 'fsck-help.rst'),
-                            ('mkfs.s3ql', 'mkfs-help.rst'),
-                            ('s3qladm', 'adm-help.rst'),
-                            ('s3qlcp', 'cp-help.rst'),
-                            ('s3qlctrl', 'ctrl-help.rst'),
-                            ('s3qllock', 'lock-help.rst'),
-                            ('s3qlrm', 'rm-help.rst'),
-                            ('s3qlstat', 'stat-help.rst') ]:
-            subprocess.check_call([os.path.join('bin', cmd), '--help'],
-                                  stdout=open(os.path.join(cmd_dest, dest), 'w'))
-        
         
         for builder in ('html', 'latex', 'man'):
             print('Running %s builder...' % builder)

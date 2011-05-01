@@ -30,7 +30,7 @@ Options
 
 The |command| command accepts the following options.
 
-.. include:: ../autogen/mkfs-help.rst
+.. pipeinclude:: ../../bin/mkfs.s3ql --help
    :start-after: show this help message and exit
 
 Files

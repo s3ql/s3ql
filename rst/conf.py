@@ -79,7 +79,7 @@ copyright = u'2010, Nikolaus Rath'
 
 # List of directories, relative to source directory, that shouldn't be searched
 # for source files.
-#exclude_trees = [ 'autogen', 'include' ]
+exclude_trees = [ 'include' ]
 
 # The reST default role (used for this markup: `text`) to use for all documents.
 default_role = 'file'
