@@ -13,8 +13,14 @@ The syntax is ::
 
  s3qladm [options] <action> <storage-url>
 
-For a list of valid options, run `s3qladm --help`. The available
-actions are explained in the following subsections.
+where :var:`action` may be either of :program:`passphrase`,
+:program:`upgrade`, :program:`delete` or :program:`download-metadata`.
+
+The :program:`s3qladm` accepts the following general options, no
+matter what specific action is being invoked:
+
+.. pipeinclude:: ../bin/s3qladm --help
+   :start-after: show this help message and exit
 
 
 Changing the Passphrase
