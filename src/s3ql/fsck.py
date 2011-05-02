@@ -299,6 +299,7 @@ class Fsck(object):
         - Only regular files should have data blocks and a size
         - Only symlinks should have a target
         - Only devices should have a device number
+        - symlink size is length of target
         
         Note that none of this is enforced by S3QL. However, as long
         as S3QL only communicates with the UNIX FUSE module, none of
@@ -311,39 +312,47 @@ class Fsck(object):
         for (inode, mode, size, target, rdev) \
             in self.conn.query("SELECT id, mode, size, target, rdev FROM inodes"):
     
-            if size != 0 and not stat.S_ISREG(mode):
+            if stat.S_ISLNK(mode) and size != len(target):
+                self.found_errors = True
+                self.log_error('Inode %d (%s): symlink size (%d) does not agree with target '
+                               'length (%d). This is probably going to confuse your system!',
+                               inode, get_path(inode, self.conn), size, len(target))                
+    
+            if size != 0 and (not stat.S_ISREG(mode) 
+                              and not stat.S_ISLNK(mode)
+                              and not stat.S_ISDIR(mode)):
                 self.found_errors = True
                 self.log_error('Inode %d (%s) is not regular file but has non-zero size. '
-                          'This is probably going to confuse your system!',
-                          inode, get_path(inode, self.conn))
+                               'This is may confuse your system!',
+                               inode, get_path(inode, self.conn))
     
             if target is not None and not stat.S_ISLNK(mode):
                 self.found_errors = True
                 self.log_error('Inode %d (%s) is not symlink but has symlink target. '
-                          'This is probably going to confuse your system!',
-                           inode, get_path(inode, self.conn))
+                               'This is probably going to confuse your system!',
+                               inode, get_path(inode, self.conn))
     
             if rdev != 0 and not (stat.S_ISBLK(mode) or stat.S_ISCHR(mode)):
                 self.found_errors = True
                 self.log_error('Inode %d (%s) is not device but has device number. '
-                          'This is probably going to confuse your system!',
-                          inode, get_path(inode, self.conn))
+                               'This is probably going to confuse your system!',
+                               inode, get_path(inode, self.conn))
     
             has_children = self.conn.has_val('SELECT 1 FROM contents WHERE parent_inode=? LIMIT 1',
-                                        (inode,))
+                                             (inode,))
             if has_children and not stat.S_ISDIR(mode):
                 self.found_errors = True
                 self.log_error('Inode %d (%s) is not a directory but has child entries. '
-                          'This is probably going to confuse your system!',
-                          inode, get_path(inode, self.conn))
+                               'This is probably going to confuse your system!',
+                               inode, get_path(inode, self.conn))
     
             has_blocks = self.conn.has_val('SELECT 1 FROM blocks WHERE inode=? LIMIT 1',
-                                      (inode,))
+                                           (inode,))
             if has_blocks and not stat.S_ISREG(mode):
                 self.found_errors = True
                 self.log_error('Inode %d (%s) is not a regular file but has data blocks. '
-                          'This is probably going to confuse your system!',
-                           inode, get_path(inode, self.conn))
+                               'This is probably going to confuse your system!',
+                               inode, get_path(inode, self.conn))
     
     
     def check_obj_refcounts(self):

@@ -206,12 +206,12 @@ class fsck_tests(TestCase):
 
         inode = 42
         self.db.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount,size) "
-                     "VALUES (?,?,?,?,?,?,?,?,?)",
-                     (inode, stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR,
-                      os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 0))
+                        "VALUES (?,?,?,?,?,?,?,?,?)",
+                        (inode, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
+                         os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 0))
 
         self.db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
-                     ('test-entry', inode, ROOT_INODE))
+                        ('test-entry', inode, ROOT_INODE))
 
         self.fsck.found_errors = False
         self.fsck.check_inode_unix()
@@ -221,6 +221,28 @@ class fsck_tests(TestCase):
         self.fsck.check_inode_unix()
         self.assertTrue(self.fsck.found_errors)
 
+    
+    def test_unix_size_symlink(self):
+
+        inode = 42
+        target = 'some funny random string'
+        self.db.execute("INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount,target,size) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (inode, stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR,
+                         os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 
+                         target, len(target)))
+
+        self.db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
+                        ('test-entry', inode, ROOT_INODE))
+
+        self.fsck.found_errors = False
+        self.fsck.check_inode_unix()
+        self.assertFalse(self.fsck.found_errors)
+
+        self.db.execute('UPDATE inodes SET size = 0 WHERE id=?', (inode,))
+        self.fsck.check_inode_unix()
+        self.assertTrue(self.fsck.found_errors)
+        
     def test_unix_target(self):
 
         inode = 42

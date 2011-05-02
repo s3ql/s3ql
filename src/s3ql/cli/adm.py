@@ -287,7 +287,11 @@ def upgrade(bucket):
     log.info('Upgrading from revision %d to %d...', CURRENT_FS_REV - 1,
              CURRENT_FS_REV)
     param['revision'] = CURRENT_FS_REV
-    del param['DB-Format']
+    
+    for (id_, mode, target) in db.query('SELECT id, mode, target FROM inodes'):
+        if stat.S_ISLNK(mode):
+            db.execute('UPDATE inodes SET size=? WHERE id=?',
+                       (len(target), id_))
     
     # Increase metadata sequence no
     param['seq_no'] += 1
