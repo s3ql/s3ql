@@ -11,5 +11,6 @@ but are included for reference here nevertheless.
    :maxdepth: 1
 
    mkfs
+   adm
    mount
    umount
