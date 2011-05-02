@@ -9,9 +9,6 @@ following syntax::
 
   mkfs.s3ql [options] <storage url>
 
-If you want to overwrite an existing bucket, you have to delete the
-bucket with `s3qladm --delete` first.
-
 This command accepts the following options:
 
 .. pipeinclude:: ../bin/mkfs.s3ql --help
