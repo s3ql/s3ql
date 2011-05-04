@@ -14,6 +14,7 @@ here in the User's Guide.
    mount
    ctrl
    cp
+   rm
    lock
    umount
    fsck
