@@ -14,3 +14,4 @@ but are included for reference here nevertheless.
    adm
    mount
    umount
+   fsck
