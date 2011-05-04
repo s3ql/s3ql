@@ -233,8 +233,8 @@ man_pages = [
      None, 1),
     ('man/rm', 's3qlrm', u'Fast tree removal on S3QL file systems',
      None, 1),
-#    ('man/statfs', 's3qlstat', u'Gather S3QL file system statistics',
-#     None, 1),      
+    ('man/stat', 's3qlstat', u'Gather S3QL file system statistics',
+     None, 1),      
 ]
 
 

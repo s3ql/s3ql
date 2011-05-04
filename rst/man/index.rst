@@ -12,6 +12,7 @@ here in the User's Guide.
    mkfs
    adm
    mount
+   stat
    ctrl
    cp
    rm

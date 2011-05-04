@@ -12,6 +12,7 @@ xx, S3QL 0.31
     the target instead of zero. This used to confuse revision
     control systems like git and hg.
 
+  * Added man pages for all S3QL commands.
   
 2011-02-04, S3QL 0.30
 
