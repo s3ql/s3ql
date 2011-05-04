@@ -50,50 +50,25 @@ For a full list of available options, run `s3qlstat --help`.
 
 .. _s3qllock:
 
-
 Immutable Trees
 ===============
 
-The command ``s3qllock`` makes a directory tree immutable. Immutable
-trees can no longer be changed in any way whatsoever. You can not add
-new files or directories and you can not change or delete existing
-files and directories. The only way to get rid of an immutable tree is
-to use the ``s3qlrm`` command (see below).
+The command :program:`s3qllock` can be used to make a directory tree
+immutable. Immutable trees can no longer be changed in any way
+whatsoever. You can not add new files or directories and you can not
+change or delete existing files and directories. The only way to get
+rid of an immutable tree is to use the :program:`s3qlrm` command (see
+below).
 
-To make the directory tree beneath the directory ``2010-04-21``
-immutable, execute ::
+For example, to make the directory tree beneath the directory
+``2010-04-21`` immutable, execute ::
 
   s3qllock 2010-04-21
 
-Immutability is a feature designed for backups. Traditionally, backups
-have been made on external tape drives. Once a backup was made, the
-tape drive was removed and locked somewhere in a shelf. This has the
-great advantage that the contents of the backup are now permanently
-fixed. Nothing (short of physical destruction) can change or delete
-files in the backup.
+.. include:: man/lock.rst
+   :start-after: begin_main_content
+   :end-before: end_main_content
 
-In contrast, when backing up into an online storage system like S3QL,
-all backups are available every time the file system is mounted.
-Nothing prevents a file in an old backup from being changed again
-later on. In the worst case, this may make your entire backup system
-worthless. Imagine that your system gets infected by a nasty virus
-that simply deletes all files it can find -- if the virus is active
-while the backup file system is mounted, the virus will destroy all
-your old backups as well! 
-
-Even if the possibility of a malicious virus or trojan horse is
-excluded, being able to change a backup after it has been made is
-generally not a good idea. A common S3QL use case is to keep the file
-system mounted at all times and periodically create backups with
-``rsync -a``. This allows every user to recover her files from a
-backup without having to call the system administrator. However, this
-also allows every user to accidentally change or delete files *in* one
-of the old backups.
-
-Making a backup immutable protects you against all these problems.
-Unless you happen to run into a virus that was specifically programmed
-to attack S3QL file systems, backups can be neither deleted nor
-changed after they have been made immutable.
 
 .. _s3qlrm:
 
