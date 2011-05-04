@@ -8,6 +8,10 @@ xx, S3QL 0.31
     is a --reconstruct-state option that can be used to try to
     reconstruct a lost state file.
 
+  * The size of symbolic links is now reported as the length of
+    the target instead of zero. This used to confuse revision
+    control systems like git and hg.
+
   
 2011-02-04, S3QL 0.30
 

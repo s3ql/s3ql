@@ -530,6 +530,12 @@ class Operations(llfuse.Operations):
         mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | 
                 stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | 
                 stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
+        
+        # Unix semantics require the size of a symlink to be the length
+        # of its target. Therefore, we create symlink directory entries
+        # with this size. If the kernel ever learns to open and read
+        # symlinks directly, it will read the corresponding number of \0
+        # bytes.
         return self._create(id_p, name, mode, ctx, target=target, size=len(target))
 
     def rename(self, id_p_old, name_old, id_p_new, name_new):
