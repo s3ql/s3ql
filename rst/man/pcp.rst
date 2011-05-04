@@ -1,0 +1,46 @@
+.. -*- mode: rst -*-
+
+
+=================================
+The :program:`pcp` command
+=================================
+
+Synopsis
+========
+
+::
+
+   pcp [options] <source> [<source> ...] <destination>
+
+   
+Description
+===========
+
+The |command| command is a is a wrapper that starts several
+:program:`sync` processes to copy directory trees in parallel. This is
+allows much better copying performance on file system that have
+relatively high latency when retrieving individual files like S3QL.
+
+
+Options
+=======
+
+The |command| command accepts the following options:
+
+.. pipeinclude:: ../../contrib/pcp.py --help
+   :start-after: show this help message and exit
+
+Exit Status
+===========
+
+|command| returns exit code 0 if the operation succeeded and 1 if some
+error occured.
+
+
+See Also
+========
+
+|command| is shipped as part of S3QL, http://code.google.com/p/s3ql/.
+
+.. |command| replace:: :command:`pcp` 
+

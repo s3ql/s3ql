@@ -235,6 +235,10 @@ man_pages = [
      None, 1),
     ('man/stat', 's3qlstat', u'Gather S3QL file system statistics',
      None, 1),      
+    ('man/expire_backups', 'expire_backups', u'Intelligently expire old backups',
+     None, 1),    
+    ('man/pcp', 'pcp', u'Recursive, parallel copy of directory trees',
+     None, 1),    
 ]
 
 

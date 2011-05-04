@@ -81,7 +81,11 @@ class build_docs(setuptools.Command):
                 print('reST markup error:',
                       err.args[0].encode('ascii', 'backslashreplace'),
                       file=sys.stderr)
-
+                
+        # These shouldn't be installed by default                    
+        for name in ('expire_backups.1', 'pcp.1'):     
+            os.rename(os.path.join(dest_dir, 'man', name),
+                      os.path.join(basedir, 'contrib', name))
 
         print('Running pdflatex...')
         for _ in range(3):

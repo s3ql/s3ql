@@ -19,3 +19,5 @@ here in the User's Guide.
    lock
    umount
    fsck
+   pcp
+   expire_backups

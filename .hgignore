@@ -24,3 +24,6 @@ syntax: regexp
 ^distribute-0.6.12-py2.6.egg$
 ^distribute-0.6.12.tar.gz$
 
+syntax: glob
+contrib/expire_backups.1
+contrib/pcp.1
