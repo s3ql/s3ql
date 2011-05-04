@@ -2,10 +2,9 @@
 Manpages
 ========
 
-The man pages are installed with S3QL on your system and briefly
-describe the different S3QL commands. They should not cover anything
-that has not already been covered in more depth in the User's Guide,
-but are included for reference here nevertheless.
+The man pages are installed with S3QL on your system and can be viewed
+with the :command:`man` command. For reference, they are also included
+here in the User's Guide.
 
 .. toctree::
    :maxdepth: 1
@@ -13,5 +12,6 @@ but are included for reference here nevertheless.
    mkfs
    adm
    mount
+   ctrl
    umount
    fsck
