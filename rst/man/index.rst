@@ -13,5 +13,6 @@ here in the User's Guide.
    adm
    mount
    ctrl
+   cp
    umount
    fsck
