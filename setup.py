@@ -145,7 +145,7 @@ def main():
                           },
           install_requires=['apsw >= 3.7.0',
                             'pycryptopp',
-                            'llfuse >= 0.29',
+                            'llfuse >= 0.31',
                             'argparse >= 1.1',
                             'pyliblzma >= 0.5.3' ],
           tests_require=['apsw >= 3.7.0', 'unittest2',

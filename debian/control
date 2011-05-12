@@ -9,7 +9,7 @@ Build-Depends: debhelper (>= 7.0.50~),
                python-setuptools (>= 0.6.14),
                python-apsw (>= 3.7.0),
                python-argparse,
-               python-llfuse (>= 0.29)
+               python-llfuse (>= 0.31)
 Standards-Version: 3.8.4
 Homepage: http://code.google.com/p/s3ql/
 
@@ -24,7 +24,7 @@ Depends: ${misc:Depends}, ${python:Depends},
          fuse-utils,
          psmisc,
          python-argparse,
-         python-llfuse (>= 0.29),
+         python-llfuse (>= 0.31),
          libjs-jquery
 Description: a full-featured file system for online data storage
  S3QL is a file system that stores all its data online. It supports
