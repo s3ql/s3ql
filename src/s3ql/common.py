@@ -246,11 +246,11 @@ def dump_metadata(ofh, conn):
     data_start = 2048
     bufsize = 256
     buf = range(bufsize)
-    tables_to_dump = [('inodes', 'id'),
-                      ('contents', 'name, parent_inode'),
-                      ('ext_attributes', 'inode, name'),
-                      ('objects', 'id'),
-                      ('blocks', 'inode, blockno')]
+    tables_to_dump = [('objects', 'id'), ('blocks', 'id'),
+                      ('inode_blocks', 'inode, blockno'),
+                      ('inodes', 'id'), ('symlink_targets', 'inode'),
+                      ('names', 'id'), ('contents', 'parent_inode, name_id'),
+                      ('ext_attributes', 'inode, name')]
 
     columns = dict()
     for (table, _) in tables_to_dump:
@@ -265,7 +265,8 @@ def dump_metadata(ofh, conn):
         pickler.clear_memo()
         sizes[table] = 0
         i = 0
-        for row in conn.query('SELECT * FROM %s ORDER BY %s' % (table, order)):
+        for row in conn.query('SELECT %s FROM %s ORDER BY %s' 
+                              % (','.join(columns[table]), table, order)):
             buf[i] = row
             i += 1
             if i == bufsize:
@@ -297,8 +298,6 @@ def restore_metadata(ifh, conn):
             buf = unpickler.load()
             for row in buf:
                 conn.execute(sql_str, row)
-
-    create_indices(conn)
     conn.execute('ANALYZE')
     
 class QuietError(Exception):
@@ -359,7 +358,7 @@ def inode_for_path(path, conn):
 
     return inode
 
-
+# FIXME: Use names table
 def get_path(id_, conn, name=None):
     """Return a full path for inode `id_`.
     
@@ -567,7 +566,7 @@ def init_tables(conn):
     # Insert root directory
     timestamp = time.time() - time.timezone
     conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
-                   "VALUES (?,?,?,?,?,?,?,?)",
+                 "VALUES (?,?,?,?,?,?,?,?)",
                    (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                     os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
@@ -583,10 +582,32 @@ def init_tables(conn):
                        "VALUES (?,?,?,?,?,?,?)",
                        (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
                         os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
-    conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                 (b"lost+found", inode, ROOT_INODE))
+    name_id = conn.rowid('INSERT INTO names (name, refcount) VALUES(?,?)',
+                         (b'lost+found', 1))
+    conn.execute("INSERT INTO contents (name_id, inode, parent_inode) VALUES(?,?,?)",
+                 (name_id, inode, ROOT_INODE))
 
-def create_tables(conn):
+def create_tables(conn): 
+    # Table of storage objects
+    # Refcount is included for performance reasons
+    conn.execute("""
+    CREATE TABLE objects (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        refcount  INT NOT NULL,
+        size      INT NOT NULL,
+        compr_size INT                  
+    )""")
+
+    # Table of known data blocks
+    # Refcount is included for performance reasons
+    conn.execute("""
+    CREATE TABLE blocks (
+        id        INTEGER PRIMARY KEY,
+        hash      BLOB(16) UNIQUE,
+        refcount  INT NOT NULL,
+        obj_id    INTEGER NOT NULL REFERENCES objects(id)
+    )""")
+                
     # Table with filesystem metadata
     # The number of links `refcount` to an inode can in theory
     # be determined from the `contents` table. However, managing
@@ -604,25 +625,55 @@ def create_tables(conn):
         atime     REAL NOT NULL,
         ctime     REAL NOT NULL,
         refcount  INT NOT NULL,
-        target    BLOB(256) ,
         size      INT NOT NULL DEFAULT 0,
         rdev      INT NOT NULL DEFAULT 0,
-        locked    BOOLEAN NOT NULL DEFAULT 0
-    )
-    """)
+        locked    BOOLEAN NOT NULL DEFAULT 0,
+        
+        -- id of first block (blockno == 0)
+        -- since most inodes have only one block, we can make the db 20%
+        -- smaller by not requiring a separate inode_blocks row for these
+        -- cases. 
+        block_id  INT REFERENCES blocks(id)
+    )""")
+
+    # Further Blocks used by inode (blockno >= 1)
+    conn.execute("""
+    CREATE TABLE inode_blocks (
+        inode     INTEGER NOT NULL REFERENCES inodes(id),
+        blockno   INT NOT NULL,
+        block_id    INTEGER NOT NULL REFERENCES blocks(id),
+        PRIMARY KEY (inode, blockno)
+    )""")
+    
+    # Symlinks
+    conn.execute("""
+    CREATE TABLE symlink_targets (
+        inode     INTEGER PRIMARY KEY REFERENCES inodes(id),
+        target    BLOB NOT NULL
+    )""")
+    
+    # Names of file system objects
+    conn.execute("""
+    CREATE TABLE names (
+        id     INTEGER PRIMARY KEY,
+        name   BLOB NOT NULL,
+        refcount  INT NOT NULL,
+        UNIQUE (name)
+    )""")
 
     # Table of filesystem objects
-    # id is used by readdir() to restart at the correct
-    # position
+    # rowid is used by readdir() to restart at the correct position
     conn.execute("""
     CREATE TABLE contents (
         rowid     INTEGER PRIMARY KEY AUTOINCREMENT,
-        name      BLOB(256) NOT NULL,
+        name_id   INT NOT NULL REFERENCES names(id),
         inode     INT NOT NULL REFERENCES inodes(id),
         parent_inode INT NOT NULL REFERENCES inodes(id),
         
-        UNIQUE (name, parent_inode)
-    )""")
+        UNIQUE (parent_inode, name_id)
+    );
+    CREATE INDEX ix_contents_inode ON contents(inode)
+    """)
 
     # Extended attributes
     conn.execute("""
@@ -633,32 +684,3 @@ def create_tables(conn):
  
         PRIMARY KEY (inode, name)               
     )""")
-
-    # Refcount is included for performance reasons
-    conn.execute("""
-    CREATE TABLE objects (
-        id        INTEGER PRIMARY KEY AUTOINCREMENT,
-        refcount  INT NOT NULL,
-        hash      BLOB(16) UNIQUE,
-        size      INT NOT NULL,
-        compr_size INT                  
-    )""")
-
-
-    # Maps blocks to objects
-    conn.execute("""
-    CREATE TABLE blocks (
-        inode     INTEGER NOT NULL REFERENCES inodes(id),
-        blockno   INT NOT NULL,
-        obj_id    INTEGER NOT NULL REFERENCES objects(id),
-         
-        PRIMARY KEY (inode, blockno)
-    )""")
-    
-def create_indices(conn):
-    conn.execute('CREATE INDEX IF NOT EXISTS ix_contents_parent_inode ON contents(parent_inode)')
-    conn.execute('CREATE INDEX IF NOT EXISTS ix_contents_inode ON contents(inode)')
-    conn.execute('CREATE INDEX IF NOT EXISTS ix_ext_attributes_inode ON ext_attributes(inode)')
-    conn.execute('CREATE INDEX IF NOT EXISTS ix_objects_hash ON objects(hash)')
-    conn.execute('CREATE INDEX IF NOT EXISTS ix_blocks_obj_id ON blocks(obj_id)')
-    conn.execute('CREATE INDEX IF NOT EXISTS ix_blocks_inode ON blocks(inode)')

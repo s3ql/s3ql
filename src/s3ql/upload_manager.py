@@ -34,8 +34,8 @@ class UploadManager(object):
     Schedules and executes object uploads to make optimum usage
     network bandwidth and CPU time.
     
-    Methods which release the
-    global lock have are marked as such in their docstring.
+    Methods which release the global lock have are marked as
+    such in their docstring.
         
     Attributes:
     -----------
@@ -70,7 +70,7 @@ class UploadManager(object):
         if (el.inode, el.blockno) in self.in_transit:
             raise ValueError('Block already in transit')
         
-        old_obj_id = el.obj_id
+        old_block_id = el.block_id
         size = os.fstat(el.fileno()).st_size
         el.seek(0)
         if log.isEnabledFor(logging.DEBUG):
@@ -88,53 +88,71 @@ class UploadManager(object):
             hash_ = sha256_fh(el)
         
         try:
-            el.obj_id = self.db.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
+            el.block_id = self.db.get_val('SELECT id FROM blocks WHERE hash=?', (hash_,))
 
         except NoSuchRowError:
             need_upload = True
-            el.obj_id = self.db.rowid('INSERT INTO objects (refcount, hash, size) VALUES(?, ?, ?)',
-                                  (1, hash_, size))
+            obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(?,?)',
+                                        (1, size))
             log.debug('add(inode=%d, blockno=%d): created new object %d',
-                      el.inode, el.blockno, el.obj_id)
+                      el.inode, el.blockno, obj_id)
+            el.block_id = self.db.rowid('INSERT INTO blocks (refcount, hash, obj_id) VALUES(?,?,?)',
+                                        (1, hash_, obj_id))
+            log.debug('add(inode=%d, blockno=%d): created new block %d',
+                      el.inode, el.blockno, el.block_id)
 
         else:
             need_upload = False
-            if old_obj_id == el.obj_id:
-                log.debug('add(inode=%d, blockno=%d): unchanged, obj_id=%d',
-                          el.inode, el.blockno, el.obj_id)
+            if old_block_id == el.block_id:
+                log.debug('add(inode=%d, blockno=%d): unchanged, block_id=%d',
+                          el.inode, el.blockno, el.block_id)
                 el.dirty = False
                 el.modified_after_upload = False
                 os.rename(el.name + '.d', el.name)
                 return size
                   
             log.debug('add(inode=%d, blockno=%d): (re)linking to %d',
-                      el.inode, el.blockno, el.obj_id)
-            self.db.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
-                         (el.obj_id,))
+                      el.inode, el.blockno, el.block_id)
+            self.db.execute('UPDATE blocks SET refcount=refcount+1 WHERE id=?',
+                            (el.block_id,))
             
         to_delete = False
-        if old_obj_id is None:
+        if old_block_id is None:
             log.debug('add(inode=%d, blockno=%d): no previous object',
                       el.inode, el.blockno)
-            self.db.execute('INSERT INTO blocks (obj_id, inode, blockno) VALUES(?,?,?)',
-                         (el.obj_id, el.inode, el.blockno))    
-        else:
-            self.db.execute('UPDATE blocks SET obj_id=? WHERE inode=? AND blockno=?',
-                         (el.obj_id, el.inode, el.blockno))
-            refcount = self.db.get_val('SELECT refcount FROM objects WHERE id=?',
-                                    (old_obj_id,))
-            if refcount > 1:
-                log.debug('add(inode=%d, blockno=%d): '
-                          'decreased refcount for prev. obj: %d',
-                          el.inode, el.blockno, old_obj_id)
-                self.db.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
-                             (old_obj_id,))
+            if el.blockno == 0:
+                self.db.execute('UPDATE inodes SET block_id=? WHERE id=?', (el.block_id, el.inode))
             else:
-                log.debug('add(inode=%d, blockno=%d): '
-                          'prev. obj %d marked for removal',
+                self.db.execute('INSERT INTO inode_blocks (block_id, inode, blockno) VALUES(?,?,?)',
+                                (el.block_id, el.inode, el.blockno))    
+        else:
+            if el.blockno == 0:
+                self.db.execute('UPDATE inodes SET block_id=? WHERE id=?', (el.block_id, el.inode))
+            else:
+                self.db.execute('UPDATE inode_blocks SET block_id=? WHERE inode=? AND blockno=?',
+                                (el.block_id, el.inode, el.blockno))
+                
+            refcount = self.db.get_val('SELECT refcount FROM blocks WHERE id=?', (old_block_id,))
+            if refcount > 1:
+                log.debug('add(inode=%d, blockno=%d):  decreased refcount for prev. block: %d',
+                          el.inode, el.blockno, old_block_id)
+                self.db.execute('UPDATE blocks SET refcount=refcount-1 WHERE id=?', (old_block_id,))
+            else:
+                log.debug('add(inode=%d, blockno=%d): removing prev. block %d',
+                          el.inode, el.blockno, old_block_id)
+                old_obj_id = self.db.execute('SELECT obj_id FROM blocks WHERE id=?', (old_block_id,))
+                self.db.execute('DELETE FROM blocks WHERE id=?', (old_block_id,))
+                refcount = self.db.get_val('SELECT refcount FROM objects WHERE id=?', (old_obj_id,))
+                if refcount > 1:
+                    log.debug('add(inode=%d, blockno=%d):  decreased refcount for prev. obj: %d',
                           el.inode, el.blockno, old_obj_id)
-                self.db.execute('DELETE FROM objects WHERE id=?', (old_obj_id,))
-                to_delete = True
+                    self.db.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
+                                    (old_obj_id,))
+                else:
+                    log.debug('add(inode=%d, blockno=%d): marking prev. obj %d for removal',
+                              el.inode, el.blockno, old_obj_id)
+                    self.db.execute('DELETE FROM objects WHERE id=?', (old_obj_id,))
+                    to_delete = True
 
         if need_upload:
             log.debug('add(inode=%d, blockno=%d): starting compression thread', 
@@ -145,7 +163,7 @@ class UploadManager(object):
             # Create a new fd so that we don't get confused if another
             # thread repositions the cursor (and do so before unlocking)
             fh = open(el.name + '.d', 'rb')
-            self.compress_threads.add_thread(CompressThread(el, fh, self, size)) # Releases global lock
+            self.compress_threads.add_thread(CompressThread(el, fh, self, size, obj_id)) # Releases global lock
 
         else:
             el.dirty = False
@@ -158,6 +176,7 @@ class UploadManager(object):
             
             try:
                 # Note: Old object can not be in transit
+                # FIXME: Probably no longer true once objects can contain several blocks
                 # Releases global lock
                 self.removal_queue.add_thread(RemoveThread(old_obj_id, self.bucket))
             except EmbeddedException as exc:
@@ -209,12 +228,13 @@ class CompressThread(Thread):
     The `size` attribute will be updated to the compressed size.
     '''
     
-    def __init__(self, el, fh, um, size):
+    def __init__(self, el, fh, um, size, obj_id):
         super(CompressThread, self).__init__()
         self.el = el
         self.fh = fh
         self.um = um
         self.size = size
+        self.obj_id = obj_id
         
     def run_protected(self):
         '''Compress block
@@ -232,7 +252,7 @@ class CompressThread(Thread):
             if log.isEnabledFor(logging.DEBUG):
                 oldsize = self.size
                 time_ = time.time()
-                (self.size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.el.obj_id, 
+                (self.size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.obj_id, 
                                                                self.fh)
                 time_ = time.time() - time_
                 if time_ != 0:
@@ -244,7 +264,7 @@ class CompressThread(Thread):
                           self.el.inode, self.el.blockno, oldsize, 
                           time_, rate)             
             else:
-                (self.size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.el.obj_id, 
+                (self.size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.obj_id, 
                                                                self.fh)      
             
             self.fh.close()
@@ -261,7 +281,7 @@ class CompressThread(Thread):
                     
                 self.um.transit_size += self.size    
                 self.um.db.execute('UPDATE objects SET compr_size=? WHERE id=?', 
-                               (self.size, self.el.obj_id))
+                                   (self.size, self.obj_id))
                 self.um.upload_threads.add_thread(UploadThread(fn, self.el, self.size, self.um), 
                                                   max_threads)
                 

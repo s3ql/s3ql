@@ -10,7 +10,8 @@ from __future__ import division, print_function, absolute_import
 
 import logging
 from s3ql.common import (get_backend, QuietError, unlock_bucket,
-                         cycle_metadata, dump_metadata, restore_metadata,
+                         restore_metadata,
+                         cycle_metadata, dump_metadata, create_tables,
                          setup_logging, get_bucket_home)
 from s3ql.backends import s3
 from s3ql.parse_args import ArgumentParser
@@ -281,14 +282,16 @@ def upgrade(bucket):
     bucket.fetch_fh("s3ql_metadata", fh)
     fh.seek(0)
     log.info('Reading metadata...')
-    restore_metadata(fh, db)
+    restore_legacy_metadata(fh, db)
     fh.close()
     
     log.info('Upgrading from revision %d to %d...', CURRENT_FS_REV - 1,
              CURRENT_FS_REV)
     param['revision'] = CURRENT_FS_REV
     
-    for (id_, mode, target) in db.query('SELECT id, mode, target FROM inodes'):
+    log.info('Updating symlinks..')
+    for (id_, mode, target) in db.query('SELECT id, mode, target '
+                                        'FROM inodes JOIN symlink_targets ON id == inode'):
         if stat.S_ISLNK(mode):
             db.execute('UPDATE inodes SET size=? WHERE id=?',
                        (len(target), id_))
@@ -310,6 +313,136 @@ def upgrade(bucket):
     bucket.store_fh("s3ql_metadata", fh, param)
     fh.close()
 
+def restore_legacy_metadata(ifh, conn):
+    unpickler = pickle.Unpickler(ifh)
+    (data_start, to_dump, sizes, columns) = unpickler.load()
+    ifh.seek(data_start)
+    create_tables(conn)
+    create_legacy_tables(conn)
+    for (table, _) in to_dump:
+        log.info('Loading %s', table)
+        col_str = ', '.join(columns[table])
+        val_str = ', '.join('?' for _ in columns[table])
+        if table in ('inodes', 'blocks', 'objects', 'contents'):
+            sql_str = 'INSERT INTO leg_%s (%s) VALUES(%s)' % (table, col_str, val_str)
+        else:
+            sql_str = 'INSERT INTO %s (%s) VALUES(%s)' % (table, col_str, val_str)
+        for _ in xrange(sizes[table]):
+            buf = unpickler.load()
+            for row in buf:
+                conn.execute(sql_str, row)
 
+    # Create a block for each object
+    conn.execute('''
+         INSERT INTO blocks (id, hash, refcount, obj_id)
+            SELECT id, hash, refcount, id FROM leg_objects
+    ''')
+    conn.execute('''
+         INSERT INTO objects (id, refcount, size, compr_size)
+            SELECT id, 1, size, compr_size FROM leg_objects
+    ''')
+    conn.execute('DROP TABLE leg_objects')
+              
+    # Create new inode_blocks table for inodes with multiple blocks
+    conn.execute('''
+         CREATE TEMP TABLE multi_block_inodes AS 
+            SELECT inode FROM leg_blocks
+            GROUP BY inode HAVING COUNT(inode) > 1
+    ''')    
+    conn.execute('''
+         INSERT INTO inode_blocks (inode, blockno, block_id)
+            SELECT inode, blockno, obj_id 
+            FROM leg_blocks JOIN multi_block_inodes USING(inode)
+    ''')
+    
+    # Create new inodes table for inodes with multiple blocks
+    conn.execute('''
+        INSERT INTO inodes (id, uid, gid, mode, mtime, atime, ctime, 
+                            refcount, size, rdev, locked, block_id)
+               SELECT id, uid, gid, mode, mtime, atime, ctime, 
+                      refcount, size, rdev, locked, NULL
+               FROM leg_inodes JOIN multi_block_inodes ON inode == id 
+            ''')
+    
+    # Add inodes with just one block or no block
+    conn.execute('''
+        INSERT INTO inodes (id, uid, gid, mode, mtime, atime, ctime, 
+                            refcount, size, rdev, locked, block_id)
+               SELECT id, uid, gid, mode, mtime, atime, ctime, 
+                      refcount, size, rdev, locked, obj_id
+               FROM leg_inodes LEFT JOIN leg_blocks ON leg_inodes.id == leg_blocks.inode 
+               GROUP BY leg_inodes.id HAVING COUNT(leg_inodes.id) <= 1  
+            ''')
+    
+    conn.execute('''
+        INSERT INTO symlink_targets (inode, target)
+        SELECT id, target FROM leg_inodes WHERE target IS NOT NULL
+    ''')
+    
+    conn.execute('DROP TABLE leg_inodes')
+    conn.execute('DROP TABLE leg_blocks')
+    
+    # Sort out names
+    conn.execute('''
+        INSERT INTO names (name) SELECT DISTINCT name FROM leg_contents
+    ''')
+    conn.execute('''
+        INSERT INTO contents (name_id, inode, parent_inode) 
+        SELECT names.id, inode, parent_inode 
+        FROM leg_contents JOIN names ON leg_contents.name == names.name
+    ''')
+    conn.execute('DROP TABLE leg_contents')
+    
+    conn.execute('ANALYZE')
+    
+def create_legacy_tables(conn):
+    conn.execute("""
+    CREATE TABLE leg_inodes (
+        id        INTEGER PRIMARY KEY,
+        uid       INT NOT NULL,
+        gid       INT NOT NULL,
+        mode      INT NOT NULL,
+        mtime     REAL NOT NULL,
+        atime     REAL NOT NULL,
+        ctime     REAL NOT NULL,
+        refcount  INT NOT NULL,
+        target    BLOB(256) ,
+        size      INT NOT NULL DEFAULT 0,
+        rdev      INT NOT NULL DEFAULT 0,
+        locked    BOOLEAN NOT NULL DEFAULT 0
+    )
+    """)    
+    conn.execute("""
+    CREATE TABLE leg_objects (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        refcount  INT NOT NULL,
+        hash      BLOB(16) UNIQUE,
+        size      INT NOT NULL,
+        compr_size INT                  
+    )""")
+    conn.execute("""
+    CREATE TABLE leg_blocks (
+        inode     INTEGER NOT NULL REFERENCES leg_inodes(id),
+        blockno   INT NOT NULL,
+        obj_id    INTEGER NOT NULL REFERENCES leg_objects(id),
+        PRIMARY KEY (inode, blockno)
+    )""")
+    conn.execute("""
+    CREATE TABLE leg_contents (
+        rowid     INTEGER PRIMARY KEY AUTOINCREMENT,
+        name      BLOB(256) NOT NULL,
+        inode     INT NOT NULL REFERENCES leg_inodes(id),
+        parent_inode INT NOT NULL REFERENCES leg_inodes(id),
+        
+        UNIQUE (name, parent_inode)
+    )""")
+        
+def create_legacy_indices(conn):
+    conn.execute('CREATE INDEX ix_leg_contents_parent_inode ON contents(parent_inode)')
+    conn.execute('CREATE INDEX ix_leg_contents_inode ON contents(inode)')
+    conn.execute('CREATE INDEX ix_leg_objects_hash ON objects(hash)')
+    conn.execute('CREATE INDEX ix_leg_blocks_obj_id ON blocks(obj_id)')
+    conn.execute('CREATE INDEX ix_leg_blocks_inode ON blocks(inode)')
+        
 if __name__ == '__main__':
     main(sys.argv[1:])

@@ -14,6 +14,9 @@ xx, S3QL 0.31
 
   * Added man pages for all S3QL commands.
   
+  * Restructured metadata. This should also significantly reduce the
+    size of the SQLite database file.
+  
 2011-02-04, S3QL 0.30
 
   * S3QL now defaults to use unencrypted HTTP connections, which
