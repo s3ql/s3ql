@@ -31,10 +31,10 @@ if sqlite_ver < (3, 7, 0):
     raise QuietError('SQLite version too old, must be 3.7.0 or newer!\n')
         
 initsql = ('PRAGMA foreign_keys = OFF',
-           'PRAGMA synchronous = OFF',
-           'PRAGMA journal_mode = OFF',
            'PRAGMA locking_mode = EXCLUSIVE',
            'PRAGMA recursize_triggers = on',
+           'PRAGMA page_size = 4096',
+           'PRAGMA wal_autocheckpoint = 25000',
            'PRAGMA temp_store = FILE',
            'PRAGMA legacy_file_format = off',
            )
@@ -65,7 +65,7 @@ class Connection(object):
                the cursor when they return)
     '''
 
-    def __init__(self, file_):
+    def __init__(self, file_, fast_mode=False):
         self.conn = apsw.Connection(file_)
         self.cur = self.conn.cursor()
         self.file = file_
@@ -73,6 +73,22 @@ class Connection(object):
         for s in initsql:
             self.cur.execute(s)
 
+        self.fast_mode(fast_mode)
+        
+    def fast_mode(self, on):
+        '''Switch to fast, but insecure mode
+        
+        In fast mode, SQLite operates as quickly as possible, but
+        application and system crashes may lead to data corruption.
+        '''
+        if on:
+            self.cur.execute('PRAGMA synchronous = OFF')
+            self.cur.execute('PRAGMA journal_mode = OFF')
+        else:                
+            self.cur.execute('PRAGMA synchronous = NORMAL')
+            self.cur.execute('PRAGMA journal_mode = WAL')
+            
+        
     def close(self):
         self.cur.close()
         self.conn.close()

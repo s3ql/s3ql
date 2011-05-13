@@ -1,25 +1,24 @@
 .. -*- mode: rst -*-
 
-
-=================================
-The :program:`mount.s3ql` command
-=================================
+================================
+The :program:`fsck.s3ql` command
+================================
 
 Synopsis
 ========
 
 ::
 
-   mount.s3ql [options] <storage url> <mount point>
+   fsck.s3ql [options] <storage url>
 
-  
 Description
 ===========
-
+  
 .. include:: ../include/about.rst
 
-The |command| command mounts the S3QL file system stored in *storage
-url* in the directory *mount point*.
+The |command| command checks the new file system in the location
+specified by *storage url* for errors and attempts to repair any
+problems.
 
 .. include:: ../include/backends.rst
  
@@ -29,9 +28,8 @@ Options
 
 The |command| command accepts the following options.
 
-.. pipeinclude:: ../../bin/mount.s3ql --help
+.. pipeinclude:: ../../bin/fsck.s3ql --help
    :start-after: show this help message and exit
-
 
 Files
 =====
@@ -43,6 +41,4 @@ directory.
 
 .. include:: ../include/postman.rst
 
-
-.. |command| replace:: :command:`mount.s3ql` 
-
+.. |command| replace:: :command:`mkfs.s3ql` 

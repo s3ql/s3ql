@@ -3,113 +3,123 @@ xxx, S3QL 0.31
   * Fixed occasional assertion error when calling s3qlctrl flushcache
     or unmounting the file system.
 
+  * Fixed a race condition when a block is expired while it is in
+    transit but has already been modified again.
+
+  * expire_backups.py no longer has an --init option, the state file
+    is created automatically if this operation is safe. Instead, there
+    is a --reconstruct-state option that can be used to try to
+    reconstruct a lost state file.
+
+  * The size of symbolic links is now reported as the length of
+    the target instead of zero. This used to confuse revision
+    control systems like git and hg.
+
+  * Added man pages for all S3QL commands.
+
 2011-02-04, S3QL 0.30
 
-  * S3QL now defaults to use unencrypted HTTP connections, which 
-    significantly improves performance when using the S3 backend.
-    For an encrypted file system, all data is already encrypted
-    anyway, and authentication data is never transmitted in plain text
-    even for unencrypted file systems. Therefore, the use of SSL
-    brings little gain for most users. To force SSL usage, the
-    new --ssl option can be used.    
+  * S3QL now defaults to use unencrypted HTTP connections, which
+    significantly improves performance when using the S3 backend. For
+    an encrypted file system, all data is already encrypted anyway,
+    and authentication data is never transmitted in plain text even
+    for unencrypted file systems. Therefore, the use of SSL brings
+    little gain for most users. To force SSL usage, the new --ssl
+    option can be used.
 
-  * mkfs.s3ql now has a --force option to overwrite an existing
-    file system.
-
+  * mkfs.s3ql now has a --force option to overwrite an existing file
+    system.
+    
 2010-12-30, S3QL 0.29
 
   * The FUSE interface has been rewritten using Cython and factored
     out into a separate package, http://code.google.com/p/python-llfuse/.
     
-    This should result in easier installation, better performance
-    and better maintainability.
+    This should result in easier installation, better performance and
+    better maintainability.
 
 
 2010-12-19, S3QL 0.28
 
-  * "s3qlctrl upload-meta" now works even if the file system has
-    been mounted with --metadata-upload-interval=0.
+  * "s3qlctrl upload-meta" now works even if the file system has been
+    mounted with --metadata-upload-interval=0.
     
   * File system metadata is now permanently cached locally. This
-    significantly reduces the time required to mount the file
-    system.
+    significantly reduces the time required to mount the file system.
     
   * The documentation is now also included in PDF format.
 
 2010-12-11, S3QL 0.27
 
-  * The authinfo file now supports passwords that include 
-    white space. 
+  * The authinfo file now supports passwords that include white space.
   
-  * The s3qladm command can now be used to download metadata
-    backups.
+  * The s3qladm command can now be used to download metadata backups.
   
-  * The --strip-meta option for mount.s3ql has been removed,
-    redundant data is now always stripped before upload.
+  * The --strip-meta option for mount.s3ql has been removed, redundant
+    data is now always stripped before upload.
 
-  * mount.s3ql now has a --upstart option so that it can easily
-    run as an upstart job. An example job definition is included
-    in contrib/s3ql.conf.
+  * mount.s3ql now has a --upstart option so that it can easily run as
+    an upstart job. An example job definition is included in
+    contrib/s3ql.conf.
     
   * s3qlctrl now has an 'upload-meta' command to trigger a metadata
     upload while the file system is mounted.
 
-  * Fixed a bug that preserved old data when truncating a file
-    to zero. If you ever had fsck errors of the form
+  * Fixed a bug that preserved old data when truncating a file to
+    zero. If you ever had fsck errors of the form
 
-    Size of inode [ddd] ([filename]) does not agree with number of blocks
+    Size of inode [ddd] ([filename]) does not agree with number of
+    blocks
 
-    then the affected files may contain additional, old data
-    at the end that is not supposed to be there.
+    then the affected files may contain additional, old data at the
+    end that is not supposed to be there.
     
   
 2010-10-30, S3QL 0.26
 
-  * Fixed a problem with the sftp backend failing because it
-    tries to access a file locally.
+  * Fixed a problem with the sftp backend failing because it tries to
+    access a file locally.
 
   * Various minor bugfixes
 
 2010-09-28, S3QL 0.25
 
-  * A critical bug that could cause backups to be deleted too 
-    early and potentially break the whole backup strategy has 
-    been fixed in contrib/expire_backups.py.
+  * A critical bug that could cause backups to be deleted too early
+    and potentially break the whole backup strategy has been fixed in
+    contrib/expire_backups.py.
     
     The new version has changed semantics that and also copes
     significantly better when backups are made in irregular time
-    intervals.  
+    intervals.
 
   * S3QL should now respond with more consistent performance when
-    accessing the file system while s3qlcp, s3qllock or s3qlrm
-    is running at the same time. 
+    accessing the file system while s3qlcp, s3qllock or s3qlrm is
+    running at the same time.
     
-  * When enabling debug output for the `UploadManager` module,
-    S3QL now logs detailed messages about de-duplication, upload
-    and compression performance.     
+  * When enabling debug output for the `UploadManager` module, S3QL
+    now logs detailed messages about de-duplication, upload and
+    compression performance.
 
 2010-09-18, S3QL 0.24
 
-  * Fixed a deadlock that could cause the mount.s3ql process
-    to hang around after umount.
+  * Fixed a deadlock that could cause the mount.s3ql process to hang
+    around after umount.
     
-  * Fixed a bug that caused S3QL to consider all downloaded
-    blocks as dirty and resulted in unneccessary checksum
-    calculations on expiration.
+  * Fixed a bug that caused S3QL to consider all downloaded blocks as
+    dirty and resulted in unneccessary checksum calculations on
+    expiration.
 
   * s3qlctrl can now change the log level at runtime.
   
-  * s3qladm delete now also deletes any local stale cache
-    files.
+  * s3qladm delete now also deletes any local stale cache files.
     
-  * Periodic metadata upload can now be disabled completely
-    by specifying an interval of zero.
+  * Periodic metadata upload can now be disabled completely by
+    specifying an interval of zero.
     
   
 2010-09-03, S3QL 0.23
 
-  * Fixed problem with global_lock.py not being installed by
-    setup.py
+  * Fixed problem with global_lock.py not being installed by setup.py
 
 2010-08-31, S3QL 0.22
 
@@ -128,9 +138,9 @@ xxx, S3QL 0.31
   * mount.s3ql now supports several parallel compression and
     encryption threads with the --compression-threads option.
 
-  * S3QL now supports "immutable directories". This important
-    new feature can be used to protect backups from modification after they have
-    completed. See the User's Guide for details.
+  * S3QL now supports "immutable directories". This important new
+    feature can be used to protect backups from modification after
+    they have completed. See the User's Guide for details.
 
   * Using S3 RRS is now deprecated, see User's Guide for details.
 

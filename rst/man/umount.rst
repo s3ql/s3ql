@@ -1,8 +1,8 @@
 .. -*- mode: rst -*-
 
-=======
-Manpage
-=======
+==================================
+The :program:`umount.s3ql` command
+==================================
 
 Synopsis
 ========
@@ -15,22 +15,20 @@ Synopsis
 Description
 ===========
 
-S3QL is a file system for online data storage. Before using S3QL, make
-sure to consult the full documentation (rather than just the man pages
-which only briefly document the available userspace commands).
+.. include:: ../include/about.rst
 
 The |command| command unmounts the S3QL file system mounted in the
 directory *mount point* and blocks until all data has been uploaded to
 the storage backend.
 
-Only the user who mounted the file system with :command:`mount.s3ql`
+Only the user who mounted the file system with :program:`mount.s3ql`
 is able to unmount it with |command|. If you are root and want to
 unmount an S3QL file system mounted by an ordinary user, you have to
-use the :command:`fusermount -u` or :command:`umount` command instead.
+use the :program:`fusermount -u` or :command:`umount` command instead.
 Note that these commands do not block until all data has been
-uploaded, so if you use them instead of `umount.s3ql` then you should
-manually wait for the `mount.s3ql` process to terminate before
-shutting down the system.
+uploaded, so if you use them instead of :program:`umount.s3ql` then
+you should manually wait for the :program:`mount.s3ql` process to
+terminate before shutting down the system.
 
 
 Options
@@ -38,7 +36,7 @@ Options
 
 The |command| command accepts the following options.
 
-.. include:: ../autogen/umount-help.rst
+.. pipeinclude:: ../../bin/umount.s3ql --help
    :start-after: show this help message and exit
 
 .. include:: ../include/postman.rst

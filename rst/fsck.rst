@@ -12,5 +12,5 @@ or if you suspect that there might be errors, you should run the
 
 This command accepts the following options:
 
-.. include:: autogen/fsck-help.rst
+.. pipeinclude:: ../bin/fsck.s3ql --help
    :start-after: show this help message and exit

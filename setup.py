@@ -57,33 +57,9 @@ class build_docs(setuptools.Command):
         dest_dir = os.path.join(basedir, 'doc')
         src_dir = os.path.join(basedir, 'rst')
                     
-        autogen_dir = 'autogen'
-        include_dir = 'include'
-        
         confoverrides = {}
         confoverrides['version'] = s3ql.VERSION
         confoverrides['release'] = s3ql.VERSION
-        confoverrides['exclude_trees'] = [ autogen_dir, include_dir ]
-        confoverrides['unused_docs'] = [ os.path.join('man', x[:-4]) 
-                                        for x 
-                                        in glob(os.path.join(src_dir, 'man', '*.rst') ) ]
-
-        print('Updating command help output..')
-        cmd_dest = os.path.join(src_dir, autogen_dir)
-        self.mkpath(cmd_dest)
-        for (cmd, dest) in [('mount.s3ql', 'mount-help.rst'),
-                            ('umount.s3ql', 'umount-help.rst'),
-                            ('fsck.s3ql', 'fsck-help.rst'),
-                            ('mkfs.s3ql', 'mkfs-help.rst'),
-                            ('s3qladm', 'adm-help.rst'),
-                            ('s3qlcp', 'cp-help.rst'),
-                            ('s3qlctrl', 'ctrl-help.rst'),
-                            ('s3qllock', 'lock-help.rst'),
-                            ('s3qlrm', 'rm-help.rst'),
-                            ('s3qlstat', 'stat-help.rst') ]:
-            subprocess.check_call([os.path.join('bin', cmd), '--help'],
-                                  stdout=open(os.path.join(cmd_dest, dest), 'w'))
-        
         
         for builder in ('html', 'latex', 'man'):
             print('Running %s builder...' % builder)
@@ -105,7 +81,11 @@ class build_docs(setuptools.Command):
                 print('reST markup error:',
                       err.args[0].encode('ascii', 'backslashreplace'),
                       file=sys.stderr)
-
+                
+        # These shouldn't be installed by default                    
+        for name in ('expire_backups.1', 'pcp.1'):     
+            os.rename(os.path.join(dest_dir, 'man', name),
+                      os.path.join(basedir, 'contrib', name))
 
         print('Running pdflatex...')
         for _ in range(3):
@@ -166,12 +146,12 @@ def main():
           install_requires=['apsw >= 3.7.0',
                             'pycryptopp',
                             'llfuse >= 0.29',
-                            'argparse',
+                            'argparse >= 1.1',
                             'pyliblzma >= 0.5.3' ],
           tests_require=['apsw >= 3.7.0', 'unittest2',
                          'pycryptopp',
                          'llfuse >= 0.29',
-                         'argparse',
+                         'argparse >= 1.1',
                          'pyliblzma >= 0.5.3' ],
           test_suite='tests',
           cmdclass={'test': test,

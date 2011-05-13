@@ -333,3 +333,8 @@ table.option-list td,
 table.option-list th  {
     border: 0px;
 }
+
+strong.program {
+    font-weight: normal;
+    font-style: italic;
+}

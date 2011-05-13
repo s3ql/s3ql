@@ -8,6 +8,23 @@
 
 import sys, os
 
+# Add a custom role for command line options that does not try to
+# reference anything.
+def add_literal_role(rolename):
+    from docutils.parsers.rst import roles
+    from docutils import nodes
+    nodeclass = nodes.literal
+    generic = roles.GenericRole(rolename, nodeclass)
+    role = roles.CustomRole(rolename, generic, {'classes': [rolename]})
+    roles.register_local_role(rolename, role)
+add_literal_role('cmdopt')
+add_literal_role('var') # A variable defined in a :samp: role
+
+# Add our own Pygments Lexer
+import pygments.lexers._mapping as pmap
+pmap.LEXERS['CommandLineLexer'] = ('cmdline_lexer', 'CommandLine', 
+                                   ('CommandLine', 'commandline'), (), ())
+
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
@@ -17,7 +34,7 @@ import sys, os
 
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
-extensions = [ 'sphinx.ext.ifconfig' ]
+extensions = [ 'sphinx.ext.ifconfig', 'sphinx_pipeinclude' ]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -36,7 +53,7 @@ nitpicky = True
 
 # General information about the project.
 project = u'S3QL'
-copyright = u'2010, Nikolaus Rath'
+copyright = u'2008-2011, Nikolaus Rath'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -62,7 +79,7 @@ copyright = u'2010, Nikolaus Rath'
 
 # List of directories, relative to source directory, that shouldn't be searched
 # for source files.
-#exclude_trees = [ 'autogen', 'include' ]
+exclude_trees = [ 'include' ]
 
 # The reST default role (used for this markup: `text`) to use for all documents.
 default_role = 'file'
@@ -80,7 +97,7 @@ default_role = 'file'
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = 'colorful'
-highlight_language = 'sh'
+highlight_language = 'commandline'
 
 # A list of ignored prefixes for module index sorting.
 #modindex_common_prefix = []
@@ -204,18 +221,24 @@ man_pages = [
      None, 1),
     ('man/umount', 'umount.s3ql', u'Unmount an S3QL file system',
      None, 1),
-#    ('man/fsck', 'fsck.s3ql', u'Check an S3QL file system for errors',
-#     None, 1),
-#    ('man/ctrl', 's3qlctrl', u'Control a mounted S3QL file system',
-#     None, 1),
-#    ('man/adm', 's3qladm', u'Manage S3QL buckets',
-#     None, 1),
-#    ('man/cp', 's3qlcp', u'Copy-on-write replication on S3QL file systems',
-#     None, 1),
-#    ('man/lock', 's3qllock', u'Make trees on an S3QL file system immutable',
-#     None, 1),
-#    ('man/remove', 's3qlrm', u'Fast tree removal on S3QL file systems',
-#     None, 1),
-#    ('man/statfs', 's3qlstat', u'Gather S3QL file system statistics',
-#     None, 1),      
+    ('man/fsck', 'fsck.s3ql', u'Check an S3QL file system for errors',
+     None, 1),
+    ('man/ctrl', 's3qlctrl', u'Control a mounted S3QL file system',
+     None, 1),
+    ('man/adm', 's3qladm', u'Manage S3QL buckets',
+     None, 1),
+    ('man/cp', 's3qlcp', u'Copy-on-write replication on S3QL file systems',
+     None, 1),
+    ('man/lock', 's3qllock', u'Make trees on an S3QL file system immutable',
+     None, 1),
+    ('man/rm', 's3qlrm', u'Fast tree removal on S3QL file systems',
+     None, 1),
+    ('man/stat', 's3qlstat', u'Gather S3QL file system statistics',
+     None, 1),      
+    ('man/expire_backups', 'expire_backups', u'Intelligently expire old backups',
+     None, 1),    
+    ('man/pcp', 'pcp', u'Recursive, parallel copy of directory trees',
+     None, 1),    
 ]
+
+

@@ -10,3 +10,6 @@ include Changes.txt
 include INSTALL.txt
 include README.txt
 exclude MANIFEST.in
+prune doc/doctrees
+prune doc/man/.doctrees
+prune debian/s3ql

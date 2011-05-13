@@ -22,7 +22,7 @@ system.
 
 The :command:`umount.s3ql` command accepts the following options:
 
-.. include:: autogen/umount-help.rst
+.. pipeinclude:: ../bin/umount.s3ql --help
    :start-after: show this help message and exit
 
 If, for some reason, the `umount.sql` command does not work, the file

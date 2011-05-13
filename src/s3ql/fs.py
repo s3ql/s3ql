@@ -528,9 +528,15 @@ class Operations(llfuse.Operations):
 
     def symlink(self, id_p, name, target, ctx):
         mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | 
-                    stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | 
-                    stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
-        return self._create(id_p, name, mode, ctx, target=target)
+                stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | 
+                stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
+        
+        # Unix semantics require the size of a symlink to be the length
+        # of its target. Therefore, we create symlink directory entries
+        # with this size. If the kernel ever learns to open and read
+        # symlinks directly, it will read the corresponding number of \0
+        # bytes.
+        return self._create(id_p, name, mode, ctx, target=target, size=len(target))
 
     def rename(self, id_p_old, name_old, id_p_new, name_new):
         if name_new == CTRL_NAME or name_old == CTRL_NAME:
@@ -794,7 +800,7 @@ class Operations(llfuse.Operations):
         self.open_inodes[inode.id] += 1
         return (inode.id, inode)
 
-    def _create(self, id_p, name, mode, ctx, rdev=0, target=None):
+    def _create(self, id_p, name, mode, ctx, rdev=0, target=None, size=0):
         if name == CTRL_NAME:
             log.warn('Attempted to create s3ql control file at %s',
                      get_path(id_p, self.db, name))
@@ -816,7 +822,7 @@ class Operations(llfuse.Operations):
         try:
             inode = self.inodes.create_inode(mtime=timestamp, ctime=timestamp, atime=timestamp,
                                              uid=ctx.uid, gid=ctx.gid, mode=mode, refcount=1,
-                                             rdev=rdev, target=target)
+                                             rdev=rdev, target=target, size=size)
         except OutOfInodesError:
             log.warn('Could not find a free inode')
             raise FUSEError(errno.ENOSPC)

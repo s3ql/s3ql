@@ -41,7 +41,9 @@ that is not the case.
 
 * The `argparse Python Module
   <http://pypi.python.org/pypi/argparse>`_. To check if this module is
-  installed, try to execute `python -c 'import argparse'`.
+  installed, try to execute `python -c 'import argparse; print
+  argparse.__version__'`. If argparse is installed, this will print
+  the version number. You need version 1.1 or later.
   
 * The `APSW Python Module <http://code.google.com/p/apsw/>`_. To check
   which (if any) version of APWS is installed, run the command ::

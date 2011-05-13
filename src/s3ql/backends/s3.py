@@ -366,8 +366,8 @@ def retry_boto(fn, *a, **kw):
             else:
                 raise
         except httplib.IncompleteRead as exc:
-            log.warn('Encountered %s error when calling %s, retrying...',
-                     exc.error_code, fn.__name__)
+            log.warn('Encountered IncompleteRead error when calling %s, retrying...',
+                     fn.__name__)
             
         sleep(step)
         waited += step

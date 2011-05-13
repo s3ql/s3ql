@@ -67,56 +67,15 @@ delete old backups.
 expire_backups.py
 =================
 
-``expire_backups.py`` is a program to intelligently remove old backups
-that are no longer needed.
+:program:`expire_backups.py` is a program to intelligently remove old
+backups that are no longer needed.
 
-To define what backups you want to keep for how long, you define a
-number of *age ranges*. ``expire_backups`` ensures that you will
-have at least one backup in each age range at all times. It will keep
-exactly as many backups as are required for that and delete any
-backups that become redundant.
+.. include:: man/expire_backups.rst
+   :start-after: begin_main_content
+   :end-before: end_main_content
 
-Age ranges are specified by giving a list of range boundaries in terms
-of backup cycles. Every time you create a new backup, the existing
-backups age by one cycle.
-
-Example: when ``expire_backups`` is called with the age range
-definition ``1 3 7 14 31``, it will guarantee that you
-always have the following backups available:
-
-#. A backup that is 0 to 1 cycles old (i.e, the most recent backup)
-#. A backup that is 1 to 3 cycles old
-#. A backup that is 3 to 7 cycles old
-#. A backup that is 7 to 14 cycles old
-#. A backup that is 14 to 31 cycles old
-
-.. NOTE::
-
-  If you do backups in fixed intervals, then one cycle will be
-  equivalent to the backup interval. The advantage of specifying the
-  age ranges in terms of backup cycles rather than days or weeks is
-  that it allows you to gracefully handle irregular backup intervals.
-  Imagine that for some reason you do not turn on your computer for
-  one month. Now all your backups are at least a month old, and if you
-  had specified the above backup strategy in terms of absolute ages,
-  they would all be deleted! Specifying age ranges in terms of backup
-  cycles avoids these sort of problems.
-  
-
-``expire_backups`` usage is simple. It requires backups to have names of
-the forms ``year-month-day_hour:minute:seconds`` (``YYYY-MM-DD_HH:mm:ss``)
-and works on all backups in the current directory. So for the
-above backup strategy, the correct invocation would be::
-
-  expire_backups.py 1 3 7 14 31
-
-When storing your backups on an S3QL file system, you probably want to
-specify the ``--use-s3qlrm`` option as well. This tells
-``expire_backups`` to use the :ref:`s3qlrm <s3qlrm>` command to delete
-directories.
-
-For a full list of available options, run ``expire_backups.py
---help``.
+For a full list of available options, run :program:`expire_backups.py
+--help`.
 
 
 s3ql.conf

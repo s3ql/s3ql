@@ -52,5 +52,7 @@ s3qllock "$new_backup"
 # Expire old backups
 
 # Note that expire_backups.py comes from contrib/ and is not installed
-# by default
+# by default when you install from the source tarball. If you have
+# installed an S3QL package for your distribution, this script *may*
+# be installed, and it *may* also not have the .py ending.
 expire_backups.py --use-s3qlrm 1 7 14 31 90 180 360

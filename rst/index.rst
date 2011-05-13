@@ -19,4 +19,5 @@
    contrib
    tips
    issues
+   man/index
    resources

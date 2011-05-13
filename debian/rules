@@ -10,13 +10,14 @@ override_dh_installchangelogs:
 	dh_installchangelogs Changes.txt
 
 override_dh_compress:
-	dh_compress -X.txt -X.js -X.py
+	dh_compress -X.txt -X.py
 
 override_dh_auto_build:
 	dh_auto_build
 
         # Docs should be included in release
 	[ -e doc/html ]
+	[ -e doc/man ]
 	[ -e doc/manual.pdf ]
 
 override_dh_install:
@@ -24,12 +25,20 @@ override_dh_install:
 	#python setup.py test
 	dh_install
 	cp contrib/expire_backups.py debian/s3ql/usr/bin/expire_backups
+	cp contrib/expire_backups.1 debian/s3ql/usr/share/man/man1/
 	cp contrib/pcp.py debian/s3ql/usr/bin/pcp
+	cp contrib/pcp.1 debian/s3ql/usr/share/man/man1/
 
 override_dh_installdocs:
 	dh_installdocs
 	rm debian/s3ql/usr/share/doc/s3ql/contrib/expire_backups.py \
-	   debian/s3ql/usr/share/doc/s3ql/contrib/pcp.py
+	   debian/s3ql/usr/share/doc/s3ql/contrib/expire_backups.1 \
+	   debian/s3ql/usr/share/doc/s3ql/contrib/pcp.py \
+	   debian/s3ql/usr/share/doc/s3ql/contrib/pcp.1 \
+	   debian/s3ql/usr/share/doc/s3ql/html/_static/jquery.js 
+	ln -sf /usr/share/javascript/jquery/jquery.js \
+	   debian/s3ql/usr/share/doc/s3ql/html/_static/jquery.js
+
 
 override_dh_fixperms:
 	dh_fixperms

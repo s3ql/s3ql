@@ -67,6 +67,7 @@ class fuse_tests(TestCase):
             self.mount_thread.join_and_raise()
                     
     def mount(self):
+        
         sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
         try:
             s3ql.cli.mkfs.main(['-L', 'test fs', '--blocksize', '500',
@@ -75,6 +76,8 @@ class fuse_tests(TestCase):
             self.fail("mkfs.s3ql failed: %s" % exc)
 
         
+        # Note: When running inside test suite, we have less available
+        # file descriptors        
         if USE_VALGRIND:
             if __name__ == '__main__':
                 mypath = sys.argv[0]
@@ -84,6 +87,7 @@ class fuse_tests(TestCase):
             self.mount_thread = subprocess.Popen(['valgrind', 'python-dbg', 
                                                   os.path.join(basedir, 'bin', 'mount.s3ql'), 
                                                   "--fg", '--homedir', self.cache_dir, 
+                                                  '--max-cache-entries', '500',
                                                   self.bucketname, self.mnt_dir],
                                                   stdin=subprocess.PIPE)
             print(self.passphrase, file=self.mount_thread.stdin)
@@ -92,6 +96,7 @@ class fuse_tests(TestCase):
             sys.stdin = StringIO('%s\n' % self.passphrase)
             self.mount_thread = AsyncFn(s3ql.cli.mount.main,
                                         ["--fg", '--homedir', self.cache_dir, 
+                                         '--max-cache-entries', '500',
                                          self.bucketname, self.mnt_dir])
             self.mount_thread.start()
 
