@@ -1,3 +1,8 @@
+xxx, S3QL 0.31
+
+  * Fixed occasional assertion error when calling s3qlctrl flushcache
+    or unmounting the file system.
+
 2011-02-04, S3QL 0.30
 
   * S3QL now defaults to use unencrypted HTTP connections, which 
@@ -10,7 +15,7 @@
 
   * mkfs.s3ql now has a --force option to overwrite an existing
     file system.
-    
+
 2010-12-30, S3QL 0.29
 
   * The FUSE interface has been rewritten using Cython and factored

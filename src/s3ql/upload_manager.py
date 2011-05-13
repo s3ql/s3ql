@@ -179,7 +179,6 @@ class UploadManager(object):
         
         self.compress_threads.join_all()
         self.upload_threads.join_all()
-        assert not self.in_transit
 
     def join_one(self):
         '''Wait until one block has been uploaded
