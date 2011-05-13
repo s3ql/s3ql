@@ -1,4 +1,7 @@
-xxx, S3QL 0.31
+2011-05-13, S3QL 1.0
+
+  * S3QL has been declared stable after 2 years of beta-testing did
+    not reveal any data-critical bugs.
 
   * Fixed occasional assertion error when calling s3qlctrl flushcache
     or unmounting the file system.
