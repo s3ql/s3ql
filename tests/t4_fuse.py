@@ -55,9 +55,9 @@ class fuse_tests(TestCase):
         # Try to wait for mount thread to prevent spurious errors
         # because the db file is being removed
         if self.mount_thread and USE_VALGRIND:
-            retry(20, lambda: self.mount_thread.poll() is not None)
+            retry(60, lambda: self.mount_thread.poll() is not None)
         elif self.mount_thread:
-            self.mount_thread.join(5)
+            self.mount_thread.join(60)
                 
         shutil.rmtree(self.mnt_dir)
         shutil.rmtree(self.cache_dir)
