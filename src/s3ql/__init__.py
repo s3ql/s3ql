@@ -13,4 +13,4 @@ __all__ = [ 'backends', 'cli', 'parse_args', 'block_cache', "common", 'daemonize
             'upload_manager', 'VERSION', 'CURRENT_FS_REV' ]
 
 VERSION = '0.30'
-CURRENT_FS_REV = 11
+CURRENT_FS_REV = 12
