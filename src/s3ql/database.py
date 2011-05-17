@@ -162,6 +162,8 @@ class Connection(object):
         except StopIteration:
             return False
         else:
+            # Finish the active SQL statement
+            self.cur.close()
             return True
 
     def get_val(self, *a, **kw):
@@ -197,7 +199,7 @@ class Connection(object):
             pass
         else:
             # Finish the active SQL statement
-            del res
+            self.cur.close()
             raise NoUniqueValueError()
 
         return row
