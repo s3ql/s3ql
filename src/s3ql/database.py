@@ -81,12 +81,18 @@ class Connection(object):
         In fast mode, SQLite operates as quickly as possible, but
         application and system crashes may lead to data corruption.
         '''
+        
+        # WAL mode causes trouble with e.g. copy_tree, so we
+        # always disable WAL for now. See 
+        # http://article.gmane.org/gmane.comp.db.sqlite.general/65243
+        on = True 
+        cur = self.conn.cursor()
         if on:
-            self.cur.execute('PRAGMA synchronous = OFF')
-            self.cur.execute('PRAGMA journal_mode = OFF')
+            cur.execute('PRAGMA synchronous = OFF')
+            cur.execute('PRAGMA journal_mode = OFF')
         else:                
-            self.cur.execute('PRAGMA synchronous = NORMAL')
-            self.cur.execute('PRAGMA journal_mode = WAL')
+            cur.execute('PRAGMA synchronous = NORMAL')
+            cur.execute('PRAGMA journal_mode = WAL')
             
         
     def close(self):

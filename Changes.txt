@@ -1,3 +1,10 @@
+xxx, S3QL 1.1
+
+  * Disabled WAL mode again for now because of unexpected problems
+    with s3qlcp, s3qllock and s3qlrm (performance going down orders
+    of magnitude, and *very* large *.db-wal file in ~/.s3ql).
+    
+
 2011-05-13, S3QL 1.0
 
   * S3QL has been declared stable after 2 years of beta-testing did
