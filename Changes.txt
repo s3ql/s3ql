@@ -1,4 +1,19 @@
-xx, S3QL 0.31
+unreleased, S3QL HEAD(unstable)
+
+  * Restructured metadata. This should also significantly reduce the
+    size of the SQLite database file.
+
+  * Disabled WAL mode again for now because of unexpected problems
+    with s3qlcp, s3qllock and s3qlrm (performance going down orders
+    of magnitude, and *very* large *.db-wal file in ~/.s3ql).
+
+2011-05-13, S3QL 1.0
+
+  * S3QL has been declared stable after 2 years of beta-testing did
+    not reveal any data-critical bugs.
+
+  * Fixed occasional assertion error when calling s3qlctrl flushcache
+    or unmounting the file system.
 
   * Fixed a race condition when a block is expired while it is in
     transit but has already been modified again.
@@ -13,10 +28,7 @@ xx, S3QL 0.31
     control systems like git and hg.
 
   * Added man pages for all S3QL commands.
-  
-  * Restructured metadata. This should also significantly reduce the
-    size of the SQLite database file.
-  
+
 2011-02-04, S3QL 0.30
 
   * S3QL now defaults to use unencrypted HTTP connections, which

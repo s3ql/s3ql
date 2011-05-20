@@ -79,29 +79,12 @@ Features
 Development Status
 ==================
 
-**S3QL is in beta stage.** This means that:
-
-* When using S3QL you should be subscribed to the `mailing list
-  <http://groups.google.com/group/s3ql>`_.
- 
-* There are still plenty of bugs in the code and you should be ready
-  to deal with them. Nevertheless, you can be reasonably confident
-  that the bugs (although inconvenient) will not endanger your stored
-  data.
-
-* The author is using this version of S3QL as his main backup system
-  on several computers and stores about 300 GB of data. Daily
-  incremental backups have a volume of about 200 MB.
-
-  Byte-by-byte comparisons of the backup against the original data are
-  done every once in a while and so far have shown no discrepancies.
-
-* If you intend to use S3QL as an archive file system (i.e. the data
-  will only be stored in S3QL and nowhere else) it is recommended that
-  you still maintain secondary copies until S3QL reaches production
-  stage.
-
-* Future versions of S3QL will be backwards compatible.
+After two years of beta-testing by about 93 users did not reveal any
+data-critical bugs, S3QL was declared **stable** with the release of
+version 1.0 on May 13th, 2011. Note that this does not mean that S3QL
+is bug-free. S3QL still has several known, and probably many more
+unknown bugs. However, there is a high probability that these bugs
+will, although being inconvenient, not endanger any stored data.
 
 Please report any problems on the `mailing list
 <http://groups.google.com/group/s3ql>`_ or the `issue tracker

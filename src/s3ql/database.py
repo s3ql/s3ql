@@ -67,11 +67,11 @@ class Connection(object):
 
     def __init__(self, file_, fast_mode=False):
         self.conn = apsw.Connection(file_)
-        self.cur = self.conn.cursor()
         self.file = file_
         
+        cur = self.conn.cursor()
         for s in initsql:
-            self.cur.execute(s)
+            cur.execute(s)
 
         self.fast_mode(fast_mode)
         
@@ -81,16 +81,21 @@ class Connection(object):
         In fast mode, SQLite operates as quickly as possible, but
         application and system crashes may lead to data corruption.
         '''
+        
+        # WAL mode causes trouble with e.g. copy_tree, so we
+        # always disable WAL for now. See 
+        # http://article.gmane.org/gmane.comp.db.sqlite.general/65243
+        on = True 
+        cur = self.conn.cursor()
         if on:
-            self.cur.execute('PRAGMA synchronous = OFF')
-            self.cur.execute('PRAGMA journal_mode = OFF')
+            cur.execute('PRAGMA synchronous = OFF')
+            cur.execute('PRAGMA journal_mode = OFF')
         else:                
-            self.cur.execute('PRAGMA synchronous = NORMAL')
-            self.cur.execute('PRAGMA journal_mode = WAL')
+            cur.execute('PRAGMA synchronous = NORMAL')
+            cur.execute('PRAGMA journal_mode = WAL')
             
         
     def close(self):
-        self.cur.close()
         self.conn.close()
         
     def get_size(self):
@@ -110,22 +115,22 @@ class Connection(object):
         possible to terminate the SQL statement.
         '''
 
-        return ResultSet(self._execute(self.conn.cursor(), *a, **kw))
+        return ResultSet(self._execute(*a, **kw))
 
     def execute(self, *a, **kw):
         '''Execute the given SQL statement. Return number of affected rows '''
 
-        self._execute(self.cur, *a, **kw)
+        self._execute(*a, **kw)
         return self.changes()
 
     def rowid(self, *a, **kw):
         """Execute SQL statement and return last inserted rowid"""
 
-        self._execute(self.cur, *a, **kw)
+        self._execute(*a, **kw)
         return self.conn.last_insert_rowid()
 
-    def _execute(self, cur, statement, bindings=None):
-        '''Execute the given SQL statement with the given cursor
+    def _execute(self, statement, bindings=None):
+        '''Execute the given SQL statement 
         
         This method takes care of converting str/bytes to buffer
         objects.
@@ -149,19 +154,21 @@ class Connection(object):
             newbindings = bindings
 
         if bindings is not None:
-            return cur.execute(statement, newbindings)
+            return self.conn.cursor().execute(statement, newbindings)
         else:
-            return cur.execute(statement)
+            return self.conn.cursor().execute(statement)
 
     def has_val(self, *a, **kw):
         '''Execute statement and check if it gives result rows'''
 
-        res = self._execute(self.cur, *a, **kw)
+        res = self._execute(*a, **kw)
         try:
             res.next()
         except StopIteration:
             return False
         else:
+            # Finish the active SQL statement
+            res.close()
             return True
 
     def get_val(self, *a, **kw):
@@ -185,7 +192,7 @@ class Connection(object):
         than one result row, raises `NoUniqueValueError`.
         """
 
-        res = ResultSet(self._execute(self.cur, *a, **kw))
+        res = ResultSet(self._execute(*a, **kw))
         try:
             row = res.next()
         except StopIteration:
@@ -197,7 +204,7 @@ class Connection(object):
             pass
         else:
             # Finish the active SQL statement
-            del res
+            res.close()
             raise NoUniqueValueError()
 
         return row
@@ -243,6 +250,10 @@ class ResultSet(object):
     def next(self):
         return [ (col if not isinstance(col, buffer) else bytes(col))
                   for col in self.cur.next() ]
+
+    def close(self):
+        '''Finish query transaction'''
+        self.cur.close()
 
     # Once the ResultSet goes out of scope, the cursor goes out of scope
     # too (because query() uses a fresh cursor), so we don't have to

@@ -13,3 +13,4 @@ exclude MANIFEST.in
 prune doc/doctrees
 prune doc/man/.doctrees
 prune debian/s3ql
+global-exclude *.pyc
