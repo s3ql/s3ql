@@ -759,10 +759,7 @@ class Operations(llfuse.Operations):
         # size of fs in f_frsize units 
         # (since backend is supposed to be unlimited, always return a half-full filesystem,
         # but at least 50 GB)
-        if stat_.f_bsize != 0:
-            total_blocks = int(max(2 * blocks, 50 * 1024 ** 3 // stat_.f_bsize))
-        else:
-            total_blocks = 2 * blocks
+        total_blocks = int(max(2 * blocks, 50 * 1024 ** 3 // stat_.f_frsize))
 
         stat_.f_blocks = total_blocks
         stat_.f_bfree = total_blocks - blocks
