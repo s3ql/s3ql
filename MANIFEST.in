@@ -9,6 +9,7 @@ include src/*.py
 include Changes.txt
 include INSTALL.txt
 include README.txt
+include LICENSE
 exclude MANIFEST.in
 prune doc/doctrees
 prune doc/man/.doctrees
