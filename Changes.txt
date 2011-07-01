@@ -2,6 +2,9 @@ xxx, S3QL HEAD
 
   * Fixed license typo in file header comments, license
     is GNU GPL Version 3, not LGPL.
+  
+  * Fixed problem with fsck.s3ql generating extraordinary long
+    filenames in /lost+found and then crashing. 
 
 2011-05-20, S3QL 1.0.1
 
