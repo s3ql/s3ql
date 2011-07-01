@@ -8,7 +8,7 @@ to include the output of a program.
 
 Copyright (C) 2008-2011 Nikolaus Rath <Nikolaus@rath.org>
 
-This program can be distributed under the terms of the GNU LGPL.
+This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from docutils.parsers.rst.directives.misc import Include

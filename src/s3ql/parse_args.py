@@ -4,7 +4,7 @@
 #
 # Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 #
-# This program can be distributed under the terms of the GNU LGPL.
+# This program can be distributed under the terms of the GNU GPLv3.
 #
 '''
 This module provides a customized ArgumentParser class. Differences

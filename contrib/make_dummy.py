@@ -9,7 +9,7 @@ will be copied and all files contain just \0 bytes.
 ---
 Copyright (C) 2010 Nikolaus Rath <Nikolaus@rath.org>
 
-This program can be distributed under the terms of the GNU LGPL.
+This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 
