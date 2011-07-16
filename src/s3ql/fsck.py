@@ -257,7 +257,8 @@ class Fsck(object):
             self.conn.execute('''
                CREATE TEMPORARY TABLE wrong_sizes AS 
                SELECT id, size, min_size
-                 FROM inodes JOIN min_sizes USING (id)''')
+                 FROM inodes JOIN min_sizes USING (id)
+                WHERE size < min_size''')
             
             for (id_, size_old, size) in self.conn.query('SELECT * FROM wrong_sizes'):
                 
