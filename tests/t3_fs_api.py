@@ -317,10 +317,10 @@ class fs_api_tests(TestCase):
         inode_p_old_after = self.server.getattr(ROOT_INODE)
         inode_p_new_after = self.server.getattr(inode_p_new.id)
 
-        self.assertFalse(self.db.has_val('SELECT inode FROM contents WHERE name=? AND '
-                                           'parent_inode = ?', (oldname, ROOT_INODE)))
-        id_ = self.db.get_val('SELECT inode FROM contents WHERE name=? AND '
-                                'parent_inode = ?', (newname, inode_p_new.id))
+        self.assertFalse(self.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                                         'WHERE name=? AND parent_inode = ?', (oldname, ROOT_INODE)))
+        id_ = self.db.get_val('SELECT inode FROM contents JOIN names ON names.id == name_id '
+                              'WHERE name=? AND parent_inode = ?', (newname, inode_p_new.id))
         self.assertEqual(inode.id, id_)
 
         self.assertLess(inode_p_new_before.mtime, inode_p_new_after.mtime)
@@ -355,10 +355,10 @@ class fs_api_tests(TestCase):
         inode_p_old_after = self.server.getattr(ROOT_INODE)
         inode_p_new_after = self.server.getattr(inode_p_new.id)
 
-        self.assertFalse(self.db.has_val('SELECT inode FROM contents WHERE name=? AND '
-                                           'parent_inode = ?', (oldname, ROOT_INODE)))
-        id_ = self.db.get_val('SELECT inode FROM contents WHERE name=? AND '
-                                'parent_inode = ?', (newname, inode_p_new.id))
+        self.assertFalse(self.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                                         'WHERE name=? AND parent_inode = ?', (oldname, ROOT_INODE)))
+        id_ = self.db.get_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                              'WHERE name=? AND parent_inode = ?', (newname, inode_p_new.id))
         self.assertEqual(inode.id, id_)
 
         self.assertLess(inode_p_new_before.mtime, inode_p_new_after.mtime)
@@ -388,10 +388,10 @@ class fs_api_tests(TestCase):
         inode_p_old_after = self.server.getattr(ROOT_INODE)
         inode_p_new_after = self.server.getattr(inode_p_new.id)
 
-        self.assertFalse(self.db.has_val('SELECT inode FROM contents WHERE name=? AND '
-                                           'parent_inode = ?', (oldname, ROOT_INODE)))
-        id_ = self.db.get_val('SELECT inode FROM contents WHERE name=? AND '
-                                'parent_inode = ?', (newname, inode_p_new.id))
+        self.assertFalse(self.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                                         'WHERE name=? AND parent_inode = ?', (oldname, ROOT_INODE)))
+        id_ = self.db.get_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                              'WHERE name=? AND parent_inode = ?', (newname, inode_p_new.id))
         self.assertEqual(inode.id, id_)
 
         self.assertLess(inode_p_new_before.mtime, inode_p_new_after.mtime)
@@ -503,8 +503,8 @@ class fs_api_tests(TestCase):
 
         self.assertEqual(target, self.server.readlink(inode.id))
 
-        id_ = self.db.get_val('SELECT inode FROM contents WHERE name=? AND '
-                                'parent_inode = ?', (name, ROOT_INODE))
+        id_ = self.db.get_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                              'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE))
 
         self.assertEqual(inode.id, id_)
         self.assertLess(inode_p_before.mtime, inode_p_after.mtime)
@@ -529,8 +529,8 @@ class fs_api_tests(TestCase):
         self.assertLess(inode_p_before.mtime, inode_p_after.mtime)
         self.assertLess(inode_p_before.ctime, inode_p_after.ctime)
 
-        self.assertFalse(self.db.has_val('SELECT inode FROM contents WHERE name=? AND '
-                                      'parent_inode = ?', (name, ROOT_INODE)))
+        self.assertFalse(self.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                                         'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE)))
         self.assertFalse(self.db.has_val('SELECT id FROM inodes WHERE id=?', (inode.id,)))
 
         self.fsck()
@@ -545,8 +545,8 @@ class fs_api_tests(TestCase):
 
         self.assertLess(inode_p_before.mtime, inode_p_after.mtime)
         self.assertLess(inode_p_before.ctime, inode_p_after.ctime)
-        self.assertFalse(self.db.has_val('SELECT inode FROM contents WHERE name=? AND '
-                                           'parent_inode = ?', (name, ROOT_INODE)))
+        self.assertFalse(self.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                                         'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE)))
         self.assertFalse(self.db.has_val('SELECT id FROM inodes WHERE id=?', (inode.id,)))
 
         self.fsck()
@@ -559,8 +559,8 @@ class fs_api_tests(TestCase):
         (fh, inode) = self.server.create(ROOT_INODE, name, self.file_mode(), Ctx())
         self.server.write(fh, 0, data)
         self.server.unlink(ROOT_INODE, name)
-        self.assertFalse(self.db.has_val('SELECT inode FROM contents WHERE name=? AND '
-                                           'parent_inode = ?', (name, ROOT_INODE)))
+        self.assertFalse(self.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                                         'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE)))
         self.assertTrue(self.db.has_val('SELECT id FROM inodes WHERE id=?', (inode.id,)))
 
         self.server.link(inode.id, ROOT_INODE, name2)
@@ -761,8 +761,8 @@ class fs_api_tests(TestCase):
                              (inode1.id, 'file1'),
                              (inode1.id, 'dir1'),
                              (inode2.id, 'file2')):
-            self.assertFalse(self.db.has_val('SELECT inode FROM contents WHERE name=? AND '
-                                             'parent_inode = ?', (name, id_p)))
+            self.assertFalse(self.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                                             'WHERE name=? AND parent_inode = ?', (name, id_p)))
             
         for id_ in (inode1.id, inode1a.id, inode2.id, inode2a.id):
             self.assertFalse(self.db.has_val('SELECT id FROM inodes WHERE id=?', (id_,)))
