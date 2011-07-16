@@ -109,8 +109,8 @@ class fs_api_tests(TestCase):
         time.sleep(CLOCK_GRANULARITY)
         self.server._create(ROOT_INODE, name, mode, ctx)
 
-        id_ = self.db.get_val('SELECT inode FROM contents WHERE name=? AND '
-                           'parent_inode = ?', (name, ROOT_INODE))
+        id_ = self.db.get_val('SELECT inode FROM contents JOIN names ON name_id = names.id '
+                              'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE))
 
         inode = self.server.getattr(id_)
 
@@ -184,8 +184,8 @@ class fs_api_tests(TestCase):
         inode_after = self.server.lookup(inode_p_new.id, name)
         inode_p_new_after = self.server.getattr(inode_p_new.id)
 
-        id_ = self.db.get_val('SELECT inode FROM contents WHERE name=? AND '
-                                'parent_inode = ?', (name, inode_p_new.id))
+        id_ = self.db.get_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                              'WHERE name=? AND parent_inode = ?', (name, inode_p_new.id))
 
         self.assertEqual(inode_before.id, id_)
         self.assertEqual(inode_after.refcount, 2)
