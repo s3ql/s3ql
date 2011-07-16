@@ -347,8 +347,8 @@ def inode_for_path(path, conn):
     inode = ROOT_INODE
     for el in path.split(b'/'):
         try:
-            inode = conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                                (el, inode))
+            inode = conn.get_val("SELECT inode FROM contents JOIN names ON name_id = names.id "
+                                 "WHERE name=? AND parent_inode=?", (el, inode))
         except NoSuchRowError:
             raise KeyError('Path %s does not exist' % path)
 

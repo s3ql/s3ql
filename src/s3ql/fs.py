@@ -605,7 +605,7 @@ class Operations(llfuse.Operations):
         (possibly former) id of the name.
         '''
         
-        (name_id, refcount) = self.db.get_val('SELECT id, refcount FROM names WHERE name=?', (name,))
+        (name_id, refcount) = self.db.get_row('SELECT id, refcount FROM names WHERE name=?', (name,))
         
         if refcount > 1:
             self.db.execute('UPDATE names SET refcount=refcount-1 WHERE id=?', (name_id,))

@@ -280,8 +280,8 @@ class fs_api_tests(TestCase):
                                          self.file_mode(), Ctx())
         self.server.write(fh, 0, 'foobar')
         self.server.unlink(ROOT_INODE, name)
-        self.assertFalse(self.db.has_val('SELECT 1 FROM contents WHERE name=? AND '
-                                           'parent_inode = ?', (name, ROOT_INODE)))
+        self.assertFalse(self.db.has_val('SELECT 1 FROM contents JOIN names ON names.id = name_id '
+                                         'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE)))
         self.assertTrue(self.server.getattr(inode.id).id)
         self.server.release(fh)
 

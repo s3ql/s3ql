@@ -365,10 +365,10 @@ class Fsck(object):
                     timestamp = time.time() - time.timezone
                     inode = self.conn.rowid("""
                         INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,block_id) 
-                               VALUES (?,?,?,?,?,?,?)""",
+                               VALUES (?,?,?,?,?,?,?,?)""",
                         (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
-                    self.conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES (?,?,?)", 
+                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1, id_))
+                    self.conn.execute("INSERT INTO contents (name_id, inode, parent_inode) VALUES (?,?,?)", 
                                       (self._add_name(basename(name)), inode, id_p))
                     self.conn.execute("UPDATE blocks SET refcount=? WHERE id=?", (1, id_))
 
