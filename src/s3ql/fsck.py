@@ -242,26 +242,22 @@ class Fsck(object):
         log.info('Checking inodes (sizes)...')
     
         self.conn.execute('CREATE TEMPORARY TABLE min_sizes '
-                          '(id INTEGER NOT NULL, min_size INTEGER NOT NULL)')
+                          '(id INTEGER PRIMARY KEY, min_size INTEGER NOT NULL)')
         try:
-            # Block 0
-            self.conn.execute('''INSERT INTO min_sizes (id, min_size) 
-                         SELECT inodes.id, blocks.size 
-                         FROM inodes JOIN blocks ON block_id = blocks.id''') 
-            
-            # Remaining blocks
-            self.conn.execute('''INSERT INTO min_sizes (id, min_size) 
-                         SELECT inode, MAX(blockno * ? + size) 
-                         FROM inode_blocks JOIN blocks ON block_id == id 
-                         GROUP BY inode''',
-                         (self.blocksize,))
+            self.conn.execute('''
+            INSERT INTO min_sizes (id, min_size) 
+            SELECT inode, MAX(blockno * ? + size) 
+            FROM (
+                SELECT id as inode, block_id, 0 AS blockno FROM inodes WHERE block_id IS NOT NULL
+                UNION
+                SELECT inode, block_id, blockno FROM inode_blocks
+            ) JOIN blocks ON block_id == blocks.id 
+            GROUP BY inode''', (self.blocksize,))
             
             self.conn.execute('''
                CREATE TEMPORARY TABLE wrong_sizes AS 
-               SELECT id, size, MAX(min_size)
-                 FROM inodes JOIN min_sizes USING (id)
-                GROUP BY id
-                HAVING size < MAX(min_size)''')
+               SELECT id, size, min_size
+                 FROM inodes JOIN min_sizes USING (id)''')
             
             for (id_, size_old, size) in self.conn.query('SELECT * FROM wrong_sizes'):
                 
@@ -304,7 +300,7 @@ class Fsck(object):
                           '(id INTEGER PRIMARY KEY, refcount INTEGER NOT NULL)')
         try:
             self.conn.execute('INSERT INTO refcounts (id, refcount) '
-                              'SELECT inode, COUNT(name) FROM contents GROUP BY inode')
+                              'SELECT inode, COUNT(name_id) FROM contents GROUP BY inode')
             
             self.conn.execute('''
                CREATE TEMPORARY TABLE wrong_refcounts AS 
@@ -347,9 +343,9 @@ class Fsck(object):
         try:
             self.conn.execute('''
                INSERT INTO refcounts (id, refcount) 
-                 SELECT block_id, SUM(count) FROM 
-                 FROM (SELECT block_id, 1 AS count FROM inodes 
-                       UNION block_id, COUNT(block_id) AS count FROM inode_blocks GROUP BY block_id)
+                 SELECT block_id, SUM(count)  
+                 FROM (SELECT block_id, 1 AS count FROM inodes WHERE block_id IS NOT NULL
+                       UNION SELECT block_id, COUNT(block_id) AS count FROM inode_blocks GROUP BY block_id)
                  GROUP BY block_id
             ''')
             
