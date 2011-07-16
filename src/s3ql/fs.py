@@ -438,6 +438,7 @@ class Operations(llfuse.Operations):
     
                 db.execute('INSERT INTO contents (name_id, inode, parent_inode) VALUES(?, ?, ?)',
                            (name_id, id_new, target_id))
+                db.execute('UPDATE names SET refcount=refcount+1 WHERE id=?', (name_id,))
                 
                 processed += 1
                 
@@ -1035,7 +1036,7 @@ class Operations(llfuse.Operations):
             inode = self.inodes[fh]
             if inode.refcount == 0:
                 self.cache.remove(inode.id, 0, 
-                                  int(math.ceil(inode.size // self.blocksize)))
+                                  int(math.ceil(inode.size / self.blocksize)))
                 # Since the inode is not open, it's not possible that new blocks
                 # get created at this point and we can safely delete the in
                 del self.inodes[fh]
