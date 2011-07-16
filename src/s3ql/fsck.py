@@ -535,8 +535,8 @@ class Fsck(object):
     
         log.info('Checking object list...')
     
-        lof_id = self.conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                              (b"lost+found", ROOT_INODE))
+        lof_id = self.conn.get_val("SELECT inode FROM contents JOIN names ON name_id = names.id "
+                                   "WHERE name=? AND parent_inode=?", (b"lost+found", ROOT_INODE))
     
         # We use this table to keep track of the objects that we have seen
         self.conn.execute("CREATE TEMP TABLE obj_ids (id INTEGER PRIMARY KEY)")
