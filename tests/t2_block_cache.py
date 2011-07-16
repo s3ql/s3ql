@@ -40,10 +40,10 @@ class cache_tests(TestCase):
         # Create an inode we can work with
         self.inode = 42
         self.db.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,size) "
-                          "VALUES (?,?,?,?,?,?,?,?,?)",
-                          (self.inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
-                           | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
-                           os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 32))
+                        "VALUES (?,?,?,?,?,?,?,?,?)",
+                        (self.inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
+                         | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
+                         os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 32))
 
         self.cache = BlockCache(self.bucket, self.db, self.cachedir, 
                                 100 * self.blocksize)
