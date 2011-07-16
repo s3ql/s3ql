@@ -11,7 +11,7 @@ from __future__ import division, print_function
 import unittest2 as unittest
 from s3ql.fsck import Fsck
 from s3ql.backends import local
-from s3ql.database import Connection
+from s3ql.database import Connection, NoSuchRowError
 from s3ql.common import ROOT_INODE, create_tables, init_tables
 from _common import TestCase
 import os
@@ -116,26 +116,54 @@ class fsck_tests(TestCase):
 
         self.assert_fsck(self.fsck.check_inode_refcount)
 
+    def _link(self, name, inode):
+        '''Link /*name* to *inode*'''
+
+        try:
+            name_id = self.db.get_val('SELECT id FROM names WHERE name=?', (name,))
+        except NoSuchRowError:
+            name_id = self.db.rowid('INSERT INTO names (name, refcount) VALUES(?,?)',
+                                      (name, 1))
+        else:
+            self.db.execute('UPDATE names SET refcount=refcount+1 WHERE id=?', (name_id,))
+            
+        self.db.execute('INSERT INTO contents (name_id, inode, parent_inode) VALUES(?,?,?)',
+                        (name_id, inode, ROOT_INODE))
+                
+        
+        
     def test_inode_sizes(self):
 
         id_ = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
-                         "VALUES (?,?,?,?,?,?,?,?)",
-                         (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
-                          0, 0, time.time(), time.time(), time.time(), 2, 0))
+                            "VALUES (?,?,?,?,?,?,?,?)",
+                            (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
+                             0, 0, time.time(), time.time(), time.time(), 1, 128))
+        self._link('test-entry', id_)
 
-        self.db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)',
-                     ('test-entry', id_, ROOT_INODE))
-
-        # Create a block
-        obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(?, ?)',
-                            (1, 500))
-        self.db.execute('INSERT INTO blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
-                     (id_, 0, obj_id))
-
-
+        obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
+        block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
+                                 (1, obj_id, 512))
+        
+        # Case 1
+        self.db.execute('UPDATE inodes SET block_id=?, size=? WHERE id=?',
+                        (None, self.blocksize + 120, id_))
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
+                        (id_, 1, block_id))
         self.assert_fsck(self.fsck.check_inode_sizes)
 
+        # Case 2
+        self.db.execute('DELETE FROM inode_blocks WHERE inode=?', (id_,))
+        self.db.execute('UPDATE inodes SET block_id=?, size=? WHERE id=?',
+                        (block_id, 129, id_))
+        self.assert_fsck(self.fsck.check_inode_sizes)
 
+        # Case 3
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
+                        (id_, 1, block_id))
+        self.db.execute('UPDATE inodes SET block_id=?, size=? WHERE id=?',
+                        (block_id, self.blocksize + 120, id_))
+        self.assert_fsck(self.fsck.check_inode_sizes)
+        
 
     def test_keylist(self):
         # Create an object that only exists in the bucket

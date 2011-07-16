@@ -94,12 +94,11 @@ class UploadManager(object):
 
         except NoSuchRowError:
             need_upload = True
-            obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(?,?)',
-                                        (1, size))
+            obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
             log.debug('add(inode=%d, blockno=%d): created new object %d',
                       el.inode, el.blockno, obj_id)
-            el.block_id = self.db.rowid('INSERT INTO blocks (refcount, hash, obj_id) VALUES(?,?,?)',
-                                        (1, hash_, obj_id))
+            el.block_id = self.db.rowid('INSERT INTO blocks (refcount, hash, obj_id, size) VALUES(?,?,?,?)',
+                                        (1, hash_, obj_id, size))
             log.debug('add(inode=%d, blockno=%d): created new block %d',
                       el.inode, el.blockno, el.block_id)
 

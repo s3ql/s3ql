@@ -334,12 +334,12 @@ def restore_legacy_metadata(ifh, conn):
 
     # Create a block for each object
     conn.execute('''
-         INSERT INTO blocks (id, hash, refcount, obj_id)
-            SELECT id, hash, refcount, id FROM leg_objects
+         INSERT INTO blocks (id, hash, refcount, obj_id, size)
+            SELECT id, hash, refcount, id, size FROM leg_objects
     ''')
     conn.execute('''
-         INSERT INTO objects (id, refcount, size, compr_size)
-            SELECT id, 1, size, compr_size FROM leg_objects
+         INSERT INTO objects (id, refcount, compr_size)
+            SELECT id, 1, compr_size FROM leg_objects
     ''')
     conn.execute('DROP TABLE leg_objects')
               

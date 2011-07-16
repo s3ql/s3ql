@@ -588,9 +588,8 @@ def create_tables(conn):
     conn.execute("""
     CREATE TABLE objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
-        refcount  INT NOT NULL,
-        size      INT NOT NULL,
-        compr_size INT                  
+        refcount  INT NOT NULL, 
+        compr_size INT  
     )""")
 
     # Table of known data blocks
@@ -600,6 +599,7 @@ def create_tables(conn):
         id        INTEGER PRIMARY KEY,
         hash      BLOB(16) UNIQUE,
         refcount  INT NOT NULL,
+        size      INT NOT NULL,    
         obj_id    INTEGER NOT NULL REFERENCES objects(id)
     )""")
                 

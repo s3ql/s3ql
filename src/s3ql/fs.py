@@ -417,7 +417,7 @@ class Operations(llfuse.Operations):
                     # TODO: This entire loop should be replaced by two SQL statements.
                     # But how do we handle the blockno==0 case and the in_transit check?
                     for (block_id, blockno) in db.query('SELECT block_id, blockno FROM inode_blocks '
-                                                        'WHERE inode=? UNION block_id, 0 FROM inodes '
+                                                        'WHERE inode=? UNION SELECT block_id, 0 FROM inodes '
                                                         'WHERE id=?', (id_, id_)):
                         processed += 1
                         if blockno == 0:
@@ -780,7 +780,7 @@ class Operations(llfuse.Operations):
         blocks = self.db.get_val("SELECT COUNT(id) FROM objects")
         inodes = self.db.get_val("SELECT COUNT(id) FROM inodes")
         fs_size = self.db.get_val('SELECT SUM(size) FROM inodes') or 0
-        dedup_size = self.db.get_val('SELECT SUM(size) FROM objects') or 0
+        dedup_size = self.db.get_val('SELECT SUM(size) FROM blocks') or 0
         compr_size = self.db.get_val('SELECT SUM(compr_size) FROM objects') or 0
 
         return struct.pack('QQQQQQQ', entries, blocks, inodes, fs_size, dedup_size,
@@ -793,7 +793,7 @@ class Operations(llfuse.Operations):
         # Get number of blocks & inodes
         blocks = self.db.get_val("SELECT COUNT(id) FROM objects")
         inodes = self.db.get_val("SELECT COUNT(id) FROM inodes")
-        size = self.db.get_val('SELECT SUM(size) FROM objects')
+        size = self.db.get_val('SELECT SUM(size) FROM blocks')
 
         if size is None:
             size = 0

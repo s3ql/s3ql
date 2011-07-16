@@ -164,8 +164,8 @@ class Fsck(object):
     
         timestamp = time.time() - time.timezone
         try:
-            inode_l = self.conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
-                                        (b"lost+found", ROOT_INODE))
+            inode_l = self.conn.get_val("SELECT inode FROM contents JOIN names ON name_id == names.id "
+                                        "WHERE name=? AND parent_inode=?", (b"lost+found", ROOT_INODE))
     
         except NoSuchRowError:
             self.found_errors = True
@@ -197,8 +197,8 @@ class Fsck(object):
 
         log.info('Checking directory entry names...')
         
-        for (name, id_p) in self.conn.query('SELECT name, parent_inode FROM contents '
-                                            'WHERE LENGTH(name) > 255'):
+        for (name, id_p) in self.conn.query('SELECT name, parent_inode FROM contents JOIN names '
+                                            'ON name_id == names.id WHERE LENGTH(name) > 255'):
             path = get_path(id_p, self.conn, name)
             self.log_error('Entry name %s... in %s has more than 255 characters, '
                            'this could cause problems', name[:40], path[:-len(name)])
@@ -242,26 +242,33 @@ class Fsck(object):
         log.info('Checking inodes (sizes)...')
     
         self.conn.execute('CREATE TEMPORARY TABLE min_sizes '
-                     '(id INTEGER PRIMARY KEY, min_size INTEGER NOT NULL)')
+                          '(id INTEGER NOT NULL, min_size INTEGER NOT NULL)')
         try:
+            # Block 0
+            self.conn.execute('''INSERT INTO min_sizes (id, min_size) 
+                         SELECT inodes.id, blocks.size 
+                         FROM inodes JOIN blocks ON block_id = blocks.id''') 
+            
+            # Remaining blocks
             self.conn.execute('''INSERT INTO min_sizes (id, min_size) 
                          SELECT inode, MAX(blockno * ? + size) 
-                         FROM blocks JOIN objects ON obj_id == id 
+                         FROM inode_blocks JOIN blocks ON block_id == id 
                          GROUP BY inode''',
                          (self.blocksize,))
             
             self.conn.execute('''
                CREATE TEMPORARY TABLE wrong_sizes AS 
-               SELECT id, size, min_size
-                 FROM inodes JOIN min_sizes USING (id) 
-                WHERE size < min_size''')
+               SELECT id, size, MAX(min_size)
+                 FROM inodes JOIN min_sizes USING (id)
+                GROUP BY id
+                HAVING size < MAX(min_size)''')
             
             for (id_, size_old, size) in self.conn.query('SELECT * FROM wrong_sizes'):
                 
                 self.found_errors = True
                 self.log_error("Size of inode %d (%s) does not agree with number of blocks, "
-                          "setting from %d to %d",
-                          id_, get_path(id_, self.conn), size_old, size)
+                               "setting from %d to %d",
+                               id_, get_path(id_, self.conn), size_old, size)
                 self.conn.execute("UPDATE inodes SET size=? WHERE id=?", (size, id_))
         finally:
             self.conn.execute('DROP TABLE min_sizes')
