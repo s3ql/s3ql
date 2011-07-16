@@ -281,7 +281,13 @@ class Fsck(object):
         else:
             self.conn.execute('UPDATE names SET refcount=refcount+1 WHERE id=?', (name_id,))
         return name_id
-                        
+
+    def _del_name(self, name_id):
+        '''Decrease refcount for name_id, remove if it reaches 0'''
+        
+        self.conn.execute('UPDATE names SET refcount=refcount-1 WHERE id=?', (name_id,))
+        self.conn.execute('DELETE FROM names WHERE refcount=0 AND name_id=?', (name_id,))
+                            
     def check_inode_refcount(self):
         """Check inode reference counters"""
     
@@ -549,7 +555,7 @@ class Fsck(object):
                     self.found_errors = True
                     self.log_error("Deleted spurious object %d",  obj_id)                    
                 except NoSuchObject:
-                    if self.bucket.read_after_write_consistent():
+                    if self.bucket.read_after_delete_consistent():
                         raise
         
             self.conn.execute('CREATE TEMPORARY TABLE missing AS '
@@ -559,7 +565,6 @@ class Fsck(object):
                 self.found_errors = True
                 self.log_error("object %s only exists in table but not in bucket, deleting", obj_id)
                 
-                # FIXME: Use names table
                 for (id_,) in self.conn.query('SELECT inode FROM blocks WHERE obj_id=?', (obj_id,)):
 
                     # Same file may lack several blocks, but we want to move it 
@@ -568,16 +573,18 @@ class Fsck(object):
                         continue
                     moved_inodes.add(id_)
                       
-                    for (name, id_p) in self.conn.query('SELECT name, parent_inode FROM contents JOIN names '
-                                                        'ON name_id == names.id WHERE inode=?', (id_,)):
+                    for (name, name_id, id_p) in self.conn.query('SELECT name, name_id, parent_inode '
+                                                                 'FROM contents JOIN names '
+                                                                 'ON name_id == names.id WHERE inode=?', (id_,)):
                         path = get_path(id_p, self.conn, name)
                         self.log_error("File may lack data, moved to /lost+found: %s", path)
                         (_, newname) = self.resolve_free(b"/lost+found",
                                                             path[1:].replace('_', '__').replace('/', '_')) 
                             
-                        self.conn.execute('UPDATE contents SET name=?, parent_inode=? '
-                                          'WHERE name=? AND parent_inode=?', 
-                                          (newname, lof_id, name, id_p))
+                        self.conn.execute('UPDATE contents SET name_id=?, parent_inode=? '
+                                          'WHERE name_id=? AND parent_inode=?', 
+                                          (self._add_name(newname), lof_id, name_id, id_p))
+                        self._del_name(name_id)
                         
                 self.conn.execute("DELETE FROM blocks WHERE obj_id=?", (obj_id,))
                 self.conn.execute("DELETE FROM objects WHERE id=?", (obj_id,))

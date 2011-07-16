@@ -354,7 +354,6 @@ def inode_for_path(path, conn):
 
     return inode
 
-# FIXME: Use names table
 def get_path(id_, conn, name=None):
     """Return a full path for inode `id_`.
     
@@ -372,9 +371,9 @@ def get_path(id_, conn, name=None):
 
     maxdepth = 255
     while id_ != ROOT_INODE:
-        # This can be ambigious if directories are hardlinked
-        (name2, id_) = conn.get_row("SELECT name, parent_inode FROM contents WHERE inode=? LIMIT 1",
-                                    (id_,))
+        # This can be ambiguous if directories are hardlinked
+        (name2, id_) = conn.get_row("SELECT name, parent_inode FROM contents JOIN names "
+                                    "ON name_id == names.id WHERE inode=? LIMIT 1", (id_,))
         path.append(name2)
         maxdepth -= 1
         if maxdepth == 0:
