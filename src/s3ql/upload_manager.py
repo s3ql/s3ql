@@ -87,6 +87,8 @@ class UploadManager(object):
         else:
             hash_ = sha256_fh(el)
         
+        # Check if we need to upload a new block, or can link
+        # to an existing block
         try:
             el.block_id = self.db.get_val('SELECT id FROM blocks WHERE hash=?', (hash_,))
 
@@ -116,6 +118,7 @@ class UploadManager(object):
             self.db.execute('UPDATE blocks SET refcount=refcount+1 WHERE id=?',
                             (el.block_id,))
             
+        # Check if we have to remove an old block
         to_delete = False
         if old_block_id is None:
             log.debug('add(inode=%d, blockno=%d): no previous object',
@@ -140,7 +143,7 @@ class UploadManager(object):
             else:
                 log.debug('add(inode=%d, blockno=%d): removing prev. block %d',
                           el.inode, el.blockno, old_block_id)
-                old_obj_id = self.db.execute('SELECT obj_id FROM blocks WHERE id=?', (old_block_id,))
+                old_obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (old_block_id,))
                 self.db.execute('DELETE FROM blocks WHERE id=?', (old_block_id,))
                 refcount = self.db.get_val('SELECT refcount FROM objects WHERE id=?', (old_obj_id,))
                 if refcount > 1:
