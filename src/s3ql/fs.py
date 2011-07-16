@@ -550,8 +550,10 @@ class Operations(llfuse.Operations):
         # symlinks directly, it will read the corresponding number of \0
         # bytes.
         inode = self._create(id_p, name, mode, ctx, size=len(target))
-        self.db.execute('INSERT INTO symlink_targets (inode, target) VALUE(?,?)',
+        self.db.execute('INSERT INTO symlink_targets (inode, target) VALUES(?,?)',
                         (inode.id, target))
+        
+        return inode
 
     def rename(self, id_p_old, name_old, id_p_new, name_new):
         if name_new == CTRL_NAME or name_old == CTRL_NAME:
