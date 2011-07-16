@@ -48,7 +48,7 @@ class CacheEntry(file):
 
     """
 
-    __slots__ = [ 'dirty', 'obj_id', 'inode', 'blockno', 'last_access',
+    __slots__ = [ 'dirty', 'block_id', 'inode', 'blockno', 'last_access',
                   'modified_after_upload' ]
 
     def __init__(self, inode, blockno, block_id, filename, mode):
@@ -221,6 +221,8 @@ class BlockCache(object):
                 try:
                     if blockno == 0:
                         block_id = self.db.get_val('SELECT block_id FROM inodes WHERE id=?', (inode,))
+                        if block_id is None:
+                            raise NoSuchRowError()
                     else:
                         block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
                                                    'WHERE inode=? AND blockno=?', (inode, blockno))                    
@@ -372,7 +374,7 @@ class BlockCache(object):
                 else:
                     os.unlink(el.name)
 
-                if el.obj_id is None:
+                if el.block_id is None:
                     log.debug('remove(inode=%d, blockno=%d): block only in cache',
                               inode, blockno)
                     continue
