@@ -414,6 +414,10 @@ class Operations(llfuse.Operations):
                     if inode.refcount != 1:
                         id_cache[id_] = id_new
     
+                    db.execute('INSERT INTO symlink_targets (inode, target) '
+                               'SELECT ?, target FROM symlink_targets WHERE inode=?',
+                               (id_new, id_))
+                    
                     # TODO: This entire loop should be replaced by two SQL statements.
                     # But how do we handle the blockno==0 case and the in_transit check?
                     for (block_id, blockno) in db.query('SELECT block_id, blockno FROM inode_blocks '
