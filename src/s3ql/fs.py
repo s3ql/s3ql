@@ -611,6 +611,8 @@ class Operations(llfuse.Operations):
             self.db.execute('UPDATE names SET refcount=refcount-1 WHERE id=?', (name_id,))
         else:
             self.db.execute('DELETE FROM names WHERE id=?', (name_id,))
+            
+        return name_id
                    
     def _rename(self, id_p_old, name_old, id_p_new, name_new):
         timestamp = time.time()
