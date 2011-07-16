@@ -126,7 +126,7 @@ def get_backend(storage_url, homedir, use_ssl):
     up properly. 
     '''
 
-    from .backends import s3, local, ftp
+    from .backends import s3, local
 
     if storage_url.startswith('local://'):
         conn = local.Connection()
@@ -151,11 +151,7 @@ def get_backend(storage_url, homedir, use_ssl):
         (backend, host, port, bucketname) = match.groups()
         (login, password) = get_backend_credentials(homedir, backend, host)
 
-        if backend == 'ftp' and not use_ssl:
-            conn = ftp.Connection(host, port, login, password)
-        elif backend == 'ftps':
-            conn = ftp.TLSConnection(host, port, login, password)
-        elif backend == 'sftp':
+        if backend == 'sftp':
             from .backends import sftp
             conn = sftp.Connection(host, port, login, password)
         else:
