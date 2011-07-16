@@ -163,8 +163,8 @@ class Fsck(object):
     
         timestamp = time.time() - time.timezone
         try:
-            inode_l = self.conn.get_val("SELECT inode FROM contents_v "
-                                        "WHERE name=? AND parent_inode=?", (b"lost+found", ROOT_INODE))
+            (inode_l, name_id) = self.conn.get_row("SELECT inode, name_id FROM contents_v "
+                                                   "WHERE name=? AND parent_inode=?", (b"lost+found", ROOT_INODE))
     
         except NoSuchRowError:
             self.found_errors = True
@@ -173,8 +173,8 @@ class Fsck(object):
                                       "VALUES (?,?,?,?,?,?,?)",
                                       (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
                                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
-            self.conn.execute("INSERT INTO contents (name, inode, parent_inode) VALUES(?,?,?)",
-                              (b"lost+found", inode_l, ROOT_INODE))
+            self.conn.execute("INSERT INTO contents (name_id, inode, parent_inode) VALUES(?,?,?)",
+                              (self._add_name(b"lost+found"), inode_l, ROOT_INODE))
     
     
         mode = self.conn.get_val('SELECT mode FROM inodes WHERE id=?', (inode_l,))
@@ -188,8 +188,8 @@ class Fsck(object):
                                       "VALUES (?,?,?,?,?,?,?)",
                                       (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
                                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 2))
-            self.conn.execute('UPDATE contents SET inode=? WHERE name=? AND parent_inode=?',
-                              (inode_l, b"lost+found", ROOT_INODE))
+            self.conn.execute('UPDATE contents SET inode=? WHERE name_id=? AND parent_inode=?',
+                              (inode_l, name_id, ROOT_INODE))
     
     def check_contents(self):
         """Check direntry names"""
@@ -339,9 +339,8 @@ class Fsck(object):
         try:
             self.conn.execute('''
                INSERT INTO refcounts (id, refcount) 
-                 SELECT block_id, SUM(count)  
-                 FROM (SELECT block_id, 1 AS count FROM inodes WHERE block_id IS NOT NULL
-                       UNION SELECT block_id, COUNT(block_id) AS count FROM inode_blocks GROUP BY block_id)
+                 SELECT block_id, COUNT(blockno)  
+                 FROM inode_blocks_v
                  GROUP BY block_id
             ''')
             
@@ -432,8 +431,8 @@ class Fsck(object):
     
         log.info('Checking inodes (types)...')
     
-        for (inode, mode, size, target, rdev, block_id) \
-            in self.conn.query("SELECT id, mode, size, target, rdev, block_id "
+        for (inode, mode, size, target, rdev) \
+            in self.conn.query("SELECT id, mode, size, target, rdev "
                                "FROM inodes LEFT JOIN symlink_targets ON id = inode"):
     
             if stat.S_ISLNK(mode) and target is None: 
@@ -477,8 +476,7 @@ class Fsck(object):
                                inode, get_path(inode, self.conn))
     
             if (not stat.S_ISREG(mode) and 
-                (block_id is not None
-                 or self.conn.has_val('SELECT 1 FROM inode_blocks WHERE inode=? LIMIT 1', (inode,)))):
+                self.conn.has_val('SELECT 1 FROM inode_blocks_v WHERE inode=?', (inode,))):
                 self.found_errors = True
                 self.log_error('Inode %d (%s) is not a regular file but has data blocks. '
                                'This is probably going to confuse your system!',
