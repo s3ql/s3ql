@@ -124,13 +124,8 @@ class Fsck(object):
                 self.conn.execute('UPDATE blocks SET refcount=refcount+1 WHERE id=?', (block_id,))                         
     
             try:
-                if blockno == 0:
-                    old_block_id = self.conn.get_val('SELECT block_id FROM inodes WHERE inode=?',
-                                                     (inode,))
-                else:
-                    old_block_id = self.conn.get_val('SELECT block_id FROM inode_blocks '
-                                                     'WHERE inode=? AND blockno=?',
-                                                     (inode, blockno))
+                old_block_id = self.conn.get_val('SELECT block_id FROM inode_blocks_v '
+                                                 'WHERE inode=? AND blockno=?', (inode, blockno))
             except NoSuchRowError:
                 if blockno == 0:
                     self.conn.execute('UPDATE inodes SET block_id=? WHERE id=?',

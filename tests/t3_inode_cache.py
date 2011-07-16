@@ -35,7 +35,6 @@ class cache_tests(TestCase):
                  'uid': 7,
                  'gid': 2,
                  'size': 34674,
-                 'target': 'foobar',
                  'rdev': 11,
                  'atime': time.time(),
                  'ctime': time.time(),
@@ -46,15 +45,13 @@ class cache_tests(TestCase):
         for key in attrs.keys():
             self.assertEqual(attrs[key], getattr(inode, key))
 
-        self.assertTrue(self.db.has_val('SELECT 1 FROM inodes WHERE id=?',
-                                          (inode.id,)))
+        self.assertTrue(self.db.has_val('SELECT 1 FROM inodes WHERE id=?', (inode.id,)))
 
 
     def test_del(self):
         attrs = {'mode': 784,
                 'refcount': 3,
                 'uid': 7,
-                'target': 'foobar',
                 'gid': 2,
                 'size': 34674,
                 'rdev': 11,
@@ -71,7 +68,6 @@ class cache_tests(TestCase):
                 'refcount': 3,
                 'uid': 7,
                 'gid': 2,
-                'target': 'foobar',
                 'size': 34674,
                 'rdev': 11,
                 'atime': time.time(),

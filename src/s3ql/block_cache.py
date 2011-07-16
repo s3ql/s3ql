@@ -379,11 +379,8 @@ class BlockCache(object):
 
             else:
                 try:
-                    if blockno == 0:
-                        block_id = self.db.get_val('SELECT block_id FROM inodes WHERE id=?', (inode,))
-                    else:
-                        block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
-                                                   'WHERE inode=? AND blockno=?', (inode, blockno))   
+                    block_id = self.db.get_val('SELECT block_id FROM inode_blocks_v '
+                                               'WHERE inode=? AND blockno=?', (inode, blockno))   
                 except NoSuchRowError:
                     log.debug('remove(inode=%d, blockno=%d): block does not exist',
                               inode, blockno)
