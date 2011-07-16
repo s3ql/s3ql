@@ -163,7 +163,7 @@ class Fsck(object):
     
         timestamp = time.time() - time.timezone
         try:
-            inode_l = self.conn.get_val("SELECT inode FROM contents JOIN names ON name_id == names.id "
+            inode_l = self.conn.get_val("SELECT inode FROM contents_v "
                                         "WHERE name=? AND parent_inode=?", (b"lost+found", ROOT_INODE))
     
         except NoSuchRowError:
@@ -196,8 +196,8 @@ class Fsck(object):
 
         log.info('Checking directory entry names...')
         
-        for (name, id_p) in self.conn.query('SELECT name, parent_inode FROM contents JOIN names '
-                                            'ON name_id == names.id WHERE LENGTH(name) > 255'):
+        for (name, id_p) in self.conn.query('SELECT name, parent_inode FROM contents_v '
+                                            'WHERE LENGTH(name) > 255'):
             path = get_path(id_p, self.conn, name)
             self.log_error('Entry name %s... in %s has more than 255 characters, '
                            'this could cause problems', name[:40], path[:-len(name)])
@@ -246,11 +246,7 @@ class Fsck(object):
             self.conn.execute('''
             INSERT INTO min_sizes (id, min_size) 
             SELECT inode, MAX(blockno * ? + size) 
-            FROM (
-                SELECT id as inode, block_id, 0 AS blockno FROM inodes WHERE block_id IS NOT NULL
-                UNION
-                SELECT inode, block_id, blockno FROM inode_blocks
-            ) JOIN blocks ON block_id == blocks.id 
+            FROM inode_blocks_v JOIN blocks ON block_id == blocks.id 
             GROUP BY inode''', (self.blocksize,))
             
             self.conn.execute('''
@@ -535,7 +531,7 @@ class Fsck(object):
     
         log.info('Checking object list...')
     
-        lof_id = self.conn.get_val("SELECT inode FROM contents JOIN names ON name_id = names.id "
+        lof_id = self.conn.get_val("SELECT inode FROM contents_v "
                                    "WHERE name=? AND parent_inode=?", (b"lost+found", ROOT_INODE))
     
         # We use this table to keep track of the objects that we have seen
@@ -568,7 +564,8 @@ class Fsck(object):
                 self.found_errors = True
                 self.log_error("object %s only exists in table but not in bucket, deleting", obj_id)
                 
-                for (id_,) in self.conn.query('SELECT inode FROM blocks WHERE obj_id=?', (obj_id,)):
+                for (id_,) in self.conn.query('SELECT inode FROM inode_blocks_v JOIN blocks ON block_id = id '
+                                              'WHERE obj_id=?', (obj_id,)):
 
                     # Same file may lack several blocks, but we want to move it 
                     # only once
@@ -577,8 +574,7 @@ class Fsck(object):
                     moved_inodes.add(id_)
                       
                     for (name, name_id, id_p) in self.conn.query('SELECT name, name_id, parent_inode '
-                                                                 'FROM contents JOIN names '
-                                                                 'ON name_id == names.id WHERE inode=?', (id_,)):
+                                                                 'FROM contents_v WHERE inode=?', (id_,)):
                         path = get_path(id_p, self.conn, name)
                         self.log_error("File may lack data, moved to /lost+found: %s", path)
                         (_, newname) = self.resolve_free(b"/lost+found",
@@ -618,7 +614,7 @@ class Fsck(object):
         name += b'-'
         try:
             while True:
-                self.conn.get_val("SELECT inode FROM contents JOIN names ON name_id = names.id "
+                self.conn.get_val("SELECT inode FROM contents_v "
                                   "WHERE name=? AND parent_inode=?", (newname, inode_p))
                 i += 1
                 newname = name + bytes(i)

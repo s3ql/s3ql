@@ -347,8 +347,8 @@ def inode_for_path(path, conn):
     inode = ROOT_INODE
     for el in path.split(b'/'):
         try:
-            inode = conn.get_val("SELECT inode FROM contents JOIN names ON name_id = names.id "
-                                 "WHERE name=? AND parent_inode=?", (el, inode))
+            inode = conn.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?", 
+                                 (el, inode))
         except NoSuchRowError:
             raise KeyError('Path %s does not exist' % path)
 
@@ -372,8 +372,8 @@ def get_path(id_, conn, name=None):
     maxdepth = 255
     while id_ != ROOT_INODE:
         # This can be ambiguous if directories are hardlinked
-        (name2, id_) = conn.get_row("SELECT name, parent_inode FROM contents JOIN names "
-                                    "ON name_id == names.id WHERE inode=? LIMIT 1", (id_,))
+        (name2, id_) = conn.get_row("SELECT name, parent_inode FROM contents_v "
+                                    "WHERE inode=? LIMIT 1", (id_,))
         path.append(name2)
         maxdepth -= 1
         if maxdepth == 0:
@@ -679,3 +679,16 @@ def create_tables(conn):
  
         PRIMARY KEY (inode, name)               
     )""")
+
+    # Shortcurts
+    conn.execute("""
+    CREATE VIEW contents_v AS
+    SELECT * FROM contents JOIN names ON names.id = name_id       
+    """)    
+    
+    conn.execute("""
+    CREATE VIEW inode_blocks_v AS
+    SELECT * FROM inode_blocks
+    UNION
+    SELECT id as inode, 0 as blockno, block_id FROM inodes WHERE block_id IS NOT NULL       
+    """)        

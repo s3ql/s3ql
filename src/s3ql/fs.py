@@ -141,8 +141,8 @@ class Operations(llfuse.Operations):
             return self.inodes[id_]
 
         try:
-            id_ = self.db.get_val("SELECT inode FROM contents JOIN names ON name_id = names.id "
-                                  "WHERE name=? AND parent_inode=?", (name, id_p))
+            id_ = self.db.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
+                                  (name, id_p))
         except NoSuchRowError:
             raise(llfuse.FUSEError(errno.ENOENT))
         return self.inodes[id_]
@@ -194,8 +194,8 @@ class Operations(llfuse.Operations):
 
         # The ResultSet is automatically deleted
         # when yield raises GeneratorExit.  
-        res = self.db.query("SELECT rowid, name, inode FROM contents JOIN names ON name_id = names.id "
-                            'WHERE parent_inode=? AND contents.rowid > ? ORDER BY rowid', (id_, off))
+        res = self.db.query("SELECT rowid, name, inode FROM contents_v "
+                            'WHERE parent_inode=? AND contents_v.rowid > ? ORDER BY rowid', (id_, off))
         for (next_, name, cid_) in res:
             yield (name, self.inodes[cid_], next_)
 

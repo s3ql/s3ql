@@ -106,16 +106,28 @@ class fsck_tests(TestCase):
 
         # Create an inode with wrong refcount
         inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
-                           "VALUES (?,?,?,?,?,?,?,?)",
-                           (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
-                            0, 0, time.time(), time.time(), time.time(), 1, 0))
-        self.db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
-                     (b'name1', inode, ROOT_INODE))
-        self.db.execute('INSERT INTO contents (name, inode, parent_inode) VALUES(?, ?, ?)',
-                     (b'name2', inode, ROOT_INODE))
-
+                              "VALUES (?,?,?,?,?,?,?,?)",
+                              (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
+                               0, 0, time.time(), time.time(), time.time(), 1, 0))
+        self._link('name1', inode)
+        self._link('name2', inode)
+        
         self.assert_fsck(self.fsck.check_inode_refcount)
 
+    def test_name_refcount(self):
+
+        # Create inode
+        inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                              "VALUES (?,?,?,?,?,?,?,?)",
+                              (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
+                               0, 0, time.time(), time.time(), time.time(), 1, 0))
+        self._link('name1', inode)
+        self._link('name2', inode)
+        
+        self.db.execute('UPDATE names SET refcount=refcount+1 WHERE name=?', ('name1',))
+        
+        self.assert_fsck(self.fsck.check_name_refcount)
+        
     def _link(self, name, inode):
         '''Link /*name* to *inode*'''
 
@@ -171,8 +183,7 @@ class fsck_tests(TestCase):
         self.assert_fsck(self.fsck.check_keylist)
 
         # Create an object that does not exist in the bucket
-        self.db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
-                          (34, 1, 0))
+        self.db.execute('INSERT INTO objects (id, refcount) VALUES(?, ?)', (34, 1))
         self.assert_fsck(self.fsck.check_keylist)
 
     @staticmethod

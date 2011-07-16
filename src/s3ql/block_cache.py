@@ -219,13 +219,8 @@ class BlockCache(object):
                 filename = os.path.join(self.cachedir,
                                         'inode_%d_block_%d' % (inode, blockno))
                 try:
-                    if blockno == 0:
-                        block_id = self.db.get_val('SELECT block_id FROM inodes WHERE id=?', (inode,))
-                        if block_id is None:
-                            raise NoSuchRowError()
-                    else:
-                        block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
-                                                   'WHERE inode=? AND blockno=?', (inode, blockno))                    
+                    block_id = self.db.get_val('SELECT block_id FROM inode_blocks_v '
+                                               'WHERE inode=? AND blockno=?', (inode, blockno))                    
     
                 # No corresponding object
                 except NoSuchRowError:
