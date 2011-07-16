@@ -8,7 +8,7 @@ algorithm that maximizes throughput.
 ---
 Copyright (C) 2010 Nikolaus Rath <Nikolaus@rath.org>
 
-This program can be distributed under the terms of the GNU LGPL.
+This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
@@ -39,8 +39,6 @@ def parse_args(args):
     '''Parse command line'''
 
     parser = ArgumentParser(
-        usage="%prog [options] <storage-url> <test-file>\n"
-              "%prog --help",
         description="Transfers and compresses the test file and gives a recommendation "
                     "for the compression algorithm to use.")
 

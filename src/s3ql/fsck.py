@@ -3,7 +3,7 @@ fsck.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 
-This program can be distributed under the terms of the GNU LGPL.
+This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
@@ -529,8 +529,7 @@ class Fsck(object):
         lof_id = self.conn.get_val("SELECT inode FROM contents WHERE name=? AND parent_inode=?",
                               (b"lost+found", ROOT_INODE))
     
-        # We use this table to keep track of the objects that we have
-        # seen
+        # We use this table to keep track of the objects that we have seen
         self.conn.execute("CREATE TEMP TABLE obj_ids (id INTEGER PRIMARY KEY)")
         try:
             for (i, obj_name) in enumerate(self.bucket.list('s3ql_data_')):
@@ -555,16 +554,24 @@ class Fsck(object):
         
             self.conn.execute('CREATE TEMPORARY TABLE missing AS '
                               'SELECT id FROM objects EXCEPT SELECT id FROM obj_ids')
+            moved_inodes = set()
             for (obj_id,) in self.conn.query('SELECT * FROM missing'):
                 self.found_errors = True
                 self.log_error("object %s only exists in table but not in bucket, deleting", obj_id)
-                self.log_error("The following files may lack data and have been moved to /lost+found:")
+                
                 # FIXME: Use names table
                 for (id_,) in self.conn.query('SELECT inode FROM blocks WHERE obj_id=?', (obj_id,)):
+
+                    # Same file may lack several blocks, but we want to move it 
+                    # only once
+                    if id_ in moved_inodes:
+                        continue
+                    moved_inodes.add(id_)
+                      
                     for (name, id_p) in self.conn.query('SELECT name, parent_inode FROM contents JOIN names '
                                                         'ON name_id == names.id WHERE inode=?', (id_,)):
                         path = get_path(id_p, self.conn, name)
-                        self.log_error(path)
+                        self.log_error("File may lack data, moved to /lost+found: %s", path)
                         (_, newname) = self.resolve_free(b"/lost+found",
                                                             path[1:].replace('_', '__').replace('/', '_')) 
                             
@@ -591,6 +598,11 @@ class Fsck(object):
     
         inode_p = inode_for_path(path, self.conn)
     
+        # Debugging http://code.google.com/p/s3ql/issues/detail?id=217
+        # and http://code.google.com/p/s3ql/issues/detail?id=261
+        if len(name) > 255-4:
+            name = '%s ... %s' % (name[0:120], name[-120:])
+            
         i = 0
         newname = name
         name += b'-'
@@ -604,7 +616,4 @@ class Fsck(object):
         except NoSuchRowError:
             pass
     
-        # Debugging http://code.google.com/p/s3ql/issues/detail?id=217
-        assert len(newname) < 256
-                        
         return (inode_p, newname)

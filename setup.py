@@ -4,7 +4,7 @@ setup.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 
-This program can be distributed under the terms of the GNU LGPL.
+This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function
@@ -112,11 +112,11 @@ def main():
           author_email='Nikolaus@rath.org',
           url='http://code.google.com/p/s3ql/',
           download_url='http://code.google.com/p/s3ql/downloads/list',
-          license='LGPL',
+          license='GPLv3',
           classifiers=['Development Status :: 4 - Beta',
                        'Environment :: No Input/Output (Daemon)',
                        'Environment :: Console',
-                       'License :: OSI Approved :: GNU Library or Lesser General Public License (LGPL)',
+                       'License :: OSI Approved :: GNU Library or Lesser General Public License (GPLv3)',
                        'Topic :: Internet',
                        'Operating System :: POSIX',
                        'Topic :: System :: Archiving'],
