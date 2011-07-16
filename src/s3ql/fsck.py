@@ -114,10 +114,9 @@ class Fsck(object):
                 (block_id, obj_id) = self.conn.get_val('SELECT id, obj_id FROM blocks WHERE hash=?', (hash_,))
                 
             except NoSuchRowError:
-                obj_id = self.conn.rowid('INSERT INTO objects (refcount, size) VALUES(?, ?, ?)',
-                                         (1, size))
-                block_id = self.conn.rowid('INSERT INTO blocks (refcount, hash, obj_id) VALUES(?, ?, ?)',
-                                           (1, hash_, obj_id))
+                obj_id = self.conn.rowid('INSERT INTO objects (refcount) VALUES(1)')
+                block_id = self.conn.rowid('INSERT INTO blocks (refcount, hash, obj_id, size) '
+                                           'VALUES(?, ?, ?, ?)', (1, hash_, obj_id, size))
                 self.conn.execute('UPDATE objects SET compr_size=? WHERE id=?', 
                                   (self.bucket.store_fh('s3ql_data_%d' % obj_id, fh), obj_id))
     
@@ -319,7 +318,7 @@ class Fsck(object):
                 if cnt is None:
                     (id_p, name) = self.resolve_free(b"/lost+found", b"inode-%d" % id_)
                     self.log_error("Inode %d not referenced, adding as /lost+found/%s", id_, name)
-                    self.conn.execute("INSERT INTO contents (name, inode, parent_inode) "
+                    self.conn.execute("INSERT INTO contents (name_id, inode, parent_inode) "
                                       "VALUES (?,?,?)", (self._add_name(basename(name)), id_, id_p))
                     self.conn.execute("UPDATE inodes SET refcount=? WHERE id=?", (1, id_))
         
