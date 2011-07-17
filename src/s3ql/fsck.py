@@ -46,8 +46,6 @@ class Fsck(object):
         
         Sets instance variable `found_errors`.
         """
-    
-        # TODO: Check that all foreign keys actually resolve
         
         # Create indices required for reference checking
         log.info('Creating temporary extra indices...')
@@ -56,6 +54,7 @@ class Fsck(object):
         self.conn.execute('CREATE INDEX tmp3 ON inodes(block_id)')
         self.conn.execute('CREATE INDEX tmp4 ON contents(inode)')
         try:
+            self.check_foreign_keys()
             self.check_cache()
             self.check_lof()
             self.check_name_refcount()
@@ -77,7 +76,37 @@ class Fsck(object):
     
         if not self.expect_errors:
             return log.warn(*a, **kw)
-    
+        
+    def check_foreign_keys(self):
+        '''Check for referential integrity
+        
+        Checks that all foreign keys in the SQLite tables actually resolve.
+        This is necessary, because we disable runtime checking by SQLite 
+        for performance reasons.
+        '''
+        
+        log.info("Checking referential integrity...")
+        
+        for (table,) in self.conn.query("SELECT name FROM sqlite_master WHERE type='table'"):
+            for row in self.conn.query('PRAGMA foreign_key_list(%s)' % table):
+                sql_objs = { 'src_table': table,
+                            'dst_table': row[2],
+                            'src_col': row[3],
+                            'dst_col': row[4] }
+                for (val,) in self.conn.query('SELECT %(src_table)s.%(src_col)s '
+                                              'FROM %(src_table)s LEFT JOIN %(dst_table)s '
+                                              'ON %(src_table)s.%(src_col)s = %(dst_table)s.%(dst_col)s '
+                                              'WHERE %(dst_table)s.%(dst_col)s IS NULL '
+                                              'AND %(src_table)s.%(src_col)s IS NOT NULL'
+                                              % sql_objs):
+                    self.found_errors = True
+                    self.uncorrectable_errors = True
+                    sql_objs['val'] = val
+                    self.log_error('%(src_table)s.%(src_col)s refers to non-existing key %(val)s '
+                                   'in %(dst_table)s.%(dst_col)s!', sql_objs)
+                    self.log_error("Don't know how to fix this problem!")
+        
+        
     def check_cache(self):
         """Commit uncommitted cache files"""
     
