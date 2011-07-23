@@ -94,7 +94,12 @@ def lazy_umount(mountpoint):
     found_errors = False
     if not warn_if_error(mountpoint):
         found_errors = True
-    umount_cmd = ('fusermount', '-u', '-z', mountpoint)
+        
+    if os.getuid() == 0:
+        umount_cmd = ('umount', '-l', mountpoint)
+    else:
+        umount_cmd = ('fusermount', '-u', '-z', mountpoint)
+    
     if not subprocess.call(umount_cmd) == 0:
         found_errors = True
 
@@ -140,7 +145,13 @@ def blocking_umount(mountpoint):
     log.debug('Unmounting...')
     # This seems to be necessary to prevent weird busy errors
     time.sleep(3)
-    if subprocess.call(['fusermount', '-u', mountpoint]) != 0:
+    
+    if os.getuid() == 0:
+        umount_cmd = ['umount', mountpoint]
+    else:
+        umount_cmd = ['fusermount', '-u', mountpoint]
+            
+    if subprocess.call(umount_cmd) != 0:
         sys.exit(1)
 
     # Wait for daemon
