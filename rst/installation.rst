@@ -33,10 +33,6 @@ that is not the case.
   so under Linux you should actually use *2.6.26 or newer whenever
   possible*.
 
-* The `FUSE Library <http://fuse.sourceforge.net/>`_ should already be
-  installed on your system. However, you have to make sure that you
-  have at least version 2.8.0. 
-
 * The `PyCrypto++ Python Module
   <http://pypi.python.org/pypi/pycryptopp>`_. To check if this module
   is installed, try to execute `python -c 'import pycryptopp'`. 
