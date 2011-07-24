@@ -157,6 +157,11 @@ def download_metadata(bucket, storage_url):
         # Don't keep file if it doesn't contain anything sensible
         os.unlink(home + '.db')
         raise
+    
+    # Raise sequence number so that fsck.s3ql actually uses the
+    # downloaded backup
+    seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
+    param['seq_no'] = max(seq_nos) + 1
     pickle.dump(param, open(home + '.params', 'wb'), 2)
     
 
