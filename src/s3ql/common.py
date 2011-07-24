@@ -666,9 +666,7 @@ def create_tables(conn):
         parent_inode INT NOT NULL REFERENCES inodes(id),
         
         UNIQUE (parent_inode, name_id)
-    );
-    CREATE INDEX ix_contents_inode ON contents(inode)
-    """)
+    )""")
 
     # Extended attributes
     conn.execute("""

@@ -11,7 +11,7 @@ from __future__ import division, print_function, absolute_import
 # We can't use relative imports because this file may
 # be directly executed.
 import sys
-from s3ql import fs, CURRENT_FS_REV
+from s3ql import fs, CURRENT_FS_REV, inode_cache
 from s3ql.daemonize import daemonize
 from s3ql.backends.common import (ChecksumError)
 from s3ql.common import (setup_logging, get_backend, get_bucket_home, get_seq_no,
@@ -76,6 +76,16 @@ def main(args=None):
         # Retrieve metadata
         (param, db) = get_metadata(bucket, home)
         
+        if options.nfs:
+            # NFS may try to look up '..', so we have to speed up this kind of query
+            db.execute('CREATE INDEX IF NOT EXISTS ix_contents_inode ON contents(inode)')
+            
+            # Since we do not support generation numbers, we have to keep the
+            # likelihood of reusing a just-deleted inode low
+            inode_cache.RANDOMIZE_INODES = True
+        else:
+            db.execute('DROP INDEX IF EXISTS ix_contents_inode')
+                           
         metadata_upload_thread = MetadataUploadThread(bucket, param, db,
                                                       options.metadata_upload_interval)
         operations = fs.Operations(bucket, db, cachedir=home + '-cache', 
@@ -357,7 +367,10 @@ def parse_args(args):
                       default=1, metavar='<no>',
                       help='Number of parallel compression and encryption threads '
                            'to use (default: %(default)s).')
-    
+    parser.add_argument("--nfs", action="store_true", default=False,
+                      help='Support export of S3QL file systems over NFS ' 
+                           '(default: %(default)s)')
+        
     options = parser.parse_args(args)
 
     if options.allow_other and options.allow_root:

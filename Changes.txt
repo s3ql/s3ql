@@ -1,3 +1,8 @@
+UNRELEASED, S3QL TIP
+
+  * There is a new --nfs option for mount.s3ql that needs to be used
+    when the S3QL file system will be exported over NFS.
+
 2011-07-23, S3QL 1.1 (development version)
 
   * Restructured metadata. This should also significantly reduce the
