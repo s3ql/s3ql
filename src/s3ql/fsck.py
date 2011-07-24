@@ -37,10 +37,9 @@ class Fsck(object):
         self.blocksize = param['blocksize']
         self.conn = conn     
         
-        # Set of blocks that have been unlinked by check inode_refcount
-        # and check_cache.
-        # check_obj_refcounts() will not report errors if these blocks
-        # still exist even though they have refcount=0 
+        # Set of blocks that have been unlinked by check_cache.
+        # check_block_refcounts() will not report errors if these blocks still
+        # exist even though they have refcount=0
         self.unlinked_blocks = set()
         
         # Similarly for objects
@@ -145,7 +144,7 @@ class Fsck(object):
             hash_ = sha256_fh(fh)
     
             try:
-                (block_id, obj_id) = self.conn.get_val('SELECT id, obj_id FROM blocks WHERE hash=?', (hash_,))
+                (block_id, obj_id) = self.conn.get_row('SELECT id, obj_id FROM blocks WHERE hash=?', (hash_,))
                 
             except NoSuchRowError:
                 obj_id = self.conn.rowid('INSERT INTO objects (refcount) VALUES(1)')
@@ -156,6 +155,7 @@ class Fsck(object):
     
             else:
                 self.conn.execute('UPDATE blocks SET refcount=refcount+1 WHERE id=?', (block_id,))                         
+    
     
             try:
                 old_block_id = self.conn.get_val('SELECT block_id FROM inode_blocks_v '
@@ -314,7 +314,7 @@ class Fsck(object):
         '''Decrease refcount for name_id, remove if it reaches 0'''
         
         self.conn.execute('UPDATE names SET refcount=refcount-1 WHERE id=?', (name_id,))
-        self.conn.execute('DELETE FROM names WHERE refcount=0 AND name_id=?', (name_id,))
+        self.conn.execute('DELETE FROM names WHERE refcount=0 AND id=?', (name_id,))
                             
     def check_inode_refcount(self):
         """Check inode reference counters"""
@@ -354,23 +354,6 @@ class Fsck(object):
         finally:
             self.conn.execute('DROP TABLE refcounts')
             self.conn.execute('DROP TABLE IF EXISTS wrong_refcounts')
-    
-    
-        # Remove inodes with refcount = 0
-        for (inode,) in self.conn.query('SELECT id FROM inodes WHERE refcount=0'):
-            self.log_error('Inode %d not referenced, removing...', inode)
-            self.found_errors = True
-            for block_id in self.conn.query('SELECT block_id FROM inode_blocks_v '
-                                            'WHERE inode=?', (inode,)):
-                self.conn.execute('UPDATE blocks SET refcount=refcount-1 '
-                                  'WHERE block_id=?', (block_id,))
-                # Block refcount has not yet been checked, so we
-                # postpone removal of refcount=0 blocks to
-                # check_block_refcount()
-                self.unlinked_blocks.add(block_id)
-                
-            self.conn.execute('DELETE FROM inode_blocks WHERE inode=?', (inode,))
-            self.conn.execute('DELETE FROM inodes WHERE id=?', (inode,))
             
         
     def check_block_refcount(self):
@@ -390,14 +373,25 @@ class Fsck(object):
             
             self.conn.execute('''
                CREATE TEMPORARY TABLE wrong_refcounts AS 
-               SELECT id, refcounts.refcount, blocks.refcount 
+               SELECT id, refcounts.refcount, blocks.refcount, obj_id 
                  FROM blocks LEFT JOIN refcounts USING (id) 
                 WHERE blocks.refcount != refcounts.refcount 
                    OR refcounts.refcount IS NULL''')
             
-            for (id_, cnt, cnt_old) in self.conn.query('SELECT * FROM wrong_refcounts'):                
-                self.found_errors = True
-                if cnt is None:
+            for (id_, cnt, cnt_old, obj_id) in self.conn.query('SELECT * FROM wrong_refcounts'):                 
+                if cnt is None and id_ in self.unlinked_blocks and cnt_old == 0:
+                    # Block was unlinked by check_cache and can now really be
+                    # removed (since we have checked that there are truly no
+                    # other references)
+                    self.conn.execute('DELETE FROM blocks WHERE id=?', (id_))
+                    
+                    # We can't remove associated objects yet, because their refcounts
+                    # might be wrong, too.
+                    self.conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?', (obj_id,))
+                    self.unlinked_objects.add(obj_id)
+                    
+                elif cnt is None:
+                    self.found_errors = True
                     (id_p, name) = self.resolve_free(b"/lost+found", b"block-%d" % id_)
                     self.log_error("Block %d not referenced, adding as /lost+found/%s", id_, name)
                     timestamp = time.time() - time.timezone
@@ -409,8 +403,9 @@ class Fsck(object):
                     self.conn.execute("INSERT INTO contents (name_id, inode, parent_inode) VALUES (?,?,?)", 
                                       (self._add_name(basename(name)), inode, id_p))
                     self.conn.execute("UPDATE blocks SET refcount=? WHERE id=?", (1, id_))
-
+                
                 else: 
+                    self.found_errors = True
                     self.log_error("Block %d has wrong reference count, setting from %d to %d",
                                    id_, cnt_old, cnt)
                     self.conn.execute("UPDATE blocks SET refcount=? WHERE id=?", (cnt, id_))
@@ -418,20 +413,6 @@ class Fsck(object):
             self.conn.execute('DROP TABLE refcounts')
             self.conn.execute('DROP TABLE IF EXISTS wrong_refcounts')    
     
-
-        # Remove blocks with refcount = 0
-        for (block_id, obj_id) in self.conn.query('SELECT id, obj_id FROM blocks WHERE refcount=0'):
-            if block_id not in self.unlinked_blocks:
-                self.log_error('Block %d not referenced, removing...', block_id)
-                self.found_errors = True
-                
-            self.conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?', (obj_id,))
-
-            # Obj refcount has not yet been checked, so we postpone removal
-            # of refcount=0 objects to check_obj_refcount()
-            self.unlinked_objects.add(obj_id)
-                
-            self.conn.execute('DELETE FROM blocks WHERE id=?', (block_id,))
                     
     def check_name_refcount(self):
         """Check name reference counters"""
@@ -465,12 +446,6 @@ class Fsck(object):
         finally:
             self.conn.execute('DROP TABLE refcounts')
             self.conn.execute('DROP TABLE IF EXISTS wrong_refcounts')    
-                
-        # Remove Names with refcount = 0
-        for (name_id,) in self.conn.query('SELECT id FROM names WHERE refcount=0'):
-            self.log_error('Name %d not referenced, removing...', name_id)
-            self.found_errors = True
-            self.conn.execute('DELETE FROM names WHERE id=?', (name_id,))
                 
     def check_inode_unix(self):
         """Check inode attributes for agreement with UNIX conventions
@@ -561,26 +536,24 @@ class Fsck(object):
                    OR refcounts.refcount IS NULL''')
             
             for (id_, cnt, cnt_old) in self.conn.query('SELECT * FROM wrong_refcounts'):
-                self.log_error("Object %s has invalid refcount, setting from %d to %d",
-                               id_, cnt_old, cnt or 0)
-                self.found_errors = True
-                if cnt is not None:
-                    self.conn.execute("UPDATE objects SET refcount=? WHERE id=?",
-                                      (cnt, id_))
-                else:
-                    # Orphaned object will be picked up by check_keylist
+                if cnt is None and id_ in self.unlinked_objects and cnt_old == 0:
+                    # Object was unlinked by check_block_refcounts
                     self.conn.execute('DELETE FROM objects WHERE id=?', (id_,))
+                    
+                else:
+                    self.found_errors = True
+                    self.log_error("Object %s has invalid refcount, setting from %d to %d",
+                                   id_, cnt_old, cnt or 0)
+
+                    if cnt is not None:
+                        self.conn.execute("UPDATE objects SET refcount=? WHERE id=?",
+                                          (cnt, id_))
+                    else:
+                        # Orphaned object will be picked up by check_keylist
+                        self.conn.execute('DELETE FROM objects WHERE id=?', (id_,))
         finally:
             self.conn.execute('DROP TABLE refcounts')
             self.conn.execute('DROP TABLE IF EXISTS wrong_refcounts')
-
-            
-        # Remove objects with refcount = 0
-        for (obj_id,) in self.conn.query('SELECT id FROM objects WHERE refcount=0'):
-            if obj_id not in self.unlinked_objects:
-                self.log_error('Object %d not referenced, removing...', obj_id)
-                self.found_errors = True
-            self.conn.execute('DELETE FROM objects WHERE id=?', (obj_id,))
             
                         
     def check_keylist(self):
@@ -613,10 +586,13 @@ class Fsck(object):
             for (obj_id,) in self.conn.query('SELECT id FROM obj_ids '
                                              'EXCEPT SELECT id FROM objects'):
                 try:
-                    del self.bucket['s3ql_data_%d' % obj_id]
-                    if obj_id not in self.unlinked_objects:
+                    if obj_id in self.unlinked_objects:
+                        del self.bucket['s3ql_data_%d' % obj_id]
+                    else:
+                        # TODO: Save the data in lost+found instead
+                        del self.bucket['s3ql_data_%d' % obj_id]
                         self.found_errors = True
-                        self.log_error("Deleted spurious object %d",  obj_id)                    
+                        self.log_error("Deleted spurious object %d",  obj_id)               
                 except NoSuchObject:
                     if self.bucket.read_after_delete_consistent():
                         raise
