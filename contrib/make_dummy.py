@@ -79,7 +79,8 @@ def main(args=None):
         except ChecksumError:
             raise QuietError('Checksum error - incorrect password?')
         
-        with get_backend(options.dest, options.authfile) as (dest_conn, dest_name):
+        with get_backend(options.dest, options.authfile,
+                         options.ssl) as (dest_conn, dest_name):
         
             if dest_name in dest_conn:
                 raise QuietError("Bucket already exists!\n"
