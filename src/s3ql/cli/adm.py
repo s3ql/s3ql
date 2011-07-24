@@ -11,7 +11,7 @@ from __future__ import division, print_function, absolute_import
 import logging
 from s3ql.common import (get_backend, QuietError, unlock_bucket,
                          cycle_metadata, dump_metadata, restore_metadata,
-                         setup_logging, get_bucket_home)
+                         setup_logging, get_bucket_cachedir)
 from s3ql.backends import s3
 from s3ql.parse_args import ArgumentParser
 from s3ql import CURRENT_FS_REV
@@ -59,14 +59,13 @@ def parse_args(args):
                 
     parser.add_debug_modules()
     parser.add_quiet()
-    parser.add_homedir()
+    parser.add_logdir()
+    parser.add_authfile()
+    parser.add_cachedir()
     parser.add_version()
     parser.add_ssl()
         
     options = parser.parse_args(args)
-    
-    if not os.path.exists(options.homedir):
-        os.mkdir(options.homedir, 0700)
         
     return options
 
@@ -77,14 +76,14 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-    setup_logging(options, 'adm.log')
+    setup_logging(options, 's3qladm.log')
 
     with get_backend(options.storage_url, 
-                     options.homedir, options.ssl) as (conn, bucketname):
-        home = get_bucket_home(options.storage_url, options.homedir)
+                     options.authfile, options.ssl) as (conn, bucketname):
+        cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
                
         if options.action == 'delete':
-            return delete_bucket(conn, bucketname, home)
+            return delete_bucket(conn, bucketname, cachepath)
 
         if not bucketname in conn:
             raise QuietError("Bucket does not exist.")
@@ -92,7 +91,7 @@ def main(args=None):
         bucket = conn.get_bucket(bucketname)
         
         try:
-            unlock_bucket(options.homedir, options.storage_url, bucket)
+            unlock_bucket(options.authfile, options.storage_url, bucket)
         except ChecksumError:
             raise QuietError('Checksum error - incorrect password?')
 
@@ -136,17 +135,17 @@ def download_metadata(bucket, storage_url):
         
     log.info('Downloading %s...', name)
     
-    home = get_bucket_home(storage_url, '.')
+    cachepath = get_bucket_cachedir(storage_url, '.')
     for i in ('.db', '.params'):
-        if os.path.exists(home + i):
-            raise QuietError('%s already exists, aborting.' % home+i)
+        if os.path.exists(cachepath + i):
+            raise QuietError('%s already exists, aborting.' % cachepath+i)
     
-    fh = os.fdopen(os.open(home + '.db', os.O_RDWR | os.O_CREAT,
+    fh = os.fdopen(os.open(cachepath + '.db', os.O_RDWR | os.O_CREAT,
                            stat.S_IRUSR | stat.S_IWUSR), 'w+b')
     param = bucket.lookup(name)
     try:
         fh.close()
-        db = Connection(home + '.db')
+        db = Connection(cachepath + '.db')
         fh = tempfile.TemporaryFile()
         bucket.fetch_fh(name, fh)
         fh.seek(0)
@@ -155,14 +154,14 @@ def download_metadata(bucket, storage_url):
         fh.close()
     except:
         # Don't keep file if it doesn't contain anything sensible
-        os.unlink(home + '.db')
+        os.unlink(cachepath + '.db')
         raise
     
     # Raise sequence number so that fsck.s3ql actually uses the
     # downloaded backup
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
     param['seq_no'] = max(seq_nos) + 1
-    pickle.dump(param, open(home + '.params', 'wb'), 2)
+    pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
     
 
 
@@ -184,7 +183,7 @@ def change_passphrase(bucket):
     bucket.passphrase = wrap_pw
     bucket['s3ql_passphrase'] = data_pw
 
-def delete_bucket(conn, bucketname, home):
+def delete_bucket(conn, bucketname, cachepath):
     print('I am about to delete the bucket %s with ALL contents.' % bucketname,
           'Please enter "yes" to continue.', '> ', sep='\n', end='')
 
@@ -194,11 +193,11 @@ def delete_bucket(conn, bucketname, home):
     log.info('Deleting...')
     
     for suffix in ('.db', '.params'):
-        name = home + suffix
+        name = cachepath + suffix
         if os.path.exists(name):
             os.unlink(name)
             
-    name = home + '-cache'
+    name = cachepath + '-cache'
     if os.path.exists(name):
         shutil.rmtree(name)
         

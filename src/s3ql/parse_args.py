@@ -13,7 +13,7 @@ are:
   * a --version argument is added by default
   
   * convenience functions are available for adding --quiet, 
-    --debug and --homedir options.
+    --debug, --cachedir, --logdir and --authfile options.
   
   * instead of the usage string one can pass a usage list. The first
     element will be prefixed with ``usage: `` as usual. Additional
@@ -152,12 +152,22 @@ class ArgumentParser(argparse.ArgumentParser):
         self.add_argument("--debug", action="store_const", const=['all'],
                           help="activate debugging output")
                         
-    def add_homedir(self):
-        self.add_argument("--homedir", type=str, metavar='<path>',
+    def add_authfile(self):
+        self.add_argument("--authfile", type=str, metavar='<path>',
+                      default=os.path.expanduser("~/.s3ql/authinfo"),
+                      help='Read authentication credentials from this file '
+                           '(default: `~/.s3ql/authinfo)`')
+    def add_cachedir(self):
+        self.add_argument("--cachedir", type=str, metavar='<path>',
                       default=os.path.expanduser("~/.s3ql"),
-                      help='Directory for log files, cache and authentication info. '
+                      help='Store cached data in this directory '
                            '(default: `~/.s3ql)`')
-                                          
+    def add_logdir(self):
+        self.add_argument("--logdir", type=str, metavar='<path>',
+                      default=os.path.expanduser("~/.s3ql"),
+                      help='Store log files in this directory. '
+                           '(default: `~/.s3ql)`')
+        
     def add_storage_url(self):
         self.add_argument("storage_url", metavar='<storage-url>',
                           type=storage_url_type, 

@@ -42,7 +42,7 @@ def parse_args(args):
                     'contain a file system with the same structure, but all files'
                     'will just contain \\0 bytes.')
 
-    parser.add_homedir()
+    parser.add_authfile()
     parser.add_quiet()
     parser.add_debug_modules()
     parser.add_version()
@@ -67,7 +67,7 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    with get_backend(options.src, options.homedir,
+    with get_backend(options.src, options.authfile,
                      options.ssl) as (src_conn, src_name):
         
         if not src_name in src_conn:
@@ -75,11 +75,11 @@ def main(args=None):
         src_bucket = src_conn.get_bucket(src_name)
         
         try:
-            unlock_bucket(options.homedir, options.src, src_bucket)
+            unlock_bucket(options.authfile, options.src, src_bucket)
         except ChecksumError:
             raise QuietError('Checksum error - incorrect password?')
         
-        with get_backend(options.dest, options.homedir) as (dest_conn, dest_name):
+        with get_backend(options.dest, options.authfile) as (dest_conn, dest_name):
         
             if dest_name in dest_conn:
                 raise QuietError("Bucket already exists!\n"

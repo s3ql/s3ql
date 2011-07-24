@@ -14,7 +14,7 @@ import sys
 from s3ql import fs, CURRENT_FS_REV
 from s3ql.daemonize import daemonize
 from s3ql.backends.common import (ChecksumError)
-from s3ql.common import (setup_logging, get_backend, get_bucket_home, get_seq_no,
+from s3ql.common import (setup_logging, get_backend, get_bucket_cachedir, get_seq_no,
                          QuietError, unlock_bucket,  ExceptionStoringThread,
                          cycle_metadata, dump_metadata, restore_metadata)
 from s3ql.parse_args import ArgumentParser
@@ -47,7 +47,7 @@ def main(args=None):
     fuse_opts = get_fuse_opts(options)
     
     # Save handler so that we can remove it when daemonizing
-    stdout_log_handler = setup_logging(options, 'mount.log')
+    stdout_log_handler = setup_logging(options, 's3ql_mount.log')
     
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.')
@@ -57,7 +57,7 @@ def main(args=None):
         import pstats
         prof = cProfile.Profile()
 
-    with get_backend(options.storage_url, options.homedir,
+    with get_backend(options.storage_url, options.authfile,
                      options.ssl) as (conn, bucketname):
 
         if not bucketname in conn:
@@ -66,19 +66,19 @@ def main(args=None):
 
         # Unlock bucket
         try:
-            unlock_bucket(options.homedir, options.storage_url, bucket)
+            unlock_bucket(options.authfile, options.storage_url, bucket)
         except ChecksumError:
             raise QuietError('Checksum error - incorrect password?')
 
         # Get paths
-        home = get_bucket_home(options.storage_url, options.homedir)
+        cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
 
         # Retrieve metadata
-        (param, db) = get_metadata(bucket, home)
+        (param, db) = get_metadata(bucket, cachepath)
         
         metadata_upload_thread = MetadataUploadThread(bucket, param, db,
                                                       options.metadata_upload_interval)
-        operations = fs.Operations(bucket, db, cachedir=home + '-cache', 
+        operations = fs.Operations(bucket, db, cachedir=cachepath + '-cache', 
                                    blocksize=param['blocksize'],
                                    cache_size=options.cachesize * 1024,
                                    upload_event=metadata_upload_thread.event,
@@ -98,7 +98,7 @@ def main(args=None):
   
                 if stdout_log_handler:
                     logging.getLogger().removeHandler(stdout_log_handler)
-                daemonize(options.homedir)
+                daemonize(options.cachedir)
                 conn.finish_fork()
             
             metadata_upload_thread.start()
@@ -125,11 +125,11 @@ def main(args=None):
         # want to force an fsck.
            
         seq_no = get_seq_no(bucket)
-        if db_mtime == os.stat(home + '.db').st_mtime:
+        if db_mtime == os.stat(cachepath + '.db').st_mtime:
             log.info('File system unchanged, not uploading metadata.')
             del bucket['s3ql_seq_no_%d' % param['seq_no']]         
             param['seq_no'] -= 1
-            pickle.dump(param, open(home + '.params', 'wb'), 2)         
+            pickle.dump(param, open(cachepath + '.params', 'wb'), 2)         
         elif seq_no == param['seq_no']:
             log.info('Saving metadata...')
             fh = tempfile.TemporaryFile()
@@ -140,13 +140,13 @@ def main(args=None):
             param['last-modified'] = time.time() - time.timezone
             bucket.store_fh("s3ql_metadata", fh, param)
             fh.close()
-            pickle.dump(param, open(home + '.params', 'wb'), 2)
+            pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         else:
             log.error('Remote metadata is newer than local (%d vs %d), '
                       'refusing to overwrite!', seq_no, param['seq_no'])
             log.error('The locally cached metadata will be *lost* the next time the file system '
                       'is mounted or checked and has therefore been backed up.')
-            for name in (home + '.params', home + '.db'):
+            for name in (cachepath + '.params', cachepath + '.db'):
                 for i in reversed(range(4)):
                     if os.path.exists(name + '.%d' % i):
                         os.rename(name + '.%d' % i, name + '.%d' % (i+1))     
@@ -174,7 +174,7 @@ def main(args=None):
                          'you should run fsck.s3ql and examine ~/.s3ql/mount.log.')
 
 
-def get_metadata(bucket, home):
+def get_metadata(bucket, cachepath):
     '''Retrieve metadata
     
     Checks:
@@ -188,14 +188,14 @@ def get_metadata(bucket, home):
 
     # Check for cached metadata
     db = None
-    if os.path.exists(home + '.params'):
-        param = pickle.load(open(home + '.params', 'rb'))
+    if os.path.exists(cachepath + '.params'):
+        param = pickle.load(open(cachepath + '.params', 'rb'))
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
             param = bucket.lookup('s3ql_metadata')
         else:
             log.info('Using cached metadata.')
-            db = Connection(home + '.db')
+            db = Connection(cachepath + '.db')
     else:
         param = bucket.lookup('s3ql_metadata')
 
@@ -236,22 +236,22 @@ def get_metadata(bucket, home):
         log.info("Downloading & uncompressing metadata...")
         fh = tempfile.TemporaryFile()
         bucket.fetch_fh("s3ql_metadata", fh)
-        os.close(os.open(home + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+        os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                          stat.S_IRUSR | stat.S_IWUSR)) 
-        db = Connection(home + '.db.tmp', fast_mode=True)
+        db = Connection(cachepath + '.db.tmp', fast_mode=True)
         fh.seek(0)
         log.info('Reading metadata...')
         restore_metadata(fh, db)
         fh.close()
         db.close()
-        os.rename(home + '.db.tmp', home + '.db')
-        db = Connection(home + '.db')
+        os.rename(cachepath + '.db.tmp', cachepath + '.db')
+        db = Connection(cachepath + '.db')
  
     # Increase metadata sequence no 
     param['seq_no'] += 1
     param['needs_fsck'] = True
     bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
-    pickle.dump(param, open(home + '.params', 'wb'), 2)
+    pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
     
     return (param, db)
 
@@ -304,7 +304,9 @@ def parse_args(args):
     parser = ArgumentParser(
         description="Mount an S3QL file system.")
 
-    parser.add_homedir()
+    parser.add_logdir()
+    parser.add_cachedir()
+    parser.add_authfile()
     parser.add_debug_modules()
     parser.add_quiet()
     parser.add_version()
@@ -374,10 +376,8 @@ def parse_args(args):
         
     if options.compress == 'none':
         options.compress = None
-        
-    if not os.path.exists(options.homedir):
-        os.mkdir(options.homedir, 0700)
                 
+    # FIXME: There should be a better way to set this
     from .. import upload_manager
     upload_manager.MAX_COMPRESS_THREADS = options.compression_threads
     

@@ -15,7 +15,7 @@ import shutil
 import logging
 import cPickle as pickle
 from s3ql import CURRENT_FS_REV
-from s3ql.common import (get_backend, get_bucket_home, setup_logging,
+from s3ql.common import (get_backend, get_bucket_cachedir, setup_logging,
                          QuietError, dump_metadata, create_tables,
                          init_tables)
 from s3ql.parse_args import ArgumentParser
@@ -32,7 +32,8 @@ def parse_args(args):
     parser = ArgumentParser(
         description="Initializes an S3QL file system")
 
-    parser.add_homedir()
+    parser.add_cachedir()
+    parser.add_authfile()
     parser.add_debug_modules()
     parser.add_quiet()
     parser.add_version()
@@ -57,9 +58,6 @@ def parse_args(args):
 
     if options.s3_location == 'us-standard':
         options.s3_location = Location.DEFAULT
-
-    if not os.path.exists(options.homedir):
-        os.mkdir(options.homedir, 0700)
         
     return options
 
@@ -71,7 +69,7 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    with get_backend(options.storage_url, options.homedir,
+    with get_backend(options.storage_url, options.authfile,
                      options.ssl) as (conn, bucketname):
         if conn.bucket_exists(bucketname):
             if not options.force:
@@ -108,17 +106,17 @@ def main(args=None):
             bucket.passphrase = data_pw
 
         # Setup database
-        home = get_bucket_home(options.storage_url, options.homedir)
+        cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
 
         # There can't be a corresponding bucket, so we can safely delete
         # these files.
-        if os.path.exists(home + '.db'):
-            os.unlink(home + '.db')
-        if os.path.exists(home + '-cache'):
-            shutil.rmtree(home + '-cache')
+        if os.path.exists(cachepath + '.db'):
+            os.unlink(cachepath + '.db')
+        if os.path.exists(cachepath + '-cache'):
+            shutil.rmtree(cachepath + '-cache')
 
         log.info('Creating metadata tables...')
-        db = Connection(home + '.db')
+        db = Connection(cachepath + '.db')
         create_tables(db)
         init_tables(db)
 
@@ -140,7 +138,7 @@ def main(args=None):
         fh.seek(0)
         bucket.store_fh("s3ql_metadata", fh, param)
         fh.close()
-        pickle.dump(param, open(home + '.params', 'wb'), 2)
+        pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
 
 
 if __name__ == '__main__':

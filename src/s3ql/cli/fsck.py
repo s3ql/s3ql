@@ -11,7 +11,7 @@ from __future__ import division, print_function, absolute_import
 import os
 import stat
 import time
-from s3ql.common import (get_bucket_home, cycle_metadata, setup_logging,  
+from s3ql.common import (get_bucket_cachedir, cycle_metadata, setup_logging,  
                          unlock_bucket, QuietError, get_backend, get_seq_no,
                          restore_metadata, dump_metadata)
 from s3ql.parse_args import ArgumentParser
@@ -33,7 +33,9 @@ def parse_args(args):
     parser = ArgumentParser(
         description="Checks and repairs an S3QL filesystem.")
 
-    parser.add_homedir()
+    parser.add_logdir()
+    parser.add_cachedir()
+    parser.add_authfile()
     parser.add_debug_modules()
     parser.add_quiet()
     parser.add_version()
@@ -47,9 +49,6 @@ def parse_args(args):
 
     options = parser.parse_args(args)
 
-    if not os.path.exists(options.homedir):
-        os.mkdir(options.homedir, 0700)
-
     return options
 
 
@@ -59,9 +58,9 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-    setup_logging(options, 'fsck.log')
+    setup_logging(options, 's3ql_fsck.log')
         
-    with get_backend(options.storage_url, options.homedir,
+    with get_backend(options.storage_url, options.authfile,
                      options.ssl) as (conn, bucketname):
 
         # Check if fs is mounted on this computer
@@ -77,25 +76,25 @@ def main(args=None):
         bucket = conn.get_bucket(bucketname)
 
         try:
-            unlock_bucket(options.homedir, options.storage_url, bucket)
+            unlock_bucket(options.authfile, options.storage_url, bucket)
         except ChecksumError:
             raise QuietError('Checksum error - incorrect password?')
 
-        home = get_bucket_home(options.storage_url, options.homedir)
+        cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
         seq_no = get_seq_no(bucket)
         param_remote = bucket.lookup('s3ql_metadata')
         db = None
         
-        if os.path.exists(home + '.params'):
-            assert os.path.exists(home + '.db')
-            param = pickle.load(open(home + '.params', 'rb'))
+        if os.path.exists(cachepath + '.params'):
+            assert os.path.exists(cachepath + '.db')
+            param = pickle.load(open(cachepath + '.params', 'rb'))
             if param['seq_no'] < seq_no:
                 log.info('Ignoring locally cached metadata (outdated).')
                 param = bucket.lookup('s3ql_metadata')
             else:
                 log.info('Using cached metadata.')
-                db = Connection(home + '.db')
-                assert not os.path.exists(home + '-cache') or param['needs_fsck']
+                db = Connection(cachepath + '.db')
+                assert not os.path.exists(cachepath + '-cache') or param['needs_fsck']
  
             if param_remote['seq_no'] != param['seq_no']:
                 log.warn('Remote metadata is outdated.')
@@ -103,7 +102,7 @@ def main(args=None):
                 
         else:
             param = param_remote
-            assert not os.path.exists(home + '-cache')
+            assert not os.path.exists(cachepath + '-cache')
             # .db might exist if mount.s3ql is killed at exactly the right instant
             # and should just be ignored.
            
@@ -163,37 +162,37 @@ def main(args=None):
             except apsw.CorruptError:
                 raise QuietError('Local metadata is corrupted. Remove or repair the following '
                                  'files manually and re-run fsck:\n'
-                                 + home + '.db (corrupted)\n'
-                                 + home + '.param (intact)')
+                                 + cachepath + '.db (corrupted)\n'
+                                 + cachepath + '.param (intact)')
         else:
             log.info("Downloading & uncompressing metadata...")
             fh = tempfile.TemporaryFile()
             bucket.fetch_fh("s3ql_metadata", fh)
-            os.close(os.open(home + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+            os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                              stat.S_IRUSR | stat.S_IWUSR)) 
-            db = Connection(home + '.db.tmp', fast_mode=True)
+            db = Connection(cachepath + '.db.tmp', fast_mode=True)
             fh.seek(0)
             log.info('Reading metadata...')
             restore_metadata(fh, db)
             fh.close()
             db.close()
-            os.rename(home + '.db.tmp', home + '.db')
-            db = Connection(home + '.db')
+            os.rename(cachepath + '.db.tmp', cachepath + '.db')
+            db = Connection(cachepath + '.db')
 
         # Increase metadata sequence no 
         param['seq_no'] += 1
         param['needs_fsck'] = True
         bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
-        pickle.dump(param, open(home + '.params', 'wb'), 2)
+        pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
 
-        fsck = Fsck(home + '-cache', bucket, param, db)
+        fsck = Fsck(cachepath + '-cache', bucket, param, db)
         fsck.check()
 
         if fsck.uncorrectable_errors:
             raise QuietError("Uncorrectable errors found, aborting.")
             
-        if os.path.exists(home + '-cache'):
-            os.rmdir(home + '-cache')
+        if os.path.exists(cachepath + '-cache'):
+            os.rmdir(cachepath + '-cache')
             
         log.info('Saving metadata...')
         fh = tempfile.TemporaryFile()
@@ -207,7 +206,7 @@ def main(args=None):
         param['last-modified'] = time.time() - time.timezone
         bucket.store_fh("s3ql_metadata", fh, param)
         fh.close()
-        pickle.dump(param, open(home + '.params', 'wb'), 2)
+        pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         
     db.execute('ANALYZE')
     db.execute('VACUUM')

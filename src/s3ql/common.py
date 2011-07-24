@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from llfuse import ROOT_INODE
 from .backends.common import NoSuchObject
 
-__all__ = ["get_bucket_home", 'sha256_fh', 'add_stdout_logging',
+__all__ = ["get_bucket_cachedir", 'sha256_fh', 'add_stdout_logging',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
            "ROOT_INODE", "ExceptionStoringThread", 'retry', 'LoggerFilter',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
@@ -47,7 +47,7 @@ def setup_logging(options, logfile=None):
         
     stdout_handler = add_stdout_logging(options.quiet)
     if logfile:
-        debug_handler = add_file_logging(os.path.join(options.homedir, logfile))
+        debug_handler = add_file_logging(os.path.join(options.logdir, logfile))
     else:
         debug_handler = stdout_handler
     setup_excepthook()
@@ -119,7 +119,7 @@ def add_file_logging(logfile):
 
     
 @contextmanager
-def get_backend(storage_url, homedir, use_ssl):
+def get_backend(storage_url, authfile, use_ssl):
     '''Return backend connection and bucket name
     
     This is a context manager, since some connections need to be cleaned 
@@ -133,13 +133,13 @@ def get_backend(storage_url, homedir, use_ssl):
         bucketname = storage_url[len('local://'):]
 
     elif storage_url.startswith('s3://'):
-        (login, password) = get_backend_credentials(homedir, 's3', None)
+        (login, password) = get_backend_credentials(authfile, 's3', None)
         conn = s3.Connection(login, password, use_ssl)
         bucketname = storage_url[len('s3://'):]
 
     elif storage_url.startswith('s3rr://'):
         log.warn('Warning: Using S3 reduced redundancy storage (S3) is *not* recommended!')
-        (login, password) = get_backend_credentials(homedir, 's3', None)
+        (login, password) = get_backend_credentials(authfile, 's3', None)
         conn = s3.Connection(login, password, use_ssl, reduced_redundancy=True)
         bucketname = storage_url[len('s3rr://'):]
 
@@ -149,7 +149,7 @@ def get_backend(storage_url, homedir, use_ssl):
         if not match:
             raise QuietError('Invalid storage url: %r' % storage_url)
         (backend, host, port, bucketname) = match.groups()
-        (login, password) = get_backend_credentials(homedir, backend, host)
+        (login, password) = get_backend_credentials(authfile, backend, host)
 
         if backend == 'ftp' and not use_ssl:
             conn = ftp.Connection(host, port, login, password)
@@ -197,14 +197,12 @@ def cycle_metadata(bucket):
         bucket.copy("s3ql_metadata", "s3ql_metadata_bak_0")             
 
 
-def unlock_bucket(homedir, storage_url, bucket):
+def unlock_bucket(keyfile, storage_url, bucket):
     '''Ask for passphrase if bucket requires one'''
 
     if 's3ql_passphrase' not in bucket:
         return
 
-    # Try to read from file
-    keyfile = os.path.join(homedir, 'authinfo')
     wrap_pw = None
 
     if os.path.isfile(keyfile):
@@ -401,18 +399,16 @@ def _escape(s):
 
     return s
 
-def get_bucket_home(storage_url, homedir):
-    if not os.path.exists(homedir):
-        os.mkdir(homedir)
-    return os.path.join(homedir, _escape(storage_url))
+def get_bucket_cachedir(storage_url, cachedir):
+    if not os.path.exists(cachedir):
+        os.mkdir(cachedir)
+    return os.path.join(cachedir, _escape(storage_url))
 
 
-def get_backend_credentials(homedir, backend, host):
+def get_backend_credentials(keyfile, backend, host):
     """Get credentials for given backend and host"""
 
     # Try to read from file
-    keyfile = os.path.join(homedir, 'authinfo')
-
     if os.path.isfile(keyfile):
         mode = os.stat(keyfile).st_mode
         if mode & (stat.S_IRGRP | stat.S_IROTH):
