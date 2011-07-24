@@ -71,7 +71,7 @@ class fuse_tests(TestCase):
         sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
         try:
             s3ql.cli.mkfs.main(['-L', 'test fs', '--blocksize', '500',
-                                '--homedir', self.cache_dir, self.bucketname ])
+                                '--cachedir', self.cache_dir, self.bucketname ])
         except BaseException as exc:
             self.fail("mkfs.s3ql failed: %s" % exc)
 
@@ -86,7 +86,8 @@ class fuse_tests(TestCase):
             basedir = os.path.abspath(os.path.join(os.path.dirname(mypath), '..'))
             self.mount_thread = subprocess.Popen(['valgrind', 'python-dbg', 
                                                   os.path.join(basedir, 'bin', 'mount.s3ql'), 
-                                                  "--fg", '--homedir', self.cache_dir, 
+                                                  "--fg", '--cachedir', self.cache_dir,
+                                                  '--logdir', self.cache_dir, 
                                                   '--max-cache-entries', '500',
                                                   self.bucketname, self.mnt_dir],
                                                   stdin=subprocess.PIPE)
@@ -95,7 +96,8 @@ class fuse_tests(TestCase):
         else:
             sys.stdin = StringIO('%s\n' % self.passphrase)
             self.mount_thread = AsyncFn(s3ql.cli.mount.main,
-                                        ["--fg", '--homedir', self.cache_dir, 
+                                        ["--fg", '--cachedir', self.cache_dir, 
+                                          '--logdir', self.cache_dir, 
                                          '--max-cache-entries', '500',
                                          self.bucketname, self.mnt_dir])
             self.mount_thread.start()
@@ -128,8 +130,8 @@ class fuse_tests(TestCase):
         # Now run an fsck
         sys.stdin = StringIO('%s\n' % self.passphrase)
         try:
-            s3ql.cli.fsck.main(['--force', '--homedir', self.cache_dir, 
-                                self.bucketname])
+            s3ql.cli.fsck.main(['--force', '--cachedir', self.cache_dir,
+                                 '--logdir', self.cache_dir, self.bucketname])
         except BaseException as exc:
             self.fail("fsck failed: %s" % exc)
 

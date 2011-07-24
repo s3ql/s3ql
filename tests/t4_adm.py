@@ -34,7 +34,7 @@ class AdmTests(TestCase):
     def mkfs(self):
         sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
         try:
-            s3ql.cli.mkfs.main(['--homedir', self.cache_dir, self.bucketname ])
+            s3ql.cli.mkfs.main(['--cachedir', self.cache_dir, self.bucketname ])
         except BaseException as exc:
             self.fail("mkfs.s3ql failed: %s" % exc)
 

@@ -6,6 +6,11 @@ UNRELEASED, S3QL TIP
   * The local backend now stores data and metadata in the same file,
     so it needs only half as many files as before.
 
+  * The --homedir option has been replaced by the more finely grained
+    --authfile, --cachedir and --log options.
+
+  * S3QL can now log directly to syslog.
+  
 2011-07-23, S3QL 1.1 (development version)
 
   * Restructured metadata. This should also significantly reduce the

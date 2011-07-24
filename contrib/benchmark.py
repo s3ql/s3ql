@@ -42,7 +42,7 @@ def parse_args(args):
         description="Transfers and compresses the test file and gives a recommendation "
                     "for the compression algorithm to use.")
 
-    parser.add_homedir()
+    parser.add_authfile()
     parser.add_quiet()
     parser.add_debug()
     parser.add_version()
@@ -65,7 +65,7 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    with get_backend(options.storage_url, options.homedir,
+    with get_backend(options.storage_url, options.authfile,
                      options.ssl) as (conn, bucketname):
 
         if not bucketname in conn:
