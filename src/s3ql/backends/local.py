@@ -103,7 +103,7 @@ class Bucket(AbstractBucket):
 
     def contains(self, key):
         with self.lock:
-            path = self._key_to_path(key) + '.dat'
+            path = self._key_to_path(key)
             try:
                 os.lstat(path)
             except OSError as exc:
@@ -117,7 +117,7 @@ class Bucket(AbstractBucket):
         with self.lock:
             path = self._key_to_path(key)
             try:
-                with open(path + '.meta', 'rb') as src:
+                with open(path, 'rb') as src:
                     return pickle.load(src)
             except IOError as exc:
                 if exc.errno == errno.ENOENT:
@@ -129,8 +129,7 @@ class Bucket(AbstractBucket):
         with self.lock:
             path = self._key_to_path(key)
             try:
-                os.unlink(path + '.dat')
-                os.unlink(path + '.meta')
+                os.unlink(path)
             except OSError as exc:
                 if exc.errno == errno.ENOENT:
                     if force:
@@ -163,9 +162,7 @@ class Bucket(AbstractBucket):
                     dirnames[:] = dirs_to_walk
                                                 
                 for name in filenames:
-                    if not name.endswith('.dat'):
-                        continue
-                    key = unescape(name[:-4])
+                    key = unescape(name)
                     
                     if not prefix or key.startswith(prefix):
                         yield key
@@ -174,11 +171,10 @@ class Bucket(AbstractBucket):
         with self.lock:
             path = self._key_to_path(key)
             try:
-                with open(path + '.dat', 'rb') as src:
+                with open(path, 'rb') as src:
+                    metadata = pickle.load(src)
                     fh.seek(0)
                     shutil.copyfileobj(src, fh)
-                with open(path + '.meta', 'rb') as src:
-                    metadata = pickle.load(src)
             except IOError as exc:
                 if exc.errno == errno.ENOENT:
                     raise NoSuchObject(key)
@@ -192,18 +188,16 @@ class Bucket(AbstractBucket):
             path = self._key_to_path(key)
             fh.seek(0)
             try:
-                dest = open(path + '.dat', 'wb')
+                dest = open(path, 'wb')
             except IOError as exc:
                 if exc.errno != errno.ENOENT:
                     raise
                 os.makedirs(os.path.dirname(path))
-                dest = open(path + '.dat', 'wb')
+                dest = open(path, 'wb')
             
+            pickle.dump(metadata, dest, 2)
             shutil.copyfileobj(fh, dest)
-            dest.close()
-                    
-            with open(path + '.meta', 'wb') as dest:
-                pickle.dump(metadata, dest, 2)
+            dest.close()              
 
     def copy(self, src, dest):
         with self.lock:
@@ -219,15 +213,15 @@ class Bucket(AbstractBucket):
             # Can't use shutil.copyfile() here, need to make
             # sure destination path exists
             try:
-                dest = open(path_dest + '.dat', 'wb')
+                dest = open(path_dest, 'wb')
             except IOError as exc:
                 if exc.errno != errno.ENOENT:
                     raise
                 os.makedirs(os.path.dirname(path_dest))
-                dest = open(path_dest + '.dat', 'wb')
+                dest = open(path_dest, 'wb')
             
             try:
-                with open(path_src + '.dat', 'rb') as src:
+                with open(path_src, 'rb') as src:
                     shutil.copyfileobj(src, dest)
             except IOError as exc:
                 if exc.errno == errno.ENOENT:
@@ -236,25 +230,22 @@ class Bucket(AbstractBucket):
                     raise
             finally:
                 dest.close()
-            
-            shutil.copyfile(path_src + '.meta', path_dest + '.meta')
+
 
     def rename(self, src, dest):
         with self.lock:
             src_path = self._key_to_path(src)
             dest_path = self._key_to_path(dest)
-            if not os.path.exists(src_path + '.dat'):
+            if not os.path.exists(src_path):
                 raise NoSuchObject(src)
                
             try: 
-                os.rename(src_path + '.dat', dest_path + '.dat')
-                os.rename(src_path + '.meta', dest_path + '.meta')
+                os.rename(src_path, dest_path)
             except OSError as exc:
                 if exc.errno != errno.ENOENT:
                     raise
                 os.makedirs(os.path.dirname(dest_path))   
-                os.rename(src_path + '.dat', dest_path + '.dat')
-                os.rename(src_path + '.meta', dest_path + '.meta')            
+                os.rename(src_path, dest_path)         
         
     def _key_to_path(self, key):
         '''Return path for given key'''
