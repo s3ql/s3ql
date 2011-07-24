@@ -59,7 +59,7 @@ def parse_args(args):
                 
     parser.add_debug_modules()
     parser.add_quiet()
-    parser.add_logdir()
+    parser.add_log()
     parser.add_authfile()
     parser.add_cachedir()
     parser.add_version()
@@ -76,7 +76,7 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-    setup_logging(options, 's3qladm.log')
+    setup_logging(options)
 
     with get_backend(options.storage_url, 
                      options.authfile, options.ssl) as (conn, bucketname):

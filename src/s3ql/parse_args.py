@@ -42,6 +42,8 @@ import argparse
 import re
 import os
 import textwrap
+import logging
+import sys
 
 __all__ = [ 'ArgumentParser', 'DEFAULT_USAGE']
 
@@ -162,11 +164,29 @@ class ArgumentParser(argparse.ArgumentParser):
                       default=os.path.expanduser("~/.s3ql"),
                       help='Store cached data in this directory '
                            '(default: `~/.s3ql)`')
-    def add_logdir(self):
-        self.add_argument("--logdir", type=str, metavar='<path>',
-                      default=os.path.expanduser("~/.s3ql"),
-                      help='Store log files in this directory. '
-                           '(default: `~/.s3ql)`')
+        
+    def add_log(self, default='none'):
+        def log_handler(s):
+            if s.lower() == 'none':
+                return None
+            elif s.lower() == 'syslog':
+                handler = logging.handlers.SysLogHandler('/dev/log')
+                formatter = logging.Formatter(os.path.basename(sys.argv[0])
+                                               + '[%(process)s] %(threadName)s: '
+                                               + '[%(name)s] %(message)s')
+            else:
+                handler = logging.handlers.RotatingFileHandler(os.path.expanduser(s), 
+                                                            maxBytes=1024**2, backupCount=5)
+                formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
+                                              '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
+                
+            handler.setFormatter(formatter)
+            return handler        
+                                
+        self.add_argument("--log", type=log_handler, metavar='<target>', default=default,
+                      help='Write logging info into this file. File will be rotated when '
+                           'it reaches 1 MB, and at most 5 old log files will be kept. '
+                           'Specify ``none`` to disable logging. Default: ``%(default)s``')
         
     def add_storage_url(self):
         self.add_argument("storage_url", metavar='<storage-url>',

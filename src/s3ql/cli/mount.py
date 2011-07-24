@@ -47,7 +47,7 @@ def main(args=None):
     fuse_opts = get_fuse_opts(options)
     
     # Save handler so that we can remove it when daemonizing
-    stdout_log_handler = setup_logging(options, 's3ql_mount.log')
+    stdout_log_handler = setup_logging(options)
     
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.')
@@ -304,7 +304,7 @@ def parse_args(args):
     parser = ArgumentParser(
         description="Mount an S3QL file system.")
 
-    parser.add_logdir()
+    parser.add_log('~/.s3ql/mount.log')
     parser.add_cachedir()
     parser.add_authfile()
     parser.add_debug_modules()
@@ -365,6 +365,9 @@ def parse_args(args):
     if options.allow_other and options.allow_root:
         parser.error("--allow-other and --allow-root are mutually exclusive.")
 
+    if not options.log and not options.fg:
+        parser.error("Please activate logging to a file or syslog, or use the --fg option.")
+        
     if options.profile:
         options.single = True
 

@@ -33,7 +33,7 @@ def parse_args(args):
     parser = ArgumentParser(
         description="Checks and repairs an S3QL filesystem.")
 
-    parser.add_logdir()
+    parser.add_log('~/.s3ql/fsck.log')
     parser.add_cachedir()
     parser.add_authfile()
     parser.add_debug_modules()
@@ -58,7 +58,7 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-    setup_logging(options, 's3ql_fsck.log')
+    setup_logging(options)
         
     with get_backend(options.storage_url, options.authfile,
                      options.ssl) as (conn, bucketname):

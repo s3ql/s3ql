@@ -39,15 +39,16 @@ AUTHINFO_BUCKET_PATTERN = r'^storage-url\s+(\S+)\s+password\s+(.+)$'
 
 log = logging.getLogger('common')
         
-def setup_logging(options, logfile=None):        
+def setup_logging(options):        
     root_logger = logging.getLogger()
     if root_logger.handlers:
         log.debug("Logging already initialized.")
         return
         
     stdout_handler = add_stdout_logging(options.quiet)
-    if logfile:
-        debug_handler = add_file_logging(os.path.join(options.logdir, logfile))
+    if hasattr(options, 'log') and options.log:
+        root_logger.addHandler(options.log)
+        debug_handler = options.log  
     else:
         debug_handler = stdout_handler
     setup_excepthook()
@@ -104,19 +105,6 @@ def add_stdout_logging(quiet=False):
         handler.setLevel(logging.INFO)
     root_logger.addHandler(handler)
     return handler
-
-    
-def add_file_logging(logfile):
-
-    root_logger = logging.getLogger()
-    formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
-                                          '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
-    handler = logging.handlers.RotatingFileHandler(logfile, maxBytes=1024**2,
-                                                   backupCount=5)
-    handler.setFormatter(formatter)  
-    root_logger.addHandler(handler)
-    return handler
-
     
 @contextmanager
 def get_backend(storage_url, authfile, use_ssl):
