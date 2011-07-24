@@ -27,13 +27,11 @@ running S3QL. Generally, you should first check if your distribution
 already provides a suitable packages and only install from source if
 that is not the case.
 
-* Kernel version 2.6.9 or newer. Starting with kernel 2.6.26
-  you will get significantly better write performance, so you should
-  actually use *2.6.26 or newer whenever possible*.
-
-* The `FUSE Library <http://fuse.sourceforge.net/>`_ should already be
-  installed on your system. However, you have to make sure that you
-  have at least version 2.8.0. 
+* Kernel: Linux 2.6.9 or newer or FreeBSD with `FUSE4BSD
+  <http://www.freshports.org/sysutils/fusefs-kmod/>`_. Starting with
+  kernel 2.6.26 you will get significantly better write performance,
+  so under Linux you should actually use *2.6.26 or newer whenever
+  possible*.
 
 * The `PyCrypto++ Python Module
   <http://pypi.python.org/pypi/pycryptopp>`_. To check if this module
