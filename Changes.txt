@@ -1,4 +1,4 @@
-unreleased, S3QL HEAD(unstable)
+2011-07-23, S3QL 1.1 (development version)
 
   * Restructured metadata. This should also significantly reduce the
     size of the SQLite database file.
