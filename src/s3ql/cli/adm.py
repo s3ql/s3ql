@@ -399,7 +399,8 @@ def restore_legacy_metadata(ifh, conn):
     
     # Sort out names
     conn.execute('''
-        INSERT INTO names (name) SELECT DISTINCT name FROM leg_contents
+        INSERT INTO names (name, refcount) 
+        SELECT name, COUNT(name) FROM leg_contents GROUP BY name
     ''')
     conn.execute('''
         INSERT INTO contents (name_id, inode, parent_inode) 
