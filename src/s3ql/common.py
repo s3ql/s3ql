@@ -553,6 +553,9 @@ class EmbeddedException(Exception):
 
 def sha256_fh(fh):
     fh.seek(0)
+    
+    # Bogus error about hashlib not having a sha256 member
+    #pylint: disable=E1101
     sha = hashlib.sha256()
 
     while True:
