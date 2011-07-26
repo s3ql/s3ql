@@ -116,6 +116,9 @@ def get_backend(storage_url, authfile, use_ssl):
 
     from .backends import s3, local, ftp
 
+    if use_ssl:
+        log.warn('Warning: S3QL does not verify TLS/SSL server certificates.')
+        
     if storage_url.startswith('local://'):
         conn = local.Connection()
         bucketname = storage_url[len('local://'):]
