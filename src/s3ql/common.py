@@ -15,7 +15,6 @@ import os
 import stat
 import sys
 import threading
-import logging.handlers
 import traceback
 import time
 import re
@@ -23,6 +22,7 @@ import cPickle as pickle
 from contextlib import contextmanager
 from llfuse import ROOT_INODE
 from .backends.common import NoSuchObject
+import logging
 
 __all__ = ["get_bucket_cachedir", 'sha256_fh', 'add_stdout_logging',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
