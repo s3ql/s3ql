@@ -10,6 +10,11 @@ UNRELEASED, S3QL TIP
     --authfile, --cachedir and --log options.
 
   * S3QL can now log directly to syslog.
+
+  * The sftp storage backend has been dropped. The recommended way to
+    use S3QL over ssh is to use sshfs
+    (http://fuse.sourceforge.net/sshfs.html) with S3QL's local
+    backend.
   
 2011-07-23, S3QL 1.1 (development version)
 

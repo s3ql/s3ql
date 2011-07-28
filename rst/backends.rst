@@ -83,11 +83,11 @@ The `authinfo` file has to contain entries of the form ::
 
   backend <backend> machine <host> login <user> password <password>
 
-So to use the login `joe` with password `jibbadup` when using the FTP
+So to use the login `joe` with password `jibbadup` when using the S3
 backend to connect to the host `backups.joesdomain.com`, you would
 specify ::
 
-  backend ftp machine backups.joesdomain.com login joe password jibbadup
+  backend s3 machine backups.joesdomain.com login joe password jibbadup
 
   
 Consistency Guarantees
@@ -262,31 +262,4 @@ computer. The storage URL for the local backend has the form
 slashes to specify an absolute path, e.g. `local:///var/archive`.
 
 The local backend provides read-after-write consistency.
-
-The SFTP Backend
-================
-
-The SFTP backend uses the SFTP protocol, which is a file transfer
-protocol similar to ftp, but uses an encrypted SSH connection. 
-It provides read-after-write consistency.
-
-Note that the SFTP backend is rather slow and has not been tested
-as extensively as the S3 and Local backends.
-
-The storage URL for SFTP connections has the form ::
-
-  sftp://<host>[:port]/<path>
-
-The SFTP backend will always ask you for a password if you haven't
-defined one in `~/.s3ql/authinfo`. However, public key authentication
-is tried first and the password will only be used if the public key
-authentication fails.
-
-The public and private keys will be read from the standard files in
-`~/.ssh/`. Note that S3QL will refuse to connect to a computer with
-unknown host key; to add the key to your local keyring you have to
-establish a connection to that computer with the standard SSH command
-line programs first.
-
-
 

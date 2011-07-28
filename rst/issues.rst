@@ -74,7 +74,7 @@ Known Issues
 
 * S3QL relies on the backends not to run out of space. This is a given
   for big storage providers like Amazon S3, but you may stumble upon
-  this if you store buckets e.g. on a small sftp server.
+  this if you store buckets e.g. on smaller servers or servies.
 
   If there is no space left in the backend, attempts to write more
   data into the S3QL file system will fail and the file system will be

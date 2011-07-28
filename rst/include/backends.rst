@@ -19,10 +19,3 @@ computer. The storage URL for the local backend has the form
 `local://<path>`. Note that you have to write three consecutive
 slashes to specify an absolute path, e.g. `local:///var/archive`.
 
-SFTP
-----
-
-The storage URL for SFTP connections has the form ::
-
-  sftp://<host>[:port]/<path>
-

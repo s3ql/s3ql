@@ -132,18 +132,7 @@ def get_backend(storage_url, authfile, use_ssl):
         bucketname = storage_url[len('s3rr://'):]
 
     else:
-        pat = r'^([a-z]+)://([a-zA-Z0-9.-]+)(?::([0-9]+))?(/[a-zA-Z0-9./_-]+)$'
-        match = re.match(pat, storage_url)
-        if not match:
-            raise QuietError('Invalid storage url: %r' % storage_url)
-        (backend, host, port, bucketname) = match.groups()
-        (login, password) = get_backend_credentials(authfile, backend, host)
-
-        if backend == 'sftp':
-            from .backends import sftp
-            conn = sftp.Connection(host, port, login, password)
-        else:
-            raise QuietError('Unknown backend: %s' % backend)
+        raise QuietError('Unknown storage url: %s' % storage_url)
 
     try:
         yield (conn, bucketname)
