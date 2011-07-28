@@ -1,22 +1,14 @@
 '''
 s3.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
-Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
+Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
 
-# Python boto uses several deprecated modules, deactivate warnings for them
-import warnings
-warnings.filterwarnings("ignore", "", DeprecationWarning, "boto")
-
-from .common import AbstractConnection, AbstractBucket, NoSuchBucket, NoSuchObject
-from time import sleep
-from .boto.s3.connection import S3Connection
-from contextlib import contextmanager
-from .boto import exception
+from .common import AbstractBucket, NoSuchBucket, NoSuchObject
 from s3ql.common import (TimeoutError, AsyncFn)
 import logging
 import errno
@@ -24,177 +16,46 @@ import httplib
 import re
 import time
 import threading
+from base64 import b64encode
+import hmac
+import hashlib
+import urllib
+from datetime import datetime
 
-log = logging.getLogger("backend.s3")
+log = logging.getLogger("backend.s3etal")
 
-class Connection(AbstractConnection):
-    """Represents a connection to Amazon S3
-
-    This class just dispatches everything to boto. It uses a separate boto
-    connection object for each thread.
-    
-    This class is threadsafe. All methods (except for internal methods
-    starting with underscore) may be called concurrently by different
-    threads.    
-    """
-
-    def __init__(self, awskey, awspass, use_ssl, 
-                 reduced_redundancy=False):
-        super(Connection, self).__init__()
-        self.awskey = awskey
-        self.awspass = awspass
-        self.pool = list()
-        self.lock = threading.RLock()
-        self.conn_cnt = 0
-        self.use_ssl = use_ssl
-        self.reduced_redundancy = reduced_redundancy
-
-    def _pop_conn(self):
-        '''Get boto connection object from the pool'''
-
-        with self.lock:
-            try:
-                conn = self.pool.pop()
-            except IndexError:
-                # Need to create a new connection
-                log.debug("Creating new boto connection (active conns: %d)...",
-                          self.conn_cnt)
-                conn = S3Connection(self.awskey, self.awspass, 
-                                    is_secure=self.use_ssl)
-                self.conn_cnt += 1
-    
-            return conn
-
-    def _push_conn(self, conn):
-        '''Return boto connection object to pool'''
-        with self.lock:
-            self.pool.append(conn)
-
-    def delete_bucket(self, name, recursive=False):
-        """Delete bucket"""
-
-        if not recursive:
-            with self._get_boto() as boto:
-                boto.delete_bucket(name)
-                return
-
-        # Delete recursively
-        with self._get_boto() as boto:
-            step = 1
-            waited = 0
-            while waited < 600:
-                try:
-                    boto.delete_bucket(name)
-                except exception.S3ResponseError as exc:
-                    if exc.code != 'BucketNotEmpty':
-                        raise
-                else:
-                    return
-                self.get_bucket(name, passphrase=None).clear()
-                time.sleep(step)
-                waited += step
-                step *= 2
-
-            raise RuntimeError('Bucket does not seem to get empty')
-
-
-    @contextmanager
-    def _get_boto(self):
-        """Provide boto connection object"""
-
-        conn = self._pop_conn()
-        try:
-            yield conn
-        finally:
-            self._push_conn(conn)
-
-    def create_bucket(self, name, location, passphrase=None,
-                      compression='lzma'):
-        """Create and return an S3 bucket
-        
-        Note that a call to `get_bucket` right after creation may fail,
-        since the changes do not propagate instantaneously through AWS.
-        """
-        # Argument number deliberately differs from base class
-        #pylint: disable-msg=W0221
-        
-        self.check_name(name)
-        with self._get_boto() as boto:
-            try:
-                boto.create_bucket(name, location=location)
-            except exception.S3ResponseError as exc:
-                if exc.code == 'InvalidBucketName':
-                    raise InvalidBucketNameError()
-                else:
-                    raise
-
-        return Bucket(self, name, passphrase, compression)
-
-    def check_name(self, name):
-        '''Check if bucket name conforms to requirements
-        
-        Raises `InvalidBucketName` for invalid names.
-        '''
-        
-        if (not re.match('^[a-z0-9][a-z0-9.-]{1,60}[a-z0-9]$', name) 
-            or '..' in name
-            or '.-' in name
-            or '-.' in name
-            or re.match('^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$', name)):
-            raise InvalidBucketNameError()
-        
-    def get_bucket(self, name, passphrase=None, compression='lzma'):
-        """Return a bucket instance for the bucket `name`"""
-
-        self.check_name(name)
-        
-        with self._get_boto() as boto:
-            try:
-                boto.get_bucket(name)
-            except exception.S3ResponseError as e:
-                if e.status == 404:
-                    raise NoSuchBucket(name)
-                elif e.code == 'InvalidBucketName':
-                    raise InvalidBucketNameError()
-                else:
-                    raise
-        return Bucket(self, name, passphrase, compression)
+C_DAY_NAMES = [ 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ]
+C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ]
 
 class Bucket(AbstractBucket):
-    """Represents a bucket stored in Amazon S3.
+    """A bucket stored in Amazon S3 and compatible services
 
-    This class should not be instantiated directly, but using
-    `Connection.get_bucket()`.
-
-    Due to AWS' eventual propagation model, we may receive e.g. a 'unknown
-    bucket' error when we try to upload a key into a newly created bucket. For
-    this reason, many boto calls are wrapped with `retry_boto`. Note that this
-    assumes that no one else is messing with the bucket at the same time.
-    
     This class is threadsafe. All methods (except for internal methods
     starting with underscore) may be called concurrently by different
     threads.    
     """
 
-    @contextmanager
-    def _get_boto(self):
-        '''Provide boto bucket object'''
-        # Access to protected methods ok
-        #pylint: disable-msg=W0212
+    def __init__(self, aws_key_id, aws_key,  
+                 storage_url, bucket_passphrase, compression, use_ssl):
+        super(Bucket, self).__init__(bucket_passphrase, compression)
+        
+        self.bucket_name = bucket_name
+        self.aws_key = aws_key
+        self.aws_key_id = aws_key_id
+        if use_ssl:
+            self.conn = httplib.HTTPSConnection('%s.s3.amazonaws.com' % bucket_name)
+        else:
+            self.conn = httplib.HTTPConnection('%s.s3.amazonaws.com' % bucket_name)
+           
 
-        boto_conn = self.conn._pop_conn()
-        try:
-            yield retry_boto(boto_conn.get_bucket, self.name)
-        finally:
-            self.conn._push_conn(boto_conn)
-
-    def __init__(self, conn, name, passphrase, compression):
-        super(Bucket, self).__init__(passphrase, compression)
-        self.conn = conn
-        self.name = name
-        with self._get_boto() as boto:
-            self.rac_consistent = (boto.get_location() != '')
-
+         
+        
+    def delete(self, key):
+        '''Delete the specified object'''
+        
+        self._auth_request('DELETE', '/%s' % key)
+        
+        
     def clear(self):
         """Delete all objects in bucket
         
@@ -221,162 +82,55 @@ class Bucket(AbstractBucket):
             t.join_and_raise()
 
     def __str__(self):
-        if self.passphrase:
-            return '<encrypted s3 bucket, name=%r>' % self.name
-        else:
-            return '<s3 bucket, name=%r>' % self.name
+        return '<s3 bucket, name=%r>' % self.bucket_name
 
-    def contains(self, key):
-        with self._get_boto() as boto:
-            bkey = retry_boto(boto.get_key, key)
-
-        return bkey is not None
-
-    def read_after_create_consistent(self):
-        return self.rac_consistent
-
-    def read_after_write_consistent(self):
-        return False
-             
-    def read_after_delete_consistent(self):
-        return False
- 
-    def raw_lookup(self, key):
-        '''Retrieve metadata for `key`
+    def _auth_request(self, method, url, query_string=None, 
+                      body=None, headers=None):
+        '''Make authenticated request
         
-        If the key has been lost (S3 returns 405), it is automatically
-        deleted so that it will no longer be returned by list_keys.
+        *query_string* and *headers* must be dictionaries or *None*.
         '''
-        with self._get_boto() as boto:
-            bkey = _get_boto_key(boto, key)
-
-        if bkey is None:
-            raise NoSuchObject(key)
-
-        return bkey.metadata
-
-    def delete(self, key, force=False):
-        """Deletes the specified key
-
-        ``bucket.delete(key)`` can also be written as ``del bucket[key]``.
-        If `force` is true, do not return an error if the key does not exist.
-        """
-
-        if not isinstance(key, str):
-            raise TypeError('key must be of type str')
-
-        with self._get_boto() as boto:
-            if not force and retry_boto(boto.get_key, key) is None:
-                raise NoSuchObject(key)
-
-            retry_boto(boto.delete_key, key)
-
-    def list(self, prefix=''):
-        with self._get_boto() as boto:
-            for bkey in boto.list(prefix):
-                yield bkey.name
-
-    def raw_fetch(self, key, fh):
-        '''Fetch `key` and store in `fh`
+             
+        # See http://docs.amazonwebservices.com/AmazonS3/latest/dev/RESTAuthentication.html
         
-        If the key has been lost (S3 returns 405), it is automatically
-        deleted so that it will no longer be returned by list_keys.
-        '''        
+        # Lowercase headers
+        if headers:
+            headers = dict((x.lower(), y) for (x,y) in headers.iteritems())
+        else:
+            headers = dict()
         
-        with self._get_boto() as boto:
-            bkey = _get_boto_key(boto, key)
-                    
-            if bkey is None:
-                raise NoSuchObject(key)
-            fh.seek(0)
-            retry_boto(bkey.get_contents_to_file, fh)
-
-        return bkey.metadata
-
-    def raw_store(self, key, fh, metadata):
-        with self._get_boto() as boto:
-            bkey = boto.new_key(key)
-            bkey.metadata.update(metadata)
-            retry_boto(bkey.set_contents_from_file, fh,
-                       reduced_redundancy=self.conn.reduced_redundancy)
-
-
-    def copy(self, src, dest):
-        if not isinstance(src, str):
-            raise TypeError('key must be of type str')
-
-        if not isinstance(dest, str):
-            raise TypeError('key must be of type str')
-
-        with self._get_boto() as boto:
-            retry_boto(boto.copy_key, dest, self.name, src)
-
-def _get_boto_key(boto, key):
-    '''Get boto key object for `key`
-    
-    If the key has been lost (S3 returns 405), it is automatically
-    deleted so that it will no longer be returned by list_keys.
-    '''
-    
-    try:
-        return retry_boto(boto.get_key, key)
-    except exception.S3ResponseError as exc:
-        if exc.error_code != 'MethodNotAllowed':
-            raise
-        
-        # Object was lost
-        log.warn('Object %s has been lost by Amazon, deleting..', key)
-        retry_boto(boto.delete_key, key)
-        return None
-        
-def retry_boto(fn, *a, **kw):
-    """Wait for fn(*a, **kw) to succeed
-    
-    If `fn(*a, **kw)` raises any of
-    
-     - `boto.exception.S3ResponseError` with errorcode in
-       (`NoSuchBucket`, `RequestTimeout`)
-     - `IOError` with errno 104
-     - `httplib.IncompleteRead` 
-     
-    the function is called again. If the timeout is reached, `TimeoutError` is raised.
-    """
-
-    step = 0.2
-    timeout = 300
-    waited = 0
-    while waited < timeout:
-        try:
-            return fn(*a, **kw)
-        except exception.S3ResponseError as exc:
-            if exc.error_code in ('NoSuchBucket', 'RequestTimeout', 'InternalError'):
-                log.warn('Encountered %s error when calling %s, retrying...',
-                         exc.error_code, fn.__name__)
-            else:
-                raise
-        except IOError as exc:
-            if exc.errno == errno.ECONNRESET:
-                pass
-            else:
-                raise
-        except exception.S3CopyError as exc:
-            if exc.error_code in ('RequestTimeout', 'InternalError'):
-                log.warn('Encountered %s error when calling %s, retrying...',
-                         exc.error_code, fn.__name__)
-            else:
-                raise
-        except httplib.IncompleteRead as exc:
-            log.warn('Encountered IncompleteRead error when calling %s, retrying...',
-                     fn.__name__)
+        if 'date' not in headers:
+            now = time.gmtime()
+            # Can't use strftime because it's locale dependent
+            headers['date'] = ('%s, %02d %s %04d %02d:%02d:%02d GMT' 
+                               % (C_DAY_NAMES[now.tm_wday],
+                                  now.tm_mday,
+                                  C_MONTH_NAMES[now.tm_mon - 1],
+                                  now.tm_year, now.tm_hour, 
+                                  now.tm_min, now.tm_sec))
             
-        sleep(step)
-        waited += step
-        if step < timeout / 30:
-            step *= 2
-
-    raise TimeoutError()
-
-class InvalidBucketNameError(Exception):
-
-    def __str__(self):
-        return 'Bucket name contains invalid characters.'
+        auth_strs = [method, '\n']
+        
+        for hdr in ('content-md5', 'content-type', 'date'):
+            if hdr in headers:
+                auth_strs.append(headers[hdr])
+            auth_strs.append('\n')
+    
+        for hdr in sorted(x for x in headers if x.startswith('x-amz-')):
+            val = ' '.join(re.split(r'\s*\n\s*', headers[hdr].strip()))
+            auth_strs.append('%s:%s\n' % (hdr,val))
+    
+        auth_strs.append('/' + self.bucket_name)
+        auth_strs.append(url)
+        
+        # False positive, hashlib *does* have sha1 member
+        #pylint: disable=E1101
+        signature = b64encode(hmac.new(self.aws_key, ''.join(auth_strs), hashlib.sha1).digest())
+         
+        headers['Authorization'] = 'AWS %s:%s' % (self.aws_key_id, signature)
+    
+        full_url = urllib.quote(url)
+        if query_string:
+            full_url += '?%s' % urllib.urlencode(query_string, doseq=True)
+            
+        return self.conn.request(method, full_url, body, headers)
