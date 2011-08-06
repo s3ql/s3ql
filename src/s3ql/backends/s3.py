@@ -8,19 +8,23 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from .common import AbstractBucket, NoSuchBucket, NoSuchObject
+from .common import AbstractBucket, NoSuchObject
 from s3ql.common import (TimeoutError, AsyncFn)
 import logging
-import errno
 import httplib
 import re
 import time
-import threading
 from base64 import b64encode
 import hmac
 import hashlib
 import urllib
-from datetime import datetime
+from xml.dom.minidom import parse as parse_xml
+import xml.dom
+
+ELEMENT_NODE = xml.dom.Node.ELEMENT_NODE
+ATTRIBUTE_NODE = xml.dom.Node.ATTRIBUTE_NODE
+TEXT_NODE = xml.dom.Node.TEXT_NODE
+CDATA_SECTION_NODE = xml.dom.Node.CDATA_SECTION_NODE
 
 log = logging.getLogger("backend.s3etal")
 
@@ -35,26 +39,56 @@ class Bucket(AbstractBucket):
     threads.    
     """
 
-    def __init__(self, aws_key_id, aws_key,  
-                 storage_url, bucket_passphrase, compression, use_ssl):
-        super(Bucket, self).__init__(bucket_passphrase, compression)
+    def __init__(self, bucket_name, aws_key_id, aws_key, prefix, use_ssl):
+        super(Bucket, self).__init__()
         
         self.bucket_name = bucket_name
+        self.prefix = prefix
         self.aws_key = aws_key
         self.aws_key_id = aws_key_id
         if use_ssl:
             self.conn = httplib.HTTPSConnection('%s.s3.amazonaws.com' % bucket_name)
         else:
             self.conn = httplib.HTTPConnection('%s.s3.amazonaws.com' % bucket_name)
-           
-
-         
+   
         
-    def delete(self, key):
+    def delete(self, key, force=False):
         '''Delete the specified object'''
         
-        self._auth_request('DELETE', '/%s' % key)
+        log.debug('delete(%s): start', key)
+        self._auth_request('DELETE', '/%s%s' % (self.prefix, key))
+        try:
+            self._check_success()
+        except S3Error as exc:
+            if exc.code == 'NoSuchKey':
+                if not force:
+                    raise NoSuchObject(key)
+            else:
+                raise
+                    
+    def _check_success(self):
+        '''Read response and raise exception if request failed
         
+        Response body is read and discarded.
+        '''
+        
+        resp = self.conn.getresponse()
+        
+        log.debug('_check_success(): x-amz-request-id: %s, x-aamz-id-2: %s', 
+                  resp.getheader('x-amz-request-id'), resp.getheader('x-aamz-id-2'))
+
+        if resp.status == httplib.OK:
+            resp.read()
+            return
+        
+        if resp.getheader('Content-Type').lower() != 'application/xml':
+            raise RuntimeError('unexpected content type %s for status %d'
+                               % (resp.getheader('Content-Type'), resp.status)) 
+        
+        # Error
+        dom = parse_xml(resp)
+        raise S3Error(get_node(['Error', 'Code'], dom),
+                      get_node(['Error', 'Message'], dom))
         
     def clear(self):
         """Delete all objects in bucket
@@ -99,15 +133,17 @@ class Bucket(AbstractBucket):
         else:
             headers = dict()
         
-        if 'date' not in headers:
-            now = time.gmtime()
-            # Can't use strftime because it's locale dependent
-            headers['date'] = ('%s, %02d %s %04d %02d:%02d:%02d GMT' 
-                               % (C_DAY_NAMES[now.tm_wday],
-                                  now.tm_mday,
-                                  C_MONTH_NAMES[now.tm_mon - 1],
-                                  now.tm_year, now.tm_hour, 
-                                  now.tm_min, now.tm_sec))
+        # Date
+        now = time.gmtime()
+        # Can't use strftime because it's locale dependent
+        headers['date'] = ('%s, %02d %s %04d %02d:%02d:%02d GMT' 
+                           % (C_DAY_NAMES[now.tm_wday],
+                              now.tm_mday,
+                              C_MONTH_NAMES[now.tm_mon - 1],
+                              now.tm_year, now.tm_hour, 
+                              now.tm_min, now.tm_sec))
+        
+        headers['connection'] = 'keep-alive'
             
         auth_strs = [method, '\n']
         
@@ -134,3 +170,48 @@ class Bucket(AbstractBucket):
             full_url += '?%s' % urllib.urlencode(query_string, doseq=True)
             
         return self.conn.request(method, full_url, body, headers)
+
+
+def get_node(path, dom):
+    '''Get node from dom object
+    
+    *path* should be a list of node names. If there are multiple
+    nodes with the same name at any level, a random node will
+    be selected.
+    '''
+    
+    cur_node = dom
+    for name in path:
+        for node in cur_node.childNodes:
+            if node.nodeType not in (ELEMENT_NODE, ATTRIBUTE_NODE):
+                continue
+            if node.nodeName == name:
+                cur_node = node
+                break
+        else:
+            raise RuntimeError('Cannot find node %s' % name)
+    
+    # Now get contents
+    for node in cur_node.childNodes:
+        if node.nodeType in (TEXT_NODE, CDATA_SECTION_NODE):
+            break
+    else:
+        return None
+    
+    return node.nodeValue
+    
+    
+class S3Error(Exception):
+    '''
+    Represents an error returned by S3. For possible codes, see
+    http://docs.amazonwebservices.com/AmazonS3/latest/API/ErrorResponses.html
+    '''
+    
+    def __init__(self, code, msg):
+        super(S3Error, self).__init__()
+        self.code = code
+        self.msg = msg
+        
+    def __str__(self):
+        return self.msg
+    
