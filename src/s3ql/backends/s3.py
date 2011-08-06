@@ -47,6 +47,7 @@ class Bucket(AbstractBucket):
         else:
             self.conn = httplib.HTTPConnection('%s.s3.amazonaws.com' % bucket_name)
    
+        self.region = self._get_region()
         
     def delete(self, key, force=False):
         '''Delete the specified object'''
@@ -55,18 +56,18 @@ class Bucket(AbstractBucket):
         self._auth_request('DELETE', '/%s%s' % (self.prefix, key))
         try:
             self._check_success()
-        except S3Error as exc:
-            if exc.code == 'NoSuchKey':
-                if not force:
-                    raise NoSuchObject(key)
+        except NoSuchKey:
+            if force:
+                pass
             else:
-                raise
+                raise NoSuchObject(key)
                  
     def list(self, prefix=''):
         
         log.debug('list(%s): start', prefix)
         marker = ''
         keys_remaining = True
+        prefix = self.prefix + prefix
         
         while keys_remaining:
             log.debug('list(%s): requesting with marker=%s', prefix, marker)
@@ -109,15 +110,39 @@ class Bucket(AbstractBucket):
             
             if keys_remaining is None:
                 raise RuntimeError('Could not parse body')
+
+    def _get_region(self):
+        ''''Return bucket region'''
         
+        log.debug('_get_region(): start')
+        self._auth_request('GET', '/', subres='location')
+        resp = self._get_reponse()
+        
+        region = ElementTree.parse(resp).getroot().text
+        
+        if not region:
+            region = 'us-classic'
+            
+        if region not in ('EU', 'us-west-1', 'ap-southeast-1', 
+                          'ap-northeast-1', 'us-classic'):
+            raise RuntimeError('Unknown bucket region: %s' % region)
+        
+        return region
+            
     def lookup(self, key):
         """Return metadata for given key.
 
         If the key does not exist, `NoSuchObject` is raised.
         """
+        
+        log.debug('lookup(%s): start', key)
+        self._auth_request('HEAD', '/%s%s' % (self.prefix, key))
+        try:
+            resp = self._check_success()
+        except NoSuchKey:
+            raise NoSuchObject(key)
 
-        pass
-
+        return extractmeta(resp)
 
     def open_read(self, key):
         """Open object for reading
@@ -126,40 +151,71 @@ class Bucket(AbstractBucket):
         contents can be read from the file-like object. 
         """
         
-        pass
+        log.debug('open_read(%s): start', key)
+        self._auth_request('GET', '/%s%s' % (self.prefix, key))
+        try:
+            resp = self._get_reponse()
+        except NoSuchKey:
+            raise NoSuchObject(key)
+
+        return (resp, extractmeta(resp))
     
-    def open_write(self, key, val, metadata=None):
+    def open_write(self, key, metadata=None):
         """Open object for writing
 
         `metadata` can be a dict of additional attributes to store with the
-        object. Returns a file-like object.
+        object. Returns a file-like object that must be closed when all data
+        has been written.
         """
         
-        pass
+        log.debug('open_write(%s): start', key)
+        
+        if metadata is None:
+            headers = None
+        else:
+            headers = dict()
+            for (key, val) in metadata.iteritems():
+                headers['x-amz-meta-%s' % key] = val
+            
+        self._auth_request('PUT', '/%s%s' % (self.prefix, key), headers=headers)
+        
+        return Object(key, self)
+
             
     def read_after_create_consistent(self):
         '''Does this backend provide read-after-create consistency?'''
-        pass
+        
+        return self.region in ('EU', 'us-west-1', 'ap-southeast-1', 'ap-northeast-1')
     
     def read_after_write_consistent(self):
         '''Does this backend provide read-after-write consistency?'''
-        pass
+        
+        return False
         
     def read_after_delete_consistent(self):
         '''Does this backend provide read-after-delete consistency?'''
-        pass
+        
+        return False
 
     def list_after_delete_consistent(self):
         '''Does this backend provide list-after-delete consistency?'''
-        pass
+        
+        return False
         
     def list_after_create_consistent(self):
         '''Does this backend provide list-after-create consistency?'''
-        pass
+        
+        return self.region in ('EU', 'us-west-1', 'ap-southeast-1')
 
     def contains(self, key):
         '''Check if `key` is in bucket'''
-        pass
+        
+        try:
+            self.lookup(key)
+        except NoSuchObject:
+            return False
+        
+        return True
 
     def copy(self, src, dest):
         """Copy data stored under key `src` to key `dest`
@@ -168,16 +224,27 @@ class Bucket(AbstractBucket):
         is done on the remote side. If the backend does not support
         this operation, raises `UnsupportedError`.
         """
-        pass
-
+        
+        log.debug('copy(%s, %s): start', src, dest)
+        
+        self._auth_request('PUT', '/%s%s' % (self.prefix, dest),
+                           headers={ 'x-amz-copy-source': '/%s%s%s' % (self.bucket_name,
+                                                                       self.prefix, src)})
+        try:
+            self._check_success()
+        except NoSuchKey:
+            raise NoSuchObject(src)
 
     def _check_success(self):
         '''Read response and raise exception if request failed
         
-        Response body is read and discarded.
+        Response body is read and discarded, response object is
+        returned.
         '''
 
-        self._get_reponse().read()
+        resp = self._get_reponse()
+        resp.read()
+        return resp
 
     def _get_reponse(self):
         '''Read and return response 
@@ -230,7 +297,7 @@ class Bucket(AbstractBucket):
         return '<s3 bucket, name=%r>' % self.bucket_name
 
     def _auth_request(self, method, url, query_string=None, 
-                      body=None, headers=None):
+                      body=None, headers=None, subres=None):
         '''Make authenticated request
         
         *query_string* and *headers* must be dictionaries or *None*.
@@ -269,6 +336,8 @@ class Bucket(AbstractBucket):
     
         auth_strs.append('/' + self.bucket_name)
         auth_strs.append(url)
+        if subres:
+            auth_strs.append('?%s' % subres)
         
         # False positive, hashlib *does* have sha1 member
         #pylint: disable=E1101
@@ -278,16 +347,64 @@ class Bucket(AbstractBucket):
     
         full_url = urllib.quote(url)
         if query_string:
-            full_url += '?%s' % urllib.urlencode(query_string, doseq=True)
-            
+            s = urllib.urlencode(query_string, doseq=True)
+            if subres:
+                full_url += '?%s&' % (subres, s)
+            else:
+                full_url += '?%s' % s
+        elif subres:
+            full_url += '?%s' % subres
+                
         return self.conn.request(method, full_url, body, headers)
     
   
+class Object(object):
+    '''An open S3 object'''
+    
+    def __init__(self, key, bucket):
+        self.key = key
+        self.bucket = bucket
+        self.closed = False
+        
+    def write(self, buf):
+        '''Write data into bucket'''
+        return self.bucket.conn.send(buf)
+        
+    def close(self):
+        '''Close object and return etag'''
+        # Access to protected member ok
+        #pylint disable=W0212
+        self.closed = True
+        resp = self.bucket._check_success()
+        
+        return resp.getheader('ETag')
+        
+    def __del__(self):
+        if not self.closed:
+            try:
+                self.close()
+            except:
+                pass
+            raise RuntimeError('Object %s has been destroyed without calling close()!' % self.key)
+          
 def get_S3Error(code, msg):
     '''Instantiate most specific S3Error subclass'''
     
     return getattr(globals(), code, S3Error)(code, msg)
     
+
+def extractmeta(resp):
+    '''Extract metadata from HTTP response object'''
+    
+    meta = dict()
+    for (name, val) in resp.getheaders():
+        hit = re.match(r'^x-amz-meta-(.+)$', name)
+        if not hit:
+            continue
+        meta[hit.match(1)] = val
+        
+    return meta
+                    
           
 class S3Error(Exception):
     '''
