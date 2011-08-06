@@ -19,6 +19,7 @@ import hashlib
 import zlib
 import os
 import bz2
+import shutil
 import lzma
 from base64 import b64decode, b64encode
 import struct
@@ -27,7 +28,7 @@ from abc import ABCMeta, abstractmethod
 log = logging.getLogger("backend")
 
 __all__ = [ 'AbstractConnection', 'AbstractBucket', 'ChecksumError', 'UnsupportedError',
-            'NoSuchObject', 'NoSuchBucket' ]
+            'BetterBucket', 'NoSuchObject', 'NoSuchBucket' ]
 
 def sha256(s):
     return hashlib.sha256(s).digest()
@@ -103,7 +104,6 @@ class AbstractConnection(object):
         """
         pass
 
-
 class AbstractBucket(object):
     '''This class contains functionality shared between all backends.
     
@@ -115,9 +115,7 @@ class AbstractBucket(object):
     '''
     __metaclass__ = ABCMeta
 
-    def __init__(self, passphrase, compression):
-        self.passphrase = passphrase
-        self.compression = compression
+    def __init__(self):
         super(AbstractBucket, self).__init__()
 
     def __getitem__(self, key):
@@ -139,17 +137,14 @@ class AbstractBucket(object):
         for key in self.list():
             yield (key, self[key])
 
+    @abstractmethod
     def lookup(self, key):
         """Return metadata for given key.
 
         If the key does not exist, `NoSuchObject` is raised.
         """
 
-        if not isinstance(key, str):
-            raise TypeError('key must be of type str')
-
-        meta_raw = self.raw_lookup(key)
-        return self._get_meta(meta_raw)[0]
+        pass
 
 
     def fetch(self, key):
@@ -160,13 +155,10 @@ class AbstractBucket(object):
         ``bucket.fetch(key)[0]``.
         """
 
-        if not isinstance(key, str):
-            raise TypeError('key must be of type str')
-
-        fh = StringIO()
-        meta = self.fetch_fh(key, fh)
-
-        return (fh.getvalue(), meta)
+        with self.open_read(key) as (meta, fh): 
+            data = fh.read()
+        
+        return (data, meta)
 
     def store(self, key, val, metadata=None):
         """Store data under `key`.
@@ -177,24 +169,132 @@ class AbstractBucket(object):
         If no metadata is required, one can simply assign to the subscripted
         bucket instead of using this function: ``bucket[key] = val`` is
         equivalent to ``bucket.store(key, val)``.
-        
-        Returns the size of the stored object (after compression).
         """
-        if isinstance(val, unicode):
-            val = val.encode('us-ascii')
+        
+        with self.open_write(key, metadata) as fh:
+            fh.write(val)
 
-        if not isinstance(key, str):
-            raise TypeError('key must be of type str')
+    @abstractmethod
+    def open_read(self, key):
+        """Open object for reading
 
-        fh = StringIO(val)
-        return self.store_fh(key, fh, metadata)
+        Return a tuple of a file-like object and metadata. Bucket
+        contents can be read from the file-like object. 
+        """
+        
+        pass
+    
+    def open_write(self, key, val, metadata=None):
+        """Open object for writing
 
-    def _get_meta(self, meta_raw, plain=False):
+        `metadata` can be a dict of additional attributes to store with the
+        object. Returns a file-like object.
+        """
+        
+        pass
+            
+    @abstractmethod
+    def read_after_create_consistent(self):
+        '''Does this backend provide read-after-create consistency?'''
+        pass
+    
+    @abstractmethod
+    def read_after_write_consistent(self):
+        '''Does this backend provide read-after-write consistency?'''
+        pass
+        
+    @abstractmethod
+    def read_after_delete_consistent(self):
+        '''Does this backend provide read-after-delete consistency?'''
+        pass
+
+    @abstractmethod
+    def list_after_delete_consistent(self):
+        '''Does this backend provide list-after-delete consistency?'''
+        pass
+        
+    @abstractmethod
+    def list_after_create_consistent(self):
+        '''Does this backend provide list-after-create consistency?'''
+        pass
+    
+    @abstractmethod
+    def clear(self):
+        """Delete all objects in bucket"""
+        pass
+
+    @abstractmethod
+    def contains(self, key):
+        '''Check if `key` is in bucket'''
+        pass
+
+    @abstractmethod
+    def delete(self, key, force=False):
+        """Delete object stored under `key`
+
+        ``bucket.delete(key)`` can also be written as ``del bucket[key]``.
+        If `force` is true, do not return an error if the key does not exist.
+        """
+        pass
+
+    @abstractmethod
+    def list(self, prefix=''):
+        '''List keys in bucket
+
+        Returns an iterator over all keys in the bucket.
+        '''
+        pass
+
+    def copy(self, src, dest):
+        """Copy data stored under key `src` to key `dest`
+        
+        If `dest` already exists, it will be overwritten. The copying
+        is done on the remote side. If the backend does not support
+        this operation, raises `UnsupportedError`.
+        """
+        # Unused arguments
+        #pylint: disable=W0613        
+        raise UnsupportedError('Backend does not support remote copy')
+
+    def rename(self, src, dest):
+        """Rename key `src` to `dest`
+        
+        If `dest` already exists, it will be overwritten. The rename
+        is done on the remote side. If the backend does not support
+        this operation, raises `UnsupportedError`.
+        """
+        # Unused arguments
+        #pylint: disable=W0613  
+        raise UnsupportedError('Backend does not support remote rename')
+
+    
+class BetterBucket(AbstractBucket):
+    '''
+    This class adds encryption, compression and integrity
+    protection to a plain bucket.
+    '''
+
+    def __init__(self, passphrase, compression, bucket):
+        super(BetterBucket, self).__init__()
+        
+        self.passphrase = passphrase
+        self.compression = compression
+        self.bucket = bucket
+
+    def lookup(self, key):
+        """Return metadata for given key.
+
+        If the key does not exist, `NoSuchObject` is raised.
+        """
+
+        meta_raw = self.bucket.lookup(key)
+        return self._get_meta(meta_raw)[0]
+
+    def _get_meta(self, meta_raw):
         '''Get metadata & decompressor factory
         
-        If the bucket has a password set
-        but the object is not encrypted, `ObjectNotEncrypted` is raised
-        unless `plain` is true. 
+        If the bucket has a password set but the object is not encrypted,
+        `ObjectNotEncrypted` is raised unless `plain` is true.
         '''
 
         convert_legacy_metadata(meta_raw)
@@ -233,7 +333,7 @@ class AbstractBucket(object):
 
         return (metadata, decomp)
 
-    def fetch_fh(self, key, fh, plain=False):
+    def open_read(self, key):
         """Fetch data for `key` and write to `fh`
 
         Return a dictionary with the metadata. If the bucket has a password set
@@ -241,37 +341,15 @@ class AbstractBucket(object):
         unless `plain` is true. 
         """
 
-        if not isinstance(key, str):
-            raise TypeError('key must be of type str')
+        meta_raw = self.bucket.lookup(key)
+        (metadata, decomp) = self._get_meta(meta_raw)
 
-        tmp = tempfile.TemporaryFile()
-        (fh, tmp) = (tmp, fh)
+        fh = self.bucket.open_read(key)
+        if decomp:
+            fh = DecompressFilter(fh, decomp)
 
-        meta_raw = self.raw_fetch(key, fh)
-        (metadata, decomp) = self._get_meta(meta_raw, plain)
+        return (DecryptFilter(fh, self.passphrase), metadata)
 
-        (fh, tmp) = (tmp, fh)
-        tmp.seek(0)
-        fh.seek(0)
-        if self.passphrase:
-            decrypt_uncompress_fh(tmp, fh, self.passphrase, decomp())
-        else:
-            uncompress_fh(tmp, fh, decomp())
-        tmp.close()
-
-        return metadata
-
-    def store_fh(self, key, fh, metadata=None):
-        """Store data in `fh` under `key`
-        
-        `metadata` can be a dict of additional attributes to store with the
-        object.
-        
-        Returns the size of the stored object (after compression).
-        """
-        (size, fn) = self.prep_store_fh(key, fh, metadata)
-        fn()
-        return size 
 
     def prep_store_fh(self, key, fh, metadata=None):
         """Prepare to store data in `fh` under `key`
@@ -326,98 +404,9 @@ class AbstractBucket(object):
         tmp.seek(0, os.SEEK_END)
         size = tmp.tell()
         tmp.seek(0)
-        return (size, lambda: self.raw_store(key, tmp, meta_raw))
+        return (size, lambda: self.bucket.store_fh(key, tmp, meta_raw))
 
-    @abstractmethod
-    def read_after_create_consistent(self):
-        '''Does this backend provide read-after-create consistency?'''
-        pass
-    
-    @abstractmethod
-    def read_after_write_consistent(self):
-        '''Does this backend provide read-after-write consistency?
         
-        (This does not includes read-after-delete)
-        '''
-        pass
-        
-    @abstractmethod
-    def read_after_delete_consistent(self):
-        '''Does this backend provide read-after-delete consistency?'''
-        pass
-            
-    @abstractmethod
-    def __str__(self):
-        pass
-
-    @abstractmethod
-    def clear(self):
-        """Delete all objects in bucket"""
-        pass
-
-    @abstractmethod
-    def contains(self, key):
-        '''Check if `key` is in bucket'''
-        pass
-
-    @abstractmethod
-    def raw_lookup(self, key):
-        '''Return meta data for `key`'''
-        pass
-
-    @abstractmethod
-    def delete(self, key, force=False):
-        """Delete object stored under `key`
-
-        ``bucket.delete(key)`` can also be written as ``del bucket[key]``.
-        If `force` is true, do not return an error if the key does not exist.
-        """
-        pass
-
-    @abstractmethod
-    def list(self, prefix=''):
-        '''List keys in bucket
-
-        Returns an iterator over all keys in the bucket.
-        '''
-        pass
-
-    @abstractmethod
-    def raw_fetch(self, key, fh):
-        '''Fetch contents stored under `key` and write them into `fh`'''
-        pass
-
-    @abstractmethod
-    def raw_store(self, key, fh, metadata):
-        '''Store contents of `fh` in `key` with metadata
-        
-        `metadata` has to be a dict with lower-case keys.
-        '''
-        pass
-
-    def copy(self, src, dest):
-        """Copy data stored under key `src` to key `dest`
-        
-        If `dest` already exists, it will be overwritten. The copying
-        is done on the remote side. If the backend does not support
-        this operation, raises `UnsupportedError`.
-        """
-        # Unused arguments
-        #pylint: disable=W0613        
-        raise UnsupportedError('Backend does not support remote copy')
-
-    def rename(self, src, dest):
-        """Rename key `src` to `dest`
-        
-        If `dest` already exists, it will be overwritten. The rename
-        is done on the remote side. If the backend does not support
-        this operation, raises `UnsupportedError`.
-        """
-        # Unused arguments
-        #pylint: disable=W0613  
-        raise UnsupportedError('Backend does not support remote rename')
-
-
 class UnsupportedError(Exception):
     '''Raised if a backend does not support a particular operation'''
 
