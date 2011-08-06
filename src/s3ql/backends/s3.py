@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 
 from .common import AbstractBucket, NoSuchObject
-from s3ql.common import (TimeoutError, AsyncFn)
+from s3ql.common import AsyncFn
 import logging
 import httplib
 import re
@@ -18,18 +18,14 @@ from base64 import b64encode
 import hmac
 import hashlib
 import urllib
-from xml.dom.minidom import parse as parse_xml
-import xml.dom
+import xml.etree.cElementTree as ElementTree
 
-ELEMENT_NODE = xml.dom.Node.ELEMENT_NODE
-ATTRIBUTE_NODE = xml.dom.Node.ATTRIBUTE_NODE
-TEXT_NODE = xml.dom.Node.TEXT_NODE
-CDATA_SECTION_NODE = xml.dom.Node.CDATA_SECTION_NODE
-
-log = logging.getLogger("backend.s3etal")
+log = logging.getLogger("backend.s3")
 
 C_DAY_NAMES = [ 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ]
-C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ]
+C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ]
+
+NAMESPACE = 'http://s3.amazonaws.com/doc/2006-03-01/'
 
 class Bucket(AbstractBucket):
     """A bucket stored in Amazon S3 and compatible services
@@ -65,30 +61,145 @@ class Bucket(AbstractBucket):
                     raise NoSuchObject(key)
             else:
                 raise
+                 
+    def list(self, prefix=''):
+        
+        log.debug('list(%s): start', prefix)
+        marker = ''
+        keys_remaining = True
+        
+        while keys_remaining:
+            log.debug('list(%s): requesting with marker=%s', prefix, marker)
+            self._auth_request('GET', '/', { 'prefix': prefix,
+                                             'marker': marker,
+                                             'max-keys': 1000 })
+            
+            resp = self._get_reponse()
+            if resp.getheader('Content-Type').lower() != 'application/xml':
+                raise RuntimeError('unexpected content type: %s' % resp.getheader('Content-Type'))
+            
+            itree = iter(ElementTree.iterparse(resp, events=("start", "end")))
+            (event, root) = itree.next()
+
+            namespace = re.sub(r'^\{(.+)\}.+$', r'\1', root.tag)
+            if namespace != NAMESPACE:
+                raise RuntimeError('Unsupported namespace: %s' % namespace)
+            
+            keys_remaining = None
+            try:
+                for (event, el) in itree:
+                    if event != 'end':
+                        continue
                     
+                    if el.tag == '{%s}IsTruncated' % NAMESPACE:
+                        keys_remaining = (el.text == 'true')
+                    
+                    elif el.tag == '{%s}Contents' % NAMESPACE:
+                        marker = el.findtext('{%s}Key' % NAMESPACE)
+                        yield marker
+                        root.clear()
+                        
+            except GeneratorExit:
+                # Need to read rest of response
+                while True:
+                    buf = resp.read(8192)
+                    if buf == '':
+                        break
+                break # Abort completely
+            
+            if keys_remaining is None:
+                raise RuntimeError('Could not parse body')
+        
+    def lookup(self, key):
+        """Return metadata for given key.
+
+        If the key does not exist, `NoSuchObject` is raised.
+        """
+
+        pass
+
+
+    def open_read(self, key):
+        """Open object for reading
+
+        Return a tuple of a file-like object and metadata. Bucket
+        contents can be read from the file-like object. 
+        """
+        
+        pass
+    
+    def open_write(self, key, val, metadata=None):
+        """Open object for writing
+
+        `metadata` can be a dict of additional attributes to store with the
+        object. Returns a file-like object.
+        """
+        
+        pass
+            
+    def read_after_create_consistent(self):
+        '''Does this backend provide read-after-create consistency?'''
+        pass
+    
+    def read_after_write_consistent(self):
+        '''Does this backend provide read-after-write consistency?'''
+        pass
+        
+    def read_after_delete_consistent(self):
+        '''Does this backend provide read-after-delete consistency?'''
+        pass
+
+    def list_after_delete_consistent(self):
+        '''Does this backend provide list-after-delete consistency?'''
+        pass
+        
+    def list_after_create_consistent(self):
+        '''Does this backend provide list-after-create consistency?'''
+        pass
+
+    def contains(self, key):
+        '''Check if `key` is in bucket'''
+        pass
+
+    def copy(self, src, dest):
+        """Copy data stored under key `src` to key `dest`
+        
+        If `dest` already exists, it will be overwritten. The copying
+        is done on the remote side. If the backend does not support
+        this operation, raises `UnsupportedError`.
+        """
+        pass
+
+
     def _check_success(self):
         '''Read response and raise exception if request failed
         
         Response body is read and discarded.
         '''
+
+        self._get_reponse().read()
+
+    def _get_reponse(self):
+        '''Read and return response 
         
+        Returns a file handle where the response body can be read from.
+        '''
+                
         resp = self.conn.getresponse()
         
         log.debug('_check_success(): x-amz-request-id: %s, x-aamz-id-2: %s', 
                   resp.getheader('x-amz-request-id'), resp.getheader('x-aamz-id-2'))
 
         if resp.status == httplib.OK:
-            resp.read()
-            return
+            return resp
         
         if resp.getheader('Content-Type').lower() != 'application/xml':
             raise RuntimeError('unexpected content type %s for status %d'
                                % (resp.getheader('Content-Type'), resp.status)) 
         
         # Error
-        dom = parse_xml(resp)
-        raise S3Error(get_node(['Error', 'Code'], dom),
-                      get_node(['Error', 'Message'], dom))
+        tree = ElementTree.parse(resp).getroot()
+        raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'))
         
     def clear(self):
         """Delete all objects in bucket
@@ -142,7 +253,7 @@ class Bucket(AbstractBucket):
                               C_MONTH_NAMES[now.tm_mon - 1],
                               now.tm_year, now.tm_hour, 
                               now.tm_min, now.tm_sec))
-        
+
         headers['connection'] = 'keep-alive'
             
         auth_strs = [method, '\n']
@@ -170,37 +281,14 @@ class Bucket(AbstractBucket):
             full_url += '?%s' % urllib.urlencode(query_string, doseq=True)
             
         return self.conn.request(method, full_url, body, headers)
-
-
-def get_node(path, dom):
-    '''Get node from dom object
     
-    *path* should be a list of node names. If there are multiple
-    nodes with the same name at any level, a random node will
-    be selected.
-    '''
+  
+def get_S3Error(code, msg):
+    '''Instantiate most specific S3Error subclass'''
     
-    cur_node = dom
-    for name in path:
-        for node in cur_node.childNodes:
-            if node.nodeType not in (ELEMENT_NODE, ATTRIBUTE_NODE):
-                continue
-            if node.nodeName == name:
-                cur_node = node
-                break
-        else:
-            raise RuntimeError('Cannot find node %s' % name)
+    return getattr(globals(), code, S3Error)(code, msg)
     
-    # Now get contents
-    for node in cur_node.childNodes:
-        if node.nodeType in (TEXT_NODE, CDATA_SECTION_NODE):
-            break
-    else:
-        return None
-    
-    return node.nodeValue
-    
-    
+          
 class S3Error(Exception):
     '''
     Represents an error returned by S3. For possible codes, see
@@ -215,3 +303,20 @@ class S3Error(Exception):
     def __str__(self):
         return self.msg
     
+class NoSuchKey(S3Error): pass
+class AccessDenied(S3Error): pass
+class BadDigest(S3Error): pass
+class EntityTooSmall(S3Error): pass
+class EntityTooLarge(S3Error): pass
+class ExpiredToken(S3Error): pass
+class IncompleteBody(S3Error): pass
+class InternalError(S3Error): pass
+class InvalidAccessKeyId(S3Error): pass
+class InvalidBucketName(S3Error): pass
+class InvalidSecurity(S3Error): pass
+class OperationAborted(S3Error): pass
+class RequestTimeout(S3Error): pass
+class RequestTimeTooSkewed(S3Error): pass
+class SignatureDoesNotMatch(S3Error): pass
+
+
