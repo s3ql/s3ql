@@ -81,15 +81,15 @@ class Bucket(AbstractBucket):
     def delete(self, key, force=False):
         '''Delete the specified object'''
         
-        log.debug('delete(%s): start', key)
-        self._auth_request('DELETE', '/%s%s' % (self.prefix, key))
+        log.debug('delete(%s)', key)
         try:
-            self._check_success()
+            self._do_request('DELETE', '/%s%s' % (self.prefix, key))
         except NoSuchKey:
             if force:
                 pass
             else:
                 raise NoSuchObject(key)
+            
              
     def list(self, prefix=''):
         '''List keys in bucket
@@ -128,11 +128,10 @@ class Bucket(AbstractBucket):
             log.debug('list(%s): requesting with marker=%s', prefix, marker)
             
             keys_remaining = None
-            self._auth_request('GET', '/', { 'prefix': prefix,
-                                             'marker': marker,
-                                             'max-keys': 1000 })
+            resp = self._do_request('GET', '/', query_string={ 'prefix': prefix,
+                                                              'marker': marker,
+                                                              'max-keys': 1000 })
             
-            resp = self._get_reponse()
             if resp.getheader('Content-Type').lower() != 'application/xml':
                 raise RuntimeError('unexpected content type: %s' % resp.getheader('Content-Type'))
             
@@ -171,9 +170,8 @@ class Bucket(AbstractBucket):
     def _get_region(self):
         ''''Return bucket region'''
         
-        log.debug('_get_region(): start')
-        self._auth_request('GET', '/', subres='location')
-        resp = self._get_reponse()
+        log.debug('_get_region()')
+        resp = self._do_request('GET', '/', subres='location')
         
         region = ElementTree.parse(resp).getroot().text
         
@@ -193,10 +191,10 @@ class Bucket(AbstractBucket):
         If the key does not exist, `NoSuchObject` is raised.
         """
         
-        log.debug('lookup(%s): start', key)
-        self._auth_request('HEAD', '/%s%s' % (self.prefix, key))
+        log.debug('lookup(%s)', key)
+        
         try:
-            resp = self._check_success()
+            resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
         except NoSuchKey:
             raise NoSuchObject(key)
 
@@ -210,10 +208,10 @@ class Bucket(AbstractBucket):
         must be closed explicitly.
         """
         
-        log.debug('open_read(%s): start', key)
-        self._auth_request('GET', '/%s%s' % (self.prefix, key))
+        log.debug('open_read(%s)', key)
+        
         try:
-            resp = self._get_reponse()
+            resp = self._do_request('GET', '/%s%s' % (self.prefix, key))
         except NoSuchKey:
             raise NoSuchObject(key)
 
@@ -286,35 +284,49 @@ class Bucket(AbstractBucket):
         
         log.debug('copy(%s, %s): start', src, dest)
         
-        self._auth_request('PUT', '/%s%s' % (self.prefix, dest),
-                           headers={ 'x-amz-copy-source': '/%s%s%s' % (self.bucket_name,
-                                                                       self.prefix, src)})
         try:
-            self._check_success()
+            self._do_request('PUT', '/%s%s' % (self.prefix, dest),
+                             headers={ 'x-amz-copy-source': '/%s%s%s' % (self.bucket_name,
+                                                                         self.prefix, src)})
         except NoSuchKey:
             raise NoSuchObject(src)
 
-    def _check_success(self):
-        '''Read response and raise exception if request failed
+    def _do_request(self, method, url, subres=None, query_string=None,
+                    headers=None, body=None ):
+        '''Send request, read and return response object'''
         
-        Response body is read and discarded, response object is
-        returned.
-        '''
-
-        resp = self._get_reponse()
-        resp.read()
-        return resp
-
-    def _get_reponse(self):
-        '''Read and return response 
+        log.debug('_do_request(): start with parameters (%r, %r, %r, %r, %r, %r)', 
+                  method, url, subres, query_string, headers, body)
         
-        Returns a file handle where the response body can be read from.
-        '''
-                
-        resp = self.conn.getresponse()
+        if headers is None:
+            headers = dict()
+            
+        full_url = self._add_auth('DELETE', '/%s%s' % (self.prefix, url),
+                                  headers, subres, query_string)
         
-        log.debug('_check_success(): x-amz-request-id: %s, x-aamz-id-2: %s', 
-                  resp.getheader('x-amz-request-id'), resp.getheader('x-aamz-id-2'))
+        redirect_count = 0
+        while True:
+            log.debug('_do_request(): sending request')
+            self.conn.request(method, full_url, body, headers)
+              
+            log.debug('_do_request(): Reading response')
+            resp = self.conn.getresponse()
+        
+            log.debug('_do_request(): request-id: %s',  resp.getheader('x-amz-request-id'))
+            
+            if (resp.status < 300 and resp.status > 399):
+                break
+            
+            redirect_count += 1
+            if redirect_count > 10:
+                raise RuntimeError('Too many chained redirections')
+            full_url = resp.getheader('Location')
+            
+            log.debug('_do_request(): redirecting to %s', full_url)
+            
+            # TODO: We really want to use 100-continue instead
+            if not isinstance(body, bytes):
+                body.seek(0)
 
         if resp.status == httplib.OK:
             return resp
@@ -356,21 +368,22 @@ class Bucket(AbstractBucket):
     def __str__(self):
         return '<s3 bucket, name=%r>' % self.bucket_name
 
-    def _auth_request(self, method, url, query_string=None, 
-                      body=None, headers=None, subres=None):
-        '''Make authenticated request
+    def _add_auth(self, method, url, headers, subres=None, query_string=None):
+        '''Add authentication to *headers*
         
-        *query_string* and *headers* must be dictionaries or *None*.
+        Note that *headers* is modified in-place. As a convenience,
+        this method returns the encoded URL with query string and
+        sub resource appended.
+        
+        *query_string* must be a dict or *None*. *subres* must be a
+        string or *None*.
         '''
              
         # See http://docs.amazonwebservices.com/AmazonS3/latest/dev/RESTAuthentication.html
         
         # Lowercase headers
-        if headers:
-            headers = dict((x.lower(), y) for (x,y) in headers.iteritems())
-        else:
-            headers = dict()
-        
+        headers = dict((x.lower(), y) for (x,y) in headers.iteritems())
+
         # Date
         now = time.gmtime()
         # Can't use strftime because it's locale dependent
@@ -415,8 +428,7 @@ class Bucket(AbstractBucket):
         elif subres:
             full_url += '?%s' % subres
                 
-        # TODO: Handle redirect
-        return self.conn.request(method, full_url, body, headers)
+        return full_url
 
     
 class ObjectR(object):
@@ -507,9 +519,8 @@ class ObjectW(object):
         self.headers['Content-Length'] = self.fh.tell()
         self.fh.seek(0)
         
-        self.bucket._auth_request('PUT', '/%s%s' % (self.bucket.prefix, self.key), 
-                                  headers=self.headers, body=self.fh)
-        resp = self.bucket._check_success()
+        resp = self.bucket._do_request('PUT', '/%s%s' % (self.bucket.prefix, self.key), 
+                                       headers=self.headers, body=self.fh)
         etag = resp.getheader('ETag').strip('"')
         
         if etag != self.md5.hexdigest():
