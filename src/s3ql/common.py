@@ -17,6 +17,7 @@ import sys
 import threading
 import traceback
 import time
+from functools import wraps
 import re
 import cPickle as pickle
 from contextlib import contextmanager
@@ -31,7 +32,7 @@ __all__ = ["get_bucket_cachedir", 'sha256_fh', 'add_stdout_logging',
            'QuietError', 'get_backend', 'add_file_logging', 'setup_excepthook',
            'cycle_metadata', 'restore_metadata', 'dump_metadata', 
            'setup_logging', 'AsyncFn', 'init_tables', 'create_indices',
-           'create_tables', 'get_seq_no' ]
+           'create_tables', 'get_seq_no', 'retry_on' ]
 
 
 AUTHINFO_BACKEND_PATTERN = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(.+)$'
@@ -105,6 +106,42 @@ def add_stdout_logging(quiet=False):
         handler.setLevel(logging.INFO)
     root_logger.addHandler(handler)
     return handler
+
+def retry_on(check_fn, timeout=60*60*24):
+    '''Decorator for retrying a function on some exceptions
+    
+    If the decorated function raises an exception for which check_fn(exc) is
+    true, the function is called again at increasing intervals. If the function
+    did not terminate normally or raise an exception for which check_fn(exc) is
+    false for more than *timeout* seconds, RuntimeError is
+    raised.
+    '''
+    
+    def wrapper(fn):
+        
+        @wraps(fn)
+        def wrapped(*a, **kw):    
+            interval = 1/50
+            waited = 0
+            while True:
+                if waited > timeout:
+                    raise RuntimeError('Timeout while retrying %s' % fn.__name__)
+                
+                try:
+                    return fn(*a, **kw)
+                except Exception as exc:
+                    if not check_fn(exc):
+                        raise
+                    log.debug('%s: trying again after %e exception:', fn.__name__,  exc)
+                    
+                time.sleep(interval)
+                waited += interval
+                if interval < 20*60:
+                    interval *= 2   
+                                  
+        return wrapped 
+
+    return wrapper   
     
 @contextmanager
 def get_backend(storage_url, authfile, use_ssl):
