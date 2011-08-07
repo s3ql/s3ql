@@ -184,7 +184,8 @@ class AbstractBucket(object):
         
         pass
     
-    def open_write(self, key, val, metadata=None):
+    @abstractmethod
+    def open_write(self, key, metadata=None):
         """Open object for writing
 
         `metadata` can be a dict of additional attributes to store with the
