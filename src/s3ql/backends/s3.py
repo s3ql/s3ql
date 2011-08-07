@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 
 from .common import AbstractBucket, NoSuchObject
-from s3ql.common import AsyncFn
+from s3ql.common import AsyncFn, retry_on
 import logging
 import httplib
 import re
@@ -17,8 +17,11 @@ import time
 from base64 import b64encode
 import hmac
 import hashlib
+import tempfile
 import urllib
 import xml.etree.cElementTree as ElementTree
+import os
+import errno
 
 log = logging.getLogger("backend.s3")
 
@@ -48,7 +51,33 @@ class Bucket(AbstractBucket):
             self.conn = httplib.HTTPConnection('%s.s3.amazonaws.com' % bucket_name)
    
         self.region = self._get_region()
+    
+    @staticmethod
+    def is_temp_failure(exc):
+        '''Return true if exc indicates a temporary error
+    
+        Return true if the given exception is used by this bucket's backend
+        to indicate a temporary problem. Most instance methods automatically
+        retry the request in this case, so the caller does not need to
+        worry about temporary failures.
         
+        However, in same cases (e.g. when reading or writing an object), the
+        request cannot automatically be retried. In these case this method can
+        be used to check for temporary problems and so that the request can
+        be manually restarted if applicable.
+        '''          
+    
+        if isinstance(exc, (InternalError, BadDigest, IncompleteBody, RequestTimeout,
+                            OperationAborted, SlowDown, RequestTimeTooSkewed,
+                            httplib.IncompleteRead, httplib.BadStatusLine)):
+            return True
+        
+        elif isinstance(exc, IOError) and exc.errno == errno.EPIPE:
+            return True
+        
+        return False
+
+    @retry_on(is_temp_failure)    
     def delete(self, key, force=False):
         '''Delete the specified object'''
         
@@ -61,16 +90,44 @@ class Bucket(AbstractBucket):
                 pass
             else:
                 raise NoSuchObject(key)
-                 
+             
     def list(self, prefix=''):
+        '''List keys in bucket
+
+        Returns an iterator over all keys in the bucket.
+        '''
         
         log.debug('list(%s): start', prefix)
+        
         marker = ''
+        iterator = self._list(prefix, marker)
+        while True:
+            try:
+                marker = iterator.next()
+            except StopIteration:
+                break
+            except Exception as exc:
+                if self.is_temp_failure(exc):
+                    iterator = self._list(prefix, marker)
+                else:
+                    raise
+            else:
+                yield marker
+
+    def _list(self, prefix='', start=''):
+        '''List keys in bucket, starting with *start*
+
+        Returns an iterator over all keys in the bucket.
+        '''
+
         keys_remaining = True
+        marker = start
         prefix = self.prefix + prefix
         
         while keys_remaining:
             log.debug('list(%s): requesting with marker=%s', prefix, marker)
+            
+            keys_remaining = None
             self._auth_request('GET', '/', { 'prefix': prefix,
                                              'marker': marker,
                                              'max-keys': 1000 })
@@ -85,8 +142,7 @@ class Bucket(AbstractBucket):
             namespace = re.sub(r'^\{(.+)\}.+$', r'\1', root.tag)
             if namespace != NAMESPACE:
                 raise RuntimeError('Unsupported namespace: %s' % namespace)
-            
-            keys_remaining = None
+             
             try:
                 for (event, el) in itree:
                     if event != 'end':
@@ -105,12 +161,13 @@ class Bucket(AbstractBucket):
                 while True:
                     buf = resp.read(8192)
                     if buf == '':
-                        break
-                break # Abort completely
+                        break   
+                break               
             
             if keys_remaining is None:
                 raise RuntimeError('Could not parse body')
 
+    @retry_on(is_temp_failure)
     def _get_region(self):
         ''''Return bucket region'''
         
@@ -129,6 +186,7 @@ class Bucket(AbstractBucket):
         
         return region
             
+    @retry_on(is_temp_failure)
     def lookup(self, key):
         """Return metadata for given key.
 
@@ -148,7 +206,8 @@ class Bucket(AbstractBucket):
         """Open object for reading
 
         Return a tuple of a file-like object and metadata. Bucket
-        contents can be read from the file-like object. 
+        contents can be read from the file-like object. This object
+        must be closed explicitly.
         """
         
         log.debug('open_read(%s): start', key)
@@ -158,7 +217,7 @@ class Bucket(AbstractBucket):
         except NoSuchKey:
             raise NoSuchObject(key)
 
-        return (resp, extractmeta(resp))
+        return (ObjectR(key, resp), extractmeta(resp))
     
     def open_write(self, key, metadata=None):
         """Open object for writing
@@ -166,21 +225,19 @@ class Bucket(AbstractBucket):
         `metadata` can be a dict of additional attributes to store with the
         object. Returns a file-like object that must be closed when all data
         has been written.
+        
+        Since Amazon S3 does not support chunked uploads, the entire
+        data will be buffered in memory before upload. 
         """
         
         log.debug('open_write(%s): start', key)
         
-        if metadata is None:
-            headers = None
-        else:
-            headers = dict()
-            for (key, val) in metadata.iteritems():
-                headers['x-amz-meta-%s' % key] = val
+        headers = dict()
+        if metadata:
+            for (hdr, val) in metadata.iteritems():
+                headers['x-amz-meta-%s' % hdr] = val
             
-        self._auth_request('PUT', '/%s%s' % (self.prefix, key), headers=headers)
-        
-        return Object(key, self)
-
+        return ObjectW(key, self, headers)
             
     def read_after_create_consistent(self):
         '''Does this backend provide read-after-create consistency?'''
@@ -207,6 +264,7 @@ class Bucket(AbstractBucket):
         
         return self.region in ('EU', 'us-west-1', 'ap-southeast-1')
 
+    @retry_on(is_temp_failure)
     def contains(self, key):
         '''Check if `key` is in bucket'''
         
@@ -217,6 +275,7 @@ class Bucket(AbstractBucket):
         
         return True
 
+    @retry_on(is_temp_failure)
     def copy(self, src, dest):
         """Copy data stored under key `src` to key `dest`
         
@@ -268,6 +327,7 @@ class Bucket(AbstractBucket):
         tree = ElementTree.parse(resp).getroot()
         raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'))
         
+                                                  
     def clear(self):
         """Delete all objects in bucket
         
@@ -349,35 +409,56 @@ class Bucket(AbstractBucket):
         if query_string:
             s = urllib.urlencode(query_string, doseq=True)
             if subres:
-                full_url += '?%s&' % (subres, s)
+                full_url += '?%s&%s' % (subres, s)
             else:
                 full_url += '?%s' % s
         elif subres:
             full_url += '?%s' % subres
                 
+        # TODO: Handle redirect
         return self.conn.request(method, full_url, body, headers)
+
     
-  
-class Object(object):
-    '''An open S3 object'''
+class ObjectR(object):
+    '''An S3 object open for reading'''
     
-    def __init__(self, key, bucket):
+    def __init__(self, key, resp):
         self.key = key
-        self.bucket = bucket
+        self.resp = resp
         self.closed = False
         
-    def write(self, buf):
-        '''Write data into bucket'''
-        return self.bucket.conn.send(buf)
+        # False positive, hashlib *does* have md5 member
+        #pylint: disable=E1101        
+        self.md5 = hashlib.md5()
         
+    def read(self, size=None):
+        '''Read object data'''
+        
+        # chunked encoding handled by httplib
+        buf = self.resp.read(size)
+        self.md5.update(buf)
+        return buf
+       
+    @retry_on(Bucket.is_temp_failure) 
     def close(self):
-        '''Close object and return etag'''
+        '''Close object'''
+
         # Access to protected member ok
-        #pylint disable=W0212
-        self.closed = True
-        resp = self.bucket._check_success()
+        #pylint: disable=W0212
         
-        return resp.getheader('ETag')
+        log.debug('ObjectR(%s).close(): start', self.key)        
+        self.closed = True
+
+        while True:
+            buf = self.read(8192)
+            if buf == '':
+                break
+
+        etag = self.resp.getheader('ETag').strip('"')
+        
+        if etag != self.md5.hexdigest():
+            log.warn('ObjectR(%s).close(): MD5 mismatch: %s vs %s', self.key, etag, self.md5.hexdigest())
+            raise BadDigest('BadDigest', 'Received ETag does not agree with our calculations.')
         
     def __del__(self):
         if not self.closed:
@@ -385,7 +466,66 @@ class Object(object):
                 self.close()
             except:
                 pass
-            raise RuntimeError('Object %s has been destroyed without calling close()!' % self.key)
+            raise RuntimeError('ObjectR %s has been destroyed without calling close()!' % self.key)
+
+  
+class ObjectW(object):
+    '''An S3 object open for writing
+    
+    All data is first cached in memory, upload only starts when
+    the close() method is called.
+    '''
+    
+    def __init__(self, key, bucket, headers):
+        self.key = key
+        self.bucket = bucket
+        self.headers = headers
+        self.closed = False
+        self.fh = tempfile.TemporaryFile()
+        
+        # False positive, hashlib *does* have md5 member
+        #pylint: disable=E1101        
+        self.md5 = hashlib.md5()
+        
+    def write(self, buf):
+        '''Write object data'''
+        
+        self.fh.write(buf)
+        self.md5.update(buf)
+       
+    @retry_on(Bucket.is_temp_failure) 
+    def close(self):
+        '''Close object and upload data'''
+
+        # Access to protected member ok
+        #pylint: disable=W0212
+        
+        log.debug('ObjectW(%s).close(): start', self.key)
+        
+        self.closed = True
+        self.fh.seek(0, os.SEEK_END)
+        self.headers['Content-Length'] = self.fh.tell()
+        self.fh.seek(0)
+        
+        self.bucket._auth_request('PUT', '/%s%s' % (self.bucket.prefix, self.key), 
+                                  headers=self.headers, body=self.fh)
+        resp = self.bucket._check_success()
+        etag = resp.getheader('ETag').strip('"')
+        
+        if etag != self.md5.hexdigest():
+            log.warn('ObjectW(%s).close(): MD5 mismatch (%s vs %s)', self.key, etag, 
+                     self.md5.hexdigest)
+            raise BadDigest('BadDigest', 'Received ETag does not agree with our calculations.')
+        
+    def __del__(self):
+        if not self.closed:
+            try:
+                self.close()
+            except:
+                pass
+            raise RuntimeError('ObjectW %s has been destroyed without calling close()!' % self.key)
+          
+
           
 def get_S3Error(code, msg):
     '''Instantiate most specific S3Error subclass'''
@@ -405,7 +545,7 @@ def extractmeta(resp):
         
     return meta
                     
-          
+              
 class S3Error(Exception):
     '''
     Represents an error returned by S3. For possible codes, see
@@ -423,17 +563,11 @@ class S3Error(Exception):
 class NoSuchKey(S3Error): pass
 class AccessDenied(S3Error): pass
 class BadDigest(S3Error): pass
-class EntityTooSmall(S3Error): pass
-class EntityTooLarge(S3Error): pass
-class ExpiredToken(S3Error): pass
 class IncompleteBody(S3Error): pass
 class InternalError(S3Error): pass
 class InvalidAccessKeyId(S3Error): pass
-class InvalidBucketName(S3Error): pass
 class InvalidSecurity(S3Error): pass
 class OperationAborted(S3Error): pass
 class RequestTimeout(S3Error): pass
+class SlowDown(S3Error): pass
 class RequestTimeTooSkewed(S3Error): pass
-class SignatureDoesNotMatch(S3Error): pass
-
-
