@@ -87,7 +87,7 @@ class fuse_tests(TestCase):
             self.mount_thread = subprocess.Popen(['valgrind', 'python-dbg', 
                                                   os.path.join(basedir, 'bin', 'mount.s3ql'), 
                                                   "--fg", '--cachedir', self.cache_dir,
-                                                  '--logdir', self.cache_dir, 
+                                                  '--log', os.path.join(self.cache_dir, 'mount.log'), 
                                                   '--max-cache-entries', '500',
                                                   self.bucketname, self.mnt_dir],
                                                   stdin=subprocess.PIPE)
@@ -97,7 +97,7 @@ class fuse_tests(TestCase):
             sys.stdin = StringIO('%s\n' % self.passphrase)
             self.mount_thread = AsyncFn(s3ql.cli.mount.main,
                                         ["--fg", '--cachedir', self.cache_dir, 
-                                          '--logdir', self.cache_dir, 
+                                          '--log', os.path.join(self.cache_dir, 'mount.log'), 
                                          '--max-cache-entries', '500',
                                          self.bucketname, self.mnt_dir])
             self.mount_thread.start()
@@ -131,7 +131,8 @@ class fuse_tests(TestCase):
         sys.stdin = StringIO('%s\n' % self.passphrase)
         try:
             s3ql.cli.fsck.main(['--force', '--cachedir', self.cache_dir,
-                                 '--logdir', self.cache_dir, self.bucketname])
+                                '--log', os.path.join(self.cache_dir, 'fsck.log'), 
+                                self.bucketname])
         except BaseException as exc:
             self.fail("fsck failed: %s" % exc)
 
