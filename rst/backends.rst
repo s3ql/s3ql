@@ -249,8 +249,6 @@ Account/Access Identifiers
 
    In other words, you should really only store an S3QL file system
    using RRS if you know exactly what you are getting into.
-     
-
 
 
 The Local Backend
@@ -262,4 +260,12 @@ computer. The storage URL for the local backend has the form
 slashes to specify an absolute path, e.g. `local:///var/archive`.
 
 The local backend provides read-after-write consistency.
+
+
+The SSH Backend
+===============
+
+Previous versions of S3QL included an SSH/SFTP backend. With newer
+S3QL versions, it is recommended to instead combine the local backend
+with `sshfs <http://fuse.sourceforge.net/sshfs.html>`_ (cf. :ref:`ssh_tipp`).
 

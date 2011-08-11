@@ -4,6 +4,7 @@
 Tips & Tricks
 =============
 
+.. _ssh_tipp:
 
 SSH Backend
 ===========
