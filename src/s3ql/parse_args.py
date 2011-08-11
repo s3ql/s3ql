@@ -42,7 +42,7 @@ import argparse
 import re
 import os
 import textwrap
-import logging
+import logging.handlers
 import sys
 
 __all__ = [ 'ArgumentParser', 'DEFAULT_USAGE']
