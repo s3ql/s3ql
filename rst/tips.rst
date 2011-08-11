@@ -5,7 +5,19 @@ Tips & Tricks
 =============
 
 
-.. _copy_performance:
+SSH Backend
+===========
+
+By combining S3QL's local backend with `sshfs
+<http://fuse.sourceforge.net/sshfs.html>`_, it is possible to store an
+S3QL file system on arbitrary SSH servers: first mount the remote
+target directory into the local filesystem, ::
+
+  sshfs user@my.server.com:/mnt/s3ql /mnt/sshfs
+
+and then give the mountpoint to S3QL as a local destination::
+
+  mount.s3ql local:///mnt/sshfs/mybucket /mnt/s3ql
 
 
 Permanently mounted backup file system
@@ -28,7 +40,7 @@ If you decide to do so, you should make sure to
   :cmdopt:`--metadata-upload-interval` option of :program:`mount.s3ql`
   to zero).
 
-
+.. _copy_performance:
 
 Improving copy performance
 ==========================
