@@ -28,7 +28,7 @@ __all__ = ["get_bucket_cachedir", 'sha256_fh', 'add_stdout_logging',
            "get_credentials", "get_dbfile", "inode_for_path", "get_path",
            "ROOT_INODE", "ExceptionStoringThread", 'retry', 'LoggerFilter',
            "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
-           'QuietError', 'get_backend', 'add_file_logging', 'setup_excepthook',
+           'QuietError', 'get_backend', 'setup_excepthook',
            'cycle_metadata', 'restore_metadata', 'dump_metadata', 
            'setup_logging', 'AsyncFn', 'init_tables', 'create_indices',
            'create_tables', 'get_seq_no' ]

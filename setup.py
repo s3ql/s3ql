@@ -191,15 +191,19 @@ class test(setuptools_test.test):
         sys.path.insert(0, os.path.join(basedir, 'tests'))
         import unittest2 as unittest
         import _common
-        from s3ql.common import (setup_excepthook, add_file_logging, add_stdout_logging,
-                                 LoggerFilter)
+        from s3ql.common import (setup_excepthook, add_stdout_logging, LoggerFilter)
         from getpass import getpass
 
         # Initialize logging if not yet initialized
         root_logger = logging.getLogger()
         if not root_logger.handlers:
             add_stdout_logging(quiet=True)
-            add_file_logging(os.path.join(basedir, 'setup.log'))
+            handler = logging.handlers.RotatingFileHandler("setup.log",
+                                                           maxBytes=10*1024**2, backupCount=0)
+            formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
+                                          '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
+            handler.setFormatter(formatter)                                                
+            root_logger.addHandler(handler)
             setup_excepthook()  
             if self.debug:
                 root_logger.setLevel(logging.DEBUG)
