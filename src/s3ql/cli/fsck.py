@@ -13,7 +13,7 @@ import stat
 import time
 from s3ql.common import (get_bucket_cachedir, cycle_metadata, setup_logging,  
                          unlock_bucket, QuietError, get_backend, get_seq_no,
-                         restore_metadata, dump_metadata)
+                         restore_metadata, dump_metadata, create_indices)
 from s3ql.parse_args import ArgumentParser
 from s3ql import CURRENT_FS_REV
 from s3ql.database import Connection
@@ -164,6 +164,10 @@ def main(args=None):
                                  'files manually and re-run fsck:\n'
                                  + cachepath + '.db (corrupted)\n'
                                  + cachepath + '.param (intact)')
+            
+            # Crash may happened before indices have been created
+            create_indices(db)
+            
         else:
             log.info("Downloading & uncompressing metadata...")
             fh = tempfile.TemporaryFile()
