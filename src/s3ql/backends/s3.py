@@ -23,6 +23,7 @@ import xml.etree.cElementTree as ElementTree
 import os
 import errno
 
+
 log = logging.getLogger("backend.s3")
 
 C_DAY_NAMES = [ 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ]
@@ -31,12 +32,7 @@ C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
 NAMESPACE = 'http://s3.amazonaws.com/doc/2006-03-01/'
 
 class Bucket(AbstractBucket):
-    """A bucket stored in Amazon S3 and compatible services
-
-    This class is threadsafe. All methods (except for internal methods
-    starting with underscore) may be called concurrently by different
-    threads.    
-    """
+    """A bucket stored in Amazon S3 and compatible services"""
 
     def __init__(self, bucket_name, aws_key_id, aws_key, prefix, use_ssl):
         super(Bucket, self).__init__()
@@ -45,13 +41,18 @@ class Bucket(AbstractBucket):
         self.prefix = prefix
         self.aws_key = aws_key
         self.aws_key_id = aws_key_id
-        if use_ssl:
-            self.conn = httplib.HTTPSConnection('%s.s3.amazonaws.com' % bucket_name)
-        else:
-            self.conn = httplib.HTTPConnection('%s.s3.amazonaws.com' % bucket_name)
-   
+        
+        self.conn = self._get_conn(use_ssl)
         self.region = self._get_region()
-    
+            
+    def _get_conn(self, use_ssl):
+        '''Return connection to server'''
+        
+        if use_ssl:
+            return httplib.HTTPSConnection('%s.s3.amazonaws.com' % self.bucket_name)
+        else:
+            return httplib.HTTPConnection('%s.s3.amazonaws.com' % self.bucket_name)          
+          
     @staticmethod
     def is_temp_failure(exc):
         '''Return true if exc indicates a temporary error
@@ -100,17 +101,28 @@ class Bucket(AbstractBucket):
         log.debug('list(%s): start', prefix)
         
         marker = ''
+        waited = 0
+        interval = 1/50
         iterator = self._list(prefix, marker)
         while True:
             try:
                 marker = iterator.next()
+                waited = 0
             except StopIteration:
                 break
             except Exception as exc:
-                if self.is_temp_failure(exc):
-                    iterator = self._list(prefix, marker)
-                else:
+                if not self.is_temp_failure(exc):
                     raise
+                
+                log.debug('list(): trying again after %r exception:', exc)
+                if waited > 60*60:
+                    raise RuntimeError('timeout while retrying')
+                time.sleep(interval)
+                waited += interval
+                if interval < 20*60:
+                    interval *= 2                 
+                iterator = self._list(prefix, marker)
+
             else:
                 yield marker
 
@@ -348,9 +360,9 @@ class Bucket(AbstractBucket):
         threads = list()
         for (no, s3key) in enumerate(self):
             if no != 0 and no % 1000 == 0:
-                log.info('Deleted %d objects so far..', no)
+                log.info('clear(): deleted %d objects so far..', no)
 
-            log.debug('Deleting key %s', s3key)
+            log.debug('clear(): deleting key %s', s3key)
 
             # Ignore missing objects when clearing bucket
             t = AsyncFn(self.delete, s3key, True)
@@ -358,10 +370,10 @@ class Bucket(AbstractBucket):
             threads.append(t)
 
             if len(threads) > 50:
-                log.debug('50 threads reached, waiting..')
+                log.debug('clear(): 50 threads reached, waiting..')
                 threads.pop(0).join_and_raise()
 
-        log.debug('Waiting for removal threads')
+        log.debug('clear(): waiting for removal threads')
         for t in threads:
             t.join_and_raise()
 
