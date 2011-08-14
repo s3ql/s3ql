@@ -463,6 +463,13 @@ class ObjectR(object):
         self.md5.update(buf)
         return buf
        
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *a):
+        self.fh.close()
+        return False
+        
     @retry_on(Bucket.is_temp_failure) 
     def close(self):
         '''Close object'''
@@ -548,7 +555,13 @@ class ObjectW(object):
                 pass
             raise RuntimeError('ObjectW %s has been destroyed without calling close()!' % self.key)
           
-
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *a):
+        self.fh.close()
+        return False
+    
           
 def get_S3Error(code, msg):
     '''Instantiate most specific S3Error subclass'''
