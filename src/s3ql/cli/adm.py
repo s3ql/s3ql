@@ -294,15 +294,15 @@ def upgrade(bucket):
             for name in filenames:
                 if name.endswith('.dat'):
                     continue
-                 
+                
                 basename = os.path.splitext(name)[0]
-                os.rename(os.path.join(path, name),
-                          os.path.join(path, basename))
-                with open(os.path.join(path, basename), 'r+b') as dst:
+                with open(os.path.join(path, name), 'r+b') as dst:
                     dst.seek(0, os.SEEK_END)
                     with open(os.path.join(path, basename + '.dat'), 'rb') as src:
                         shutil.copyfileobj(src, dst)
-                os.unlink(os.path.join(path, basename + '.dat'))
+                
+                os.rename(os.path.join(path, name),
+                          os.path.join(path, basename + '.dat'))
                      
     # Download metadata
     log.info("Downloading & uncompressing metadata...")
