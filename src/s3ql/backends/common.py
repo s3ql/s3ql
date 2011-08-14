@@ -9,109 +9,83 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 
 from cStringIO import StringIO
-import tempfile
 import hmac
 import logging
-import pycryptopp
+from pycryptopp.cipher import aes
 import cPickle as pickle
 import time
 import hashlib
 import zlib
-import os
 import bz2
-import shutil
 import lzma
 from base64 import b64decode, b64encode
 import struct
 from abc import ABCMeta, abstractmethod
+import threading
+from contextlib import contextmanager
+
+aes.start_up_self_test()
 
 log = logging.getLogger("backend")
 
-__all__ = [ 'AbstractConnection', 'AbstractBucket', 'ChecksumError', 'UnsupportedError',
-            'BetterBucket', 'NoSuchObject', 'NoSuchBucket' ]
+__all__ = [ 'AbstractBucket', 'BetterBucket', 'BucketPool', 'ChecksumError', 
+           'NoSuchBucket', 'NoSuchObject', 'ObjectNotEncrypted', 'UnsupportedError' ]
+
+HMAC_SIZE = 32
 
 def sha256(s):
     return hashlib.sha256(s).digest()
 
-class AbstractConnection(object):
-    '''This class contains functionality shared between all backends.
-    
-    All derived classes are expected to be completely threadsafe
-    (except for internal methods starting with underscore)
+class BucketPool(object):
+    '''A pool of buckets
+
+    This class is threadsafe. All methods (except for internal methods
+    starting with underscore) may be called concurrently by different
+    threads.    
     '''
-    __metaclass__ = ABCMeta
-
-    def bucket_exists(self, name):
-        """Check if the bucket `name` exists"""
-
+    
+    def __init__(self, factory):
+        '''Init pool
+        
+        *factory* should be a callable that provides new
+        connections.
+        '''
+    
+        self.factory = factory
+        self.pool = []
+        self.lock = threading.Lock()
+        
+    def pop_conn(self):
+        '''Pop connection from pool'''
+        
+        with self.lock:
+            if self.pool:
+                return self.pool.pop()
+            else:
+                return self.factory()
+                    
+    def push_conn(self, conn):
+        '''Push connection back into pool'''
+        
+        with self.lock:
+            self.pool.append(conn)
+        
+    @contextmanager
+    def __call__(self):
+        '''Provide connection from pool (context manager)'''
+        
+        conn = self.pop_conn()
         try:
-            self.get_bucket(name)
-        except NoSuchBucket:
-            return False
-        else:
-            return True
-
-    def __contains__(self, name):
-        return self.bucket_exists(name)
-
-    def close(self):
-        '''Close connection.
-        
-        If this method is not called, the interpreter may be kept alive by
-        background threads initiated by the connection.
-        '''
-        pass
-
-    def prepare_fork(self):
-        '''Prepare connection for forking
-        
-        This method must be called before the process is forked, so that
-        the connection can properly terminate any threads that it uses.
-        
-        The connection (or any of its bucket objects) can not be used
-        between the calls to `prepare_fork()` and `finish_fork()`.
-        '''
-        pass
-
-    def finish_fork(self):
-        '''Re-initalize connection after forking
-        
-        This method must be called after the process has forked, so that
-        the connection can properly restart any threads that it may
-        have stopped for the fork.
-        
-        The connection (or any of its bucket objects) can not be used
-        between the calls to `prepare_fork()` and `finish_fork()`.
-        '''
-        pass
-
-    @abstractmethod
-    def create_bucket(self, name, passphrase=None, compression=None):
-        """Create bucket and return `Bucket` instance"""
-        pass
-
-    @abstractmethod
-    def get_bucket(self, name, passphrase=None, compression=None):
-        """Get `Bucket` instance for bucket `name`"""
-        pass
-
-    @abstractmethod
-    def delete_bucket(self, name, recursive=False):
-        """Delete bucket
-        
-        If `recursive` is False and the bucket still contains objects, the call
-        will fail.
-        """
-        pass
+            yield conn
+        finally:
+            self.push_conn(conn)
+            
 
 class AbstractBucket(object):
-    '''This class contains functionality shared between all backends.
+    '''Functionality shared between all backends.
     
     Instances behave similarly to dicts. They can be iterated over and
     indexed into, but raise a separate set of exceptions.
-    
-    All derived classes are expected to be completely threadsafe
-    (except for internal methods starting with underscore)
     '''
     __metaclass__ = ABCMeta
 
@@ -291,7 +265,7 @@ class BetterBucket(AbstractBucket):
         meta_raw = self.bucket.lookup(key)
         return self._get_meta(meta_raw)[0]
 
-    def _get_meta(self, meta_raw):
+    def _get_meta(self, meta_raw, plain=False):
         '''Get metadata & decompressor factory
         
         If the bucket has a password set but the object is not encrypted,
@@ -304,12 +278,9 @@ class BetterBucket(AbstractBucket):
         encr_alg = meta_raw['encryption']
         encrypted = (encr_alg != 'None')
 
-        if encrypted:
-            if not self.passphrase:
+        if encrypted and not self.passphrase:
                 raise ChecksumError('Encrypted object and no passphrase supplied')
 
-            if encr_alg != 'AES':
-                raise RuntimeError('Unsupported encryption')
         elif self.passphrase and not plain:
             raise ObjectNotEncrypted()
 
@@ -320,7 +291,7 @@ class BetterBucket(AbstractBucket):
         elif compr_alg == 'ZLIB':
             decomp = zlib.decompressobj
         elif compr_alg == 'None':
-            decomp = DummyDecompressor
+            decomp = None
         else:
             raise RuntimeError('Unsupported compression: %s' % compr_alg)
 
@@ -334,7 +305,7 @@ class BetterBucket(AbstractBucket):
 
         return (metadata, decomp)
 
-    def open_read(self, key):
+    def open_read(self, key, plain=False):
         """Fetch data for `key` and write to `fh`
 
         Return a dictionary with the metadata. If the bucket has a password set
@@ -343,27 +314,25 @@ class BetterBucket(AbstractBucket):
         """
 
         meta_raw = self.bucket.lookup(key)
-        (metadata, decomp) = self._get_meta(meta_raw)
+        (metadata, decomp) = self._get_meta(meta_raw, plain)
 
         fh = self.bucket.open_read(key)
+        
+        if meta_raw['encryption'] != 'None':
+            fh = DecryptFilter(fh, self.passphrase, meta_raw['encryption'])
+           
         if decomp:
             fh = DecompressFilter(fh, decomp)
+            
+        return (fh, metadata)
 
-        return (DecryptFilter(fh, self.passphrase), metadata)
 
+    def open_write(self, key, metadata=None):
+        """Open object for writing
 
-    def prep_store_fh(self, key, fh, metadata=None):
-        """Prepare to store data in `fh` under `key`
-        
         `metadata` can be a dict of additional attributes to store with the
-        object. The method compresses and encrypts the data and returns a tuple
-        `(size, fn)`, where `fn` is a function that does the actual network
-        transaction and `size` is the size of the object after compression
-        and encryption.
+        object. Returns a file-like object.
         """
-
-        if not isinstance(key, str):
-            raise TypeError('key must be of type str')
 
         # We always store metadata (even if it's just None), so that we can
         # verify that the object has been created by us when we call lookup().
@@ -372,12 +341,13 @@ class BetterBucket(AbstractBucket):
         meta_raw = dict()
 
         if self.passphrase:
-            meta_raw['encryption'] = 'AES'
+            meta_raw['encryption'] = 'AES_v2'
             nonce = struct.pack(b'<f', time.time() - time.timezone) + bytes(key)
             meta_raw['meta'] = b64encode(encrypt(meta_buf, self.passphrase, nonce))
         else:
             meta_raw['encryption'] = 'None'
             meta_raw['meta'] = b64encode(meta_buf)
+            nonce = None
 
         if self.compression == 'zlib':
             compr = zlib.compressobj(9)
@@ -389,23 +359,18 @@ class BetterBucket(AbstractBucket):
             compr = lzma.LZMACompressor(options={ 'level': 7 })
             meta_raw['compression'] = 'LZMA'
         elif not self.compression:
-            compr = DummyCompressor()
+            compr = None
             meta_raw['compression'] = 'None'
         else:
             raise ValueError('Invalid compression algorithm')
 
-        # We need to generate a temporary copy to determine the size of the
-        # object (which needs to transmitted as Content-Length)
-        tmp = tempfile.TemporaryFile()
-        fh.seek(0)
-        if self.passphrase:
-            compress_encrypt_fh(fh, tmp, self.passphrase, nonce, compr)
-        else:
-            compress_fh(fh, tmp, compr)
-        tmp.seek(0, os.SEEK_END)
-        size = tmp.tell()
-        tmp.seek(0)
-        return (size, lambda: self.bucket.store_fh(key, tmp, meta_raw))
+        fh = self.bucket.open_write(key, meta_raw)
+        if nonce:
+            fh = EncryptFilter(fh, self.passphrase, nonce)
+        if compr:
+            fh = CompressFilter(fh, compr)
+            
+        return fh
 
         
 class UnsupportedError(Exception):
@@ -414,140 +379,268 @@ class UnsupportedError(Exception):
     pass
 
 
-def decrypt_uncompress_fh(ifh, ofh, passphrase, decomp):
-    '''Read `ofh` and write decrypted, uncompressed data to `ofh`'''
-
-    bs = 256 * 1024
-
-    # Read nonce
-    len_ = struct.unpack(b'<B', ifh.read(struct.calcsize(b'<B')))[0]
-    nonce = ifh.read(len_)
-
-    key = sha256(passphrase + nonce)
-    cipher = pycryptopp.cipher.aes.AES(key)
-    hmac_ = hmac.new(key, digestmod=hashlib.sha256)
-
-    # Read (encrypted) hmac
-    hash_ = ifh.read(32) # Length of hash
-
-    while True:
-        buf = ifh.read(bs)
-        if not buf:
-            break
-
-        buf = cipher.process(buf)
-        try:
-            buf = decomp.decompress(buf)
-        except IOError:
-            raise ChecksumError('Invalid compressed stream')
-
-        if buf:
-            hmac_.update(buf)
-            ofh.write(buf)
-
-    if decomp.unused_data:
-        raise ChecksumError('Data after end of compressed stream')
-
-    # Decompress hmac
-    hash_ = cipher.process(hash_)
-
-    if hash_ != hmac_.digest():
-        raise ChecksumError('HMAC mismatch')
-
-def uncompress_fh(ifh, ofh, decomp):
-    '''Read `ofh` and write uncompressed data to `ofh`'''
-
-    bs = 256 * 1024
-    while True:
-        buf = ifh.read(bs)
-        if not buf:
-            break
-
-        try:
-            buf = decomp.decompress(buf)
-        except IOError:
-            raise ChecksumError('Invalid compressed stream')
-
-        if buf:
-            ofh.write(buf)
-
-    if decomp.unused_data:
-        raise ChecksumError('Data after end of compressed stream')
-
-
-class DummyDecompressor(object):
+class AbstractInputFilter(object):
+    '''Process data while reading'''
+    
+    __metaclass__ = ABCMeta
+    
     def __init__(self):
-        super(DummyDecompressor, self).__init__()
-        self.unused_data = None
+        super(AbstractInputFilter, self).__init__()
+        self.bs = 256 * 1024
+        self.buffer = ''
+        
+    def read(self, size=None):
+        '''Try to read *size* bytes
+        
+        If *None*, read until EOF.
+        '''
+        
+        if size is None:
+            remaining = 1<<31
+        else:
+            remaining = size - len(self.buffer)
 
-    def decompress(self, buf):
+        while remaining > 0:
+            buf = self._read(self.bs)
+            if not buf:
+                break
+            remaining -= len(buf)
+            self.buffer += buf
+                
+        if size is None:
+            buf = self.buffer
+            self.buffer = ''
+        else:
+            buf = self.buffer[:size]
+            self.buffer = self.buffer[size:]
+            
         return buf
-
-class DummyCompressor(object):
-    def flush(self):
-        return ''
-
-    def compress(self, buf):
+             
+    @abstractmethod
+    def _read(self, size):
+        '''Read roughly *size* bytes'''    
+        pass
+    
+class CompressFilter(object):
+    '''Compress data while writing'''
+    
+    def __init__(self, fh, comp):
+        '''Initialize
+        
+        *fh* should be a file-like object. *decomp* should be a
+        fresh compressor instance with a *compress* method.
+        '''
+        super(CompressFilter, self).__init__()
+        
+        self.fh = fh
+        self.comp = comp
+    
+    def write(self, data):
+        '''Write *data*'''
+        
+        buf = self.compr.compress(data)
+        if buf:
+            self.fh.write(buf)
+            
+    def close(self):
+        buf = self.compr.flush()
+        self.fh.write(buf) 
+        self.fh.close()
+            
+class DecompressFilter(AbstractInputFilter):
+    '''Decompress data while reading'''
+    
+    def __init__(self, fh, decomp):
+        '''Initialize
+        
+        *fh* should be a file-like object. *decomp* should be a
+        fresh decompressor instance with a *decompress* method.
+        '''
+        super(DecompressFilter, self).__init__()
+        
+        self.fh = fh
+        self.decomp = decomp
+    
+    def _read(self, size):
+        '''Read roughly *size* bytes'''
+        
+        buf = ''
+        while not buf:
+            buf = self.fh.read(size)
+            if not buf:
+                if self.decomp.unused_data:
+                    raise ChecksumError('Data after end of compressed stream')
+                return ''
+                
+            try:
+                buf = self.decomp.decompress(buf)
+            except IOError:
+                raise ChecksumError('Invalid compressed stream')
+            
         return buf
+    
+    def close(self):
+        self.fh.close()
+        
 
 
-def compress_encrypt_fh(ifh, ofh, passphrase, nonce, compr):
-    '''Read `ifh` and write compressed, encrypted data to `ofh`'''
+
+
+    
+class EncryptFilter(object):
+    '''Encrypt data while writing'''
+    
+    def __init__(self, fh, passphrase, nonce):
+        '''Initialize
+        
+        *fh* should be a file-like object.
+        '''
+        super(EncryptFilter, self).__init__()
+        
+        self.fh = fh
+        
+        if isinstance(nonce, unicode):
+            nonce = nonce.encode('utf-8')
+    
+        self.key = sha256(passphrase + nonce)
+        self.cipher = aes.AES(self.key)
+        self.hmac = hmac.new(self.key, digestmod=hashlib.sha256)
+    
+        self.fh.write(struct.pack(b'<B', len(nonce)))
+        self.fh.write(nonce)
+    
+    def write(self, data):
+        '''Write *data*
+        
+        len(data) must be < 2**32.
+    
+        Every invocation of `write` generates a packet that contains both the
+        length of the data and the data, so the passed data should have
+        reasonable size (if the data is written in e.g. 4 byte chunks, it is
+        blown up by 100%)
+        '''
+        
+        if len(data) == 0:
+            return
+        
+        buf = struct.pack(b'<I', len(data)) + data
+        self.hmac.update(buf)
+        buf = self.cipher.process(buf)
+        if buf:
+            self.fh.write(buf)
+            
+    def close(self):
+        # Packet length of 0 indicates end of stream, only HMAC follows
+        buf = struct.pack(b'<I', 0) + self.hmac.digest()
+        buf = self.cipher.process(buf)
+        self.fh.write(buf)
+        self.fh.close()
+
+    
+class DecryptFilter(AbstractInputFilter):
+    '''Decrypt data while reading
+    
+    Reader has to read the entire stream in order for HMAC
+    checking to work.
+    '''
+    
+    def __init__(self, fh, passphrase, algorithm):
+        '''Initialize
+        
+        *fh* should be a file-like object.
+        '''
+        super(DecryptFilter, self).__init__()
+        
+        self.fh = fh
+        self.off_size = struct.calcsize(b'<I')
+        self.remaining = 0 # Remaining length of current packet
+
+        # Read nonce
+        len_ = struct.unpack(b'<B', fh.read(struct.calcsize(b'<B')))[0]
+        nonce = fh.read(len_)
+                    
+        if algorithm == 'AES':
+            self.hash = fh.read(HMAC_SIZE)
+                    
+        elif algorithm == 'AES_v2':
+            # Hash is stored at end of stream
+            self.hash = None
+            
+        else:
+            raise RuntimeError('Unsupported encryption: %s' % algorithm)
+    
+        key = sha256(passphrase + nonce)
+        self.cipher = aes.AES(key)
+        self.hmac = hmac.new(key, digestmod=hashlib.sha256)
+    
+    def _read(self, size):
+        '''Read roughly *size* bytes'''
+         
+        buf = self.fh.read(size)
+        if not buf:
+            # For v1 objects, check hash
+            if self.hash and self.cipher.process(self.hash) != self.hmac.digest():
+                raise ChecksumError('HMAC mismatch')
+            else:        
+                return ''
+        
+        plain = self.cipher.process(buf)
+         
+        # v1 objects: done
+        # v2 objects: split into packets and check hash on last packet
+        if self.hash:
+            self.hmac.update(plain)
+            return plain
+        
+        if len(buf) <= self.remaining:
+            self.remaining -= len(buf)
+            
+        else:
+            part1 = plain[:self.remaining]
+            part2 = plain[self.remaining + self.off_size:]
+            self.remaining = struct.unpack(b'<I', plain[self.remaining
+                                                        :self.remaining+self.off_size])[0]
+            
+            # End of file, read and check HMAC
+            if self.remaining == 0:
+                self.hmac.update(part1)
+                hash_ = part2
+                if len(hash_) != HMAC_SIZE:
+                    hash_ += self.cipher.process(self.fh.read(HMAC_SIZE - len(hash_)))
+                if hash_ != self.hmac.digest():
+                    raise ChecksumError('HMAC mismatch')
+                return part1
+            
+            plain = part1 + part2
+             
+        self.hmac.update(plain)
+        return buf                                           
+
+    
+    def close(self):
+        self.fh.close()
+
+
+def encrypt(buf, passphrase, nonce):
+    '''Encrypt *buf*'''
 
     if isinstance(nonce, unicode):
         nonce = nonce.encode('utf-8')
 
-    bs = 1024 * 1024
     key = sha256(passphrase + nonce)
-    cipher = pycryptopp.cipher.aes.AES(key)
+    cipher = aes.AES(key)
     hmac_ = hmac.new(key, digestmod=hashlib.sha256)
 
-    # Write nonce
-    ofh.write(struct.pack(b'<B', len(nonce)))
-    ofh.write(nonce)
-    off = ofh.tell()
-
-    # Reserve space for hmac
-    ofh.write(b'0' * 32)
-
-    while True:
-        buf = ifh.read(bs)
-        if not buf:
-            buf = compr.flush()
-            buf = cipher.process(buf)
-            ofh.write(buf)
-            break
-
-        hmac_.update(buf)
-        buf = compr.compress(buf)
-        if buf:
-            buf = cipher.process(buf)
-            ofh.write(buf)
-
-    buf = hmac_.digest()
+    hmac_.update(buf)
     buf = cipher.process(buf)
-    ofh.seek(off)
-    ofh.write(buf)
+    hash_ = cipher.process(hmac_.digest())
 
-def compress_fh(ifh, ofh, compr):
-    '''Read `ifh` and write compressed data to `ofh`'''
-
-    bs = 1024 * 1024
-    while True:
-        buf = ifh.read(bs)
-        if not buf:
-            buf = compr.flush()
-            ofh.write(buf)
-            break
-
-        buf = compr.compress(buf)
-        if buf:
-            ofh.write(buf)
-
-
-
+    return b''.join(
+                    (struct.pack(b'<B', len(nonce)),
+                    nonce, hash_, buf))
+            
 def decrypt(buf, passphrase):
-    '''Decrypt given string'''
+    '''Decrypt *buf'''
 
     fh = StringIO(buf)
 
@@ -555,11 +648,11 @@ def decrypt(buf, passphrase):
     nonce = fh.read(len_)
 
     key = sha256(passphrase + nonce)
-    cipher = pycryptopp.cipher.aes.AES(key)
+    cipher = aes.AES(key)
     hmac_ = hmac.new(key, digestmod=hashlib.sha256)
 
     # Read (encrypted) hmac
-    hash_ = fh.read(32) # Length of hash
+    hash_ = fh.read(HMAC_SIZE)
 
     buf = fh.read()
     buf = cipher.process(buf)
@@ -618,23 +711,7 @@ class NoSuchBucket(Exception):
     def __str__(self):
         return 'Bucket %r does not exist' % self.name
         
-def encrypt(buf, passphrase, nonce):
-    '''Encrypt given string'''
 
-    if isinstance(nonce, unicode):
-        nonce = nonce.encode('utf-8')
-
-    key = sha256(passphrase + nonce)
-    cipher = pycryptopp.cipher.aes.AES(key)
-    hmac_ = hmac.new(key, digestmod=hashlib.sha256)
-
-    hmac_.update(buf)
-    buf = cipher.process(buf)
-    hash_ = cipher.process(hmac_.digest())
-
-    return b''.join(
-                    (struct.pack(b'<B', len(nonce)),
-                    nonce, hash_, buf))
 
 
 def convert_legacy_metadata(meta):
