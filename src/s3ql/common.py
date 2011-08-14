@@ -132,7 +132,7 @@ def retry_on(check_fn, timeout=60*60*24):
                 except Exception as exc:
                     if not check_fn(exc):
                         raise
-                    log.debug('%s: trying again after %e exception:', fn.__name__,  exc)
+                    log.debug('%s: trying again after %r exception:', fn.__name__,  exc)
                     
                 time.sleep(interval)
                 waited += interval
