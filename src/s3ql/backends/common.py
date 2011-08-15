@@ -94,7 +94,7 @@ class AbstractBucket(object):
 
     def __getitem__(self, key):
         return self.fetch(key)[0]
-
+        
     def __setitem__(self, key, value):
         self.store(key, value)
 
@@ -110,16 +110,6 @@ class AbstractBucket(object):
     def iteritems(self):
         for key in self.list():
             yield (key, self[key])
-
-    @abstractmethod
-    def lookup(self, key):
-        """Return metadata for given key.
-
-        If the key does not exist, `NoSuchObject` is raised.
-        """
-
-        pass
-
 
     def fetch(self, key):
         """Return data stored under `key`.
@@ -148,6 +138,15 @@ class AbstractBucket(object):
         with self.open_write(key, metadata) as fh:
             fh.write(val)
 
+    @abstractmethod
+    def lookup(self, key):
+        """Return metadata for given key.
+
+        If the key does not exist, `NoSuchObject` is raised.
+        """
+
+        pass
+    
     @abstractmethod
     def open_read(self, key):
         """Open object for reading
@@ -256,6 +255,9 @@ class BetterBucket(AbstractBucket):
         self.compression = compression
         self.bucket = bucket
 
+        if compression not in ('bzip2', 'lzma', 'zlib', None):
+            raise ValueError('Unsupported compression: %s' % compression)
+        
     def lookup(self, key):
         """Return metadata for given key.
 
@@ -290,7 +292,7 @@ class BetterBucket(AbstractBucket):
             decomp = lzma.LZMADecompressor
         elif compr_alg == 'ZLIB':
             decomp = zlib.decompressobj
-        elif compr_alg == 'None':
+        elif compr_alg is 'None':
             decomp = None
         else:
             raise RuntimeError('Unsupported compression: %s' % compr_alg)
@@ -361,8 +363,6 @@ class BetterBucket(AbstractBucket):
         elif not self.compression:
             compr = None
             meta_raw['compression'] = 'None'
-        else:
-            raise ValueError('Invalid compression algorithm')
 
         fh = self.bucket.open_write(key, meta_raw)
         if nonce:
@@ -371,8 +371,68 @@ class BetterBucket(AbstractBucket):
             fh = CompressFilter(fh, compr)
             
         return fh
-
+            
+    def read_after_create_consistent(self):
+        '''Does this backend provide read-after-create consistency?'''
+        return self.bucket.read_after_create_consistent()
+    
+    def read_after_write_consistent(self):
+        '''Does this backend provide read-after-write consistency?'''
+        return self.bucket.read_after_write_consistent()
         
+    def read_after_delete_consistent(self):
+        '''Does this backend provide read-after-delete consistency?'''
+        return self.bucket.read_after_delete_consistent()
+
+    def list_after_delete_consistent(self):
+        '''Does this backend provide list-after-delete consistency?'''
+        return self.bucket.list_after_delete_consistent()
+        
+    def list_after_create_consistent(self):
+        '''Does this backend provide list-after-create consistency?'''
+        return self.bucket.list_after_create_consistent()
+    
+    def clear(self):
+        """Delete all objects in bucket"""
+        return self.bucket.clear()
+
+    def contains(self, key):
+        '''Check if `key` is in bucket'''
+        return self.bucket.contains(key)
+
+    def delete(self, key, force=False):
+        """Delete object stored under `key`
+
+        ``bucket.delete(key)`` can also be written as ``del bucket[key]``.
+        If `force` is true, do not return an error if the key does not exist.
+        """
+        return self.bucket.delete(key, force)
+
+    def list(self, prefix=''):
+        '''List keys in bucket
+
+        Returns an iterator over all keys in the bucket.
+        '''
+        return self.bucket.list(prefix)
+
+    def copy(self, src, dest):
+        """Copy data stored under key `src` to key `dest`
+        
+        If `dest` already exists, it will be overwritten. The copying
+        is done on the remote side. If the backend does not support
+        this operation, raises `UnsupportedError`.
+        """
+        return self.bucket.copy(src, dest)
+
+    def rename(self, src, dest):
+        """Rename key `src` to `dest`
+        
+        If `dest` already exists, it will be overwritten. The rename
+        is done on the remote side. If the backend does not support
+        this operation, raises `UnsupportedError`.
+        """
+        return self.bucket.rename(src, dest)
+            
 class UnsupportedError(Exception):
     '''Raised if a backend does not support a particular operation'''
 
