@@ -32,26 +32,27 @@ C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
 NAMESPACE = 'http://s3.amazonaws.com/doc/2006-03-01/'
 
 class Bucket(AbstractBucket):
-    """A bucket stored in Amazon S3 and compatible services"""
+    """A bucket stored in Amazon S3
+    
+    This class uses standard HTTP connections to connect to S3.
+    """
 
-    def __init__(self, bucket_name, aws_key_id, aws_key, prefix, use_ssl=False):
+    def __init__(self, bucket_name, aws_key_id, aws_key):
         super(Bucket, self).__init__()
         
-        self.bucket_name = bucket_name
-        self.prefix = prefix
+        idx = bucket_name.index('/')
+        self.bucket_name = bucket_name[:idx]
+        self.prefix = bucket_name[idx:]
         self.aws_key = aws_key
         self.aws_key_id = aws_key_id
         
-        self.conn = self._get_conn(use_ssl)
+        self.conn = self._get_conn()
         self.region = self._get_region()
             
-    def _get_conn(self, use_ssl):
+    def _get_conn(self):
         '''Return connection to server'''
         
-        if use_ssl:
-            return httplib.HTTPSConnection('%s.s3.amazonaws.com' % self.bucket_name)
-        else:
-            return httplib.HTTPConnection('%s.s3.amazonaws.com' % self.bucket_name)          
+        return httplib.HTTPConnection('%s.s3.amazonaws.com' % self.bucket_name)          
           
     @staticmethod
     def is_temp_failure(exc):
