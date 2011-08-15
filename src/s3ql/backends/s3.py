@@ -34,7 +34,7 @@ NAMESPACE = 'http://s3.amazonaws.com/doc/2006-03-01/'
 class Bucket(AbstractBucket):
     """A bucket stored in Amazon S3 and compatible services"""
 
-    def __init__(self, bucket_name, aws_key_id, aws_key, prefix, use_ssl):
+    def __init__(self, bucket_name, aws_key_id, aws_key, prefix, use_ssl=False):
         super(Bucket, self).__init__()
         
         self.bucket_name = bucket_name
