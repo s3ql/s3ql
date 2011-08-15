@@ -10,7 +10,8 @@ from __future__ import division, print_function
 
 import unittest2 as unittest
 from s3ql.backends import local, s3
-from s3ql.backends.common import ChecksumError, ObjectNotEncrypted, NoSuchObject
+from s3ql.backends.common import ChecksumError, ObjectNotEncrypted, NoSuchObject,\
+    BetterBucket
 import tempfile
 import os
 import time
@@ -18,6 +19,11 @@ from _common import TestCase
 import _common
 from random import randrange
 
+try:
+    import boto
+except ImportError:
+    boto = None
+    
 class BackendTests(object):
 
     def newname(self):
@@ -25,37 +31,48 @@ class BackendTests(object):
         # Include special characters
         return "s3ql_=/_%d" % self.name_cnt
 
-    def test_store(self):
+    def test_write(self):
         key = self.newname()
         value = self.newname()
         metadata = { 'jimmy': 'jups@42' }
 
         self.assertRaises(NoSuchObject, self.bucket.lookup, key)
-        self.bucket.store(key, value, metadata)
-        time.sleep(self.delay)
-        self.assertEquals(self.bucket.fetch(key), (value, metadata))
-        self.assertEquals(self.bucket[key], value)
-
-    def test_fetch(self):
-        key = self.newname()
-        value = self.newname()
-        metadata = { 'jimmy': 'jups@42' }
-
         self.assertRaises(NoSuchObject, self.bucket.fetch, key)
-        self.bucket.store(key, value, metadata)
+        
+        with self.bucket.open_write(key, metadata) as fh:
+            fh.write(value)
+            
         time.sleep(self.delay)
-        self.assertEquals(self.bucket.fetch(key), (value, metadata))
-
-    def test_lookup(self):
-        key = self.newname()
-        value = self.newname()
-        metadata = { 'jimmy': 'jups@42' }
-
-        self.assertRaises(NoSuchObject, self.bucket.lookup, key)
-        self.bucket.store(key, value, metadata)
-        time.sleep(self.delay)
+        
+        with self.bucket.open_read(key, metadata) as (fh, metadata2):
+            value2 = fh.read()
+            
+        self.assertEquals(value, value2)
+        self.assertEquals(metadata, metadata2)
+        self.assertEquals(self.bucket[key], value)
         self.assertEquals(self.bucket.lookup(key), metadata)
 
+    def test_setitem(self):
+        key = self.newname()
+        value = self.newname()
+        metadata = { 'jimmy': 'jups@42' }
+
+        self.assertRaises(NoSuchObject, self.bucket.lookup, key)
+        self.assertRaises(NoSuchObject, self.bucket.__getitem__, key)
+        
+        with self.bucket.open_write(key, metadata) as fh:
+            fh.write(self.newname()) 
+        time.sleep(self.delay)
+        self.bucket[key] = value
+        time.sleep(self.delay)
+        
+        with self.bucket.open_read(key, metadata) as (fh, metadata2):
+            value2 = fh.read()
+            
+        self.assertEquals(value, value2)
+        self.assertEquals(metadata2, dict())
+        self.assertEquals(self.bucket.lookup(key), dict())
+        
     def test_contains(self):
         key = self.newname()
         value = self.newname()
@@ -96,28 +113,6 @@ class BackendTests(object):
         time.sleep(self.delay)
         self.assertEquals(sorted(self.bucket.list()), sorted(keys))
 
-    def test_encryption(self):
-        bucket = self.bucket
-        bucket.passphrase = None
-        bucket['plain'] = b'foobar452'
-
-        bucket.passphrase = 'schlurp'
-        bucket.store('encrypted', 'testdata', { 'tag': True })
-        time.sleep(self.delay)
-        self.assertEquals(bucket['encrypted'], b'testdata')
-        self.assertRaises(ObjectNotEncrypted, bucket.fetch, 'plain')
-        self.assertRaises(ObjectNotEncrypted, bucket.lookup, 'plain')
-
-        bucket.passphrase = None
-        self.assertRaises(ChecksumError, bucket.fetch, 'encrypted')
-        self.assertRaises(ChecksumError, bucket.lookup, 'encrypted')
-
-        bucket.passphrase = self.passphrase
-        self.assertRaises(ChecksumError, bucket.fetch, 'encrypted')
-        self.assertRaises(ChecksumError, bucket.lookup, 'encrypted')
-        self.assertRaises(ObjectNotEncrypted, bucket.fetch, 'plain')
-        self.assertRaises(ObjectNotEncrypted, bucket.lookup, 'plain')
-
     def test_copy(self):
 
         key1 = self.newname()
@@ -133,11 +128,27 @@ class BackendTests(object):
         time.sleep(self.delay)
         self.assertEquals(self.bucket[key2], value)
 
+    def test_rename(self):
 
+        key1 = self.newname()
+        key2 = self.newname()
+        value = self.newname()
+        self.assertRaises(NoSuchObject, self.bucket.lookup, key1)
+        self.assertRaises(NoSuchObject, self.bucket.lookup, key2)
+
+        self.bucket.store(key1, value)
+        time.sleep(self.delay)
+        self.bucket.rename(key1, key2)
+
+        time.sleep(self.delay)
+        self.assertEquals(self.bucket[key2], value)
+        self.assertRaises(NoSuchObject, self.bucket.lookup, key1)
+        
 # This test just takes too long (because we have to wait really long so that we don't
 # get false errors due to propagation delays)
-@unittest.skip('takes too long')
+#@unittest.skip('takes too long')
 @unittest.skipUnless(_common.aws_credentials, 'no AWS credentials available')
+@unittest.skipUnless(boto, 'python boto module not installed')
 class S3Tests(BackendTests, TestCase):
     @staticmethod
     def random_name(prefix=""):
@@ -145,43 +156,85 @@ class S3Tests(BackendTests, TestCase):
 
     def setUp(self):
         self.name_cnt = 0
-        self.conn = s3.Connection(*_common.aws_credentials)
+        self.boto = boto.connect_s3(*_common.aws_credentials)
 
-        self.bucketname = self.random_name()
-        tries = 10
-        while self.conn.bucket_exists(self.bucketname) and tries > 10:
+        tries = 0
+        while tries < 10:
             self.bucketname = self.random_name()
-            tries -= 1
-
-        if tries == 0:
+            try:
+                self.boto.get_bucket(self.bucketname)
+            except boto.exception.S3ResponseError as e:
+                if e.status == 404:
+                    break
+                raise
+            tries += 1
+        else:
             raise RuntimeError("Failed to find an unused bucket name.")
-
-        self.passphrase = 'flurp'
-        self.bucket = self.conn.create_bucket(self.bucketname, self.passphrase)
+        
+        # Create in EU for more consistency guarantees
+        self.boto.create_bucket(self.bucketname, location='EU')
 
         # This is the time in which we expect S3 changes to propagate. It may
         # be much longer for larger objects, but for tests this is usually enough.
         self.delay = 8
-        time.sleep(self.delay)
+
+        time.sleep(self.delay) # wait for bucket        
+        self.bucket = s3.Bucket(aws_key_id=_common.aws_credentials[0],
+                                aws_key=_common.aws_credentials[1],
+                                bucket_name=self.bucketname,
+                                prefix='')
+
 
     def tearDown(self):
-        self.conn.delete_bucket(self.bucketname, recursive=True)
+        self.bucket.clear()
+        time.sleep(self.delay)
+        self.boto.delete_bucket(self.bucketname)
 
 class LocalTests(BackendTests, TestCase):
 
     def setUp(self):
         self.name_cnt = 0
-        self.conn = local.Connection()
         self.bucket_dir = tempfile.mkdtemp()
-        self.bucketname = os.path.join(self.bucket_dir, 'mybucket')
-        self.passphrase = 'flurp'
-        self.bucket = self.conn.create_bucket(self.bucketname, self.passphrase)
+        self.bucket = local.Bucket(self.bucket_dir, None, None)
         self.delay = 0
 
     def tearDown(self):
-        self.conn.delete_bucket(self.bucketname, recursive=True)
+        self.bucket.clear()
         os.rmdir(self.bucket_dir)
 
+class BetterBucketTests(BackendTests, TestCase):
+
+    def setUp(self):
+        self.name_cnt = 0
+        self.passphrase = 'flurp'
+        self.bucket_dir = tempfile.mkdtemp()
+        self.plain_bucket = local.Bucket(self.bucket_dir)
+        self.bucket = BetterBucket(self.passphrase, 'gzip', self.plain_bucket)
+        self.delay = 0
+
+    def tearDown(self):
+        self.bucket.clear()
+        os.rmdir(self.bucket_dir)
+    
+    def test_encryption(self):
+
+        self.plain_bucket['plain'] = b'foobar452'
+        self.bucket.store('encrypted', 'testdata', { 'tag': True })
+        time.sleep(self.delay)
+        self.assertEquals(self.bucket['encrypted'], b'testdata')
+        self.assertNotEquals(self.plain_bucket['encrypted'], b'testdata')
+        self.assertRaises(ObjectNotEncrypted, self.bucket.fetch, 'plain')
+        self.assertRaises(ObjectNotEncrypted, self.bucket.lookup, 'plain')
+
+        self.bucket.passphrase = None
+        self.assertRaises(ChecksumError, self.bucket.fetch, 'encrypted')
+        self.assertRaises(ChecksumError, self.bucket.lookup, 'encrypted')
+
+        self.bucket.passphrase = 'jobzrul'
+        self.assertRaises(ChecksumError, self.bucket.fetch, 'encrypted')
+        self.assertRaises(ChecksumError, self.bucket.lookup, 'encrypted')
+
+                
 # Somehow important according to pyunit documentation
 def suite():
     return unittest.makeSuite(LocalTests)

@@ -149,7 +149,7 @@ def main():
                             'argparse >= 1.1',
                             'pyliblzma >= 0.5.3' ],
           tests_require=['apsw >= 3.7.0', 'unittest2',
-                         'pycryptopp',
+                         'pycryptopp', 'boto',
                          'llfuse >= 0.29',
                          'argparse >= 1.1',
                          'pyliblzma >= 0.5.3' ],
