@@ -302,7 +302,7 @@ def upgrade(bucket):
                         shutil.copyfileobj(src, dst)
                 
                 os.rename(os.path.join(path, name),
-                          os.path.join(path, basename + '.dat'))
+                          os.path.join(path, basename))
                      
     # Download metadata
     log.info("Downloading & uncompressing metadata...")

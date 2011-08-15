@@ -24,7 +24,11 @@ class Bucket(AbstractBucket):
     A bucket that is stored on the local hard disk
     '''
 
-    def __init__(self, name):
+    def __init__(self, name, backend_login, backend_pw):
+        '''Initialize local bucket
+        
+        Login and password are ignored.
+        '''
         super(Bucket, self).__init__()
         self.name = name
         
@@ -81,6 +85,8 @@ class Bucket(AbstractBucket):
         # conflicts between parallel reads, the last one wins
         
         path = self._key_to_path(key)
+        
+        # FIXME: Could get a name clash with existing object here
         tmpname = '%s.%d-%d' % (path, os.getpid(), thread.get_ident()) 
         
         try:
@@ -252,7 +258,7 @@ class Bucket(AbstractBucket):
         path = [ self.name, 's3ql_data_']
         for i in range(0, len(no), 3):
             path.append(no[:i])
-        path.append(key + '.dat')
+        path.append(key)
         
         return os.path.join(*path)
 
