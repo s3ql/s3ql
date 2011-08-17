@@ -379,7 +379,7 @@ class Bucket(AbstractBucket):
             t.join_and_raise()
 
     def __str__(self):
-        return '<s3 bucket, name=%r>' % self.bucket_name
+        return 's3://%s/%s' % (self.bucket_name, self.prefix)
 
     def _add_auth(self, method, url, headers, subres=None, query_string=None):
         '''Add authentication to *headers*

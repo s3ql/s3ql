@@ -36,7 +36,7 @@ class Bucket(AbstractBucket):
             raise NoSuchBucket(name)
 
     def __str__(self):
-        return '<local bucket, name=%r>' % self.name
+        return 'local://%s' % self.name
 
     def lookup(self, key):
         """Return metadata for given key.

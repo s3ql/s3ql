@@ -20,4 +20,7 @@ class Bucket(s3.Bucket):
     def _get_conn(self, use_ssl):
         '''Return connection to server'''
         
-        return httplib.HTTPSConnection('%s.s3.amazonaws.com' % self.bucket_name)        
+        return httplib.HTTPSConnection('%s.s3.amazonaws.com' % self.bucket_name)
+    
+    def __str__(self):
+        return 's3s://%s/%s' % (self.bucket_name, self.prefix)            
