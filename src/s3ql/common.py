@@ -8,7 +8,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from getpass import getpass
 from time import sleep
 import hashlib
 import os
@@ -18,25 +17,18 @@ import threading
 import traceback
 import time
 from functools import wraps
-import re
 import cPickle as pickle
-from contextlib import contextmanager
 from llfuse import ROOT_INODE
-from .backends.common import NoSuchObject
 import logging
 
-__all__ = ["get_bucket_cachedir", 'sha256_fh', 'add_stdout_logging',
-           "get_credentials", "get_dbfile", "inode_for_path", "get_path",
-           "ROOT_INODE", "ExceptionStoringThread", 'retry', 'LoggerFilter',
-           "EmbeddedException", 'CTRL_NAME', 'CTRL_INODE', 'unlock_bucket',
-           'QuietError', 'get_backend', 'add_file_logging', 'setup_excepthook',
-           'cycle_metadata', 'restore_metadata', 'dump_metadata', 
-           'setup_logging', 'AsyncFn', 'init_tables', 'create_indices',
-           'create_tables', 'get_seq_no', 'retry_on' ]
-
-
-AUTHINFO_BACKEND_PATTERN = r'^backend\s+(\S+)\s+machine\s+(\S+)\s+login\s+(\S+)\s+password\s+(.+)$'
-AUTHINFO_BUCKET_PATTERN = r'^storage-url\s+(\S+)\s+password\s+(.+)$'
+__all__ = [ 'AsyncFn', 'CTRL_INODE', 'CTRL_NAME', "EmbeddedException",
+           "ExceptionStoringThread", 'LoggerFilter', 'QuietError',
+           'TimeoutError',
+           'add_stdout_logging', 'create_tables', 'cycle_metadata',
+           'dump_metadata', "get_bucket_cachedir", "get_path",
+           'get_seq_no', 'init_tables', "inode_for_path", 'restore_metadata',
+           'retry', 'retry_on', 'setup_excepthook', 'setup_logging', 
+           'sha256_fh' ]
 
 log = logging.getLogger('common')
         
@@ -142,45 +134,13 @@ def retry_on(check_fn, timeout=60*60*24):
         return wrapped 
 
     return wrapper   
-    
-@contextmanager
-def get_backend(storage_url, authfile, use_ssl):
-    '''Return backend connection and bucket name
-    
-    This is a context manager, since some connections need to be cleaned 
-    up properly. 
-    '''
-
-    from .backends import s3, local
-
-    if storage_url.startswith('local://'):
-        conn = local.Connection()
-        bucketname = storage_url[len('local://'):]
-
-    elif storage_url.startswith('s3://'):
-        (login, password) = get_backend_credentials(authfile, 's3', None)
-        conn = s3.Connection(login, password, use_ssl)
-        bucketname = storage_url[len('s3://'):]
-
-    elif storage_url.startswith('s3rr://'):
-        log.warn('Warning: Using S3 reduced redundancy storage (S3) is *not* recommended!')
-        (login, password) = get_backend_credentials(authfile, 's3', None)
-        conn = s3.Connection(login, password, use_ssl, reduced_redundancy=True)
-        bucketname = storage_url[len('s3rr://'):]
-
-    else:
-        raise QuietError('Unknown storage url: %s' % storage_url)
-
-    try:
-        yield (conn, bucketname)
-    finally:
-        conn.close()
 
 def get_seq_no(bucket):
     '''Get current metadata sequence number'''
        
     from s3ql.backends.local import Bucket as LocalBucket
-     
+    from .backends.common import NoSuchObject
+    
     seq_nos = list(bucket.list('s3ql_seq_no_')) 
     if (not seq_nos or
         (isinstance(bucket, LocalBucket) and
@@ -211,49 +171,6 @@ def cycle_metadata(bucket):
         bucket.rename("s3ql_metadata", "s3ql_metadata_bak_0")
     except UnsupportedError:
         bucket.copy("s3ql_metadata", "s3ql_metadata_bak_0")             
-
-
-def unlock_bucket(keyfile, storage_url, bucket):
-    '''Ask for passphrase if bucket requires one'''
-
-    if 's3ql_passphrase' not in bucket:
-        return
-
-    wrap_pw = None
-
-    if os.path.isfile(keyfile):
-        mode = os.stat(keyfile).st_mode
-        if mode & (stat.S_IRGRP | stat.S_IROTH):
-            raise QuietError("%s has insecure permissions, aborting." % keyfile)
-
-        fh = open(keyfile, "r")
-        for line in fh:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            if re.match(AUTHINFO_BACKEND_PATTERN, line):
-                continue
-            res = re.match(AUTHINFO_BUCKET_PATTERN, line)
-            if not res:
-                log.warn('Cannot parse line in %s:\n %s', keyfile, line)
-                continue
-
-            if storage_url == res.group(1):
-                wrap_pw = res.group(2)
-                log.info('Using encryption password from %s', keyfile)
-                break
-
-    # Otherwise from stdin
-    if wrap_pw is None:
-        if sys.stdin.isatty():
-            wrap_pw = getpass("Enter bucket encryption passphrase: ")
-        else:
-            wrap_pw = sys.stdin.readline().rstrip()
-
-    bucket.passphrase = wrap_pw
-    data_pw = bucket['s3ql_passphrase']
-    bucket.passphrase = data_pw
-
 
 def dump_metadata(ofh, conn):
     pickler = pickle.Pickler(ofh, 2)
@@ -417,50 +334,6 @@ def get_bucket_cachedir(storage_url, cachedir):
     if not os.path.exists(cachedir):
         os.mkdir(cachedir)
     return os.path.join(cachedir, _escape(storage_url))
-
-
-def get_backend_credentials(keyfile, backend, host):
-    """Get credentials for given backend and host"""
-
-    # Try to read from file
-    if os.path.isfile(keyfile):
-        mode = os.stat(keyfile).st_mode
-        if mode & (stat.S_IRGRP | stat.S_IROTH):
-            raise QuietError("%s has insecure permissions, aborting." % keyfile)
-
-        fh = open(keyfile, "r")
-        for line in fh:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            if re.match(AUTHINFO_BUCKET_PATTERN, line):
-                continue
-            res = re.match(AUTHINFO_BACKEND_PATTERN, line)
-            if not res:
-                log.warn('Cannot parse line in %s:\n %s', keyfile, line)
-                continue
-
-            if backend == res.group(1) and (host is None or host == res.group(2)):
-                log.info('Using backend credentials from %s', keyfile)
-                return res.group(3, 4)
-
-    # Otherwise from stdin
-    if sys.stdin.isatty():
-        if host:
-            print("Enter backend login for %s: " % host, end='')
-        else:
-            print("Enter backend login: ", end='')
-    key = sys.stdin.readline().rstrip()
-
-    if sys.stdin.isatty():
-        if host:
-            pw = getpass("Enter backend password for %s: " % host)
-        else:
-            pw = getpass("Enter backend password: ")
-    else:
-        pw = sys.stdin.readline().rstrip()
-
-    return (key, pw)
 
 def retry(timeout, fn, *a, **kw):
     """Wait for fn(*a, **kw) to return True.

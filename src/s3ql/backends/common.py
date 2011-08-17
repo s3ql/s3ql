@@ -23,13 +23,21 @@ import struct
 from abc import ABCMeta, abstractmethod
 import threading
 from contextlib import contextmanager
+import re
+import ConfigParser
+from getpass import getpass
+import os
+import sys
+import stat
+from ..common import QuietError
 
 aes.start_up_self_test()
 
 log = logging.getLogger("backend")
 
 __all__ = [ 'AbstractBucket', 'BetterBucket', 'BucketPool', 'ChecksumError', 
-           'NoSuchBucket', 'NoSuchObject', 'ObjectNotEncrypted', 'UnsupportedError' ]
+           'NoSuchBucket', 'NoSuchObject', 'ObjectNotEncrypted', 'UnsupportedError',
+           'get_bucket' ]
 
 HMAC_SIZE = 32
 
@@ -813,5 +821,80 @@ def convert_legacy_metadata(meta):
 
 
 
+def get_bucket(options):
+    '''Return bucket for given storage-url'''
+
+    config = ConfigParser.SafeConfigParser()
+    if os.path.isfile(options.authfile):
+        mode = os.stat(options.authfile).st_mode
+        if mode & (stat.S_IRGRP | stat.S_IROTH):
+            raise QuietError("%s has insecure permissions, aborting." % options.authfile)    
+        config.read(options.authfile)
     
+    backend_login = None
+    backend_pw = None
+    bucket_passphrase = None
+    for section in config.sections():
+        def getopt(name):
+            try:
+                return config.get(section, name)
+            except ConfigParser.NoOptionError:
+                return None
+
+        pattern = getopt('storage-url')
+        
+        if not options.storage_url.startswith(pattern):
+            continue
+        
+        backend_login = backend_login or getopt('backend-login')
+        backend_pw = backend_pw or getopt('backend-password')
+        bucket_passphrase = bucket_passphrase or getopt('bucket-passphrase')
+      
+    if not backend_login:
+        if sys.stdin.isatty():
+            backend_login = getpass("Enter backend login: ") 
+        else:
+            backend_login = sys.stdin.readline().rstrip()
+
+    if not backend_pw:
+        if sys.stdin.isatty():
+            backend_pw = getpass("Enter backend password: ") 
+        else:
+            backend_pw = sys.stdin.readline().rstrip()
+                                     
+    hit = re.match(r'^([a-zA-Z0-9])://(.+)$', options.storage_url)
+    if not hit:
+        raise QuietError('Unknown storage url: %s' % options.storage_url)
+    
+    backend_name = 's3ql.backends.%s' % hit.group(1)
+    bucket_name = hit.group(2)
+    try:
+        __import__(backend_name)
+    except ImportError:
+        raise QuietError('No such backend: %s' % hit.group(1))
+    
+    bucket_class = sys.modules[backend_name].getattr('Bucket')
+    
+    bucket = bucket_class(bucket_name, backend_login, backend_pw)
+
+    try:
+        encrypted = 's3ql_passphrase' in bucket
+    except NoSuchBucket:
+        raise QuietError('Bucket %d does not exist' % bucket_name)
+        
+    if encrypted and not bucket_passphrase:
+        if sys.stdin.isatty():
+            bucket_passphrase = getpass("Enter bucket encryption passphrase: ") 
+        else:
+            bucket_passphrase = sys.stdin.readline().rstrip()
+    elif not encrypted:
+        bucket_passphrase = None
+        
+    tmp_bucket = BetterBucket(bucket_passphrase, options.compress, bucket)
+    try:
+        data_pw = tmp_bucket['s3ql_passphrase']
+    except ChecksumError:
+        raise QuietError('Wrong bucket passphrase')
+
+    return BetterBucket(data_pw, options.compress, bucket)
     
