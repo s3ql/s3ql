@@ -138,9 +138,7 @@ class Fsck(object):
                       blockno, inode)
     
             fh = open(os.path.join(self.cachedir, filename), "rb")
-            fh.seek(0, 2)
-            size = fh.tell()
-            fh.seek(0)
+            size = os.fstat(fh.fileno()).st_size
             hash_ = sha256_fh(fh)
     
             try:

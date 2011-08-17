@@ -535,9 +535,8 @@ class ObjectW(object):
         log.debug('ObjectW(%s).close(): start', self.key)
         
         self.closed = True
-        self.fh.seek(0, os.SEEK_END)
-        self.headers['Content-Length'] = self.fh.tell()
-        self.fh.seek(0)
+        self.fh.flush()
+        self.headers['Content-Length'] = os.fstat(self.fh.fileno()).st_size
         
         resp = self.bucket._do_request('PUT', '/%s%s' % (self.bucket.prefix, self.key), 
                                        headers=self.headers, body=self.fh)
