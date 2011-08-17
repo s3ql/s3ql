@@ -9,17 +9,15 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 
 import logging
-from s3ql.common import (get_backend, QuietError, unlock_bucket,
-                         restore_metadata,
+from s3ql.common import (QuietError, restore_metadata,
                          cycle_metadata, dump_metadata, create_tables,
                          setup_logging, get_bucket_cachedir)
-from s3ql.backends import s3
+from s3ql.backends.common import get_bucket 
 from s3ql.backends.local import Bucket as LocalBucket
 from s3ql.parse_args import ArgumentParser
 from s3ql import CURRENT_FS_REV
 from getpass import getpass
 import sys
-from s3ql.backends.common import ChecksumError
 import os
 from s3ql.database import Connection
 import tempfile
@@ -52,7 +50,7 @@ def parse_args(args):
                           parents=[pparser])
     subparsers.add_parser("upgrade", help="upgrade file system to newest revision",
                           parents=[pparser])
-    subparsers.add_parser("delete", help="completely delete a bucket with all contents",
+    subparsers.add_parser("clear", help="delete all S3QL data from the bucket",
                           parents=[pparser])                                        
     subparsers.add_parser("download-metadata", 
                           help="Interactively download metadata backups. "
@@ -65,7 +63,6 @@ def parse_args(args):
     parser.add_authfile()
     parser.add_cachedir()
     parser.add_version()
-    parser.add_ssl()
         
     options = parser.parse_args(args)
         
@@ -79,32 +76,21 @@ def main(args=None):
 
     options = parse_args(args)
     setup_logging(options)
+   
+    cachepath = get_bucket_cachedir(options.storage_url, options.cachedir) 
+    bucket = get_bucket(options)
+    
+    if options.action == 'clear':
+        return clear(bucket, cachepath)
+    
+    if options.action == 'passphrase':
+        return change_passphrase(bucket)
 
-    with get_backend(options.storage_url, 
-                     options.authfile, options.ssl) as (conn, bucketname):
-        cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
-               
-        if options.action == 'delete':
-            return delete_bucket(conn, bucketname, cachepath)
+    if options.action == 'upgrade':
+        return upgrade(bucket)
 
-        if not bucketname in conn:
-            raise QuietError("Bucket does not exist.")
-        
-        bucket = conn.get_bucket(bucketname)
-        
-        try:
-            unlock_bucket(options.authfile, options.storage_url, bucket)
-        except ChecksumError:
-            raise QuietError('Checksum error - incorrect password?')
-
-        if options.action == 'passphrase':
-            return change_passphrase(bucket)
-
-        if options.action == 'upgrade':
-            return upgrade(bucket)
-
-        if options.action == 'download-metadata':
-            return download_metadata(bucket, options.storage_url)
+    if options.action == 'download-metadata':
+        return download_metadata(bucket, options.storage_url)
         
 
 def download_metadata(bucket, storage_url):
@@ -185,8 +171,8 @@ def change_passphrase(bucket):
     bucket.passphrase = wrap_pw
     bucket['s3ql_passphrase'] = data_pw
 
-def delete_bucket(conn, bucketname, cachepath):
-    print('I am about to delete the bucket %s with ALL contents.' % bucketname,
+def clear(bucket, cachepath):
+    print('I am about to delete the S3QL file system in %s.' % bucket,
           'Please enter "yes" to continue.', '> ', sep='\n', end='')
 
     if sys.stdin.readline().strip().lower() != 'yes':
@@ -202,12 +188,10 @@ def delete_bucket(conn, bucketname, cachepath):
     name = cachepath + '-cache'
     if os.path.exists(name):
         shutil.rmtree(name)
-        
-    if bucketname in conn:
-        conn.delete_bucket(bucketname, recursive=True)
 
     print('Bucket deleted.')
-    if isinstance(conn, s3.Connection):
+    if (not bucket.list_after_delete_consistent()
+        or not bucket.read_after_delete_consistent()): 
         print('Note that it may take a while until the removal becomes visible.')
 
 def upgrade(bucket):
