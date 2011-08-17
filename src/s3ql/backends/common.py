@@ -35,10 +35,6 @@ aes.start_up_self_test()
 
 log = logging.getLogger("backend")
 
-__all__ = [ 'AbstractBucket', 'BetterBucket', 'BucketPool', 'ChecksumError', 
-           'NoSuchBucket', 'NoSuchObject', 'ObjectNotEncrypted', 'UnsupportedError',
-           'get_bucket' ]
-
 HMAC_SIZE = 32
 
 def sha256(s):
@@ -820,9 +816,13 @@ def convert_legacy_metadata(meta):
         meta['compression'] = 'None'
 
 
-
 def get_bucket(options):
     '''Return bucket for given storage-url'''
+
+    return get_bucket_factory(options)()
+
+def get_bucket_factory(options):
+    '''Return factory producing bucket objects for given storage-url'''
 
     config = ConfigParser.SafeConfigParser()
     if os.path.isfile(options.authfile):
@@ -896,5 +896,7 @@ def get_bucket(options):
     except ChecksumError:
         raise QuietError('Wrong bucket passphrase')
 
-    return BetterBucket(data_pw, options.compress, bucket)
+
+    return lambda: BetterBucket(data_pw, options.compress, 
+                                bucket_class(bucket_name, backend_login, backend_pw))
     
