@@ -13,9 +13,9 @@ from __future__ import division, print_function, absolute_import
 import sys
 from s3ql import fs, CURRENT_FS_REV, inode_cache
 from s3ql.daemonize import daemonize
-from s3ql.backends.common import (ChecksumError)
-from s3ql.common import (setup_logging, get_backend, get_bucket_cachedir, get_seq_no,
-                         QuietError, unlock_bucket,  ExceptionStoringThread,
+from s3ql.backends.common import get_bucket
+from s3ql.common import (setup_logging, get_bucket_cachedir, get_seq_no,
+                         QuietError, ExceptionStoringThread,
                          cycle_metadata, dump_metadata, restore_metadata)
 from s3ql.parse_args import ArgumentParser
 from s3ql.database import Connection
@@ -57,110 +57,97 @@ def main(args=None):
         import pstats
         prof = cProfile.Profile()
 
-    with get_backend(options.storage_url, options.authfile,
-                     options.ssl) as (conn, bucketname):
-
-        if not bucketname in conn:
-            raise QuietError("Bucket does not exist.")
-        bucket = conn.get_bucket(bucketname, compression=options.compress)
-
-        # Unlock bucket
-        try:
-            unlock_bucket(options.authfile, options.storage_url, bucket)
-        except ChecksumError:
-            raise QuietError('Checksum error - incorrect password?')
-
-        # Get paths
-        cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
-
-        # Retrieve metadata
-        (param, db) = get_metadata(bucket, cachepath)
+    bucket = get_bucket(options)
+    
+    # Get paths
+    cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
+    
+    # Retrieve metadata
+    (param, db) = get_metadata(bucket, cachepath)
+    
+    if options.nfs:
+        # NFS may try to look up '..', so we have to speed up this kind of query
+        db.execute('CREATE INDEX IF NOT EXISTS ix_contents_inode ON contents(inode)')
         
-        if options.nfs:
-            # NFS may try to look up '..', so we have to speed up this kind of query
-            db.execute('CREATE INDEX IF NOT EXISTS ix_contents_inode ON contents(inode)')
-            
-            # Since we do not support generation numbers, we have to keep the
-            # likelihood of reusing a just-deleted inode low
-            inode_cache.RANDOMIZE_INODES = True
+        # Since we do not support generation numbers, we have to keep the
+        # likelihood of reusing a just-deleted inode low
+        inode_cache.RANDOMIZE_INODES = True
+    else:
+        db.execute('DROP INDEX IF EXISTS ix_contents_inode')
+                       
+    metadata_upload_thread = MetadataUploadThread(bucket, param, db,
+                                                  options.metadata_upload_interval)
+    operations = fs.Operations(bucket, db, cachedir=cachepath + '-cache', 
+                               blocksize=param['blocksize'],
+                               cache_size=options.cachesize * 1024,
+                               upload_event=metadata_upload_thread.event,
+                               cache_entries=options.max_cache_entries)
+    
+    log.info('Mounting filesystem...')
+    llfuse.init(operations, options.mountpoint, fuse_opts)
+    try:
+        if not options.fg:
+            me = threading.current_thread()
+            for t in threading.enumerate():
+                if t is me:
+                    continue
+                log.error('Waiting for thread %s', t)
+                t.join()
+    
+            if stdout_log_handler:
+                logging.getLogger().removeHandler(stdout_log_handler)
+            daemonize(options.cachedir)
+        
+        metadata_upload_thread.start()
+        if options.upstart:
+            os.kill(os.getpid(), signal.SIGSTOP)
+        if options.profile:
+            prof.runcall(llfuse.main, options.single)
         else:
-            db.execute('DROP INDEX IF EXISTS ix_contents_inode')
-                           
-        metadata_upload_thread = MetadataUploadThread(bucket, param, db,
-                                                      options.metadata_upload_interval)
-        operations = fs.Operations(bucket, db, cachedir=cachepath + '-cache', 
-                                   blocksize=param['blocksize'],
-                                   cache_size=options.cachesize * 1024,
-                                   upload_event=metadata_upload_thread.event,
-                                   cache_entries=options.max_cache_entries)
-        
-        log.info('Mounting filesystem...')
-        llfuse.init(operations, options.mountpoint, fuse_opts)
-        try:
-            if not options.fg:
-                conn.prepare_fork()
-                me = threading.current_thread()
-                for t in threading.enumerate():
-                    if t is me:
-                        continue
-                    log.error('Waiting for thread %s', t)
-                    t.join()
-  
-                if stdout_log_handler:
-                    logging.getLogger().removeHandler(stdout_log_handler)
-                daemonize(options.cachedir)
-                conn.finish_fork()
+            llfuse.main(options.single)
+    
+    finally:
+        llfuse.close()
+        metadata_upload_thread.stop()
             
-            metadata_upload_thread.start()
-            if options.upstart:
-                os.kill(os.getpid(), signal.SIGSTOP)
-            if options.profile:
-                prof.runcall(llfuse.main, options.single)
-            else:
-                llfuse.main(options.single)
-
-        finally:
-            llfuse.close()
-            metadata_upload_thread.stop()
-                
-        db_mtime = metadata_upload_thread.db_mtime
-        
-        if operations.encountered_errors:
-            param['needs_fsck'] = True
-        else:       
-            param['needs_fsck'] = False
-         
-        # Do not update .params yet, dump_metadata() may
-        # fail if the database is corrupted, in which case we
-        # want to force an fsck.
-           
-        seq_no = get_seq_no(bucket)
-        if db_mtime == os.stat(cachepath + '.db').st_mtime:
-            log.info('File system unchanged, not uploading metadata.')
-            del bucket['s3ql_seq_no_%d' % param['seq_no']]         
-            param['seq_no'] -= 1
-            pickle.dump(param, open(cachepath + '.params', 'wb'), 2)         
-        elif seq_no == param['seq_no']:
-            log.info('Saving metadata...')
-            fh = tempfile.TemporaryFile()
-            dump_metadata(fh, db)          
-            log.info("Compressing & uploading metadata..")
-            cycle_metadata(bucket)
-            fh.seek(0)
-            param['last-modified'] = time.time() - time.timezone
-            bucket.store_fh("s3ql_metadata", fh, param)
-            fh.close()
-            pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
-        else:
-            log.error('Remote metadata is newer than local (%d vs %d), '
-                      'refusing to overwrite!', seq_no, param['seq_no'])
-            log.error('The locally cached metadata will be *lost* the next time the file system '
-                      'is mounted or checked and has therefore been backed up.')
-            for name in (cachepath + '.params', cachepath + '.db'):
-                for i in reversed(range(4)):
-                    if os.path.exists(name + '.%d' % i):
-                        os.rename(name + '.%d' % i, name + '.%d' % (i+1))     
-                os.rename(name, name + '.0')
+    db_mtime = metadata_upload_thread.db_mtime
+    
+    if operations.encountered_errors:
+        param['needs_fsck'] = True
+    else:       
+        param['needs_fsck'] = False
+     
+    # Do not update .params yet, dump_metadata() may
+    # fail if the database is corrupted, in which case we
+    # want to force an fsck.
+       
+    seq_no = get_seq_no(bucket)
+    if db_mtime == os.stat(cachepath + '.db').st_mtime:
+        log.info('File system unchanged, not uploading metadata.')
+        del bucket['s3ql_seq_no_%d' % param['seq_no']]         
+        param['seq_no'] -= 1
+        pickle.dump(param, open(cachepath + '.params', 'wb'), 2)         
+    elif seq_no == param['seq_no']:
+        log.info('Saving metadata...')
+        fh = tempfile.TemporaryFile()
+        dump_metadata(fh, db)          
+        log.info("Compressing & uploading metadata..")
+        cycle_metadata(bucket)
+        fh.seek(0)
+        param['last-modified'] = time.time() - time.timezone
+        bucket.store_fh("s3ql_metadata", fh, param)
+        fh.close()
+        pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+    else:
+        log.error('Remote metadata is newer than local (%d vs %d), '
+                  'refusing to overwrite!', seq_no, param['seq_no'])
+        log.error('The locally cached metadata will be *lost* the next time the file system '
+                  'is mounted or checked and has therefore been backed up.')
+        for name in (cachepath + '.params', cachepath + '.db'):
+            for i in reversed(range(4)):
+                if os.path.exists(name + '.%d' % i):
+                    os.rename(name + '.%d' % i, name + '.%d' % (i+1))     
+            os.rename(name, name + '.0')
    
     db.execute('ANALYZE')
     db.execute('VACUUM')
@@ -260,7 +247,7 @@ def get_metadata(bucket, cachepath):
     # Increase metadata sequence no 
     param['seq_no'] += 1
     param['needs_fsck'] = True
-    bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
+    bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
     
     return (param, db)
@@ -321,7 +308,6 @@ def parse_args(args):
     parser.add_quiet()
     parser.add_version()
     parser.add_storage_url()
-    parser.add_ssl()
     
     parser.add_argument("mountpoint", metavar='<mountpoint>',
                         type=(lambda x: x.rstrip('/')),
