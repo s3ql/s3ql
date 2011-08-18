@@ -303,7 +303,7 @@ class Bucket(AbstractBucket):
         log.debug('contains(%s)', key)
         
         try:
-            resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
+            self._do_request('HEAD', '/%s%s' % (self.prefix, key))
         except NoSuchKey:
             return False
         else:
@@ -359,7 +359,6 @@ class Bucket(AbstractBucket):
             
             log.debug('_do_request(): redirecting to %s', full_url)
             
-            # TODO: We really want to use 100-continue instead
             if not isinstance(body, bytes):
                 body.seek(0)
 
