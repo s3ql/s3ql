@@ -6,22 +6,23 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
-
-from contextlib import contextmanager
-from .multi_lock import MultiLock
 from .backends.common import NoSuchObject
-from .ordered_dict import OrderedDict
 from .common import EmbeddedException, ExceptionStoringThread
-from .thread_group import ThreadGroup
-from .upload_manager import UploadManager, RemoveThread, retry_exc
 from .database import NoSuchRowError
+from .multi_lock import MultiLock
+from .ordered_dict import OrderedDict
+from .thread_group import ThreadGroup
+from .upload_manager import UploadManager, RemoveThread
+from __future__ import division, print_function, absolute_import
+from contextlib import contextmanager
 from llfuse import lock, lock_released
 import logging
 import os
+import shutil
+import stat
 import threading
 import time
-import stat
+
 
 __all__ = [ "BlockCache" ]
 
@@ -118,7 +119,7 @@ class BlockCache(object):
         self.max_entries = max_entries
         self.size = 0
         self.db = db
-        self.bucket = bucket_pool.pop_conn()
+        self.bucket_pool = bucket_pool
         self.mlock = MultiLock()
         self.removal_queue = ThreadGroup(MAX_REMOVAL_THREADS)
         self.upload_manager = UploadManager(bucket_pool, db, self.removal_queue)
@@ -233,13 +234,11 @@ class BlockCache(object):
                     obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (block_id,))
                     
                     try:
-                        if self.bucket.read_after_create_consistent():
-                            with lock_released:
-                                self.bucket.fetch_fh('s3ql_data_%d' % obj_id, el)
-                        else:
-                            with lock_released:
-                                retry_exc(300, [ NoSuchObject ], self.bucket.fetch_fh,
-                                          's3ql_data_%d' % obj_id, el)
+                        with lock_released:
+                            with self.bucket_pool() as bucket:
+                                with bucket.open_read('s3ql_data_%d' % obj_id, 
+                                                      does_exist=True) as fh:
+                                    shutil.copyfileobj(fh, el)
                     except:
                         os.unlink(filename)
                         raise
@@ -343,9 +342,9 @@ class BlockCache(object):
         
         This method releases the global lock.
         
-        Note: if `get` and `remove` are called concurrently, then it
-        is possible that a block that has been requested with `get` and
-        passed to `remove` for deletion will not be deleted.
+        Note: if `get` and `remove` are called concurrently, then it is possible
+        that a block that has been requested with `get` and passed to `remove`
+        for deletion will not be deleted.
         """
 
         log.debug('remove(inode=%d, start=%d, end=%s): start', inode, start_no, end_no)
@@ -421,7 +420,7 @@ class BlockCache(object):
             # Delete object
             try:
                 # Releases global lock:
-                self.removal_queue.add_thread(RemoveThread(obj_id, self.bucket,
+                self.removal_queue.add_thread(RemoveThread(obj_id, self.bucket_pool,
                                                            (inode, blockno),
                                                            self.upload_manager))
             except EmbeddedException as exc:
