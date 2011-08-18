@@ -593,7 +593,7 @@ class ObjectW(object):
         return self
     
     def __exit__(self, *a):
-        self.fh.close()
+        self.close()
         return False
     
           
