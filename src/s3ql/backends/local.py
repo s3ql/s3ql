@@ -86,7 +86,6 @@ class Bucket(AbstractBucket):
         
         path = self._key_to_path(key)
         
-        # FIXME: Could get a name clash with existing object here
         tmpname = '%s.%d-%d' % (path, os.getpid(), thread.get_ident()) 
         
         try:
@@ -259,19 +258,19 @@ class Bucket(AbstractBucket):
         return os.path.join(*path)
 
 def escape(s):
-    '''Escape '/', '=' and '\0' in s'''
+    '''Escape '/', '=' and '.' in s'''
 
     s = s.replace('=', '=3D')
     s = s.replace('/', '=2F')
-    s = s.replace('\0', '=00')
+    s = s.replace('.', '=2E')
 
     return s
 
 def unescape(s):
-    '''Un-Escape '/', '=' and '\0' in s'''
+    '''Un-Escape '/', '=' and '.' in s'''
 
     s = s.replace('=2F', '/')
-    s = s.replace('=00', '\0')
+    s = s.replace('=2E', '.')
     s = s.replace('=3D', '=')
 
     return s

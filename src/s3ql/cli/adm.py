@@ -285,6 +285,10 @@ def upgrade(bucket):
                     with open(os.path.join(path, basename + '.dat'), 'rb') as src:
                         shutil.copyfileobj(src, dst)
                 
+                if '=00' in basename:
+                    raise RuntimeError("No, seriously, you tried to break things, didn't you?")
+                
+                basename = basename.replace('.', '=2E')
                 os.rename(os.path.join(path, name),
                           os.path.join(path, basename))
                      
