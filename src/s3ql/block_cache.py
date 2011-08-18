@@ -193,7 +193,8 @@ class BlockCache(object):
     def get(self, inode, blockno):
         """Get file handle for block `blockno` of `inode`
         
-        This method releases the global lock.
+        This method releases the global lock, and the managed block
+        may do so as well.
         
         Note: if `get` and `remove` are called concurrently, then it is
         possible that a block that has been requested with `get` and
