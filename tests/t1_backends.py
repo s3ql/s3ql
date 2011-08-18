@@ -23,8 +23,8 @@ try:
     import boto
 except ImportError:
     boto = None
-    
-class BackendTests(object):
+     
+class BackendTestsMixin(object):
 
     def newname(self):
         self.name_cnt += 1
@@ -149,7 +149,7 @@ class BackendTests(object):
 #@unittest.skip('takes too long')
 @unittest.skipUnless(_common.aws_credentials, 'no AWS credentials available')
 @unittest.skipUnless(boto, 'python boto module not installed')
-class S3Tests(BackendTests, TestCase):
+class S3Tests(BackendTestsMixin, TestCase):
     @staticmethod
     def random_name(prefix=""):
         return "s3ql-" + prefix + str(randrange(1000, 9999, 1))
@@ -190,7 +190,7 @@ class S3Tests(BackendTests, TestCase):
         time.sleep(self.delay)
         self.boto.delete_bucket(self.bucketname)
 
-class LocalTests(BackendTests, TestCase):
+class LocalTests(BackendTestsMixin, TestCase):
 
     def setUp(self):
         self.name_cnt = 0
@@ -202,7 +202,7 @@ class LocalTests(BackendTests, TestCase):
         self.bucket.clear()
         os.rmdir(self.bucket_dir)
 
-class BetterBucketTests(BackendTests, TestCase):
+class BetterBucketTests(BackendTestsMixin, TestCase):
 
     def setUp(self):
         self.name_cnt = 0
