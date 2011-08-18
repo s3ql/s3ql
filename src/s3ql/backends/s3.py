@@ -139,7 +139,7 @@ class Bucket(AbstractBucket):
                 if not self.is_temp_failure(exc):
                     raise
                 if waited > 60*60:                
-                    log.err('list(): Timeout exceeded, re-raising %r exception', exc)
+                    log.error('list(): Timeout exceeded, re-raising %r exception', exc)
                     raise
                                         
                 log.debug('list(): trying again after %r exception:', exc)
@@ -497,11 +497,11 @@ class ObjectR(object):
         return self
     
     def __exit__(self, *a):
-        self.fh.close()
+        self.close()
         return False
         
     def _retry_on(self, exc):
-        return self.bucket._retry_on(exc)
+        return self.bucket._retry_on(exc) #IGNORE:W0212
     
     @retry
     def close(self):
@@ -558,7 +558,7 @@ class ObjectW(object):
         self.md5.update(buf)
        
     def _retry_on(self, exc):
-        return self.bucket._retry_on(exc)
+        return self.bucket._retry_on(exc) #IGNORE:W0212
            
     @retry
     def close(self):

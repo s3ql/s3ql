@@ -8,28 +8,28 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
+from ..common import QuietError
+from abc import ABCMeta, abstractmethod
+from base64 import b64decode, b64encode
 from cStringIO import StringIO
+from contextlib import contextmanager
+from getpass import getpass
+from pycryptopp.cipher import aes
+import ConfigParser
+import bz2
+import cPickle as pickle
+import hashlib
 import hmac
 import logging
-from pycryptopp.cipher import aes
-import cPickle as pickle
-import time
-import hashlib
-import zlib
-import bz2
 import lzma
-from base64 import b64decode, b64encode
-import struct
-from abc import ABCMeta, abstractmethod
-import threading
-from contextlib import contextmanager
-import re
-import ConfigParser
-from getpass import getpass
 import os
-import sys
+import re
 import stat
-from ..common import QuietError
+import struct
+import sys
+import threading
+import time
+import zlib
 
 aes.start_up_self_test()
 
@@ -482,7 +482,7 @@ class CompressFilter(object):
     compressed size.
     '''
     
-    def __init__(self, fh, comp):
+    def __init__(self, fh, compr):
         '''Initialize
         
         *fh* should be a file-like object. *decomp* should be a fresh compressor
@@ -491,7 +491,7 @@ class CompressFilter(object):
         super(CompressFilter, self).__init__()
         
         self.fh = fh
-        self.comp = comp
+        self.compr = compr
         self.compr_size = 0
     
     def write(self, data):
@@ -573,7 +573,7 @@ class EncryptFilter(object):
             nonce = nonce.encode('utf-8')
     
         self.key = sha256(passphrase + nonce)
-        self.cipher = aes.AES(self.key)
+        self.cipher = aes.AES(self.key) #IGNORE:E1102
         self.hmac = hmac.new(self.key, digestmod=hashlib.sha256)
     
         self.fh.write(struct.pack(b'<B', len(nonce)))
@@ -646,7 +646,7 @@ class DecryptFilter(AbstractInputFilter):
             raise RuntimeError('Unsupported encryption: %s' % algorithm)
     
         key = sha256(passphrase + nonce)
-        self.cipher = aes.AES(key)
+        self.cipher = aes.AES(key) #IGNORE:E1102
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
     
     def _read(self, size):
@@ -709,7 +709,7 @@ def encrypt(buf, passphrase, nonce):
         nonce = nonce.encode('utf-8')
 
     key = sha256(passphrase + nonce)
-    cipher = aes.AES(key)
+    cipher = aes.AES(key) #IGNORE:E1102
     hmac_ = hmac.new(key, digestmod=hashlib.sha256)
 
     hmac_.update(buf)
@@ -729,7 +729,7 @@ def decrypt(buf, passphrase):
     nonce = fh.read(len_)
 
     key = sha256(passphrase + nonce)
-    cipher = aes.AES(key)
+    cipher = aes.AES(key) #IGNORE:E1102
     hmac_ = hmac.new(key, digestmod=hashlib.sha256)
 
     # Read (encrypted) hmac
