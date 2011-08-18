@@ -21,15 +21,6 @@ import cPickle as pickle
 from llfuse import ROOT_INODE
 import logging
 
-__all__ = [ 'AsyncFn', 'CTRL_INODE', 'CTRL_NAME', "EmbeddedException",
-           "ExceptionStoringThread", 'LoggerFilter', 'QuietError',
-           'TimeoutError',
-           'add_stdout_logging', 'create_tables', 'cycle_metadata',
-           'dump_metadata', "get_bucket_cachedir", "get_path",
-           'get_seq_no', 'init_tables', "inode_for_path", 'restore_metadata',
-           'retry', 'retry_on', 'setup_excepthook', 'setup_logging', 
-           'sha256_fh' ]
-
 log = logging.getLogger('common')
         
 def setup_logging(options):        
@@ -130,7 +121,13 @@ def retry_on(check_fn, timeout=60*60*24):
                 waited += interval
                 if interval < 20*60:
                     interval *= 2   
-                                  
+                    
+        wrapped.__doc__ += '''
+    This function has been decorated with `retry_on` and will automatically
+    recall itself in increasing intervals for up to %d seconds if it raises
+    an exception for which %s(exc) returns True.
+    ''' % (timeout, check_fn.__name__)
+                  
         return wrapped 
 
     return wrapper   
@@ -158,19 +155,15 @@ def get_seq_no(bucket):
     return seq_no   
 
 def cycle_metadata(bucket):
-    from .backends.common import UnsupportedError
-
+    from .backends.common import NoSuchObject
+    
     for i in reversed(range(10)):
-        if "s3ql_metadata_bak_%d" % i in bucket:
-            try:
-                bucket.rename("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
-            except UnsupportedError:
-                bucket.copy("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
+        try:
+            bucket.copy("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
+        except NoSuchObject:
+            pass
                 
-    try:
-        bucket.rename("s3ql_metadata", "s3ql_metadata_bak_0")
-    except UnsupportedError:
-        bucket.copy("s3ql_metadata", "s3ql_metadata_bak_0")             
+    bucket.copy("s3ql_metadata", "s3ql_metadata_bak_0")             
 
 def dump_metadata(ofh, conn):
     pickler = pickle.Pickler(ofh, 2)
