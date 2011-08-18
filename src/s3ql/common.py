@@ -8,7 +8,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from time import sleep
 import hashlib
 import os
 import stat
@@ -90,14 +89,13 @@ def add_stdout_logging(quiet=False):
     root_logger.addHandler(handler)
     return handler
 
-def retry_on(check_fn, timeout=60*60*24):
-    '''Decorator for retrying a function on some exceptions
+def retry(timeout=60*60*24):
+    '''Decorator for retrying a method on some exceptions
     
-    If the decorated function raises an exception for which check_fn(exc) is
-    true, the function is called again at increasing intervals. If the function
-    did not terminate normally or raise an exception for which check_fn(exc) is
-    false for more than *timeout* seconds, RuntimeError is
-    raised.
+    If the decorated method raises an exception for which the instance's
+    `_retry_on(exc)` method is true, the decorated method is called again at
+    increasing intervals. If this persists for more than *timeout* seconds,
+    the most-recently caught exception is re-raised.
     '''
     
     def wrapper(fn):
@@ -107,15 +105,18 @@ def retry_on(check_fn, timeout=60*60*24):
             interval = 1/50
             waited = 0
             while True:
-                if waited > timeout:
-                    raise RuntimeError('Timeout while retrying %s' % fn.__name__)
-                
                 try:
                     return fn(*a, **kw)
                 except Exception as exc:
-                    if not check_fn(exc):
+                    if not fn._retry_on(exc):
                         raise
-                    log.debug('%s: trying again after %r exception:', fn.__name__,  exc)
+                    if waited > timeout:
+                        log.err('%s.%s(*): Timeout exceeded, re-raising %r exception', 
+                                fn.im_class.__name__, fn.__name__, exc)
+                        raise
+                    
+                    log.debug('%s.%s(*): trying again after %r exception:', 
+                              fn.im_class.__name__, fn.__name__, exc)
                     
                 time.sleep(interval)
                 waited += interval
@@ -123,10 +124,10 @@ def retry_on(check_fn, timeout=60*60*24):
                     interval *= 2   
                     
         wrapped.__doc__ += '''
-    This function has been decorated with `retry_on` and will automatically
-    recall itself in increasing intervals for up to %d seconds if it raises
-    an exception for which %s(exc) returns True.
-    ''' % (timeout, check_fn.__name__)
+    This method has been decorated and will automatically recall itself in
+    increasing intervals for up to %d seconds if it raises an exception for
+    which the instance's `_retry_on` method returns True.
+    ''' % timeout
                   
         return wrapped 
 
@@ -327,33 +328,6 @@ def get_bucket_cachedir(storage_url, cachedir):
     if not os.path.exists(cachedir):
         os.mkdir(cachedir)
     return os.path.join(cachedir, _escape(storage_url))
-
-def retry(timeout, fn, *a, **kw):
-    """Wait for fn(*a, **kw) to return True.
-    
-    If the return value of fn() returns something True, this value
-    is returned. Otherwise, the function is called repeatedly for
-    `timeout` seconds. If the timeout is reached, `TimeoutError` is
-    raised.
-    """
-
-    step = 0.2
-    waited = 0
-    while waited < timeout:
-        ret = fn(*a, **kw)
-        if ret:
-            return ret
-        sleep(step)
-        waited += step
-        if step < waited / 30:
-            step *= 2
-
-    raise TimeoutError()
-
-class TimeoutError(Exception):
-    '''Raised by `retry()` when a timeout is reached.'''
-
-    pass
 
 # Name and inode of the special s3ql control file
 CTRL_NAME = b'.__s3ql__ctrl__'
