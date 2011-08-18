@@ -377,14 +377,11 @@ class Bucket(AbstractBucket):
     def clear(self):
         """Delete all objects in bucket
         
-        This function starts multiple threads.
-        
         Note that this method may not be able to see (and therefore also not
         delete) recently uploaded objects if `list_after_create_consistent` is
         false.
         """
 
-        threads = list()
         for (no, s3key) in enumerate(self):
             if no != 0 and no % 1000 == 0:
                 log.info('clear(): deleted %d objects so far..', no)
@@ -392,19 +389,7 @@ class Bucket(AbstractBucket):
             log.debug('clear(): deleting key %s', s3key)
 
             # Ignore missing objects when clearing bucket
-            # FIXME: This does not work, we can't use the same
-            # http connection in several threads
-            t = AsyncFn(self.delete, s3key, True)
-            t.start()
-            threads.append(t)
-
-            if len(threads) > 50:
-                log.debug('clear(): 50 threads reached, waiting..')
-                threads.pop(0).join_and_raise()
-
-        log.debug('clear(): waiting for removal threads')
-        for t in threads:
-            t.join_and_raise()
+            self.delete(s3key, True)
 
     def __str__(self):
         return 's3://%s/%s' % (self.bucket_name, self.prefix)
