@@ -7,33 +7,32 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
+from s3ql import fs, CURRENT_FS_REV, inode_cache
+from s3ql.backends.common import get_bucket_factory, BucketPool
+from s3ql.common import (setup_logging, get_bucket_cachedir, get_seq_no, 
+    QuietError, ExceptionStoringThread, cycle_metadata, dump_metadata, 
+    restore_metadata)
+from s3ql.daemonize import daemonize
+from s3ql.database import Connection
+from s3ql.parse_args import ArgumentParser
+import cPickle as pickle
+import llfuse
+import logging
+import os
+import shutil
+import signal
+import stat
+import sys
+import tempfile
+import textwrap
+import threading
+import time
 
 # We can't use relative imports because this file may
 # be directly executed.
-import sys
-from s3ql import fs, CURRENT_FS_REV, inode_cache
-from s3ql.daemonize import daemonize
-from s3ql.backends.common import get_bucket
-from s3ql.common import (setup_logging, get_bucket_cachedir, get_seq_no,
-                         QuietError, ExceptionStoringThread,
-                         cycle_metadata, dump_metadata, restore_metadata)
-from s3ql.parse_args import ArgumentParser
-from s3ql.database import Connection
-import llfuse
-import tempfile
-import textwrap
-import os
-import stat
-import signal
-import time
-import threading
-import logging
-import cPickle as pickle
 
 #import psyco
 #psyco.profile()
-
-__all__ = [ 'main' ]
 
 log = logging.getLogger("mount")
 
@@ -57,13 +56,15 @@ def main(args=None):
         import pstats
         prof = cProfile.Profile()
 
-    bucket = get_bucket(options)
+    bucket_factory = get_bucket_factory(options)
+    bucket_pool = BucketPool(bucket_factory)
     
     # Get paths
     cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
     
     # Retrieve metadata
-    (param, db) = get_metadata(bucket, cachepath)
+    with bucket_pool() as bucket:
+        (param, db) = get_metadata(bucket, cachepath)
     
     if options.nfs:
         # NFS may try to look up '..', so we have to speed up this kind of query
@@ -75,9 +76,9 @@ def main(args=None):
     else:
         db.execute('DROP INDEX IF EXISTS ix_contents_inode')
                        
-    metadata_upload_thread = MetadataUploadThread(bucket, param, db,
+    metadata_upload_thread = MetadataUploadThread(bucket_pool, param, db,
                                                   options.metadata_upload_interval)
-    operations = fs.Operations(bucket, db, cachedir=cachepath + '-cache', 
+    operations = fs.Operations(bucket_pool, db, cachedir=cachepath + '-cache', 
                                blocksize=param['blocksize'],
                                cache_size=options.cachesize * 1024,
                                upload_event=metadata_upload_thread.event,
@@ -121,33 +122,34 @@ def main(args=None):
     # fail if the database is corrupted, in which case we
     # want to force an fsck.
        
-    seq_no = get_seq_no(bucket)
-    if db_mtime == os.stat(cachepath + '.db').st_mtime:
-        log.info('File system unchanged, not uploading metadata.')
-        del bucket['s3ql_seq_no_%d' % param['seq_no']]         
-        param['seq_no'] -= 1
-        pickle.dump(param, open(cachepath + '.params', 'wb'), 2)         
-    elif seq_no == param['seq_no']:
-        log.info('Saving metadata...')
-        fh = tempfile.TemporaryFile()
-        dump_metadata(fh, db)          
-        log.info("Compressing & uploading metadata..")
-        cycle_metadata(bucket)
-        fh.seek(0)
-        param['last-modified'] = time.time() - time.timezone
-        bucket.store_fh("s3ql_metadata", fh, param)
-        fh.close()
-        pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
-    else:
-        log.error('Remote metadata is newer than local (%d vs %d), '
-                  'refusing to overwrite!', seq_no, param['seq_no'])
-        log.error('The locally cached metadata will be *lost* the next time the file system '
-                  'is mounted or checked and has therefore been backed up.')
-        for name in (cachepath + '.params', cachepath + '.db'):
-            for i in reversed(range(4)):
-                if os.path.exists(name + '.%d' % i):
-                    os.rename(name + '.%d' % i, name + '.%d' % (i+1))     
-            os.rename(name, name + '.0')
+    with bucket_pool() as bucket:   
+        seq_no = get_seq_no(bucket)
+        if db_mtime == os.stat(cachepath + '.db').st_mtime:
+            log.info('File system unchanged, not uploading metadata.')
+            del bucket['s3ql_seq_no_%d' % param['seq_no']]         
+            param['seq_no'] -= 1
+            pickle.dump(param, open(cachepath + '.params', 'wb'), 2)         
+        elif seq_no == param['seq_no']:
+            log.info('Saving metadata...')
+            fh = tempfile.TemporaryFile()
+            dump_metadata(fh, db)          
+            log.info("Compressing & uploading metadata..")
+            cycle_metadata(bucket)
+            fh.seek(0)
+            param['last-modified'] = time.time() - time.timezone
+            bucket.store_fh("s3ql_metadata", fh, param)
+            fh.close()
+            pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+        else:
+            log.error('Remote metadata is newer than local (%d vs %d), '
+                      'refusing to overwrite!', seq_no, param['seq_no'])
+            log.error('The locally cached metadata will be *lost* the next time the file system '
+                      'is mounted or checked and has therefore been backed up.')
+            for name in (cachepath + '.params', cachepath + '.db'):
+                for i in reversed(range(4)):
+                    if os.path.exists(name + '.%d' % i):
+                        os.rename(name + '.%d' % i, name + '.%d' % (i+1))     
+                os.rename(name, name + '.0')
    
     db.execute('ANALYZE')
     db.execute('VACUUM')
@@ -391,9 +393,9 @@ class MetadataUploadThread(ExceptionStoringThread):
     '''    
     
     
-    def __init__(self, bucket, param, db, interval):
+    def __init__(self, bucket_pool, param, db, interval):
         super(MetadataUploadThread, self).__init__()
-        self.bucket = bucket
+        self.bucket_pool = bucket_pool
         self.param = param
         self.db = db
         self.interval = interval
@@ -419,29 +421,33 @@ class MetadataUploadThread(ExceptionStoringThread):
                     log.info('File system unchanged, not uploading metadata.')
                     continue
                 
+                # We dump to a file first, so that we don't hold the
+                # lock for quite so long.
                 log.info('Saving metadata...')
                 fh = tempfile.TemporaryFile()
                 dump_metadata(fh, self.db) 
               
-            seq_no = get_seq_no(self.bucket)
-            if seq_no != self.param['seq_no']:
-                log.error('Remote metadata is newer than local (%d vs %d), '
-                          'refusing to overwrite!', seq_no, self.param['seq_no'])
+            with self.bucket_pool() as bucket:
+                seq_no = get_seq_no(bucket)
+                if seq_no != self.param['seq_no']:
+                    log.error('Remote metadata is newer than local (%d vs %d), '
+                              'refusing to overwrite!', seq_no, self.param['seq_no'])
+                    fh.close()
+                    continue
+                              
+                log.info("Compressing & uploading metadata..")
+                cycle_metadata(bucket)
+                fh.seek(0)
+                self.param['last-modified'] = time.time() - time.timezone
+                
+                # Temporarily decrease sequence no, this is not the final upload
+                self.param['seq_no'] -= 1
+                with bucket.open_write("s3ql_metadata", self.param) as obj_fh:
+                    shutil.copyfileobj(fh, obj_fh)
+                self.param['seq_no'] += 1
+                
                 fh.close()
-                continue
-                          
-            log.info("Compressing & uploading metadata..")
-            cycle_metadata(self.bucket)
-            fh.seek(0)
-            self.param['last-modified'] = time.time() - time.timezone
-            
-            # Temporarily decrease sequence no, this is not the final upload
-            self.param['seq_no'] -= 1
-            self.bucket.store_fh("s3ql_metadata", fh, self.param)
-            self.param['seq_no'] += 1
-            
-            fh.close()
-            self.db_mtime = new_mtime    
+                self.db_mtime = new_mtime    
 
         log.debug('MetadataUploadThread: end')    
         

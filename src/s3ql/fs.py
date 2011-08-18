@@ -90,7 +90,7 @@ class Operations(llfuse.Operations):
         self.encountered_errors = True
 
 
-    def __init__(self, bucket, db, cachedir, blocksize, cache_size,
+    def __init__(self, bucket_pool, db, cachedir, blocksize, cache_size,
                  cache_entries=768, upload_event=None):
         super(Operations, self).__init__()
 
@@ -101,7 +101,7 @@ class Operations(llfuse.Operations):
         self.inode_flush_thread = None
         self.open_inodes = collections.defaultdict(lambda: 0)
         self.blocksize = blocksize
-        self.cache = BlockCache(bucket, db, cachedir, cache_size, cache_entries)
+        self.cache = BlockCache(bucket_pool, db, cachedir, cache_size, cache_entries)
 
     def init(self):
         self.cache.init()

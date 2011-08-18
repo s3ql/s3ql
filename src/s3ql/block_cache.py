@@ -51,8 +51,11 @@ class CacheEntry(file):
     __slots__ = [ 'dirty', 'block_id', 'inode', 'blockno', 'last_access',
                   'modified_after_upload' ]
 
-    def __init__(self, inode, blockno, block_id, filename, mode):
-        super(CacheEntry, self).__init__(filename, mode)
+    def __init__(self, inode, blockno, block_id, filename):
+        # Open unbuffered, so that os.fstat(fh.fileno).st_size is
+        # always correct (we can expect that data is read and
+        # written in reasonable chunks)
+        super(CacheEntry, self).__init__(filename, "w+b", bufsize=0)
         self.dirty = False
         self.modified_after_upload = False
         self.block_id = block_id
@@ -107,7 +110,7 @@ class BlockCache(object):
             not exist).
     """
 
-    def __init__(self, bucket, db, cachedir, max_size, max_entries=768):
+    def __init__(self, bucket_pool, db, cachedir, max_size, max_entries=768):
         log.debug('Initializing')
         self.cache = OrderedDict()
         self.cachedir = cachedir
@@ -115,10 +118,10 @@ class BlockCache(object):
         self.max_entries = max_entries
         self.size = 0
         self.db = db
-        self.bucket = bucket
+        self.bucket = bucket_pool.pop_conn()
         self.mlock = MultiLock()
         self.removal_queue = ThreadGroup(MAX_REMOVAL_THREADS)
-        self.upload_manager = UploadManager(bucket, db, self.removal_queue)
+        self.upload_manager = UploadManager(bucket_pool, db, self.removal_queue)
         self.commit_thread = CommitThread(self)
         self.encountered_errors = False
 
@@ -181,11 +184,6 @@ class BlockCache(object):
         os.rmdir(self.cachedir)
         log.debug('destroy: end')
 
-    def get_bucket_size(self):
-        '''Return total size of the underlying bucket'''
-
-        return self.bucket.get_size()
-
     def __len__(self):
         '''Get number of objects in cache'''
         return len(self.cache)
@@ -225,24 +223,26 @@ class BlockCache(object):
                 # No corresponding object
                 except NoSuchRowError:
                     log.debug('get(inode=%d, block=%d): creating new block', inode, blockno)
-                    el = CacheEntry(inode, blockno, None, filename, "w+b")
+                    el = CacheEntry(inode, blockno, None, filename)
     
                 # Need to download corresponding object
                 else:
                     log.debug('get(inode=%d, block=%d): downloading block', inode, blockno)
                     # At the moment, objects contain just one block
-                    el = CacheEntry(inode, blockno, block_id, filename, "w+b")
+                    el = CacheEntry(inode, blockno, block_id, filename)
                     obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (block_id,))
-                    with lock_released:
-                        try:
-                            if self.bucket.read_after_create_consistent():
+                    
+                    try:
+                        if self.bucket.read_after_create_consistent():
+                            with lock_released:
                                 self.bucket.fetch_fh('s3ql_data_%d' % obj_id, el)
-                            else:
+                        else:
+                            with lock_released:
                                 retry_exc(300, [ NoSuchObject ], self.bucket.fetch_fh,
                                           's3ql_data_%d' % obj_id, el)
-                        except:
-                            os.unlink(filename)
-                            raise
+                    except:
+                        os.unlink(filename)
+                        raise
                         
                     # Writing will have set dirty flag
                     el.dirty = False
@@ -267,7 +267,6 @@ class BlockCache(object):
             yield el
         finally:
             # Update cachesize
-            el.flush()
             newsize = os.fstat(el.fileno()).st_size
             self.size += newsize - oldsize
 
