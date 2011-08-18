@@ -507,7 +507,14 @@ class CompressFilter(object):
         self.fh.write(buf)
         self.compr_size += len(buf)
         self.fh.close()
-            
+
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *a):
+        self.close()
+        return False
+                
 class DecompressFilter(AbstractInputFilter):
     '''Decompress data while reading'''
     
@@ -543,7 +550,13 @@ class DecompressFilter(AbstractInputFilter):
     def close(self):
         self.fh.close()
         
-
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *a):
+        self.close()
+        return False
+    
 class EncryptFilter(object):
     '''Encrypt data while writing'''
     
@@ -593,6 +606,12 @@ class EncryptFilter(object):
         self.fh.write(buf)
         self.fh.close()
 
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *a):
+        self.close()
+        return False
     
 class DecryptFilter(AbstractInputFilter):
     '''Decrypt data while reading
@@ -673,10 +692,15 @@ class DecryptFilter(AbstractInputFilter):
         self.hmac.update(plain)
         return buf                                           
 
-    
     def close(self):
         self.fh.close()
 
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *a):
+        self.close()
+        return False        
 
 def encrypt(buf, passphrase, nonce):
     '''Encrypt *buf*'''
