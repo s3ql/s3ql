@@ -23,7 +23,8 @@ import time
 # standard logger for this module
 log = logging.getLogger("UploadManager")
 
-MAX_COMPRESS_THREADS = 1
+MAX_THREADS = 1
+
 class UploadManager(object):
     '''
     Schedules and executes object uploads to make optimum usage
@@ -42,7 +43,7 @@ class UploadManager(object):
     '''
     
     def __init__(self, bucket_pool, db, removal_queue):
-        self.threads = ThreadGroup(MAX_COMPRESS_THREADS)
+        self.threads = ThreadGroup(MAX_THREADS)
         self.removal_queue = removal_queue
         self.bucket_pool = bucket_pool
         self.db = db
@@ -287,7 +288,7 @@ class RemoveThread(Thread):
     Remove an object from backend. If a transit key is specified, the thread
     first waits until the object is no longer in transit.
     
-    TThis class uses the llfuse global lock. When calling objects passed in the
+    This class uses the llfuse global lock. When calling objects passed in the
     constructor, the global lock is acquired first.
     '''
 

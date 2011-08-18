@@ -15,6 +15,7 @@ from s3ql.common import (setup_logging, get_bucket_cachedir, get_seq_no,
 from s3ql.daemonize import daemonize
 from s3ql.database import Connection
 from s3ql.parse_args import ArgumentParser
+from s3ql import upload_manager
 import cPickle as pickle
 import llfuse
 import logging
@@ -353,10 +354,9 @@ def parse_args(args):
                       default=24*60*60, metavar='<seconds>',
                       help='Interval in seconds between complete metadata uploads. '
                            'Set to 0 to disable. Default: 24h.')
-    parser.add_argument("--compression-threads", action="store", type=int,
+    parser.add_argument("--threads", action="store", type=int,
                       default=1, metavar='<no>',
-                      help='Number of parallel compression and encryption threads '
-                           'to use (default: %(default)s).')
+                      help='Number of parallel upload threads to use (default: %(default)s).')
     parser.add_argument("--nfs", action="store_true", default=False,
                       help='Support export of S3QL file systems over NFS ' 
                            '(default: %(default)s)')
@@ -380,10 +380,8 @@ def parse_args(args):
         
     if options.compress == 'none':
         options.compress = None
-                
-    # FIXME: There should be a better way to set this
-    from .. import upload_manager
-    upload_manager.MAX_COMPRESS_THREADS = options.compression_threads
+            
+    upload_manager.MAX_THREADS = options.threads
     
     return options
 
