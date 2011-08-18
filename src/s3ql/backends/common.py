@@ -537,10 +537,6 @@ class DecompressFilter(AbstractInputFilter):
         self.fh.close()
         
 
-
-
-
-    
 class EncryptFilter(object):
     '''Encrypt data while writing'''
     
