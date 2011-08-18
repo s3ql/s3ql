@@ -31,6 +31,27 @@ C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
 
 NAMESPACE = 'http://s3.amazonaws.com/doc/2006-03-01/'
 
+
+# The following is not true. I just did not want to throw
+# away the textblock in case I ever decide to change the
+# behaviour
+__shelved = '''
+    This class assumes that if you are requesting any action on an object other
+    than checking for existence, you know that the object exists in the bucket.
+    This means that if `read_after_create_consistent()` is false,
+    `is_temp_failure` will return true for `NoSuchObject` exceptions and all
+    methods of this class (except for `contains`) will retry at increasing
+    intervals.
+
+    If you want to perform an operation on an object and are not sure that it
+    exists, it is a good idea to first check existence using `contains`.
+    However, even that is not completely safe, because if
+    `list_after_delete_consistent` is false, then a DELETE operation may still
+    be propagating through AWS.
+    
+    You have been warned.
+'''
+    
 class Bucket(AbstractBucket):
     """A bucket stored in Amazon S3
     
@@ -83,6 +104,8 @@ class Bucket(AbstractBucket):
     def delete(self, key, force=False):
         '''Delete the specified object'''
         
+        # TODO: Take into account answers to 
+        # https://forums.aws.amazon.com/message.jspa?messageID=272309#272309
         log.debug('delete(%s)', key)
         try:
             self._do_request('DELETE', '/%s%s' % (self.prefix, key))
@@ -91,7 +114,6 @@ class Bucket(AbstractBucket):
                 pass
             else:
                 raise NoSuchObject(key)
-            
              
     def list(self, prefix=''):
         '''List keys in bucket
@@ -196,13 +218,26 @@ class Bucket(AbstractBucket):
             raise RuntimeError('Unknown bucket region: %s' % region)
         
         return region
-            
-    @retry_on(is_temp_failure)
-    def lookup(self, key):
+        
+    @retry_on(is_temp_failure)            
+    def lookup(self, key, does_exist=False):
         """Return metadata for given key.
 
-        If the key does not exist, `NoSuchObject` is raised.
+        If *does_exist* is true, `read_after_create_consistent` is false, and
+        the server reports that the object does not exist, this method will
+        assume that the object has just not yet propagated and retry to read the
+        object at increasing intervals.
         """
+        
+        log.debug('lookup(%s)', key)
+        
+        if does_exist and not self.read_after_create_consistent():
+            return self._lookup_retry(key)
+        else:
+            return self._lookup(key)
+
+    def _lookup(self, key):
+        """Return metadata for given key"""
         
         log.debug('lookup(%s)', key)
         
@@ -212,16 +247,36 @@ class Bucket(AbstractBucket):
             raise NoSuchObject(key)
 
         return extractmeta(resp)
-
-    def open_read(self, key):
+    
+    _lookup_retry = retry_on(lambda x: isinstance(x, NoSuchObject))(_lookup)
+    
+    def open_read(self, key, does_exist=False):
         """Open object for reading
 
-        Return a tuple of a file-like object and metadata. Bucket
-        contents can be read from the file-like object. This object
-        must be closed explicitly.
+        Return a tuple of a file-like object and metadata. Bucket contents can
+        be read from the file-like object. This object must be closed
+        explicitly.
+        
+        If *does_exist* is true, `read_after_create_consistent` is false, and
+        the server reports that the object does not exist, this method will
+        assume that the object has just not yet propagated and retry to read the
+        object at increasing intervals.
         """
         
         log.debug('open_read(%s)', key)
+
+        if does_exist and not self.read_after_create_consistent():
+            return self._open_read_retry(key)
+        else:
+            return self._open_read(key)
+            
+    def _open_read(self, key):
+        ''''Open object for reading
+
+        Return a tuple of a file-like object and metadata. Bucket contents can
+        be read from the file-like object. This object must be closed
+        explicitly.
+        '''
         
         try:
             resp = self._do_request('GET', '/%s%s' % (self.prefix, key))
@@ -230,15 +285,17 @@ class Bucket(AbstractBucket):
 
         return (ObjectR(key, resp), extractmeta(resp))
     
+    _open_read_retry = retry_on(lambda x: isinstance(x, NoSuchObject))(_open_read)
+    
     def open_write(self, key, metadata=None):
         """Open object for writing
 
         `metadata` can be a dict of additional attributes to store with the
-        object. Returns a file-like object that must be closed when all data
-        has been written.
+        object. Returns a file-like object that must be closed when all data has
+        been written.
         
-        Since Amazon S3 does not support chunked uploads, the entire
-        data will be buffered in memory before upload. 
+        Since Amazon S3 does not support chunked uploads, the entire data will
+        be buffered in memory before upload.
         """
         
         log.debug('open_write(%s): start', key)
@@ -287,12 +344,28 @@ class Bucket(AbstractBucket):
         return True
 
     @retry_on(is_temp_failure)
-    def copy(self, src, dest):
+    def copy(self, src, dest, does_exist=False):
         """Copy data stored under key `src` to key `dest`
         
-        If `dest` already exists, it will be overwritten. The copying
-        is done on the remote side. If the backend does not support
-        this operation, raises `UnsupportedError`.
+        If `dest` already exists, it will be overwritten. The copying is done on
+        the remote side.
+        
+        If *does_exist* is true, `read_after_create_consistent` is false, and
+        the server reports that the object does not exist, this method will
+        assume that the object has just not yet propagated and retry to read the
+        object at increasing intervals.
+        """
+
+        if does_exist and not self.read_after_create_consistent():
+            return self._copy_retry(src, dest)
+        else:
+            return self._copy(src, dest)
+                
+    def _copy(self, src, dest):
+        """Copy data stored under key `src` to key `dest`
+        
+        If `dest` already exists, it will be overwritten. The copying is done on
+        the remote side.
         """
         
         log.debug('copy(%s, %s): start', src, dest)
@@ -303,7 +376,9 @@ class Bucket(AbstractBucket):
                                                                          self.prefix, src)})
         except NoSuchKey:
             raise NoSuchObject(src)
-
+    
+    _copy_retry = retry_on(lambda x: isinstance(x, NoSuchObject))(_copy)
+    
     def _do_request(self, method, url, subres=None, query_string=None,
                     headers=None, body=None ):
         '''Send request, read and return response object'''
@@ -356,7 +431,12 @@ class Bucket(AbstractBucket):
     def clear(self):
         """Delete all objects in bucket
         
-        This function starts multiple threads."""
+        This function starts multiple threads.
+        
+        Note that this method may not be able to see (and therefore also not
+        delete) recently uploaded objects if `list_after_create_consistent` is
+        false.
+        """
 
         threads = list()
         for (no, s3key) in enumerate(self):
@@ -366,6 +446,8 @@ class Bucket(AbstractBucket):
             log.debug('clear(): deleting key %s', s3key)
 
             # Ignore missing objects when clearing bucket
+            # FIXME: This does not work, we can't use the same
+            # http connection in several threads
             t = AsyncFn(self.delete, s3key, True)
             t.start()
             threads.append(t)
@@ -443,7 +525,7 @@ class Bucket(AbstractBucket):
                 
         return full_url
 
-    
+            
 class ObjectR(object):
     '''An S3 object open for reading'''
     
@@ -513,7 +595,7 @@ class ObjectW(object):
         self.bucket = bucket
         self.headers = headers
         self.closed = False
-        self.fh = tempfile.TemporaryFile()
+        self.fh = tempfile.TemporaryFile(bufsize=0) # no Python buffering
         
         # False positive, hashlib *does* have md5 member
         #pylint: disable=E1101        
@@ -535,7 +617,6 @@ class ObjectW(object):
         log.debug('ObjectW(%s).close(): start', self.key)
         
         self.closed = True
-        self.fh.flush()
         self.headers['Content-Length'] = os.fstat(self.fh.fileno()).st_size
         
         resp = self.bucket._do_request('PUT', '/%s%s' % (self.bucket.prefix, self.key), 
