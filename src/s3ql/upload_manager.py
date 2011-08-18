@@ -8,31 +8,26 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from .backends.common import NoSuchObject
-from .common import sha256_fh, TimeoutError
-from .thread_group import ThreadGroup, Thread
+from .backends.common import NoSuchObject, CompressFilter
+from .common import sha256_fh
 from .database import NoSuchRowError
-import logging
-import threading
-import os
-import errno
+from .thread_group import ThreadGroup, Thread
 from llfuse import lock
-import time
 from s3ql.common import EmbeddedException
-
-__all__ = [ "UploadManager", 'retry_exc', 'RemoveThread' ]
+import errno
+import logging
+import os
+import shutil
+import time
 
 # standard logger for this module
 log = logging.getLogger("UploadManager")
-     
 
-MAX_UPLOAD_THREADS = 10
 MAX_COMPRESS_THREADS = 1
-MIN_TRANSIT_SIZE = 1024 * 1024
 class UploadManager(object):
     '''
     Schedules and executes object uploads to make optimum usage
-    network bandwidth and CPU time.
+    of network bandwidth and CPU time.
     
     Methods which release the global lock have are marked as
     such in their docstring.
@@ -46,14 +41,11 @@ class UploadManager(object):
             not exist).    
     '''
     
-    def __init__(self, bucket, db, removal_queue):
-        self.upload_threads = ThreadGroup(MAX_UPLOAD_THREADS)
-        self.compress_threads = ThreadGroup(MAX_COMPRESS_THREADS)
+    def __init__(self, bucket_pool, db, removal_queue):
+        self.threads = ThreadGroup(MAX_COMPRESS_THREADS)
         self.removal_queue = removal_queue
-        self.bucket = bucket
+        self.bucket_pool = bucket_pool
         self.db = db
-        self.transit_size = 0
-        self.transit_size_lock = threading.Lock()
         self.in_transit = set()
         self.encountered_errors = False        
         
@@ -165,7 +157,7 @@ class UploadManager(object):
             # Create a new fd so that we don't get confused if another
             # thread repositions the cursor (and do so before unlocking)
             fh = open(el.name + '.d', 'rb')
-            self.compress_threads.add_thread(CompressThread(el, fh, self, size, obj_id)) # Releases global lock
+            self.threads.add_thread(UploadThread(el, fh, self, size, obj_id)) # Releases global lock
 
         else:
             el.dirty = False
@@ -180,7 +172,7 @@ class UploadManager(object):
                 # Note: Old object can not be in transit
                 # FIXME: Probably no longer true once objects can contain several blocks
                 # Releases global lock
-                self.removal_queue.add_thread(RemoveThread(old_obj_id, self.bucket))
+                self.removal_queue.add_thread(RemoveThread(old_obj_id, self.bucket_pool))
             except EmbeddedException as exc:
                 exc = exc.exc
                 if isinstance(exc, NoSuchObject):
@@ -198,8 +190,7 @@ class UploadManager(object):
         This method releases the global lock.
         '''
         
-        self.compress_threads.join_all()
-        self.upload_threads.join_all()
+        self.threads.join_all()
 
     def join_one(self):
         '''Wait until one block has been uploaded
@@ -208,20 +199,16 @@ class UploadManager(object):
         This method releases the global lock.
         '''
         
-        if len(self.upload_threads) == 0:
-            self.compress_threads.join_one()
-            
-        self.upload_threads.join_one()
+        self.threads.join_one()
             
     def upload_in_progress(self):
         '''Return True if there are any blocks in transit'''
         
-        return len(self.compress_threads) + len(self.upload_threads) > 0
+        return len(self.threads) > 0
     
     
-class CompressThread(Thread):
-    '''
-    Compress a block and then pass it on for uploading.
+class UploadThread(Thread):
+    '''Uploads an object
     
     This class uses the llfuse global lock. When calling objects
     passed in the constructor, the global lock is acquired first.
@@ -230,7 +217,7 @@ class CompressThread(Thread):
     '''
     
     def __init__(self, el, fh, um, size, obj_id):
-        super(CompressThread, self).__init__()
+        super(UploadThread, self).__init__()
         self.el = el
         self.fh = fh
         self.um = um
@@ -238,161 +225,76 @@ class CompressThread(Thread):
         self.obj_id = obj_id
         
     def run_protected(self):
-        '''Compress block
+        '''Upload object
         
-        After compression:
-         - the file handle is closed
-         - the compressed block size is updated in the database
-         - an UploadThread instance started for uploading the data.
+        After upload, the file handle is closed and the compressed block size is
+        updated in the database
          
-        In case of an exception, the block is removed from the in_transit
-        set. 
+        No matter how this method terminates, the block is removed from the
+        in_transit set.
         '''
                      
         try:
             if log.isEnabledFor(logging.DEBUG):
                 oldsize = self.size
                 time_ = time.time()
-                (self.size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.obj_id, 
-                                                               self.fh)
+                
+                
+            with self.um.bucket_pool() as bucket:
+                with bucket.open_write('s3ql_data_%d' % self.obj_id) as fh:
+                    shutil.copyfileobj(self.fh, fh)
+                
+            if isinstance(fh, CompressFilter):
+                self.size = fh.comp_size
+            else:
+                self.size = self.fh.tell()
+                
+            if log.isEnabledFor(logging.DEBUG):
                 time_ = time.time() - time_
                 if time_ != 0:
                     rate = oldsize / (1024**2 * time_)
                 else:
                     rate = 0
-                log.debug('CompressionThread(inode=%d, blockno=%d): '
-                         'compressed %d bytes in %.3f seconds, %.2f MB/s',
+                log.debug('UploadThread(inode=%d, blockno=%d): '
+                         'uploaded %d bytes in %.3f seconds, %.2f MB/s',
                           self.el.inode, self.el.blockno, oldsize, 
                           time_, rate)             
-            else:
-                (self.size, fn) = self.um.bucket.prep_store_fh('s3ql_data_%d' % self.obj_id, 
-                                                               self.fh)      
             
             self.fh.close()
     
             with lock:
-                # If we already have the minimum transit size, do not start more
-                # than two threads
-                log.debug('CompressThread(%s): starting upload thread', self.el)
-
-                if self.um.transit_size > MIN_TRANSIT_SIZE:
-                    max_threads = 2
-                else:
-                    max_threads = None
-                    
-                self.um.transit_size += self.size    
                 self.um.db.execute('UPDATE objects SET compr_size=? WHERE id=?', 
                                    (self.size, self.obj_id))
-                self.um.upload_threads.add_thread(UploadThread(fn, self.el, self.size, self.um), 
-                                                  max_threads)
                 
-        except EmbeddedException:
-            raise
-        except:
+                if not self.el.modified_after_upload:
+                    self.el.dirty = False
+                
+                    try:
+                        os.rename(self.el.name + '.d', self.el.name)
+                    except OSError as exc:
+                        # Entry may have been removed while being uploaded
+                        if exc.errno != errno.ENOENT:
+                            raise                
+
+        finally:
             with lock:
                 self.um.in_transit.remove((self.el.inode, self.el.blockno))
-                self.um.transit_size -= self.size
             raise
-        
-                
-class UploadThread(Thread):
-    '''
-    Uploads a cache entry with the function passed in the constructor.
-    
-    This class uses the llfuse global lock. When calling objects
-    passed in the constructor, the global lock is acquired first.    
-    '''
-    
-    def __init__(self, fn, el, size, um):
-        super(UploadThread, self).__init__()
-        self.fn = fn
-        self.el = el
-        self.size = size
-        self.um = um
-        
-    def run_protected(self):
-        '''Upload block by calling self.fn()
-        
-        The upload duration is timed. After the upload (or if an exception
-        occurs), the block is removed from in_transit.      
-        '''
-        try:
-            if log.isEnabledFor(logging.DEBUG):
-                time_ = time.time()
-                self.fn()
-                time_ = time.time() - time_
-                if time_ != 0:
-                    rate = self.size / (1024**2 * time_)
-                else:
-                    rate = 0
-                log.debug('CompressionThread(inode=%d, blockno=%d): '
-                         'compressed %d bytes in %.3f seconds, %.2f MB/s',
-                          self.el.inode, self.el.blockno, self.size, 
-                          time_, rate)             
-            else:
-                self.fn()
-                            
-        except:       
-            with lock:
-                self.um.in_transit.remove((self.el.inode, self.el.blockno))
-                self.um.transit_size -= self.size
-            raise
-        
-        with lock:
-            self.um.in_transit.remove((self.el.inode, self.el.blockno))
-            self.um.transit_size -= self.size
-                    
-            if not self.el.modified_after_upload:
-                self.el.dirty = False
-                try:
-                    os.rename(self.el.name + '.d', self.el.name)
-                except OSError as exc:
-                    # Entry may have been removed while being uploaded
-                    if exc.errno != errno.ENOENT:
-                        raise
-        
-      
-def retry_exc(timeout, exc_types, fn, *a, **kw):
-    """Wait for fn(*a, **kw) to succeed
-    
-    If `fn(*a, **kw)` raises an exception in `exc_types`, the function is called again.
-    If the timeout is reached, `TimeoutError` is raised.
-    """
-
-    step = 0.2
-    waited = 0
-    while waited < timeout:
-        try:
-            return fn(*a, **kw)
-        except BaseException as exc:
-            for exc_type in exc_types:
-                if isinstance(exc, exc_type):
-                    log.warn('Encountered %s error when calling %s, retrying...',
-                             exc.__class__.__name__, fn.__name__)
-                    break
-            else:
-                raise exc
-
-        time.sleep(step)
-        waited += step
-        if step < timeout / 30:
-            step *= 2
-
-    raise TimeoutError()
+   
 
 class RemoveThread(Thread):
     '''
-    Remove an object from backend. If a transit key is specified, the
-    thread first waits until the object is no longer in transit.
+    Remove an object from backend. If a transit key is specified, the thread
+    first waits until the object is no longer in transit.
     
-    TThis class uses the llfuse global lock. When calling objects
-    passed in the constructor, the global lock is acquired first.        
+    TThis class uses the llfuse global lock. When calling objects passed in the
+    constructor, the global lock is acquired first.
     '''
 
-    def __init__(self, id_, bucket, transit_key=None, upload_manager=None):
+    def __init__(self, id_, bucket_pool, transit_key=None, upload_manager=None):
         super(RemoveThread, self).__init__()
         self.id = id_
-        self.bucket = bucket
+        self.bucket_pool = bucket_pool
         self.transit_key = transit_key
         self.um = upload_manager
             
@@ -402,8 +304,5 @@ class RemoveThread(Thread):
                 with lock:
                     self.um.join_one()
                            
-        if self.bucket.read_after_create_consistent():
-            self.bucket.delete('s3ql_data_%d' % self.id)
-        else:
-            retry_exc(300, [ NoSuchObject ], self.bucket.delete,
-                      's3ql_data_%d' % self.id)
+        with self.bucket_pool() as bucket:
+            bucket.delete('s3ql_data_%d' % self.id)

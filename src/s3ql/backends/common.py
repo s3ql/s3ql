@@ -476,18 +476,23 @@ class AbstractInputFilter(object):
         pass
     
 class CompressFilter(object):
-    '''Compress data while writing'''
+    '''Compress data while writing
+    
+    The `compr_size` attribute is used to keep track of the
+    compressed size.
+    '''
     
     def __init__(self, fh, comp):
         '''Initialize
         
-        *fh* should be a file-like object. *decomp* should be a
-        fresh compressor instance with a *compress* method.
+        *fh* should be a file-like object. *decomp* should be a fresh compressor
+        instance with a *compress* method.
         '''
         super(CompressFilter, self).__init__()
         
         self.fh = fh
         self.comp = comp
+        self.compr_size = 0
     
     def write(self, data):
         '''Write *data*'''
@@ -495,10 +500,12 @@ class CompressFilter(object):
         buf = self.compr.compress(data)
         if buf:
             self.fh.write(buf)
+            self.compr_size += len(buf)
             
     def close(self):
         buf = self.compr.flush()
-        self.fh.write(buf) 
+        self.fh.write(buf)
+        self.compr_size += len(buf)
         self.fh.close()
             
 class DecompressFilter(AbstractInputFilter):
