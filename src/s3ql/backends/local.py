@@ -194,9 +194,7 @@ class Bucket(AbstractBucket):
     def copy(self, src, dest):
         """Copy data stored under key `src` to key `dest`
         
-        If `dest` already exists, it will be overwritten. The copying
-        is done on the remote side. If the backend does not support
-        this operation, raises `UnsupportedError`.
+        If `dest` already exists, it will be overwritten.
         """
         
         path_src = self._key_to_path(src)
@@ -226,9 +224,7 @@ class Bucket(AbstractBucket):
     def rename(self, src, dest):
         """Rename key `src` to `dest`
         
-        If `dest` already exists, it will be overwritten. The rename
-        is done on the remote side. If the backend does not support
-        this operation, raises `UnsupportedError`.
+        If `dest` already exists, it will be overwritten.
         """
         src_path = self._key_to_path(src)
         dest_path = self._key_to_path(dest)

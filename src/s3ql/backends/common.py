@@ -223,28 +223,25 @@ class AbstractBucket(object):
         '''
         pass
 
+    @abstractmethod
     def copy(self, src, dest):
         """Copy data stored under key `src` to key `dest`
         
         If `dest` already exists, it will be overwritten. The copying
-        is done on the remote side. If the backend does not support
-        this operation, raises `UnsupportedError`.
+        is done on the remote side. 
         """
-        # Unused arguments
-        #pylint: disable=W0613        
-        raise UnsupportedError('Backend does not support remote copy')
+        
+        pass
 
     def rename(self, src, dest):
         """Rename key `src` to `dest`
         
         If `dest` already exists, it will be overwritten. The rename
-        is done on the remote side. If the backend does not support
-        this operation, raises `UnsupportedError`.
+        is done on the remote side.
         """
-        # Unused arguments
-        #pylint: disable=W0613  
-        raise UnsupportedError('Backend does not support remote rename')
-
+        
+        self.copy(src, dest)
+        self.delete(src)
     
 class BetterBucket(AbstractBucket):
     '''
@@ -423,8 +420,7 @@ class BetterBucket(AbstractBucket):
         """Copy data stored under key `src` to key `dest`
         
         If `dest` already exists, it will be overwritten. The copying
-        is done on the remote side. If the backend does not support
-        this operation, raises `UnsupportedError`.
+        is done on the remote side. 
         """
         return self.bucket.copy(src, dest)
 
@@ -432,15 +428,9 @@ class BetterBucket(AbstractBucket):
         """Rename key `src` to `dest`
         
         If `dest` already exists, it will be overwritten. The rename
-        is done on the remote side. If the backend does not support
-        this operation, raises `UnsupportedError`.
+        is done on the remote side.
         """
         return self.bucket.rename(src, dest)
-            
-class UnsupportedError(Exception):
-    '''Raised if a backend does not support a particular operation'''
-
-    pass
 
 
 class AbstractInputFilter(object):
