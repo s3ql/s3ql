@@ -89,7 +89,8 @@ def add_stdout_logging(quiet=False):
     root_logger.addHandler(handler)
     return handler
 
-def retry(timeout=60*60*24):
+RETRY_TIMEOUT=60*60*24
+def retry(fn):
     '''Decorator for retrying a method on some exceptions
     
     If the decorated method raises an exception for which the instance's
@@ -98,40 +99,37 @@ def retry(timeout=60*60*24):
     the most-recently caught exception is re-raised.
     '''
     
-    def wrapper(fn):
-        
-        @wraps(fn)
-        def wrapped(*a, **kw):    
-            interval = 1/50
-            waited = 0
-            while True:
-                try:
-                    return fn(*a, **kw)
-                except Exception as exc:
-                    if not fn._retry_on(exc):
-                        raise
-                    if waited > timeout:
-                        log.err('%s.%s(*): Timeout exceeded, re-raising %r exception', 
-                                fn.im_class.__name__, fn.__name__, exc)
-                        raise
-                    
-                    log.debug('%s.%s(*): trying again after %r exception:', 
-                              fn.im_class.__name__, fn.__name__, exc)
-                    
-                time.sleep(interval)
-                waited += interval
-                if interval < 20*60:
-                    interval *= 2   
-                    
-        wrapped.__doc__ += '''
-    This method has been decorated and will automatically recall itself in
-    increasing intervals for up to %d seconds if it raises an exception for
-    which the instance's `_retry_on` method returns True.
-    ''' % timeout
-                  
-        return wrapped 
+    @wraps(fn)
+    def wrapped(self, *a, **kw):    
+        interval = 1/50
+        waited = 0
+        while True:
+            try:
+                return fn(self, *a, **kw)
+            except Exception as exc:
+                if not self._retry_on(exc):
+                    raise
+                if waited > RETRY_TIMEOUT:
+                    log.err('%s.%s(*): Timeout exceeded, re-raising %r exception', 
+                            fn.im_class.__name__, fn.__name__, exc)
+                    raise
+                
+                log.debug('%s.%s(*): trying again after %r exception:', 
+                          fn.im_class.__name__, fn.__name__, exc)
+                
+            time.sleep(interval)
+            waited += interval
+            if interval < 20*60:
+                interval *= 2   
+                
+    wrapped.__doc__ += '''
+This method has been decorated and will automatically recall itself in
+increasing intervals for up to s3ql.common.RETRY_TIMEOUT seconds if it raises an
+exception for which the instance's `_retry_on` method returns True.
+'''
+              
+    return wrapped 
 
-    return wrapper   
 
 def get_seq_no(bucket):
     '''Get current metadata sequence number'''
