@@ -44,11 +44,11 @@ class BackendTestsMixin(object):
             
         time.sleep(self.delay)
         
-        with self.bucket.open_read(key, metadata) as (fh, metadata2):
+        with self.bucket.open_read(key) as fh:
             value2 = fh.read()
             
         self.assertEquals(value, value2)
-        self.assertEquals(metadata, metadata2)
+        self.assertEquals(metadata, fh.metadata)
         self.assertEquals(self.bucket[key], value)
         self.assertEquals(self.bucket.lookup(key), metadata)
 
@@ -66,11 +66,11 @@ class BackendTestsMixin(object):
         self.bucket[key] = value
         time.sleep(self.delay)
         
-        with self.bucket.open_read(key, metadata) as (fh, metadata2):
+        with self.bucket.open_read(key) as fh:
             value2 = fh.read()
             
         self.assertEquals(value, value2)
-        self.assertEquals(metadata2, dict())
+        self.assertEquals(fh.metadata, dict())
         self.assertEquals(self.bucket.lookup(key), dict())
         
     def test_contains(self):
@@ -184,12 +184,11 @@ class S3Tests(BackendTestsMixin, TestCase):
                                 bucket_name=self.bucketname,
                                 prefix='')
 
-
     def tearDown(self):
         self.bucket.clear()
         time.sleep(self.delay)
         self.boto.delete_bucket(self.bucketname)
-
+    
 class LocalTests(BackendTestsMixin, TestCase):
 
     def setUp(self):
@@ -197,25 +196,32 @@ class LocalTests(BackendTestsMixin, TestCase):
         self.bucket_dir = tempfile.mkdtemp()
         self.bucket = local.Bucket(self.bucket_dir, None, None)
         self.delay = 0
-
+    
     def tearDown(self):
         self.bucket.clear()
         os.rmdir(self.bucket_dir)
 
-class BetterBucketTests(BackendTestsMixin, TestCase):
-
+class CompressionTests(BackendTestsMixin, TestCase):
+      
     def setUp(self):
-        self.name_cnt = 0
-        self.passphrase = 'flurp'
+        self.name_cnt = 0        
         self.bucket_dir = tempfile.mkdtemp()
-        self.plain_bucket = local.Bucket(self.bucket_dir)
-        self.bucket = BetterBucket(self.passphrase, 'gzip', self.plain_bucket)
+        self.plain_bucket = local.Bucket(self.bucket_dir, None, None)  
+        self.bucket = self._wrap_bucket()
         self.delay = 0
 
+    def _wrap_bucket(self):
+        return BetterBucket(None, 'zlib', self.plain_bucket)
+        
     def tearDown(self):
         self.bucket.clear()
         os.rmdir(self.bucket_dir)
-    
+        
+class EncryptionTests(CompressionTests):
+
+    def _wrap_bucket(self):
+        return BetterBucket('schlurz', None, self.plain_bucket)
+        
     def test_encryption(self):
 
         self.plain_bucket['plain'] = b'foobar452'
@@ -234,6 +240,12 @@ class BetterBucketTests(BackendTestsMixin, TestCase):
         self.assertRaises(ChecksumError, self.bucket.fetch, 'encrypted')
         self.assertRaises(ChecksumError, self.bucket.lookup, 'encrypted')
 
+
+class EncryptionCompressionTests(EncryptionTests):
+
+    def _wrap_bucket(self):
+        return BetterBucket('schlurz', 'zlib', self.plain_bucket)
+        
                 
 # Somehow important according to pyunit documentation
 def suite():
