@@ -123,10 +123,10 @@ class AbstractBucket(object):
         ``bucket.fetch(key)[0]``.
         """
 
-        with self.open_read(key) as (meta, fh): 
+        with self.open_read(key) as fh: 
             data = fh.read()
         
-        return (data, meta)
+        return (data, fh.metadata)
 
     def store(self, key, val, metadata=None):
         """Store data under `key`.
@@ -155,8 +155,9 @@ class AbstractBucket(object):
     def open_read(self, key):
         """Open object for reading
 
-        Return a tuple of a file-like object and metadata. Bucket
-        contents can be read from the file-like object. 
+        Return a tuple of a file-like object. Bucket contents can be read from
+        the file-like object, metadata is available in its *metadata* attribute.
+        The object must be closed explicitly.
         """
         
         pass
@@ -166,7 +167,8 @@ class AbstractBucket(object):
         """Open object for writing
 
         `metadata` can be a dict of additional attributes to store with the
-        object. Returns a file-like object.
+        object. Returns a file-like object. The object must be closed
+        explicitly.
         """
         
         pass

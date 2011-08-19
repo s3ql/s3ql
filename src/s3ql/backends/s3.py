@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 
 from .common import AbstractBucket, NoSuchObject
-from s3ql.common import AsyncFn, retry
+from s3ql.common import retry
 import logging
 import httplib
 import re
@@ -239,9 +239,9 @@ class Bucket(AbstractBucket):
     def open_read(self, key):
         ''''Open object for reading
 
-        Return a tuple of a file-like object and metadata. Bucket contents can
-        be read from the file-like object. This object must be closed
-        explicitly.
+        Return a tuple of a file-like object. Bucket contents can be read from
+        the file-like object, metadata is available in its *metadata* attribute.
+        The object must be closed explicitly.
         '''
         
         try:
@@ -249,7 +249,7 @@ class Bucket(AbstractBucket):
         except NoSuchKey:
             raise NoSuchObject(key)
 
-        return (ObjectR(key, resp), extractmeta(resp))
+        return ObjectR(key, resp, self, extractmeta(resp))
     
     def open_write(self, key, metadata=None):
         """Open object for writing
@@ -460,11 +460,12 @@ class Bucket(AbstractBucket):
 class ObjectR(object):
     '''An S3 object open for reading'''
     
-    def __init__(self, key, resp, bucket):
+    def __init__(self, key, resp, bucket, metadata=None):
         self.key = key
         self.resp = resp
         self.closed = False
         self.bucket = bucket
+        self.metadata = metadata
         
         # False positive, hashlib *does* have md5 member
         #pylint: disable=E1101        

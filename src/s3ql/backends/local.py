@@ -24,7 +24,7 @@ class Bucket(AbstractBucket):
     A bucket that is stored on the local hard disk
     '''
 
-    def __init__(self, name, backend_login, backend_pw):
+    def __init__(self, name, backend_login, backend_pw): #IGNORE:W0613
         '''Initialize local bucket
         
         Login and password are ignored.
@@ -57,22 +57,22 @@ class Bucket(AbstractBucket):
     def open_read(self, key):
         """Open object for reading
 
-        Return a tuple of a file-like object and metadata. Bucket
-        contents can be read from the file-like object. 
+        Return a tuple of a file-like object. Bucket contents can be read from
+        the file-like object, metadata is available in its *metadata* attribute.
         """
         
         path = self._key_to_path(key)
         try:
-            src = open(path, 'rb') 
+            fh = ObjectR(path) 
         except IOError as exc:
             if exc.errno == errno.ENOENT:
                 raise NoSuchObject(key)
             else:
                 raise
             
-        metadata = pickle.load(src)
+        fh.metadata = pickle.load(fh)
         
-        return (src, metadata)
+        return fh
     
     def open_write(self, key, metadata=None):
         """Open object for writing
@@ -80,6 +80,9 @@ class Bucket(AbstractBucket):
         `metadata` can be a dict of additional attributes to store with the
         object. Returns a file-like object.
         """
+        
+        if metadata is None:
+            metadata = dict()
         
         # By renaming, we make sure that there are no
         # conflicts between parallel reads, the last one wins
@@ -276,3 +279,9 @@ def unescape(s):
     return s
 
 
+class ObjectR(file):
+    '''A local storage object opened for reading'''
+    
+    def __init__(self, name, metadata=None):
+        super(ObjectR, self).__init__(name, 'rb', buffering=0)
+        self.metadata = metadata
