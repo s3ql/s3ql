@@ -240,8 +240,8 @@ class Bucket(AbstractBucket):
         ''''Open object for reading
 
         Return a tuple of a file-like object. Bucket contents can be read from
-        the file-like object, metadata is available in its *metadata* attribute.
-        The object must be closed explicitly.
+        the file-like object, metadata is stored in its *metadata* attribute and
+        can be modified by the caller at will. The object must be closed explicitly.
         '''
         
         try:
@@ -470,7 +470,7 @@ class ObjectR(object):
         # False positive, hashlib *does* have md5 member
         #pylint: disable=E1101        
         self.md5 = hashlib.md5()
-        
+            
     def read(self, size=None):
         '''Read object data'''
         
