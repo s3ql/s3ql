@@ -131,15 +131,11 @@ def main(args=None):
             param['seq_no'] -= 1
             pickle.dump(param, open(cachepath + '.params', 'wb'), 2)         
         elif seq_no == param['seq_no']:
-            log.info('Saving metadata...')
-            fh = tempfile.TemporaryFile()
-            dump_metadata(fh, db)          
-            log.info("Compressing & uploading metadata..")
+            log.info('Uploading metadata...')     
             cycle_metadata(bucket)
-            fh.seek(0)
             param['last-modified'] = time.time() - time.timezone
-            bucket.store_fh("s3ql_metadata", fh, param)
-            fh.close()
+            with bucket.open_write('s3ql_metadata', param) as fh:
+                dump_metadata(fh, db)
             pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         else:
             log.error('Remote metadata is newer than local (%d vs %d), '
