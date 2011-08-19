@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 from getpass import getpass
 from s3ql import CURRENT_FS_REV
-from s3ql.backends.common import get_bucket
+from s3ql.backends.common import get_bucket, BetterBucket
 from s3ql.common import (get_bucket_cachedir, setup_logging, QuietError, 
     dump_metadata, create_tables, init_tables)
 from s3ql.database import Connection
@@ -58,16 +58,16 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
     
-    bucket = get_bucket(options)
+    plain_bucket = get_bucket(options, plain=True)
     
-    if 's3ql_metadata' in bucket:
+    if 's3ql_metadata' in plain_bucket:
         if not options.force:
             raise QuietError("Found existing file system! Use --force to overwrite")
             
         log.info('Purging existing file system data..')
-        bucket.clear()
-        if (not bucket.list_after_delete_consistent()
-            or not bucket.read_after_delete_consistent()): 
+        plain_bucket.clear()
+        if (not plain_bucket.list_after_delete_consistent()
+            or not plain_bucket.read_after_delete_consistent()): 
             log.info('Please note that the new file system may appear inconsistent\n'
                      'for a while until the removals have propagated through the backend.')
             
@@ -84,10 +84,13 @@ def main(args=None):
         fh = open('/dev/urandom', "rb", 0) # No buffering
         data_pw = fh.read(32)
         fh.close()
-
-        bucket.passphrase = wrap_pw
+        
+        bucket = BetterBucket(wrap_pw, options.compress, plain_bucket)
         bucket['s3ql_passphrase'] = data_pw
-        bucket.passphrase = data_pw
+    else:    
+        data_pw = None
+        
+    bucket = BetterBucket(data_pw, options.compress, plain_bucket)
 
     # Setup database
     cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
@@ -114,14 +117,9 @@ def main(args=None):
     param['last-modified'] = time.time() - time.timezone
     bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
 
-    log.info('Saving metadata...')
-    fh = tempfile.TemporaryFile()
-    dump_metadata(fh, db)  
-    
-    log.info("Compressing & uploading metadata..")         
-    fh.seek(0)
-    bucket.store_fh("s3ql_metadata", fh, param)
-    fh.close()
+    log.info('Uploading metadata...')
+    with bucket.open_write('s3ql_metadata', param) as fh:
+        dump_metadata(fh, db)  
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
 
 

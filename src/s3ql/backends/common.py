@@ -833,13 +833,21 @@ def convert_legacy_metadata(meta):
         meta['compression'] = 'None'
 
 
-def get_bucket(options):
-    '''Return bucket for given storage-url'''
+def get_bucket(options, plain=False):
+    '''Return bucket for given storage-url
+    
+    If *plain* is true, don't attempt to unlock and don't wrap into
+    BetterBucket.
+    '''
 
-    return get_bucket_factory(options)()
+    return get_bucket_factory(options, plain)()
 
-def get_bucket_factory(options):
-    '''Return factory producing bucket objects for given storage-url'''
+def get_bucket_factory(options, plain=False):
+    '''Return factory producing bucket objects for given storage-url
+    
+    If *plain* is true, don't attempt to unlock and don't wrap into
+    BetterBucket.    
+    '''
 
     config = ConfigParser.SafeConfigParser()
     if os.path.isfile(options.authfile):
@@ -891,6 +899,9 @@ def get_bucket_factory(options):
         raise QuietError('No such backend: %s' % hit.group(1))
     
     bucket_class = sys.modules[backend_name].getattr('Bucket')
+    
+    if plain:
+        return lambda: bucket_class(bucket_name, backend_login, backend_pw)
     
     bucket = bucket_class(bucket_name, backend_login, backend_pw)
 
