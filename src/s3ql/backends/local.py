@@ -58,7 +58,8 @@ class Bucket(AbstractBucket):
         """Open object for reading
 
         Return a tuple of a file-like object. Bucket contents can be read from
-        the file-like object, metadata is available in its *metadata* attribute.
+        the file-like object, metadata is stored in its *metadata* attribute and
+        can be modified by the caller at will.
         """
         
         path = self._key_to_path(key)
@@ -284,4 +285,4 @@ class ObjectR(file):
     
     def __init__(self, name, metadata=None):
         super(ObjectR, self).__init__(name, 'rb', buffering=0)
-        self.metadata = metadata
+        self.metadata = metadata     
