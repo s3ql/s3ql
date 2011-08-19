@@ -156,8 +156,9 @@ class AbstractBucket(object):
         """Open object for reading
 
         Return a tuple of a file-like object. Bucket contents can be read from
-        the file-like object, metadata is available in its *metadata* attribute.
-        The object must be closed explicitly.
+        the file-like object, metadata is stored in its *metadata* attribute and
+        can be modified by the caller at will. The object must be closed
+        explicitly.
         """
         
         pass
@@ -247,8 +248,8 @@ class AbstractBucket(object):
     
 class BetterBucket(AbstractBucket):
     '''
-    This class adds encryption, compression and integrity
-    protection to a plain bucket.
+    This class adds encryption, compression and integrity protection to a plain
+    bucket.
     '''
 
     def __init__(self, passphrase, compression, bucket):
@@ -267,70 +268,74 @@ class BetterBucket(AbstractBucket):
         If the key does not exist, `NoSuchObject` is raised.
         """
 
-        meta_raw = self.bucket.lookup(key)
-        return self._get_meta(meta_raw)[0]
+        metadata = self.bucket.lookup(key)
+        convert_legacy_metadata(metadata)
+        return self._unwrap_meta(metadata)
 
-    def _get_meta(self, meta_raw, plain=False):
-        '''Get metadata & decompressor factory
+    def _unwrap_meta(self, metadata):
+        '''Unwrap metadata
         
         If the bucket has a password set but the object is not encrypted,
-        `ObjectNotEncrypted` is raised unless `plain` is true.
+        `ObjectNotEncrypted` is raised.
         '''
 
-        convert_legacy_metadata(meta_raw)
-
-        compr_alg = meta_raw['compression']
-        encr_alg = meta_raw['encryption']
+        encr_alg = metadata['encryption']
         encrypted = (encr_alg != 'None')
 
         if encrypted and not self.passphrase:
-                raise ChecksumError('Encrypted object and no passphrase supplied')
+            raise ChecksumError('Encrypted object and no passphrase supplied')
 
-        elif self.passphrase and not plain:
+        elif not encrypted and self.passphrase:
             raise ObjectNotEncrypted()
 
-        if compr_alg == 'BZIP2':
-            decomp = bz2.BZ2Decompressor
-        elif compr_alg == 'LZMA':
-            decomp = lzma.LZMADecompressor
-        elif compr_alg == 'ZLIB':
-            decomp = zlib.decompressobj
-        elif compr_alg is 'None':
-            decomp = None
+        buf = b64decode(metadata['meta'])
+        if encrypted:
+            buf = decrypt(buf, self.passphrase)
+            
+        metadata = pickle.loads(buf)
+        if metadata is None:
+            return dict()
         else:
-            raise RuntimeError('Unsupported compression: %s' % compr_alg)
+            return metadata
+        
+    def open_read(self, key):
+        """Open object for reading
 
-        if 'meta' in meta_raw:
-            buf = b64decode(meta_raw['meta'])
-            if encrypted:
-                buf = decrypt(buf, self.passphrase)
-            metadata = pickle.loads(buf)
-        else:
-            metadata = dict()
-
-        return (metadata, decomp)
-
-    def open_read(self, key, plain=False):
-        """Fetch data for `key` and write to `fh`
-
-        Return a dictionary with the metadata. If the bucket has a password set
-        but the object is not encrypted, `ObjectNotEncrypted` is raised
-        unless `plain` is true. 
+        Return a tuple of a file-like object. Bucket contents can be read from
+        the file-like object, metadata is stored in its *metadata* attribute and
+        can be modified by the caller at will. The object must be closed explicitly.
+        
+        If the bucket has a password set but the object is not encrypted,
+        `ObjectNotEncrypted` is raised.
         """
 
-        meta_raw = self.bucket.lookup(key)
-        (metadata, decomp) = self._get_meta(meta_raw, plain)
-
         fh = self.bucket.open_read(key)
+        convert_legacy_metadata(fh.metadata)
         
-        if meta_raw['encryption'] != 'None':
-            fh = DecryptFilter(fh, self.passphrase, meta_raw['encryption'])
+        compr_alg = fh.metadata['compression']
+        encr_alg = fh.metadata['encryption']
            
-        if decomp:
-            fh = DecompressFilter(fh, decomp)
+        metadata = self._unwrap_meta(fh.metadata)
+        
+        if encr_alg == 'AES':
+            fh = LegacyDecryptFilter(fh, self.passphrase)
+        elif encr_alg == 'AES_v2':
+            fh = DecryptFilter(fh, self.passphrase)                
+        elif encr_alg != 'None':
+            raise RuntimeError('Unsupported encryption: %s' % encr_alg)
             
-        return (fh, metadata)
-
+        if compr_alg == 'BZIP2':
+            fh = DecompressFilter(fh, bz2.BZ2Decompressor())
+        elif compr_alg == 'LZMA':
+            fh = DecompressFilter(fh, lzma.LZMADecompressor())
+        elif compr_alg == 'ZLIB':
+            fh = DecompressFilter(fh, zlib.decompressobj())
+        elif compr_alg != 'None':
+            raise RuntimeError('Unsupported compression: %s' % compr_alg)
+        
+        fh.metadata = metadata
+        
+        return fh
 
     def open_write(self, key, metadata=None):
         """Open object for writing
@@ -338,7 +343,7 @@ class BetterBucket(AbstractBucket):
         `metadata` can be a dict of additional attributes to store with the
         object. Returns a file-like object.
         """
-
+   
         # We always store metadata (even if it's just None), so that we can
         # verify that the object has been created by us when we call lookup().
         meta_buf = pickle.dumps(metadata, 2)
@@ -368,6 +373,7 @@ class BetterBucket(AbstractBucket):
             meta_raw['compression'] = 'None'
 
         fh = self.bucket.open_write(key, meta_raw)
+
         if nonce:
             fh = EncryptFilter(fh, self.passphrase, nonce)
         if compr:
@@ -520,7 +526,7 @@ class CompressFilter(object):
 class DecompressFilter(AbstractInputFilter):
     '''Decompress data while reading'''
     
-    def __init__(self, fh, decomp):
+    def __init__(self, fh, decomp, metadata=None):
         '''Initialize
         
         *fh* should be a file-like object. *decomp* should be a
@@ -530,7 +536,8 @@ class DecompressFilter(AbstractInputFilter):
         
         self.fh = fh
         self.decomp = decomp
-    
+        self.metadata = metadata
+        
     def _read(self, size):
         '''Read roughly *size* bytes'''
         
@@ -603,8 +610,9 @@ class EncryptFilter(object):
             
     def close(self):
         # Packet length of 0 indicates end of stream, only HMAC follows
-        buf = struct.pack(b'<I', 0) + self.hmac.digest()
-        buf = self.cipher.process(buf)
+        buf = struct.pack(b'<I', 0)
+        self.hmac.update(buf)
+        buf = self.cipher.process(buf + self.hmac.digest())
         self.fh.write(buf)
         self.fh.close()
 
@@ -622,7 +630,7 @@ class DecryptFilter(AbstractInputFilter):
     checking to work.
     '''
     
-    def __init__(self, fh, passphrase, algorithm):
+    def __init__(self, fh, passphrase, metadata=None):
         '''Initialize
         
         *fh* should be a file-like object.
@@ -632,67 +640,61 @@ class DecryptFilter(AbstractInputFilter):
         self.fh = fh
         self.off_size = struct.calcsize(b'<I')
         self.remaining = 0 # Remaining length of current packet
-
+        self.metadata = metadata
+        self.hmac_checked = False
+        
         # Read nonce
         len_ = struct.unpack(b'<B', fh.read(struct.calcsize(b'<B')))[0]
         nonce = fh.read(len_)
-                    
-        if algorithm == 'AES':
-            self.hash = fh.read(HMAC_SIZE)
-                    
-        elif algorithm == 'AES_v2':
-            # Hash is stored at end of stream
-            self.hash = None
-            
-        else:
-            raise RuntimeError('Unsupported encryption: %s' % algorithm)
     
         key = sha256(passphrase + nonce)
         self.cipher = aes.AES(key) #IGNORE:E1102
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
     
+    def get_metadata(self):
+        '''Get object metadata
+        
+        This method can be called even after the object has been closed.
+        '''
+        
+        return self.metadata
+        
     def _read(self, size):
         '''Read roughly *size* bytes'''
          
         buf = self.fh.read(size)
         if not buf:
-            # For v1 objects, check hash
-            if self.hash and self.cipher.process(self.hash) != self.hmac.digest():
+            if not self.hmac_checked:
                 raise ChecksumError('HMAC mismatch')
-            else:        
-                return ''
+            return ''
         
-        plain = self.cipher.process(buf)
-         
-        # v1 objects: done
-        # v2 objects: split into packets and check hash on last packet
-        if self.hash:
-            self.hmac.update(plain)
-            return plain
+        inbuf = self.cipher.process(buf)
+        outbuf = ''
+        while True:  
         
-        if len(buf) <= self.remaining:
-            self.remaining -= len(buf)
+            if len(inbuf) <= self.remaining:
+                self.remaining -= len(inbuf)
+                self.hmac.update(inbuf)
+                outbuf += inbuf
+                break
             
-        else:
-            part1 = plain[:self.remaining]
-            part2 = plain[self.remaining + self.off_size:]
-            self.remaining = struct.unpack(b'<I', plain[self.remaining
-                                                        :self.remaining+self.off_size])[0]
+            outbuf += inbuf[:self.remaining]
+            self.hmac.update(inbuf[:self.remaining+self.off_size])
+            paket_size = struct.unpack(b'<I', inbuf[self.remaining
+                                                    :self.remaining+self.off_size])[0]
+            inbuf = inbuf[self.remaining + self.off_size:]
+            self.remaining = paket_size
             
             # End of file, read and check HMAC
-            if self.remaining == 0:
-                self.hmac.update(part1)
-                hash_ = part2
-                if len(hash_) != HMAC_SIZE:
-                    hash_ += self.cipher.process(self.fh.read(HMAC_SIZE - len(hash_)))
-                if hash_ != self.hmac.digest():
+            if paket_size == 0:
+                if len(inbuf) != HMAC_SIZE:
+                    inbuf += self.cipher.process(self.fh.read(HMAC_SIZE - len(inbuf)))
+                if inbuf != self.hmac.digest():
                     raise ChecksumError('HMAC mismatch')
-                return part1
-            
-            plain = part1 + part2
-             
-        self.hmac.update(plain)
-        return buf                                           
+                self.hmac_checked = True
+                break
+        
+        return outbuf                                           
 
     def close(self):
         self.fh.close()
@@ -704,6 +706,66 @@ class DecryptFilter(AbstractInputFilter):
         self.close()
         return False        
 
+class LegacyDecryptFilter(AbstractInputFilter):
+    '''Decrypt data while reading
+    
+    Reader has to read the entire stream in order for HMAC
+    checking to work.
+    '''
+    
+    def __init__(self, fh, passphrase, metadata=None):
+        '''Initialize
+        
+        *fh* should be a file-like object.
+        '''
+        super(DecryptFilter, self).__init__()
+        
+        self.fh = fh
+        self.off_size = struct.calcsize(b'<I')
+        self.remaining = 0 # Remaining length of current packet
+        self.metadata = metadata
+        
+        # Read nonce
+        len_ = struct.unpack(b'<B', fh.read(struct.calcsize(b'<B')))[0]
+        nonce = fh.read(len_)
+        self.hash = fh.read(HMAC_SIZE)
+    
+        key = sha256(passphrase + nonce)
+        self.cipher = aes.AES(key) #IGNORE:E1102
+        self.hmac = hmac.new(key, digestmod=hashlib.sha256)
+    
+    def get_metadata(self):
+        '''Get object metadata
+        
+        This method can be called even after the object has been closed.
+        '''
+        
+        return self.metadata
+        
+    def _read(self, size):
+        '''Read roughly *size* bytes'''
+         
+        buf = self.fh.read(size)
+        if not buf:
+            if self.cipher.process(self.hash) != self.hmac.digest():
+                raise ChecksumError('HMAC mismatch')
+            else:        
+                return ''
+        
+        plain = self.cipher.process(buf)  
+        self.hmac.update(plain)
+        return plain                                      
+
+    def close(self):
+        self.fh.close()
+
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *a):
+        self.close()
+        return False       
+    
 def encrypt(buf, passphrase, nonce):
     '''Encrypt *buf*'''
 
@@ -795,10 +857,7 @@ class NoSuchBucket(Exception):
         return 'Bucket %r does not exist' % self.name
         
 
-
-
 def convert_legacy_metadata(meta):
-    
     if ('encryption' in meta and
         'compression' in meta):
         return

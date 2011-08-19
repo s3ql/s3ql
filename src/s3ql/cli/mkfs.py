@@ -19,7 +19,6 @@ import logging
 import os
 import shutil
 import sys
-import tempfile
 import time
 
 
@@ -115,6 +114,11 @@ def main(args=None):
     param['needs_fsck'] = False
     param['last_fsck'] = time.time() - time.timezone
     param['last-modified'] = time.time() - time.timezone
+    
+    # This indicates that the convert_legacy_metadata() stuff
+    # in BetterBucket is not required for this file system.
+    param['bucket_revision'] = 1
+    
     bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
 
     log.info('Uploading metadata...')
