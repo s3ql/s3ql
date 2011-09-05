@@ -56,9 +56,8 @@ Parallel Compression
 ====================
 
 If you are running S3QL on a system with multiple cores, you might
-want to set ``--compression-threads`` to a value bigger than one. This
-will instruct S3QL to compress and encrypt several blocks at the same
-time.
+want to set the ``--threads`` value larger than one. This will
+instruct S3QL to compress and encrypt several blocks at the same time.
 
 If you want to do this in combination with using the LZMA compression
 algorithm, you should keep an eye on memory usage though. Every
