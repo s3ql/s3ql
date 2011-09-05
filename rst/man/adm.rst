@@ -23,8 +23,8 @@ The |command| command performs various operations on S3QL buckets.
 The file system contained in the bucket *must not be mounted* when
 using |command| or things will go wrong badly.
 
-.. include:: ../include/backends.rst
-
+The storage url depends on the backend that is used. The S3QL User's
+Guide should be consulted for a description of the available backends.
 
 Options
 =======

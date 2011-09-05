@@ -13,12 +13,12 @@ Amazon S3
 `Amazon S3 <http://aws.amazon.com/s3>`_ is the online storage service
 offered by `Amazon Web Services (AWS) <http://aws.amazon.com/>`_. To
 use the S3 backend, you first need to sign up for an AWS account. The
-account is free, you will pay only for the amount of storage that you
-actually use. After that, you need to create a bucket that will hold
-the S3QL file system, e.g. using the `AWS Management Console`_. For
-best performance, it is recommend to create the bucket in the
-geographically closest storage region, but not the classic/US-east
-region (see below).
+account is free, you will pay only for the amount of storage and
+traffic that you actually use. After that, you need to create a bucket
+that will hold the S3QL file system, e.g. using the `AWS Management
+Console`_. For best performance, it is recommend to create the bucket
+in the geographically closest storage region, but not the
+classic/US-east region (see below).
 
 The storage URL for accessing S3 buckets in S3QL has the form ::
 
@@ -31,12 +31,12 @@ S3 bucket.
 
 Note that the backend login and password for accessing S3 are not the
 user id and password that you use to log into the Amazon Webpage, but
-the "AWS access key id" and "AWS secret access key" shown under `My
+the *AWS access key id* and *AWS secret access key* shown under `My
 Account/Access Identifiers
 <https://aws-portal.amazon.com/gp/aws/developer/account/index.html?ie=UTF8&action=access-key>`_.
 
 If you would like S3QL to connect using HTTPS instead of standard
-HTTP, start the storage url with ``s3s://` instead of ``s3://``. Note
+HTTP, start the storage url with ``s3s://`` instead of ``s3://``. Note
 that, as of May 2011, Amazon S3 is faster when accessed using a
 standard HTTP connection, and that S3QL does not perform any server
 certificate validation (see `issue xx`_).
@@ -105,16 +105,78 @@ regions provide stronger consistency guarantees that completely
 eliminate any of the described problems.
 
 
+Google Storage
+==============
+
+`Google Storage`_ is the online storage service offered by Google. It
+is the most feature-rich service supported by S3QL and S3QL offers the
+best performance when used with the Google Storage backend.
+
+To use the Google Storage backend, you need to have (or sign up for) a
+Google account, and then `activate Google Storage`_ for your account.
+The account is free, you will pay only for the amount of storage and
+traffic that you actually use.
+
+To create a Google Storage bucket, you can use e.g. the `gsutil`_ tool
+provided by Google. The storage URL for accessing the bucket in S3QL
+is then ::
+
+   gs://<bucketname>/<prefix>
+
+Here *bucketname* is the name of the bucket, and *prefix* can be
+an arbitrary prefix that will be prepended to all object names used by
+S3QL. This allows you to store several S3QL file systems in the same
+Google Storage bucket.
+
+Note that the backend login and password for accessing your Google
+Storage bucket are not your Google account name and password, but the
+*access key id* and *secret
+access key* that are shown under `xyz`_.
+
+If you would like S3QL to connect using HTTPS instead of standard
+HTTP, start the storage url with ``gss://`` instead of ``gs://``. Note
+that at this point S3QL does not perform any server certificate
+validation (see `issue xx`_).
+
+
+S3 compatible
+=============
+
+S3QL is also able to access other, S3 compatible storage services for
+which no specific backend exists. When accessing such services, only
+the lowest common denominator of available features can be used, so it
+is generally recommended to write a new service specific backend
+instead. 
+
+The storage URL for accessing an arbitrary S3 compatible storage
+service is ::
+
+   s3c://<hostname>:<port>/<prefix>
+
+or ::
+
+   s3cs://<hostname>:<port>/<prefix>
+
+to use HTTPS connections. Note, however, that at this point S3QL does
+not verify the server certificate (cf. `issue xx`_).
+
 
 Local
 =====
 
-The local backend stores file system data in a directory on your
-computer. The storage URL for the local backend has the form
-`local://<path>`. Note that you have to write three consecutive
-slashes to specify an absolute path, e.g. `local:///var/archive`.
+S3QL is also able to store its data on the local file system. This can
+be used to backup data on external media, or to access external
+services that S3QL can not talk to directly (e.g., it is possible to
+store data over SSH by first mounting the remote system using
+`sshfs`_, then using the local backend to store the data in the sshfs
+mountpoint).
 
-The local backend provides read-after-write consistency.
+The storage URL for local storage is ::
+
+   local://<path>
+   
+Note that you have to write three consecutive slashes to specify an
+absolute path, e.g. `local:///var/archive`.
 
 
 SSH/SFTP
