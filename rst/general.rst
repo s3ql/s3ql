@@ -21,9 +21,10 @@ identifies an S3QL file system. The form of the storage url depends on
 the backend and is described together with the
 :ref:`storage_backends`.
 
+.. _bucket_pw:
 
 Storing Authentication Information
-====================================
+==================================
 
 Normally, S3QL reads username and password for the backend as well as
 an encryption passphrase for the bucket from the terminal. Most

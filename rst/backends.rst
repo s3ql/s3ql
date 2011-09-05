@@ -190,8 +190,12 @@ The storage URL for local storage is ::
    local://<path>
    
 Note that you have to write three consecutive slashes to specify an
-absolute path, e.g. `local:///var/archive`.
-
+absolute path, e.g. `local:///var/archive`. Also, relative paths will
+automatically be converted to absolute paths before the authentication
+file is read, i.e. if you are in the `/home/john` directory and try to
+mount `local://bucket`, the corresponding section in the
+authentication file must match the storage url
+`local:///home/john/bucket`.
 
 SSH/SFTP
 ========
