@@ -23,6 +23,12 @@ whatsoever. You can not add new files or directories and you can not
 change or delete existing files and directories. The only way to get
 rid of an immutable tree is to use the :program:`s3qlrm` command.
 
+|command| can only be called by the user that mounted the file system
+and (if the file system was mounted with :cmdopt:`--allow-other` or
+:cmdopt:`--allow-root`) the root user. This limitation might be
+removed in the future (see `issue 155
+<http://code.google.com/p/s3ql/issues/detail?id=155>`_).
+
 Rationale
 =========
 
