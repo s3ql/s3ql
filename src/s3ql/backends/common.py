@@ -718,7 +718,7 @@ class LegacyDecryptFilter(AbstractInputFilter):
         
         *fh* should be a file-like object.
         '''
-        super(DecryptFilter, self).__init__()
+        super(LegacyDecryptFilter, self).__init__()
         
         self.fh = fh
         self.off_size = struct.calcsize(b'<I')
