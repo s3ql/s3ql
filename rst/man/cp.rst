@@ -40,7 +40,7 @@ Note that:
   usage of `s3qlcp` is to regularly duplicate the same source
   directory, say `documents`, to different target directories. For a
   e.g. monthly replication, the target directories would typically be
-  named something like `documents_Januray` for the replication in
+  named something like `documents_January` for the replication in
   January, `documents_February` for the replication in February etc.
   In this case it is clear that the target directories should be
   regarded as snapshots of the source directory.
