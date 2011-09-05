@@ -6,6 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import division, print_function, absolute_import
 from .backends.common import NoSuchObject
 from .common import EmbeddedException, ExceptionStoringThread
 from .database import NoSuchRowError
@@ -13,7 +14,6 @@ from .multi_lock import MultiLock
 from .ordered_dict import OrderedDict
 from .thread_group import ThreadGroup
 from .upload_manager import UploadManager, RemoveThread
-from __future__ import division, print_function, absolute_import
 from contextlib import contextmanager
 from llfuse import lock, lock_released
 import logging
@@ -56,7 +56,7 @@ class CacheEntry(file):
         # Open unbuffered, so that os.fstat(fh.fileno).st_size is
         # always correct (we can expect that data is read and
         # written in reasonable chunks)
-        super(CacheEntry, self).__init__(filename, "w+b", bufsize=0)
+        super(CacheEntry, self).__init__(filename, "w+b", buffering=0)
         self.dirty = False
         self.modified_after_upload = False
         self.block_id = block_id
@@ -237,8 +237,7 @@ class BlockCache(object):
                     try:
                         with lock_released:
                             with self.bucket_pool() as bucket:
-                                with bucket.open_read('s3ql_data_%d' % obj_id, 
-                                                      does_exist=True) as fh:
+                                with bucket.open_read('s3ql_data_%d' % obj_id) as fh:
                                     shutil.copyfileobj(fh, el)
                     except:
                         os.unlink(filename)
