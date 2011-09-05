@@ -7,25 +7,85 @@ General Information
 Terminology
 ===========
 
-S3QL can store data at different providers and using different
-protocols. A *backend* implements all
+S3QL can store data at different service providers and using different
+protocols. The term *backend* refers to both the part of S3QL that
+implements communication with a specific storage service and the
+storage service itself. Most backends can hold more than one S3QL file
+system and thus require some additional information that specifies the
+file system location within the backend. This location is called a
+*bucket* (for historical reasons).
 
-use different protocols to store the file system data.
-
-
-Independent of the backend that you use, the place where your file
-system data is being stored is called a *bucket*. (This is mostly for
-historical reasons, since initially S3QL supported only the Amazon S3
-backend).
-
-
-
-The :file:`authinfo` file
-=========================
-
-TODO
+Many S3QL commands expect a *storage url* as a parameter. A storage
+url specifies both the backend and the bucket and thus uniquely
+identifies an S3QL file system. The form of the storage url depends on
+the backend and is described together with the
+:ref:`storage_backends`.
 
 
+Storing Authentication Information
+====================================
+
+Normally, S3QL reads username and password for the backend as well as
+an encryption passphrase for the bucket from the terminal. Most
+commands also accept an :cmdopt:`--authfile` parameter that can be
+used to read this information from a file instead. 
+
+The authentication file consists of sections, led by a ``[section]``
+header and followed by ``name: value`` entries. The section headers
+themselves are not used by S3QL but have to be unique within the file.
+
+In each section, the following entries can be defined:
+
+:storage-url:
+  Specifies the storage url to which this section applies. If a
+  storage url starts with the value of this entry, the section is
+  considered applicable.
+
+:backend-login:
+  Specifies the username to use for authentication with the backend.
+  
+:backend-password:
+  Specifies the password to use for authentication with the backend.
+
+:bucket-passphrase:
+  Specifies the passphrase to use to decrypt the bucket (if it is
+  encrypted).
+  
+
+When reading the authentication file, S3QL considers every applicable
+section in order and uses the last value that it found for each entry.
+For example, consider the following authentication file::
+
+  [s3]
+  storage-url: s3://
+  backend-login: joe
+  backend-password: notquitesecret
+
+  [bucket1]
+  storage-url: s3://joes-first-bucket
+  bucket-passphrase: neitheristhis
+
+  [bucket2]
+  storage-url: s3://joes-second-bucket
+  bucket-passphrase: swordfish
+
+  [bucket3]
+  storage-url: s3://joes-second-bucket/with-prefix
+  backend-login: bill
+  backend-password: bi23ll
+  bucket-passphrase: ll23bi 
+  
+With this authentication file, S3QL would try to log in as "joe" 
+whenever the s3 backend is used, except when accessing a storage url
+that begins with "s3://joes-second-bucket/with-prefix". In that case,
+the last section becomes active and S3QL would use the "bill"
+credentials. Furthermore, bucket encryption passphrases will be used
+for storage urls that start with "s3://joes-first-bucket" or
+"s3://joes-second-bucket".
+
+The authentication file is parsed by the `Python ConfigParser
+module <http://docs.python.org/library/configparser.html>`_.
+  
 .. _backend_reliability:
 
 On Backend Reliability
