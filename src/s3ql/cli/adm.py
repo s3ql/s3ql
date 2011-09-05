@@ -80,6 +80,14 @@ def main(args=None):
     cachepath = get_bucket_cachedir(options.storage_url, options.cachedir) 
     bucket = get_bucket(options)
     
+    # Check if fs is mounted on this computer
+    # This is not foolproof but should prevent common mistakes
+    match = options.storage_url + ' /'
+    with open('/proc/mounts', 'r') as fh:
+        for line in fh:
+            if line.startswith(match):
+                raise QuietError('Can not work on mounted file system.')
+                
     if options.action == 'clear':
         return clear(bucket, cachepath)
     
