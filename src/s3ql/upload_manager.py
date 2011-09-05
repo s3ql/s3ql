@@ -280,7 +280,6 @@ class UploadThread(Thread):
         finally:
             with lock:
                 self.um.in_transit.remove((self.el.inode, self.el.blockno))
-            raise
    
 
 class RemoveThread(Thread):
