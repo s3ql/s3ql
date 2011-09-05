@@ -4,13 +4,15 @@
  About S3QL
 ============
 
-S3QL is a file system that stores all its data online. It supports
-`Amazon S3 <http://aws.amazon.com/s3 Amazon S3>`_ as well as arbitrary
-SFTP servers and effectively provides you with a hard disk of dynamic,
-infinite capacity that can be accessed from any computer with internet
-access.
+S3QL is a file system that stores all its data online using storage
+services like `Google Storage
+<http://code.google.com/apis/storage/>`_, `Amazon S3
+<http://aws.amazon.com/s3 Amazon S3>`_ or `OpenStack
+<http://openstack.org/projects/storage/>`_. S3QL effectively provides
+a hard disk of dynamic, infinite capacity that can be accessed from
+any computer with internet access.
 
-S3QL is providing a standard, full featured UNIX file system that is
+S3QL is a standard conforming, full featured UNIX file system that is
 conceptually indistinguishable from any local file system.
 Furthermore, S3QL has additional features like compression,
 encryption, data de-duplication, immutable trees and snapshotting
