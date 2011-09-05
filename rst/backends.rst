@@ -1,10 +1,53 @@
 .. -*- mode: rst -*-
 
+.. _storage_backends:
+
 ==================
  Storage Backends
 ==================
 
 The following backends are currently available in S3QL:
+
+Google Storage
+==============
+
+`Google Storage <http://code.google.com/apis/storage/>`_ is an online
+storage service offered by Google. It is the most feature-rich service
+supported by S3QL and S3QL offers the best performance when used with
+the Google Storage backend.
+
+To use the Google Storage backend, you need to have (or sign up for) a
+Google account, and then `activate Google Storage
+<http://code.google.com/apis/storage/docs/signup.html>`_ for your
+account. The account is free, you will pay only for the amount of
+storage and traffic that you actually use. Once you have created the
+account, make sure to `activate legacy access
+<http://code.google.com/apis/storage/docs/reference/v1/apiversion1.html#enabling>`_.
+
+To create a Google Storage bucket, you can use e.g. the `Google
+Storage Manager
+<https://sandbox.google.com/storage/>`_. The
+storage URL for accessing the bucket in S3QL is then ::
+
+   gs://<bucketname>/<prefix>
+
+Here *bucketname* is the name of the bucket, and *prefix* can be
+an arbitrary prefix that will be prepended to all object names used by
+S3QL. This allows you to store several S3QL file systems in the same
+Google Storage bucket.
+
+Note that the backend login and password for accessing your Google
+Storage bucket are not your Google account name and password, but the
+*Google Storage developer access key* and *Google Storage developer
+secret* that you can manage with the `Google Storage key management
+tool
+<https://code.google.com/apis/console/#:storage:legacy>`_.
+
+If you would like S3QL to connect using HTTPS instead of standard
+HTTP, start the storage url with ``gss://`` instead of ``gs://``. Note
+that at this point S3QL does not perform any server certificate
+validation (see `issue 267
+<http://code.google.com/p/s3ql/issues/detail?id=267>`_).
 
 
 Amazon S3
@@ -16,9 +59,10 @@ use the S3 backend, you first need to sign up for an AWS account. The
 account is free, you will pay only for the amount of storage and
 traffic that you actually use. After that, you need to create a bucket
 that will hold the S3QL file system, e.g. using the `AWS Management
-Console`_. For best performance, it is recommend to create the bucket
-in the geographically closest storage region, but not the
-classic/US-east region (see below).
+Console <https://console.aws.amazon.com/s3/home>`_. For best
+performance, it is recommend to create the bucket in the
+geographically closest storage region, but not the classic/US-east
+region (see below).
 
 The storage URL for accessing S3 buckets in S3QL has the form ::
 
@@ -39,7 +83,8 @@ If you would like S3QL to connect using HTTPS instead of standard
 HTTP, start the storage url with ``s3s://`` instead of ``s3://``. Note
 that, as of May 2011, Amazon S3 is faster when accessed using a
 standard HTTP connection, and that S3QL does not perform any server
-certificate validation (see `issue xx`_).
+certificate validation (see `issue 267
+<http://code.google.com/p/s3ql/issues/detail?id=267>`_).
 
 
 Reduced Redundancy Storage (RRS)
@@ -105,38 +150,6 @@ regions provide stronger consistency guarantees that completely
 eliminate any of the described problems.
 
 
-Google Storage
-==============
-
-`Google Storage`_ is the online storage service offered by Google. It
-is the most feature-rich service supported by S3QL and S3QL offers the
-best performance when used with the Google Storage backend.
-
-To use the Google Storage backend, you need to have (or sign up for) a
-Google account, and then `activate Google Storage`_ for your account.
-The account is free, you will pay only for the amount of storage and
-traffic that you actually use.
-
-To create a Google Storage bucket, you can use e.g. the `gsutil`_ tool
-provided by Google. The storage URL for accessing the bucket in S3QL
-is then ::
-
-   gs://<bucketname>/<prefix>
-
-Here *bucketname* is the name of the bucket, and *prefix* can be
-an arbitrary prefix that will be prepended to all object names used by
-S3QL. This allows you to store several S3QL file systems in the same
-Google Storage bucket.
-
-Note that the backend login and password for accessing your Google
-Storage bucket are not your Google account name and password, but the
-*access key id* and *secret
-access key* that are shown under `xyz`_.
-
-If you would like S3QL to connect using HTTPS instead of standard
-HTTP, start the storage url with ``gss://`` instead of ``gs://``. Note
-that at this point S3QL does not perform any server certificate
-validation (see `issue xx`_).
 
 
 S3 compatible
@@ -158,7 +171,8 @@ or ::
    s3cs://<hostname>:<port>/<prefix>
 
 to use HTTPS connections. Note, however, that at this point S3QL does
-not verify the server certificate (cf. `issue xx`_).
+not verify the server certificate (cf. `issue 267
+<http://code.google.com/p/s3ql/issues/detail?id=267>`_).
 
 
 Local
