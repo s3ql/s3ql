@@ -979,13 +979,17 @@ def get_bucket_factory(options, plain=False):
     elif not encrypted:
         bucket_passphrase = None
         
-    tmp_bucket = BetterBucket(bucket_passphrase, options.compress, bucket)
+    if hasattr(options, 'compress'):
+        compress = options.compress
+    else:
+        compress = 'zlib'
+        
+    tmp_bucket = BetterBucket(bucket_passphrase, compress, bucket)
     try:
         data_pw = tmp_bucket['s3ql_passphrase']
     except ChecksumError:
         raise QuietError('Wrong bucket passphrase')
 
-
-    return lambda: BetterBucket(data_pw, options.compress, 
+    return lambda: BetterBucket(data_pw, compress, 
                                 bucket_class(bucket_name, backend_login, backend_pw))
     
