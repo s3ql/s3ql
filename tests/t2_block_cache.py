@@ -7,27 +7,29 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function
-
-from s3ql.block_cache import BlockCache
+from _common import TestCase
+from contextlib import contextmanager
 from s3ql.backends import local
-from s3ql.backends.common import NoSuchObject
+from s3ql.backends.common import BucketPool, AbstractBucket
+from s3ql.block_cache import BlockCache
 from s3ql.common import create_tables, init_tables
 from s3ql.database import Connection
-import os
-import tempfile
-from _common import TestCase
-import unittest2 as unittest
-import stat
-import time
 import llfuse
+import os
 import shutil
+import stat
+import tempfile
+import threading
+import time
+import unittest2 as unittest
+
 
 class cache_tests(TestCase):
 
     def setUp(self):
 
         self.bucket_dir = tempfile.mkdtemp()
-        self.bucket = local.Connection().get_bucket(self.bucket_dir)
+        self.bucket_pool = BucketPool(lambda: local.Bucket(self.bucket_dir, None, None))
 
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
@@ -45,8 +47,8 @@ class cache_tests(TestCase):
                          | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                          os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 32))
 
-        self.cache = BlockCache(self.bucket, self.db, self.cachedir, 
-                                100 * self.blocksize)
+        self.cache = BlockCache(BucketPool(lambda: local.Bucket(self.bucket_dir, None, None)), 
+                                self.db, self.cachedir, 100 * self.blocksize)
         self.cache.init()
         
         # Tested methods assume that they are called from
@@ -58,7 +60,7 @@ class cache_tests(TestCase):
 
 
     def tearDown(self):
-        self.cache.upload_manager.bucket = self.bucket
+        self.cache.upload_manager.bucket_pool = self.bucket_pool
         self.cache.destroy()
         if os.path.exists(self.cachedir):
             shutil.rmtree(self.cachedir)
@@ -117,10 +119,10 @@ class cache_tests(TestCase):
         
         # We want to expire 4 entries, 2 of which are already flushed
         self.cache.max_entries = 16
-        self.cache.upload_manager.bucket = TestBucket(self.bucket, no_store=2)
+        self.cache.upload_manager.bucket_pool = TestBucketPool(self.bucket_pool, no_write=2)
         self.cache.expire()
         self.cache.upload_manager.join_all()
-        self.cache.upload_manager.bucket.verify()
+        self.cache.upload_manager.bucket_pool.verify()
         self.assertEqual(len(self.cache.cache), 16)    
         
         for i in range(20):
@@ -143,7 +145,7 @@ class cache_tests(TestCase):
         mngr = self.cache.upload_manager
 
         # Case 1: create new object
-        self.cache.upload_manager.bucket = TestBucket(self.bucket, no_store=1)
+        self.cache.upload_manager.bucket_pool = TestBucketPool(self.bucket_pool, no_write=1)
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data1)
@@ -151,10 +153,10 @@ class cache_tests(TestCase):
         mngr.add(el1)
         mngr.join_all()
         self.cache.removal_queue.join_all()
-        self.cache.upload_manager.bucket.verify()
+        self.cache.upload_manager.bucket_pool.verify()
 
         # Case 2: Link new object
-        self.cache.upload_manager.bucket = TestBucket(self.bucket)
+        self.cache.upload_manager.bucket_pool = TestBucketPool(self.bucket_pool)
         with self.cache.get(inode, blockno2) as fh:
             fh.seek(0)
             fh.write(data1)
@@ -162,43 +164,42 @@ class cache_tests(TestCase):
         mngr.add(el2)
         mngr.join_all()
         self.cache.removal_queue.join_all()
-        self.cache.upload_manager.bucket.verify()
+        self.cache.upload_manager.bucket_pool.verify()
 
         # Case 3: Upload old object, still has references
-        self.cache.upload_manager.bucket = TestBucket(self.bucket, no_store=1)
+        self.cache.upload_manager.bucket_pool = TestBucketPool(self.bucket_pool, no_write=1)
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data2)
         mngr.add(el1)
         mngr.join_all()
         self.cache.removal_queue.join_all()
-        self.cache.upload_manager.bucket.verify()
+        self.cache.upload_manager.bucket_pool.verify()
 
 
         # Case 4: Upload old object, no references left
-        self.cache.upload_manager.bucket = TestBucket(self.bucket, no_del=1, no_store=1)
+        self.cache.upload_manager.bucket_pool = TestBucketPool(self.bucket_pool, no_del=1, no_write=1)
         with self.cache.get(inode, blockno2) as fh:
             fh.seek(0)
             fh.write(data3)
         mngr.add(el2)
         mngr.join_all()
         self.cache.removal_queue.join_all()
-        self.cache.upload_manager.bucket.verify()
+        self.cache.upload_manager.bucket_pool.verify()
 
         # Case 5: Link old object, no references left
-        self.cache.upload_manager.bucket = TestBucket(self.bucket, no_del=1)
+        self.cache.upload_manager.bucket_pool = TestBucketPool(self.bucket_pool, no_del=1)
         with self.cache.get(inode, blockno2) as fh:
             fh.seek(0)
             fh.write(data2)
         mngr.add(el2)
         mngr.join_all()
         self.cache.removal_queue.join_all()
-        self.cache.upload_manager.bucket.verify()
-
+        self.cache.upload_manager.bucket_pool.verify()
 
         # Case 6: Link old object, still has references
         # (Need to create another object first)
-        self.cache.upload_manager.bucket = TestBucket(self.bucket, no_store=1)
+        self.cache.upload_manager.bucket_pool = TestBucketPool(self.bucket_pool, no_write=1)
         with self.cache.get(inode, blockno3) as fh:
             fh.seek(0)
             fh.write(data1)
@@ -206,16 +207,16 @@ class cache_tests(TestCase):
         mngr.add(el3)
         mngr.join_all()
         self.cache.removal_queue.join_all()
-        self.cache.upload_manager.bucket.verify()
+        self.cache.upload_manager.bucket_pool.verify()
 
-        self.cache.upload_manager.bucket = TestBucket(self.bucket)
+        self.cache.upload_manager.bucket_pool = TestBucketPool(self.bucket_pool)
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data1)
         mngr.add(el1)
         mngr.join_all()
         self.cache.removal_queue.join_all()
-        self.cache.upload_manager.bucket.verify()
+        self.cache.upload_manager.bucket_pool.verify()
 
 
 
@@ -226,7 +227,7 @@ class cache_tests(TestCase):
         blockno2 = 24
         data = self.random_data(datalen)
         
-        self.cache.upload_manager.bucket = TestBucket(self.bucket, no_store=1)
+        self.cache.upload_manager.bucket_pool = TestBucketPool(self.bucket_pool, no_write=1)
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data)
@@ -235,11 +236,11 @@ class cache_tests(TestCase):
             fh.write(data)
         self.cache.clear()
         self.cache.upload_manager.join_all()
-        self.cache.upload_manager.bucket.verify()
+        self.cache.upload_manager.bucket_pool.verify()
 
-        self.cache.upload_manager.bucket = TestBucket(self.bucket)
+        self.cache.upload_manager.bucket_pool = TestBucketPool(self.bucket_pool)
         self.cache.remove(inode, blockno1)
-        self.cache.upload_manager.bucket.verify()
+        self.cache.upload_manager.bucket_pool.verify()
 
     def test_remove_cache(self):
         inode = self.inode
@@ -262,10 +263,10 @@ class cache_tests(TestCase):
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
             fh.write(data1)
-        self.cache.upload_manager.bucket = TestBucket(self.bucket, no_store=1)
+        self.cache.upload_manager.bucket_pool = TestBucketPool(self.bucket_pool, no_write=1)
         commit(self.cache, inode)
-        self.cache.upload_manager.bucket.verify()
-        self.cache.upload_manager.bucket = TestBucket(self.bucket, no_del=1)
+        self.cache.upload_manager.bucket_pool.verify()
+        self.cache.upload_manager.bucket_pool = TestBucketPool(self.bucket_pool, no_del=1)
         self.cache.remove(inode, 1)
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
@@ -279,86 +280,112 @@ class cache_tests(TestCase):
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
             fh.write(data1)
-        self.cache.upload_manager.bucket = TestBucket(self.bucket, no_store=1)
+        self.cache.upload_manager.bucket_pool = TestBucketPool(self.bucket_pool, no_write=1)
         self.cache.clear()
         self.cache.upload_manager.join_all()
-        self.cache.upload_manager.bucket.verify()
-        self.cache.upload_manager.bucket = TestBucket(self.bucket, no_del=1)
+        self.cache.upload_manager.bucket_pool.verify()
+        self.cache.upload_manager.bucket_pool = TestBucketPool(self.bucket_pool, no_del=1)
         self.cache.remove(inode, 1)
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
             self.assertTrue(fh.read(42) == '')
 
 
-class TestBucket(object):
-    def __init__(self, bucket, no_fetch=0, no_store=0, no_del=0):
-        self.no_fetch = no_fetch
-        self.no_store = no_store
+class TestBucketPool(AbstractBucket):
+    def __init__(self, bucket_pool, no_read=0, no_write=0, no_del=0):
+        super(AbstractBucket, self).__init__()
+        self.no_read = no_read
+        self.no_write = no_write
         self.no_del = no_del
-        self.bucket = bucket
+        self.bucket_pool = bucket_pool
+        self.bucket = bucket_pool.pop_conn()
+        self.lock = threading.Lock()
 
+    def __del__(self):
+        self.bucket_pool.push_conn(self.bucket)
+        
+    def verify(self):
+        if self.no_read != 0:
+            raise RuntimeError('Got too few open_read calls')
+        if self.no_write != 0:
+            raise RuntimeError('Got too few open_write calls')
+        if self.no_del != 0:
+            raise RuntimeError('Got too few delete calls')
+
+    @contextmanager
+    def __call__(self):
+        '''Provide connection from pool (context manager)'''
+        
+        with self.lock:
+            yield self
+            
+    def lookup(self, key):
+        return self.bucket.lookup(key)
+        
+    def open_read(self, key):
+        self.no_read -= 1
+        if self.no_read < 0:
+            raise RuntimeError('Got too many open_read calls')
+        
+        return self.bucket.open_read(key)
+
+    def open_write(self, key, metadata=None):
+        self.no_write -= 1
+        if self.no_write < 0:
+            raise RuntimeError('Got too many open_write calls')
+
+        return self.bucket.open_write(key, metadata)
+            
     def read_after_create_consistent(self):
         return self.bucket.read_after_create_consistent()
     
     def read_after_write_consistent(self):
-        return self.bucket.read_after_write_consistent()    
-    
-    def verify(self):
-        if self.no_fetch != 0:
-            raise RuntimeError('Got too few fetch calls')
-        if self.no_store != 0:
-            raise RuntimeError('Got too few store calls')
-        if self.no_del != 0:
-            raise RuntimeError('Got too few delete calls')
-
-    def prep_store_fh(self, *a, **kw):
-        (size, fn) = self.bucket.prep_store_fh(*a, **kw)
-        def fn2():
-            self.no_store -= 1
-            if self.no_store < 0:
-                raise RuntimeError('Got too many store calls')
-            return fn()
+        return self.bucket.read_after_write_consistent()
         
-        return (size, fn2)
+    def read_after_delete_consistent(self):
+        return self.bucket.read_after_delete_consistent()
 
-    def store_fh(self, *a, **kw):
-        self.no_store -= 1
+    def list_after_delete_consistent(self):
+        return self.bucket.list_after_delete_consistent()
+        
+    def list_after_create_consistent(self):
+        return self.bucket.list_after_create_consistent()
+    
+    def clear(self):
+        return self.bucket.clear()
 
-        if self.no_store < 0:
-            raise RuntimeError('Got too many store calls')
+    def contains(self, key):
+        return self.bucket.contains(key)
 
-        return self.bucket.store_fh(*a, **kw)
-
-    def fetch_fh(self, *a, **kw):
-        self.no_fetch -= 1
-
-        if self.no_fetch < 0:
-            raise RuntimeError('Got too many fetch calls')
-
-        return self.bucket.fetch_fh(*a, **kw)
-
-    def delete(self, *a, **kw):
+    def delete(self, key, force=False):
         self.no_del -= 1
-
         if self.no_del < 0:
             raise RuntimeError('Got too many delete calls')
+            
+        return self.bucket.delete(key, force)
 
-        try:
-            return self.bucket.delete(*a, **kw)
-        except NoSuchObject:
-            # Don't count key errors
-            self.no_del += 1
-            raise
+    def list(self, prefix=''):
+        '''List keys in bucket
 
+        Returns an iterator over all keys in the bucket.
+        '''
+        return self.bucket.list(prefix)
 
-    def __delitem__(self, key):
-        self.delete(key)
+    def copy(self, src, dest):
+        """Copy data stored under key `src` to key `dest`
+        
+        If `dest` already exists, it will be overwritten. The copying
+        is done on the remote side. 
+        """
+        return self.bucket.copy(src, dest)
 
-    def __iter__(self):
-        return self.bucket.list()
-
-    def  __contains__(self, key):
-        return self.bucket.contains(key)
+    def rename(self, src, dest):
+        """Rename key `src` to `dest`
+        
+        If `dest` already exists, it will be overwritten. The rename
+        is done on the remote side.
+        """
+        return self.bucket.rename(src, dest)
 
 
 def commit(self, inode, block=None):
