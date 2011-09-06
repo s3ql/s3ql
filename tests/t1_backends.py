@@ -181,8 +181,7 @@ class S3Tests(BackendTestsMixin, TestCase):
         time.sleep(self.delay) # wait for bucket        
         self.bucket = s3.Bucket(aws_key_id=_common.aws_credentials[0],
                                 aws_key=_common.aws_credentials[1],
-                                bucket_name=self.bucketname,
-                                prefix='')
+                                bucket_name=self.bucketname)
 
     def tearDown(self):
         self.bucket.clear()
