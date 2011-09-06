@@ -948,7 +948,7 @@ def get_bucket_factory(options, plain=False):
         else:
             backend_pw = sys.stdin.readline().rstrip()
                                      
-    hit = re.match(r'^([a-zA-Z0-9])://(.+)$', options.storage_url)
+    hit = re.match(r'^([a-zA-Z0-9]+)://(.+)$', options.storage_url)
     if not hit:
         raise QuietError('Unknown storage url: %s' % options.storage_url)
     
@@ -959,7 +959,7 @@ def get_bucket_factory(options, plain=False):
     except ImportError:
         raise QuietError('No such backend: %s' % hit.group(1))
     
-    bucket_class = sys.modules[backend_name].getattr('Bucket')
+    bucket_class = getattr(sys.modules[backend_name], 'Bucket')
     
     if plain:
         return lambda: bucket_class(bucket_name, backend_login, backend_pw)
