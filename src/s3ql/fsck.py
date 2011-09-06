@@ -7,18 +7,17 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-
-import os
+from .backends.common import NoSuchObject
+from .common import ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh, get_path
+from .database import NoSuchRowError
 from os.path import basename
+from s3ql.backends.common import CompressFilter
+import logging
+import os
+import re
+import shutil
 import stat
 import time
-import logging
-import re
-from .database import NoSuchRowError
-from .backends.common import NoSuchObject
-from .common import (ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh, get_path)
-
-__all__ = [ "Fsck" ]
 
 log = logging.getLogger("fsck")
 
@@ -148,8 +147,16 @@ class Fsck(object):
                 obj_id = self.conn.rowid('INSERT INTO objects (refcount) VALUES(1)')
                 block_id = self.conn.rowid('INSERT INTO blocks (refcount, hash, obj_id, size) '
                                            'VALUES(?, ?, ?, ?)', (1, hash_, obj_id, size))
+                with self.bucket.open_write('s3ql_data_%d' % obj_id) as dest:
+                    fh.seek(0)
+                    shutil.copyfileobj(fh, dest)
+                
+                if isinstance(dest, CompressFilter):
+                    obj_size = dest.comp_size
+                else:
+                    obj_size = fh.tell()                    
                 self.conn.execute('UPDATE objects SET compr_size=? WHERE id=?', 
-                                  (self.bucket.store_fh('s3ql_data_%d' % obj_id, fh), obj_id))
+                                  (obj_size, obj_id))
     
             else:
                 self.conn.execute('UPDATE blocks SET refcount=refcount+1 WHERE id=?', (block_id,))                         
