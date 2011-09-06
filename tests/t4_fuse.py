@@ -10,7 +10,7 @@ from __future__ import division, print_function
 from _common import TestCase
 from cStringIO import StringIO
 from os.path import basename
-from s3ql.common import retry, AsyncFn
+from s3ql.common import AsyncFn
 import filecmp
 import os.path
 import s3ql.cli.fsck
@@ -29,6 +29,33 @@ import unittest2 as unittest
 # For debugging
 USE_VALGRIND = False
 
+def retry(timeout, fn, *a, **kw):
+    """Wait for fn(*a, **kw) to return True.
+    
+    If the return value of fn() returns something True, this value
+    is returned. Otherwise, the function is called repeatedly for
+    `timeout` seconds. If the timeout is reached, `TimeoutError` is
+    raised.
+    """
+
+    step = 0.2
+    waited = 0
+    while waited < timeout:
+        ret = fn(*a, **kw)
+        if ret:
+            return ret
+        time.sleep(step)
+        waited += step
+        if step < waited / 30:
+            step *= 2
+
+    raise TimeoutError()
+
+class TimeoutError(Exception):
+    '''Raised by `retry()` when a timeout is reached.'''
+
+    pass
+
 class fuse_tests(TestCase):
     
     def setUp(self):
@@ -41,7 +68,7 @@ class fuse_tests(TestCase):
         self.cache_dir = tempfile.mkdtemp()
         self.bucket_dir = tempfile.mkdtemp()
 
-        self.bucketname = 'local://' + os.path.join(self.bucket_dir, 'mybucket')
+        self.bucketname = 'local://' + self.bucket_dir
         self.passphrase = 'oeut3d'
 
         self.mount_thread = None
@@ -87,7 +114,7 @@ class fuse_tests(TestCase):
             self.mount_thread = subprocess.Popen(['valgrind', 'python-dbg', 
                                                   os.path.join(basedir, 'bin', 'mount.s3ql'), 
                                                   "--fg", '--cachedir', self.cache_dir,
-                                                  '--logdir', self.cache_dir, 
+                                                  '--log', 'none',
                                                   '--max-cache-entries', '500',
                                                   self.bucketname, self.mnt_dir],
                                                   stdin=subprocess.PIPE)
@@ -97,7 +124,7 @@ class fuse_tests(TestCase):
             sys.stdin = StringIO('%s\n' % self.passphrase)
             self.mount_thread = AsyncFn(s3ql.cli.mount.main,
                                         ["--fg", '--cachedir', self.cache_dir, 
-                                          '--logdir', self.cache_dir, 
+                                          '--log', 'none', 
                                          '--max-cache-entries', '500',
                                          self.bucketname, self.mnt_dir])
             self.mount_thread.start()
@@ -131,7 +158,7 @@ class fuse_tests(TestCase):
         sys.stdin = StringIO('%s\n' % self.passphrase)
         try:
             s3ql.cli.fsck.main(['--force', '--cachedir', self.cache_dir,
-                                 '--logdir', self.cache_dir, self.bucketname])
+                                 '--log', 'none', self.bucketname])
         except BaseException as exc:
             self.fail("fsck failed: %s" % exc)
 
