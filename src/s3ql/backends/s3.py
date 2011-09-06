@@ -56,7 +56,11 @@ class Bucket(AbstractBucket):
     def __init__(self, bucket_name, aws_key_id, aws_key):
         super(Bucket, self).__init__()
         
-        idx = bucket_name.index('/')
+        try:
+            idx = bucket_name.index('/')
+        except ValueError:
+            idx = len(bucket_name)
+
         self.bucket_name = bucket_name[:idx]
         self.prefix = bucket_name[idx:]
         self.aws_key = aws_key
@@ -359,7 +363,7 @@ class Bucket(AbstractBucket):
             
             log.debug('_do_request(): redirecting to %s', full_url)
             
-            if not isinstance(body, bytes):
+            if body and not isinstance(body, bytes):
                 body.seek(0)
 
         if resp.status == httplib.OK:
