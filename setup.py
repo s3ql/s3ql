@@ -191,15 +191,13 @@ class test(setuptools_test.test):
         sys.path.insert(0, os.path.join(basedir, 'tests'))
         import unittest2 as unittest
         import _common
-        from s3ql.common import (setup_excepthook, add_file_logging, add_stdout_logging,
-                                 LoggerFilter)
+        from s3ql.common import (setup_excepthook, add_stdout_logging, LoggerFilter)
         from getpass import getpass
 
         # Initialize logging if not yet initialized
         root_logger = logging.getLogger()
         if not root_logger.handlers:
             add_stdout_logging(quiet=True)
-            add_file_logging(os.path.join(basedir, 'setup.log'))
             setup_excepthook()  
             if self.debug:
                 root_logger.setLevel(logging.DEBUG)
