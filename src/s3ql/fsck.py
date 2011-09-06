@@ -152,7 +152,7 @@ class Fsck(object):
                     shutil.copyfileobj(fh, dest)
                 
                 if isinstance(dest, CompressFilter):
-                    obj_size = dest.comp_size
+                    obj_size = dest.compr_size
                 else:
                     obj_size = fh.tell()                    
                 self.conn.execute('UPDATE objects SET compr_size=? WHERE id=?', 

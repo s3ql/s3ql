@@ -246,7 +246,7 @@ class UploadThread(Thread):
                     shutil.copyfileobj(self.fh, fh)
                 
             if isinstance(fh, CompressFilter):
-                self.size = fh.comp_size
+                self.size = fh.compr_size
             else:
                 self.size = self.fh.tell()
                 
