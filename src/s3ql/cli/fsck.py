@@ -9,8 +9,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 from s3ql import CURRENT_FS_REV
 from s3ql.backends.common import get_bucket
-from s3ql.common import get_bucket_cachedir, cycle_metadata, setup_logging, \
-    QuietError, get_seq_no, restore_metadata, dump_metadata
+from s3ql.common import (get_bucket_cachedir, cycle_metadata, setup_logging, 
+    QuietError, get_seq_no, restore_metadata, dump_metadata)
 from s3ql.database import Connection
 from s3ql.fsck import Fsck
 from s3ql.parse_args import ArgumentParser
@@ -18,6 +18,7 @@ import apsw
 import cPickle as pickle
 import logging
 import os
+import shutil
 import stat
 import sys
 import tempfile
@@ -154,15 +155,11 @@ def main(args=None):
                              + cachepath + '.param (intact)')
     else:
         log.info("Downloading & uncompressing metadata...")
-        fh = tempfile.TemporaryFile()
-        bucket.fetch_fh("s3ql_metadata", fh)
         os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                          stat.S_IRUSR | stat.S_IWUSR)) 
         db = Connection(cachepath + '.db.tmp', fast_mode=True)
-        fh.seek(0)
-        log.info('Reading metadata...')
-        restore_metadata(fh, db)
-        fh.close()
+        with bucket.open_read("s3ql_metadata") as fh:
+            restore_metadata(fh, db)
         db.close()
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')
@@ -170,7 +167,7 @@ def main(args=None):
     # Increase metadata sequence no 
     param['seq_no'] += 1
     param['needs_fsck'] = True
-    bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
+    bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
     
     fsck = Fsck(cachepath + '-cache', bucket, param, db)
@@ -192,7 +189,9 @@ def main(args=None):
     param['needs_fsck'] = False
     param['last_fsck'] = time.time() - time.timezone
     param['last-modified'] = time.time() - time.timezone
-    bucket.store_fh("s3ql_metadata", fh, param)
+    with bucket.open_write("s3ql_metadata", param) as dst:
+        fh.seek(0)
+        shutil.copyfileobj(fh, dst)
     fh.close()
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         

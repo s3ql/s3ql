@@ -230,15 +230,11 @@ def get_metadata(bucket, cachepath):
     # Download metadata
     if not db:
         log.info("Downloading & uncompressing metadata...")
-        fh = tempfile.TemporaryFile()
-        bucket.fetch_fh("s3ql_metadata", fh)
         os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                          stat.S_IRUSR | stat.S_IWUSR)) 
         db = Connection(cachepath + '.db.tmp', fast_mode=True)
-        fh.seek(0)
-        log.info('Reading metadata...')
-        restore_metadata(fh, db)
-        fh.close()
+        with bucket.open_read("s3ql_metadata") as fh:
+            restore_metadata(fh, db)
         db.close()
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')

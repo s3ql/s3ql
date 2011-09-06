@@ -134,18 +134,15 @@ def download_metadata(bucket, storage_url):
         if os.path.exists(cachepath + i):
             raise QuietError('%s already exists, aborting.' % cachepath+i)
     
-    fh = os.fdopen(os.open(cachepath + '.db', os.O_RDWR | os.O_CREAT,
-                           stat.S_IRUSR | stat.S_IWUSR), 'w+b')
+    os.close(os.open(cachepath + '.db', os.O_RDWR | os.O_CREAT,
+                     stat.S_IRUSR | stat.S_IWUSR), 'w+b')
     param = bucket.lookup(name)
     try:
-        fh.close()
         db = Connection(cachepath + '.db')
-        fh = tempfile.TemporaryFile()
-        bucket.fetch_fh(name, fh)
-        fh.seek(0)
         log.info('Reading metadata...')
+        with bucket.open_read(name) as fh:
+            restore_metadata(fh, db)
         restore_metadata(fh, db)
-        fh.close()
     except:
         # Don't keep file if it doesn't contain anything sensible
         os.unlink(cachepath + '.db')
@@ -303,29 +300,21 @@ def upgrade(bucket):
     log.info("Downloading & uncompressing metadata...")
     dbfile = tempfile.NamedTemporaryFile()
     db = Connection(dbfile.name, fast_mode=True)
-    fh = tempfile.TemporaryFile()
-    bucket.fetch_fh("s3ql_metadata", fh)
-    fh.seek(0)
-    log.info('Reading metadata...')
-    restore_legacy_metadata(fh, db)
-    fh.close()
+    with bucket.open_read("s3ql_metadata") as fh:
+        restore_legacy_metadata(fh, db)
     
     # Increase metadata sequence no
     param['seq_no'] += 1
-    bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
+    bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
     for i in seq_nos:
         if i < param['seq_no'] - 5:
             del bucket['s3ql_seq_no_%d' % i ]
 
-    # Upload metadata
-    fh = tempfile.TemporaryFile()
-    dump_metadata(fh, db)
-    fh.seek(0)
     log.info("Uploading database..")
     cycle_metadata(bucket)
     param['last-modified'] = time.time() - time.timezone
-    bucket.store_fh("s3ql_metadata", fh, param)
-    fh.close()
+    with bucket.open_write("s3ql_metadata", param) as fh:
+        dump_metadata(fh, db)
 
 def restore_legacy_metadata(ifh, conn):
     unpickler = pickle.Unpickler(ifh)
