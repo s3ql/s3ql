@@ -7,26 +7,25 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-
-import logging
-from s3ql.common import (QuietError, restore_metadata,
-                         cycle_metadata, dump_metadata, create_tables,
-                         setup_logging, get_bucket_cachedir)
-from s3ql.backends.common import get_bucket 
-from s3ql.backends.local import Bucket as LocalBucket
-from s3ql.parse_args import ArgumentParser
-from s3ql import CURRENT_FS_REV
-from getpass import getpass
-import sys
-import os
-from s3ql.database import Connection
-import tempfile
 from datetime import datetime as Datetime
-import textwrap
+from getpass import getpass
+from s3ql import CURRENT_FS_REV
+from s3ql.backends.common import get_bucket, BetterBucket
+from s3ql.backends.local import Bucket as LocalBucket
+from s3ql.common import (QuietError, restore_metadata, cycle_metadata, 
+    dump_metadata, create_tables, setup_logging, get_bucket_cachedir)
+from s3ql.database import Connection
+from s3ql.parse_args import ArgumentParser
+import cPickle as pickle
+import logging
+import os
 import shutil
 import stat
+import sys
+import tempfile
+import textwrap
 import time
-import cPickle as pickle
+
 
 log = logging.getLogger("adm")
 
@@ -76,10 +75,7 @@ def main(args=None):
 
     options = parse_args(args)
     setup_logging(options)
-   
-    cachepath = get_bucket_cachedir(options.storage_url, options.cachedir) 
-    bucket = get_bucket(options)
-    
+
     # Check if fs is mounted on this computer
     # This is not foolproof but should prevent common mistakes
     match = options.storage_url + ' /'
@@ -87,10 +83,12 @@ def main(args=None):
         for line in fh:
             if line.startswith(match):
                 raise QuietError('Can not work on mounted file system.')
-                
+               
     if options.action == 'clear':
-        return clear(bucket, cachepath)
+        return clear(get_bucket(options, plain=True),
+                     get_bucket_cachedir(options.storage_url, options.cachedir))
     
+    bucket = get_bucket(options)
     if options.action == 'passphrase':
         return change_passphrase(bucket)
 
@@ -158,13 +156,11 @@ def download_metadata(bucket, storage_url):
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
     param['seq_no'] = max(seq_nos) + 1
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
-    
-
 
 def change_passphrase(bucket):
     '''Change bucket passphrase'''
 
-    if 's3ql_passphrase' not in bucket:
+    if not isinstance(bucket, BetterBucket) and bucket.passphrase:
         raise QuietError('Bucket is not encrypted.')
 
     data_pw = bucket.passphrase
@@ -178,6 +174,7 @@ def change_passphrase(bucket):
 
     bucket.passphrase = wrap_pw
     bucket['s3ql_passphrase'] = data_pw
+    bucket.passphrase = data_pw
 
 def clear(bucket, cachepath):
     print('I am about to delete the S3QL file system in %s.' % bucket,
@@ -197,6 +194,8 @@ def clear(bucket, cachepath):
     if os.path.exists(name):
         shutil.rmtree(name)
 
+    bucket.clear()
+    
     print('Bucket deleted.')
     if (not bucket.list_after_delete_consistent()
         or not bucket.read_after_delete_consistent()): 
