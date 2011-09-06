@@ -7,23 +7,24 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function
-
+from _common import TestCase
+from llfuse import FUSEError
 from random import randint
-from s3ql.fsck import Fsck
 from s3ql import fs
 from s3ql.backends import local
+from s3ql.backends.common import BucketPool
 from s3ql.common import ROOT_INODE, create_tables, init_tables
-from llfuse import FUSEError
 from s3ql.database import Connection
-from _common import TestCase
-import os
-import stat
-import time
-import llfuse
-import unittest2 as unittest
+from s3ql.fsck import Fsck
 import errno
+import llfuse
+import os
 import shutil
+import stat
 import tempfile
+import time
+import unittest2 as unittest
+
         
 # We need to access to protected members
 #pylint: disable=W0212
@@ -46,7 +47,8 @@ class fs_api_tests(TestCase):
 
     def setUp(self):
         self.bucket_dir = tempfile.mkdtemp()
-        self.bucket = local.Connection().get_bucket(self.bucket_dir)
+        self.bucket_pool = BucketPool(lambda: local.Bucket(self.bucket_dir, None, None))
+        self.bucket = self.bucket_pool.pop_conn()
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
 
@@ -55,8 +57,8 @@ class fs_api_tests(TestCase):
         create_tables(self.db)
         init_tables(self.db)
 
-        self.server = fs.Operations(self.bucket, self.db, self.cachedir,
-                                    self.blocksize, cache_size=self.blocksize * 5)
+        self.server = fs.Operations(self.bucket_pool, self.db, self.cachedir, self.blocksize, 
+                                    cache_size=self.blocksize * 5)
         
         # Tested methods assume that they are called from
         # file system request handler
