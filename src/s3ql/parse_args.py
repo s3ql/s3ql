@@ -156,9 +156,9 @@ class ArgumentParser(argparse.ArgumentParser):
                         
     def add_authfile(self):
         self.add_argument("--authfile", type=str, metavar='<path>',
-                      default=os.path.expanduser("~/.s3ql/authinfo"),
+                      default=os.path.expanduser("~/.s3ql/authinfo2"),
                       help='Read authentication credentials from this file '
-                           '(default: `~/.s3ql/authinfo)`')
+                           '(default: `~/.s3ql/authinfo2)`')
     def add_cachedir(self):
         self.add_argument("--cachedir", type=str, metavar='<path>',
                       default=os.path.expanduser("~/.s3ql"),
