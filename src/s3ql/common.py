@@ -166,7 +166,6 @@ def cycle_metadata(bucket):
 
 def dump_metadata(ofh, conn):
     pickler = pickle.Pickler(ofh, 2)
-    data_start = 2048
     bufsize = 256
     buf = range(bufsize)
     tables_to_dump = [('objects', 'id'), ('blocks', 'id'),
@@ -181,12 +180,11 @@ def dump_metadata(ofh, conn):
         for row in conn.query('PRAGMA table_info(%s)' % table):
             columns[table].append(row[1])
 
-    ofh.seek(data_start)
-    sizes = dict()
+    pickler.dump((tables_to_dump, columns))
+    
     for (table, order) in tables_to_dump:
         log.info('Saving %s' % table)
         pickler.clear_memo()
-        sizes[table] = 0
         i = 0
         for row in conn.query('SELECT %s FROM %s ORDER BY %s' 
                               % (','.join(columns[table]), table, order)):
@@ -195,32 +193,31 @@ def dump_metadata(ofh, conn):
             if i == bufsize:
                 pickler.dump(buf)
                 pickler.clear_memo()
-                sizes[table] += 1
                 i = 0
 
         if i != 0:
             pickler.dump(buf[:i])
-            sizes[table] += 1
+        
+        pickler.dump(None)
 
-    ofh.seek(0)
-    pickler.dump((data_start, tables_to_dump, sizes, columns))
-    assert ofh.tell() < data_start
 
 def restore_metadata(ifh, conn):
 
     unpickler = pickle.Unpickler(ifh)
-    (data_start, to_dump, sizes, columns) = unpickler.load()
-    ifh.seek(data_start)
+    (to_dump, columns) = unpickler.load()
     create_tables(conn)
     for (table, _) in to_dump:
         log.info('Loading %s', table)
         col_str = ', '.join(columns[table])
         val_str = ', '.join('?' for _ in columns[table])
         sql_str = 'INSERT INTO %s (%s) VALUES(%s)' % (table, col_str, val_str)
-        for _ in xrange(sizes[table]):
+        while True:
             buf = unpickler.load()
+            if not buf:
+                break
             for row in buf:
                 conn.execute(sql_str, row)
+
     conn.execute('ANALYZE')
     
 class QuietError(Exception):
