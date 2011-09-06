@@ -84,12 +84,12 @@ def main(args=None):
         data_pw = fh.read(32)
         fh.close()
         
-        bucket = BetterBucket(wrap_pw, options.compress, plain_bucket)
+        bucket = BetterBucket(wrap_pw, 'bzip2', plain_bucket)
         bucket['s3ql_passphrase'] = data_pw
     else:    
         data_pw = None
         
-    bucket = BetterBucket(data_pw, options.compress, plain_bucket)
+    bucket = BetterBucket(data_pw, 'bzip2', plain_bucket)
 
     # Setup database
     cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
