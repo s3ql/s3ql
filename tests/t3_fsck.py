@@ -7,25 +7,24 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function
-
-import unittest2 as unittest
-from s3ql.fsck import Fsck
-from s3ql.backends import local
-from s3ql.database import Connection, NoSuchRowError
-from s3ql.common import ROOT_INODE, create_tables, init_tables
 from _common import TestCase
+from s3ql.backends import local
+from s3ql.common import ROOT_INODE, create_tables, init_tables
+from s3ql.database import Connection, NoSuchRowError
+from s3ql.fsck import Fsck
 import os
+import shutil
 import stat
 import tempfile
 import time
-import shutil
+import unittest2 as unittest
+
 
 class fsck_tests(TestCase):
 
     def setUp(self):
         self.bucket_dir = tempfile.mkdtemp()
-        self.passphrase = 'schnupp'
-        self.bucket = local.Connection().get_bucket(self.bucket_dir, self.passphrase)
+        self.bucket = local.Bucket(self.bucket_dir, None, None)
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
 
