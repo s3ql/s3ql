@@ -293,7 +293,7 @@ class cache_tests(TestCase):
 
 class TestBucketPool(AbstractBucket):
     def __init__(self, bucket_pool, no_read=0, no_write=0, no_del=0):
-        super(AbstractBucket, self).__init__()
+        super(TestBucketPool, self).__init__()
         self.no_read = no_read
         self.no_write = no_write
         self.no_del = no_del
