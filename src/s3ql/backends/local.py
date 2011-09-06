@@ -24,6 +24,8 @@ class Bucket(AbstractBucket):
     A bucket that is stored on the local hard disk
     '''
 
+    needs_login = False
+    
     def __init__(self, name, backend_login, backend_pw): #IGNORE:W0613
         '''Initialize local bucket
         

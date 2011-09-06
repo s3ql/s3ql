@@ -93,6 +93,8 @@ class AbstractBucket(object):
     '''
     __metaclass__ = ABCMeta
 
+    needs_login = True
+    
     def __init__(self):
         super(AbstractBucket, self).__init__()
 
@@ -909,7 +911,21 @@ def get_bucket_factory(options, plain=False):
     If *plain* is true, don't attempt to unlock and don't wrap into
     BetterBucket.    
     '''
-
+                                     
+    hit = re.match(r'^([a-zA-Z0-9]+)://(.+)$', options.storage_url)
+    if not hit:
+        raise QuietError('Unknown storage url: %s' % options.storage_url)
+    
+    backend_name = 's3ql.backends.%s' % hit.group(1)
+    bucket_name = hit.group(2)
+    try:
+        __import__(backend_name)
+    except ImportError:
+        raise QuietError('No such backend: %s' % hit.group(1))
+    
+    bucket_class = getattr(sys.modules[backend_name], 'Bucket')
+    
+    # Read authfile
     config = ConfigParser.SafeConfigParser()
     if os.path.isfile(options.authfile):
         mode = os.stat(options.authfile).st_mode
@@ -936,31 +952,18 @@ def get_bucket_factory(options, plain=False):
         backend_pw = backend_pw or getopt('backend-password')
         bucket_passphrase = bucket_passphrase or getopt('bucket-passphrase')
       
-    if not backend_login:
+    if not backend_login and bucket_class.needs_login:
         if sys.stdin.isatty():
-            backend_login = getpass("Enter backend login: ") 
+            backend_login = getpass("Enter backend login: ")
         else:
             backend_login = sys.stdin.readline().rstrip()
 
-    if not backend_pw:
+    if not backend_pw and bucket_class.needs_login:
         if sys.stdin.isatty():
             backend_pw = getpass("Enter backend password: ") 
         else:
             backend_pw = sys.stdin.readline().rstrip()
-                                     
-    hit = re.match(r'^([a-zA-Z0-9]+)://(.+)$', options.storage_url)
-    if not hit:
-        raise QuietError('Unknown storage url: %s' % options.storage_url)
-    
-    backend_name = 's3ql.backends.%s' % hit.group(1)
-    bucket_name = hit.group(2)
-    try:
-        __import__(backend_name)
-    except ImportError:
-        raise QuietError('No such backend: %s' % hit.group(1))
-    
-    bucket_class = getattr(sys.modules[backend_name], 'Bucket')
-    
+                
     if plain:
         return lambda: bucket_class(bucket_name, backend_login, backend_pw)
     
