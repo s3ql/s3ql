@@ -950,7 +950,7 @@ def get_bucket_factory(options, plain=False):
 
         pattern = getopt('storage-url')
         
-        if not options.storage_url.startswith(pattern):
+        if not pattern or not options.storage_url.startswith(pattern):
             continue
         
         backend_login = backend_login or getopt('backend-login')
