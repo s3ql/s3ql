@@ -13,7 +13,7 @@ are:
   * a --version argument is added by default
   
   * convenience functions are available for adding --quiet, 
-    --debug, --cachedir, --logdir and --authfile options.
+    --debug, --cachedir, --log and --authfile options.
   
   * instead of the usage string one can pass a usage list. The first
     element will be prefixed with ``usage: `` as usual. Additional

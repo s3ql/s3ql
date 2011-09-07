@@ -4,6 +4,11 @@
 Known Issues
 ============
 
+* S3QL does not verify TLS/SSL server certificates, so a
+  man-in-the-middle attack is principally possible. See `issue 267
+  <http://code.google.com/p/s3ql/issues/detail?id=267>`_ for more
+  details.
+
 * S3QL is rather slow when an application tries to write data in
   unreasonably small chunks. If a 1 MB file is copied in chunks of 1
   KB, this will take more than 10 times as long as when it's copied

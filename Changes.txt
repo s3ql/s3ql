@@ -28,6 +28,10 @@ UNRELEASED, S3QL TIP
     use S3QL over ssh is to use sshfs
     (http://fuse.sourceforge.net/sshfs.html) with S3QL's local
     backend.
+
+  * fsck now checks if all indices have been created. This avoids
+    a huge performance problem when mount.s3ql was interrupted
+    after downloading metadata, but before creating the indices.
   
 2011-07-23, S3QL 1.1 (development version)
 

@@ -134,7 +134,6 @@ exception for which the instance's `_retry_on` method returns True.
               
     return wrapped 
 
-
 def get_seq_no(bucket):
     '''Get current metadata sequence number'''
        
