@@ -1,5 +1,18 @@
 UNRELEASED, S3QL TIP
 
+  * The modules for communicating with the different storage providers
+    have been completely rewritten, resulting in improved performance,
+    more features and better maintainability.
+
+  * S3 buckets can now be used with arbitrary prefixes, allowing to
+    store more than one S3QL file system in a bucket.
+
+  * The format of the --authinfo file has changed. See the
+    documentation for details of the new format. To avoid breaking
+    backwards compatibility, the default file is now called authinfo2.
+
+  * Network errors are now handled much more consistently.
+  
   * There is a new --nfs option for mount.s3ql that needs to be used
     when the S3QL file system will be exported over NFS.
 
