@@ -114,7 +114,8 @@ class Bucket(AbstractBucket):
         # https://forums.aws.amazon.com/message.jspa?messageID=272309#272309
         log.debug('delete(%s)', key)
         try:
-            self._do_request('DELETE', '/%s%s' % (self.prefix, key))
+            resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
+            assert resp.length == 0
         except NoSuchKey:
             if force:
                 pass
@@ -234,8 +235,12 @@ class Bucket(AbstractBucket):
         
         try:
             resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-        except NoSuchKey:
-            raise NoSuchObject(key)
+            assert resp.length == 0
+        except HTTPError as exc:
+            if exc.status == 404:
+                raise NoSuchObject(key)
+            else:
+                raise
 
         return extractmeta(resp)
     
@@ -299,19 +304,6 @@ class Bucket(AbstractBucket):
         '''Does this backend provide list-after-create consistency?'''
         
         return self.region in ('EU', 'us-west-1', 'ap-southeast-1')
-
-    @retry
-    def contains(self, key):
-        '''Check if `key` is in bucket'''
-        
-        log.debug('contains(%s)', key)
-        
-        try:
-            self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-        except NoSuchKey:
-            return False
-        else:
-            return True
         
     @retry
     def copy(self, src, dest):
@@ -324,9 +316,11 @@ class Bucket(AbstractBucket):
         log.debug('copy(%s, %s): start', src, dest)
         
         try:
-            self._do_request('PUT', '/%s%s' % (self.prefix, dest),
-                             headers={ 'x-amz-copy-source': '/%s%s%s' % (self.bucket_name,
-                                                                         self.prefix, src)})
+            resp = self._do_request('PUT', '/%s%s' % (self.prefix, dest),
+                                    headers={ 'x-amz-copy-source': '/%s/%s%s' % (self.bucket_name,
+                                                                                self.prefix, src)})
+            # Discard response body
+            resp.read()
         except NoSuchKey:
             raise NoSuchObject(src)
     
@@ -340,8 +334,8 @@ class Bucket(AbstractBucket):
         if headers is None:
             headers = dict()
             
-        full_url = self._add_auth('DELETE', '/%s%s' % (self.prefix, url),
-                                  headers, subres, query_string)
+        headers['connection'] = 'keep-alive'
+        full_url = self._add_auth(method, url, headers, subres, query_string)
         
         redirect_count = 0
         while True:
@@ -353,7 +347,7 @@ class Bucket(AbstractBucket):
         
             log.debug('_do_request(): request-id: %s',  resp.getheader('x-amz-request-id'))
             
-            if (resp.status < 300 and resp.status > 399):
+            if (resp.status < 300 or resp.status > 399):
                 break
             
             redirect_count += 1
@@ -365,14 +359,31 @@ class Bucket(AbstractBucket):
             
             if body and not isinstance(body, bytes):
                 body.seek(0)
-
-        if resp.status == httplib.OK:
+                
+            # Read and discard body
+            resp.read()
+            
+        # We need to call read() at least once for httplib to consider this
+        # request finished, even if there is no response body.
+        if resp.length == 0:
+            resp.read()
+           
+        # Success 
+        if resp.status >= 200 and resp.status <= 299:
             return resp
         
-        if resp.getheader('Content-Type').lower() != 'application/xml':
-            raise RuntimeError('unexpected content type %s for status %d'
-                               % (resp.getheader('Content-Type'), resp.status)) 
-        
+        # If method == HEAD, server must not return response body
+        # even in case of errors
+        if method.upper() == 'HEAD':
+            raise HTTPError(resp.status, resp.reason)
+
+
+        content_type = resp.getheader('Content-Type')
+        if not content_type or content_type.lower() != 'application/xml':
+            raise RuntimeError('\n'.join(['Unexpected S3 reply:',
+                                          '%d %s' % (resp.status, resp.reason) ]
+                                         + [ '%s: %s' % x for x in resp.getheaders() ])
+                               + '\n' + resp.read())
         # Error
         tree = ElementTree.parse(resp).getroot()
         raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'))
@@ -412,20 +423,23 @@ class Bucket(AbstractBucket):
         # See http://docs.amazonwebservices.com/AmazonS3/latest/dev/RESTAuthentication.html
         
         # Lowercase headers
-        headers = dict((x.lower(), y) for (x,y) in headers.iteritems())
-
-        # Date
+        keys = list(headers.iterkeys())
+        for key in keys:
+            key_l = key.lower()
+            if key_l == key:
+                continue
+            headers[key_l] = headers[key]
+            del headers[key]
+                
+        # Date, can't use strftime because it's locale dependent
         now = time.gmtime()
-        # Can't use strftime because it's locale dependent
         headers['date'] = ('%s, %02d %s %04d %02d:%02d:%02d GMT' 
                            % (C_DAY_NAMES[now.tm_wday],
                               now.tm_mday,
                               C_MONTH_NAMES[now.tm_mon - 1],
                               now.tm_year, now.tm_hour, 
                               now.tm_min, now.tm_sec))
-
-        headers['connection'] = 'keep-alive'
-            
+        
         auth_strs = [method, '\n']
         
         for hdr in ('content-md5', 'content-type', 'date'):
@@ -438,6 +452,7 @@ class Bucket(AbstractBucket):
             auth_strs.append('%s:%s\n' % (hdr,val))
     
         auth_strs.append('/' + self.bucket_name)
+        url = urllib.quote(url)
         auth_strs.append(url)
         if subres:
             auth_strs.append('?%s' % subres)
@@ -446,9 +461,9 @@ class Bucket(AbstractBucket):
         #pylint: disable=E1101
         signature = b64encode(hmac.new(self.aws_key, ''.join(auth_strs), hashlib.sha1).digest())
          
-        headers['Authorization'] = 'AWS %s:%s' % (self.aws_key_id, signature)
+        headers['authorization'] = 'AWS %s:%s' % (self.aws_key_id, signature)
     
-        full_url = urllib.quote(url)
+        full_url = url
         if query_string:
             s = urllib.urlencode(query_string, doseq=True)
             if subres:
@@ -562,9 +577,11 @@ class ObjectW(object):
         self.closed = True
         self.headers['Content-Length'] = os.fstat(self.fh.fileno()).st_size
         
+        self.fh.seek(0)
         resp = self.bucket._do_request('PUT', '/%s%s' % (self.bucket.prefix, self.key), 
                                        headers=self.headers, body=self.fh)
         etag = resp.getheader('ETag').strip('"')
+        assert resp.length == 0
         
         if etag != self.md5.hexdigest():
             log.warn('ObjectW(%s).close(): MD5 mismatch (%s vs %s)', self.key, etag, 
@@ -590,9 +607,8 @@ class ObjectW(object):
 def get_S3Error(code, msg):
     '''Instantiate most specific S3Error subclass'''
     
-    return getattr(globals(), code, S3Error)(code, msg)
+    return globals().get(code, S3Error)(code, msg)
     
-
 def extractmeta(resp):
     '''Extract metadata from HTTP response object'''
     
@@ -601,11 +617,25 @@ def extractmeta(resp):
         hit = re.match(r'^x-amz-meta-(.+)$', name)
         if not hit:
             continue
-        meta[hit.match(1)] = val
+        meta[hit.group(1)] = val
         
     return meta
                     
-              
+
+class HTTPError(Exception):
+    '''
+    Represents an HTTP error returned by S3 in response to a 
+    HEAD request.
+    '''
+    
+    def __init__(self, status, msg):
+        super(HTTPError, self).__init__()
+        self.status = status
+        self.msg = msg
+        
+    def __str__(self):
+        return '%d %s' % (self.status, self.msg)
+                      
 class S3Error(Exception):
     '''
     Represents an error returned by S3. For possible codes, see
@@ -618,7 +648,7 @@ class S3Error(Exception):
         self.msg = msg
         
     def __str__(self):
-        return self.msg
+        return '%s: %s' % (self.code, self.msg)
     
 class NoSuchKey(S3Error): pass
 class AccessDenied(S3Error): pass
