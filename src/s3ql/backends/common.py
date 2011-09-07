@@ -206,10 +206,15 @@ class AbstractBucket(object):
         """Delete all objects in bucket"""
         pass
 
-    @abstractmethod
     def contains(self, key):
         '''Check if `key` is in bucket'''
-        pass
+        
+        try:
+            self.lookup(key)
+        except NoSuchObject:
+            return False
+        else:
+            return True
 
     @abstractmethod
     def delete(self, key, force=False):
