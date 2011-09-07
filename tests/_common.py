@@ -28,12 +28,9 @@ file has been written correctly.
 from __future__ import division, print_function
 
 import unittest2 as unittest
-import os
 import logging
 from s3ql.common import add_stdout_logging, setup_excepthook
 #from s3ql.common import LoggerFilter
-
-__all__ = [ 'TestCase' ]
 
 log = logging.getLogger()
 
@@ -64,23 +61,3 @@ class TestCase(unittest.TestCase):
         # Abort if any test failed
         if result.errors or result.failures:
             result.stop()
-
-# Try to read credentials from file. Meant for developer use only,  
-# so that we can run individual tests without the setup.py
-# initialization.
-def init_credentials():
-    keyfile = os.path.expanduser("~/.awssecret")
-
-    if not os.path.isfile(keyfile):
-        return None
-
-    with open(keyfile, "r") as fh:
-        key = fh.readline().rstrip()
-        pw = fh.readline().rstrip()
-
-    return (key, pw)
-
-aws_credentials = init_credentials()
-
-
-

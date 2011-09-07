@@ -7,22 +7,16 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function
-
-import unittest2 as unittest
-from s3ql.backends import local, s3
-from s3ql.backends.common import ChecksumError, ObjectNotEncrypted, NoSuchObject,\
-    BetterBucket
-import tempfile
-import os
-import time
 from _common import TestCase
-import _common
-from random import randrange
-
-try:
-    import boto
-except ImportError:
-    boto = None
+from s3ql.backends import local, s3
+from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject, 
+    BetterBucket)
+import ConfigParser
+import os
+import stat
+import tempfile
+import time
+import unittest2 as unittest
      
 class BackendTestsMixin(object):
 
@@ -147,46 +141,40 @@ class BackendTestsMixin(object):
 # This test just takes too long (because we have to wait really long so that we don't
 # get false errors due to propagation delays)
 #@unittest.skip('takes too long')
-@unittest.skipUnless(_common.aws_credentials, 'no AWS credentials available')
-@unittest.skipUnless(boto, 'python boto module not installed')
 class S3Tests(BackendTestsMixin, TestCase):
-    @staticmethod
-    def random_name(prefix=""):
-        return "s3ql-" + prefix + str(randrange(1000, 9999, 1))
-
     def setUp(self):
         self.name_cnt = 0
-        self.boto = boto.connect_s3(*_common.aws_credentials)
-
-        tries = 0
-        while tries < 10:
-            self.bucketname = self.random_name()
-            try:
-                self.boto.get_bucket(self.bucketname)
-            except boto.exception.S3ResponseError as e:
-                if e.status == 404:
-                    break
-                raise
-            tries += 1
-        else:
-            raise RuntimeError("Failed to find an unused bucket name.")
-        
-        # Create in EU for more consistency guarantees
-        self.boto.create_bucket(self.bucketname, location='EU')
 
         # This is the time in which we expect S3 changes to propagate. It may
         # be much longer for larger objects, but for tests this is usually enough.
         self.delay = 8
-
-        time.sleep(self.delay) # wait for bucket        
-        self.bucket = s3.Bucket(aws_key_id=_common.aws_credentials[0],
-                                aws_key=_common.aws_credentials[1],
-                                bucket_name=self.bucketname)
+       
+        self.bucket = s3.Bucket(*self.get_credentials('s3-test'))
 
     def tearDown(self):
         self.bucket.clear()
-        time.sleep(self.delay)
-        self.boto.delete_bucket(self.bucketname)
+        
+    def get_credentials(self, name):
+        
+        authfile = os.path.expanduser('~/.s3ql/authinfo2')
+        if not os.path.exists(authfile):
+            self.skipTest('No authentication file found.')
+            
+        mode = os.stat(authfile).st_mode
+        if mode & (stat.S_IRGRP | stat.S_IROTH):
+            self.skipTest("Authentication file has insecure permissions")    
+        
+        config = ConfigParser.SafeConfigParser()
+        config.read(authfile)
+                
+        try:
+            bucket_name = config.get(name, 'test-bucket')
+            backend_login = config.get(name, 'backend-login')
+            backend_password = config.get(name, 'backend-password')
+        except ConfigParser.NoOptionError:
+            self.skipTest("Authentication file does not have test section")  
+    
+        return (bucket_name, backend_login, backend_password)
     
 class LocalTests(BackendTestsMixin, TestCase):
 

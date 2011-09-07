@@ -149,7 +149,7 @@ def main():
                             'argparse >= 1.1',
                             'pyliblzma >= 0.5.3' ],
           tests_require=['apsw >= 3.7.0', 'unittest2',
-                         'pycryptopp', 'boto',
+                         'pycryptopp',
                          'llfuse >= 0.29',
                          'argparse >= 1.1',
                          'pyliblzma >= 0.5.3' ],
@@ -167,16 +167,12 @@ class test(setuptools_test.test):
     description = "Run self-tests"
     user_options = (setuptools_test.test.user_options + 
                     [('debug=', None, 'Activate debugging for specified modules '
-                                    '(separated by commas, specify "all" for all modules)'),
-                    ('awskey=', None, 'Specify AWS access key to use, secret key will be asked for. '
-                                      'If this option is not specified, tests requiring access '
-                                      'to Amazon Web Services will be skipped.')])
+                                      '(separated by commas, specify "all" for all modules)')])
 
 
     def initialize_options(self):
         setuptools_test.test.initialize_options(self)
         self.debug = None
-        self.awskey = None
 
     def finalize_options(self):
         setuptools_test.test.finalize_options(self)
@@ -184,15 +180,12 @@ class test(setuptools_test.test):
         if self.debug:
             self.debug = [ x.strip() for x  in self.debug.split(',') ]
 
-
     def run_tests(self):
 
         # Add test modules
         sys.path.insert(0, os.path.join(basedir, 'tests'))
         import unittest2 as unittest
-        import _common
         from s3ql.common import (setup_excepthook, add_stdout_logging, LoggerFilter)
-        from getpass import getpass
 
         # Initialize logging if not yet initialized
         root_logger = logging.getLogger()
@@ -207,14 +200,6 @@ class test(setuptools_test.test):
                 root_logger.setLevel(logging.INFO) 
         else:
             root_logger.debug("Logging already initialized.")
-        
-        # Init AWS
-        if self.awskey:
-            if sys.stdin.isatty():
-                pw = getpass("Enter AWS password: ")
-            else:
-                pw = sys.stdin.readline().rstrip()
-            _common.aws_credentials = (self.awskey, pw)
 
         # Define our own test loader to order modules alphabetically
         from pkg_resources import resource_listdir, resource_exists
