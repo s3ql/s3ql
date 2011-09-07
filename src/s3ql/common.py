@@ -107,21 +107,25 @@ def retry(fn):
             try:
                 return fn(self, *a, **kw)
             except Exception as exc:
+                # Access to protected member ok
+                #pylint: disable=W0212
                 if not self._retry_on(exc):
                     raise
                 if waited > RETRY_TIMEOUT:
-                    log.err('%s.%s(*): Timeout exceeded, re-raising %r exception', 
-                            fn.im_class.__name__, fn.__name__, exc)
+                    log.error('%s.%s(*): Timeout exceeded, re-raising %r exception', 
+                            self.__class__.__name__, fn.__name__, exc)
                     raise
                 
                 log.debug('%s.%s(*): trying again after %r exception:', 
-                          fn.im_class.__name__, fn.__name__, exc)
+                          self.__class__.__name__, fn.__name__, exc)
                 
             time.sleep(interval)
             waited += interval
             if interval < 20*60:
                 interval *= 2   
                 
+    # False positive
+    #pylint: disable=E1101
     wrapped.__doc__ += '''
 This method has been decorated and will automatically recall itself in
 increasing intervals for up to s3ql.common.RETRY_TIMEOUT seconds if it raises an
