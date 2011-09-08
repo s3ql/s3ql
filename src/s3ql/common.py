@@ -7,18 +7,20 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-
+from functools import wraps
+from llfuse import ROOT_INODE
+import cPickle as pickle
 import hashlib
+import logging
 import os
+import shutil
 import stat
 import sys
+import tempfile
 import threading
-import traceback
 import time
-from functools import wraps
-import cPickle as pickle
-from llfuse import ROOT_INODE
-import logging
+import traceback
+
 
 log = logging.getLogger('common')
         
@@ -205,6 +207,15 @@ def dump_metadata(ofh, conn):
 
 def restore_metadata(ifh, conn):
 
+    # Unpickling is terribly slow if fh is not a real file
+    # object.
+    if not hasattr(ifh, 'fileno'):
+        log.info('Caching tables...')
+        with tempfile.TemporaryFile() as tmp:
+            shutil.copyfileobj(ifh, tmp)
+            tmp.seek(0)
+            return restore_metadata(tmp, conn)
+    
     unpickler = pickle.Unpickler(ifh)
     (to_dump, columns) = unpickler.load()
     create_tables(conn)

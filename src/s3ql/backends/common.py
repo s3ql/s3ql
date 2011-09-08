@@ -495,11 +495,6 @@ class AbstractInputFilter(object):
     def _read(self, size):
         '''Read roughly *size* bytes'''    
         pass
-    
-    # pickle requires a readline() method for unpickling, but isn't actually
-    # using it if we're using the binary protocols.
-    def readline(self):
-        raise RuntimeError('not implemented')
         
 class CompressFilter(object):
     '''Compress data while writing
