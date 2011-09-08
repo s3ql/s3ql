@@ -93,7 +93,7 @@ class fuse_tests(TestCase):
         if not USE_VALGRIND and not self.mount_thread.is_alive():
             self.mount_thread.join_and_raise()
                     
-    def mount(self):
+    def mkfs(self):
         
         sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
         try:
@@ -102,6 +102,7 @@ class fuse_tests(TestCase):
         except BaseException as exc:
             self.fail("mkfs.s3ql failed: %s" % exc)
 
+    def mount(self):
         
         # Note: When running inside test suite, we have less available
         # file descriptors        
@@ -154,7 +155,8 @@ class fuse_tests(TestCase):
             self.assertIsNone(exc)
         self.assertFalse(os.path.ismount(self.mnt_dir))
 
-        # Now run an fsck
+    def fsck(self):
+        
         sys.stdin = StringIO('%s\n' % self.passphrase)
         try:
             s3ql.cli.fsck.main(['--force', '--cachedir', self.cache_dir,
@@ -166,6 +168,7 @@ class fuse_tests(TestCase):
         # Run all tests in same environment, mounting and umounting
         # just takes too long otherwise
 
+        self.mkfs()
         self.mount()
         self.tst_chown()
         self.tst_link()
@@ -177,7 +180,20 @@ class fuse_tests(TestCase):
         self.tst_truncate()
         self.tst_write()
         self.umount()
-
+        self.fsck()
+        
+        # Empty cache
+        shutil.rmtree(self.cache_dir)
+        self.cache_dir = tempfile.mkdtemp()
+        
+        self.mount()
+        self.umount()
+        
+        # Empty cache
+        shutil.rmtree(self.cache_dir)
+        self.cache_dir = tempfile.mkdtemp()
+        self.fsck()
+        
     def newname(self):
         self.name_cnt += 1
         return "s3ql_%d" % self.name_cnt
