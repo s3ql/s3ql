@@ -12,7 +12,7 @@ from __future__ import division, print_function
 import sys
 import os
 import subprocess
-import logging
+import logging.handlers
 from glob import glob
 
 # Work around setuptools bug
