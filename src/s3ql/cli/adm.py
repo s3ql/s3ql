@@ -10,15 +10,19 @@ from __future__ import division, print_function, absolute_import
 from datetime import datetime as Datetime
 from getpass import getpass
 from s3ql import CURRENT_FS_REV
-from s3ql.backends.common import get_bucket, BetterBucket
-from s3ql.backends.local import Bucket as LocalBucket
+from s3ql.backends.common import (BetterBucket, get_bucket, NoSuchBucket, 
+    ChecksumError, AbstractBucket, NoSuchObject)
+from s3ql.backends.local import Bucket as LocalBucket, ObjectR, unescape, escape
 from s3ql.common import (QuietError, restore_metadata, cycle_metadata, 
     dump_metadata, create_tables, setup_logging, get_bucket_cachedir)
 from s3ql.database import Connection
 from s3ql.parse_args import ArgumentParser
+import ConfigParser
 import cPickle as pickle
+import errno
 import logging
 import os
+import re
 import shutil
 import stat
 import sys
@@ -88,12 +92,13 @@ def main(args=None):
         return clear(get_bucket(options, plain=True),
                      get_bucket_cachedir(options.storage_url, options.cachedir))
     
+    if options.action == 'upgrade':
+        return upgrade(get_possibly_old_bucket(options))
+        
     bucket = get_bucket(options)
+    
     if options.action == 'passphrase':
         return change_passphrase(bucket)
-
-    if options.action == 'upgrade':
-        return upgrade(bucket)
 
     if options.action == 'download-metadata':
         return download_metadata(bucket, options.storage_url)
@@ -198,13 +203,114 @@ def clear(bucket, cachepath):
         or not bucket.read_after_delete_consistent()): 
         print('Note that it may take a while until the removal becomes visible.')
 
+def get_possibly_old_bucket(options, plain=False):
+    '''Return factory producing bucket objects for given storage-url
+    
+    If *plain* is true, don't attempt to unlock and don't wrap into
+    BetterBucket.    
+    '''
+                                     
+    hit = re.match(r'^([a-zA-Z0-9]+)://(.+)$', options.storage_url)
+    if not hit:
+        raise QuietError('Unknown storage url: %s' % options.storage_url)
+    
+    backend_name = 's3ql.backends.%s' % hit.group(1)
+    bucket_name = hit.group(2)
+    try:
+        __import__(backend_name)
+    except ImportError:
+        raise QuietError('No such backend: %s' % hit.group(1))
+    
+    bucket_class = getattr(sys.modules[backend_name], 'Bucket')
+    
+    # Read authfile
+    config = ConfigParser.SafeConfigParser()
+    if os.path.isfile(options.authfile):
+        mode = os.stat(options.authfile).st_mode
+        if mode & (stat.S_IRGRP | stat.S_IROTH):
+            raise QuietError("%s has insecure permissions, aborting." % options.authfile)    
+        config.read(options.authfile)
+    
+    backend_login = None
+    backend_pw = None
+    bucket_passphrase = None
+    for section in config.sections():
+        def getopt(name):
+            try:
+                return config.get(section, name)
+            except ConfigParser.NoOptionError:
+                return None
+
+        pattern = getopt('storage-url')
+        
+        if not pattern or not options.storage_url.startswith(pattern):
+            continue
+        
+        backend_login = backend_login or getopt('backend-login')
+        backend_pw = backend_pw or getopt('backend-password')
+        bucket_passphrase = bucket_passphrase or getopt('bucket-passphrase')
+      
+    if not backend_login and bucket_class.needs_login:
+        if sys.stdin.isatty():
+            backend_login = getpass("Enter backend login: ")
+        else:
+            backend_login = sys.stdin.readline().rstrip()
+
+    if not backend_pw and bucket_class.needs_login:
+        if sys.stdin.isatty():
+            backend_pw = getpass("Enter backend password: ") 
+        else:
+            backend_pw = sys.stdin.readline().rstrip()   
+
+    bucket = bucket_class(bucket_name, backend_login, backend_pw)
+    if bucket_class == LocalBucket and 's3ql_metadata.dat' in bucket:
+        bucket_class = LegacyLocalBucket
+        bucket = bucket_class(bucket_name, backend_login, backend_pw)
+        
+    if plain:
+        return bucket
+    
+    try:
+        encrypted = 's3ql_passphrase' in bucket
+    except NoSuchBucket:
+        raise QuietError('Bucket %d does not exist' % bucket_name)
+        
+    if encrypted and not bucket_passphrase:
+        if sys.stdin.isatty():
+            bucket_passphrase = getpass("Enter bucket encryption passphrase: ") 
+        else:
+            bucket_passphrase = sys.stdin.readline().rstrip()
+    elif not encrypted:
+        bucket_passphrase = None
+        
+    if hasattr(options, 'compress'):
+        compress = options.compress
+    else:
+        compress = 'zlib'
+            
+    if not encrypted:
+        return BetterBucket(None, compress, 
+                            bucket_class(bucket_name, backend_login, backend_pw))
+    
+    tmp_bucket = BetterBucket(bucket_passphrase, compress, bucket)
+    
+    try:
+        data_pw = tmp_bucket['s3ql_passphrase']
+    except ChecksumError:
+        raise
+        raise QuietError('Wrong bucket passphrase')
+
+    return BetterBucket(data_pw, compress, 
+                        bucket_class(bucket_name, backend_login, backend_pw))
+    
 def upgrade(bucket):
     '''Upgrade file system to newest revision'''
 
     # Access to protected member
     #pylint: disable=W0212
     log.info('Getting file system parameters..')
-    seq_nos = list(bucket.list('s3ql_seq_no_')) 
+    seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
+    seq_no = max(seq_nos)
     if not seq_nos:
         raise QuietError(textwrap.dedent(''' 
             File system revision too old to upgrade!
@@ -213,14 +319,7 @@ def upgrade(bucket):
             revision before you can use this version to upgrade to the newest
             revision.
             '''))                     
-    elif (isinstance(bucket, LocalBucket) and
-         (seq_nos[0].endswith('.meta') or seq_nos[0].endswith('.dat'))):
-        param = bucket.lookup('s3ql_metadata.meta')
-        seq_nos = [ int(x[len('s3ql_seq_no_'):-4]) for x in seq_nos if x.endswith('.dat') ]                 
-    else:
-        param = bucket.lookup('s3ql_metadata')
-        seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in seq_nos ]
-    seq_no = max(seq_nos)
+    param = bucket.lookup('s3ql_metadata')
 
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:
@@ -277,32 +376,48 @@ def upgrade(bucket):
              CURRENT_FS_REV)
     param['revision'] = CURRENT_FS_REV
     
-    if isinstance(bucket, LocalBucket):
-        for (path, _, filenames) in os.walk(bucket.name, topdown=True):
+    if (isinstance(bucket, LegacyLocalBucket) or
+        (isinstance(bucket, BetterBucket) and
+         isinstance(bucket.bucket, LegacyLocalBucket))):
+        if isinstance(bucket, LegacyLocalBucket):
+            bucketpath = bucket.name
+        else:
+            bucketpath = bucket.bucket.name
+        for (path, _, filenames) in os.walk(bucketpath, topdown=True):
             for name in filenames:
-                if name.endswith('.dat'):
+                if not name.endswith('.meta'):
                     continue
                 
                 basename = os.path.splitext(name)[0]
+                if '=00' in basename:
+                    raise RuntimeError("No, seriously, you tried to break things, didn't you?")
+                
                 with open(os.path.join(path, name), 'r+b') as dst:
                     dst.seek(0, os.SEEK_END)
                     with open(os.path.join(path, basename + '.dat'), 'rb') as src:
                         shutil.copyfileobj(src, dst)
                 
-                if '=00' in basename:
-                    raise RuntimeError("No, seriously, you tried to break things, didn't you?")
-                
-                basename = basename.replace('.', '=2E')
+                basename = basename.replace('#', '=23')
                 os.rename(os.path.join(path, name),
                           os.path.join(path, basename))
+                os.unlink(os.path.join(path, basename + '.dat'))
+                
+        if isinstance(bucket, LegacyLocalBucket):
+            bucket = LocalBucket(bucket.name, None, None)
+        else:
+            bucket.bucket = LocalBucket(bucket.bucket.name, None, None)
                      
     # Download metadata
     log.info("Downloading & uncompressing metadata...")
     dbfile = tempfile.NamedTemporaryFile()
-    db = Connection(dbfile.name, fast_mode=True)
-    with bucket.open_read("s3ql_metadata") as fh:
-        restore_legacy_metadata(fh, db)
+    with tempfile.TemporaryFile() as tmp:    
+        with bucket.open_read("s3ql_metadata") as fh:
+            shutil.copyfileobj(fh, tmp)
     
+        db = Connection(dbfile.name, fast_mode=True)
+        tmp.seek(0)
+        restore_legacy_metadata(tmp, db)
+
     # Increase metadata sequence no
     param['seq_no'] += 1
     bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
@@ -447,6 +562,125 @@ def create_legacy_indices(conn):
     conn.execute('CREATE INDEX ix_leg_objects_hash ON objects(hash)')
     conn.execute('CREATE INDEX ix_leg_blocks_obj_id ON blocks(obj_id)')
     conn.execute('CREATE INDEX ix_leg_blocks_inode ON blocks(inode)')
+
+
+class LegacyLocalBucket(AbstractBucket):
+    needs_login = False
+    
+    def __init__(self, name, backend_login, backend_pw): #IGNORE:W0613
+        super(LegacyLocalBucket, self).__init__()
+        self.name = name
+        if not os.path.exists(name):
+            raise NoSuchBucket(name)
+            
+    def lookup(self, key):
+        path = self._key_to_path(key) + '.meta'
+        try:
+            with open(path, 'rb') as src:
+                return pickle.load(src)
+        except IOError as exc:
+            if exc.errno == errno.ENOENT:
+                raise NoSuchObject(key)
+            else:
+                raise
+
+    def open_read(self, key):
+        path = self._key_to_path(key)
+        try:
+            fh = ObjectR(path + '.dat') 
+        except IOError as exc:
+            if exc.errno == errno.ENOENT:
+                raise NoSuchObject(key)
+            else:
+                raise
+            
+        fh.metadata = pickle.load(open(path + '.meta', 'rb'))
         
+        return fh
+    
+    def open_write(self, key, metadata=None):
+        raise RuntimeError('Not implemented')
+
+    def clear(self):
+        raise RuntimeError('Not implemented')
+
+    def copy(self, src, dest):
+        raise RuntimeError('Not implemented')
+        
+    def contains(self, key):
+        path = self._key_to_path(key)
+        try:
+            os.lstat(path + '.meta')
+        except OSError as exc:
+            if exc.errno == errno.ENOENT:
+                return False
+            raise
+        return True
+
+    def delete(self, key, force=False):
+        raise RuntimeError('Not implemented')
+
+    def list(self, prefix=''):
+        if prefix:
+            base = os.path.dirname(self._key_to_path(prefix))     
+        else:
+            base = self.name
+            
+        for (path, dirnames, filenames) in os.walk(base, topdown=True):
+            
+            # Do not look in wrong directories
+            if prefix:
+                rpath = path[len(self.name):] # path relative to base
+                prefix_l = ''.join(rpath.split('/'))
+                
+                dirs_to_walk = list()
+                for name in dirnames:
+                    prefix_ll = unescape(prefix_l + name)
+                    if prefix_ll.startswith(prefix[:len(prefix_ll)]):
+                        dirs_to_walk.append(name)
+                dirnames[:] = dirs_to_walk
+                                            
+            for name in filenames:
+                key = unescape(name)
+                
+                if not prefix or key.startswith(prefix):
+                    if key.endswith('.meta'):
+                        yield key[:-5]
+
+    def _key_to_path(self, key):
+        key = escape(key)
+        
+        if not key.startswith('s3ql_data_'):
+            return os.path.join(self.name, key)
+        
+        no = key[10:]
+        path = [ self.name, 's3ql_data_']
+        for i in range(0, len(no), 3):
+            path.append(no[:i])
+        path.append(key)
+        
+        return os.path.join(*path)
+
+    def read_after_create_consistent(self):
+        '''Does this backend provide read-after-create consistency?'''
+        return True
+    
+    def read_after_write_consistent(self):
+        '''Does this backend provide read-after-write consistency?'''
+        return True
+        
+    def read_after_delete_consistent(self):
+        '''Does this backend provide read-after-delete consistency?'''
+        return True
+
+    def list_after_delete_consistent(self):
+        '''Does this backend provide list-after-delete consistency?'''
+        return True
+        
+    def list_after_create_consistent(self):
+        '''Does this backend provide list-after-create consistency?'''
+        return True
+                        
 if __name__ == '__main__':
     main(sys.argv[1:])
+
