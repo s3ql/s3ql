@@ -323,7 +323,7 @@ def upgrade(bucket):
 
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:
-        if (bucket.read_after_write_consistent() and
+        if (bucket.read_after_create_consistent() and
             bucket.read_after_delete_consistent()):
             raise QuietError(textwrap.fill(textwrap.dedent('''\
                 It appears that the file system is still mounted somewhere else. If this is not
