@@ -87,12 +87,12 @@ class Bucket(AbstractBucket):
         if metadata is None:
             metadata = dict()
         
-        # By renaming, we make sure that there are no
-        # conflicts between parallel reads, the last one wins
         
         path = self._key_to_path(key)
-        
-        tmpname = '%s.%d-%d' % (path, os.getpid(), thread.get_ident()) 
+
+        # By renaming, we make sure that there are no
+        # conflicts between parallel reads, the last one wins
+        tmpname = '%s#%d-%d' % (path, os.getpid(), thread.get_ident()) 
         
         try:
             dest = open(tmpname, 'wb')
@@ -268,7 +268,7 @@ def escape(s):
 
     s = s.replace('=', '=3D')
     s = s.replace('/', '=2F')
-    s = s.replace('.', '=2E')
+    s = s.replace('#', '=23')
 
     return s
 
@@ -276,11 +276,10 @@ def unescape(s):
     '''Un-Escape '/', '=' and '.' in s'''
 
     s = s.replace('=2F', '/')
-    s = s.replace('=2E', '.')
+    s = s.replace('=23', '#')
     s = s.replace('=3D', '=')
 
     return s
-
 
 class ObjectR(file):
     '''A local storage object opened for reading'''
