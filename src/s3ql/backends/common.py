@@ -733,6 +733,7 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
         self.fh = fh
         self.metadata = metadata
         self.decomp = decomp
+        self.hmac_checked = False
         
         # Read nonce
         len_ = struct.unpack(b'<B', fh.read(struct.calcsize(b'<B')))[0]
@@ -749,13 +750,16 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
         buf = None
         while not buf:
             buf = self.fh.read(size)
-            if not buf:
+            if not buf and not self.hmac_checked:
                 if self.cipher.process(self.hash) != self.hmac.digest():
                     raise ChecksumError('HMAC mismatch')
                 elif self.decomp and self.decomp.unused_data:
                     raise ChecksumError('Data after end of compressed stream')
                 else:
+                    self.hmac_checked = True
                     return ''
+            elif not buf:
+                return ''
             
             buf = self.cipher.process(buf)
             if not self.decomp:
