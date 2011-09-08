@@ -137,13 +137,12 @@ exception for which the instance's `_retry_on` method returns True.
 def get_seq_no(bucket):
     '''Get current metadata sequence number'''
        
-    from s3ql.backends.local import Bucket as LocalBucket
     from .backends.common import NoSuchObject
     
     seq_nos = list(bucket.list('s3ql_seq_no_')) 
-    if (not seq_nos or
-        (isinstance(bucket, LocalBucket) and
-         (seq_nos[0].endswith('.meta') or seq_nos[0].endswith('.dat')))): 
+    if (not seq_nos 
+        or seq_nos[0].endswith('.meta') 
+        or seq_nos[0].endswith('.dat')): 
         raise QuietError('Old file system revision, please run `s3qladm upgrade` first.')
     
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in seq_nos ]
