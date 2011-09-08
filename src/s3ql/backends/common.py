@@ -323,22 +323,28 @@ class BetterBucket(AbstractBucket):
         encr_alg = fh.metadata['encryption']
            
         metadata = self._unwrap_meta(fh.metadata)
-        
-        if encr_alg == 'AES':
-            fh = LegacyDecryptFilter(fh, self.passphrase)
-        elif encr_alg == 'AES_v2':
-            fh = DecryptFilter(fh, self.passphrase)                
-        elif encr_alg != 'None':
-            raise RuntimeError('Unsupported encryption: %s' % encr_alg)
-            
+
         if compr_alg == 'BZIP2':
-            fh = DecompressFilter(fh, bz2.BZ2Decompressor())
+            decompressor = bz2.BZ2Decompressor()
         elif compr_alg == 'LZMA':
-            fh = DecompressFilter(fh, lzma.LZMADecompressor())
+            decompressor = lzma.LZMADecompressor()
         elif compr_alg == 'ZLIB':
-            fh = DecompressFilter(fh, zlib.decompressobj())
-        elif compr_alg != 'None':
+            decompressor = zlib.decompressobj()
+        elif compr_alg == 'None':
+            decompressor = None
+        else:
             raise RuntimeError('Unsupported compression: %s' % compr_alg)
+                    
+        if encr_alg == 'AES':
+            fh = LegacyDecryptDecompressFilter(fh, self.passphrase, decompressor)
+        else:
+            if encr_alg == 'AES_v2':
+                fh = DecryptFilter(fh, self.passphrase)                
+            elif encr_alg != 'None':
+                raise RuntimeError('Unsupported encryption: %s' % encr_alg)
+        
+            if decompressor:
+                fh = DecompressFilter(fh, decompressor)
         
         fh.metadata = metadata
         
@@ -705,22 +711,23 @@ class DecryptFilter(AbstractInputFilter):
         self.close()
         return False        
 
-class LegacyDecryptFilter(AbstractInputFilter):
-    '''Decrypt data while reading
+class LegacyDecryptDecompressFilter(AbstractInputFilter):
+    '''Decrypt and Decompress data while reading
     
     Reader has to read the entire stream in order for HMAC
     checking to work.
     '''
     
-    def __init__(self, fh, passphrase, metadata=None):
+    def __init__(self, fh, passphrase, decomp, metadata=None):
         '''Initialize
         
         *fh* should be a file-like object.
         '''
-        super(LegacyDecryptFilter, self).__init__()
+        super(LegacyDecryptDecompressFilter, self).__init__()
         
         self.fh = fh
         self.metadata = metadata
+        self.decomp = decomp
         
         # Read nonce
         len_ = struct.unpack(b'<B', fh.read(struct.calcsize(b'<B')))[0]
@@ -734,16 +741,29 @@ class LegacyDecryptFilter(AbstractInputFilter):
     def _read(self, size):
         '''Read roughly *size* bytes'''
          
-        buf = self.fh.read(size)
-        if not buf:
-            if self.cipher.process(self.hash) != self.hmac.digest():
-                raise ChecksumError('HMAC mismatch')
-            else:        
-                return ''
-        
-        plain = self.cipher.process(buf)  
-        self.hmac.update(plain)
-        return plain                                      
+        buf = None
+        while not buf:
+            buf = self.fh.read(size)
+            if not buf:
+                if self.cipher.process(self.hash) != self.hmac.digest():
+                    raise ChecksumError('HMAC mismatch')
+                elif self.decomp and self.decomp.unused_data:
+                    raise ChecksumError('Data after end of compressed stream')
+                else:
+                    return ''
+            
+            buf = self.cipher.process(buf)
+            if not self.decomp:
+                break
+            
+            try:
+                buf = self.decomp.decompress(buf)
+            except IOError:
+                raise ChecksumError('Invalid compressed stream')
+            
+
+        self.hmac.update(buf)
+        return buf                              
 
     def close(self):
         self.fh.close()
