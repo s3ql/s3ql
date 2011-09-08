@@ -19,10 +19,12 @@ import t4_fuse
 class cliTests(t4_fuse.fuse_tests):
     
     def runTest(self):
+        self.mkfs()
         self.mount()
         self.tst_lock_rm()
         self.tst_ctrl_flush()
         self.umount()
+        self.fsck()
 
     def tst_ctrl_flush(self):
 

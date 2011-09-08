@@ -29,10 +29,11 @@ class cpTests(t4_fuse.fuse_tests):
                 raise unittest.SkipTest('rsync not installed')
             raise
 
+        self.mkfs()
         self.mount()
         self.tst_cp()
-        
         self.umount()
+        self.fsck()
 
     def tst_cp(self):
 
