@@ -496,6 +496,11 @@ class AbstractInputFilter(object):
         '''Read roughly *size* bytes'''    
         pass
     
+    # pickle requires a readline() method for unpickling, but isn't actually
+    # using it if we're using the binary protocols.
+    def readline(self):
+        raise RuntimeError('not implemented')
+        
 class CompressFilter(object):
     '''Compress data while writing
     
@@ -578,7 +583,7 @@ class DecompressFilter(AbstractInputFilter):
     def __exit__(self, *a):
         self.close()
         return False
-    
+        
 class EncryptFilter(object):
     '''Encrypt data while writing'''
     
@@ -710,7 +715,7 @@ class DecryptFilter(AbstractInputFilter):
     def __exit__(self, *a):
         self.close()
         return False        
-
+    
 class LegacyDecryptDecompressFilter(AbstractInputFilter):
     '''Decrypt and Decompress data while reading
     
@@ -774,6 +779,11 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
     def __exit__(self, *a):
         self.close()
         return False       
+    
+    # pickle requires a readline() method for unpickling, but isn't actually
+    # using it if we're using the binary protocols.
+    def readline(self):
+        raise RuntimeError('not implemented')
     
 def encrypt(buf, passphrase, nonce):
     '''Encrypt *buf*'''

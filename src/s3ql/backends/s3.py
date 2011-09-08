@@ -538,6 +538,11 @@ class ObjectR(object):
             raise RuntimeError('ObjectR %s has been destroyed without calling close()!' % self.key)
 
   
+    # pickle requires a readline() method for unpickling, but isn't actually
+    # using it if we're using the binary protocols.
+    def readline(self):
+        raise RuntimeError('not implemented')
+    
 class ObjectW(object):
     '''An S3 object open for writing
     
