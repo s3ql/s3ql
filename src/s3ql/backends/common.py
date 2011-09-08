@@ -658,14 +658,6 @@ class DecryptFilter(AbstractInputFilter):
         self.cipher = aes.AES(key) #IGNORE:E1102
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
     
-    def get_metadata(self):
-        '''Get object metadata
-        
-        This method can be called even after the object has been closed.
-        '''
-        
-        return self.metadata
-        
     def _read(self, size):
         '''Read roughly *size* bytes'''
          
@@ -728,8 +720,6 @@ class LegacyDecryptFilter(AbstractInputFilter):
         super(LegacyDecryptFilter, self).__init__()
         
         self.fh = fh
-        self.off_size = struct.calcsize(b'<I')
-        self.remaining = 0 # Remaining length of current packet
         self.metadata = metadata
         
         # Read nonce
@@ -740,14 +730,6 @@ class LegacyDecryptFilter(AbstractInputFilter):
         key = sha256(passphrase + nonce)
         self.cipher = aes.AES(key) #IGNORE:E1102
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
-    
-    def get_metadata(self):
-        '''Get object metadata
-        
-        This method can be called even after the object has been closed.
-        '''
-        
-        return self.metadata
         
     def _read(self, size):
         '''Read roughly *size* bytes'''
