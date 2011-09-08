@@ -66,8 +66,9 @@ def main(args=None):
     # Retrieve metadata
     with bucket_pool() as bucket:
         (param, db) = get_metadata(bucket, cachepath)
-    
+            
     if options.nfs:
+        log.info('Creating NFS indices...')
         # NFS may try to look up '..', so we have to speed up this kind of query
         db.execute('CREATE INDEX IF NOT EXISTS ix_contents_inode ON contents(inode)')
         
