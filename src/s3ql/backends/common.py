@@ -991,8 +991,13 @@ def get_bucket_factory(options, plain=False):
         compress = options.compress
     else:
         compress = 'zlib'
-        
+            
+    if not encrypted:
+        return lambda: BetterBucket(None, compress, 
+                                    bucket_class(bucket_name, backend_login, backend_pw))
+    
     tmp_bucket = BetterBucket(bucket_passphrase, compress, bucket)
+    
     try:
         data_pw = tmp_bucket['s3ql_passphrase']
     except ChecksumError:
