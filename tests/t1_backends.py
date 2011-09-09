@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function
 from _common import TestCase
-from s3ql.backends import local, s3, s3s, gs, gss
+from s3ql.backends import local, s3, s3s, gs, gss, ring, s3c
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject, 
     BetterBucket)
 import ConfigParser
@@ -204,9 +204,16 @@ class GSSTests(S3Tests):
         # This is the time in which we expect S3 changes to propagate. It may
         # be much longer for larger objects, but for tests this is usually enough.
         self.delay = 15
-       
         self.bucket = gss.Bucket(*self.get_credentials('gs-test')) 
-                        
+
+class S3CTests(S3Tests):
+    def setUp(self):
+        self.name_cnt = 0        
+        # This is the time in which we expect S3 changes to propagate. It may
+        # be much longer for larger objects, but for tests this is usually enough.
+        self.delay = 0
+        self.bucket = s3c.Bucket(*self.get_credentials('s3c-test')) 
+                                        
 class LocalTests(BackendTestsMixin, TestCase):
 
     def setUp(self):
