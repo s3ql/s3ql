@@ -975,13 +975,10 @@ def get_bucket_factory(options, plain=False):
         else:
             backend_pw = sys.stdin.readline().rstrip()
 
-    bucket = bucket_class(bucket_name, backend_login, backend_pw)
-    if not (bucket.is_list_create_consistent() 
-            or bucket.is_get_consistent()):
-        log.warn('Warning: backend provides insufficient consistency guarantees.')
-                            
     if plain:
         return lambda: bucket_class(bucket_name, backend_login, backend_pw)
+    
+    bucket = bucket_class(bucket_name, backend_login, backend_pw)
      
     try:
         encrypted = 's3ql_passphrase' in bucket
