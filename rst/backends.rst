@@ -61,7 +61,7 @@ traffic that you actually use. After that, you need to create a bucket
 that will hold the S3QL file system, e.g. using the `AWS Management
 Console <https://console.aws.amazon.com/s3/home>`_. For best
 performance, it is recommend to create the bucket in the
-geographically closest storage region, but not the classic/US-east
+geographically closest storage region, but not the US Standard
 region (see below).
 
 The storage URL for accessing S3 buckets in S3QL has the form ::
@@ -110,16 +110,16 @@ combination of three factors:
   :ref:`backend_reliability` for details).
 
 
-Potential issues when using the *classic* storage region
+Potential issues when using the US Standard storage region
 --------------------------------------------------------
 
-In the *classic* (or US east) storage region, Amazon S3 does not
-guarantee read after create consistency. This means that after a new
-object has been stored, requests to read this object may still fail
-for a little while. While the file system is mounted, S3QL is able
-to automatically handle all issues related to this so-called
-eventual consistency. However, problems may arise during the mount
-process and when the file system is checked:
+In the US Standard storage region, Amazon S3 does not guarantee read
+after create consistency. This means that after a new object has been
+stored, requests to read this object may still fail for a little
+while. While the file system is mounted, S3QL is able to automatically
+handle all issues related to this so-called eventual consistency.
+However, problems may arise during the mount process and when the file
+system is checked:
 
 Suppose that you mount the file system, store some new data, delete
 some old data and unmount it again. Now there is no guarantee that
@@ -141,14 +141,13 @@ visible yet).
 
 The likelihood of this to happen is rather low. In practice, most
 objects are ready for retrieval just a few seconds after they have
-been stored, so to trigger this problem one would have to unmount
-and remount the file system in a very short time window. However,
-since S3 does not place any upper limit on the length of this
-window, it is recommended to not place S3QL buckets in the
-classic/US-east storage region. As of May 2011, all other storage
-regions provide stronger consistency guarantees that completely
-eliminate any of the described problems.
-
+been stored, so to trigger this problem one would have to unmount and
+remount the file system in a very short time window. However, since S3
+does not place any upper limit on the length of this window, it is
+recommended to not place S3QL buckets in the US Standard storage
+region. As of May 2011, all other storage regions provide stronger
+consistency guarantees that completely eliminate any of the described
+problems.
 
 
 

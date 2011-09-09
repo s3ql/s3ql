@@ -55,9 +55,20 @@ class Bucket(AbstractBucket):
         self.aws_key = aws_key
         self.aws_key_id = aws_key_id
         
+        self._init()
+        
+    def _init(self):
+        '''Additional initialization code
+        
+        Called by constructor and provided solely for easier subclassing.
+        '''
+        
         self.conn = self._get_conn()
         self.region = self._get_region()
-            
+        
+        if self.region not in ('EU', 'us-west-1', 'ap-southeast-1'):
+            log.warn('Warning: bucket provides insufficient consistency guarantees!')
+        
     def _get_conn(self):
         '''Return connection to server'''
         
@@ -203,10 +214,10 @@ class Bucket(AbstractBucket):
         region = ElementTree.parse(resp).getroot().text
         
         if not region:
-            region = 'us-classic'
+            region = 'us-standard'
             
         if region not in ('EU', 'us-west-1', 'ap-southeast-1', 
-                          'ap-northeast-1', 'us-classic'):
+                          'ap-northeast-1', 'us-standard'):
             raise RuntimeError('Unknown bucket region: %s' % region)
         
         return region
