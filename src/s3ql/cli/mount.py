@@ -180,7 +180,7 @@ def get_metadata(bucket, cachepath):
     
     Locally cached metadata is used if up-to-date.
     '''
-           
+                
     seq_no = get_seq_no(bucket)
 
     # Check for cached metadata
@@ -195,11 +195,10 @@ def get_metadata(bucket, cachepath):
             db = Connection(cachepath + '.db')
     else:
         param = bucket.lookup('s3ql_metadata')
-
+ 
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:
-        if (bucket.read_after_create_consistent() and
-            bucket.read_after_delete_consistent()):
+        if bucket.is_get_consistent():
             raise QuietError(textwrap.fill(textwrap.dedent('''\
                 It appears that the file system is still mounted somewhere else. If this is not
                 the case, the file system may have not been unmounted cleanly and you should try
@@ -248,7 +247,6 @@ def get_metadata(bucket, cachepath):
     
     return (param, db)
 
-
 def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
 
@@ -263,7 +261,6 @@ def get_fuse_opts(options):
         fuse_opts.append(b'default_permissions')
 
     return fuse_opts
-
 
 
 def parse_args(args):

@@ -137,21 +137,41 @@ exception for which the instance's `_retry_on` method returns True.
     return wrapped 
 
 def get_seq_no(bucket):
-    '''Get current metadata sequence number'''
-       
+    '''Get current metadata sequence number'''   
     from .backends.common import NoSuchObject
     
     seq_nos = list(bucket.list('s3ql_seq_no_')) 
-    if (not seq_nos 
-        or seq_nos[0].endswith('.meta') 
+    if not seq_nos:
+        if bucket.is_list_create_consistent():
+            raise QuietError('No S3QL file system found in bucket.')
+        else:
+            # Will verify later
+            seq_nos = [ 's3ql_seq_no_1' ]
+    
+    if (seq_nos[0].endswith('.meta') 
         or seq_nos[0].endswith('.dat')): 
         raise QuietError('Old file system revision, please run `s3qladm upgrade` first.')
-    
+         
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in seq_nos ]
     seq_no = max(seq_nos) 
+      
+    if (not bucket.is_list_create_consistent()
+        and bucket.is_get_consistent()):
+        while ('s3ql_seq_no_%d' % seq_no) not in bucket:
+            seq_no -= 1 
+            if seq_no == 0:
+                raise QuietError('No S3QL file system found in bucket.')
+        while ('s3ql_seq_no_%d' % seq_no) in bucket:
+            seq_no += 1 
+        seq_no -= 1
+        
+    elif not bucket.is_list_create_consistent():
+        log.warn('Warning: bucket provides insufficient consistency guarantees.')
+    
+    # Delete old seq nos
     for i in [ x for x in seq_nos if x < seq_no - 10 ]:
         try:
-            del bucket['s3ql_seq_no_%d' % i ]
+            del bucket['s3ql_seq_no_%d' % i]
         except NoSuchObject:
             pass # Key list may not be up to date
         

@@ -36,21 +36,6 @@ class Bucket(AbstractBucket):
     """A bucket stored in Amazon S3
     
     This class uses standard HTTP connections to connect to S3.
-    
-    This class assumes that if you are requesting any action on an object other
-    than checking for existence, you know that the object exists in the bucket.
-    This means that if `read_after_create_consistent()` is false,
-    `is_temp_failure` will return true for `NoSuchObject` exceptions and all
-    methods of this class (except for `contains`) will retry their operation at
-    increasing intervals.
-
-    If you want to perform an operation on an object and are not sure that it
-    exists, it is a good idea to first check existence using `contains`.
-    However, even that is not completely safe, because if
-    `list_after_delete_consistent` is false, then a DELETE operation may still
-    be propagating through AWS.
-    
-    You have been warned.    
     """
 
     def __init__(self, bucket_name, aws_key_id, aws_key):
@@ -73,8 +58,9 @@ class Bucket(AbstractBucket):
         '''Return connection to server'''
         
         return httplib.HTTPConnection('%s.s3.amazonaws.com' % self.bucket_name)          
-          
-    def is_temp_failure(self, exc):
+      
+    @staticmethod    
+    def is_temp_failure(exc):
         '''Return true if exc indicates a temporary error
     
         Return true if the given exception is used by this bucket's backend
@@ -86,9 +72,6 @@ class Bucket(AbstractBucket):
         request cannot automatically be retried. In these case this method can
         be used to check for temporary problems and so that the request can
         be manually restarted if applicable.
-        
-        **Warning**: If `read_after_create_consistent` is false, `NoSuchObject` is
-        considered a temporary failure.
         '''          
     
         if isinstance(exc, (InternalError, BadDigest, IncompleteBody, RequestTimeout,
@@ -97,9 +80,6 @@ class Bucket(AbstractBucket):
             return True
         
         elif isinstance(exc, IOError) and exc.errno == errno.EPIPE:
-            return True
-        
-        elif isinstance(exc, NoSuchObject) and not self.read_after_create_consistent():
             return True
         
         return False
@@ -279,30 +259,24 @@ class Bucket(AbstractBucket):
                 headers['x-amz-meta-%s' % hdr] = val
             
         return ObjectW(key, self, headers)
-            
-    def read_after_create_consistent(self):
-        '''Does this backend provide read-after-create consistency?'''
-        
-        return self.region in ('EU', 'us-west-1', 'ap-southeast-1', 'ap-northeast-1')
-    
-    def read_after_write_consistent(self):
-        '''Does this backend provide read-after-write consistency?'''
-        
-        return False
-        
-    def read_after_delete_consistent(self):
-        '''Does this backend provide read-after-delete consistency?'''
-        
-        return False
 
-    def list_after_delete_consistent(self):
-        '''Does this backend provide list-after-delete consistency?'''
+    def is_get_consistent(self):
+        '''If True, objects retrievals are guaranteed to be up-to-date
+        
+        If this method returns True, then creating, deleting, or overwriting an
+        object is guaranteed to be immediately reflected in subsequent object
+        retrieval attempts.
+        '''
         
         return False
+                    
+    def is_list_create_consistent(self):
+        '''If True, new objects are guaranteed to show up in object listings
         
-    def list_after_create_consistent(self):
-        '''Does this backend provide list-after-create consistency?'''
-        
+        If this method returns True, creation of objects will immediately be
+        reflected when retrieving the list of available objects.
+        '''
+
         return self.region in ('EU', 'us-west-1', 'ap-southeast-1')
         
     @retry
@@ -393,8 +367,8 @@ class Bucket(AbstractBucket):
         """Delete all objects in bucket
         
         Note that this method may not be able to see (and therefore also not
-        delete) recently uploaded objects if `list_after_create_consistent` is
-        false.
+        delete) recently uploaded objects if `is_list_create_consistent` is
+        False.
         """
 
         for (no, s3key) in enumerate(self):

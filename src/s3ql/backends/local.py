@@ -106,24 +106,23 @@ class Bucket(AbstractBucket):
         pickle.dump(metadata, dest, 2)
         return dest    
             
-    def read_after_create_consistent(self):
-        '''Does this backend provide read-after-create consistency?'''
-        return True
-    
-    def read_after_write_consistent(self):
-        '''Does this backend provide read-after-write consistency?'''
-        return True
+    def is_get_consistent(self):
+        '''If True, objects retrievals are guaranteed to be up-to-date
         
-    def read_after_delete_consistent(self):
-        '''Does this backend provide read-after-delete consistency?'''
+        If this method returns True, then creating, deleting, or overwriting an
+        object is guaranteed to be immediately reflected in subsequent object
+        retrieval attempts.
+        '''
+        
         return True
+                    
+    def is_list_create_consistent(self):
+        '''If True, new objects are guaranteed to show up in object listings
+        
+        If this method returns True, creation of objects will immediately be
+        reflected when retrieving the list of available objects.
+        '''
 
-    def list_after_delete_consistent(self):
-        '''Does this backend provide list-after-delete consistency?'''
-        return True
-        
-    def list_after_create_consistent(self):
-        '''Does this backend provide list-after-create consistency?'''
         return True
     
     def clear(self):

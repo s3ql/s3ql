@@ -175,30 +175,24 @@ class AbstractBucket(object):
         """
         
         pass
-            
-    @abstractmethod
-    def read_after_create_consistent(self):
-        '''Does this backend provide read-after-create consistency?'''
-        pass
-    
-    @abstractmethod
-    def read_after_write_consistent(self):
-        '''Does this backend provide read-after-write consistency?'''
-        pass
-        
-    @abstractmethod
-    def read_after_delete_consistent(self):
-        '''Does this backend provide read-after-delete consistency?'''
-        pass
 
     @abstractmethod
-    def list_after_delete_consistent(self):
-        '''Does this backend provide list-after-delete consistency?'''
-        pass
+    def is_get_consistent(self):
+        '''If True, objects retrievals are guaranteed to be up-to-date
         
+        If this method returns True, then creating, deleting, or overwriting an
+        object is guaranteed to be immediately reflected in subsequent object
+        retrieval attempts.
+        '''
+        pass
+                    
     @abstractmethod
-    def list_after_create_consistent(self):
-        '''Does this backend provide list-after-create consistency?'''
+    def is_list_create_consistent(self):
+        '''If True, new objects are guaranteed to show up in object listings
+        
+        If this method returns True, creation of objects will immediately be
+        reflected when retrieving the list of available objects.
+        '''
         pass
     
     @abstractmethod
@@ -394,25 +388,22 @@ class BetterBucket(AbstractBucket):
             
         return fh
             
-    def read_after_create_consistent(self):
-        '''Does this backend provide read-after-create consistency?'''
-        return self.bucket.read_after_create_consistent()
-    
-    def read_after_write_consistent(self):
-        '''Does this backend provide read-after-write consistency?'''
-        return self.bucket.read_after_write_consistent()
+    def is_get_consistent(self):
+        '''If True, objects retrievals are guaranteed to be up-to-date
         
-    def read_after_delete_consistent(self):
-        '''Does this backend provide read-after-delete consistency?'''
-        return self.bucket.read_after_delete_consistent()
-
-    def list_after_delete_consistent(self):
-        '''Does this backend provide list-after-delete consistency?'''
-        return self.bucket.list_after_delete_consistent()
+        If this method returns True, then creating, deleting, or overwriting an
+        object is guaranteed to be immediately reflected in subsequent object
+        retrieval attempts.
+        '''
+        return self.bucket.is_get_consistent()
+                    
+    def is_list_create_consistent(self):
+        '''If True, new objects are guaranteed to show up in object listings
         
-    def list_after_create_consistent(self):
-        '''Does this backend provide list-after-create consistency?'''
-        return self.bucket.list_after_create_consistent()
+        If this method returns True, creation of objects will immediately be
+        reflected when retrieving the list of available objects.
+        '''
+        return self.bucket.is_get_consistent()
     
     def clear(self):
         """Delete all objects in bucket"""
@@ -979,12 +970,15 @@ def get_bucket_factory(options, plain=False):
             backend_pw = getpass("Enter backend password: ") 
         else:
             backend_pw = sys.stdin.readline().rstrip()
-                
+
+    bucket = bucket_class(bucket_name, backend_login, backend_pw)
+    if not (bucket.is_list_create_consistent() 
+            or bucket.is_get_consistent()):
+        log.warn('Warning: backend provides insufficient consistency guarantees.')
+                            
     if plain:
         return lambda: bucket_class(bucket_name, backend_login, backend_pw)
-    
-    bucket = bucket_class(bucket_name, backend_login, backend_pw)
-
+     
     try:
         encrypted = 's3ql_passphrase' in bucket
     except NoSuchBucket:

@@ -599,13 +599,17 @@ class Fsck(object):
                         self.found_errors = True
                         self.log_error("Deleted spurious object %d",  obj_id)               
                 except NoSuchObject:
-                    if self.bucket.read_after_delete_consistent():
-                        raise
+                    pass
         
             self.conn.execute('CREATE TEMPORARY TABLE missing AS '
                               'SELECT id FROM objects EXCEPT SELECT id FROM obj_ids')
             moved_inodes = set()
             for (obj_id,) in self.conn.query('SELECT * FROM missing'):
+                if (not self.bucket.is_list_create_consistent() 
+                    and ('s3ql_data_%d' % obj_id) in self.bucket):
+                    # Object was just not in list yet
+                    continue 
+                    
                 self.found_errors = True
                 self.log_error("object %s only exists in table but not in bucket, deleting", obj_id)
                 

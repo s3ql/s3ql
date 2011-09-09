@@ -336,20 +336,11 @@ class TestBucketPool(AbstractBucket):
 
         return self.bucket.open_write(key, metadata)
             
-    def read_after_create_consistent(self):
-        return self.bucket.read_after_create_consistent()
-    
-    def read_after_write_consistent(self):
-        return self.bucket.read_after_write_consistent()
-        
-    def read_after_delete_consistent(self):
-        return self.bucket.read_after_delete_consistent()
-
-    def list_after_delete_consistent(self):
-        return self.bucket.list_after_delete_consistent()
-        
-    def list_after_create_consistent(self):
-        return self.bucket.list_after_create_consistent()
+    def is_get_consistent(self):
+        return self.bucket.is_get_consistent()
+                    
+    def is_list_create_consistent(self):
+        return self.bucket.is_get_consistent()
     
     def clear(self):
         return self.bucket.clear()

@@ -198,10 +198,11 @@ def clear(bucket, cachepath):
 
     bucket.clear()
     
-    print('Bucket deleted.')
-    if (not bucket.list_after_delete_consistent()
-        or not bucket.read_after_delete_consistent()): 
-        print('Note that it may take a while until the removal becomes visible.')
+    print('File system deleted.')
+    
+    if not bucket.is_get_consistent():
+        log.info('Note: it may take a while for the removals to propagate through the backend.')
+                
 
 def get_possibly_old_bucket(options, plain=False):
     '''Return factory producing bucket objects for given storage-url
@@ -323,8 +324,7 @@ def upgrade(bucket):
 
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:
-        if (bucket.read_after_create_consistent() and
-            bucket.read_after_delete_consistent()):
+        if bucket.is_get_consistent():
             raise QuietError(textwrap.fill(textwrap.dedent('''\
                 It appears that the file system is still mounted somewhere else. If this is not
                 the case, the file system may have not been unmounted cleanly and you should try
@@ -661,25 +661,12 @@ class LegacyLocalBucket(AbstractBucket):
         
         return os.path.join(*path)
 
-    def read_after_create_consistent(self):
-        '''Does this backend provide read-after-create consistency?'''
+    def is_get_consistent(self):
+        return True
+                    
+    def is_list_create_consistent(self):
         return True
     
-    def read_after_write_consistent(self):
-        '''Does this backend provide read-after-write consistency?'''
-        return True
-        
-    def read_after_delete_consistent(self):
-        '''Does this backend provide read-after-delete consistency?'''
-        return True
-
-    def list_after_delete_consistent(self):
-        '''Does this backend provide list-after-delete consistency?'''
-        return True
-        
-    def list_after_create_consistent(self):
-        '''Does this backend provide list-after-create consistency?'''
-        return True
                         
 if __name__ == '__main__':
     main(sys.argv[1:])
