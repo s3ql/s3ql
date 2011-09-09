@@ -50,7 +50,7 @@ class Bucket(AbstractBucket):
             idx = len(bucket_name)
 
         self.bucket_name = bucket_name[:idx]
-        self.prefix = bucket_name[idx:]
+        self.prefix = bucket_name[idx+1:]
         self.aws_key = aws_key
         self.aws_key_id = aws_key_id
         self.namespace = 'http://s3.amazonaws.com/doc/2006-03-01/'
@@ -91,7 +91,11 @@ class Bucket(AbstractBucket):
     
         if isinstance(exc, (InternalError, BadDigest, IncompleteBody, RequestTimeout,
                             OperationAborted, SlowDown, RequestTimeTooSkewed,
-                            httplib.IncompleteRead, httplib.BadStatusLine)):
+                            httplib.IncompleteRead)):
+            return True
+        
+        # Server closed connection
+        elif isinstance(exc, httplib.BadStatusLine) and exc.line == "''":
             return True
         
         elif isinstance(exc, IOError) and exc.errno == errno.EPIPE:
@@ -336,8 +340,14 @@ class Bucket(AbstractBucket):
             self.conn.request(method, full_url, body, headers)
               
             log.debug('_do_request(): Reading response')
-            resp = self.conn.getresponse()
-        
+            try:
+                resp = self.conn.getresponse()
+            except httplib.BadStatusLine as exc:
+                if exc.line == "''":
+                    # Server closed connection, reconnect
+                    self.conn.close()
+                raise
+                        
             log.debug('_do_request(): request-id: %s',  resp.getheader('x-amz-request-id'))
             
             if (resp.status < 300 or resp.status > 399):
