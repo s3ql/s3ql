@@ -15,6 +15,10 @@ class Bucket(s3.Bucket):
     """A bucket stored in Amazon S3
     
     This class uses secure (SSL) connections to connect to S3.
+    
+    The bucket guarantees get after create consistency, i.e. a newly created
+    object will be immediately retrievable. Additional consistency guarantees
+    may or may not be available and can be queried for with instance methods.    
     """
             
     def _get_conn(self, use_ssl):
