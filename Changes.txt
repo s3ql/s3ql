@@ -1,3 +1,7 @@
+UNRELEASED, S3QL HEAD
+
+  * Added Google Storage backend.
+  
 2011-09-08, S3QL 1.1.2
 
   * The modules for communicating with the different storage providers
