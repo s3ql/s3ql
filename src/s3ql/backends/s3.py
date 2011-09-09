@@ -28,10 +28,9 @@ log = logging.getLogger("backend.s3")
 
 C_DAY_NAMES = [ 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ]
 C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ]
-
-NAMESPACE = 'http://s3.amazonaws.com/doc/2006-03-01/'
-
     
+XML_CONTENT_RE = re.compile('^application/xml(?:;\s+|$)', re.IGNORECASE)
+
 class Bucket(AbstractBucket):
     """A bucket stored in Amazon S3
     
@@ -54,6 +53,7 @@ class Bucket(AbstractBucket):
         self.prefix = bucket_name[idx:]
         self.aws_key = aws_key
         self.aws_key_id = aws_key_id
+        self.namespace = 'http://s3.amazonaws.com/doc/2006-03-01/'
         
         self._init()
         
@@ -170,14 +170,14 @@ class Bucket(AbstractBucket):
                                                               'marker': marker,
                                                               'max-keys': 1000 })
             
-            if resp.getheader('Content-Type').lower() != 'application/xml':
+            if not XML_CONTENT_RE.match(resp.getheader('Content-Type')):
                 raise RuntimeError('unexpected content type: %s' % resp.getheader('Content-Type'))
             
             itree = iter(ElementTree.iterparse(resp, events=("start", "end")))
             (event, root) = itree.next()
 
             namespace = re.sub(r'^\{(.+)\}.+$', r'\1', root.tag)
-            if namespace != NAMESPACE:
+            if namespace != self.namespace:
                 raise RuntimeError('Unsupported namespace: %s' % namespace)
              
             try:
@@ -185,11 +185,11 @@ class Bucket(AbstractBucket):
                     if event != 'end':
                         continue
                     
-                    if el.tag == '{%s}IsTruncated' % NAMESPACE:
+                    if el.tag == '{%s}IsTruncated' % self.namespace:
                         keys_remaining = (el.text == 'true')
                     
-                    elif el.tag == '{%s}Contents' % NAMESPACE:
-                        marker = el.findtext('{%s}Key' % NAMESPACE)
+                    elif el.tag == '{%s}Contents' % self.namespace:
+                        marker = el.findtext('{%s}Key' % self.namespace)
                         yield marker
                         root.clear()
                         
@@ -324,6 +324,10 @@ class Bucket(AbstractBucket):
             headers = dict()
             
         headers['connection'] = 'keep-alive'
+        
+        if not body:
+            headers['content-length'] = '0'
+            
         full_url = self._add_auth(method, url, headers, subres, query_string)
         
         redirect_count = 0
@@ -368,7 +372,7 @@ class Bucket(AbstractBucket):
 
 
         content_type = resp.getheader('Content-Type')
-        if not content_type or content_type.lower() != 'application/xml':
+        if not content_type or not XML_CONTENT_RE.match(content_type):
             raise RuntimeError('\n'.join(['Unexpected S3 reply:',
                                           '%d %s' % (resp.status, resp.reason) ]
                                          + [ '%s: %s' % x for x in resp.getheaders() ])
