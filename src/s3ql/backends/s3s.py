@@ -21,7 +21,7 @@ class Bucket(s3.Bucket):
     may or may not be available and can be queried for with instance methods.    
     """
             
-    def _get_conn(self, use_ssl):
+    def _get_conn(self):
         '''Return connection to server'''
         
         return httplib.HTTPSConnection('%s.s3.amazonaws.com' % self.bucket_name)
