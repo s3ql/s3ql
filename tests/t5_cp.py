@@ -7,14 +7,15 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function
-import os.path
 from s3ql.cli.cp import main as s3qlcp
+import errno
+import os.path
 import subprocess
+import sys
+import t4_fuse
 import tarfile
 import tempfile
-import errno
 import unittest2 as unittest
-import t4_fuse
 
 
 class cpTests(t4_fuse.fuse_tests):
@@ -50,8 +51,9 @@ class cpTests(t4_fuse.fuse_tests):
         try:
             s3qlcp([os.path.join(self.mnt_dir, 'orig'),
                               os.path.join(self.mnt_dir, 'copy')])
-        except BaseException as exc:
-            self.fail("s3qlcp failed: %s" % exc)
+        except:
+            sys.excepthook(*sys.exc_info())
+            self.fail("s3qlcp raised exception")
 
         # compare
         rsync = subprocess.Popen(['rsync', '-anciHAX', '--delete',

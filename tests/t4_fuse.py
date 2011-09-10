@@ -97,10 +97,11 @@ class fuse_tests(TestCase):
         
         sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
         try:
-            s3ql.cli.mkfs.main(['-L', 'test fs', '--blocksize', '500',
+            s3ql.cli.mkfs.main(['-L', 'test fs', '--blocksze', '500',
                                 '--cachedir', self.cache_dir, self.bucketname ])
-        except BaseException as exc:
-            self.fail("mkfs.s3ql failed: %s" % exc)
+        except:
+            sys.excepthook(*sys.exc_info())
+            self.fail("mkfs.s3ql raised exception")
 
     def mount(self):
         
@@ -144,8 +145,9 @@ class fuse_tests(TestCase):
         s3ql.cli.umount.DONTWAIT = True
         try:
             s3ql.cli.umount.main([self.mnt_dir])
-        except BaseException as exc:
-            self.fail("Umount failed: %s" % exc)
+        except:
+            sys.excepthook(*sys.exc_info())
+            self.fail("umount.s3ql raised exception")
 
         # Now wait for server process
         if USE_VALGRIND:
@@ -161,8 +163,9 @@ class fuse_tests(TestCase):
         try:
             s3ql.cli.fsck.main(['--force', '--cachedir', self.cache_dir,
                                  '--log', 'none', self.bucketname])
-        except BaseException as exc:
-            self.fail("fsck failed: %s" % exc)
+        except:
+            sys.excepthook(*sys.exc_info())
+            self.fail("fsck.s3ql raised exception")
 
     def runTest(self):
         # Run all tests in same environment, mounting and umounting

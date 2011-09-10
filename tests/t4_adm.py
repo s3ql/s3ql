@@ -35,8 +35,9 @@ class AdmTests(TestCase):
         sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
         try:
             s3ql.cli.mkfs.main(['--cachedir', self.cache_dir, self.bucketname ])
-        except BaseException as exc:
-            self.fail("mkfs.s3ql failed: %s" % exc)
+        except:
+            sys.excepthook(*sys.exc_info())
+            self.fail("mkfs.s3ql raised exception")
 
     def test_passphrase(self):
         self.mkfs()
@@ -46,9 +47,9 @@ class AdmTests(TestCase):
                                                passphrase_new, passphrase_new))
         try:
             s3ql.cli.adm.main(['passphrase', self.bucketname ])
-        except BaseException as exc:
-            raise
-            self.fail("s3qladm failed: %s" % exc)
+        except:
+            sys.excepthook(*sys.exc_info())
+            self.fail("s3qladm raised exception")
 
         plain_bucket = local.Bucket(self.bucket_dir, None, None)
         bucket = BetterBucket(passphrase_new, 'bzip2', plain_bucket)
