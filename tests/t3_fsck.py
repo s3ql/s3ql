@@ -119,10 +119,10 @@ class fsck_tests(TestCase):
 
     def test_orphaned_inode(self):
         
-        inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
-                              "VALUES (?,?,?,?,?,?,?,?)",
-                              (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
-                               0, 0, time.time(), time.time(), time.time(), 1, 0))
+        self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                      "VALUES (?,?,?,?,?,?,?,?)",
+                      (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
+                       0, 0, time.time(), time.time(), time.time(), 1, 0))
         self.assert_fsck(self.fsck.check_inode_refcount)
         
     def test_name_refcount(self):
