@@ -347,7 +347,7 @@ def _escape(s):
 
 def get_bucket_cachedir(storage_url, cachedir):
     if not os.path.exists(cachedir):
-        os.mkdir(cachedir)
+        os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
     return os.path.join(cachedir, _escape(storage_url))
 
 # Name and inode of the special s3ql control file

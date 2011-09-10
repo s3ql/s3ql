@@ -20,10 +20,7 @@ import os
 import shutil
 import time
 
-# standard logger for this module
 log = logging.getLogger("UploadManager")
-
-MAX_THREADS = 1
 
 class UploadManager(object):
     '''
@@ -42,13 +39,13 @@ class UploadManager(object):
             not exist).    
     '''
     
-    def __init__(self, bucket_pool, db, removal_queue):
-        self.threads = ThreadGroup(MAX_THREADS)
+    def __init__(self, bucket_pool, db, removal_queue, max_threads=1):
+        self.threads = ThreadGroup(max_threads)
         self.removal_queue = removal_queue
         self.bucket_pool = bucket_pool
         self.db = db
         self.in_transit = set()
-        self.encountered_errors = False        
+        self.encountered_errors = False
         
     def add(self, el):
         '''Upload cache entry `el` asynchronously

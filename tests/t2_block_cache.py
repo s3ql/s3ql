@@ -14,6 +14,8 @@ from s3ql.backends.common import BucketPool, AbstractBucket
 from s3ql.block_cache import BlockCache
 from s3ql.common import create_tables, init_tables
 from s3ql.database import Connection
+from s3ql.thread_group import ThreadGroup
+from s3ql.upload_manager import UploadManager
 import llfuse
 import os
 import shutil
@@ -47,21 +49,21 @@ class cache_tests(TestCase):
                          | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                          os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 32))
 
-        self.cache = BlockCache(BucketPool(lambda: local.Bucket(self.bucket_dir, None, None)), 
-                                self.db, self.cachedir, 100 * self.blocksize)
-        self.cache.init()
+        self.removal_queue = ThreadGroup(1)
+        self.upload_manager = UploadManager(self.bucket_pool, self.db, self.removal_queue)
+        self.cache = BlockCache(self.bucket_pool, self.db, self.cachedir,
+                                self.blocksize * 100, self.upload_manager, 
+                                self.removal_queue)
         
         # Tested methods assume that they are called from
         # file system request handler
         llfuse.lock.acquire()
         
-        # We do not want background threads
-        self.cache.commit_thread.stop()
-
-
     def tearDown(self):
-        self.cache.upload_manager.bucket_pool = self.bucket_pool
-        self.cache.destroy()
+        self.upload_manager.bucket_pool = self.bucket_pool
+        self.cache.clear()
+        self.upload_manager.join_all()
+        self.removal_queue.join_all()        
         if os.path.exists(self.cachedir):
             shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)

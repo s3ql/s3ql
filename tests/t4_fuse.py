@@ -97,7 +97,7 @@ class fuse_tests(TestCase):
         
         sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
         try:
-            s3ql.cli.mkfs.main(['-L', 'test fs', '--blocksze', '500',
+            s3ql.cli.mkfs.main(['-L', 'test fs', '--blocksize', '500',
                                 '--cachedir', self.cache_dir, self.bucketname ])
         except:
             sys.excepthook(*sys.exc_info())

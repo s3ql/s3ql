@@ -13,9 +13,12 @@ from random import randint
 from s3ql import fs
 from s3ql.backends import local
 from s3ql.backends.common import BucketPool
+from s3ql.block_cache import BlockCache
 from s3ql.common import ROOT_INODE, create_tables, init_tables
 from s3ql.database import Connection
 from s3ql.fsck import Fsck
+from s3ql.thread_group import ThreadGroup
+from s3ql.upload_manager import UploadManager
 import errno
 import llfuse
 import os
@@ -57,24 +60,28 @@ class fs_api_tests(TestCase):
         create_tables(self.db)
         init_tables(self.db)
 
-        self.server = fs.Operations(self.bucket_pool, self.db, self.cachedir, self.blocksize, 
-                                    cache_size=self.blocksize * 5)
-        
         # Tested methods assume that they are called from
         # file system request handler
         llfuse.lock.acquire()
-                
+        
+        self.removal_queue = ThreadGroup(1)
+        self.upload_manager = UploadManager(self.bucket_pool, self.db, self.removal_queue)
+        self.block_cache = BlockCache(self.bucket_pool, self.db, self.cachedir,
+                                      self.blocksize * 5, self.upload_manager, 
+                                      self.removal_queue)
+        self.server = fs.Operations(self.block_cache, self.db, self.blocksize)
+          
         self.server.init()
-
-        # We don't want background flushing
-        self.server.cache.commit_thread.stop()
-        self.server.inode_flush_thread.stop()
 
         # Keep track of unused filenames
         self.name_cnt = 0
 
     def tearDown(self):
         self.server.destroy()
+        self.block_cache.clear()
+        self.upload_manager.join_all()
+        self.removal_queue.join_all()        
+
         if os.path.exists(self.cachedir):
             shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)

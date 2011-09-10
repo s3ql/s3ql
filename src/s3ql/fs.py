@@ -7,28 +7,24 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-
-import os
-import errno
-import stat
-import llfuse
-import collections
-import logging
-from .inode_cache import InodeCache, OutOfInodesError
-from .common import (get_path, CTRL_NAME, CTRL_INODE, LoggerFilter,
-                     EmbeddedException, ExceptionStoringThread)
-import time
-from .block_cache import BlockCache
-from cStringIO import StringIO
-from .database import NoSuchRowError
 from .backends.common import NoSuchObject, ChecksumError
-import struct
+from .common import (get_path, CTRL_NAME, CTRL_INODE, LoggerFilter)
+from .database import NoSuchRowError
+from .inode_cache import InodeCache, OutOfInodesError
+from cStringIO import StringIO
+from llfuse import FUSEError, lock
 import cPickle as pickle
+import collections
+import errno
+import llfuse
+import logging
 import math
+import os
+import stat
+import struct
 import threading
-from llfuse import FUSEError, lock, lock_released
+import time
 
-__all__ = [ "Server" ]
 
 # standard logger for this module
 log = logging.getLogger("fs")
@@ -52,7 +48,6 @@ class Operations(llfuse.Operations):
     -----------
 
     :cache:       Holds information about cached blocks
-    :encountered_errors: Is set to true if a request handler raised an exception
     :inode_cache: A cache for the attributes of the currently opened inodes.
     :open_inodes: dict of currently opened inodes. This is used to not remove
                   the blocks of unlinked inodes that are still open.
@@ -74,52 +69,24 @@ class Operations(llfuse.Operations):
     users relying on unlink()/rmdir() to fail for a directory/file. For that, it
     explicitly checks the st_mode attribute.
     """
-
-    def handle_exc(self, fn, exc):
-        '''Handle exceptions that occurred during request processing. 
-                
-        This method marks the file system as needing fsck and logs the
-        error.
-        '''
-        # Unused arguments
-        #pylint: disable=W0613
         
-        log.error("Unexpected internal filesystem error.\n"
-                  "Filesystem may be corrupted, run fsck.s3ql as soon as possible!\n"
-                  "Please report this bug on http://code.google.com/p/s3ql/.")
-        self.encountered_errors = True
-
-
-    def __init__(self, bucket_pool, db, cachedir, blocksize, cache_size,
-                 cache_entries=768, upload_event=None):
+    def __init__(self, block_cache, db, blocksize, upload_event=None):
         super(Operations, self).__init__()
 
-        self.encountered_errors = False
         self.inodes = InodeCache(db)
         self.db = db
         self.upload_event = upload_event
-        self.inode_flush_thread = None
+        self.inode_flush_thread = InodeFlushThread(self.inodes)
         self.open_inodes = collections.defaultdict(lambda: 0)
         self.blocksize = blocksize
-        self.cache = BlockCache(bucket_pool, db, cachedir, cache_size, cache_entries)
-
+        self.cache = block_cache
+        
     def init(self):
-        self.cache.init()
-        self.inode_flush_thread = InodeFlushThread(self.inodes)
         self.inode_flush_thread.start()
 
     def destroy(self):
-        try:
-            self.inode_flush_thread.stop()
-        except EmbeddedException:
-            log.error('FlushThread terminated with exception.')
-            self.encountered_errors = True
-            
+        self.inode_flush_thread.stop_event.set()
         self.inodes.destroy()
-        self.cache.destroy()
-        
-        if self.cache.encountered_errors:
-            self.encountered_errors = True
 
     def lookup(self, id_p, name):
         if name == CTRL_NAME:
@@ -202,12 +169,7 @@ class Operations(llfuse.Operations):
     def getxattr(self, id_, name):
         # Handle S3QL commands
         if id_ == CTRL_INODE:
-            if name == b's3ql_errors?':
-                if self.encountered_errors:
-                    return b'errors encountered'
-                else:
-                    return b'no errors'
-            elif name == b's3ql_pid?':
+            if name == b's3ql_pid?':
                 return bytes(os.getpid())
 
             elif name == b's3qlstat':
@@ -742,7 +704,6 @@ class Operations(llfuse.Operations):
                 except NoSuchObject as exc:
                     log.warn('Backend lost block %d of inode %d (id %s)!', 
                              last_block, id_, exc.key)
-                    self.encountered_errors = True
                     raise FUSEError(errno.EIO)
                 
                 except ChecksumError as exc:
@@ -944,7 +905,6 @@ class Operations(llfuse.Operations):
         except NoSuchObject as exc:
             log.warn('Backend lost block %d of inode %d (id %s)!', 
                      blockno, id_, exc.key)
-            self.encountered_errors = True
             raise FUSEError(errno.EIO)
         
         except ChecksumError as exc:
@@ -1012,7 +972,6 @@ class Operations(llfuse.Operations):
         except NoSuchObject as exc:
             log.warn('Backend lost block %d of inode %d (id %s)!', 
                      blockno, id_, exc.key)
-            self.encountered_errors = True
             raise FUSEError(errno.EIO)
                             
         except ChecksumError as exc:
@@ -1073,7 +1032,7 @@ def update_logging(level, modules):
     root_logger.setLevel(level)    
     
     
-class InodeFlushThread(ExceptionStoringThread):
+class InodeFlushThread(threading.Thread):
     '''
     Periodically commit dirty inodes.
     
@@ -1088,22 +1047,14 @@ class InodeFlushThread(ExceptionStoringThread):
         self.name = 'Inode Flush Thread'
         self.daemon = True 
                 
-    def run_protected(self):
+    def run(self):
         log.debug('FlushThread: start')
 
         while not self.stop_event.is_set():
             with lock:
+                if self.stop_event.is_set():
+                    break
                 self.cache.flush()
             self.stop_event.wait(5)
+            
         log.debug('FlushThread: end')    
-        
-    def stop(self):
-        '''Wait for thread to finish, raise any occurred exceptions.
-        
-        This  method releases the global lock.
-        '''
-        
-        self.stop_event.set()
-        with lock_released:
-            self.join_and_raise()
-

@@ -8,19 +8,16 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from .backends.common import NoSuchObject
-from .common import EmbeddedException, ExceptionStoringThread
+from .common import EmbeddedException
 from .database import NoSuchRowError
 from .multi_lock import MultiLock
 from .ordered_dict import OrderedDict
-from .thread_group import ThreadGroup
-from .upload_manager import UploadManager, RemoveThread
+from .upload_manager import RemoveThread
 from contextlib import contextmanager
 from llfuse import lock, lock_released
 import logging
 import os
 import shutil
-import stat
-import threading
 import time
 
 
@@ -28,7 +25,6 @@ __all__ = [ "BlockCache" ]
 
 # standard logger for this module
 log = logging.getLogger("BlockCache")
-        
                
 class CacheEntry(file):
     """An element in the block cache
@@ -89,7 +85,6 @@ class CacheEntry(file):
         return ('<CacheEntry, inode=%d, blockno=%d, dirty=%s, block_id=%r>' % 
                 (self.inode, self.blockno, self.dirty, self.block_id))
 
-MAX_REMOVAL_THREADS = 25
 class BlockCache(object):
     """Provides access to file blocks
     
@@ -105,13 +100,10 @@ class BlockCache(object):
     
     :mlock: locks on (inode, blockno) during `get`, so that we do not
             download the same object with more than one thread.
-    :encountered_errors: This attribute is set if some non-fatal errors
-            were encountered during asynchronous operations (for
-            example, an object that was supposed to be deleted did
-            not exist).
     """
 
-    def __init__(self, bucket_pool, db, cachedir, max_size, max_entries=768):
+    def __init__(self, bucket_pool, db, cachedir, max_size, 
+                 upload_manager, removal_queue, max_entries=768):
         log.debug('Initializing')
         self.cache = OrderedDict()
         self.cachedir = cachedir
@@ -121,69 +113,8 @@ class BlockCache(object):
         self.db = db
         self.bucket_pool = bucket_pool
         self.mlock = MultiLock()
-        self.removal_queue = ThreadGroup(MAX_REMOVAL_THREADS)
-        self.upload_manager = UploadManager(bucket_pool, db, self.removal_queue)
-        self.commit_thread = CommitThread(self)
-        self.encountered_errors = False
-
-    def init(self):
-        log.debug('init: start')
-        if not os.path.exists(self.cachedir):
-            os.mkdir(self.cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-        self.commit_thread.start()
-        log.debug('init: end')
-
-    def destroy(self):
-        log.debug('destroy: start')
-        
-        # If there were errors, we still want to try to finalize
-        # as much as we can
-        try:
-            self.commit_thread.stop()
-        except Exception as exc:
-            self.encountered_errors = True
-            if isinstance(exc, EmbeddedException):
-                log.error('CommitThread encountered exception.')
-            else:
-                log.exception('Error when stopping commit thread')
-            
-        try:
-            self.clear()
-        except:
-            self.encountered_errors = True
-            log.exception('Error when clearing cache')
-            
-        while True:
-            try:
-                self.upload_manager.join_all()
-            except Exception as exc:
-                self.encountered_errors = True
-                if isinstance(exc, EmbeddedException):
-                    log.error('UploadManager encountered exception.')
-                else:
-                    log.exception('Error when joining UploadManager')
-                    break
-            else:
-                break
-            
-        while True:
-            try:
-                self.removal_queue.join_all()
-            except Exception as exc:
-                self.encountered_errors = True
-                if isinstance(exc, EmbeddedException):
-                    log.error('RemovalQueue encountered exception.')
-                else:
-                    log.exception('Error when waiting for removal queue:')
-                    break
-            else:
-                break
-                            
-        if self.upload_manager.encountered_errors:
-            self.encountered_errors = True
-            
-        os.rmdir(self.cachedir)
-        log.debug('destroy: end')
+        self.removal_queue = removal_queue
+        self.upload_manager = upload_manager
 
     def __len__(self):
         '''Get number of objects in cache'''
@@ -427,7 +358,6 @@ class BlockCache(object):
                 exc = exc.exc_info[1]
                 if isinstance(exc, NoSuchObject):
                     log.warn('Backend seems to have lost object %s', exc.key)
-                    self.encountered_errors = True
                 else:
                     raise
 
@@ -436,8 +366,7 @@ class BlockCache(object):
     def flush(self, inode):
         """Flush buffers for `inode`"""
 
-        # Cache entries are automatically flushed after each read()
-        # and write()
+        # Cache entries are automatically flushed after each read() and write()
         pass
 
     def commit(self):
@@ -504,57 +433,3 @@ class BlockCache(object):
         if len(self.cache) > 0:
             raise RuntimeError("BlockCache instance was destroyed without calling destroy()!")
 
-class CommitThread(ExceptionStoringThread):
-    '''
-    Periodically upload dirty blocks.
-    
-    This class uses the llfuse global lock. When calling objects
-    passed in the constructor, the global lock is acquired first.
-    '''    
-    
-
-    def __init__(self, bcache):
-        super(CommitThread, self).__init__()
-        self.bcache = bcache 
-        self.stop_event = threading.Event()
-        self.name = 'CommitThread'
-                    
-    def run_protected(self):
-        log.debug('CommitThread: start')
- 
-        while not self.stop_event.is_set():
-            did_sth = False
-            stamp = time.time()
-            for el in self.bcache.cache.values_rev():
-                if stamp - el.last_access < 10:
-                    break
-                if (not el.dirty or
-                    (el.inode, el.blockno) in self.bcache.upload_manager.in_transit):
-                    continue
-                        
-                # Acquire global lock to access UploadManager instance
-                with lock:
-                    if (not el.dirty or # Object may have been accessed
-                        (el.inode, el.blockno) in self.bcache.upload_manager.in_transit):
-                        continue
-                    self.bcache.upload_manager.add(el)
-                did_sth = True
-
-                if self.stop_event.is_set():
-                    break
-            
-            if not did_sth:
-                self.stop_event.wait(5)
-
-        log.debug('CommitThread: end')    
-        
-    def stop(self):
-        '''Wait for thread to finish, raise any occurred exceptions.
-        
-        This  method releases the global lock.
-        '''
-        
-        self.stop_event.set()
-        with lock_released:
-            self.join_and_raise()
-        
