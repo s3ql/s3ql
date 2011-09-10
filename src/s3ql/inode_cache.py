@@ -257,6 +257,9 @@ class InodeCache(object):
                 else:
                     del self.attrs[id_]
                     self.setattr(inode)
+        
+        self.cached_rows = None
+        self.attrs = None
 
     def flush(self):
         '''Flush all entries to database'''
