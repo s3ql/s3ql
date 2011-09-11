@@ -76,16 +76,11 @@ class Operations(llfuse.Operations):
         self.inodes = InodeCache(db)
         self.db = db
         self.upload_event = upload_event
-        self.inode_flush_thread = InodeFlushThread(self.inodes)
         self.open_inodes = collections.defaultdict(lambda: 0)
         self.blocksize = blocksize
         self.cache = block_cache
-        
-    def init(self):
-        self.inode_flush_thread.start()
 
     def destroy(self):
-        self.inode_flush_thread.stop_event.set()
         self.inodes.destroy()
 
     def lookup(self, id_p, name):
@@ -1030,30 +1025,3 @@ def update_logging(level, modules):
         logging.disable(logging.DEBUG)
     root_logger.setLevel(level)    
     
-    
-class InodeFlushThread(threading.Thread):
-    '''
-    Periodically commit dirty inodes.
-    
-    This class uses the llfuse global lock. When calling objects
-    passed in the constructor, the global lock is acquired first.
-    '''    
-    
-    def __init__(self, cache):
-        super(InodeFlushThread, self).__init__()
-        self.cache = cache
-        self.stop_event = threading.Event()
-        self.name = 'Inode Flush Thread'
-        self.daemon = True 
-                
-    def run(self):
-        log.debug('FlushThread: start')
-
-        while not self.stop_event.is_set():
-            with lock:
-                if self.stop_event.is_set():
-                    break
-                self.cache.flush()
-            self.stop_event.wait(5)
-            
-        log.debug('FlushThread: end')    
