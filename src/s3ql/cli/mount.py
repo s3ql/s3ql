@@ -84,7 +84,7 @@ def main(args=None):
     block_cache = BlockCache(bucket_pool, db, cachepath + '-cache',
                              options.cachesize * 1024, upload_manager, 
                              options.max_cache_entries)
-    commit_thread = CommitThread(upload_manager)
+    commit_thread = CommitThread(upload_manager, block_cache)
     operations = fs.Operations(block_cache, db, blocksize=param['blocksize'],
                                upload_event=metadata_upload_thread.event)
     
@@ -550,9 +550,10 @@ class CommitThread(Thread):
     '''    
     
 
-    def __init__(self, upload_manager):
+    def __init__(self, upload_manager, block_cache):
         super(CommitThread, self).__init__()
-        self.upload_manager = upload_manager 
+        self.upload_manager = upload_manager
+        self.block_cache = block_cache 
         self.stop_event = threading.Event()
         self.name = 'CommitThread'
                     
@@ -562,7 +563,7 @@ class CommitThread(Thread):
         while not self.stop_event.is_set():
             did_sth = False
             stamp = time.time()
-            for el in self.bcache.cache.values_rev():
+            for el in self.block_cache.cache.values_rev():
                 if stamp - el.last_access < 10:
                     break
                 if (not el.dirty or
