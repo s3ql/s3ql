@@ -289,7 +289,7 @@ class UploadManager(object):
                     to_delete = True
 
         if need_upload:
-            log.debug('add(inode=%d, blockno=%d): starting compression thread', 
+            log.debug('add(inode=%d, blockno=%d): adding to queue', 
                       el.inode, el.blockno)
             el.modified_after_upload = False
             self.in_transit.add((el.inode, el.blockno))
