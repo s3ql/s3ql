@@ -59,7 +59,7 @@ class fsck_tests(TestCase):
                                os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1))
 
         # Create new block
-        fh = open(self.cachedir + 'inode_%d_block_1.d' % inode, 'wb')
+        fh = open(self.cachedir + 'inode_%d_block_1' % inode, 'wb')
         fh.write('somedata')
         fh.close()
         self.assert_fsck(self.fsck.check_cache)
@@ -73,17 +73,17 @@ class fsck_tests(TestCase):
         self.assertEquals(self.bucket['s3ql_data_1'], 'somedata')
 
         # Existing block
-        with open(self.cachedir + 'inode_%d_block_2.d' % inode, 'wb') as fh:
+        with open(self.cachedir + 'inode_%d_block_2' % inode, 'wb') as fh:
             fh.write('somedata')    
         self.assert_fsck(self.fsck.check_cache)
                 
         # Old block preserved
-        with open(self.cachedir + 'inode_%d_block_1.d' % inode, 'wb') as fh:
+        with open(self.cachedir + 'inode_%d_block_1' % inode, 'wb') as fh:
             fh.write('overwriting somedata')
         self.assert_fsck(self.fsck.check_cache)
         
         # Old block removed
-        with open(self.cachedir + 'inode_%d_block_2.d' % inode, 'wb') as fh:
+        with open(self.cachedir + 'inode_%d_block_2' % inode, 'wb') as fh:
             fh.write('overwriting last piece of somedata')
         self.assert_fsck(self.fsck.check_cache)
                 

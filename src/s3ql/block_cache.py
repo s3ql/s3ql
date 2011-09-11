@@ -37,8 +37,7 @@ class CacheEntry(file):
         is currently being uploaded. At the beginning of the upload,
         it is set to False. For any write access, it is set to True.
         If it is still False when the upload has completed, 
-        `dirty` is set to False and the object looses the ``.d`` suffix
-        in its name.
+        `dirty` is set to False.
 
     """
 
@@ -58,23 +57,17 @@ class CacheEntry(file):
         self.last_access = 0
 
     def truncate(self, *a, **kw):
-        if not self.dirty:
-            os.rename(self.name, self.name + '.d')
-            self.dirty = True
+        self.dirty = True
         self.modified_after_upload = True
         return super(CacheEntry, self).truncate(*a, **kw)
 
     def write(self, *a, **kw):
-        if not self.dirty:
-            os.rename(self.name, self.name + '.d')
-            self.dirty = True
+        self.dirty = True
         self.modified_after_upload = True
         return super(CacheEntry, self).write(*a, **kw)
 
     def writelines(self, *a, **kw):
-        if not self.dirty:
-            os.rename(self.name, self.name + '.d')
-            self.dirty = True
+        self.dirty = True
         self.modified_after_upload = True
         return super(CacheEntry, self).writelines(*a, **kw)
 
@@ -172,7 +165,6 @@ class BlockCache(object):
                         
                     # Writing will have set dirty flag
                     el.dirty = False
-                    os.rename(el.name + '.d', el.name)
                     
                     self.size += os.fstat(el.fileno()).st_size
     
@@ -183,7 +175,6 @@ class BlockCache(object):
                 log.debug('get(inode=%d, block=%d): in cache', inode, blockno)
                 self.cache.to_head((inode, blockno))
 
-        
         el.last_access = time.time()
         oldsize = os.fstat(el.fileno()).st_size
 
@@ -289,10 +280,7 @@ class BlockCache(object):
 
                 self.size -= os.fstat(el.fileno()).st_size
                 el.close()
-                if el.dirty:
-                    os.unlink(el.name + '.d')
-                else:
-                    os.unlink(el.name)
+                os.unlink(el.name)
 
                 if el.block_id is None:
                     log.debug('remove(inode=%d, blockno=%d): block only in cache',

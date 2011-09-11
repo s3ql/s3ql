@@ -120,20 +120,14 @@ class Fsck(object):
         for filename in os.listdir(self.cachedir):
             self.found_errors = True
     
-            match = re.match('^inode_(\\d+)_block_(\\d+)(\\.d)?$', filename)
+            match = re.match('^inode_(\\d+)_block_(\\d+)$', filename)
             if match:
                 inode = int(match.group(1))
                 blockno = int(match.group(2))
-                dirty = match.group(3) == '.d'
             else:
                 raise RuntimeError('Strange file in cache directory: %s' % filename)
-            
-            if not dirty:
-                self.log_error('Removing cached block %d of inode %d', blockno, inode)
-                os.unlink(os.path.join(self.cachedir, filename))
-                continue
     
-            self.log_error("Committing changed block %d of inode %d to backend",
+            self.log_error("Committing block %d of inode %d to backend",
                       blockno, inode)
     
             fh = open(os.path.join(self.cachedir, filename), "rb")

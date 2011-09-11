@@ -87,6 +87,8 @@ class UploadManager(object):
         self.upload_completed = threading.Event()
         
     def init(self, threads=1):
+        '''Start worker threads'''
+        
         # Start threads as daemons, so that we don't get hangs if the main
         # program terminates with an exception. Note that this actually makes
         # calling the destroy() method especially important, otherwise threads
@@ -104,6 +106,7 @@ class UploadManager(object):
             self.remove_threads.append(t)
                         
     def destroy(self):
+        '''Stop worker threads'''
         for t in self.upload_threads:
             self.to_upload.put(QuitSentinel)
         
@@ -161,14 +164,7 @@ class UploadManager(object):
                     self.db.execute('UPDATE objects SET compr_size=? WHERE id=?', (obj_size, obj_id))
                     
                     if not el.modified_after_upload:
-                        el.dirty = False
-                    
-                        try:
-                            os.rename(el.name + '.d', el.name)
-                        except OSError as exc:
-                            # Entry may have been removed while being uploaded
-                            if exc.errno != errno.ENOENT:
-                                raise                
+                        el.dirty = False       
     
             finally:
                 with lock:
@@ -246,7 +242,6 @@ class UploadManager(object):
                           el.inode, el.blockno, el.block_id)
                 el.dirty = False
                 el.modified_after_upload = False
-                os.rename(el.name + '.d', el.name)
                 return size
                   
             log.debug('add(inode=%d, blockno=%d): (re)linking to %d',
@@ -301,14 +296,13 @@ class UploadManager(object):
             
             # Create a new fd so that we don't get confused if another thread
             # repositions the cursor (and do so before unlocking)
-            fh = open(el.name + '.d', 'rb')
+            fh = open(el.name, 'rb')
             with lock_released:
                 self.to_upload.put((el, fh, size, obj_id))
 
         else:
             el.dirty = False
             el.modified_after_upload = False
-            os.rename(el.name + '.d', el.name)
                 
         if to_delete:
             log.debug('add(inode=%d, blockno=%d): removing object %d', 
