@@ -84,7 +84,7 @@ def main(args=None):
     block_cache = BlockCache(bucket_pool, db, cachepath + '-cache',
                              options.cachesize * 1024, upload_manager, 
                              options.max_cache_entries)
-    commit_thread = CommitThread(block_cache)
+    commit_thread = CommitThread(upload_manager)
     operations = fs.Operations(block_cache, db, blocksize=param['blocksize'],
                                upload_event=metadata_upload_thread.event)
     
@@ -550,12 +550,11 @@ class CommitThread(Thread):
     '''    
     
 
-    def __init__(self, bcache):
+    def __init__(self, upload_manager):
         super(CommitThread, self).__init__()
-        self.bcache = bcache 
+        self.upload_manager = upload_manager 
         self.stop_event = threading.Event()
         self.name = 'CommitThread'
-        self.daemon = True
                     
     def run(self):
         log.debug('CommitThread: start')
@@ -567,7 +566,7 @@ class CommitThread(Thread):
                 if stamp - el.last_access < 10:
                     break
                 if (not el.dirty or
-                    (el.inode, el.blockno) in self.bcache.upload_manager.in_transit):
+                    (el.inode, el.blockno) in self.upload_manager.in_transit):
                     continue
                         
                 # Acquire global lock to access UploadManager instance
@@ -575,9 +574,9 @@ class CommitThread(Thread):
                     if self.stop_event.is_set():
                         break
                     if (not el.dirty or # Object may have been accessed
-                        (el.inode, el.blockno) in self.bcache.upload_manager.in_transit):
+                        (el.inode, el.blockno) in self.upload_manager.in_transit):
                         continue
-                    self.bcache.upload_manager.add(el)
+                    self.upload_manager.add(el)
                 did_sth = True
 
                 if self.stop_event.is_set():
