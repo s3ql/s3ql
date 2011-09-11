@@ -34,6 +34,32 @@ import time
 
 log = logging.getLogger("mount")
 
+def install_thread_excepthook():
+    """work around sys.excepthook thread bug
+    
+    See http://bugs.python.org/issue1230540.
+
+    Call once from __main__ before creating any threads. If using
+    psyco, call psyco.cannotcompile(threading.Thread.run) since this
+    replaces a new-style class method.
+    """
+
+    init_old = threading.Thread.__init__
+    def init(self, *args, **kwargs):
+        init_old(self, *args, **kwargs)
+        run_old = self.run
+        def run_with_except_hook(*args, **kw):
+            try:
+                run_old(*args, **kw)
+            except SystemExit:
+                raise
+            except:
+                sys.excepthook(*sys.exc_info())
+        self.run = run_with_except_hook
+        
+    threading.Thread.__init__ = init   
+install_thread_excepthook()    
+    
 def main(args=None):
     '''Mount S3QL file system'''
 
@@ -509,8 +535,8 @@ class MetadataUploadThread(Thread):
         '''Signal thread to terminate'''
         
         self.quit = True
-        self.event.set()
-        
+        self.event.set()     
+    
 def setup_exchook():
     '''Send SIGTERM if any other thread terminates with an exception
     
@@ -539,8 +565,11 @@ def setup_exchook():
             old_exchook(type_, val, tb)
         
     sys.excepthook = exchook
-    return exc_info
     
+    return exc_info
+ 
+
+   
 class CommitThread(Thread):
     '''
     Periodically upload dirty blocks.
