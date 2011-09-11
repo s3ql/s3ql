@@ -41,11 +41,13 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-    fuse_opts = get_fuse_opts(options)
     
     # Save handler so that we can remove it when daemonizing
     stdout_log_handler = setup_logging(options)
     
+    if options.threads is None:
+        options.threads = determine_threads(options)
+
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.')
         
@@ -87,7 +89,7 @@ def main(args=None):
                                upload_event=metadata_upload_thread.event)
     
     log.info('Mounting filesystem...')
-    llfuse.init(operations, options.mountpoint, fuse_opts)
+    llfuse.init(operations, options.mountpoint, get_fuse_opts(options))
 
     try:
         if not options.fg:
@@ -193,6 +195,32 @@ def main(args=None):
             raise exc_info[0], exc_info[1], exc_info[2]
         else:
             raise
+    
+def determine_threads(options):
+    '''Return optimum number of upload threads'''
+            
+    cores = os.sysconf('SC_NPROCESSORS_ONLN')
+    memory = os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGESIZE')
+        
+    if options.compress == 'lzma':
+        # Keep this in sync with compression level in backends/common.py
+        # Memory usage according to man xz(1)
+        mem_per_thread = 186 * 1024**2
+        else:
+        # Only check LZMA memory usage
+        mem_per_thread = 0
+                
+    if cores == -1 or memory == -1:
+        log.warn("Can't determine number of cores, using just one upload thread.")
+        return 1
+    elif cores * mem_per_thread > (memory/2):
+        threads = int((memory/2) // mem_per_thread)
+        log.info('Using %d upload threads (memory limited).', threads)
+        return threads
+    else:
+        log.info("Using %d upload threads.", cores)
+        return cores
+    
         
 def get_metadata(bucket, cachepath):
     '''Retrieve metadata
@@ -395,29 +423,6 @@ def parse_args(args):
     if options.compress == 'none':
         options.compress = None
 
-                      
-    if options.threads is None:
-        cores = os.sysconf('SC_NPROCESSORS_ONLN')
-        memory = os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGESIZE')
-            
-        if options.compress == 'lzma':
-            # Keep this in sync with compression level in backends/common.py
-            # Memory usage according to man xz(1)
-            mem_per_thread = 186 * 1024**2
-        else:
-            # Only check LZMA memory usage
-            mem_per_thread = 0
-                    
-        if cores == -1 or memory == -1:
-            log.warn("Can't determine number of cores, using just one upload thread.")
-            options.threads = 1
-        elif cores * mem_per_thread > (memory/2):
-            options.threads = int((memory/2) // mem_per_thread)
-            log.info('Using %d upload threads (memory limited)', options.threads)
-        else:
-            log.info("Using %d upload threads", cores)
-            options.threads = cores
-        
     return options
 
 class MetadataUploadThread(Thread):
