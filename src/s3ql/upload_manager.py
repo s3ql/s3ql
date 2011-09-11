@@ -89,19 +89,14 @@ class UploadManager(object):
     def init(self, threads=1):
         '''Start worker threads'''
         
-        # Start threads as daemons, so that we don't get hangs if the main
-        # program terminates with an exception. Note that this actually makes
-        # calling the destroy() method especially important, otherwise threads
-        # may be interrupted by program exit in the middle of their work.
         for _ in range(threads):
             t = threading.Thread(target=self._do_uploads)
-            t.daemon = True
             t.start()
             self.upload_threads.append(t)
             
         for _ in range(10): 
             t = threading.Thread(target=self._do_removals)
-            t.daemon = True
+            t.daemon = True # interruption will do no permanent harm
             t.start()
             self.remove_threads.append(t)
                         
