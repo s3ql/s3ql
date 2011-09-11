@@ -16,7 +16,6 @@ from s3ql.common import (setup_logging, get_bucket_cachedir, get_seq_no,
 from s3ql.daemonize import daemonize
 from s3ql.database import Connection
 from s3ql.parse_args import ArgumentParser
-from s3ql.thread_group import ThreadGroup
 from s3ql.upload_manager import UploadManager
 from threading import Thread
 import cPickle as pickle
@@ -32,8 +31,6 @@ import textwrap
 import thread
 import threading
 import time
-
-MAX_REMOVAL_THREADS = 25
 
 log = logging.getLogger("mount")
 
@@ -80,12 +77,11 @@ def main(args=None):
                        
     metadata_upload_thread = MetadataUploadThread(bucket_pool, param, db,
                                                   options.metadata_upload_interval)
-    removal_queue = ThreadGroup(MAX_REMOVAL_THREADS)
-    upload_manager = UploadManager(bucket_pool, db, removal_queue, options.threads)
+    upload_manager = UploadManager(bucket_pool, db)
     os.mkdir(cachepath + '-cache')
     block_cache = BlockCache(bucket_pool, db, cachepath + '-cache',
                              options.cachesize * 1024, upload_manager, 
-                             removal_queue, options.max_cache_entries)
+                             options.max_cache_entries)
     commit_thread = CommitThread(block_cache)
     operations = fs.Operations(block_cache, db, blocksize=param['blocksize'],
                                upload_event=metadata_upload_thread.event)
@@ -107,6 +103,7 @@ def main(args=None):
             daemonize(options.cachedir)
     
         exc_info = setup_exchook()
+        upload_manager.init(options.threads)
         metadata_upload_thread.start()
         commit_thread.start()    
         
@@ -140,8 +137,7 @@ def main(args=None):
         commit_thread.join()
         block_cache.clear()
         with llfuse.lock:
-            upload_manager.join_all()
-            removal_queue.join_all()
+            upload_manager.destroy()
         os.rmdir(cachepath + '-cache')
         
         # Do not update .params yet, dump_metadata() may fail if the database is
@@ -369,8 +365,8 @@ def parse_args(args):
                       help='Interval in seconds between complete metadata uploads. '
                            'Set to 0 to disable. Default: 24h.')
     parser.add_argument("--threads", action="store", type=int,
-                      default=1, metavar='<no>',
-                      help='Number of parallel upload threads to use (default: %(default)s).')
+                      default=None, metavar='<no>',
+                      help='Number of parallel upload threads to use (default: auto).')
     parser.add_argument("--nfs", action="store_true", default=False,
                       help='Support export of S3QL file systems over NFS ' 
                            '(default: %(default)s)')
@@ -394,7 +390,30 @@ def parse_args(args):
         
     if options.compress == 'none':
         options.compress = None
+
+                      
+    if options.threads is None:
+        cores = os.sysconf('SC_NPROCESSORS_ONLN')
+        memory = os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGESIZE')
             
+        if options.compress == 'lzma':
+            # Keep this in sync with compression level in backends/common.py
+            # Memory usage according to man xz(1)
+            mem_per_thread = 186 * 1024**2
+        else:
+            # Only check LZMA memory usage
+            mem_per_thread = 0
+                    
+        if cores == -1 or memory == -1:
+            log.warn("Can't determine number of cores, using just one upload thread.")
+            options.threads = 1
+        elif cores * mem_per_thread > (memory/2):
+            options.threads = int((memory/2) // mem_per_thread)
+            log.info('Using %d upload threads (memory limited)', options.threads)
+        else:
+            log.info("Using %d upload threads", cores)
+            options.threads = cores
+        
     return options
 
 class MetadataUploadThread(Thread):
@@ -511,6 +530,7 @@ class CommitThread(Thread):
         self.bcache = bcache 
         self.stop_event = threading.Event()
         self.name = 'CommitThread'
+        self.daemon = True
                     
     def run(self):
         log.debug('CommitThread: start')

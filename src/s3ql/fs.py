@@ -197,7 +197,6 @@ class Operations(llfuse.Operations):
         if id_ == CTRL_INODE:
             if name == b's3ql_flushcache!':
                 self.cache.clear()
-                self.cache.upload_manager.join_all()
             elif name == 'copy':
                 self.copy_tree(*struct.unpack('II', value))
             elif name == 'upload-meta':

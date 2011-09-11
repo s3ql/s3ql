@@ -17,7 +17,6 @@ from s3ql.block_cache import BlockCache
 from s3ql.common import ROOT_INODE, create_tables, init_tables
 from s3ql.database import Connection
 from s3ql.fsck import Fsck
-from s3ql.thread_group import ThreadGroup
 from s3ql.upload_manager import UploadManager
 import errno
 import llfuse
@@ -64,23 +63,20 @@ class fs_api_tests(TestCase):
         # file system request handler
         llfuse.lock.acquire()
         
-        self.removal_queue = ThreadGroup(1)
-        self.upload_manager = UploadManager(self.bucket_pool, self.db, self.removal_queue)
+        self.upload_manager = UploadManager(self.bucket_pool, self.db)
         self.block_cache = BlockCache(self.bucket_pool, self.db, self.cachedir,
-                                      self.blocksize * 5, self.upload_manager, 
-                                      self.removal_queue)
+                                      self.blocksize * 5, self.upload_manager)
         self.server = fs.Operations(self.block_cache, self.db, self.blocksize)
           
         self.server.init()
-
+        self.upload_manager.init()
         # Keep track of unused filenames
         self.name_cnt = 0
 
     def tearDown(self):
         self.server.destroy()
         self.block_cache.clear()
-        self.upload_manager.join_all()
-        self.removal_queue.join_all()        
+        self.upload_manager.destroy()     
 
         if os.path.exists(self.cachedir):
             shutil.rmtree(self.cachedir)
@@ -93,8 +89,9 @@ class fs_api_tests(TestCase):
             return fd.read(len_)
 
     def fsck(self):
-        self.server.cache.clear()
-        self.server.cache.upload_manager.join_all()
+        self.block_cache.clear()
+        self.upload_manager.destroy()
+        self.upload_manager.init()
         self.server.inodes.flush()
         fsck = Fsck(self.cachedir, self.bucket,
                   { 'blocksize': self.blocksize }, self.db)

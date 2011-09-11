@@ -7,12 +7,9 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-from .backends.common import NoSuchObject
-from .common import EmbeddedException
 from .database import NoSuchRowError
 from .multi_lock import MultiLock
 from .ordered_dict import OrderedDict
-from .upload_manager import RemoveThread
 from contextlib import contextmanager
 from llfuse import lock, lock_released
 import logging
@@ -103,7 +100,7 @@ class BlockCache(object):
     """
 
     def __init__(self, bucket_pool, db, cachedir, max_size, 
-                 upload_manager, removal_queue, max_entries=768):
+                 upload_manager, max_entries=768):
         log.debug('Initializing')
         self.cache = OrderedDict()
         self.cachedir = cachedir
@@ -113,7 +110,6 @@ class BlockCache(object):
         self.db = db
         self.bucket_pool = bucket_pool
         self.mlock = MultiLock()
-        self.removal_queue = removal_queue
         self.upload_manager = upload_manager
 
     def __len__(self):
@@ -349,17 +345,7 @@ class BlockCache(object):
                 continue            
         
             # Delete object
-            try:
-                # Releases global lock:
-                self.removal_queue.add_thread(RemoveThread(obj_id, self.bucket_pool,
-                                                           (inode, blockno),
-                                                           self.upload_manager))
-            except EmbeddedException as exc:
-                exc = exc.exc_info[1]
-                if isinstance(exc, NoSuchObject):
-                    log.warn('Backend seems to have lost object %s', exc.key)
-                else:
-                    raise
+            self.upload_manager.remove(obj_id, (inode, blockno))
 
         log.debug('remove(inode=%d, start=%d, end=%s): end', inode, start_no, end_no)
 
@@ -371,10 +357,6 @@ class BlockCache(object):
 
     def commit(self):
         """Upload all dirty blocks
-        
-        This method uploads all dirty blocks. The object itself may
-        still be in transit when the method returns, but the
-        blocks table is guaranteed to refer to the correct objects.
         
         This method releases the global lock.
         """
@@ -411,13 +393,12 @@ class BlockCache(object):
                 
                 self.upload_manager.add(el) # Releases global lock
                 
-                        
+        # Now wait for all uploads to complete
+        while self.upload_manager.upload_in_progress():
+            self.upload_manager.join_one() # Releases global lock
+          
     def clear(self):
         """Upload all dirty data and clear cache
-        
-        When the method returns, all blocks have been registered
-        in the database, but the actual uploads may still be 
-        in progress.
         
         This method releases the global lock.
         """
@@ -427,7 +408,13 @@ class BlockCache(object):
         self.max_entries = 0
         self.expire() # Releases global lock
         self.max_entries = bak
+
+        # Now wait for all uploads to complete
+        while self.upload_manager.upload_in_progress():
+            self.upload_manager.join_one() # Releases global lock
+            
         log.debug('clear: end')
+
 
     def __del__(self):
         if len(self.cache) > 0:

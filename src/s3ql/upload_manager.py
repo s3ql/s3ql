@@ -7,46 +7,188 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-
-from .backends.common import NoSuchObject, CompressFilter
+from .backends.common import  CompressFilter
 from .common import sha256_fh
 from .database import NoSuchRowError
-from .thread_group import ThreadGroup, Thread
-from llfuse import lock
-from s3ql.common import EmbeddedException
+from Queue import Queue
+from llfuse import lock, lock_released
 import errno
 import logging
 import os
 import shutil
 import time
+import threading
 
 log = logging.getLogger("UploadManager")
 
+# Special queue entry that signals threads to terminate
+QuitSentinel = object()
+
+class Distributor(object):
+    '''
+    Distributes objects to consumers.
+    '''
+    
+    def __init__(self):
+        super(Distributor, self).__init__()
+        
+        self.slot = None
+        self.cv = threading.Condition()
+        
+    def put(self, obj):
+        '''Offer *obj* for consumption
+        
+        The method blocks until another thread calls `get()` to consume
+        the object.
+        '''
+        
+        if obj is None:
+            raise ValueError("Can't put None into Queue")
+        
+        with self.cv:
+            while self.slot is not None:
+                self.cv.wait()
+            self.slot = obj
+            self.cv.notify_all()
+            
+    def get(self):
+        '''Consume and return an object
+        
+        The method blocks until another thread offers an object
+        by calling the `put` method.
+        '''
+        with self.cv:
+            while not self.slot:
+                self.cv.wait()
+            tmp = self.slot
+            self.slot = None
+            self.cv.notify_all()
+        return tmp
+
+        
 class UploadManager(object):
     '''
-    Schedules and executes object uploads to make optimum usage
-    of network bandwidth and CPU time.
+    Schedules and executes object uploads to make optimum usage of network
+    bandwidth and CPU time.
     
-    Methods which release the global lock have are marked as
-    such in their docstring.
-        
-    Attributes:
-    -----------
-    
-    :encountered_errors: This attribute is set if some non-fatal errors
-            were encountered during asynchronous operations (for
-            example, an object that was supposed to be deleted did
-            not exist).    
+    Methods which release the global lock have are marked as such in their
+    docstring.
     '''
     
-    def __init__(self, bucket_pool, db, removal_queue, max_threads=1):
-        self.threads = ThreadGroup(max_threads)
-        self.removal_queue = removal_queue
+    def __init__(self, bucket_pool, db):
+        
         self.bucket_pool = bucket_pool
         self.db = db
         self.in_transit = set()
-        self.encountered_errors = False
+        self.to_upload = Distributor()
+        self.to_remove = Queue()
+        self.upload_threads = []
+        self.remove_threads = []
+        self.upload_completed = threading.Event()
         
+    def init(self, threads=1):
+        # Start threads as daemons, so that we don't get hangs if the main
+        # program terminates with an exception. Note that this actually makes
+        # calling the destroy() method especially important, otherwise threads
+        # may be interrupted by program exit in the middle of their work.
+        for _ in range(threads):
+            t = threading.Thread(target=self._do_uploads)
+            t.daemon = True
+            t.start()
+            self.upload_threads.append(t)
+            
+        for _ in range(10): 
+            t = threading.Thread(target=self._do_removals)
+            t.daemon = True
+            t.start()
+            self.remove_threads.append(t)
+                        
+    def destroy(self):
+        for t in self.upload_threads:
+            self.to_upload.put(QuitSentinel)
+        
+        for t in self.remove_threads:
+            self.to_remove.put(QuitSentinel)
+                    
+        with lock_released:
+            for t in self.upload_threads:
+                t.join()
+
+            for t in self.remove_threads:
+                t.join()
+                            
+        self.upload_threads = []
+        self.remove_threads = []
+                
+    def _do_uploads(self):
+        '''Upload objects
+        
+        After upload, the file handle is closed and the compressed block size is
+        updated in the database
+         
+        No matter how this method terminates, the block is removed from the
+        in_transit set.
+        '''
+        
+        while True:
+            tmp = self.to_upload.get()
+            if tmp is QuitSentinel:
+                break         
+            (el, src_fh, size, obj_id) = tmp
+            
+            try:
+                if log.isEnabledFor(logging.DEBUG):
+                    time_ = time.time()
+                       
+                with self.bucket_pool() as bucket:  
+                    with bucket.open_write('s3ql_data_%d' % obj_id) as dst_fh:
+                        shutil.copyfileobj(src_fh, dst_fh)
+                src_fh.close()
+                  
+                if log.isEnabledFor(logging.DEBUG):
+                    time_ = time.time() - time_
+                    rate = size / (1024**2 * time_) if time_ != 0 else 0
+                    log.debug('UploadThread(inode=%d, blockno=%d): '
+                             'uploaded %d bytes in %.3f seconds, %.2f MB/s',
+                              el.inode, el.blockno, size, time_, rate)             
+                
+                if isinstance(dst_fh, CompressFilter):
+                    obj_size = dst_fh.compr_size
+                else:
+                    obj_size = size
+                                    
+                with lock:
+                    self.db.execute('UPDATE objects SET compr_size=? WHERE id=?', (obj_size, obj_id))
+                    
+                    if not el.modified_after_upload:
+                        el.dirty = False
+                    
+                        try:
+                            os.rename(el.name + '.d', el.name)
+                        except OSError as exc:
+                            # Entry may have been removed while being uploaded
+                            if exc.errno != errno.ENOENT:
+                                raise                
+    
+            finally:
+                with lock:
+                    self.in_transit.remove((el.inode, el.blockno))
+                    self.upload_completed.set()
+          
+    def join_one(self):
+        '''Wait until an object has been uploaded
+        
+        If there are no objects in transit, return immediately. This method
+        releases the global lock.
+        '''
+        
+        if not self.upload_in_progress():
+            return
+        
+        self.upload_completed.clear()
+        with lock_released:
+            self.upload_completed.wait()
+                                            
     def add(self, el):
         '''Upload cache entry `el` asynchronously
         
@@ -55,8 +197,13 @@ class UploadManager(object):
         This method releases the global lock.
         '''
         
+        # TODO: Big parts of this should be moved into _do_work()
+        
         log.debug('UploadManager.add(%s): start', el)
 
+        if not self.upload_threads:
+            raise RuntimeError("No upload threads started")
+        
         if (el.inode, el.blockno) in self.in_transit:
             raise ValueError('Block already in transit')
         
@@ -152,10 +299,11 @@ class UploadManager(object):
             el.modified_after_upload = False
             self.in_transit.add((el.inode, el.blockno))
             
-            # Create a new fd so that we don't get confused if another
-            # thread repositions the cursor (and do so before unlocking)
+            # Create a new fd so that we don't get confused if another thread
+            # repositions the cursor (and do so before unlocking)
             fh = open(el.name + '.d', 'rb')
-            self.threads.add_thread(UploadThread(el, fh, self, size, obj_id)) # Releases global lock
+            with lock_released:
+                self.to_upload.put((el, fh, size, obj_id))
 
         else:
             el.dirty = False
@@ -166,140 +314,43 @@ class UploadManager(object):
             log.debug('add(inode=%d, blockno=%d): removing object %d', 
                       el.inode, el.blockno, old_obj_id)
             
-            try:
-                # Note: Old object can not be in transit
-                # FIXME: Probably no longer true once objects can contain several blocks
-                # Releases global lock
-                self.removal_queue.add_thread(RemoveThread(old_obj_id, self.bucket_pool))
-            except EmbeddedException as exc:
-                exc = exc.exc
-                if isinstance(exc, NoSuchObject):
-                    log.warn('Backend seems to have lost object %s', exc.key)
-                    self.encountered_errors = True
-                else:
-                    raise
+            # Note: Old object can not be in transit
+            # FIXME: Probably no longer true once objects can contain several blocks
+            self.remove(old_obj_id)
                                                 
         log.debug('add(inode=%d, blockno=%d): end', el.inode, el.blockno)
         return size
-
-    def join_all(self):
-        '''Wait until all blocks in transit have been uploaded
-        
-        This method releases the global lock.
-        '''
-        
-        self.threads.join_all()
-
-    def join_one(self):
-        '''Wait until one block has been uploaded
-        
-        If there are no blocks in transit, return immediately.
-        This method releases the global lock.
-        '''
-        
-        self.threads.join_one()
             
     def upload_in_progress(self):
         '''Return True if there are any blocks in transit'''
         
-        return len(self.threads) > 0
+        return len(self.in_transit) > 0
     
-    
-class UploadThread(Thread):
-    '''Uploads an object
-    
-    This class uses the llfuse global lock. When calling objects
-    passed in the constructor, the global lock is acquired first.
-    
-    The `size` attribute will be updated to the compressed size.
-    '''
-    
-    def __init__(self, el, fh, um, size, obj_id):
-        super(UploadThread, self).__init__()
-        self.el = el
-        self.fh = fh
-        self.um = um
-        self.size = size
-        self.obj_id = obj_id
-        
-    def run_protected(self):
-        '''Upload object
-        
-        After upload, the file handle is closed and the compressed block size is
-        updated in the database
-         
-        No matter how this method terminates, the block is removed from the
-        in_transit set.
+    def remove(self, obj_id, transit_key=None):
         '''
-                     
-        try:
-            if log.isEnabledFor(logging.DEBUG):
-                oldsize = self.size
-                time_ = time.time()
-                
-                
-            with self.um.bucket_pool() as bucket:
-                with bucket.open_write('s3ql_data_%d' % self.obj_id) as fh:
-                    shutil.copyfileobj(self.fh, fh)
-                
-            if isinstance(fh, CompressFilter):
-                self.size = fh.compr_size
-            else:
-                self.size = self.fh.tell()
-                
-            if log.isEnabledFor(logging.DEBUG):
-                time_ = time.time() - time_
-                if time_ != 0:
-                    rate = oldsize / (1024**2 * time_)
-                else:
-                    rate = 0
-                log.debug('UploadThread(inode=%d, blockno=%d): '
-                         'uploaded %d bytes in %.3f seconds, %.2f MB/s',
-                          self.el.inode, self.el.blockno, oldsize, 
-                          time_, rate)             
+        Remove an object from backend. If a transit key is specified, the removing
+        thread first waits until the object is no longer in transit.
+        '''
+
+        # TODO: Not sure how to handle the transit key..
+        # Shouldn't we wait for upload of the *object*?
+        self.to_remove.put((obj_id, transit_key))
+
+    def _do_removals(self):
+        '''Remove objects'''
+              
+        while True:
+            tmp = self.to_remove.get()
             
-            self.fh.close()
-    
-            with lock:
-                self.um.db.execute('UPDATE objects SET compr_size=? WHERE id=?', 
-                                   (self.size, self.obj_id))
-                
-                if not self.el.modified_after_upload:
-                    self.el.dirty = False
-                
-                    try:
-                        os.rename(self.el.name + '.d', self.el.name)
-                    except OSError as exc:
-                        # Entry may have been removed while being uploaded
-                        if exc.errno != errno.ENOENT:
-                            raise                
+            if tmp is QuitSentinel:
+                break         
 
-        finally:
-            with lock:
-                self.um.in_transit.remove((self.el.inode, self.el.blockno))
-   
-
-class RemoveThread(Thread):
-    '''
-    Remove an object from backend. If a transit key is specified, the thread
-    first waits until the object is no longer in transit.
-    
-    This class uses the llfuse global lock. When calling objects passed in the
-    constructor, the global lock is acquired first.
-    '''
-
-    def __init__(self, id_, bucket_pool, transit_key=None, upload_manager=None):
-        super(RemoveThread, self).__init__()
-        self.id = id_
-        self.bucket_pool = bucket_pool
-        self.transit_key = transit_key
-        self.um = upload_manager
+            (obj_id, transit_key) = tmp
             
-    def run_protected(self): 
-        if self.transit_key:
-            while self.transit_key in self.um.in_transit:
-                with lock:
-                    self.um.join_one()
-                           
-        with self.bucket_pool() as bucket:
-            bucket.delete('s3ql_data_%d' % self.id)
+            if transit_key:
+                while transit_key in self.in_transit:
+                    with lock:
+                        self.join_one()
+                    
+            with self.bucket_pool() as bucket:
+                bucket.delete('s3ql_data_%d' % obj_id)            
