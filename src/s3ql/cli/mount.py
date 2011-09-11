@@ -154,8 +154,11 @@ def main(args=None):
                 log.info('Uploading metadata...')     
                 cycle_metadata(bucket)
                 param['last-modified'] = time.time() - time.timezone
+            with tempfile.TemporaryFile() as tmp:
+                dump_metadata(tmp, db)
+                tmp.seek(0)
                 with bucket.open_write('s3ql_metadata', param) as fh:
-                    dump_metadata(fh, db)
+                    shutil.copyfileobj(tmp, fh)
                 pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
             else:
                 log.error('Remote metadata is newer than local (%d vs %d), '
@@ -264,6 +267,7 @@ def get_metadata(bucket, cachepath):
     param['needs_fsck'] = True
     bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+    param['needs_fsck'] = False
     
     return (param, db)
 
