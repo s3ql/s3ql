@@ -387,7 +387,7 @@ class Operations(llfuse.Operations):
                                        (id_new, blockno, block_id))
                         db.execute('UPDATE blocks SET refcount=refcount+1 WHERE id=?', (block_id,))
                         
-                        if (id_, blockno) in self.cache.upload_manager.in_transit:
+                        if (id_, blockno) in self.cache.in_transit:
                             in_transit.add((id_, blockno))
     
                     if db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
@@ -425,9 +425,9 @@ class Operations(llfuse.Operations):
             log.debug('copy_tree(%d, %d): in_transit: %s', 
                       src_inode.id, target_inode.id, in_transit)
             in_transit = [ x for x in in_transit 
-                           if x in self.cache.upload_manager.in_transit ]
+                           if x in self.cache.in_transit ]
             if in_transit:
-                self.cache.upload_manager.join_one()
+                self.cache.wait()
 
             
         # Make replication visible

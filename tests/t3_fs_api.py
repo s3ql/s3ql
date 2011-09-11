@@ -17,7 +17,6 @@ from s3ql.block_cache import BlockCache
 from s3ql.common import ROOT_INODE, create_tables, init_tables
 from s3ql.database import Connection
 from s3ql.fsck import Fsck
-from s3ql.upload_manager import UploadManager
 import errno
 import llfuse
 import os
@@ -63,20 +62,18 @@ class fs_api_tests(TestCase):
         # file system request handler
         llfuse.lock.acquire()
         
-        self.upload_manager = UploadManager(self.bucket_pool, self.db)
         self.block_cache = BlockCache(self.bucket_pool, self.db, self.cachedir,
-                                      self.blocksize * 5, self.upload_manager)
+                                      self.blocksize * 5)
         self.server = fs.Operations(self.block_cache, self.db, self.blocksize)
           
         self.server.init()
-        self.upload_manager.init()
+
         # Keep track of unused filenames
         self.name_cnt = 0
 
     def tearDown(self):
         self.server.destroy()
-        self.block_cache.clear()
-        self.upload_manager.destroy()     
+        self.block_cache.destroy()     
 
         if os.path.exists(self.cachedir):
             shutil.rmtree(self.cachedir)
@@ -90,8 +87,6 @@ class fs_api_tests(TestCase):
 
     def fsck(self):
         self.block_cache.clear()
-        self.upload_manager.destroy()
-        self.upload_manager.init()
         self.server.inodes.flush()
         fsck = Fsck(self.cachedir, self.bucket,
                   { 'blocksize': self.blocksize }, self.db)
@@ -609,8 +604,6 @@ class fs_api_tests(TestCase):
         self.server.release(fh)
         
         self.block_cache.clear()
-        self.upload_manager.destroy()
-        self.upload_manager.init()
         
         fh = self.server.open(inode.id, os.O_RDWR)
         attr = llfuse.EntryAttributes()

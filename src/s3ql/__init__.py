@@ -10,7 +10,7 @@ from __future__ import division, print_function
 
 __all__ = [ 'backends', 'cli', 'parse_args', 'block_cache', "common", 'daemonize', 
             'database', 'fs', 'fsck', 'multi_lock', 'ordered_dict', 
-            'upload_manager', 'VERSION', 'CURRENT_FS_REV' ]
+            'VERSION', 'CURRENT_FS_REV' ]
 
 VERSION = '1.1.2'
 CURRENT_FS_REV = 12

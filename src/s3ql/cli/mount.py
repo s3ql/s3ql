@@ -16,7 +16,6 @@ from s3ql.common import (setup_logging, get_bucket_cachedir, get_seq_no,
 from s3ql.daemonize import daemonize
 from s3ql.database import Connection
 from s3ql.parse_args import ArgumentParser
-from s3ql.upload_manager import UploadManager
 from threading import Thread
 import cPickle as pickle
 import llfuse
@@ -105,12 +104,9 @@ def main(args=None):
                        
     metadata_upload_thread = MetadataUploadThread(bucket_pool, param, db,
                                                   options.metadata_upload_interval)
-    upload_manager = UploadManager(bucket_pool, db)
-    os.mkdir(cachepath + '-cache')
     block_cache = BlockCache(bucket_pool, db, cachepath + '-cache',
-                             options.cachesize * 1024, upload_manager, 
-                             options.max_cache_entries)
-    commit_thread = CommitThread(upload_manager, block_cache)
+                             options.cachesize * 1024, options.max_cache_entries)
+    commit_thread = CommitThread(block_cache)
     operations = fs.Operations(block_cache, db, blocksize=param['blocksize'],
                                upload_event=metadata_upload_thread.event)
     
@@ -127,7 +123,7 @@ def main(args=None):
     # After we start threads, we must be sure to terminate them
     # or the process will hang 
     try:
-        upload_manager.init(options.threads)
+        block_cache.init(options.threads)
         metadata_upload_thread.start()
         commit_thread.start()
         
@@ -138,10 +134,6 @@ def main(args=None):
         else:
             llfuse.main(options.single)
             
-        # Need to clean cache before we can terminate threads
-        with llfuse.lock: 
-            block_cache.clear()
-
     except:
         # Tell finally handler that there already is an exception
         if not exc_info:
@@ -160,7 +152,7 @@ def main(args=None):
     finally:
         with llfuse.lock: 
             for op in (metadata_upload_thread.stop, commit_thread.stop,
-                       upload_manager.destroy, metadata_upload_thread.join,
+                       block_cache.destroy, metadata_upload_thread.join,
                        commit_thread.join):
                 try:
                     op()
@@ -181,8 +173,6 @@ def main(args=None):
     # Unmount
     with llfuse.lock:
         llfuse.close()
-        
-    os.rmdir(cachepath + '-cache')
     
     # Do not update .params yet, dump_metadata() may fail if the database is
     # corrupted, in which case we want to force an fsck.
@@ -579,9 +569,8 @@ class CommitThread(Thread):
     '''    
     
 
-    def __init__(self, upload_manager, block_cache):
+    def __init__(self, block_cache):
         super(CommitThread, self).__init__()
-        self.upload_manager = upload_manager
         self.block_cache = block_cache 
         self.stop_event = threading.Event()
         self.name = 'CommitThread'
@@ -592,11 +581,11 @@ class CommitThread(Thread):
         while not self.stop_event.is_set():
             did_sth = False
             stamp = time.time()
-            for el in self.block_cache.cache.values_rev():
+            for el in self.block_cache.entries.values_rev():
                 if stamp - el.last_access < 10:
                     break
                 if (not el.dirty or
-                    (el.inode, el.blockno) in self.upload_manager.in_transit):
+                    (el.inode, el.blockno) in self.block_cache.in_transit):
                     continue
                         
                 # Acquire global lock to access UploadManager instance
@@ -604,9 +593,9 @@ class CommitThread(Thread):
                     if self.stop_event.is_set():
                         break
                     if (not el.dirty or # Object may have been accessed
-                        (el.inode, el.blockno) in self.upload_manager.in_transit):
+                        (el.inode, el.blockno) in self.block_cache.in_transit):
                         continue
-                    self.upload_manager.add(el)
+                    self.block_cache.upload(el)
                 did_sth = True
 
                 if self.stop_event.is_set():
