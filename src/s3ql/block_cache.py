@@ -330,11 +330,10 @@ class BlockCache(object):
                           inode, blockno, obj_id)                    
                 self.db.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
                                 (obj_id,))
-                continue            
-        
-            # Delete object
-            self.upload_manager.remove(obj_id, (inode, blockno))
-
+            else:
+                self.db.execute('DELETE FROM objects WHERE id=?', (obj_id,))
+                self.upload_manager.remove(obj_id, (inode, blockno))
+ 
         log.debug('remove(inode=%d, start=%d, end=%s): end', inode, start_no, end_no)
 
     def flush(self, inode):

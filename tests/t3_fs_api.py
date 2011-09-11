@@ -600,6 +600,27 @@ class fs_api_tests(TestCase):
 
         self.fsck()
 
+    def test_edit(self):
+        len_ = self.blocksize
+        data = self.random_data(len_)
+        (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
+                                     self.file_mode(), Ctx())
+        self.server.write(fh, 0, data)
+        self.server.release(fh)
+        
+        self.block_cache.clear()
+        self.upload_manager.destroy()
+        self.upload_manager.init()
+        
+        fh = self.server.open(inode.id, os.O_RDWR)
+        attr = llfuse.EntryAttributes()
+        attr.st_size = 0
+        self.server.setattr(inode.id, attr)
+        self.server.write(fh, 0, data[50:])
+        self.server.release(fh)
+        
+        self.fsck()
+        
     def test_copy_tree(self):
 
         src_inode = self.server.mkdir(ROOT_INODE, 'source', self.dir_mode(), Ctx())
