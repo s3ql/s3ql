@@ -77,13 +77,23 @@ class CacheEntry(file):
     Attributes:
     -----------
     
+    :block_id: 
+       the most recent block id that was assigned to this 
+       entry.
+    
+    :dirty:
+       entry has been changed since it was last uploaded.
+    
     :modified_after_upload:
-        This attribute is only significant when the cache entry
-        is currently being uploaded. At the beginning of the upload,
-        it is set to False. For any write access, it is set to True.
-        If it is still False when the upload has completed, 
-        `dirty` is set to False.
-
+       entry has been changed since the *beginning* of the
+       last upload.
+       
+    This implies that if `dirty` is True, but `modified_after_upload`
+    is False, an upload of this cache entry is currently in progress.
+    
+    An upload may also be in progress if `dirty` is True and
+    `modified_after_upload` is True, but this upload is then already outdated
+    and has a corresponding entry in the removal queue.
     """
 
     __slots__ = [ 'dirty', 'block_id', 'inode', 'blockno', 'last_access',
@@ -149,6 +159,7 @@ class BlockCache(object):
         self.max_size = max_size
         self.mlock = MultiLock()
         self.in_transit = set()
+        self.removed_in_transit = set()
         self.to_upload = Distributor()
         self.to_remove = Queue()
         self.upload_threads = []
@@ -215,9 +226,6 @@ class BlockCache(object):
         
         After upload, the file handle is closed and the compressed block size is
         updated in the database
-         
-        No matter how this method terminates, the block is removed from the
-        in_transit set.
         '''
         
         try:
@@ -232,9 +240,8 @@ class BlockCache(object):
             if log.isEnabledFor(logging.DEBUG):
                 time_ = time.time() - time_
                 rate = size / (1024**2 * time_) if time_ != 0 else 0
-                log.debug('UploadThread(inode=%d, blockno=%d): '
-                         'uploaded %d bytes in %.3f seconds, %.2f MB/s',
-                          el.inode, el.blockno, size, time_, rate)             
+                log.debug('_do_upload(%d): uploaded %d bytes in %.3f seconds, %.2f MB/s',
+                          obj_id, size, time_, rate)             
             
             if isinstance(dst_fh, CompressFilter):
                 obj_size = dst_fh.compr_size
@@ -242,16 +249,41 @@ class BlockCache(object):
                 obj_size = size
                                 
             with lock:
-                self.db.execute('UPDATE objects SET compr_size=? WHERE id=?', (obj_size, obj_id))
-                
-                if not el.modified_after_upload:
-                    el.dirty = False       
+                if obj_id in self.removed_in_transit:
+                    # Object has been removed, either the corresponding cache
+                    # entry does not exist anymore, or it has been assigned a
+                    # new block id (since while we uploaded this object, the
+                    # cache entry may have been modified again *and* a second
+                    # upload may already have started)
+                    self.removed_in_transit.remove(obj_id)
+                    remove_again = True
+                else:
+                    remove_again = False
+                    self.db.execute('UPDATE objects SET compr_size=? WHERE id=?',
+                                    (obj_size, obj_id))
 
-        finally:
-            with lock:
-                self.in_transit.remove((el.inode, el.blockno))
+                    if not el.modified_after_upload:
+                        el.dirty = False     
+                          
+                # Don't move this into finally block, would race with obj_id
+                # being added to removed_in_transit
+                self.in_transit.remove(obj_id)
                 self.upload_completed.set()
-          
+                                                     
+            # Postponed removal, we don't want to hold the lock                         
+            if remove_again:
+                self._do_removal(obj_id)
+                
+        except:
+            # In case of errors we still want to remove the object from
+            # in_transit, to prevent other threads hanging (e.g. copy_tree)
+            with lock:
+                self.in_transit.remove(obj_id)
+                self.upload_completed.set()
+    
+    # TODO: Make in_transit a condition variable to get rid
+    # of upload_completed event
+    
     def wait(self):
         '''Wait until an object has been uploaded
         
@@ -274,12 +306,7 @@ class BlockCache(object):
         This method releases the global lock.
         '''
         
-        # TODO: Big parts of this should be moved into _do_work()
-        
-        log.debug('UploadManager.add(%s): start', el)
-
-        if (el.inode, el.blockno) in self.in_transit:
-            raise ValueError('Block already in transit')
+        log.debug('upload(%s): start', el)
         
         old_block_id = el.block_id
         size = os.fstat(el.fileno()).st_size
@@ -288,50 +315,41 @@ class BlockCache(object):
             time_ = time.time()
             hash_ = sha256_fh(el)
             time_ = time.time() - time_
-            if time_ != 0:
-                rate = size / (1024**2 * time_)
-            else:
-                rate = 0
-            log.debug('UploadManager(inode=%d, blockno=%d): '
-                     'hashed %d bytes in %.3f seconds, %.2f MB/s',
-                      el.inode, el.blockno, size, time_, rate)             
+            rate = size / (1024**2 * time_) if time_ != 0 else 0
+            log.debug('upload(%s): hashed %d bytes in %.3f seconds, %.2f MB/s',
+                      el, size, time_, rate)             
         else:
             hash_ = sha256_fh(el)
         
-        # Check if we need to upload a new block, or can link
-        # to an existing block
+        # Check if we need to upload a new block, or can link to an existing
+        # block
         try:
             el.block_id = self.db.get_val('SELECT id FROM blocks WHERE hash=?', (hash_,))
 
         except NoSuchRowError:
             need_upload = True
             obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
-            log.debug('add(inode=%d, blockno=%d): created new object %d',
-                      el.inode, el.blockno, obj_id)
-            el.block_id = self.db.rowid('INSERT INTO blocks (refcount, hash, obj_id, size) VALUES(?,?,?,?)',
-                                        (1, hash_, obj_id, size))
-            log.debug('add(inode=%d, blockno=%d): created new block %d',
-                      el.inode, el.blockno, el.block_id)
+            log.debug('upload(%s):: created new object %d', el, obj_id)
+            el.block_id = self.db.rowid('INSERT INTO blocks (refcount, hash, obj_id, size) '
+                                        'VALUES(?,?,?,?)', (1, hash_, obj_id, size))
+            log.debug('upload(%s): created new block %d', el, el.block_id)
 
         else:
             need_upload = False
             if old_block_id == el.block_id:
-                log.debug('add(inode=%d, blockno=%d): unchanged, block_id=%d',
-                          el.inode, el.blockno, el.block_id)
+                log.debug('upload(%s): unchanged, block_id=%d', el, el.block_id)
                 el.dirty = False
                 el.modified_after_upload = False
                 return size
                   
-            log.debug('add(inode=%d, blockno=%d): (re)linking to %d',
-                      el.inode, el.blockno, el.block_id)
+            log.debug('upload(%s): (re)linking to %d', el, el.block_id)
             self.db.execute('UPDATE blocks SET refcount=refcount+1 WHERE id=?',
                             (el.block_id,))
             
         # Check if we have to remove an old block
         to_delete = False
         if old_block_id is None:
-            log.debug('add(inode=%d, blockno=%d): no previous object',
-                      el.inode, el.blockno)
+            log.debug('upload(%s): no previous object', el)
             if el.blockno == 0:
                 self.db.execute('UPDATE inodes SET block_id=? WHERE id=?', (el.block_id, el.inode))
             else:
@@ -346,38 +364,35 @@ class BlockCache(object):
                 
             refcount = self.db.get_val('SELECT refcount FROM blocks WHERE id=?', (old_block_id,))
             if refcount > 1:
-                log.debug('add(inode=%d, blockno=%d):  decreased refcount for prev. block: %d',
-                          el.inode, el.blockno, old_block_id)
+                log.debug('upload(%s):  decreased refcount for prev. block: %d', el, old_block_id)
                 self.db.execute('UPDATE blocks SET refcount=refcount-1 WHERE id=?', (old_block_id,))
             else:
-                log.debug('add(inode=%d, blockno=%d): removing prev. block %d',
-                          el.inode, el.blockno, old_block_id)
+                log.debug('upload(%s): removing prev. block %d', el, old_block_id)
                 old_obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (old_block_id,))
                 self.db.execute('DELETE FROM blocks WHERE id=?', (old_block_id,))
                 refcount = self.db.get_val('SELECT refcount FROM objects WHERE id=?', (old_obj_id,))
                 if refcount > 1:
-                    log.debug('add(inode=%d, blockno=%d):  decreased refcount for prev. obj: %d',
-                          el.inode, el.blockno, old_obj_id)
+                    log.debug('upload(%s):  decreased refcount for prev. obj: %d',
+                              el, old_obj_id)
                     self.db.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
                                     (old_obj_id,))
                 else:
-                    log.debug('add(inode=%d, blockno=%d): marking prev. obj %d for removal',
-                              el.inode, el.blockno, old_obj_id)
+                    log.debug('upload(%s): marking prev. obj %d for removal',
+                              el, old_obj_id)
                     self.db.execute('DELETE FROM objects WHERE id=?', (old_obj_id,))
                     to_delete = True
 
         if need_upload:
-            log.debug('add(inode=%d, blockno=%d): adding to queue', 
-                      el.inode, el.blockno)
+            log.debug('upload(%s): adding to queue', el)
             el.modified_after_upload = False
-            self.in_transit.add((el.inode, el.blockno))
+            self.in_transit.add(obj_id)
             
             # Create a new fd so that we don't get confused if another thread
             # repositions the cursor (and do so before unlocking)
             fh = open(el.name, 'rb')
             with lock_released:
                 if not self.upload_threads:
-                    log.warn("upload(): no upload threads, uploading synchronously")
+                    log.warn("upload(%s): no upload threads, uploading synchronously", el)
                     self._do_upload(el, fh, size, obj_id)
                 else:
                     self.to_upload.put((el, fh, size, obj_id))
@@ -387,19 +402,19 @@ class BlockCache(object):
             el.modified_after_upload = False
                 
         if to_delete:
-            log.debug('add(inode=%d, blockno=%d): removing object %d', 
-                      el.inode, el.blockno, old_obj_id)
+            log.debug('upload(%s):: removing object %d',  el, old_obj_id)
             
-            # Note: Old object can not be in transit
-            # FIXME: Probably no longer true once objects can contain several blocks
+            if old_obj_id in self.in_transit:
+                # Tell transit thread that the object has been deleted
+                self.removed_in_transit.add(old_obj_id)                  
             if not self.removal_threads:
-                log.warn("upload(): no removal threads, removing synchronously")
+                log.warn("upload(%s): no removal threads, removing synchronously", el)
                 with lock_released:
-                    self._do_removal(old_obj_id, None)
+                    self._do_removal(old_obj_id)
             else:            
-                self.to_remove.put((old_obj_id, None))
+                self.to_remove.put(old_obj_id)
                                                 
-        log.debug('add(inode=%d, blockno=%d): end', el.inode, el.blockno)
+        log.debug('upload(%s): end', el)
         return size
             
     def upload_in_progress(self):
@@ -418,16 +433,9 @@ class BlockCache(object):
             
             self._do_removal(*tmp)        
     
-    def _do_removal(self, obj_id, transit_key):
+    def _do_removal(self, obj_id):
         '''Remove object'''
-              
-        # TODO: Not sure how to handle the transit key..
-        # Shouldn't we wait for upload of the *object*?            
-        if transit_key:
-            while transit_key in self.in_transit:
-                with lock:
-                    self.wait()
-                
+      
         with self.bucket_pool() as bucket:
             bucket.delete('s3ql_data_%d' % obj_id)           
                 
@@ -443,6 +451,8 @@ class BlockCache(object):
         passed to `remove` for deletion will not be deleted.
         """
 
+        # TODO: Can we reuse in_transit instead of mlock?
+        
         log.debug('get(inode=%d, block=%d): start', inode, blockno)
 
         if self.size > self.max_size or len(self.entries) > self.max_entries:
@@ -532,10 +542,11 @@ class BlockCache(object):
             # Try to expire entries that are not dirty
             for el in self.entries.values_rev():
                 if el.dirty:
-                    if (el.inode, el.blockno) not in self.in_transit:
+                    if el.modified_after_upload:
                         log.debug('expire: %s is dirty, trying to flush', el)
                         break
                     else:
+                        # Already being uploaded
                         continue
                 
                 del self.entries[(el.inode, el.blockno)]
@@ -556,7 +567,7 @@ class BlockCache(object):
             if not self.upload_in_progress():
                 for el in self.entries.values_rev():
                     log.debug('expire: uploading %s..', el)
-                    if el.dirty and (el.inode, el.blockno) not in self.in_transit:
+                    if el.dirty and el.modified_after_upload:
                         freed = self.upload(el) # Releases global lock
                         need_size -= freed
                     else:
@@ -654,12 +665,15 @@ class BlockCache(object):
                                 (obj_id,))
             else:
                 self.db.execute('DELETE FROM objects WHERE id=?', (obj_id,))
-                if not self.removal_threads:
+                if obj_id in self.in_transit:
+                    # Tell transit thread that the object has been deleted
+                    self.removed_in_transit.add(obj_id)
+                elif not self.removal_threads:  
                     log.warn("remove(): no removal threads, removing synchronously")
                     with lock_released:
-                        self._do_removal(obj_id, (inode, blockno))
+                        self._do_removal(obj_id)
                 else:                            
-                    self.to_remove.put((obj_id, (inode, blockno)))
+                    self.to_remove.put(obj_id)
  
         log.debug('remove(inode=%d, start=%d, end=%s): end', inode, start_no, end_no)
 
@@ -675,37 +689,11 @@ class BlockCache(object):
         This method releases the global lock.
         """
     
-        in_transit = set()
-        
         for el in self.entries.itervalues():
-            if not el.dirty:
+            if not (el.dirty and el.modified_after_upload):
                 continue
             
-            if (el.inode, el.blockno) in self.in_transit:
-                if not el.modified_after_upload:
-                    continue
-                
-                # We need to wait for the current upload to complete
-                in_transit.add(el)
-            else:
-                self.upload(el) # Releases global lock
-    
-        while in_transit:
-            log.warn('commit(): in_transit: %s', in_transit)
-            self.wait()
-            finished = in_transit.difference(self.in_transit)
-            in_transit = in_transit.intersection(self.in_transit)    
-                    
-            for el in finished:
-                # Object may no longer be dirty or already in transit
-                # if a different thread initiated the object while
-                # the global lock was released in a previous iteration.
-                if el.dirty:
-                    continue
-                if  (el.inode, el.blockno) in self.in_transit:
-                    continue
-                
-                self.upload(el) # Releases global lock
+            self.upload(el) # Releases global lock
                 
         # Now wait for all uploads to complete
         while self.upload_in_progress():

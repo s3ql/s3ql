@@ -12,7 +12,7 @@ from .common import (get_path, CTRL_NAME, CTRL_INODE, LoggerFilter)
 from .database import NoSuchRowError
 from .inode_cache import InodeCache, OutOfInodesError
 from cStringIO import StringIO
-from llfuse import FUSEError, lock
+from llfuse import FUSEError
 import cPickle as pickle
 import collections
 import errno
@@ -22,9 +22,7 @@ import math
 import os
 import stat
 import struct
-import threading
 import time
-
 
 # standard logger for this module
 log = logging.getLogger("fs")
@@ -376,9 +374,12 @@ class Operations(llfuse.Operations):
                     
                     # TODO: This entire loop should be replaced by two SQL statements.
                     # But how do we handle the blockno==0 case and the in_transit check?
-                    for (block_id, blockno) in db.query('SELECT block_id, blockno FROM inode_blocks '
-                                                        'WHERE inode=? UNION SELECT block_id, 0 FROM inodes '
-                                                        'WHERE id=?', (id_, id_)):
+                    for (block_id, blockno, obj_id) in \
+                        db.query('SELECT block_id, blockno, obj_id FROM inode_blocks JOIN blocks '
+                                 'ON blocks.id = block_id WHERE inode=? '
+                                 'UNION '
+                                 'SELECT block_id, 0, obj_id FROM inodes JOIN blocks '
+                                 'ON block_id = blocks.id WHERE inodes.id=?', (id_, id_)):
                         processed += 1
                         if blockno == 0:
                             db.execute('UPDATE inodes SET block_id=? WHERE id=?', (block_id, id_new))
@@ -387,8 +388,8 @@ class Operations(llfuse.Operations):
                                        (id_new, blockno, block_id))
                         db.execute('UPDATE blocks SET refcount=refcount+1 WHERE id=?', (block_id,))
                         
-                        if (id_, blockno) in self.cache.in_transit:
-                            in_transit.add((id_, blockno))
+                        if obj_id in self.cache.in_transit:
+                            in_transit.add(obj_id)
     
                     if db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
                         queue.append((id_, id_new, 0))
@@ -424,20 +425,17 @@ class Operations(llfuse.Operations):
         while in_transit:
             log.debug('copy_tree(%d, %d): in_transit: %s', 
                       src_inode.id, target_inode.id, in_transit)
-            in_transit = [ x for x in in_transit 
-                           if x in self.cache.in_transit ]
+            in_transit = in_transit.intersection(self.cache.in_transit) 
             if in_transit:
                 self.cache.wait()
 
-            
         # Make replication visible
         self.db.execute('UPDATE contents SET parent_inode=? WHERE parent_inode=?',
-                     (target_inode.id, tmp.id))
+                        (target_inode.id, tmp.id))
         del self.inodes[tmp.id]
         llfuse.invalidate_inode(target_inode.id)
         
         log.debug('copy_tree(%d, %d): end', src_inode.id, target_inode.id)
-
 
     def unlink(self, id_p, name):
         inode = self.lookup(id_p, name)

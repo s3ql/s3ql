@@ -584,16 +584,15 @@ class CommitThread(Thread):
             for el in self.block_cache.entries.values_rev():
                 if stamp - el.last_access < 10:
                     break
-                if (not el.dirty or
-                    (el.inode, el.blockno) in self.block_cache.in_transit):
+                if not (el.dirty and el.modified_after_upload):
                     continue
                         
                 # Acquire global lock to access UploadManager instance
                 with llfuse.lock:
                     if self.stop_event.is_set():
                         break
-                    if (not el.dirty or # Object may have been accessed
-                        (el.inode, el.blockno) in self.block_cache.in_transit):
+                    # Object may have been accessed while waiting for lock
+                    if not (el.dirty and el.modified_after_upload):
                         continue
                     self.block_cache.upload(el)
                 did_sth = True
