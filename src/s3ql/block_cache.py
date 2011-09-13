@@ -10,7 +10,6 @@ from __future__ import division, print_function, absolute_import
 from .backends.common import CompressFilter
 from .common import sha256_fh
 from .database import NoSuchRowError
-from .multi_lock import MultiLock
 from .ordered_dict import OrderedDict
 from Queue import Queue
 from contextlib import contextmanager
@@ -67,7 +66,42 @@ class Distributor(object):
             self.slot = None
             self.cv.notify_all()
         return tmp
-                   
+                
+                
+class SimpleEvent(object):
+    '''
+    Like threading.Event, but without any internal flag. Calls
+    to `wait` always block until some other thread calls
+    `notify` or `notify_all`.
+    '''
+    
+    def __init__(self):
+        super(SimpleEvent, self).__init__()
+        self.__cond = threading.Condition(threading.Lock())
+
+    def notify_all(self):
+        self.__cond.acquire()
+        try:
+            self.__cond.notify_all()
+        finally:
+            self.__cond.release()
+
+    def notify(self):
+        self.__cond.acquire()
+        try:
+            self.__cond.notify()
+        finally:
+            self.__cond.release()
+            
+    def wait(self):
+        self.__cond.acquire()
+        try:
+            self.__cond.wait()
+            return
+        finally:
+            self.__cond.release()
+  
+                               
 class CacheEntry(file):
     """An element in the block cache
     
@@ -138,13 +172,29 @@ class BlockCache(object):
  
     This class uses the llfuse global lock. Methods which release the lock have
     are marked as such in their docstring.
-
-            
-    Attributes:
-    -----------
     
-    :mlock: locks on (inode, blockno) during `get`, so that we do not
-            download the same object with more than one thread.
+    Attributes
+    ----------
+    
+    :path: where cached data is stored
+    :entries: ordered dictionary of cache entries
+    :size: current size of all cached entries
+    :max_size: maximum size to which cache can grow
+    :in_transit: set of objects currently in transit
+    :removed_in_transit: set of objects that have been removed from the db
+       while in transit, and should be removed from the backend as soon
+       as the transit completes.
+    :to_upload: distributes objects to upload to worker threads
+    :to_remove: distributes objects to remove to worker threads
+    :transfer_complete: signals completion of an object transfer
+       (either upload or download)
+    
+    The `in_transit` attribute is used to
+    - Prevent multiple threads from downloading the same object
+    - Prevent threads from downloading an object before it has been
+      uploaded completely (can happen when a cache entry is linked to a
+      block while the object containing the block is still being
+      uploaded)
     """
 
     def __init__(self, bucket_pool, db, cachedir, max_size, max_entries=768):
@@ -157,14 +207,13 @@ class BlockCache(object):
         self.max_entries = max_entries
         self.size = 0
         self.max_size = max_size
-        self.mlock = MultiLock()
         self.in_transit = set()
         self.removed_in_transit = set()
         self.to_upload = Distributor()
         self.to_remove = Queue()
         self.upload_threads = []
         self.removal_threads = []
-        self.upload_completed = threading.Event()
+        self.transfer_completed = SimpleEvent()
 
         if not os.path.exists(self.path):
             os.mkdir(self.path)
@@ -268,7 +317,6 @@ class BlockCache(object):
                 # Don't move this into finally block, would race with obj_id
                 # being added to removed_in_transit
                 self.in_transit.remove(obj_id)
-                self.upload_completed.set()
                                                      
             # Postponed removal, we don't want to hold the lock                         
             if remove_again:
@@ -279,24 +327,22 @@ class BlockCache(object):
             # in_transit, to prevent other threads hanging (e.g. copy_tree)
             with lock:
                 self.in_transit.remove(obj_id)
-                self.upload_completed.set()
-    
-    # TODO: Make in_transit a condition variable to get rid
-    # of upload_completed event
+        
+        finally:
+            self.transfer_completed.notify_all()
     
     def wait(self):
-        '''Wait until an object has been uploaded
+        '''Wait until an object has been transferred
         
         If there are no objects in transit, return immediately. This method
         releases the global lock.
         '''
         
-        if not self.upload_in_progress():
+        if not self.transfer_in_progress():
             return
         
-        self.upload_completed.clear()
         with lock_released:
-            self.upload_completed.wait()
+            self.transfer_completed.wait()
                                             
     def upload(self, el):
         '''Upload cache entry `el` asynchronously
@@ -417,7 +463,7 @@ class BlockCache(object):
         log.debug('upload(%s): end', el)
         return size
             
-    def upload_in_progress(self):
+    def transfer_in_progress(self):
         '''Return True if there are any blocks in transit'''
         
         return len(self.in_transit) > 0
@@ -451,18 +497,13 @@ class BlockCache(object):
         passed to `remove` for deletion will not be deleted.
         """
 
-        # TODO: Can we reuse in_transit instead of mlock?
-        
         log.debug('get(inode=%d, block=%d): start', inode, blockno)
 
         if self.size > self.max_size or len(self.entries) > self.max_entries:
             self.expire()
 
-        # Need to release global lock to acquire mlock to prevent deadlocking
-        lock.release()
-        with self.mlock(inode, blockno):
-            lock.acquire()
-            
+        el = None
+        while el is None:
             try:
                 el = self.entries[(inode, blockno)]
     
@@ -478,15 +519,21 @@ class BlockCache(object):
                 except NoSuchRowError:
                     log.debug('get(inode=%d, block=%d): creating new block', inode, blockno)
                     el = CacheEntry(inode, blockno, None, filename)
-    
+                    
                 # Need to download corresponding object
                 else:
                     log.debug('get(inode=%d, block=%d): downloading block', inode, blockno)
-                    # At the moment, objects contain just one block
-                    el = CacheEntry(inode, blockno, block_id, filename)
                     obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (block_id,))
                     
+                    if obj_id in self.in_transit:
+                        with lock_released:
+                            self.transfer_completed.wait()
+                            continue
+                        
+                    # We need to download
+                    self.in_transit.add(obj_id)
                     try:
+                        el = CacheEntry(inode, blockno, block_id, filename)   
                         with lock_released:
                             with self.bucket_pool() as bucket:
                                 with bucket.open_read('s3ql_data_%d' % obj_id) as fh:
@@ -494,14 +541,17 @@ class BlockCache(object):
                     except:
                         os.unlink(filename)
                         raise
+                    finally:
+                        self.in_transit.remove(obj_id)
+                        with lock_released:
+                            self.transfer_completed.notify_all()
                         
                     # Writing will have set dirty flag
                     el.dirty = False
-                    
                     self.size += os.fstat(el.fileno()).st_size
-    
+                
                 self.entries[(inode, blockno)] = el
-    
+                
             # In Cache
             else:
                 log.debug('get(inode=%d, block=%d): in cache', inode, blockno)
@@ -563,22 +613,21 @@ class BlockCache(object):
             if need_size <= 0 and need_entries <= 0:
                 break
                 
-            # If nothing is being uploaded, try to upload just enough
-            if not self.upload_in_progress():
-                for el in self.entries.values_rev():
-                    log.debug('expire: uploading %s..', el)
-                    if el.dirty and el.modified_after_upload:
-                        freed = self.upload(el) # Releases global lock
-                        need_size -= freed
-                    else:
-                        need_size -= os.fstat(el.fileno()).st_size
-                    need_entries -= 1                
-            
-                    if need_size <= 0 and need_entries <= 0:
-                        break
+            # Try to upload just enough
+            for el in self.entries.values_rev():
+                log.debug('expire: uploading %s..', el)
+                if el.dirty and el.modified_after_upload:
+                    freed = self.upload(el) # Releases global lock
+                    need_size -= freed
+                else:
+                    need_size -= os.fstat(el.fileno()).st_size
+                need_entries -= 1                
+        
+                if need_size <= 0 and need_entries <= 0:
+                    break
                                     
             # Wait for the next entry  
-            log.debug('expire: waiting for upload threads..')
+            log.debug('expire: waiting for transfer threads..')
             self.wait() # Releases global lock
 
         log.debug('expire: end')
@@ -684,7 +733,11 @@ class BlockCache(object):
         pass
 
     def commit(self):
-        """Upload all dirty blocks
+        """Initiate upload of all dirty blocks
+        
+        When the method returns, all blocks have been registered
+        in the database (but the actual uploads may still be 
+        in progress).
         
         This method releases the global lock.
         """
@@ -694,13 +747,9 @@ class BlockCache(object):
                 continue
             
             self.upload(el) # Releases global lock
-                
-        # Now wait for all uploads to complete
-        while self.upload_in_progress():
-            self.wait() # Releases global lock
           
     def clear(self):
-        """Upload all dirty data and clear cache
+        """Clear cache
         
         This method releases the global lock.
         """
@@ -710,10 +759,6 @@ class BlockCache(object):
         self.max_entries = 0
         self.expire() # Releases global lock
         self.max_entries = bak
-
-        # Now wait for all uploads to complete
-        while self.upload_in_progress():
-            self.wait() # Releases global lock
             
         log.debug('clear: end')
 

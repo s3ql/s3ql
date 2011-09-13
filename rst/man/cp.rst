@@ -51,12 +51,6 @@ Note that:
   completely (so that S3QL had to fetch all the data over the network
   from the backend) before writing them into the destination folder.
 
-* Before starting with the replication, S3QL has to flush the local
-  cache. So if you just copied lots of new data into the file system
-  that has not yet been uploaded, replication will take longer than
-  usual.
-
-
 
 Snapshotting vs Hardlinking
 ---------------------------

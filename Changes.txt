@@ -3,7 +3,14 @@ UNRELEASED, S3QL HEAD
   * Added Google Storage backend.
   
   * Added backend for general, S3 compatible storage services.
-  
+
+  * Fixed a bug that caused S3QL to complain about the backend having
+    lost objects when trying to download an object before its upload
+    was completed. This could happen because locking was done based on
+    inode and block number rather than object id, and the
+    de-duplication feature can reuse an object for another inode
+    before the upload is completed.
+    
 2011-09-08, S3QL 1.1.2
 
   * The modules for communicating with the different storage providers

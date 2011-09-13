@@ -332,7 +332,8 @@ class Operations(llfuse.Operations):
         for attr in ('atime', 'ctime', 'mtime', 'mode', 'uid', 'gid'):
             setattr(target_inode, attr, getattr(src_inode, attr))
 
-        # We first replicate into a dummy inode 
+        # We first replicate into a dummy inode, so that we
+        # need to invalidate only once.
         timestamp = time.time()
         tmp = make_inode(mtime=timestamp, ctime=timestamp, atime=timestamp,
                          uid=0, gid=0, mode=0, refcount=0)
@@ -342,7 +343,6 @@ class Operations(llfuse.Operations):
         processed = 0 # Number of steps since last GIL release
         stamp = time.time() # Time of last GIL release
         gil_step = 100 # Approx. number of steps between GIL releases
-        in_transit = set()
         while queue:
             (src_id, target_id, rowid) = queue.pop()
             log.debug('copy_tree(%d, %d): Processing directory (%d, %d, %d)', 
@@ -373,13 +373,11 @@ class Operations(llfuse.Operations):
                                (id_new, id_))
                     
                     # TODO: This entire loop should be replaced by two SQL statements.
-                    # But how do we handle the blockno==0 case and the in_transit check?
-                    for (block_id, blockno, obj_id) in \
-                        db.query('SELECT block_id, blockno, obj_id FROM inode_blocks JOIN blocks '
-                                 'ON blocks.id = block_id WHERE inode=? '
+                    # But how do we handle the blockno==0 case?
+                    for (block_id, blockno) in \
+                        db.query('SELECT block_id, blockno FROM inode_blocks WHERE inode=? '
                                  'UNION '
-                                 'SELECT block_id, 0, obj_id FROM inodes JOIN blocks '
-                                 'ON block_id = blocks.id WHERE inodes.id=?', (id_, id_)):
+                                 'SELECT block_id, 0 FROM inodes WHERE inodes.id=?', (id_, id_)):
                         processed += 1
                         if blockno == 0:
                             db.execute('UPDATE inodes SET block_id=? WHERE id=?', (block_id, id_new))
@@ -387,9 +385,6 @@ class Operations(llfuse.Operations):
                             db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
                                        (id_new, blockno, block_id))
                         db.execute('UPDATE blocks SET refcount=refcount+1 WHERE id=?', (block_id,))
-                        
-                        if obj_id in self.cache.in_transit:
-                            in_transit.add(obj_id)
     
                     if db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
                         queue.append((id_, id_new, 0))
@@ -417,17 +412,6 @@ class Operations(llfuse.Operations):
                 processed = 0
                 llfuse.lock.yield_()
                 stamp = time.time()
-  
-        # If we replicated blocks whose associated objects where still in
-        # transit, we have to wait for the transit to complete before we make
-        # the replicated tree visible to the user. Otherwise access to the newly
-        # created blocks will raise a NoSuchObject exception.
-        while in_transit:
-            log.debug('copy_tree(%d, %d): in_transit: %s', 
-                      src_inode.id, target_inode.id, in_transit)
-            in_transit = in_transit.intersection(self.cache.in_transit) 
-            if in_transit:
-                self.cache.wait()
 
         # Make replication visible
         self.db.execute('UPDATE contents SET parent_inode=? WHERE parent_inode=?',
