@@ -109,8 +109,6 @@ class Bucket(AbstractBucket):
     def delete(self, key, force=False):
         '''Delete the specified object'''
         
-        # TODO: Take into account answers to 
-        # https://forums.aws.amazon.com/message.jspa?messageID=272309#272309
         log.debug('delete(%s)', key)
         try:
             resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
