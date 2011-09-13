@@ -371,21 +371,20 @@ class Operations(llfuse.Operations):
                     db.execute('INSERT INTO symlink_targets (inode, target) '
                                'SELECT ?, target FROM symlink_targets WHERE inode=?',
                                (id_new, id_))
+                        
+                    db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) '
+                               'SELECT ?, blockno, block_id FROM inode_blocks '
+                               'WHERE inode=?', (id_new, id_))
                     
-                    # TODO: This entire loop should be replaced by two SQL statements.
-                    # But how do we handle the blockno==0 case?
-                    for (block_id, blockno) in \
-                        db.query('SELECT block_id, blockno FROM inode_blocks WHERE inode=? '
-                                 'UNION '
-                                 'SELECT block_id, 0 FROM inodes WHERE inodes.id=?', (id_, id_)):
-                        processed += 1
-                        if blockno == 0:
-                            db.execute('UPDATE inodes SET block_id=? WHERE id=?', (block_id, id_new))
-                        else:
-                            db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
-                                       (id_new, blockno, block_id))
-                        db.execute('UPDATE blocks SET refcount=refcount+1 WHERE id=?', (block_id,))
-    
+                    db.execute('UPDATE inodes SET block_id='
+                               '(SELECT block_id FROM inodes WHERE id=?) '
+                               'WHERE id=?', (id_, id_new))   
+                                     
+                    processed += db.execute('REPLACE INTO blocks (id, hash, refcount, size, obj_id) '
+                                            'SELECT id, hash, refcount+1, size, obj_id '
+                                            'FROM inode_blocks_v JOIN blocks ON block_id = id '
+                                            'WHERE inode = ?', (id_new,))
+                    
                     if db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
                         queue.append((id_, id_new, 0))
                 else:
