@@ -102,7 +102,7 @@ class SimpleEvent(object):
             self.__cond.release()
   
                                
-class CacheEntry(file):
+class CacheEntry(object):
     """An element in the block cache
     
     If `obj_id` is `None`, then the object has not yet been
@@ -118,6 +118,10 @@ class CacheEntry(file):
        entry has been changed since the *beginning* of the
        last upload.
        
+    :size: current file size
+    
+    :pos: current position in file
+    
     This implies that if `dirty` is True, but `modified_after_upload`
     is False, an upload of this cache entry is currently in progress.
     
@@ -127,34 +131,59 @@ class CacheEntry(file):
     """
 
     __slots__ = [ 'dirty', 'inode', 'blockno', 'last_access',
-                  'modified_after_upload' ]
+                  'modified_after_upload', 'size', 'pos', 'fh' ]
 
     def __init__(self, inode, blockno, filename):
         # Open unbuffered, so that os.fstat(fh.fileno).st_size is
         # always correct (we can expect that data is read and
         # written in reasonable chunks)
-        super(CacheEntry, self).__init__(filename, "w+b", buffering=0)
+        super(CacheEntry, self).__init__()
+        self.fh = open(filename, "w+b")
         self.dirty = False
         self.modified_after_upload = False
         self.inode = inode
         self.blockno = blockno
         self.last_access = 0
+        self.pos = 0
+        self.size = os.fstat(self.fh.fileno()).st_size
 
-    def truncate(self, *a, **kw):
+    def read(self, size=None):
+        buf = self.fh.read(size)
+        self.pos += len(buf)
+        return buf
+    
+    def flush(self):
+        self.fh.flush()
+        
+    def seek(self, off):
+        if self.pos != off:
+            self.fh.seek(off)
+            self.pos = off
+    
+    def tell(self):
+        return self.pos
+
+    def truncate(self, size=None):
+        self.fh.truncate(size)
+        if size is None:
+            if self.pos < self.size:
+                self.size = self.pos
+        elif size < self.size:
+            self.size = size
+        
+    def write(self, buf):
         self.dirty = True
         self.modified_after_upload = True
-        return super(CacheEntry, self).truncate(*a, **kw)
+        self.fh.write(buf)
+        self.pos += len(buf)
+        self.size = max(self.pos, self.size)
 
-    def write(self, *a, **kw):
-        self.dirty = True
-        self.modified_after_upload = True
-        return super(CacheEntry, self).write(*a, **kw)
-
-    def writelines(self, *a, **kw):
-        self.dirty = True
-        self.modified_after_upload = True
-        return super(CacheEntry, self).writelines(*a, **kw)
-
+    def close(self):
+        self.fh.close()
+        
+    def unlink(self):
+        os.unlink(self.fh.name)
+        
     def __str__(self):
         return ('<CacheEntry, inode=%d, blockno=%d>' % (self.inode, self.blockno))
 
@@ -264,7 +293,7 @@ class BlockCache(object):
             
             self._do_upload(*tmp)   
                     
-    def _do_upload(self, el, src_fh, size, obj_id):
+    def _do_upload(self, el, src_fh, obj_id):
         '''Upload object
         
         After upload, the file handle is closed and the compressed block size is
@@ -282,14 +311,14 @@ class BlockCache(object):
               
             if log.isEnabledFor(logging.DEBUG):
                 time_ = time.time() - time_
-                rate = size / (1024**2 * time_) if time_ != 0 else 0
+                rate = el.size / (1024**2 * time_) if time_ != 0 else 0
                 log.debug('_do_upload(%d): uploaded %d bytes in %.3f seconds, %.2f MB/s',
-                          obj_id, size, time_, rate)             
+                          obj_id, el.size, time_, rate)             
             
             if isinstance(dst_fh, CompressFilter):
                 obj_size = dst_fh.compr_size
             else:
-                obj_size = size
+                obj_size = el.size
                                 
             with lock:
                 if obj_id in self.removed_in_transit:
@@ -348,16 +377,14 @@ class BlockCache(object):
         
         log.debug('upload(%s): start', el)
         
-        
-        size = os.fstat(el.fileno()).st_size
         el.seek(0)
         if log.isEnabledFor(logging.DEBUG):
             time_ = time.time()
             hash_ = sha256_fh(el)
             time_ = time.time() - time_
-            rate = size / (1024**2 * time_) if time_ != 0 else 0
+            rate = el.size / (1024**2 * time_) if time_ != 0 else 0
             log.debug('upload(%s): hashed %d bytes in %.3f seconds, %.2f MB/s',
-                      el, size, time_, rate)             
+                      el, el.size, time_, rate)             
         else:
             hash_ = sha256_fh(el)
         
@@ -376,7 +403,7 @@ class BlockCache(object):
             obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
             log.debug('upload(%s):: created new object %d', el, obj_id)
             block_id = self.db.rowid('INSERT INTO blocks (refcount, hash, obj_id, size) '
-                                        'VALUES(?,?,?,?)', (1, hash_, obj_id, size))
+                                        'VALUES(?,?,?,?)', (1, hash_, obj_id, el.size))
             log.debug('upload(%s): created new block %d', el, block_id)
 
         else:
@@ -385,7 +412,7 @@ class BlockCache(object):
                 log.debug('upload(%s): unchanged, block_id=%d', el, block_id)
                 el.dirty = False
                 el.modified_after_upload = False
-                return size
+                return el.size
                   
             log.debug('upload(%s): (re)linking to %d', el, block_id)
             self.db.execute('UPDATE blocks SET refcount=refcount+1 WHERE id=?',
@@ -434,13 +461,13 @@ class BlockCache(object):
             
             # Create a new fd so that we don't get confused if another thread
             # repositions the cursor (and do so before unlocking)
-            fh = open(el.name, 'rb')
+            fh = open(el.fh.name, 'rb')
             with lock_released:
                 if not self.upload_threads:
                     log.warn("upload(%s): no upload threads, uploading synchronously", el)
-                    self._do_upload(el, fh, size, obj_id)
+                    self._do_upload(el, fh, obj_id)
                 else:
-                    self.to_upload.put((el, fh, size, obj_id))
+                    self.to_upload.put((el, fh, obj_id))
 
         else:
             el.dirty = False
@@ -460,7 +487,7 @@ class BlockCache(object):
                 self.to_remove.put(old_obj_id)
                                                 
         log.debug('upload(%s): end', el)
-        return size
+        return el.size
             
     def transfer_in_progress(self):
         '''Return True if there are any blocks in transit'''
@@ -538,7 +565,7 @@ class BlockCache(object):
                                 with bucket.open_read('s3ql_data_%d' % obj_id) as fh:
                                     shutil.copyfileobj(fh, el)
                     except:
-                        os.unlink(filename)
+                        el.unlink()
                         raise
                     finally:
                         self.in_transit.remove(obj_id)
@@ -547,7 +574,7 @@ class BlockCache(object):
                         
                     # Writing will have set dirty flag
                     el.dirty = False
-                    self.size += os.fstat(el.fileno()).st_size
+                    self.size += el.size
                 
                 self.entries[(inode, blockno)] = el
                 
@@ -557,16 +584,15 @@ class BlockCache(object):
                 self.entries.to_head((inode, blockno))
 
         el.last_access = time.time()
-        oldsize = os.fstat(el.fileno()).st_size
+        oldsize = el.size
 
         # Provide fh to caller
         try:
             log.debug('get(inode=%d, block=%d): yield', inode, blockno)
             yield el
         finally:
-            # Update cachesize
-            newsize = os.fstat(el.fileno()).st_size
-            self.size += newsize - oldsize
+            # Update cachesize 
+            self.size += el.size - oldsize
 
         log.debug('get(inode=%d, block=%d): end', inode, blockno)
 
@@ -599,12 +625,11 @@ class BlockCache(object):
                         continue
                 
                 del self.entries[(el.inode, el.blockno)]
-                size = os.fstat(el.fileno()).st_size
                 el.close()
-                os.unlink(el.name)
+                el.unlink()
                 need_entries -= 1
-                self.size -= size
-                need_size -= size
+                self.size -= el.size
+                need_size -= el.size
                 
                 if need_size <= 0 and need_entries <= 0:
                     break
@@ -619,7 +644,7 @@ class BlockCache(object):
                     freed = self.upload(el) # Releases global lock
                     need_size -= freed
                 else:
-                    need_size -= os.fstat(el.fileno()).st_size
+                    need_size -= el.size
                 need_entries -= 1                
         
                 if need_size <= 0 and need_entries <= 0:
@@ -662,9 +687,9 @@ class BlockCache(object):
                 #pylint: disable-msg=E1103
                 el = self.entries.pop((inode, blockno))
 
-                self.size -= os.fstat(el.fileno()).st_size
+                self.size -= el.size
                 el.close()
-                os.unlink(el.name)
+                el.unlink()
 
             try:
                 block_id = self.db.get_val('SELECT block_id FROM inode_blocks_v '
