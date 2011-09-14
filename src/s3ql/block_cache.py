@@ -111,10 +111,6 @@ class CacheEntry(file):
     Attributes:
     -----------
     
-    :block_id: 
-       the most recent block id that was assigned to this 
-       entry.
-    
     :dirty:
        entry has been changed since it was last uploaded.
     
@@ -130,17 +126,16 @@ class CacheEntry(file):
     and has a corresponding entry in the removal queue.
     """
 
-    __slots__ = [ 'dirty', 'block_id', 'inode', 'blockno', 'last_access',
+    __slots__ = [ 'dirty', 'inode', 'blockno', 'last_access',
                   'modified_after_upload' ]
 
-    def __init__(self, inode, blockno, block_id, filename):
+    def __init__(self, inode, blockno, filename):
         # Open unbuffered, so that os.fstat(fh.fileno).st_size is
         # always correct (we can expect that data is read and
         # written in reasonable chunks)
         super(CacheEntry, self).__init__(filename, "w+b", buffering=0)
         self.dirty = False
         self.modified_after_upload = False
-        self.block_id = block_id
         self.inode = inode
         self.blockno = blockno
         self.last_access = 0
@@ -161,8 +156,7 @@ class CacheEntry(file):
         return super(CacheEntry, self).writelines(*a, **kw)
 
     def __str__(self):
-        return ('<CacheEntry, inode=%d, blockno=%d, dirty=%s, block_id=%r>' % 
-                (self.inode, self.blockno, self.dirty, self.block_id))
+        return ('<CacheEntry, inode=%d, blockno=%d>' % (self.inode, self.blockno))
 
 class BlockCache(object):
     """Provides access to file blocks
@@ -354,7 +348,7 @@ class BlockCache(object):
         
         log.debug('upload(%s): start', el)
         
-        old_block_id = el.block_id
+        
         size = os.fstat(el.fileno()).st_size
         el.seek(0)
         if log.isEnabledFor(logging.DEBUG):
@@ -367,46 +361,51 @@ class BlockCache(object):
         else:
             hash_ = sha256_fh(el)
         
-        # Check if we need to upload a new block, or can link to an existing
-        # block
         try:
-            el.block_id = self.db.get_val('SELECT id FROM blocks WHERE hash=?', (hash_,))
+            old_block_id = self.db.get_val('SELECT block_id FROM inode_blocks_v '
+                                           'WHERE inode=? AND blockno=?', 
+                                           (el.inode, el.blockno))
+        except NoSuchRowError:
+            old_block_id = None
+            
+        try:
+            block_id = self.db.get_val('SELECT id FROM blocks WHERE hash=?', (hash_,))
 
         except NoSuchRowError:
             need_upload = True
             obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
             log.debug('upload(%s):: created new object %d', el, obj_id)
-            el.block_id = self.db.rowid('INSERT INTO blocks (refcount, hash, obj_id, size) '
+            block_id = self.db.rowid('INSERT INTO blocks (refcount, hash, obj_id, size) '
                                         'VALUES(?,?,?,?)', (1, hash_, obj_id, size))
-            log.debug('upload(%s): created new block %d', el, el.block_id)
+            log.debug('upload(%s): created new block %d', el, block_id)
 
         else:
             need_upload = False
-            if old_block_id == el.block_id:
-                log.debug('upload(%s): unchanged, block_id=%d', el, el.block_id)
+            if old_block_id == block_id:
+                log.debug('upload(%s): unchanged, block_id=%d', el, block_id)
                 el.dirty = False
                 el.modified_after_upload = False
                 return size
                   
-            log.debug('upload(%s): (re)linking to %d', el, el.block_id)
+            log.debug('upload(%s): (re)linking to %d', el, block_id)
             self.db.execute('UPDATE blocks SET refcount=refcount+1 WHERE id=?',
-                            (el.block_id,))
+                            (block_id,))
             
         # Check if we have to remove an old block
         to_delete = False
         if old_block_id is None:
             log.debug('upload(%s): no previous object', el)
             if el.blockno == 0:
-                self.db.execute('UPDATE inodes SET block_id=? WHERE id=?', (el.block_id, el.inode))
+                self.db.execute('UPDATE inodes SET block_id=? WHERE id=?', (block_id, el.inode))
             else:
                 self.db.execute('INSERT INTO inode_blocks (block_id, inode, blockno) VALUES(?,?,?)',
-                                (el.block_id, el.inode, el.blockno))    
+                                (block_id, el.inode, el.blockno))    
         else:
             if el.blockno == 0:
-                self.db.execute('UPDATE inodes SET block_id=? WHERE id=?', (el.block_id, el.inode))
+                self.db.execute('UPDATE inodes SET block_id=? WHERE id=?', (block_id, el.inode))
             else:
                 self.db.execute('UPDATE inode_blocks SET block_id=? WHERE inode=? AND blockno=?',
-                                (el.block_id, el.inode, el.blockno))
+                                (block_id, el.inode, el.blockno))
                 
             refcount = self.db.get_val('SELECT refcount FROM blocks WHERE id=?', (old_block_id,))
             if refcount > 1:
@@ -518,7 +517,7 @@ class BlockCache(object):
                 # No corresponding object
                 except NoSuchRowError:
                     log.debug('get(inode=%d, block=%d): creating new block', inode, blockno)
-                    el = CacheEntry(inode, blockno, None, filename)
+                    el = CacheEntry(inode, blockno, filename)
                     
                 # Need to download corresponding object
                 else:
@@ -533,7 +532,7 @@ class BlockCache(object):
                     # We need to download
                     self.in_transit.add(obj_id)
                     try:
-                        el = CacheEntry(inode, blockno, block_id, filename)   
+                        el = CacheEntry(inode, blockno, filename)   
                         with lock_released:
                             with self.bucket_pool() as bucket:
                                 with bucket.open_read('s3ql_data_%d' % obj_id) as fh:
@@ -656,6 +655,9 @@ class BlockCache(object):
             # We can't use self.mlock here to prevent simultaneous retrieval
             # of the block with get(), because this could deadlock
             if (inode, blockno) in self.entries:
+                log.debug('remove(inode=%d, blockno=%d): removing from cache', 
+                          inode, blockno)
+                
                 # Type inference fails here
                 #pylint: disable-msg=E1103
                 el = self.entries.pop((inode, blockno))
@@ -664,24 +666,12 @@ class BlockCache(object):
                 el.close()
                 os.unlink(el.name)
 
-                if el.block_id is None:
-                    log.debug('remove(inode=%d, blockno=%d): block only in cache',
-                              inode, blockno)
-                    continue
-
-                log.debug('remove(inode=%d, blockno=%d): block in cache and db', inode, blockno)
-                block_id = el.block_id
-
-            else:
-                try:
-                    block_id = self.db.get_val('SELECT block_id FROM inode_blocks_v '
-                                               'WHERE inode=? AND blockno=?', (inode, blockno))   
-                except NoSuchRowError:
-                    log.debug('remove(inode=%d, blockno=%d): block does not exist',
-                              inode, blockno)
-                    continue
-
-                log.debug('remove(inode=%d, blockno=%d): block only in db ', inode, blockno)
+            try:
+                block_id = self.db.get_val('SELECT block_id FROM inode_blocks_v '
+                                           'WHERE inode=? AND blockno=?', (inode, blockno))
+            except NoSuchRowError:
+                log.debug('remove(inode=%d, blockno=%d): block not in db', inode, blockno)
+                continue
 
             # Detach inode from block
             if blockno == 0:
