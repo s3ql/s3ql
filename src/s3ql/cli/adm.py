@@ -16,10 +16,12 @@ from s3ql.backends.local import Bucket as LocalBucket, ObjectR, unescape, escape
 from s3ql.common import (QuietError, restore_metadata, cycle_metadata, 
     dump_metadata, create_tables, setup_logging, get_bucket_cachedir)
 from s3ql.database import Connection
+from s3ql.fsck import Fsck
 from s3ql.parse_args import ArgumentParser
 import ConfigParser
 import cPickle as pickle
 import errno
+import hashlib
 import logging
 import os
 import re
@@ -356,7 +358,7 @@ def upgrade(bucket):
     elif param['revision'] >= CURRENT_FS_REV:
         print('File system already at most-recent revision')
         return
-                
+    
     print(textwrap.dedent('''
         I am about to update the file system to the newest revision. 
         You will not be able to access the file system with any older version
@@ -374,63 +376,133 @@ def upgrade(bucket):
 
     log.info('Upgrading from revision %d to %d...', CURRENT_FS_REV - 1,
              CURRENT_FS_REV)
-    param['revision'] = CURRENT_FS_REV
     
-    if (isinstance(bucket, LegacyLocalBucket) or
-        (isinstance(bucket, BetterBucket) and
-         isinstance(bucket.bucket, LegacyLocalBucket))):
-        if isinstance(bucket, LegacyLocalBucket):
-            bucketpath = bucket.name
-        else:
-            bucketpath = bucket.bucket.name
-        for (path, _, filenames) in os.walk(bucketpath, topdown=True):
-            for name in filenames:
-                if not name.endswith('.meta'):
-                    continue
-                
-                basename = os.path.splitext(name)[0]
-                if '=00' in basename:
-                    raise RuntimeError("No, seriously, you tried to break things, didn't you?")
-                
-                with open(os.path.join(path, name), 'r+b') as dst:
-                    dst.seek(0, os.SEEK_END)
-                    with open(os.path.join(path, basename + '.dat'), 'rb') as src:
-                        shutil.copyfileobj(src, dst)
-                
-                basename = basename.replace('#', '=23')
-                os.rename(os.path.join(path, name),
-                          os.path.join(path, basename))
-                os.unlink(os.path.join(path, basename + '.dat'))
-                
-        if isinstance(bucket, LegacyLocalBucket):
-            bucket = LocalBucket(bucket.name, None, None)
-        else:
-            bucket.bucket = LocalBucket(bucket.bucket.name, None, None)
-                     
-    # Download metadata
-    log.info("Downloading & uncompressing metadata...")
-    dbfile = tempfile.NamedTemporaryFile()
-    with tempfile.TemporaryFile() as tmp:    
-        with bucket.open_read("s3ql_metadata") as fh:
-            shutil.copyfileobj(fh, tmp)
     
-        db = Connection(dbfile.name, fast_mode=True)
-        tmp.seek(0)
-        restore_legacy_metadata(tmp, db)
+    if 's3ql_hash_check_status' not in bucket:        
+        if (isinstance(bucket, LegacyLocalBucket) or
+            (isinstance(bucket, BetterBucket) and
+             isinstance(bucket.bucket, LegacyLocalBucket))):
+            if isinstance(bucket, LegacyLocalBucket):
+                bucketpath = bucket.name
+            else:
+                bucketpath = bucket.bucket.name
+            for (path, _, filenames) in os.walk(bucketpath, topdown=True):
+                for name in filenames:
+                    if not name.endswith('.meta'):
+                        continue
+                    
+                    basename = os.path.splitext(name)[0]
+                    if '=00' in basename:
+                        raise RuntimeError("No, seriously, you tried to break things, didn't you?")
+                    
+                    with open(os.path.join(path, name), 'r+b') as dst:
+                        dst.seek(0, os.SEEK_END)
+                        with open(os.path.join(path, basename + '.dat'), 'rb') as src:
+                            shutil.copyfileobj(src, dst)
+                    
+                    basename = basename.replace('#', '=23')
+                    os.rename(os.path.join(path, name),
+                              os.path.join(path, basename))
+                    os.unlink(os.path.join(path, basename + '.dat'))
+                    
+            if isinstance(bucket, LegacyLocalBucket):
+                bucket = LocalBucket(bucket.name, None, None)
+            else:
+                bucket.bucket = LocalBucket(bucket.bucket.name, None, None)
+                         
+        # Download metadata
+        log.info("Downloading & uncompressing metadata...")
+        dbfile = tempfile.NamedTemporaryFile()
+        with tempfile.TemporaryFile() as tmp:    
+            with bucket.open_read("s3ql_metadata") as fh:
+                shutil.copyfileobj(fh, tmp)
+        
+            db = Connection(dbfile.name, fast_mode=True)
+            tmp.seek(0)
+            restore_legacy_metadata(tmp, db)
+    
+        # Increase metadata sequence no
+        param['seq_no'] += 1
+        bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
+        for i in seq_nos:
+            if i < param['seq_no'] - 5:
+                del bucket['s3ql_seq_no_%d' % i ]
+    
+        log.info("Uploading database..")
+        cycle_metadata(bucket)
+        param['last-modified'] = time.time() - time.timezone
+        with bucket.open_write("s3ql_metadata", param) as fh:
+            dump_metadata(fh, db)
+            
+    else:
+        log.info("Downloading & uncompressing metadata...")
+        dbfile = tempfile.NamedTemporaryFile()
+        with tempfile.TemporaryFile() as tmp:    
+            with bucket.open_read("s3ql_metadata") as fh:
+                shutil.copyfileobj(fh, tmp)
+        
+            db = Connection(dbfile.name, fast_mode=True)
+            tmp.seek(0)
+            restore_metadata(tmp, db)        
 
-    # Increase metadata sequence no
+    print(textwrap.dedent('''
+        The following process may take a long time, but can be interrupted
+        with Ctrl-C and resumed from this point by calling `s3qladm upgrade`
+        again. Please see Changes.txt for why this is necessary.
+        '''))
+
+    if 's3ql_hash_check_status' not in bucket:
+        log.info("Starting hash verification..")
+        start_obj = 0
+    else:
+        start_obj = int(bucket['s3ql_hash_check_status'])
+        log.info("Resuming hash verification with object %d..", start_obj)
+    
+    try:
+        total = db.get_val('SELECT COUNT(id) FROM objects')
+        i = 0
+        for (obj_id, hash_) in db.query('SELECT obj_id, hash FROM blocks JOIN objects '
+                                        'ON obj_id == objects.id WHERE obj_id > ? '
+                                        'ORDER BY obj_id ASC', (start_obj,)):
+            if i % 100 == 0:
+                log.info(' ..checked %d/%d objects..', i, total)
+              
+            sha = hashlib.sha256()
+            with bucket.open_read("s3ql_data_%d" % obj_id) as fh:
+                while True:
+                    buf = fh.read(128*1024)
+                    if not buf:
+                        break
+                    sha.update(buf)
+                    
+            if sha.digest() != hash_:
+                log.warn('Object %d corrupted! Deleting..', obj_id)
+                bucket.delete('s3ql_data_%d' % obj_id)
+            i += 1
+            
+    except KeyboardInterrupt:
+        log.info("Storing verification status...")
+        bucket['s3ql_hash_check_status'] = '%d' % obj_id
+        raise QuietError('Aborting..')
+    
+    log.info('Running fsck...')
+    fsck = Fsck(tempfile.mkdtemp(), bucket, param, db)
+    fsck.check()    
+    
+    if fsck.uncorrectable_errors:
+        raise QuietError("Uncorrectable errors found, aborting.")
+            
+    param['revision'] = CURRENT_FS_REV
     param['seq_no'] += 1
     bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
-    for i in seq_nos:
-        if i < param['seq_no'] - 5:
-            del bucket['s3ql_seq_no_%d' % i ]
 
     log.info("Uploading database..")
     cycle_metadata(bucket)
     param['last-modified'] = time.time() - time.timezone
     with bucket.open_write("s3ql_metadata", param) as fh:
         dump_metadata(fh, db)
-
+                
+        
 def restore_legacy_metadata(ifh, conn):
     unpickler = pickle.Unpickler(ifh)
     (data_start, to_dump, sizes, columns) = unpickler.load()

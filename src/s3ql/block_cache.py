@@ -15,6 +15,7 @@ from Queue import Queue
 from contextlib import contextmanager
 from llfuse import lock, lock_released
 import logging
+import hashlib
 import os
 import shutil
 import threading
@@ -22,6 +23,9 @@ import time
 
 # standard logger for this module
 log = logging.getLogger("BlockCache")
+ 
+# Buffer size when writing objects
+BUFSIZE = 256 * 1024
  
 # Special queue entry that signals threads to terminate
 QuitSentinel = object()
@@ -293,7 +297,7 @@ class BlockCache(object):
             
             self._do_upload(*tmp)   
                     
-    def _do_upload(self, el, src_fh, obj_id):
+    def _do_upload(self, el, src_fh, obj_id, block_id):
         '''Upload object
         
         After upload, the file handle is closed and the compressed block size is
@@ -304,9 +308,15 @@ class BlockCache(object):
             if log.isEnabledFor(logging.DEBUG):
                 time_ = time.time()
                    
+            hash_ = hashlib.sha256()
             with self.bucket_pool() as bucket:  
                 with bucket.open_write('s3ql_data_%d' % obj_id) as dst_fh:
-                    shutil.copyfileobj(src_fh, dst_fh)
+                    while True:
+                        buf = src_fh.read(BUFSIZE)
+                        if not buf:
+                            break
+                        dst_fh.write(buf)
+                        hash_.update(buf)
             src_fh.close()
               
             if log.isEnabledFor(logging.DEBUG):
@@ -331,6 +341,8 @@ class BlockCache(object):
                     remove_again = True
                 else:
                     remove_again = False
+                    self.db.execute('UPDATE blocks SET hash=? WHERE id=?',
+                                    (hash_.digest(), block_id))
                     self.db.execute('UPDATE objects SET compr_size=? WHERE id=?',
                                     (obj_size, obj_id))
 
@@ -402,8 +414,8 @@ class BlockCache(object):
             need_upload = True
             obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
             log.debug('upload(%s):: created new object %d', el, obj_id)
-            block_id = self.db.rowid('INSERT INTO blocks (refcount, hash, obj_id, size) '
-                                        'VALUES(?,?,?,?)', (1, hash_, obj_id, el.size))
+            block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) '
+                                     'VALUES(?,?,?)', (1, obj_id, el.size))
             log.debug('upload(%s): created new block %d', el, block_id)
 
         else:
@@ -465,9 +477,9 @@ class BlockCache(object):
             with lock_released:
                 if not self.upload_threads:
                     log.warn("upload(%s): no upload threads, uploading synchronously", el)
-                    self._do_upload(el, fh, obj_id)
+                    self._do_upload(el, fh, obj_id, block_id)
                 else:
-                    self.to_upload.put((el, fh, obj_id))
+                    self.to_upload.put((el, fh, obj_id, block_id))
 
         else:
             el.dirty = False

@@ -10,7 +10,21 @@ UNRELEASED, S3QL HEAD
     inode and block number rather than object id, and the
     de-duplication feature can reuse an object for another inode
     before the upload is completed.
-    
+
+  * Fixed a data corruption bug. If a data block was changed while
+    being uploaded to the backend, and a second, identical data block
+    was flushed while the upload was in progress, but before the first
+    block was changed, the second data block was linked to the
+    *modified* data. This happened because changes to an object in
+    transit were only checked for after the upload completed, leaving
+    a window in which the contents of the upload object did not agree
+    with its stored hash.
+
+    This problem can be detected by verifying the hash values of all
+    stored data blocks. This procedure will automatically be done when
+    the file system is updated to the newest revision, but may take a
+    longer time since every object needs to be downloaded and checked.
+
 2011-09-08, S3QL 1.1.2
 
   * The modules for communicating with the different storage providers
