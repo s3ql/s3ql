@@ -138,11 +138,11 @@ class CacheEntry(object):
                   'modified_after_upload', 'size', 'pos', 'fh' ]
 
     def __init__(self, inode, blockno, filename):
-        # Open unbuffered, so that os.fstat(fh.fileno).st_size is
-        # always correct (we can expect that data is read and
-        # written in reasonable chunks)
         super(CacheEntry, self).__init__()
-        self.fh = open(filename, "w+b")
+        # Writing 100MB in 128k chunks takes 90ms unbuffered and
+        # 116ms with 1 MB buffer. Reading time does not depend on
+        # buffer size.
+        self.fh = open(filename, "w+b", 0)
         self.dirty = False
         self.modified_after_upload = False
         self.inode = inode
@@ -474,7 +474,7 @@ class BlockCache(object):
             # Create a new fd so that we don't get confused if another thread
             # repositions the cursor (and do so before unlocking)
             el.flush()
-            fh = open(el.fh.name, 'rb')
+            fh = open(el.fh.name, 'rb', 0)
             with lock_released:
                 if not self.upload_threads:
                     log.warn("upload(%s): no upload threads, uploading synchronously", el)
