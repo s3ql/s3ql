@@ -473,6 +473,7 @@ class BlockCache(object):
             
             # Create a new fd so that we don't get confused if another thread
             # repositions the cursor (and do so before unlocking)
+            el.flush()
             fh = open(el.fh.name, 'rb')
             with lock_released:
                 if not self.upload_threads:
