@@ -382,7 +382,7 @@ class Fsck(object):
                     # Block was unlinked by check_cache and can now really be
                     # removed (since we have checked that there are truly no
                     # other references)
-                    self.conn.execute('DELETE FROM blocks WHERE id=?', (id_))
+                    self.conn.execute('DELETE FROM blocks WHERE id=?', (id_,))
                     
                     # We can't remove associated objects yet, because their refcounts
                     # might be wrong, too.
