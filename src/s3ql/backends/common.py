@@ -31,7 +31,9 @@ import threading
 import time
 import zlib
 
-aes.start_up_self_test()
+# Not available in every pycryptopp version
+if hasattr(aes, 'start_up_self_test'):
+    aes.start_up_self_test()
 
 log = logging.getLogger("backend")
 
