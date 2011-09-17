@@ -168,13 +168,15 @@ class CacheEntry(object):
         return self.pos
 
     def truncate(self, size=None):
+        self.dirty = True
+        self.modified_after_upload = True
         self.fh.truncate(size)
         if size is None:
             if self.pos < self.size:
                 self.size = self.pos
         elif size < self.size:
             self.size = size
-        
+
     def write(self, buf):
         self.dirty = True
         self.modified_after_upload = True
@@ -634,7 +636,7 @@ class BlockCache(object):
                         log.debug('expire: %s is dirty, trying to flush', el)
                         break
                     else:
-                        # Already being uploaded
+                        log.debug('expire: %s is dirty, but already being uploaded', el)
                         continue
                 
                 del self.entries[(el.inode, el.blockno)]
@@ -652,11 +654,12 @@ class BlockCache(object):
                 
             # Try to upload just enough
             for el in self.entries.values_rev():
-                log.debug('expire: uploading %s..', el)
                 if el.dirty and el.modified_after_upload:
+                    log.debug('expire: uploading %s..', el)
                     freed = self.upload(el) # Releases global lock
                     need_size -= freed
                 else:
+                    log.debug('expire: %s can soon be expired..', el)
                     need_size -= el.size
                 need_entries -= 1                
         
