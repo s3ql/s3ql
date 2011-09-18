@@ -21,6 +21,10 @@ The |command| command is a is a wrapper that starts several
 allows much better copying performance on file system that have
 relatively high latency when retrieving individual files like S3QL.
 
+**Note**: Using this program only improves performance when copying
+*from* an S3QL file system. When copying *to* an S3QL file system,
+using |command| is more likely to *decrease* performance.
+
 
 Options
 =======
