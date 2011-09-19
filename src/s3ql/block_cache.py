@@ -501,8 +501,7 @@ class BlockCache(object):
     
             # Not in cache
             except KeyError:
-                filename = os.path.join(self.path,
-                                        'inode_%d_block_%d' % (inode, blockno))
+                filename = os.path.join(self.path, '%d-%d' % (inode, blockno))
                 try:
                     block_id = self.db.get_val('SELECT block_id FROM inode_blocks_v '
                                                'WHERE inode=? AND blockno=?', (inode, blockno))                    

@@ -120,7 +120,7 @@ class Fsck(object):
         for filename in os.listdir(self.cachedir):
             self.found_errors = True
     
-            match = re.match('^inode_(\\d+)_block_(\\d+)$', filename)
+            match = re.match('^(\\d+)-(\\d+)$', filename)
             if match:
                 inode = int(match.group(1))
                 blockno = int(match.group(2))
