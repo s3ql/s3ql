@@ -1,4 +1,4 @@
-UNRELEASED, S3QL HEAD
+2011-09-18, S3QL 1.1.3
 
   * Fixed a race condition in the local backend that resulted in
     errors of the form "[Errno 17] File exists: [bucket path]".
