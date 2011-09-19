@@ -258,13 +258,13 @@ class BlockCache(object):
         log.debug('destroy(): clearing cache...')
         self.clear()
         
-        for t in self.upload_threads:
-            self.to_upload.put(QuitSentinel)
-        
-        for t in self.removal_threads:
-            self.to_remove.put(QuitSentinel)
-                    
         with lock_released:
+            for t in self.upload_threads:
+                self.to_upload.put(QuitSentinel)
+            
+            for t in self.removal_threads:
+                self.to_remove.put(QuitSentinel)          
+        
             log.debug('destroy(): waiting for upload threads...')
             for t in self.upload_threads:
                 t.join()
@@ -441,14 +441,14 @@ class BlockCache(object):
             log.debug('upload(%s): waiting for transfer of old object %d to complete',
                       el, old_obj_id)
             self.wait()
-                        
-        if not self.removal_threads:
-            log.warn("upload(%s): no removal threads, removing synchronously", el)
-            with lock_released:
+              
+        with lock_released:          
+            if not self.removal_threads:
+                log.warn("upload(%s): no removal threads, removing synchronously", el)
                 self._do_removal(old_obj_id)
-        else:
-            log.debug('upload(%s): adding %d to removal queue', el, old_obj_id)            
-            self.to_remove.put(old_obj_id)
+            else:
+                log.debug('upload(%s): adding %d to removal queue', el, old_obj_id)            
+                self.to_remove.put(old_obj_id)
                                       
         return el.size
         
@@ -710,12 +710,12 @@ class BlockCache(object):
                               el, obj_id)
                     self.wait()           
                 self.db.execute('DELETE FROM objects WHERE id=?', (obj_id,))
-                if not self.removal_threads:  
-                    log.warn("remove(): no removal threads, removing synchronously")
-                    with lock_released:
+                with lock_released:
+                    if not self.removal_threads:  
+                        log.warn("remove(): no removal threads, removing synchronously")
                         self._do_removal(obj_id)
-                else:                            
-                    self.to_remove.put(obj_id)
+                    else:                            
+                        self.to_remove.put(obj_id)
  
         log.debug('remove(inode=%d, start=%d, end=%s): end', inode, start_no, end_no)
 
