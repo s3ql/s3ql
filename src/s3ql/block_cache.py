@@ -256,6 +256,7 @@ class BlockCache(object):
     def destroy(self):
         '''Clean up and stop worker threads'''
         
+        log.debug('destroy(): clearing cache...')
         self.clear()
         
         for t in self.upload_threads:
@@ -265,9 +266,11 @@ class BlockCache(object):
             self.to_remove.put(QuitSentinel)
                     
         with lock_released:
+            log.debug('destroy(): waiting for upload threads...')
             for t in self.upload_threads:
                 t.join()
 
+            log.debug('destroy(): waiting for removal threads...')
             for t in self.removal_threads:
                 t.join()
                             
@@ -374,7 +377,7 @@ class BlockCache(object):
             # No block with same hash
             except NoSuchRowError:
                 obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
-                log.debug('upload(%s):: created new object %d', el, obj_id)
+                log.debug('upload(%s): created new object %d', el, obj_id)
                 block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, hash, size) '
                                          'VALUES(?,?,?,?)', (1, obj_id, hash_, el.size))
                 log.debug('upload(%s): created new block %d', el, block_id)
@@ -444,7 +447,8 @@ class BlockCache(object):
             log.warn("upload(%s): no removal threads, removing synchronously", el)
             with lock_released:
                 self._do_removal(old_obj_id)
-        else:            
+        else:
+            log.debug('upload(%s): adding %d to removal queue', el, old_obj_id)            
             self.to_remove.put(old_obj_id)
                                       
         return el.size
