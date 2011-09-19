@@ -661,7 +661,6 @@ class BlockCache(object):
                 el = self.entries.pop((inode, blockno))
 
                 self.size -= el.size
-                el.close()
                 el.unlink()
 
             try:
