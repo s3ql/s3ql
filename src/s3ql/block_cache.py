@@ -15,7 +15,6 @@ from Queue import Queue
 from contextlib import contextmanager
 from llfuse import lock, lock_released
 import logging
-import hashlib
 import os
 import shutil
 import threading
