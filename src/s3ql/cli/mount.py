@@ -133,8 +133,12 @@ def main(args=None):
             prof.runcall(llfuse.main, options.single)
         else:
             llfuse.main(options.single)
-            
+        
+        log.info("FUSE main loop terminated.")
+        
     except:
+        log.info("Caught exception in main loop, unmounting file system...")
+        
         # Tell finally handler that there already is an exception
         if not exc_info:
             exc_info = sys.exc_info()
@@ -150,6 +154,7 @@ def main(args=None):
             
     # Terminate threads
     finally:
+        log.info("Waiting for background threads...")
         with llfuse.lock: 
             for op in (metadata_upload_thread.stop, commit_thread.stop,
                        block_cache.destroy, metadata_upload_thread.join,
@@ -171,6 +176,7 @@ def main(args=None):
     # At this point, there should be no other threads left
 
     # Unmount
+    log.info("Unmounting file system.")
     with llfuse.lock:
         llfuse.close()
     
