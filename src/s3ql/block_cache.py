@@ -509,12 +509,12 @@ class BlockCache(object):
     
                 # No corresponding object
                 except NoSuchRowError:
-                    log.debug('get(inode=%d, block=%d): creating new block', inode, blockno)
+                    #log.debug('get(inode=%d, block=%d): creating new block', inode, blockno)
                     el = CacheEntry(inode, blockno, filename)
                     
                 # Need to download corresponding object
                 else:
-                    log.debug('get(inode=%d, block=%d): downloading block', inode, blockno)
+                    #log.debug('get(inode=%d, block=%d): downloading block', inode, blockno)
                     obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (block_id,))
                     
                     if obj_id in self.in_transit:
@@ -545,7 +545,7 @@ class BlockCache(object):
                 
             # In Cache
             else:
-                log.debug('get(inode=%d, block=%d): in cache', inode, blockno)
+                #log.debug('get(inode=%d, block=%d): in cache', inode, blockno)
                 self.entries.to_head((inode, blockno))
 
         el.last_access = time.time()
@@ -553,13 +553,13 @@ class BlockCache(object):
 
         # Provide fh to caller
         try:
-            log.debug('get(inode=%d, block=%d): yield', inode, blockno)
+            #log.debug('get(inode=%d, block=%d): yield', inode, blockno)
             yield el
         finally:
             # Update cachesize 
             self.size += el.size - oldsize
 
-        log.debug('get(inode=%d, block=%d): end', inode, blockno)
+        #log.debug('get(inode=%d, block=%d): end', inode, blockno)
 
 
     def expire(self):
