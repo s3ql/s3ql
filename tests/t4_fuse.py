@@ -14,6 +14,7 @@ from s3ql.common import AsyncFn
 import filecmp
 import os.path
 import s3ql.cli.fsck
+import s3ql.cli.ctrl
 import s3ql.cli.mkfs
 import s3ql.cli.mount
 import s3ql.cli.umount
@@ -181,6 +182,7 @@ class fuse_tests(TestCase):
         self.tst_statvfs()
         self.tst_symlink()
         self.tst_truncate()
+        self.tst_truncate_nocache()
         self.tst_write()
         self.umount()
         self.fsck()
@@ -338,7 +340,31 @@ class fuse_tests(TestCase):
         os.close(fd)
         os.unlink(filename)
             
+    def tst_truncate_nocache(self):
+        filename = os.path.join(self.mnt_dir, self.newname())
+        src = self.src
+        shutil.copyfile(src, filename)
+        self.assertTrue(filecmp.cmp(filename, src, False))
+        fstat = os.stat(filename)
+        size = fstat.st_size
         
+        try:
+            s3ql.cli.ctrl.main(['flushcache', self.mnt_dir])
+        except:
+            sys.excepthook(*sys.exc_info())
+            self.fail("s3qlctrl raised exception")
+                    
+        fd = os.open(filename, os.O_RDWR)
+
+        os.ftruncate(fd, size + 1024) # add > 1 block
+        self.assertEquals(os.stat(filename).st_size, size + 1024)
+
+        os.ftruncate(fd, size - 1024) # Truncate > 1 block
+        self.assertEquals(os.stat(filename).st_size, size - 1024)
+
+        os.close(fd)
+        os.unlink(filename)
+                
 # Somehow important according to pyunit documentation
 def suite():
     return unittest.makeSuite(fuse_tests)

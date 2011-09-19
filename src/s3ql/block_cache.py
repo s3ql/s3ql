@@ -467,7 +467,7 @@ class BlockCache(object):
             if tmp is QuitSentinel:
                 break   
             
-            self._do_removal(*tmp)        
+            self._do_removal(tmp)        
     
     def _do_removal(self, obj_id):
         '''Remove object'''
