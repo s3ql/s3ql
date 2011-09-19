@@ -18,7 +18,6 @@ import thread
 
 log = logging.getLogger("backend.local")
 
-
 class Bucket(AbstractBucket):
     '''
     A bucket that is stored on the local hard disk
@@ -99,8 +98,15 @@ class Bucket(AbstractBucket):
         except IOError as exc:
             if exc.errno != errno.ENOENT:
                 raise
-            os.makedirs(os.path.dirname(path))
-            dest = open(tmpname, 'wb')
+            try:
+                os.makedirs(os.path.dirname(path))
+            except OSError as exc:
+                if exc.errno != errno.EEXIST:
+                    raise
+                else:
+                    # Another thread may have created the directory already
+                    pass
+            dest = open(tmpname, 'wb', 0)
             
         os.rename(tmpname, path)
         pickle.dump(metadata, dest, 2)
@@ -211,7 +217,14 @@ class Bucket(AbstractBucket):
         except IOError as exc:
             if exc.errno != errno.ENOENT:
                 raise
-            os.makedirs(os.path.dirname(path_dest))
+            try:
+                os.makedirs(os.path.dirname(path_dest))
+            except OSError as exc:
+                if exc.errno != errno.EEXIST:
+                    raise
+                else:
+                    # Another thread may have created the directory already
+                    pass            
             dest = open(path_dest, 'wb')
         
         try:
@@ -240,7 +253,14 @@ class Bucket(AbstractBucket):
         except OSError as exc:
             if exc.errno != errno.ENOENT:
                 raise
-            os.makedirs(os.path.dirname(dest_path))   
+            try:
+                os.makedirs(os.path.dirname(dest_path))
+            except OSError as exc:
+                if exc.errno != errno.EEXIST:
+                    raise
+                else:
+                    # Another thread may have created the directory already
+                    pass                   
             os.rename(src_path, dest_path)  
         
     def _key_to_path(self, key):

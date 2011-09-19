@@ -1,5 +1,8 @@
 UNRELEASED, S3QL HEAD
 
+  * Fixed a race condition in the local backend that resulted in
+    errors of the form "[Errno 17] File exists: [bucket path]".
+    
   * Added Google Storage backend.
   
   * Added backend for general, S3 compatible storage services.
