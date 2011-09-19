@@ -155,19 +155,25 @@ def main(args=None):
     # Terminate threads
     finally:
         log.info("Waiting for background threads...")
-        with llfuse.lock: 
-            for op in (metadata_upload_thread.stop, commit_thread.stop,
-                       block_cache.destroy, metadata_upload_thread.join,
-                       commit_thread.join):
-                try:
+        for (op, with_lock) in ((metadata_upload_thread.stop, False),
+                                (commit_thread.stop, False),
+                                (block_cache.destroy, True),
+                                (metadata_upload_thread.join, False),
+                                (commit_thread.join, False)):
+            try:
+                if with_lock:
+                    with llfuse.lock:
+                        op()
+                else:
                     op()
-                except:
-                    # We just live with the race cond here
-                    if not exc_info: 
-                        exc_info = sys.exc_info()
-                    else:
-                        log.exception("Exception during cleanup:")
-                        
+            except:
+                # We just live with the race cond here
+                if not exc_info: 
+                    exc_info = sys.exc_info()
+                else:
+                    log.exception("Exception during cleanup:")
+
+ 
     # Re-raise if main loop terminated due to exception in other thread
     # or during cleanup
     if exc_info:
