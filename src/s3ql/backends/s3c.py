@@ -12,7 +12,10 @@ import httplib
 import logging
 
 log = logging.getLogger("backends.s3c")
-    
+ 
+# Pylint goes berserk with false positives
+#pylint: disable=E1002,E1101
+
 class Bucket(s3.Bucket):
     """A bucket stored in some S3 compatible storage service.
     

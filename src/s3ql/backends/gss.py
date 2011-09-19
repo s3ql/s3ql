@@ -11,6 +11,10 @@ from __future__ import division, print_function, absolute_import
 from . import gs 
 import httplib
 
+# Pylint goes berserk with false positives
+#pylint: disable=E1002,E1101,W0232
+
+
 class Bucket(gs.Bucket):
     """A bucket stored in Google Storage
     

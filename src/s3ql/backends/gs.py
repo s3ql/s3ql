@@ -13,6 +13,9 @@ import httplib
 import logging
 import xml.etree.cElementTree as ElementTree
 
+# Pylint goes berserk with false positives
+#pylint: disable=E1002,E1101,W0201
+
 log = logging.getLogger("backends.gs")
     
 class Bucket(s3.Bucket):

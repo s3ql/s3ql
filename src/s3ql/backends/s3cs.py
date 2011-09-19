@@ -11,6 +11,10 @@ from __future__ import division, print_function, absolute_import
 from . import s3c
 import httplib
 
+# Pylint goes berserk with false positives
+#pylint: disable=E1002,E1101,W0232
+
+
 class Bucket(s3c.Bucket):
     """A bucket stored in some S3 compatible storage service.
     

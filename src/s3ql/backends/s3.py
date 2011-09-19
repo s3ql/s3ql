@@ -62,6 +62,8 @@ class Bucket(AbstractBucket):
         
         Called by constructor and provided solely for easier subclassing.
         '''
+        # Attributes defined outside init
+        #pylint: disable=W0201
         
         self.conn = self._get_conn()
         self.region = self._get_region()
