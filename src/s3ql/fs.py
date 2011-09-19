@@ -721,6 +721,9 @@ class Operations(llfuse.Operations):
     def extstat(self):
         '''Return extended file system statistics'''
 
+        # Flush inode cache to get better estimate of total fs size
+        self.inodes.flush()
+        
         entries = self.db.get_val("SELECT COUNT(rowid) FROM contents")
         blocks = self.db.get_val("SELECT COUNT(id) FROM objects")
         inodes = self.db.get_val("SELECT COUNT(id) FROM inodes")
