@@ -300,7 +300,6 @@ def get_possibly_old_bucket(options, plain=False):
     try:
         data_pw = tmp_bucket['s3ql_passphrase']
     except ChecksumError:
-        raise
         raise QuietError('Wrong bucket passphrase')
 
     return BetterBucket(data_pw, compress, 
