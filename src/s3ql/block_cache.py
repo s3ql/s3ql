@@ -487,7 +487,7 @@ class BlockCache(object):
         passed to `remove` for deletion will not be deleted.
         """
 
-        log.debug('get(inode=%d, block=%d): start', inode, blockno)
+        #log.debug('get(inode=%d, block=%d): start', inode, blockno)
 
         if self.size > self.max_size or len(self.entries) > self.max_entries:
             self.expire()
@@ -520,6 +520,8 @@ class BlockCache(object):
                     obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (block_id,))
                     
                     if obj_id in self.in_transit:
+                        log.debug('get(inode=%d, block=%d): object %d in transit, waiting', 
+                                  inode, blockno, obj_id)
                         self.wait()
                         continue
                         
