@@ -87,7 +87,7 @@ class fuse_tests(TestCase):
         elif self.mount_thread:
             self.mount_thread.join(60)
                 
-        shutil.rmtree(self.mnt_dir)
+        os.rmdir(self.mnt_dir)
         shutil.rmtree(self.cache_dir)
         shutil.rmtree(self.bucket_dir)
 
