@@ -137,24 +137,30 @@ def main(args=None):
         log.info("FUSE main loop terminated.")
         
     except:
-        log.info("Caught exception in main loop, unmounting file system...")
-        
+        log.info("Caught exception in main loop, unmounting file system...")  
+          
         # Tell finally handler that there already is an exception
         if not exc_info:
             exc_info = sys.exc_info()
-            
+        
         # We do *not* unmount on exception. Why? E.g. if someone is mirroring the
         # mountpoint, and it suddenly becomes empty, all the mirrored data will be
         # deleted. However, it's crucial to still call llfuse.close, so that
         # Operations.destroy() can flush the inode cache.
+        #
+        # HOWEVER, if we running in a test case, then we must unmount
+        # right away, because otherwise another thread may hang while
+        # trying to access the mountpoint.
         with llfuse.lock:
-            llfuse.close(umount=False)
-                                
+            if threading.current_thread().name == 'MainThread':
+                llfuse.close(unmount=False)
+            else:
+                llfuse.close(unmount=True)
         raise
             
     # Terminate threads
     finally:
-        log.info("Waiting for background threads...")
+        log.debug("Waiting for background threads...")
         for (op, with_lock) in ((metadata_upload_thread.stop, False),
                                 (commit_thread.stop, False),
                                 (block_cache.destroy, True),
@@ -173,6 +179,7 @@ def main(args=None):
                 else:
                     log.exception("Exception during cleanup:")
 
+        log.debug("All background threads terminated.")
  
     # Re-raise if main loop terminated due to exception in other thread
     # or during cleanup
