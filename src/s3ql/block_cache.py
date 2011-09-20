@@ -706,8 +706,8 @@ class BlockCache(object):
                                 (obj_id,))
             else:
                 while obj_id in self.in_transit:
-                    log.debug('upload(%s): waiting for transfer of old object %d to complete',
-                              el, obj_id)
+                    log.debug('remove(inode=%d, blockno=%d): waiting for transfer of '
+                              'object %d to complete', inode, blockno, obj_id)
                     self.wait()           
                 self.db.execute('DELETE FROM objects WHERE id=?', (obj_id,))
                 with lock_released:
