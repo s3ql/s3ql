@@ -14,8 +14,10 @@ the `contrib` directory of the source distribution or in
 benchmark.py
 ============
 
-This program measures your uplink bandwidth and compression speed and
-recommends a compression algorithm for optimal throughput.
+This program measures S3QL write performance, uplink bandwidth and
+compression speed to determine the limiting factor. It also gives
+recommendation for compression algorithm and number of upload threads
+to achieve maximum performance.
 
 
 s3_copy.py
