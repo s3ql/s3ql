@@ -20,7 +20,6 @@ import time
 import textwrap
 
 log = logging.getLogger("umount")
-DONTWAIT = False
 
 def parse_args(args):
     '''Parse command line
@@ -160,9 +159,6 @@ def blocking_umount(mountpoint):
         except OSError:
             # Process must have exited by now
             log.debug('Reading cmdline failed, assuming daemon has quit.')
-            break
-
-        if DONTWAIT: # for testing 
             break
 
         # Process still exists, we wait

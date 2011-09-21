@@ -7,16 +7,13 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function
-from s3ql.cli.cp import main as s3qlcp
 import errno
 import os.path
 import subprocess
-import sys
 import t4_fuse
 import tarfile
 import tempfile
 import unittest2 as unittest
-
 
 class cpTests(t4_fuse.fuse_tests):
     
@@ -35,7 +32,7 @@ class cpTests(t4_fuse.fuse_tests):
         self.tst_cp()
         self.umount()
         self.fsck()
-
+                
     def tst_cp(self):
 
         # Extract tar
@@ -48,12 +45,10 @@ class cpTests(t4_fuse.fuse_tests):
                                os.path.join(self.mnt_dir, 'orig') + '/'])
 
         # copy
-        try:
-            s3qlcp([os.path.join(self.mnt_dir, 'orig'),
-                              os.path.join(self.mnt_dir, 'copy')])
-        except:
-            sys.excepthook(*sys.exc_info())
-            self.fail("s3qlcp raised exception")
+        subprocess.check_call([os.path.join(t4_fuse.BASEDIR, 'bin', 's3qlcp'), 
+                               '--quiet',
+                               os.path.join(self.mnt_dir, 'orig'),
+                               os.path.join(self.mnt_dir, 'copy')])
 
         # compare
         rsync = subprocess.Popen(['rsync', '-anciHAX', '--delete',

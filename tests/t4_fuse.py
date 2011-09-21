@@ -57,6 +57,12 @@ class TimeoutError(Exception):
 
     pass
 
+if __name__ == '__main__':
+    mypath = sys.argv[0]
+else:
+    mypath = __file__
+BASEDIR = os.path.abspath(os.path.join(os.path.dirname(mypath), '..'))
+            
 class fuse_tests(TestCase):
     
     def setUp(self):
@@ -72,101 +78,57 @@ class fuse_tests(TestCase):
         self.bucketname = 'local://' + self.bucket_dir
         self.passphrase = 'oeut3d'
 
-        self.mount_thread = None
+        self.mount_process = None
         self.name_cnt = 0
+                    
+    def mkfs(self):
+        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'), 
+                                 '-L', 'test fs', '--blocksize', '500',
+                                 '--cachedir', self.cache_dir, '--quiet',
+                                 self.bucketname ], stdin=subprocess.PIPE)
+        
+        print(self.passphrase, file=proc.stdin)
+        print(self.passphrase, file=proc.stdin)
+        proc.stdin.close()
+        
+        self.assertEqual(proc.wait(), 0)
+        
+    def mount(self):  
+        self.mount_process = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mount.s3ql'), 
+                                                "--fg", '--cachedir', self.cache_dir,
+                                                '--log', 'none', '--quiet',
+                                                  self.bucketname, self.mnt_dir],
+                                                  stdin=subprocess.PIPE)
+        print(self.passphrase, file=self.mount_process.stdin)
+        self.mount_process.stdin.close()
+        retry(30, os.path.ismount, self.mnt_dir)                              
+
+    def umount(self):
+        devnull = open('/dev/null', 'wb')
+        retry(5, lambda: subprocess.call(['fuser', '-m', self.mnt_dir],
+                                         stdout=devnull, stderr=devnull) == 1)
+        
+        subprocess.check_call([os.path.join(BASEDIR, 'bin', 'umount.s3ql'), 
+                                '--quiet', self.mnt_dir])
+        self.assertEqual(self.mount_process.wait(), 0)
+        self.assertFalse(os.path.ismount(self.mnt_dir))
+
+    def fsck(self):
+        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'fsck.s3ql'), 
+                                 '--force', '--quiet', '--log', 'none',
+                                 '--cachedir', self.cache_dir, 
+                                 self.bucketname ], stdin=subprocess.PIPE)
+        print(self.passphrase, file=proc.stdin)
+        proc.stdin.close()
+        self.assertEqual(proc.wait(), 0)                
 
     def tearDown(self):
-        # Umount if still mounted
-        if os.path.ismount(self.mnt_dir):
-            subprocess.call(['fusermount', '-z', '-u', self.mnt_dir])
-
-        # Try to wait for mount thread to prevent spurious errors
-        # because the db file is being removed
-        if self.mount_thread and USE_VALGRIND:
-            retry(60, lambda: self.mount_thread.poll() is not None)
-        elif self.mount_thread:
-            self.mount_thread.join(60)
-                
+        subprocess.call(['fusermount', '-z', '-u', self.mnt_dir],
+                        stderr=open('/dev/null', 'wb'))
         os.rmdir(self.mnt_dir)
         shutil.rmtree(self.cache_dir)
         shutil.rmtree(self.bucket_dir)
 
-        if not USE_VALGRIND and not self.mount_thread.is_alive():
-            self.mount_thread.join_and_raise()
-                    
-    def mkfs(self):
-        
-        sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
-        try:
-            s3ql.cli.mkfs.main(['-L', 'test fs', '--blocksize', '500',
-                                '--cachedir', self.cache_dir, self.bucketname ])
-        except:
-            sys.excepthook(*sys.exc_info())
-            self.fail("mkfs.s3ql raised exception")
-
-    def mount(self):
-        
-        # Note: When running inside test suite, we have less available
-        # file descriptors        
-        if USE_VALGRIND:
-            if __name__ == '__main__':
-                mypath = sys.argv[0]
-            else:
-                mypath = __file__
-            basedir = os.path.abspath(os.path.join(os.path.dirname(mypath), '..'))
-            self.mount_thread = subprocess.Popen(['valgrind', 'python-dbg', 
-                                                  os.path.join(basedir, 'bin', 'mount.s3ql'), 
-                                                  "--fg", '--cachedir', self.cache_dir,
-                                                  '--log', 'none',
-                                                  '--max-cache-entries', '500',
-                                                  self.bucketname, self.mnt_dir],
-                                                  stdin=subprocess.PIPE)
-            print(self.passphrase, file=self.mount_thread.stdin)
-            retry(30, os.path.ismount, self.mnt_dir)                              
-        else:
-            sys.stdin = StringIO('%s\n' % self.passphrase)
-            self.mount_thread = AsyncFn(s3ql.cli.mount.main,
-                                        ["--fg", '--cachedir', self.cache_dir, 
-                                          '--log', 'none', 
-                                         '--max-cache-entries', '500',
-                                         self.bucketname, self.mnt_dir])
-            self.mount_thread.start()
-
-            # Wait for mountpoint to come up
-            try:
-                retry(3, os.path.ismount, self.mnt_dir)
-            except:
-                self.mount_thread.join_and_raise()
-
-    def umount(self):
-        time.sleep(0.5)
-        devnull = open('/dev/null', 'wb')
-        retry(5, lambda: subprocess.call(['fuser', '-m', self.mnt_dir],
-                                         stdout=devnull, stderr=devnull) == 1)
-        s3ql.cli.umount.DONTWAIT = True
-        try:
-            s3ql.cli.umount.main([self.mnt_dir])
-        except:
-            sys.excepthook(*sys.exc_info())
-            self.fail("umount.s3ql raised exception")
-
-        # Now wait for server process
-        if USE_VALGRIND:
-            self.assertEqual(self.mount_thread.wait(), 0)
-        else:
-            exc = self.mount_thread.join_get_exc()
-            self.assertIsNone(exc)
-        self.assertFalse(os.path.ismount(self.mnt_dir))
-
-    def fsck(self):
-        
-        sys.stdin = StringIO('%s\n' % self.passphrase)
-        try:
-            s3ql.cli.fsck.main(['--force', '--cachedir', self.cache_dir,
-                                 '--log', 'none', self.bucketname])
-        except:
-            sys.excepthook(*sys.exc_info())
-            self.fail("fsck.s3ql raised exception")
 
     def runTest(self):
         # Run all tests in same environment, mounting and umounting

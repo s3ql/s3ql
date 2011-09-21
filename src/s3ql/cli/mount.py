@@ -147,15 +147,9 @@ def main(args=None):
         # mountpoint, and it suddenly becomes empty, all the mirrored data will be
         # deleted. However, it's crucial to still call llfuse.close, so that
         # Operations.destroy() can flush the inode cache.
-        #
-        # HOWEVER, if we running in a test case, then we must unmount
-        # right away, because otherwise another thread may hang while
-        # trying to access the mountpoint.
         with llfuse.lock:
-            if threading.current_thread().name == 'MainThread':
-                llfuse.close(unmount=False)
-            else:
-                llfuse.close(unmount=True)
+            llfuse.close(unmount=False)
+
         raise
             
     # Terminate threads
