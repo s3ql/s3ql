@@ -111,7 +111,7 @@ combination of three factors:
 
 
 Potential issues when using the US Standard storage region
---------------------------------------------------------
+----------------------------------------------------------
 
 In the US Standard storage region, Amazon S3 does not guarantee read
 after create consistency. This means that after a new object has been
