@@ -175,7 +175,10 @@ class ArgumentParser(argparse.ArgumentParser):
                                                + '[%(process)s] %(threadName)s: '
                                                + '[%(name)s] %(message)s')
             else:
-                handler = logging.handlers.RotatingFileHandler(os.path.expanduser(s), 
+                fullpath = os.path.expanduser(s)
+                if not os.path.exists(os.path.dirname(fullpath)):
+                    os.makedirs(os.path.dirname(fullpath))
+                handler = logging.handlers.RotatingFileHandler(fullpath, 
                                                             maxBytes=1024**2, backupCount=5)
                 formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
                                               '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
