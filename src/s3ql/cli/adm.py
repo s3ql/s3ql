@@ -366,6 +366,10 @@ def upgrade(bucket):
         You should make very sure that this command is not interrupted and
         that no one else tries to mount, fsck or upgrade the file system at
         the same time.
+        
+        When using the local backend, metadata and data of each stored
+        object will be merged into one file. This requires every object
+        to be rewritten and may thus take some time.
         '''))
 
     print('Please enter "yes" to continue.', '> ', sep='\n', end='')
@@ -381,10 +385,12 @@ def upgrade(bucket):
         if (isinstance(bucket, LegacyLocalBucket) or
             (isinstance(bucket, BetterBucket) and
              isinstance(bucket.bucket, LegacyLocalBucket))):
+            log.info('Merging metadata into datafiles...')
             if isinstance(bucket, LegacyLocalBucket):
                 bucketpath = bucket.name
             else:
                 bucketpath = bucket.bucket.name
+            i = 0
             for (path, _, filenames) in os.walk(bucketpath, topdown=True):
                 for name in filenames:
                     if not name.endswith('.meta'):
@@ -403,6 +409,10 @@ def upgrade(bucket):
                     os.rename(os.path.join(path, name),
                               os.path.join(path, basename))
                     os.unlink(os.path.join(path, basename + '.dat'))
+                    
+                    i += 1
+                    if i % 1000 == 0:
+                        log.info('..processed %d objects so far..', i)
                     
             if isinstance(bucket, LegacyLocalBucket):
                 bucket = LocalBucket(bucket.name, None, None)
@@ -463,9 +473,6 @@ def upgrade(bucket):
         for (obj_id, hash_) in db.query('SELECT obj_id, hash FROM blocks JOIN objects '
                                         'ON obj_id == objects.id WHERE obj_id > ? '
                                         'ORDER BY obj_id ASC', (start_obj,)):
-            if i % 100 == 0:
-                log.info(' ..checked %d/%d objects..', i, total)
-              
             sha = hashlib.sha256()
             with bucket.open_read("s3ql_data_%d" % obj_id) as fh:
                 while True:
@@ -478,6 +485,8 @@ def upgrade(bucket):
                 log.warn('Object %d corrupted! Deleting..', obj_id)
                 bucket.delete('s3ql_data_%d' % obj_id)
             i += 1
+            if i % 100 == 0:
+                log.info(' ..checked %d/%d objects..', i, total)            
             
     except KeyboardInterrupt:
         log.info("Storing verification status...")
