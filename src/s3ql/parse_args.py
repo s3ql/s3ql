@@ -41,7 +41,6 @@ import s3ql
 import argparse
 import re
 import os
-import textwrap
 import logging.handlers
 import sys
 
@@ -176,8 +175,9 @@ class ArgumentParser(argparse.ArgumentParser):
                                                + '[%(name)s] %(message)s')
             else:
                 fullpath = os.path.expanduser(s)
-                if not os.path.exists(os.path.dirname(fullpath)):
-                    os.makedirs(os.path.dirname(fullpath))
+                dirname = os.path.dirname(fullpath)
+                if dirname and not os.path.exists(dirname):
+                    os.makedirs(dirname)
                 handler = logging.handlers.RotatingFileHandler(fullpath, 
                                                             maxBytes=1024**2, backupCount=5)
                 formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
