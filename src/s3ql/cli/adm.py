@@ -26,7 +26,6 @@ import errno
 import hashlib
 import logging
 import os
-import signal
 import re
 import shutil
 import stat
