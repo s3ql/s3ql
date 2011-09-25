@@ -11,12 +11,18 @@ from _common import TestCase
 from cStringIO import StringIO
 from s3ql.backends import local
 from s3ql.backends.common import BetterBucket
-import s3ql.cli.adm
-import s3ql.cli.mkfs
 import shutil
 import sys
 import tempfile
 import unittest2 as unittest
+import subprocess
+import os.path
+
+if __name__ == '__main__':
+    mypath = sys.argv[0]
+else:
+    mypath = __file__
+BASEDIR = os.path.abspath(os.path.join(os.path.dirname(mypath), '..'))
 
 class AdmTests(TestCase):
 
@@ -32,24 +38,32 @@ class AdmTests(TestCase):
         shutil.rmtree(self.bucket_dir)
 
     def mkfs(self):
-        sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
-        try:
-            s3ql.cli.mkfs.main(['--cachedir', self.cache_dir, self.bucketname ])
-        except:
-            sys.excepthook(*sys.exc_info())
-            self.fail("mkfs.s3ql raised exception")
+        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'), 
+                                 '-L', 'test fs', '--blocksize', '500',
+                                 '--cachedir', self.cache_dir, '--quiet',
+                                 self.bucketname ], stdin=subprocess.PIPE)
+        
+        print(self.passphrase, file=proc.stdin)
+        print(self.passphrase, file=proc.stdin)
+        proc.stdin.close()
+        
+        self.assertEqual(proc.wait(), 0)
 
     def test_passphrase(self):
         self.mkfs()
 
         passphrase_new = 'sd982jhd'
-        sys.stdin = StringIO('%s\n%s\n%s\n' % (self.passphrase,
-                                               passphrase_new, passphrase_new))
-        try:
-            s3ql.cli.adm.main(['passphrase', self.bucketname ])
-        except:
-            sys.excepthook(*sys.exc_info())
-            self.fail("s3qladm raised exception")
+        
+        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 's3qladm'), 
+                                 '--quiet', 'passphrase',
+                                 self.bucketname ], stdin=subprocess.PIPE)
+        
+        print(self.passphrase, file=proc.stdin)
+        print(passphrase_new, file=proc.stdin)
+        print(passphrase_new, file=proc.stdin)
+        proc.stdin.close()
+        
+        self.assertEqual(proc.wait(), 0)
 
         plain_bucket = local.Bucket(self.bucket_dir, None, None)
         bucket = BetterBucket(passphrase_new, 'bzip2', plain_bucket)
