@@ -474,6 +474,7 @@ def upgrade(bucket_factory):
         total = db.get_val('SELECT COUNT(id) FROM objects WHERE id > ?', (start_obj,))
         i = 0
         queue = Queue(1)
+        queue.error = None
         threads = []
         if (isinstance(bucket, LocalBucket) or
             (isinstance(bucket, BetterBucket) and
@@ -496,6 +497,9 @@ def upgrade(bucket_factory):
             if i % 100 == 0:
                 log.info(' ..checked %d/%d objects..', i, total)      
                 
+            if queue.error:
+                raise queue.error[0], queue.error[1], queue.error[2]
+                
         for t in threads:
             queue.put(None)
         for t in threads:
@@ -504,13 +508,17 @@ def upgrade(bucket_factory):
     except KeyboardInterrupt:
         log.info("Storing verification status...")
         for t in threads:
-            if t.is_alive():
-                queue.put(None)
+            queue.put(None)
         for t in threads:
             t.join()
-        bucket['s3ql_hash_check_status'] = '%d' % queue.get()[0]
+        bucket['s3ql_hash_check_status'] = '%d' % tmp[0]
         raise QuietError('Aborting..')
-    
+
+    except:
+        log.info("Storing verification status...")
+        bucket['s3ql_hash_check_status'] = '%d' % tmp[0]
+        raise
+        
     log.info('Running fsck...')
     fsck = Fsck(tempfile.mkdtemp(), bucket, param, db)
     fsck.check()    
@@ -559,8 +567,8 @@ def check_hash(queue, bucket):
                     log.warn('Object %d corrupted! Deleting..', obj_id)
                     bucket.delete('s3ql_data_%d' % obj_id)
     except:
-        os.kill(os.getpid(), signal.SIGINT)
-        raise
+        queue.error = sys.exc_info()
+        queue.get()
                             
                             
 def restore_legacy_metadata(ifh, conn):
