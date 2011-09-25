@@ -496,6 +496,8 @@ class BlockCache(object):
         while el is None:
             # Don't allow changing objects while they're being uploaded
             if (inode, blockno) in self.in_transit:
+                log.debug('get(inode=%d, block=%d): inode/blockno in transit, waiting', 
+                          inode, blockno)
                 self.wait()
                 continue
             
@@ -513,6 +515,7 @@ class BlockCache(object):
                 except NoSuchRowError:
                     #log.debug('get(inode=%d, block=%d): creating new block', inode, blockno)
                     el = CacheEntry(inode, blockno, filename)
+                    self.entries[(inode, blockno)] = el
                     
                 # Need to download corresponding object
                 else:
@@ -527,12 +530,23 @@ class BlockCache(object):
                         
                     # We need to download
                     self.in_transit.add(obj_id)
+                    log.debug('get(inode=%d, block=%d): downloading object %d..', 
+                              inode, blockno, obj_id)
                     try:
                         el = CacheEntry(inode, blockno, filename)   
                         with lock_released:
                             with self.bucket_pool() as bucket:
                                 with bucket.open_read('s3ql_data_%d' % obj_id) as fh:
                                     shutil.copyfileobj(fh, el)
+                                    
+                        # Note: We need to do this *before* releasing the global
+                        # lock to notify other threads
+                        self.entries[(inode, blockno)] = el
+                        
+                        # Writing will have set dirty flag
+                        el.dirty = False
+                        self.size += el.size
+                                            
                     except:
                         el.unlink()
                         raise
@@ -540,12 +554,6 @@ class BlockCache(object):
                         self.in_transit.remove(obj_id)
                         with lock_released:
                             self.transfer_completed.notify_all()
-                        
-                    # Writing will have set dirty flag
-                    el.dirty = False
-                    self.size += el.size
-                
-                self.entries[(inode, blockno)] = el
                 
             # In Cache
             else:

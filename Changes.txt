@@ -1,3 +1,9 @@
+UNRELEASED, S3QL TIP
+
+  * Fixed a race condition that could cause applications to get just
+    zero bytes when trying to read from a file that has just been
+    copied with s3qlcp.
+  
 2011-09-20, S3QL 1.1.4
 
   * Fixed a typo that caused errors when trying to remove any blocks
