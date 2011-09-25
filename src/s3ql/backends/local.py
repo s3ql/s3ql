@@ -15,6 +15,7 @@ import cPickle as pickle
 import os
 import errno
 import thread
+from s3ql.backends.common import ChecksumError
 
 log = logging.getLogger("backend.local")
 
@@ -54,7 +55,12 @@ class Bucket(AbstractBucket):
                 raise NoSuchObject(key)
             else:
                 raise
-
+        except pickle.UnpicklingError as exc:
+            if (isinstance(exc.args[0], str)
+                and exc.args[0].startswith('invalid load key')):
+                raise ChecksumError('Invalid metadata')
+            raise
+        
     def open_read(self, key):
         """Open object for reading
 
@@ -72,8 +78,13 @@ class Bucket(AbstractBucket):
             else:
                 raise
             
-        fh.metadata = pickle.load(fh)
-        
+        try:
+            fh.metadata = pickle.load(fh)
+        except pickle.UnpicklingError as exc:
+            if (isinstance(exc.args[0], str)
+                and exc.args[0].startswith('invalid load key')):
+                raise ChecksumError('Invalid metadata')
+            raise
         return fh
     
     def open_write(self, key, metadata=None):

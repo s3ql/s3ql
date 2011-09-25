@@ -299,7 +299,14 @@ class BetterBucket(AbstractBucket):
         if encrypted:
             buf = decrypt(buf, self.passphrase)
             
-        metadata = pickle.loads(buf)
+        try:
+            metadata = pickle.loads(buf)
+        except pickle.UnpicklingError as exc:
+            if (isinstance(exc.args[0], str)
+                and exc.args[0].startswith('invalid load key')):
+                raise ChecksumError('Invalid metadata')
+            raise
+            
         if metadata is None:
             return dict()
         else:
@@ -561,9 +568,19 @@ class DecompressFilter(AbstractInputFilter):
                 
             try:
                 buf = self.decomp.decompress(buf)
-            except IOError:
-                raise ChecksumError('Invalid compressed stream')
-            
+            except IOError as exc:
+                if exc.args == ('invalid data stream',):
+                    raise ChecksumError('Invalid compressed stream')
+                raise
+            except lzma.error as exc:
+                if exc.args == ('unknown file format',):
+                    raise ChecksumError('Invalid compressed stream')
+                raise
+            except zlib.error as exc:
+                if exc.args == ('Error -3 while decompressing: incorrect header check',):
+                    raise ChecksumError('Invalid compressed stream')
+                raise
+                        
         return buf
     
     def close(self):
@@ -759,10 +776,19 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
             
             try:
                 buf = self.decomp.decompress(buf)
-            except IOError:
-                raise ChecksumError('Invalid compressed stream')
+            except IOError as exc:
+                if exc.args == ('invalid data stream',):
+                    raise ChecksumError('Invalid compressed stream')
+                raise
+            except lzma.error as exc:
+                if exc.args == ('unknown file format',):
+                    raise ChecksumError('Invalid compressed stream')
+                raise            
+            except zlib.error as exc:
+                if exc.args == ('Error -3 while decompressing: incorrect header check',):
+                    raise ChecksumError('Invalid compressed stream')
+                raise
             
-
         self.hmac.update(buf)
         return buf                              
 
