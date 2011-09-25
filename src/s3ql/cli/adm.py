@@ -7,6 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
+from Queue import Queue
 from datetime import datetime as Datetime
 from getpass import getpass
 from s3ql import CURRENT_FS_REV
@@ -18,12 +19,14 @@ from s3ql.common import (QuietError, restore_metadata, cycle_metadata,
 from s3ql.database import Connection
 from s3ql.fsck import Fsck
 from s3ql.parse_args import ArgumentParser
+from threading import Thread
 import ConfigParser
 import cPickle as pickle
 import errno
 import hashlib
 import logging
 import os
+import signal
 import re
 import shutil
 import stat
@@ -268,10 +271,11 @@ def get_possibly_old_bucket(options, plain=False):
     bucket = bucket_class(bucket_name, backend_login, backend_pw)
     if bucket_class == LocalBucket and 's3ql_metadata.dat' in bucket:
         bucket_class = LegacyLocalBucket
-        bucket = bucket_class(bucket_name, backend_login, backend_pw)
         
     if plain:
-        return bucket
+        return lambda: bucket_class(bucket_name, backend_login, backend_pw)
+    
+    bucket = bucket_class(bucket_name, backend_login, backend_pw)
     
     try:
         encrypted = 's3ql_passphrase' in bucket
@@ -292,8 +296,8 @@ def get_possibly_old_bucket(options, plain=False):
         compress = 'zlib'
             
     if not encrypted:
-        return BetterBucket(None, compress, 
-                            bucket_class(bucket_name, backend_login, backend_pw))
+        return lambda: BetterBucket(None, compress, 
+                                    bucket_class(bucket_name, backend_login, backend_pw))
     
     tmp_bucket = BetterBucket(bucket_passphrase, compress, bucket)
     
@@ -302,12 +306,14 @@ def get_possibly_old_bucket(options, plain=False):
     except ChecksumError:
         raise QuietError('Wrong bucket passphrase')
 
-    return BetterBucket(data_pw, compress, 
-                        bucket_class(bucket_name, backend_login, backend_pw))
+    return lambda: BetterBucket(data_pw, compress, 
+                                bucket_class(bucket_name, backend_login, backend_pw))
     
-def upgrade(bucket):
+def upgrade(bucket_factory):
     '''Upgrade file system to newest revision'''
 
+    bucket = bucket_factory()
+    
     # Access to protected member
     #pylint: disable=W0212
     log.info('Getting file system parameters..')
@@ -380,7 +386,6 @@ def upgrade(bucket):
     log.info('Upgrading from revision %d to %d...', CURRENT_FS_REV - 1,
              CURRENT_FS_REV)
     
-    
     if 's3ql_hash_check_status' not in bucket:        
         if (isinstance(bucket, LegacyLocalBucket) or
             (isinstance(bucket, BetterBucket) and
@@ -411,13 +416,11 @@ def upgrade(bucket):
                     os.unlink(os.path.join(path, basename + '.dat'))
                     
                     i += 1
-                    if i % 1000 == 0:
+                    if i % 100 == 0:
                         log.info('..processed %d objects so far..', i)
                     
-            if isinstance(bucket, LegacyLocalBucket):
-                bucket = LocalBucket(bucket.name, None, None)
-            else:
-                bucket.bucket = LocalBucket(bucket.bucket.name, None, None)
+            print("Merging complete. Please restart s3qladm upgrade to complete the upgrade.")
+            return
                          
         # Download metadata
         log.info("Downloading & uncompressing metadata...")
@@ -468,29 +471,44 @@ def upgrade(bucket):
         log.info("Resuming hash verification with object %d..", start_obj)
     
     try:
-        total = db.get_val('SELECT COUNT(id) FROM objects')
+        total = db.get_val('SELECT COUNT(id) FROM objects WHERE id > ?', (start_obj,))
         i = 0
-        for (obj_id, hash_) in db.query('SELECT obj_id, hash FROM blocks JOIN objects '
-                                        'ON obj_id == objects.id WHERE obj_id > ? '
-                                        'ORDER BY obj_id ASC', (start_obj,)):
-            sha = hashlib.sha256()
-            with bucket.open_read("s3ql_data_%d" % obj_id) as fh:
-                while True:
-                    buf = fh.read(128*1024)
-                    if not buf:
-                        break
-                    sha.update(buf)
-                    
-            if sha.digest() != hash_:
-                log.warn('Object %d corrupted! Deleting..', obj_id)
-                bucket.delete('s3ql_data_%d' % obj_id)
+        queue = Queue(1)
+        threads = []
+        if (isinstance(bucket, LocalBucket) or
+            (isinstance(bucket, BetterBucket) and
+             isinstance(bucket.bucket,LocalBucket))):
+            thread_count = 1
+        else:
+            thread_count = 25
+            
+        for _ in range(thread_count):
+            t = Thread(target=check_hash, args=(queue, bucket_factory()))
+            t.daemon = True
+            t.start()
+            threads.append(t)
+            
+        for tmp in db.query('SELECT obj_id, hash FROM blocks JOIN objects '
+                            'ON obj_id == objects.id WHERE obj_id > ? '
+                            'ORDER BY obj_id ASC', (start_obj,)):
+            queue.put(tmp)
             i += 1
             if i % 100 == 0:
-                log.info(' ..checked %d/%d objects..', i, total)            
+                log.info(' ..checked %d/%d objects..', i, total)      
+                
+        for t in threads:
+            queue.put(None)
+        for t in threads:
+            t.join()                  
             
     except KeyboardInterrupt:
         log.info("Storing verification status...")
-        bucket['s3ql_hash_check_status'] = '%d' % obj_id
+        for t in threads:
+            if t.is_alive():
+                queue.put(None)
+        for t in threads:
+            t.join()
+        bucket['s3ql_hash_check_status'] = '%d' % queue.get()[0]
         raise QuietError('Aborting..')
     
     log.info('Running fsck...')
@@ -511,6 +529,40 @@ def upgrade(bucket):
         dump_metadata(fh, db)
                 
         
+def check_hash(queue, bucket):
+    
+    try:
+        while True:
+            tmp = queue.get()
+            if tmp is None:
+                break
+                  
+            (obj_id, hash_) = tmp
+              
+            sha = hashlib.sha256()
+            try:
+                with bucket.open_read("s3ql_data_%d" % obj_id) as fh:
+                    while True:
+                        buf = fh.read(128*1024)
+                        if not buf:
+                            break
+                        sha.update(buf)
+            except ChecksumError:
+                log.warn('Object %d corrupted! Deleting..', obj_id)
+                bucket.delete('s3ql_data_%d' % obj_id)
+                
+            except NoSuchObject:
+                log.warn('Object %d seems to have disappeared', obj_id)
+            
+            else:
+                if sha.digest() != hash_:
+                    log.warn('Object %d corrupted! Deleting..', obj_id)
+                    bucket.delete('s3ql_data_%d' % obj_id)
+    except:
+        os.kill(os.getpid(), signal.SIGINT)
+        raise
+                            
+                            
 def restore_legacy_metadata(ifh, conn):
     unpickler = pickle.Unpickler(ifh)
     (data_start, to_dump, sizes, columns) = unpickler.load()
