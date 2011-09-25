@@ -577,7 +577,9 @@ class DecompressFilter(AbstractInputFilter):
                     raise ChecksumError('Invalid compressed stream')
                 raise
             except zlib.error as exc:
-                if exc.args == ('Error -3 while decompressing: incorrect header check',):
+                if exc.args[0].startswith('Error -3 while decompressing:'):
+                    log.warn('LegacyDecryptDecompressFilter._read(): %s',
+                             exc.args[0])
                     raise ChecksumError('Invalid compressed stream')
                 raise
                         
@@ -785,7 +787,9 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
                     raise ChecksumError('Invalid compressed stream')
                 raise            
             except zlib.error as exc:
-                if exc.args == ('Error -3 while decompressing: incorrect header check',):
+                if exc.args[0].startswith('Error -3 while decompressing:'):
+                    log.warn('LegacyDecryptDecompressFilter._read(): %s',
+                             exc.args[0])
                     raise ChecksumError('Invalid compressed stream')
                 raise
             
