@@ -9,7 +9,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 
 from .common import AbstractBucket, NoSuchObject
-from s3ql.common import retry
 import logging
 import httplib
 import re
@@ -22,7 +21,7 @@ import urllib
 import xml.etree.cElementTree as ElementTree
 import os
 import errno
-
+from functools import wraps
 
 log = logging.getLogger("backend.s3")
 
@@ -30,6 +29,51 @@ C_DAY_NAMES = [ 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ]
 C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ]
     
 XML_CONTENT_RE = re.compile('^application/xml(?:;\s+|$)', re.IGNORECASE)
+
+RETRY_TIMEOUT=60*60*24
+def retry(fn):
+    '''Decorator for retrying a method on some exceptions
+    
+    If the decorated method raises an exception for which the instance's
+    `_retry_on(exc)` method is true, the decorated method is called again at
+    increasing intervals. If this persists for more than *timeout* seconds,
+    the most-recently caught exception is re-raised.
+    '''
+    
+    @wraps(fn)
+    def wrapped(self, *a, **kw):    
+        interval = 1/50
+        waited = 0
+        while True:
+            try:
+                return fn(self, *a, **kw)
+            except Exception as exc:
+                # Access to protected member ok
+                #pylint: disable=W0212
+                if not self._retry_on(exc):
+                    raise
+                if waited > RETRY_TIMEOUT:
+                    log.error('%s.%s(*): Timeout exceeded, re-raising %r exception', 
+                            self.__class__.__name__, fn.__name__, exc)
+                    raise
+                
+                log.debug('%s.%s(*): trying again after %r exception:', 
+                          self.__class__.__name__, fn.__name__, exc)
+                
+            time.sleep(interval)
+            waited += interval
+            if interval < 20*60:
+                interval *= 2   
+                
+    # False positive
+    #pylint: disable=E1101
+    wrapped.__doc__ += '''
+This method has been decorated and will automatically recall itself in
+increasing intervals for up to s3ql.common.RETRY_TIMEOUT seconds if it raises an
+exception for which the instance's `_retry_on` method returns True.
+'''  
+    return wrapped 
+
 
 class Bucket(AbstractBucket):
     """A bucket stored in Amazon S3

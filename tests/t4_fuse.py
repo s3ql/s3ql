@@ -6,29 +6,93 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function
+from __future__ import absolute_import, division, print_function
 from _common import TestCase
-from cStringIO import StringIO
 from os.path import basename
-from s3ql.common import AsyncFn
 import filecmp
+import llfuse
 import os.path
-import s3ql.cli.fsck
-import s3ql.cli.ctrl
-import s3ql.cli.mkfs
-import s3ql.cli.mount
-import s3ql.cli.umount
 import shutil
 import stat
-import llfuse
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import traceback
 import unittest2 as unittest
+import logging
+
+log = logging.getLogger()
 
 # For debugging
 USE_VALGRIND = False
+
+class ExceptionStoringThread(threading.Thread):
+    def __init__(self):
+        super(ExceptionStoringThread, self).__init__()
+        self._exc_info = None
+        self._joined = False
+
+    def run_protected(self):
+        pass
+    
+    def run(self):
+        try:
+            self.run_protected()
+        except:
+            # This creates a circular reference chain
+            self._exc_info = sys.exc_info() 
+
+    def join_get_exc(self):
+        self._joined = True
+        self.join()
+        return self._exc_info
+
+    def join_and_raise(self):
+        '''Wait for the thread to finish, raise any occurred exceptions'''
+        
+        self._joined = True
+        if self.is_alive():
+            self.join()
+      
+        if self._exc_info is not None:
+            # Break reference chain
+            exc_info = self._exc_info
+            self._exc_info = None
+            raise EmbeddedException(exc_info, self.name)
+
+    def __del__(self):
+        if not self._joined:
+            raise RuntimeError("ExceptionStoringThread instance was destroyed "
+                               "without calling join_and_raise()!")
+                
+class EmbeddedException(Exception):
+    '''Encapsulates an exception that happened in a different thread
+    '''
+
+    def __init__(self, exc_info, threadname):
+        super(EmbeddedException, self).__init__()
+        self.exc_info = exc_info
+        self.threadname = threadname
+        
+        log.error('Thread %s terminated with exception:\n%s',
+                  self.threadname, ''.join(traceback.format_exception(*self.exc_info)))               
+
+    def __str__(self):
+        return ''.join(['caused by an exception in thread %s.\n' % self.threadname,
+                       'Original/inner traceback (most recent call last): \n' ] +  
+                       traceback.format_exception(*self.exc_info))
+        
+class AsyncFn(ExceptionStoringThread):
+    def __init__(self, fn, *args, **kwargs):
+        super(AsyncFn, self).__init__()
+        self.target = fn
+        self.args = args
+        self.kwargs = kwargs
+        
+    def run_protected(self):
+        self.target(*self.args, **self.kwargs)
 
 def retry(timeout, fn, *a, **kw):
     """Wait for fn(*a, **kw) to return True.
@@ -314,11 +378,8 @@ class fuse_tests(TestCase):
         fstat = os.stat(filename)
         size = fstat.st_size
         
-        try:
-            s3ql.cli.ctrl.main(['flushcache', self.mnt_dir])
-        except:
-            sys.excepthook(*sys.exc_info())
-            self.fail("s3qlctrl raised exception")
+        subprocess.check_call([os.path.join(BASEDIR, 'bin', 's3qlctrl'), 
+                               '--quiet', 'flushcache', self.mnt_dir ])
                     
         fd = os.open(filename, os.O_RDWR)
 

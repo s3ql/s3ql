@@ -7,7 +7,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-from functools import wraps
 from llfuse import ROOT_INODE
 import cPickle as pickle
 import hashlib
@@ -17,10 +16,7 @@ import shutil
 import stat
 import sys
 import tempfile
-import threading
 import time
-import traceback
-
 
 log = logging.getLogger('common')
         
@@ -90,51 +86,6 @@ def add_stdout_logging(quiet=False):
         handler.setLevel(logging.INFO)
     root_logger.addHandler(handler)
     return handler
-
-RETRY_TIMEOUT=60*60*24
-def retry(fn):
-    '''Decorator for retrying a method on some exceptions
-    
-    If the decorated method raises an exception for which the instance's
-    `_retry_on(exc)` method is true, the decorated method is called again at
-    increasing intervals. If this persists for more than *timeout* seconds,
-    the most-recently caught exception is re-raised.
-    '''
-    
-    @wraps(fn)
-    def wrapped(self, *a, **kw):    
-        interval = 1/50
-        waited = 0
-        while True:
-            try:
-                return fn(self, *a, **kw)
-            except Exception as exc:
-                # Access to protected member ok
-                #pylint: disable=W0212
-                if not self._retry_on(exc):
-                    raise
-                if waited > RETRY_TIMEOUT:
-                    log.error('%s.%s(*): Timeout exceeded, re-raising %r exception', 
-                            self.__class__.__name__, fn.__name__, exc)
-                    raise
-                
-                log.debug('%s.%s(*): trying again after %r exception:', 
-                          self.__class__.__name__, fn.__name__, exc)
-                
-            time.sleep(interval)
-            waited += interval
-            if interval < 20*60:
-                interval *= 2   
-                
-    # False positive
-    #pylint: disable=E1101
-    wrapped.__doc__ += '''
-This method has been decorated and will automatically recall itself in
-increasing intervals for up to s3ql.common.RETRY_TIMEOUT seconds if it raises an
-exception for which the instance's `_retry_on` method returns True.
-'''
-              
-    return wrapped 
 
 def get_seq_no(bucket):
     '''Get current metadata sequence number'''   
@@ -353,74 +304,6 @@ def get_bucket_cachedir(storage_url, cachedir):
 # Name and inode of the special s3ql control file
 CTRL_NAME = b'.__s3ql__ctrl__'
 CTRL_INODE = 2
-
-class ExceptionStoringThread(threading.Thread):
-    def __init__(self):
-        super(ExceptionStoringThread, self).__init__()
-        self._exc_info = None
-        self._joined = False
-
-    def run_protected(self):
-        pass
-    
-    def run(self):
-        try:
-            self.run_protected()
-        except:
-            # This creates a circular reference chain
-            self._exc_info = sys.exc_info() 
-
-    def join_get_exc(self):
-        self._joined = True
-        self.join()
-        return self._exc_info
-
-    def join_and_raise(self):
-        '''Wait for the thread to finish, raise any occurred exceptions'''
-        
-        self._joined = True
-        if self.is_alive():
-            self.join()
-      
-        if self._exc_info is not None:
-            # Break reference chain
-            exc_info = self._exc_info
-            self._exc_info = None
-            raise EmbeddedException(exc_info, self.name)
-
-    def __del__(self):
-        if not self._joined:
-            raise RuntimeError("ExceptionStoringThread instance was destroyed "
-                               "without calling join_and_raise()!")
-
-
-class AsyncFn(ExceptionStoringThread):
-    def __init__(self, fn, *args, **kwargs):
-        super(AsyncFn, self).__init__()
-        self.target = fn
-        self.args = args
-        self.kwargs = kwargs
-        
-    def run_protected(self):
-        self.target(*self.args, **self.kwargs)
-                
-class EmbeddedException(Exception):
-    '''Encapsulates an exception that happened in a different thread
-    '''
-
-    def __init__(self, exc_info, threadname):
-        super(EmbeddedException, self).__init__()
-        self.exc_info = exc_info
-        self.threadname = threadname
-        
-        log.error('Thread %s terminated with exception:\n%s',
-                  self.threadname, ''.join(traceback.format_exception(*self.exc_info)))               
-
-    def __str__(self):
-        return ''.join(['caused by an exception in thread %s.\n' % self.threadname,
-                       'Original/inner traceback (most recent call last): \n' ] +  
-                       traceback.format_exception(*self.exc_info))
-
 
 def sha256_fh(fh):
     fh.seek(0)
