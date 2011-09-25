@@ -126,6 +126,10 @@ class fuse_tests(TestCase):
         subprocess.call(['fusermount', '-z', '-u', self.mnt_dir],
                         stderr=open('/dev/null', 'wb'))
         os.rmdir(self.mnt_dir)
+        
+        # Give mount process a little while to terminate
+        retry(10, lambda : self.mount_process.poll() is not None)
+              
         shutil.rmtree(self.cache_dir)
         shutil.rmtree(self.bucket_dir)
 
