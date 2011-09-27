@@ -157,8 +157,12 @@ class Fsck(object):
     
     
             try:
-                old_block_id = self.conn.get_val('SELECT block_id FROM inode_blocks_v '
-                                                 'WHERE inode=? AND blockno=?', (inode, blockno))
+                if blockno == 0:
+                    old_block_id = self.db.get_val('SELECT block_id FROM inodes '
+                                                   'WHERE id=? AND block_id IS NOT NULL', (inode,))
+                else:                
+                    old_block_id = self.conn.get_val('SELECT block_id FROM inode_blocks_v '
+                                                     'WHERE inode=? AND blockno=?', (inode, blockno))
             except NoSuchRowError:
                 if blockno == 0:
                     self.conn.execute('UPDATE inodes SET block_id=? WHERE id=?',
@@ -509,7 +513,9 @@ class Fsck(object):
                                inode, get_path(inode, self.conn))
     
             if (not stat.S_ISREG(mode) and 
-                self.conn.has_val('SELECT 1 FROM inode_blocks_v WHERE inode=?', (inode,))):
+                self.conn.has_val('SELECT 1 FROM inode_blocks WHERE inode=? '
+                                  'UNION SELECT 1 FROM inodes WHERE id=? '
+                                  'AND block_id IS NOT NULL', (inode, inode))):
                 self.found_errors = True
                 self.log_error('Inode %d (%s) is not a regular file but has data blocks. '
                                'This is probably going to confuse your system!',

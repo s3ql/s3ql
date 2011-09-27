@@ -447,6 +447,9 @@ def create_tables(conn):
     SELECT * FROM contents JOIN names ON names.id = name_id       
     """)    
     
+    # We have to be very careful when using the following view, because it
+    # confuses the SQLite optimizer a lot, so it often stops using indices and
+    # always scans both instnead tables.
     conn.execute("""
     CREATE VIEW inode_blocks_v AS
     SELECT * FROM inode_blocks

@@ -379,10 +379,15 @@ class Operations(llfuse.Operations):
                     db.execute('UPDATE inodes SET block_id='
                                '(SELECT block_id FROM inodes WHERE id=?) '
                                'WHERE id=?', (id_, id_new))   
-                                     
+
+                    processed += db.execute('REPLACE INTO blocks (id, hash, refcount, size, obj_id) '
+                                            'SELECT blocks.id, hash, blocks.refcount+1, blocks.size, obj_id '
+                                            'FROM inodes JOIN blocks ON block_id = blocks.id '
+                                            'WHERE inodes.id = ? AND block_id IS NOT NULL', (id_new,))
+                                                         
                     processed += db.execute('REPLACE INTO blocks (id, hash, refcount, size, obj_id) '
                                             'SELECT id, hash, refcount+1, size, obj_id '
-                                            'FROM inode_blocks_v JOIN blocks ON block_id = id '
+                                            'FROM inode_blocks JOIN blocks ON block_id = id '
                                             'WHERE inode = ?', (id_new,))
                     
                     if db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):

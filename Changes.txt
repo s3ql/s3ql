@@ -1,5 +1,9 @@
 UNRELEASED, S3QL TIP
 
+  * Fixed a database problem that was responsible for file
+    system access becomer slower and slower the more data
+    was stored in the file system.
+
   * Fixed a race condition that could cause applications to get just
     zero bytes when trying to read from a file that has just been
     copied with s3qlcp.

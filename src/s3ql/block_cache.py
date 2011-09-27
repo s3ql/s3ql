@@ -364,9 +364,14 @@ class BlockCache(object):
             hash_ = sha256_fh(el)
             
             try:
-                old_block_id = self.db.get_val('SELECT block_id FROM inode_blocks_v '
-                                               'WHERE inode=? AND blockno=?', 
-                                               (el.inode, el.blockno))
+                if el.blockno == 0:
+                    old_block_id = self.db.get_val('SELECT block_id FROM inodes '
+                                                   'WHERE id=? AND block_id IS NOT NULL',
+                                                   (el.inode,))
+                else:
+                    old_block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
+                                                   'WHERE inode=? AND blockno=?',
+                                                   (el.inode, el.blockno))
             except NoSuchRowError:
                 old_block_id = None
                 
@@ -508,8 +513,12 @@ class BlockCache(object):
             except KeyError:
                 filename = os.path.join(self.path, '%d-%d' % (inode, blockno))
                 try:
-                    block_id = self.db.get_val('SELECT block_id FROM inode_blocks_v '
-                                               'WHERE inode=? AND blockno=?', (inode, blockno))                    
+                    if blockno == 0:
+                        block_id = self.db.get_val('SELECT block_id FROM inodes '
+                                                   'WHERE id=? AND block_id IS NOT NULL', (inode,))                               
+                    else:
+                        block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
+                                                   'WHERE inode=? AND blockno=?', (inode, blockno))                    
     
                 # No corresponding object
                 except NoSuchRowError:
@@ -677,8 +686,13 @@ class BlockCache(object):
                 el.unlink()
 
             try:
-                block_id = self.db.get_val('SELECT block_id FROM inode_blocks_v '
-                                           'WHERE inode=? AND blockno=?', (inode, blockno))
+                if blockno == 0:
+                    block_id = self.db.get_val('SELECT block_id FROM inodes '
+                                               'WHERE id=? AND block_id IS NOT NULL',
+                                               (inode,))
+                else:
+                    block_id = self.db.get_val('SELECT block_id FROM inode_blocks_v '
+                                               'WHERE inode=? AND blockno=?', (inode, blockno))
             except NoSuchRowError:
                 log.debug('remove(inode=%d, blockno=%d): block not in db', inode, blockno)
                 continue
