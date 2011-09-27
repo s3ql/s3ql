@@ -394,7 +394,7 @@ def parse_args(args):
     parser.add_storage_url()
     
     parser.add_argument("mountpoint", metavar='<mountpoint>',
-                        type=(lambda x: x.rstrip('/')),
+                        type=(lambda x: os.path.abspath(x)),
                         help='Where to mount the file system')
         
     parser.add_argument("--cachesize", type=int, default=102400, metavar='<size>', 
