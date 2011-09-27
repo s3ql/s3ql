@@ -141,7 +141,8 @@ class Bucket(AbstractBucket):
             return True
         
         # Server closed connection
-        elif isinstance(exc, httplib.BadStatusLine) and exc.line == "''":
+        elif (isinstance(exc, httplib.BadStatusLine) 
+              and (not exc.line or exc.line == "''")):
             return True
         
         elif isinstance(exc, IOError) and exc.errno == errno.EPIPE:
