@@ -465,6 +465,7 @@ def upgrade(bucket_factory):
     if 's3ql_hash_check_status' not in bucket:
         log.info("Starting hash verification..")
         start_obj = 0
+        bucket['s3ql_hash_check_status'] = '%d' % start_obj
     else:
         start_obj = int(bucket['s3ql_hash_check_status'])
         log.info("Resuming hash verification with object %d..", start_obj)
