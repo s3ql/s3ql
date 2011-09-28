@@ -617,8 +617,12 @@ class Fsck(object):
                 self.found_errors = True
                 self.log_error("object %s only exists in table but not in bucket, deleting", obj_id)
                 
-                for (id_,) in self.conn.query('SELECT inode FROM inode_blocks_v JOIN blocks ON block_id = id '
-                                              'WHERE obj_id=?', (obj_id,)):
+                for (id_,) in self.conn.query('SELECT inode FROM inode_blocks JOIN blocks ON block_id = id '
+                                              'WHERE obj_id=? '
+                                              'UNION '
+                                              'SELECT inodes.id FROM inodes JOIN blocks ON block_id = blocks.id '
+                                              'WHERE obj_id=? AND block_id IS NOT NULL',
+                                              (obj_id, obj_id)):
 
                     # Same file may lack several blocks, but we want to move it 
                     # only once
