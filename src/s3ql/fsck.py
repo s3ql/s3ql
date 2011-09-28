@@ -651,6 +651,11 @@ class Fsck(object):
                                           (self._add_name(newname), lof_id, name_id, id_p))
                         self._del_name(name_id)
                         
+                # Unlink missing blocks
+                for (block_id,) in self.conn.query('SELECT id FROM blocks WHERE obj_id=?', (obj_id,)):
+                    self.conn.execute('DELETE FROM inode_blocks WHERE block_id=?', (block_id,))
+                    self.conn.execute('UPDATE inodes SET block_id = NULL WHERE block_id=?', (block_id,))
+                    
                 self.conn.execute("DELETE FROM blocks WHERE obj_id=?", (obj_id,))
                 self.conn.execute("DELETE FROM objects WHERE id=?", (obj_id,))
         finally:
