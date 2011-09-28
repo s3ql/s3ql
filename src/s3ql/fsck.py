@@ -228,7 +228,7 @@ class Fsck(object):
             inode_l = self.conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                                       "VALUES (?,?,?,?,?,?,?)",
                                       (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                                       os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 2))
+                                       os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
             self.conn.execute('UPDATE contents SET inode=? WHERE name_id=? AND parent_inode=?',
                               (inode_l, name_id, ROOT_INODE))
     
