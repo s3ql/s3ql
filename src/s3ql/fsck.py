@@ -584,7 +584,11 @@ class Fsck(object):
                     log.info('..processed %d objects so far..', i)
         
                 # We only bother with data objects
-                obj_id = int(obj_name[10:])
+                try:
+                    obj_id = int(obj_name[10:])
+                except ValueError:
+                    log.warn("Ignoring unexpected object %r", obj_name)
+                    continue
         
                 self.conn.execute('INSERT INTO obj_ids VALUES(?)', (obj_id,))
             
