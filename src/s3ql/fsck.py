@@ -158,10 +158,10 @@ class Fsck(object):
     
             try:
                 if blockno == 0:
-                    old_block_id = self.db.get_val('SELECT block_id FROM inodes '
-                                                   'WHERE id=? AND block_id IS NOT NULL', (inode,))
+                    old_block_id = self.conn.get_val('SELECT block_id FROM inodes '
+                                                     'WHERE id=? AND block_id IS NOT NULL', (inode,))
                 else:                
-                    old_block_id = self.conn.get_val('SELECT block_id FROM inode_blocks_v '
+                    old_block_id = self.conn.get_val('SELECT block_id FROM inode_blocks '
                                                      'WHERE inode=? AND blockno=?', (inode, blockno))
             except NoSuchRowError:
                 if blockno == 0:
