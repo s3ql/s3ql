@@ -392,6 +392,10 @@ class Bucket(AbstractBucket):
                     # Server closed connection, reconnect
                     self.conn.close()
                 raise
+            except httplib.CannotSendRequest:
+                log.warn('_do_request(): httplib can not send request, '
+                         'retrying (current state: %s)..', self.conn.__state)
+                raise
                         
             log.debug('_do_request(): request-id: %s',  resp.getheader('x-amz-request-id'))
             
@@ -667,8 +671,7 @@ def extractmeta(resp):
         meta[hit.group(1)] = val
         
     return meta
-                    
-
+    
 class HTTPError(Exception):
     '''
     Represents an HTTP error returned by S3 in response to a 
