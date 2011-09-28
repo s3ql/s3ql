@@ -519,6 +519,7 @@ def upgrade(bucket_factory):
         raise
         
     log.info('Running fsck...')
+    bucket['s3ql_hash_check_status'] = '%d' % tmp[0]
     fsck = Fsck(tempfile.mkdtemp(), bucket, param, db)
     fsck.check()    
     
