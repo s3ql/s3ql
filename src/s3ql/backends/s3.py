@@ -388,7 +388,7 @@ class Bucket(AbstractBucket):
             try:
                 resp = self.conn.getresponse()
             except httplib.BadStatusLine as exc:
-                if exc.line == "''":
+                if exc.line == "''" or not exc.line:
                     # Server closed connection, reconnect
                     self.conn.close()
                 raise
