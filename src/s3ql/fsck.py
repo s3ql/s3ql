@@ -90,25 +90,34 @@ class Fsck(object):
         
         log.info("Checking referential integrity...")
         
-        for (table,) in self.conn.query("SELECT name FROM sqlite_master WHERE type='table'"):
-            for row in self.conn.query('PRAGMA foreign_key_list(%s)' % table):
-                sql_objs = { 'src_table': table,
-                            'dst_table': row[2],
-                            'src_col': row[3],
-                            'dst_col': row[4] }
-                for (val,) in self.conn.query('SELECT %(src_table)s.%(src_col)s '
-                                              'FROM %(src_table)s LEFT JOIN %(dst_table)s '
-                                              'ON %(src_table)s.%(src_col)s = %(dst_table)s.%(dst_col)s '
-                                              'WHERE %(dst_table)s.%(dst_col)s IS NULL '
-                                              'AND %(src_table)s.%(src_col)s IS NOT NULL'
-                                              % sql_objs):
-                    self.found_errors = True
-                    self.uncorrectable_errors = True
-                    sql_objs['val'] = val
-                    self.log_error('%(src_table)s.%(src_col)s refers to non-existing key %(val)s '
-                                   'in %(dst_table)s.%(dst_col)s!', sql_objs)
-                    self.log_error("Don't know how to fix this problem!")
-        
+        errors_found = True
+        while errors_found:
+            errors_found = False
+            
+            for (table,) in self.conn.query("SELECT name FROM sqlite_master WHERE type='table'"):
+                for row in self.conn.query('PRAGMA foreign_key_list(%s)' % table):
+                    sql_objs = { 'src_table': table,
+                                'dst_table': row[2],
+                                'src_col': row[3],
+                                'dst_col': row[4] }
+                    to_delete = []
+                    for (val,) in self.conn.query('SELECT %(src_table)s.%(src_col)s '
+                                                  'FROM %(src_table)s LEFT JOIN %(dst_table)s '
+                                                  'ON %(src_table)s.%(src_col)s = %(dst_table)s.%(dst_col)s '
+                                                  'WHERE %(dst_table)s.%(dst_col)s IS NULL '
+                                                  'AND %(src_table)s.%(src_col)s IS NOT NULL'
+                                                  % sql_objs):
+                        self.found_errors = True
+                        sql_objs['val'] = val
+                        self.log_error('%(src_table)s.%(src_col)s refers to non-existing key %(val)s '
+                                       'in %(dst_table)s.%(dst_col)s, deleting.', sql_objs)
+                        to_delete.append(val)
+                        
+                    for val in to_delete:
+                        self.conn.execute('DELETE FROM %(src_table)s WHERE %(src_col)s = ?'
+                                          % sql_objs, (val,))
+                    if to_delete:
+                        errors_found = True     
         
     def check_cache(self):
         """Commit uncommitted cache files"""
