@@ -33,6 +33,9 @@ that is not the case.
   so under Linux you should actually use *2.6.26 or newer whenever
   possible*.
 
+* `Python <http://www.python.org/>`_, version 2.6.6 or newer, but not
+  Python 3.x.
+  
 * The `PyCrypto++ Python Module
   <http://pypi.python.org/pypi/pycryptopp>`_. To check if this module
   is installed, try to execute `python -c 'import pycryptopp'`. 
