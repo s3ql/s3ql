@@ -395,7 +395,7 @@ class Bucket(AbstractBucket):
                 raise
             except httplib.CannotSendRequest:
                 log.warn('_do_request(): httplib can not send request, '
-                         'retrying (current state: %s)..', self.conn.__state)
+                         'retrying (current state: %s)..', self.conn.__state) #IGNORE:W0212
                 raise
                         
             log.debug('_do_request(): request-id: %s',  resp.getheader('x-amz-request-id'))
