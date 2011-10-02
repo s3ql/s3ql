@@ -393,10 +393,8 @@ def parse_args(args):
     parser.add_version()
     parser.add_storage_url()
     
-    parser.add_argument("mountpoint", metavar='<mountpoint>',
-                        type=(lambda x: os.path.abspath(x)),
+    parser.add_argument("mountpoint", metavar='<mountpoint>', type=os.path.abspath,
                         help='Where to mount the file system')
-        
     parser.add_argument("--cachesize", type=int, default=102400, metavar='<size>', 
                       help="Cache size in kb (default: 102400 (100 MB)). Should be at least 10 times "
                       "the blocksize of the filesystem, otherwise an object may be retrieved and "
