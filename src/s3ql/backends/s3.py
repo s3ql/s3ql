@@ -145,7 +145,8 @@ class Bucket(AbstractBucket):
               and (not exc.line or exc.line == "''")):
             return True
         
-        elif isinstance(exc, IOError) and exc.errno == errno.EPIPE:
+        elif (isinstance(exc, IOError) and 
+              exc.errno in (errno.EPIPE, errno.ECONNRESET)):
             return True
         
         return False
