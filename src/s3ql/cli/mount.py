@@ -175,15 +175,21 @@ def main(args=None):
 
         log.debug("All background threads terminated.")
  
+    log.info("Unmounting file system.")
+     
     # Re-raise if main loop terminated due to exception in other thread
-    # or during cleanup
+    # or during cleanup. but make sure we still unmount file system
+    # (so that Operations' destroy handler gets called)
     if exc_info:
+        try: 
+            with llfuse.lock:
+                llfuse.close()
+        except:
+            log.exception("Exception during cleanup:")  
         raise exc_info[0], exc_info[1], exc_info[2]
         
     # At this point, there should be no other threads left
 
-    # Unmount
-    log.info("Unmounting file system.")
     with llfuse.lock:
         llfuse.close()
     
