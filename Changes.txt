@@ -3,6 +3,10 @@ UNRELEASED, S3QL TIP
   * "Connection reset by peer" network errors are now handled
     correctly.
     
+  * fsck.s3ql can now renumber inodes. This is useful if the file
+    system was mounted without --nfs on a 64 bit system with S3QL 1.2
+    or 1.1.x and can now no longer be accessed on 32bit systems.
+    
 2011-09-28, S3QL 1.2
 
   * Fixed a database problem that was responsible for file
