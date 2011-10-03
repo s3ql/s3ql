@@ -4,8 +4,12 @@ UNRELEASED, S3QL TIP
     correctly.
     
   * fsck.s3ql can now renumber inodes. This is useful if the file
-    system was mounted without --nfs on a 64 bit system with S3QL 1.2
-    or 1.1.x and can now no longer be accessed on 32bit systems.
+    system was mounted using S3QL 1.2 or 1.1.x without the --nfs
+    option and can now no longer be accessed on 32bit systems.
+
+  * Use only 32 bits for inodes, even when --nfs is not specified.
+    This ensures that file systems can be safely used by both 32 and
+    64 bit systems.
     
 2011-09-28, S3QL 1.2
 
