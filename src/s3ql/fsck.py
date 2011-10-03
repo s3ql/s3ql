@@ -213,9 +213,9 @@ class Fsck(object):
         except NoSuchRowError:
             self.found_errors = True
             self.log_error("Recreating missing lost+found directory")
-            inode_l = self.create_inode(stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp,
-                                        1, None)
+            inode_l = self.create_inode(mode=stat.S_IFDIR|stat.S_IRUSR|stat.S_IWUSR|stat.S_IXUSR,
+                                        atime=timestamp, ctime=timestamp, mtime=timestamp,
+                                        refcount=1)
             self.conn.execute("INSERT INTO contents (name_id, inode, parent_inode) VALUES(?,?,?)",
                               (self._add_name(b"lost+found"), inode_l, ROOT_INODE))
     
@@ -227,9 +227,9 @@ class Fsck(object):
                            '/lost+found/inode-%s*', inode_l)
             # We leave the old inode unassociated, so that it will be added
             # to lost+found later on.
-            inode_l = self.create_inode(stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp,
-                                        1, None)
+            inode_l = self.create_inode(mode=stat.S_IFDIR|stat.S_IRUSR|stat.S_IWUSR|stat.S_IXUSR,
+                                        atime=timestamp, ctime=timestamp, mtime=timestamp,
+                                        refcount=1)
             self.conn.execute('UPDATE contents SET inode=? WHERE name_id=? AND parent_inode=?',
                               (inode_l, name_id, ROOT_INODE))
     
@@ -408,9 +408,10 @@ class Fsck(object):
                     (id_p, name) = self.resolve_free(b"/lost+found", b"block-%d" % id_)
                     self.log_error("Block %d not referenced, adding as /lost+found/%s", id_, name)
                     timestamp = time.time() - time.timezone
-                    inode = self.create_inode(stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                                              os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 
-                                              1, id_)
+                    size = self.conn.get_val('SELECT size FROM blocks WHERE id=?', (id_,))
+                    inode = self.create_inode(mode=stat.S_IFREG|stat.S_IRUSR|stat.S_IWUSR|stat.S_IXUSR,
+                                              mtime=timestamp, atime=timestamp, ctime=timestamp, 
+                                              refcount=1, block_id=id_, size=size)
                     self.conn.execute("INSERT INTO contents (name_id, inode, parent_inode) VALUES (?,?,?)", 
                                       (self._add_name(basename(name)), inode, id_p))
                     self.conn.execute("UPDATE blocks SET refcount=? WHERE id=?", (1, id_))
@@ -425,14 +426,18 @@ class Fsck(object):
             self.conn.execute('DROP TABLE IF EXISTS wrong_refcounts')    
     
                     
-    def create_inode(self, *values):
+    def create_inode(self, mode, uid=os.getuid(), gid=os.getgid(),
+                     mtime=None, atime=None, ctime=None, refcount=None,
+                     block_id=None, size=0):
         '''Create inode with id fitting into 32bit'''
         
         for _ in range(100):
             id_ = randint(MIN_INODE, MAX_INODE)
             try:
-                self.conn.execute('INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,refcount,block_id) ' 
-                                  'VALUES (?,?,?,?,?,?,?,?,?)', (id_,) + values)
+                self.conn.execute('INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,'
+                                  'refcount,block_id,size) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                                   (id_, mode, uid, gid, mtime, atime, ctime, refcount,
+                                    block_id, size))
             except apsw.ConstraintError:
                 pass
             else:

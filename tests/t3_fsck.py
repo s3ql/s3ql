@@ -315,7 +315,7 @@ class fsck_tests(TestCase):
         obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
         self.bucket['s3ql_data_%d' % obj_id] = 'foo'
         self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
-                      (1, obj_id, 0))
+                      (1, obj_id, 3))
         self.assert_fsck(self.fsck.check_block_refcount)
                 
     def test_unix_size(self):
