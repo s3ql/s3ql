@@ -31,7 +31,7 @@ class cache_tests(TestCase):
         self.bucket_dir = tempfile.mkdtemp()
         self.bucket_pool = BucketPool(lambda: local.Bucket(self.bucket_dir, None, None))
 
-        self.cachedir = tempfile.mkdtemp() + "/"
+        self.cachedir = tempfile.mkdtemp() 
         self.blocksize = 1024
         
         self.dbfile = tempfile.NamedTemporaryFile()
@@ -47,7 +47,7 @@ class cache_tests(TestCase):
                          | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                          os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 32))
 
-        self.cache = BlockCache(self.bucket_pool, self.db, self.cachedir,
+        self.cache = BlockCache(self.bucket_pool, self.db, self.cachedir + "/cache",
                                 self.blocksize * 100)
         
         # Tested methods assume that they are called from
@@ -57,8 +57,7 @@ class cache_tests(TestCase):
     def tearDown(self):
         self.cache.bucket_pool = self.bucket_pool
         self.cache.destroy()    
-        if os.path.exists(self.cachedir):
-            shutil.rmtree(self.cachedir)
+        shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
         
         llfuse.lock.release()

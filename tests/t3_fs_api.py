@@ -50,7 +50,7 @@ class fs_api_tests(TestCase):
         self.bucket_dir = tempfile.mkdtemp()
         self.bucket_pool = BucketPool(lambda: local.Bucket(self.bucket_dir, None, None))
         self.bucket = self.bucket_pool.pop_conn()
-        self.cachedir = tempfile.mkdtemp() + "/"
+        self.cachedir = tempfile.mkdtemp()
         self.blocksize = 1024
 
         self.dbfile = tempfile.NamedTemporaryFile()
@@ -62,7 +62,7 @@ class fs_api_tests(TestCase):
         # file system request handler
         llfuse.lock.acquire()
         
-        self.block_cache = BlockCache(self.bucket_pool, self.db, self.cachedir,
+        self.block_cache = BlockCache(self.bucket_pool, self.db, self.cachedir + "/cache",
                                       self.blocksize * 5)
         self.server = fs.Operations(self.block_cache, self.db, self.blocksize)
           
@@ -74,9 +74,7 @@ class fs_api_tests(TestCase):
     def tearDown(self):
         self.server.destroy()
         self.block_cache.destroy()     
-
-        if os.path.exists(self.cachedir):
-            shutil.rmtree(self.cachedir)
+        shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
         llfuse.lock.release()
 
@@ -88,7 +86,7 @@ class fs_api_tests(TestCase):
     def fsck(self):
         self.block_cache.clear()
         self.server.inodes.flush()
-        fsck = Fsck(self.cachedir, self.bucket,
+        fsck = Fsck(self.cachedir + '/cache', self.bucket,
                   { 'blocksize': self.blocksize }, self.db)
         fsck.check()
         self.assertFalse(fsck.found_errors)
