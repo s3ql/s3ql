@@ -191,7 +191,7 @@ class Operations(llfuse.Operations):
             if name == b's3ql_flushcache!':
                 self.cache.clear()
             elif name == 'copy':
-                self.copy_tree(*struct.unpack('II', value))
+                self.copy_tree(*pickle.loads(value))
             elif name == 'upload-meta':
                 if self.upload_event is not None:
                     self.upload_event.set()

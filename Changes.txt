@@ -1,5 +1,8 @@
 UNRELEASED, S3QL TIP
 
+  * Fixed an s3qlcp crash happening when source or destination inode
+    number was a 64 bit value. 
+  
   * "Connection reset by peer" network errors are now handled
     correctly.
     
