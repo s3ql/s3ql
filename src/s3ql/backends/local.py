@@ -92,7 +92,7 @@ class Bucket(AbstractBucket):
             raise
         return fh
     
-    def open_write(self, key, metadata=None):
+    def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
         `metadata` can be a dict of additional attributes to store with the
@@ -100,6 +100,10 @@ class Bucket(AbstractBucket):
         explicitly. After closing, the *get_obj_size* may be used to retrieve
         the size of the stored object (which may differ from the size of the
         written data).
+        
+        The *is_compressed* parameter indicates that the caller is going
+        to write compressed data, and may be used to avoid recompression
+        by the bucket.           
         """
         
         if metadata is None:

@@ -304,12 +304,12 @@ class TestBucketPool(AbstractBucket):
         
         return self.bucket.open_read(key)
 
-    def open_write(self, key, metadata=None):
+    def open_write(self, key, metadata=None, is_compressed=False):
         self.no_write -= 1
         if self.no_write < 0:
             raise RuntimeError('Got too many open_write calls')
 
-        return self.bucket.open_write(key, metadata)
+        return self.bucket.open_write(key, metadata, is_compressed)
             
     def is_temp_failure(self, exc):
         return self.bucket.is_temp_failure(exc)

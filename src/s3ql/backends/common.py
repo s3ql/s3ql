@@ -181,7 +181,7 @@ class AbstractBucket(object):
             return fn(fh)
              
     @retry
-    def perform_write(self, fn, key, metadata=None):
+    def perform_write(self, fn, key, metadata=None, is_compressed=False):
         '''Read bucket data using *fn*, retry on temporary failure
         
         Open bucket for writing, call `fn(fh)` and close bucket. If a temporary
@@ -189,7 +189,7 @@ class AbstractBucket(object):
         or execution of *fn*, the operation is retried.
         '''
         
-        with self.open_write(key, metadata) as fh:
+        with self.open_write(key, metadata, is_compressed) as fh:
             return fn(fh)
                 
     def fetch(self, key):
@@ -258,7 +258,7 @@ class AbstractBucket(object):
         pass
     
     @abstractmethod
-    def open_write(self, key, metadata=None):
+    def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
         `metadata` can be a dict of additional attributes to store with the
@@ -266,6 +266,10 @@ class AbstractBucket(object):
         explicitly. After closing, the *get_obj_size* may be used to retrieve
         the size of the stored object (which may differ from the size of the
         written data).
+        
+        The *is_compressed* parameter indicates that the caller is going
+        to write compressed data, and may be used to avoid recompression
+        by the bucket.
         """
         
         pass
@@ -461,7 +465,7 @@ class BetterBucket(AbstractBucket):
         
         return fh
 
-    def open_write(self, key, metadata=None):
+    def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
         `metadata` can be a dict of additional attributes to store with the
@@ -469,6 +473,10 @@ class BetterBucket(AbstractBucket):
         explicitly. After closing, the *get_obj_size* may be used to retrieve
         the size of the stored object (which may differ from the size of the
         written data).
+        
+        The *is_compressed* parameter indicates that the caller is going
+        to write compressed data, and may be used to avoid recompression
+        by the bucket.        
         """
    
         # We always store metadata (even if it's just None), so that we can
@@ -486,7 +494,10 @@ class BetterBucket(AbstractBucket):
             meta_raw['meta'] = b64encode(meta_buf)
             nonce = None
 
-        if self.compression == 'zlib':
+        if is_compressed or not self.compression:
+            compr = None
+            meta_raw['compression'] = 'None'            
+        elif self.compression == 'zlib':
             compr = zlib.compressobj(9)
             meta_raw['compression'] = 'ZLIB'
         elif self.compression == 'bzip2':
@@ -495,9 +506,6 @@ class BetterBucket(AbstractBucket):
         elif self.compression == 'lzma':
             compr = lzma.LZMACompressor(options={ 'level': 7 })
             meta_raw['compression'] = 'LZMA'
-        elif not self.compression:
-            compr = None
-            meta_raw['compression'] = 'None'
 
         fh = self.bucket.open_write(key, meta_raw)
 
@@ -1152,7 +1160,7 @@ def get_bucket_factory(options, plain=False):
     if hasattr(options, 'compress'):
         compress = options.compress
     else:
-        compress = 'zlib'
+        compress = None
             
     if not encrypted:
         return lambda: BetterBucket(None, compress, 
