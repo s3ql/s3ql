@@ -67,7 +67,7 @@ def retry(fn):
                             self.__class__.__name__, fn.__name__, exc)
                     raise
                 
-                log.debug('%s.%s(*): trying again after %r exception:', 
+                log.info('%s.%s(*): trying again after %r exception:', 
                           self.__class__.__name__, fn.__name__, exc)
                 
             time.sleep(interval)
