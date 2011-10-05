@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from .common import AbstractBucket, NoSuchObject
+from .common import AbstractBucket, NoSuchObject, retry
 import logging
 import httplib
 import re
@@ -21,7 +21,6 @@ import urllib
 import xml.etree.cElementTree as ElementTree
 import os
 import errno
-from functools import wraps
 
 log = logging.getLogger("backend.s3")
 
@@ -29,50 +28,6 @@ C_DAY_NAMES = [ 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ]
 C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ]
     
 XML_CONTENT_RE = re.compile('^application/xml(?:;\s+|$)', re.IGNORECASE)
-
-RETRY_TIMEOUT=60*60*24
-def retry(fn):
-    '''Decorator for retrying a method on some exceptions
-    
-    If the decorated method raises an exception for which the instance's
-    `_retry_on(exc)` method is true, the decorated method is called again at
-    increasing intervals. If this persists for more than *timeout* seconds,
-    the most-recently caught exception is re-raised.
-    '''
-    
-    @wraps(fn)
-    def wrapped(self, *a, **kw):    
-        interval = 1/50
-        waited = 0
-        while True:
-            try:
-                return fn(self, *a, **kw)
-            except Exception as exc:
-                # Access to protected member ok
-                #pylint: disable=W0212
-                if not self._retry_on(exc):
-                    raise
-                if waited > RETRY_TIMEOUT:
-                    log.error('%s.%s(*): Timeout exceeded, re-raising %r exception', 
-                            self.__class__.__name__, fn.__name__, exc)
-                    raise
-                
-                log.debug('%s.%s(*): trying again after %r exception:', 
-                          self.__class__.__name__, fn.__name__, exc)
-                
-            time.sleep(interval)
-            waited += interval
-            if interval < 20*60:
-                interval *= 2   
-                
-    # False positive
-    #pylint: disable=E1101
-    wrapped.__doc__ += '''
-This method has been decorated and will automatically recall itself in
-increasing intervals for up to s3ql.common.RETRY_TIMEOUT seconds if it raises an
-exception for which the instance's `_retry_on` method returns True.
-'''  
-    return wrapped 
 
 
 class Bucket(AbstractBucket):
@@ -119,9 +74,8 @@ class Bucket(AbstractBucket):
         '''Return connection to server'''
         
         return httplib.HTTPConnection('%s.s3.amazonaws.com' % self.bucket_name)          
-      
-    @staticmethod    
-    def is_temp_failure(exc):
+       
+    def is_temp_failure(self, exc): #IGNORE:W0613
         '''Return true if exc indicates a temporary error
     
         Return true if the given exception is used by this bucket's backend
@@ -134,7 +88,7 @@ class Bucket(AbstractBucket):
         be used to check for temporary problems and so that the request can
         be manually restarted if applicable.
         '''          
-    
+        
         if isinstance(exc, (InternalError, BadDigest, IncompleteBody, RequestTimeout,
                             OperationAborted, SlowDown, RequestTimeTooSkewed,
                             httplib.IncompleteRead)):
@@ -150,9 +104,7 @@ class Bucket(AbstractBucket):
             return True
         
         return False
-
-    _retry_on = is_temp_failure
-        
+     
     @retry
     def delete(self, key, force=False):
         '''Delete the specified object'''
@@ -552,16 +504,9 @@ class ObjectR(object):
     def __exit__(self, *a):
         self.close()
         return False
-        
-    def _retry_on(self, exc):
-        return self.bucket._retry_on(exc) #IGNORE:W0212
     
-    @retry
     def close(self):
         '''Close object'''
-
-        # Access to protected member ok
-        #pylint: disable=W0212
         
         log.debug('ObjectR(%s).close(): start', self.key)        
         self.closed = True
@@ -572,6 +517,7 @@ class ObjectR(object):
                 break
 
         etag = self.resp.getheader('ETag').strip('"')
+        log.debug('ObjectR(%s).close(): md5sum/etag: %s', self.key, etag)        
         
         if etag != self.md5.hexdigest():
             log.warn('ObjectR(%s).close(): MD5 mismatch: %s vs %s', self.key, etag, self.md5.hexdigest())

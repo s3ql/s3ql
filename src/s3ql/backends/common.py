@@ -30,6 +30,7 @@ import sys
 import threading
 import time
 import zlib
+from functools import wraps
 
 # Not available in every pycryptopp version
 if hasattr(aes, 'start_up_self_test'):
@@ -38,6 +39,51 @@ if hasattr(aes, 'start_up_self_test'):
 log = logging.getLogger("backend")
 
 HMAC_SIZE = 32
+
+RETRY_TIMEOUT=60*60*24
+def retry(fn):
+    '''Decorator for retrying a method on some exceptions
+    
+    If the decorated method raises an exception for which the instance's
+    `is_temp_failure(exc)` method is true, the decorated method is called again
+    at increasing intervals. If this persists for more than *timeout* seconds,
+    the most-recently caught exception is re-raised.
+    '''
+    
+    @wraps(fn)
+    def wrapped(self, *a, **kw):    
+        interval = 1/50
+        waited = 0
+        while True:
+            try:
+                return fn(self, *a, **kw)
+            except Exception as exc:
+                # Access to protected member ok
+                #pylint: disable=W0212
+                if not self.is_temp_failure(exc):
+                    raise
+                if waited > RETRY_TIMEOUT:
+                    log.error('%s.%s(*): Timeout exceeded, re-raising %r exception', 
+                            self.__class__.__name__, fn.__name__, exc)
+                    raise
+                
+                log.debug('%s.%s(*): trying again after %r exception:', 
+                          self.__class__.__name__, fn.__name__, exc)
+                
+            time.sleep(interval)
+            waited += interval
+            if interval < 20*60:
+                interval *= 2   
+                
+    # False positive
+    #pylint: disable=E1101
+    wrapped.__doc__ += '''
+This method has been decorated and will automatically recall itself in
+increasing intervals for up to s3ql.backends.common.RETRY_TIMEOUT seconds if it
+raises an exception for which the instance's `is_temp_failure` method returns
+True.
+'''  
+    return wrapped 
 
 def sha256(s):
     return hashlib.sha256(s).digest()
@@ -122,7 +168,30 @@ class AbstractBucket(object):
     def iteritems(self):
         for key in self.list():
             yield (key, self[key])
-
+    
+    @retry
+    def perform_read(self, fn, key):
+        '''Read bucket data using *fn*, retry on temporary failure
+        
+        Open bucket for reading, call `fn(fh)` and close bucket. If a temporary
+        error (as defined by `is_temp_failure`) occurs during opening, closing
+        or execution of *fn*, the operation is retried.
+        '''
+        with self.open_read(key) as fh:
+            return fn(fh)
+             
+    @retry
+    def perform_write(self, fn, key, metadata=None):
+        '''Read bucket data using *fn*, retry on temporary failure
+        
+        Open bucket for writing, call `fn(fh)` and close bucket. If a temporary
+        error (as defined by `is_temp_failure`) occurs during opening, closing
+        or execution of *fn*, the operation is retried.
+        '''
+        
+        with self.open_write(key, metadata) as fh:
+            return fn(fh)
+                
     def fetch(self, key):
         """Return data stored under `key`.
 
@@ -131,10 +200,11 @@ class AbstractBucket(object):
         ``bucket.fetch(key)[0]``.
         """
 
-        with self.open_read(key) as fh: 
+        def do_read(fh): 
             data = fh.read()
-        
-        return (data, fh.metadata)
+            return (data, fh.metadata)
+            
+        return self.perform_read(do_read, key)
 
     def store(self, key, val, metadata=None):
         """Store data under `key`.
@@ -147,9 +217,25 @@ class AbstractBucket(object):
         equivalent to ``bucket.store(key, val)``.
         """
         
-        with self.open_write(key, metadata) as fh:
-            fh.write(val)
+        self.perform_write(lambda fh: fh.write(val), key, metadata)
 
+    @abstractmethod
+    def is_temp_failure(self, exc):
+        '''Return true if exc indicates a temporary error
+    
+        Return true if the given exception is used by this bucket's backend
+        to indicate a temporary problem. Most instance methods automatically
+        retry the request in this case, so the caller does not need to
+        worry about temporary failures.
+        
+        However, in same cases (e.g. when reading or writing an object), the
+        request cannot automatically be retried. In these case this method can
+        be used to check for temporary problems and so that the request can
+        be manually restarted if applicable.
+        '''   
+               
+        pass
+    
     @abstractmethod
     def lookup(self, key):
         """Return metadata for given key.
@@ -278,7 +364,23 @@ class BetterBucket(AbstractBucket):
         metadata = self.bucket.lookup(key)
         convert_legacy_metadata(metadata)
         return self._unwrap_meta(metadata)
-
+  
+    def is_temp_failure(self, exc):
+        '''Return true if exc indicates a temporary error
+    
+        Return true if the given exception is used by this bucket's backend
+        to indicate a temporary problem. Most instance methods automatically
+        retry the request in this case, so the caller does not need to
+        worry about temporary failures.
+        
+        However, in same cases (e.g. when reading or writing an object), the
+        request cannot automatically be retried. In these case this method can
+        be used to check for temporary problems and so that the request can
+        be manually restarted if applicable.
+        '''          
+        
+        return self.bucket.is_temp_failure(exc)
+    
     def _unwrap_meta(self, metadata):
         '''Unwrap metadata
         

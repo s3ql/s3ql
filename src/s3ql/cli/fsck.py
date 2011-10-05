@@ -155,12 +155,13 @@ def main(args=None):
                              + cachepath + '.param (intact)')
     else:
         log.info("Downloading & uncompressing metadata...")
-        os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                         stat.S_IRUSR | stat.S_IWUSR)) 
-        db = Connection(cachepath + '.db.tmp', fast_mode=True)
-        with bucket.open_read("s3ql_metadata") as fh:
+        def do_read(fh):
+            os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                             stat.S_IRUSR | stat.S_IWUSR)) 
+            db = Connection(cachepath + '.db.tmp', fast_mode=True)
             restore_metadata(fh, db)
-        db.close()
+            db.close()
+        db = bucket.perform_read(do_read, "s3ql_metadata") 
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')
     
@@ -181,21 +182,13 @@ def main(args=None):
         
     if options.renumber_inodes:
         renumber_inodes(db)
-        
-    log.info('Saving metadata...')
-    fh = tempfile.TemporaryFile()
-    dump_metadata(fh, db)  
             
     log.info("Compressing & uploading metadata..")
     cycle_metadata(bucket)
-    fh.seek(0)
     param['needs_fsck'] = False
     param['last_fsck'] = time.time() - time.timezone
     param['last-modified'] = time.time() - time.timezone
-    with bucket.open_write("s3ql_metadata", param) as dst:
-        fh.seek(0)
-        shutil.copyfileobj(fh, dst)
-    fh.close()
+    bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", param) 
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         
     db.execute('ANALYZE')

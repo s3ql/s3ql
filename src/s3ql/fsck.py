@@ -153,14 +153,16 @@ class Fsck(object):
                 obj_id = self.conn.rowid('INSERT INTO objects (refcount) VALUES(1)')
                 block_id = self.conn.rowid('INSERT INTO blocks (refcount, hash, obj_id, size) '
                                            'VALUES(?, ?, ?, ?)', (1, hash_, obj_id, size))
-                with self.bucket.open_write('s3ql_data_%d' % obj_id) as dest:
+                def do_write(obj_fh):
                     fh.seek(0)
-                    shutil.copyfileobj(fh, dest)
-                
-                if isinstance(dest, CompressFilter):
-                    obj_size = dest.compr_size
-                else:
-                    obj_size = fh.tell()                    
+                    shutil.copyfileobj(fh, obj_fh)
+                    if isinstance(obj_fh, CompressFilter):
+                        return obj_fh.compr_size
+                    else:
+                        return fh.tell()  
+                                        
+                obj_size = self.bucket.perform_write(do_write, 's3ql_data_%d' % obj_id)
+
                 self.conn.execute('UPDATE objects SET compr_size=? WHERE id=?', 
                                   (obj_size, obj_id))
     

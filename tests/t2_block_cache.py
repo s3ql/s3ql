@@ -311,6 +311,9 @@ class TestBucketPool(AbstractBucket):
 
         return self.bucket.open_write(key, metadata)
             
+    def is_temp_failure(self, exc):
+        return self.bucket.is_temp_failure(exc)
+    
     def is_get_consistent(self):
         return self.bucket.is_get_consistent()
                     

@@ -204,11 +204,7 @@ def main(args=None):
             log.info('Uploading metadata...')     
             cycle_metadata(bucket)
             param['last-modified'] = time.time() - time.timezone
-            with tempfile.TemporaryFile() as tmp:
-                dump_metadata(tmp, db)
-                tmp.seek(0)
-                with bucket.open_write('s3ql_metadata', param) as fh:
-                    shutil.copyfileobj(tmp, fh)
+            bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", param) 
             pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         else:
             log.error('Remote metadata is newer than local (%d vs %d), '
@@ -323,12 +319,13 @@ def get_metadata(bucket, cachepath):
     # Download metadata
     if not db:
         log.info("Downloading & uncompressing metadata...")
-        os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                         stat.S_IRUSR | stat.S_IWUSR)) 
-        db = Connection(cachepath + '.db.tmp', fast_mode=True)
-        with bucket.open_read("s3ql_metadata") as fh:
+        def do_read(fh):
+            os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                             stat.S_IRUSR | stat.S_IWUSR)) 
+            db = Connection(cachepath + '.db.tmp', fast_mode=True)
             restore_metadata(fh, db)
-        db.close()
+            db.close()
+        bucket.perform_read(do_read, "s3ql_metadata") 
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')
  
@@ -526,8 +523,10 @@ class MetadataUploadThread(Thread):
                 
                 # Temporarily decrease sequence no, this is not the final upload
                 self.param['seq_no'] -= 1
-                with bucket.open_write("s3ql_metadata", self.param) as obj_fh:
+                def do_write(obj_fh):
+                    fh.seek(0)
                     shutil.copyfileobj(fh, obj_fh)
+                bucket.perform_write(do_write, "s3ql_metadata", self.param) 
                 self.param['seq_no'] += 1
                 
                 fh.close()

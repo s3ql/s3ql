@@ -143,15 +143,15 @@ def download_metadata(bucket, storage_url):
         if os.path.exists(cachepath + i):
             raise QuietError('%s already exists, aborting.' % cachepath+i)
     
-    os.close(os.open(cachepath + '.db', os.O_RDWR | os.O_CREAT,
-                     stat.S_IRUSR | stat.S_IWUSR), 'w+b')
     param = bucket.lookup(name)
     try:
-        db = Connection(cachepath + '.db')
         log.info('Reading metadata...')
-        with bucket.open_read(name) as fh:
+        def do_read(fh):
+            os.close(os.open(cachepath + '.db', os.O_RDWR | os.O_CREAT,
+                             stat.S_IRUSR | stat.S_IWUSR), 'w+b')            
+            db = Connection(cachepath + '.db')
             restore_metadata(fh, db)
-        restore_metadata(fh, db)
+        bucket.perform_read(do_read, name)
     except:
         # Don't keep file if it doesn't contain anything sensible
         os.unlink(cachepath + '.db')
@@ -425,9 +425,11 @@ def upgrade(bucket_factory):
         log.info("Downloading & uncompressing metadata...")
         dbfile = tempfile.NamedTemporaryFile()
         with tempfile.TemporaryFile() as tmp:    
-            with bucket.open_read("s3ql_metadata") as fh:
+            def do_read(fh):
+                tmp.seek(0)
+                tmp.truncate()
                 shutil.copyfileobj(fh, tmp)
-        
+            bucket.perform_read(do_read, "s3ql_metadata")
             db = Connection(dbfile.name, fast_mode=True)
             tmp.seek(0)
             restore_legacy_metadata(tmp, db)
@@ -442,19 +444,16 @@ def upgrade(bucket_factory):
         log.info("Uploading database..")
         cycle_metadata(bucket)
         param['last-modified'] = time.time() - time.timezone
-        with bucket.open_write("s3ql_metadata", param) as fh:
-            dump_metadata(fh, db)
+        bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", param) 
             
     else:
         log.info("Downloading & uncompressing metadata...")
-        dbfile = tempfile.NamedTemporaryFile()
-        with tempfile.TemporaryFile() as tmp:    
-            with bucket.open_read("s3ql_metadata") as fh:
-                shutil.copyfileobj(fh, tmp)
-        
+        def do_read(fh):
+            dbfile = tempfile.NamedTemporaryFile() 
             db = Connection(dbfile.name, fast_mode=True)
-            tmp.seek(0)
-            restore_metadata(tmp, db)        
+            restore_metadata(fh, db)
+            return db
+        bucket.perform_read(do_read, "s3ql_metadata") 
 
     print(textwrap.dedent('''
         The following process may take a long time, but can be interrupted
@@ -534,10 +533,8 @@ def upgrade(bucket_factory):
     log.info("Uploading database..")
     cycle_metadata(bucket)
     param['last-modified'] = time.time() - time.timezone
-    with bucket.open_write("s3ql_metadata", param) as fh:
-        dump_metadata(fh, db)
+    bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", param) 
                 
-        
 def check_hash(queue, bucket):
     
     try:
@@ -548,14 +545,18 @@ def check_hash(queue, bucket):
                   
             (obj_id, hash_) = tmp
               
-            sha = hashlib.sha256()
+            
+            def do_read(fh):
+                sha = hashlib.sha256()
+                while True:
+                    buf = fh.read(128*1024)
+                    if not buf:
+                        break
+                    sha.update(buf)
+                return sha           
             try:
-                with bucket.open_read("s3ql_data_%d" % obj_id) as fh:
-                    while True:
-                        buf = fh.read(128*1024)
-                        if not buf:
-                            break
-                        sha.update(buf)
+                sha = bucket.perform_read(do_read, "s3ql_data_%d" % obj_id)
+    
             except ChecksumError:
                 log.warn('Object %d corrupted! Deleting..', obj_id)
                 bucket.delete('s3ql_data_%d' % obj_id)

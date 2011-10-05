@@ -291,30 +291,32 @@ class BlockCache(object):
     def _do_upload(self, el, obj_id):
         '''Upload object'''
         
+        def do_write(fh):
+            el.seek(0)
+            while True:
+                buf = el.read(BUFSIZE)
+                if not buf:
+                    break
+                fh.write(buf)
+            
+            if isinstance(fh, CompressFilter):
+                return fh.compr_size
+            else:
+                return el.size
+                                                
         try:
             if log.isEnabledFor(logging.DEBUG):
                 time_ = time.time()
                    
-            with self.bucket_pool() as bucket:  
-                with bucket.open_write('s3ql_data_%d' % obj_id) as fh:
-                    el.seek(0)
-                    while True:
-                        buf = el.read(BUFSIZE)
-                        if not buf:
-                            break
-                        fh.write(buf)
-              
+            with self.bucket_pool() as bucket:
+                obj_size = bucket.perform_write(do_write, 's3ql_data_%d' % obj_id)
+
             if log.isEnabledFor(logging.DEBUG):
                 time_ = time.time() - time_
                 rate = el.size / (1024**2 * time_) if time_ != 0 else 0
                 log.debug('_do_upload(%s): uploaded %d bytes in %.3f seconds, %.2f MB/s',
                           obj_id, el.size, time_, rate)             
-            
-            if isinstance(fh, CompressFilter):
-                obj_size = fh.compr_size
-            else:
-                obj_size = el.size
-                                
+                            
             with lock:
                 self.db.execute('UPDATE objects SET compr_size=? WHERE id=?',
                                 (obj_size, obj_id))
@@ -540,13 +542,16 @@ class BlockCache(object):
                     self.in_transit.add(obj_id)
                     log.debug('get(inode=%d, block=%d): downloading object %d..', 
                               inode, blockno, obj_id)
+                    def do_read(fh):
+                        el = CacheEntry(inode, blockno, filename)
+                        shutil.copyfileobj(fh, el)
+                        return el
                     try:
-                        el = CacheEntry(inode, blockno, filename)   
+                        
                         with lock_released:
                             with self.bucket_pool() as bucket:
-                                with bucket.open_read('s3ql_data_%d' % obj_id) as fh:
-                                    shutil.copyfileobj(fh, el)
-                                    
+                                el = bucket.perform_read(do_read, 's3ql_data_%d' % obj_id) 
+                                            
                         # Note: We need to do this *before* releasing the global
                         # lock to notify other threads
                         self.entries[(inode, blockno)] = el

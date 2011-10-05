@@ -40,6 +40,11 @@ class Bucket(AbstractBucket):
     def __str__(self):
         return 'local://%s' % self.name
 
+    def is_temp_failure(self, exc): #IGNORE:W0613
+        '''Return true if exc indicates a temporary error'''
+        
+        return False
+    
     def lookup(self, key):
         """Return metadata for given key.
 
