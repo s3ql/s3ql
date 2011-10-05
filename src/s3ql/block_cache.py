@@ -310,7 +310,7 @@ class BlockCache(object):
                           obj_id, el.size, time_, rate)             
                             
             with lock:
-                self.db.execute('UPDATE objects SET compr_size=? WHERE id=?',
+                self.db.execute('UPDATE objects SET size=? WHERE id=?',
                                 (obj_size, obj_id))
                     
                 el.dirty = False

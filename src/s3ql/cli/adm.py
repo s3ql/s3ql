@@ -360,7 +360,7 @@ def upgrade(bucket_factory, cachepath):
         raise QuietError("File system damaged, run fsck!")
     
     # Check revision
-    if param['revision'] < CURRENT_FS_REV - 1:
+    if param['revision'] < CURRENT_FS_REV - 2:
         raise QuietError(textwrap.dedent(''' 
             File system revision too old to upgrade!
             
@@ -392,9 +392,82 @@ def upgrade(bucket_factory, cachepath):
     if sys.stdin.readline().strip().lower() != 'yes':
         raise QuietError()
 
-    log.info('Upgrading from revision %d to %d...', CURRENT_FS_REV - 1,
+    log.info('Upgrading from revision %d to %d...', param['revision'],
              CURRENT_FS_REV)
     
+    if param['revision'] == CURRENT_FS_REV - 1:
+        upgrade_once(bucket, cachepath, db, param)
+    else:
+        upgrade_twice(bucket, cachepath, db, param, bucket_factory)
+  
+def restore_legacy_metadata2(ifh, conn):
+
+    # Unpickling is terribly slow if fh is not a real file object.
+    if not hasattr(ifh, 'fileno'):
+        with tempfile.TemporaryFile() as tmp:
+            shutil.copyfileobj(ifh, tmp, BUFSIZE)
+            tmp.seek(0)
+            return restore_legacy_metadata2(tmp, conn)
+    
+    unpickler = pickle.Unpickler(ifh)
+    (to_dump, columns) = unpickler.load()
+    create_tables(conn)
+    for (table, _) in to_dump:
+        log.info('Loading %s', table)
+        if table == 'objects':
+            columns[table][columns[table].index('compr_size')] = 'size'
+        col_str = ', '.join(columns[table])
+        val_str = ', '.join('?' for _ in columns[table])
+        sql_str = 'INSERT INTO %s (%s) VALUES(%s)' % (table, col_str, val_str)
+        while True:
+            buf = unpickler.load()
+            if not buf:
+                break
+            for row in buf:
+                conn.execute(sql_str, row)
+                        
+def upgrade_once(bucket, cachepath, db, param):
+        
+    # Download metadata
+    if not db:
+        log.info("Downloading & uncompressing metadata...")
+        def do_read(fh):
+            os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                             stat.S_IRUSR | stat.S_IWUSR)) 
+            db = Connection(cachepath + '.db.tmp', fast_mode=True)
+            restore_legacy_metadata2(fh, db)
+            db.close()
+        bucket.perform_read(do_read, "s3ql_metadata") 
+        os.rename(cachepath + '.db.tmp', cachepath + '.db')
+        db = Connection(cachepath + '.db')
+    else:
+        db.execute('ALTER TABLE objects RENAME TO leg_objects')
+        db.execute("""
+        CREATE TABLE objects (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            refcount  INT NOT NULL, 
+            size      INT  
+        )""")
+        db.execute('INSERT INTO objects (id, refcount, size) '
+                   'SELECT id, refcount, compr_size FROM leg_objects')
+        db.execute('DROP TABLE leg_objects')
+              
+
+    log.info("Uploading database..")
+    param['seq_no'] += 1
+    bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
+    param['revision'] = CURRENT_FS_REV
+    param['last-modified'] = time.time() - time.timezone
+    pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+    cycle_metadata(bucket)
+    bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", param) 
+    
+    db.execute('ANALYZE')
+    db.execute('VACUUM')        
+        
+    
+def upgrade_twice(bucket, cachepath, db, param, bucket_factory):
+            
     if 's3ql_hash_check_status' not in bucket:        
         if (isinstance(bucket, LegacyLocalBucket) or
             (isinstance(bucket, BetterBucket) and
@@ -622,7 +695,7 @@ def upgrade_metadata(conn):
             SELECT id, hash, refcount, id, size FROM leg_objects
     ''')
     conn.execute('''
-         INSERT INTO objects (id, refcount, compr_size)
+         INSERT INTO objects (id, refcount, size)
             SELECT id, 1, compr_size FROM leg_objects
     ''')
     conn.execute('DROP TABLE leg_objects')
@@ -768,7 +841,7 @@ class LegacyLocalBucket(AbstractBucket):
         
         return fh
     
-    def open_write(self, key, metadata=None):
+    def open_write(self, key, metadata=None, is_compressed=False):
         raise RuntimeError('Not implemented')
 
     def clear(self):

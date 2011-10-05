@@ -159,7 +159,7 @@ class Fsck(object):
                                         
                 obj_size = self.bucket.perform_write(do_write, 's3ql_data_%d' % obj_id).get_obj_size()
 
-                self.conn.execute('UPDATE objects SET compr_size=? WHERE id=?', 
+                self.conn.execute('UPDATE objects SET size=? WHERE id=?', 
                                   (obj_size, obj_id))
     
             else:

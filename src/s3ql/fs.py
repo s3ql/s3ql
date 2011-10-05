@@ -733,7 +733,7 @@ class Operations(llfuse.Operations):
         inodes = self.db.get_val("SELECT COUNT(id) FROM inodes")
         fs_size = self.db.get_val('SELECT SUM(size) FROM inodes') or 0
         dedup_size = self.db.get_val('SELECT SUM(size) FROM blocks') or 0
-        compr_size = self.db.get_val('SELECT SUM(compr_size) FROM objects') or 0
+        compr_size = self.db.get_val('SELECT SUM(size) FROM objects') or 0
 
         return struct.pack('QQQQQQQ', entries, blocks, inodes, fs_size, dedup_size,
                            compr_size, self.db.get_size())

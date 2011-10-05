@@ -174,8 +174,7 @@ def dump_metadata(ofh, conn):
 
 def restore_metadata(ifh, conn):
 
-    # Unpickling is terribly slow if fh is not a real file
-    # object.
+    # Unpickling is terribly slow if fh is not a real file object.
     if not hasattr(ifh, 'fileno'):
         with tempfile.TemporaryFile() as tmp:
             shutil.copyfileobj(ifh, tmp, BUFSIZE)
@@ -350,12 +349,11 @@ def init_tables(conn):
 def create_tables(conn): 
     # Table of storage objects
     # Refcount is included for performance reasons
-    # TODO: Rename compr_size to size
     conn.execute("""
     CREATE TABLE objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
         refcount  INT NOT NULL, 
-        compr_size INT  
+        size      INT  
     )""")
 
     # Table of known data blocks
