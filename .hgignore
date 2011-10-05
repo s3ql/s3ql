@@ -8,6 +8,7 @@ syntax: regexp
 ^.settings$
 \.pyc$
 ^setup.log$
+^test.py$
 ^dist$
 
 # Temporary files created when building deb
