@@ -12,7 +12,6 @@ from .common import ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh, get_path
 from .database import NoSuchRowError
 from os.path import basename
 from random import randint
-from s3ql.backends.common import CompressFilter
 from s3ql.inode_cache import MIN_INODE, MAX_INODE, OutOfInodesError
 import apsw
 import logging
@@ -156,12 +155,9 @@ class Fsck(object):
                 def do_write(obj_fh):
                     fh.seek(0)
                     shutil.copyfileobj(fh, obj_fh)
-                    if isinstance(obj_fh, CompressFilter):
-                        return obj_fh.compr_size
-                    else:
-                        return fh.tell()  
+                    return obj_fh
                                         
-                obj_size = self.bucket.perform_write(do_write, 's3ql_data_%d' % obj_id)
+                obj_size = self.bucket.perform_write(do_write, 's3ql_data_%d' % obj_id).get_obj_size()
 
                 self.conn.execute('UPDATE objects SET compr_size=? WHERE id=?', 
                                   (obj_size, obj_id))

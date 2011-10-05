@@ -347,6 +347,7 @@ def init_tables(conn):
 def create_tables(conn): 
     # Table of storage objects
     # Refcount is included for performance reasons
+    # TODO: Rename compr_size to size
     conn.execute("""
     CREATE TABLE objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,

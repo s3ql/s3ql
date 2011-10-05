@@ -7,7 +7,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-from .backends.common import CompressFilter
 from .common import sha256_fh
 from .database import NoSuchRowError
 from .ordered_dict import OrderedDict
@@ -298,18 +297,14 @@ class BlockCache(object):
                 if not buf:
                     break
                 fh.write(buf)
-            
-            if isinstance(fh, CompressFilter):
-                return fh.compr_size
-            else:
-                return el.size
+            return fh
                                                 
         try:
             if log.isEnabledFor(logging.DEBUG):
                 time_ = time.time()
                    
             with self.bucket_pool() as bucket:
-                obj_size = bucket.perform_write(do_write, 's3ql_data_%d' % obj_id)
+                obj_size = bucket.perform_write(do_write, 's3ql_data_%d' % obj_id).get_obj_size()
 
             if log.isEnabledFor(logging.DEBUG):
                 time_ = time.time() - time_

@@ -123,7 +123,7 @@ def main(args=None):
                     break
                 dst.write(buf)
             times[alg] = time.time() - stamp
-            out_sizes[alg] = dst.compr_size
+            out_sizes[alg] = dst.get_obj_size()
         log.info('%s compression speed: %.2f KB/sec (in)', alg, size/times[alg]/1024)
         log.info('%s compression speed: %.2f KB/sec (out)', alg, 
                  out_sizes[alg] / times[alg] / 1024)

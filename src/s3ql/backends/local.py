@@ -96,7 +96,10 @@ class Bucket(AbstractBucket):
         """Open object for writing
 
         `metadata` can be a dict of additional attributes to store with the
-        object. Returns a file-like object.
+        object. Returns a file-like object. The object must be closed
+        explicitly. After closing, the *get_obj_size* may be used to retrieve
+        the size of the stored object (which may differ from the size of the
+        written data).
         """
         
         if metadata is None:
@@ -110,7 +113,7 @@ class Bucket(AbstractBucket):
         tmpname = '%s#%d-%d' % (path, os.getpid(), thread.get_ident()) 
         
         try:
-            dest = open(tmpname, 'wb')
+            dest = ObjectW(tmpname)
         except IOError as exc:
             if exc.errno != errno.ENOENT:
                 raise
@@ -122,7 +125,7 @@ class Bucket(AbstractBucket):
                 else:
                     # Another thread may have created the directory already
                     pass
-            dest = open(tmpname, 'wb', 0)
+            dest = ObjectW(tmpname)
             
         os.rename(tmpname, path)
         pickle.dump(metadata, dest, 2)
@@ -322,3 +325,37 @@ class ObjectR(file):
     def __init__(self, name, metadata=None):
         super(ObjectR, self).__init__(name, 'rb', buffering=0)
         self.metadata = metadata     
+        
+class ObjectW(object):
+    '''A local storage object opened for writing'''
+    
+    def __init__(self, name):
+        super(ObjectW, self).__init__()
+        self.fh = open(name, 'wb', 0)
+        self.obj_size = 0
+        self.closed = False
+        
+    def write(self, buf):
+        '''Write object data'''
+        
+        self.fh.write(buf)
+        self.obj_size += len(buf)
+   
+    def close(self):
+        '''Close object and upload data'''
+        
+        self.fh.close()
+        self.closed = True
+          
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *a):
+        self.close()
+        return False
+    
+    def get_obj_size(self):
+        if not self.closed:
+            raise RuntimeError('Object must be closed first.')
+        return self.obj_size   
+    

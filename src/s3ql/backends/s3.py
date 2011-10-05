@@ -19,7 +19,6 @@ import hashlib
 import tempfile
 import urllib
 import xml.etree.cElementTree as ElementTree
-import os
 import errno
 
 log = logging.getLogger("backend.s3")
@@ -261,8 +260,10 @@ class Bucket(AbstractBucket):
         """Open object for writing
 
         `metadata` can be a dict of additional attributes to store with the
-        object. Returns a file-like object that must be closed when all data has
-        been written.
+        object. Returns a file-like object. The object must be closed
+        explicitly. After closing, the *get_obj_size* may be used to retrieve
+        the size of the stored object (which may differ from the size of the
+        written data).
         
         Since Amazon S3 does not support chunked uploads, the entire data will
         be buffered in memory before upload.
@@ -522,14 +523,6 @@ class ObjectR(object):
         if etag != self.md5.hexdigest():
             log.warn('ObjectR(%s).close(): MD5 mismatch: %s vs %s', self.key, etag, self.md5.hexdigest())
             raise BadDigest('BadDigest', 'Received ETag does not agree with our calculations.')
-        
-    def __del__(self):
-        if not self.closed:
-            try:
-                self.close()
-            except:
-                pass
-            raise RuntimeError('ObjectR %s has been destroyed without calling close()!' % self.key)
     
 class ObjectW(object):
     '''An S3 object open for writing
@@ -543,6 +536,7 @@ class ObjectW(object):
         self.bucket = bucket
         self.headers = headers
         self.closed = False
+        self.obj_size = 0
         self.fh = tempfile.TemporaryFile(bufsize=0) # no Python buffering
         
         # False positive, hashlib *does* have md5 member
@@ -554,6 +548,7 @@ class ObjectW(object):
         
         self.fh.write(buf)
         self.md5.update(buf)
+        self.obj_size += len(buf)
        
     def is_temp_failure(self, exc):
         return self.bucket.is_temp_failure(exc)
@@ -568,7 +563,7 @@ class ObjectW(object):
         log.debug('ObjectW(%s).close(): start', self.key)
         
         self.closed = True
-        self.headers['Content-Length'] = os.fstat(self.fh.fileno()).st_size
+        self.headers['Content-Length'] = self.obj_size
         
         self.fh.seek(0)
         resp = self.bucket._do_request('PUT', '/%s%s' % (self.bucket.prefix, self.key), 
@@ -580,14 +575,6 @@ class ObjectW(object):
             log.warn('ObjectW(%s).close(): MD5 mismatch (%s vs %s)', self.key, etag, 
                      self.md5.hexdigest)
             raise BadDigest('BadDigest', 'Received ETag does not agree with our calculations.')
-        
-    def __del__(self):
-        if not self.closed:
-            try:
-                self.close()
-            except:
-                pass
-            raise RuntimeError('ObjectW %s has been destroyed without calling close()!' % self.key)
           
     def __enter__(self):
         return self
@@ -595,7 +582,11 @@ class ObjectW(object):
     def __exit__(self, *a):
         self.close()
         return False
-    
+
+    def get_obj_size(self):
+        if not self.closed:
+            raise RuntimeError('Object must be closed first.')
+        return self.obj_size    
           
 def get_S3Error(code, msg):
     '''Instantiate most specific S3Error subclass'''

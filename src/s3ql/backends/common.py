@@ -252,7 +252,7 @@ class AbstractBucket(object):
         Return a tuple of a file-like object. Bucket contents can be read from
         the file-like object, metadata is stored in its *metadata* attribute and
         can be modified by the caller at will. The object must be closed
-        explicitly.
+        explicitly. 
         """
         
         pass
@@ -263,7 +263,9 @@ class AbstractBucket(object):
 
         `metadata` can be a dict of additional attributes to store with the
         object. Returns a file-like object. The object must be closed
-        explicitly.
+        explicitly. After closing, the *get_obj_size* may be used to retrieve
+        the size of the stored object (which may differ from the size of the
+        written data).
         """
         
         pass
@@ -463,7 +465,10 @@ class BetterBucket(AbstractBucket):
         """Open object for writing
 
         `metadata` can be a dict of additional attributes to store with the
-        object. Returns a file-like object.
+        object. Returns a file-like object. The object must be closed
+        explicitly. After closing, the *get_obj_size* may be used to retrieve
+        the size of the stored object (which may differ from the size of the
+        written data).
         """
    
         # We always store metadata (even if it's just None), so that we can
@@ -603,11 +608,7 @@ class AbstractInputFilter(object):
         pass
         
 class CompressFilter(object):
-    '''Compress data while writing
-    
-    The `compr_size` attribute is used to keep track of the
-    compressed size.
-    '''
+    '''Compress data while writing'''
     
     def __init__(self, fh, compr):
         '''Initialize
@@ -619,21 +620,23 @@ class CompressFilter(object):
         
         self.fh = fh
         self.compr = compr
-        self.compr_size = 0
-    
+        self.obj_size = 0
+        self.closed = False
+        
     def write(self, data):
         '''Write *data*'''
         
         buf = self.compr.compress(data)
         if buf:
             self.fh.write(buf)
-            self.compr_size += len(buf)
+            self.obj_size += len(buf)
             
     def close(self):
         buf = self.compr.flush()
         self.fh.write(buf)
-        self.compr_size += len(buf)
+        self.obj_size += len(buf)
         self.fh.close()
+        self.closed = True
 
     def __enter__(self):
         return self
@@ -641,6 +644,12 @@ class CompressFilter(object):
     def __exit__(self, *a):
         self.close()
         return False
+        
+    def get_obj_size(self):
+        if not self.closed:
+            raise RuntimeError('Object must be closed first.')
+        return self.obj_size
+                
                 
 class DecompressFilter(AbstractInputFilter):
     '''Decompress data while reading'''
@@ -708,6 +717,8 @@ class EncryptFilter(object):
         super(EncryptFilter, self).__init__()
         
         self.fh = fh
+        self.obj_size = 0
+        self.closed = False
         
         if isinstance(nonce, unicode):
             nonce = nonce.encode('utf-8')
@@ -718,6 +729,8 @@ class EncryptFilter(object):
     
         self.fh.write(struct.pack(b'<B', len(nonce)))
         self.fh.write(nonce)
+        
+        self.obj_size += len(nonce) + 1
     
     def write(self, data):
         '''Write *data*
@@ -738,6 +751,7 @@ class EncryptFilter(object):
         buf = self.cipher.process(buf)
         if buf:
             self.fh.write(buf)
+            self.obj_size += len(buf)
             
     def close(self):
         # Packet length of 0 indicates end of stream, only HMAC follows
@@ -745,7 +759,9 @@ class EncryptFilter(object):
         self.hmac.update(buf)
         buf = self.cipher.process(buf + self.hmac.digest())
         self.fh.write(buf)
+        self.obj_size += len(buf)
         self.fh.close()
+        self.closed = True
 
     def __enter__(self):
         return self
@@ -753,7 +769,13 @@ class EncryptFilter(object):
     def __exit__(self, *a):
         self.close()
         return False
-    
+        
+    def get_obj_size(self):
+        if not self.closed:
+            raise RuntimeError('Object must be closed first.')
+        return self.obj_size
+        
+        
 class DecryptFilter(AbstractInputFilter):
     '''Decrypt data while reading
     
