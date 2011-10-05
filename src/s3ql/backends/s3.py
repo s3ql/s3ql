@@ -316,7 +316,7 @@ class Bucket(AbstractBucket):
             raise NoSuchObject(src)
     
     def _do_request(self, method, url, subres=None, query_string=None,
-                    headers=None, body=None ):
+                    headers=None, body=None):
         '''Send request, read and return response object'''
         
         log.debug('_do_request(): start with parameters (%r, %r, %r, %r, %r, %r)', 
@@ -334,11 +334,11 @@ class Bucket(AbstractBucket):
         
         redirect_count = 0
         while True:
-            log.debug('_do_request(): sending request')
-            self.conn.request(method, full_url, body, headers)
-                                      
-            log.debug('_do_request(): Reading response')
             try:
+                log.debug('_do_request(): sending request')
+                self.conn.request(method, full_url, body, headers)
+                                      
+                log.debug('_do_request(): Reading response')            
                 resp = self.conn.getresponse()
             except:
                 # We probably can't use the connection anymore
@@ -355,7 +355,7 @@ class Bucket(AbstractBucket):
                 raise RuntimeError('Too many chained redirections')
             full_url = resp.getheader('Location')
             
-            log.debug('_do_request(): redirecting to %s', full_url)
+            log.info('_do_request(): redirected to %s', full_url)
             
             if body and not isinstance(body, bytes):
                 body.seek(0)
