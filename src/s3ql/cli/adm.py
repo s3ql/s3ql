@@ -461,6 +461,9 @@ def upgrade(bucket_factory, cachepath):
         cycle_metadata(bucket)
         bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", param) 
         
+        db.execute('ANALYZE')
+        db.execute('VACUUM')        
+        
     elif not db: # Metadata must have been already updated
         log.info("Downloading & uncompressing metadata...")
         def do_read(fh):
@@ -550,7 +553,6 @@ def upgrade(bucket_factory, cachepath):
     bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
     param['last-modified'] = time.time() - time.timezone
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
-    cycle_metadata(bucket)
     bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", param) 
                 
 def check_hash(queue, bucket):
