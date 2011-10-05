@@ -555,8 +555,8 @@ class ObjectW(object):
         self.fh.write(buf)
         self.md5.update(buf)
        
-    def _retry_on(self, exc):
-        return self.bucket._retry_on(exc) #IGNORE:W0212
+    def is_temp_failure(self, exc):
+        return self.bucket.is_temp_failure(exc)
            
     @retry
     def close(self):
