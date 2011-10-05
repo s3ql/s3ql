@@ -18,10 +18,8 @@ import apsw
 import cPickle as pickle
 import logging
 import os
-import shutil
 import stat
 import sys
-import tempfile
 import textwrap
 import time
 
@@ -67,7 +65,6 @@ def main(args=None):
             if line.startswith(match):
                 raise QuietError('Can not check mounted file system.')
     
-
     bucket = get_bucket(options)
     
     cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
