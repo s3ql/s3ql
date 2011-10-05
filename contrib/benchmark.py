@@ -32,7 +32,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
 
 from s3ql.backends.common import get_bucket, BetterBucket
 from s3ql.backends.local import Bucket
-from s3ql.common import setup_logging
+from s3ql.common import setup_logging, BUFSIZE
 from s3ql.parse_args import ArgumentParser
 
 log = logging.getLogger('benchmark')
@@ -81,7 +81,7 @@ def main(args=None):
             stamp = time.time()
             copied = 0
             while copied < size:
-                buf = src.read(256*1024)
+                buf = src.read(BUFSIZE)
                 dst.write(buf)
                 copied += len(buf)
             fuse_speed = copied / (time.time() - stamp)
@@ -98,7 +98,7 @@ def main(args=None):
             stamp = time.time()
             copied = 0
             while copied < size:
-                buf = src.read(256*1024)
+                buf = src.read(BUFSIZE)
                 dst.write(buf)
                 copied += len(buf)
             upload_speed = copied / (time.time() - stamp)
@@ -118,7 +118,7 @@ def main(args=None):
             src.seek(0)
             stamp = time.time()
             while True:
-                buf = src.read(256*1024)
+                buf = src.read(BUFSIZE)
                 if not buf:
                     break
                 dst.write(buf)

@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-from .common import sha256_fh
+from .common import sha256_fh, BUFSIZE
 from .database import NoSuchRowError
 from .ordered_dict import OrderedDict
 from Queue import Queue
@@ -21,9 +21,6 @@ import time
 
 # standard logger for this module
 log = logging.getLogger("BlockCache")
- 
-# Buffer size when writing objects
-BUFSIZE = 256 * 1024
  
 # Special queue entry that signals threads to terminate
 QuitSentinel = object()
@@ -539,7 +536,7 @@ class BlockCache(object):
                               inode, blockno, obj_id)
                     def do_read(fh):
                         el = CacheEntry(inode, blockno, filename)
-                        shutil.copyfileobj(fh, el)
+                        shutil.copyfileobj(fh, el, BUFSIZE)
                         return el
                     try:
                         

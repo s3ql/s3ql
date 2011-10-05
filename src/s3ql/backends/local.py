@@ -8,14 +8,14 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from .common import AbstractBucket, NoSuchBucket, NoSuchObject
+from .common import AbstractBucket, NoSuchBucket, NoSuchObject, ChecksumError
+from ..common import BUFSIZE
 import shutil
 import logging
 import cPickle as pickle
 import os
 import errno
 import thread
-from s3ql.backends.common import ChecksumError
 
 log = logging.getLogger("backend.local")
 
@@ -252,7 +252,7 @@ class Bucket(AbstractBucket):
         
         try:
             with open(path_src, 'rb') as src:
-                shutil.copyfileobj(src, dest)
+                shutil.copyfileobj(src, dest, BUFSIZE)
         except IOError as exc:
             if exc.errno == errno.ENOENT:
                 raise NoSuchObject(src)

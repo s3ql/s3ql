@@ -9,6 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 
 from .common import AbstractBucket, NoSuchObject, retry
+from ..common import BUFSIZE
 import logging
 import httplib
 import re
@@ -197,7 +198,7 @@ class Bucket(AbstractBucket):
             except GeneratorExit:
                 # Need to read rest of response
                 while True:
-                    buf = resp.read(8192)
+                    buf = resp.read(BUFSIZE)
                     if buf == '':
                         break   
                 break               
@@ -517,7 +518,7 @@ class ObjectR(object):
         self.closed = True
 
         while True:
-            buf = self.read(8192)
+            buf = self.read(BUFSIZE)
             if buf == '':
                 break
 

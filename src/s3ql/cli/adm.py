@@ -14,7 +14,7 @@ from s3ql import CURRENT_FS_REV
 from s3ql.backends.common import (BetterBucket, get_bucket, NoSuchBucket, 
     ChecksumError, AbstractBucket, NoSuchObject)
 from s3ql.backends.local import Bucket as LocalBucket, ObjectR, unescape, escape
-from s3ql.common import (QuietError, restore_metadata, cycle_metadata, 
+from s3ql.common import (QuietError, restore_metadata, cycle_metadata, BUFSIZE,
     dump_metadata, create_tables, setup_logging, get_bucket_cachedir)
 from s3ql.database import Connection
 from s3ql.fsck import Fsck
@@ -33,7 +33,6 @@ import sys
 import tempfile
 import textwrap
 import time
-
 
 log = logging.getLogger("adm")
 
@@ -418,7 +417,7 @@ def upgrade(bucket_factory, cachepath):
                     with open(os.path.join(path, name), 'r+b') as dst:
                         dst.seek(0, os.SEEK_END)
                         with open(os.path.join(path, basename + '.dat'), 'rb') as src:
-                            shutil.copyfileobj(src, dst)
+                            shutil.copyfileobj(src, dst, BUFSIZE)
                     
                     basename = basename.replace('#', '=23')
                     os.rename(os.path.join(path, name),
@@ -439,7 +438,7 @@ def upgrade(bucket_factory, cachepath):
                 def do_read(fh):
                     tmp.seek(0)
                     tmp.truncate()
-                    shutil.copyfileobj(fh, tmp)
+                    shutil.copyfileobj(fh, tmp, BUFSIZE)
                 bucket.perform_read(do_read, "s3ql_metadata")
                 os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                                  stat.S_IRUSR | stat.S_IWUSR)) 
@@ -569,7 +568,7 @@ def check_hash(queue, bucket):
             def do_read(fh):
                 sha = hashlib.sha256()
                 while True:
-                    buf = fh.read(128*1024)
+                    buf = fh.read(BUFSIZE)
                     if not buf:
                         break
                     sha.update(buf)

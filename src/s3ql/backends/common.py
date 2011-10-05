@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from ..common import QuietError
+from ..common import QuietError, BUFSIZE
 from abc import ABCMeta, abstractmethod
 from base64 import b64decode, b64encode
 from cStringIO import StringIO
@@ -580,7 +580,6 @@ class AbstractInputFilter(object):
     
     def __init__(self):
         super(AbstractInputFilter, self).__init__()
-        self.bs = 256 * 1024
         self.buffer = ''
         
     def read(self, size=None):
@@ -595,7 +594,7 @@ class AbstractInputFilter(object):
             remaining = size - len(self.buffer)
 
         while remaining > 0:
-            buf = self._read(self.bs)
+            buf = self._read(BUFSIZE)
             if not buf:
                 break
             remaining -= len(buf)

@@ -8,11 +8,11 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from .backends.common import NoSuchObject
-from .common import ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh, get_path
+from .common import ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE
 from .database import NoSuchRowError
 from os.path import basename
 from random import randint
-from s3ql.inode_cache import MIN_INODE, MAX_INODE, OutOfInodesError
+from .inode_cache import MIN_INODE, MAX_INODE, OutOfInodesError
 import apsw
 import logging
 import os
@@ -154,7 +154,7 @@ class Fsck(object):
                                            'VALUES(?, ?, ?, ?)', (1, hash_, obj_id, size))
                 def do_write(obj_fh):
                     fh.seek(0)
-                    shutil.copyfileobj(fh, obj_fh)
+                    shutil.copyfileobj(fh, obj_fh, BUFSIZE)
                     return obj_fh
                                         
                 obj_size = self.bucket.perform_write(do_write, 's3ql_data_%d' % obj_id).get_obj_size()

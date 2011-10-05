@@ -18,6 +18,9 @@ import sys
 import tempfile
 import time
 
+# Buffer size when writing objects
+BUFSIZE = 256 * 1024
+
 log = logging.getLogger('common')
         
 def setup_logging(options):        
@@ -175,7 +178,7 @@ def restore_metadata(ifh, conn):
     # object.
     if not hasattr(ifh, 'fileno'):
         with tempfile.TemporaryFile() as tmp:
-            shutil.copyfileobj(ifh, tmp)
+            shutil.copyfileobj(ifh, tmp, BUFSIZE)
             tmp.seek(0)
             return restore_metadata(tmp, conn)
     
@@ -312,7 +315,7 @@ def sha256_fh(fh):
     sha = hashlib.sha256()
 
     while True:
-        buf = fh.read(128 * 1024)
+        buf = fh.read(BUFSIZE)
         if not buf:
             break
         sha.update(buf)

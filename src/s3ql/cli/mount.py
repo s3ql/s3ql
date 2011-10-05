@@ -11,7 +11,7 @@ from s3ql import fs, CURRENT_FS_REV
 from s3ql.backends.common import get_bucket_factory, BucketPool
 from s3ql.block_cache import BlockCache
 from s3ql.common import (setup_logging, get_bucket_cachedir, get_seq_no, 
-    QuietError, cycle_metadata, dump_metadata, 
+    QuietError, cycle_metadata, dump_metadata, BUFSIZE,
     restore_metadata)
 from s3ql.daemonize import daemonize
 from s3ql.database import Connection
@@ -525,7 +525,7 @@ class MetadataUploadThread(Thread):
                 self.param['seq_no'] -= 1
                 def do_write(obj_fh):
                     fh.seek(0)
-                    shutil.copyfileobj(fh, obj_fh)
+                    shutil.copyfileobj(fh, obj_fh, BUFSIZE)
                 bucket.perform_write(do_write, "s3ql_metadata", self.param) 
                 self.param['seq_no'] += 1
                 
