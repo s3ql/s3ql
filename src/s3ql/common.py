@@ -127,6 +127,7 @@ def get_seq_no(bucket):
 def cycle_metadata(bucket):
     from .backends.common import NoSuchObject
     
+    log.info('Backing up old metadata...')
     for i in reversed(range(10)):
         try:
             bucket.copy("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
@@ -137,6 +138,7 @@ def cycle_metadata(bucket):
 
 def dump_metadata(ofh, conn):
     
+    log.info('Dumping metadata...')
     # First write everything into temporary file
     tmp = tempfile.TemporaryFile()
     pickler = pickle.Pickler(tmp, 2)
@@ -157,7 +159,7 @@ def dump_metadata(ofh, conn):
     pickler.dump((tables_to_dump, columns))
     
     for (table, order) in tables_to_dump:
-        log.info('Saving %s' % table)
+        log.info('..%s..' % table)
         pickler.clear_memo()
         i = 0
         for row in conn.query('SELECT %s FROM %s ORDER BY %s' 
@@ -175,6 +177,7 @@ def dump_metadata(ofh, conn):
         pickler.dump(None)
 
     # Then compress and send
+    log.info("Compressing and uploading metadata...")
     compr = lzma.LZMACompressor(options={ 'level': 7 })
     tmp.seek(0)
     while True:
@@ -194,6 +197,7 @@ def restore_metadata(ifh, conn):
 
     # Note: unpickling is terribly slow if fh is not a real file object, so
     # uncompressing to a temporary file also gives a performance boost
+    log.info('Downloading and decompressing metadata...')
     tmp = tempfile.TemporaryFile()
     decompressor = lzma.LZMADecompressor()
     while True:
@@ -206,11 +210,12 @@ def restore_metadata(ifh, conn):
     del decompressor
     tmp.seek(0) 
 
+    log.info("Reading metadata...")
     unpickler = pickle.Unpickler(tmp)
     (to_dump, columns) = unpickler.load()
     create_tables(conn)
     for (table, _) in to_dump:
-        log.info('Loading %s', table)
+        log.info('..%s..', table)
         col_str = ', '.join(columns[table])
         val_str = ', '.join('?' for _ in columns[table])
         sql_str = 'INSERT INTO %s (%s) VALUES(%s)' % (table, col_str, val_str)

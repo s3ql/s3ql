@@ -200,8 +200,7 @@ def main(args=None):
             del bucket['s3ql_seq_no_%d' % param['seq_no']]         
             param['seq_no'] -= 1
             pickle.dump(param, open(cachepath + '.params', 'wb'), 2)         
-        elif seq_no == param['seq_no']:
-            log.info('Uploading metadata...')     
+        elif seq_no == param['seq_no']:   
             cycle_metadata(bucket)
             param['last-modified'] = time.time() - time.timezone
             bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata",
@@ -319,7 +318,6 @@ def get_metadata(bucket, cachepath):
     
     # Download metadata
     if not db:
-        log.info("Downloading & uncompressing metadata...")
         def do_read(fh):
             os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                              stat.S_IRUSR | stat.S_IWUSR)) 
@@ -517,7 +515,6 @@ class MetadataUploadThread(Thread):
                     fh.close()
                     continue
                               
-                log.info("Compressing & uploading metadata..")
                 cycle_metadata(bucket)
                 fh.seek(0)
                 self.param['last-modified'] = time.time() - time.timezone

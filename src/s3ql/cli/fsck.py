@@ -151,7 +151,6 @@ def main(args=None):
                              + cachepath + '.db (corrupted)\n'
                              + cachepath + '.param (intact)')
     else:
-        log.info("Downloading & uncompressing metadata...")
         def do_read(fh):
             os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                              stat.S_IRUSR | stat.S_IWUSR)) 
@@ -180,7 +179,6 @@ def main(args=None):
     if options.renumber_inodes:
         renumber_inodes(db)
             
-    log.info("Compressing & uploading metadata..")
     cycle_metadata(bucket)
     param['needs_fsck'] = False
     param['last_fsck'] = time.time() - time.timezone

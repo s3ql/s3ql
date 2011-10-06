@@ -491,8 +491,6 @@ def upgrade_once(bucket, cachepath, db, param):
                'FROM leg_inodes')
     db.execute('DROP TABLE leg_inodes')
                       
-
-    log.info("Uploading database..")
     param['seq_no'] += 1
     bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
     param['revision'] = CURRENT_FS_REV
@@ -501,7 +499,7 @@ def upgrade_once(bucket, cachepath, db, param):
     cycle_metadata(bucket)
     bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", 
                          metadata=param, is_compressed=True) 
-    
+     
     db.execute('ANALYZE')
     db.execute('VACUUM')        
         
@@ -565,7 +563,6 @@ def upgrade_twice(bucket, cachepath, db, param, bucket_factory):
         log.info('Upgrading metadata..')
         upgrade_metadata(db)
 
-        log.info("Uploading database..")
         param['seq_no'] += 1
         bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
         param['last-modified'] = time.time() - time.timezone
@@ -578,7 +575,6 @@ def upgrade_twice(bucket, cachepath, db, param, bucket_factory):
         db.execute('VACUUM')        
         
     elif not db: # Metadata must have been already updated
-        log.info("Downloading & uncompressing metadata...")
         def do_read(fh):
             os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                              stat.S_IRUSR | stat.S_IWUSR)) 
@@ -660,7 +656,6 @@ def upgrade_twice(bucket, cachepath, db, param, bucket_factory):
     if fsck.uncorrectable_errors:
         raise QuietError("Uncorrectable errors found, aborting.")
             
-    log.info("Uploading database..")
     param['revision'] = CURRENT_FS_REV
     param['seq_no'] += 1
     bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
