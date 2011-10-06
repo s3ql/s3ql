@@ -1,4 +1,4 @@
-UNRELEASED, S3QL TIP
+2011-10-06, S3QL 1.4
  
   * Metadata is now always LZMA compressed, mount.s3ql's --compress
     option only affects compression of file contents.
