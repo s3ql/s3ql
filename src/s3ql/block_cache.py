@@ -222,7 +222,7 @@ class BlockCache(object):
         self.in_transit = set()
         self.removed_in_transit = set()
         self.to_upload = Distributor()
-        self.to_remove = Queue()
+        self.to_remove = Queue(250)
         self.upload_threads = []
         self.removal_threads = []
         self.transfer_completed = SimpleEvent()
