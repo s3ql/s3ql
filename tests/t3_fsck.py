@@ -192,23 +192,23 @@ class fsck_tests(TestCase):
         self.bucket['s3ql_data_%d' % obj_id] = 'foo'
         
         # Case 1
-        self.db.execute('UPDATE inodes SET block_id=?, size=? WHERE id=?',
-                        (None, self.blocksize + 120, id_))
+        self.db.execute('UPDATE inodes SET size=? WHERE id=?', (self.blocksize + 120, id_))
         self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
                         (id_, 1, block_id))
         self.assert_fsck(self.fsck.check_inode_sizes)
 
         # Case 2
         self.db.execute('DELETE FROM inode_blocks WHERE inode=?', (id_,))
-        self.db.execute('UPDATE inodes SET block_id=?, size=? WHERE id=?',
-                        (block_id, 129, id_))
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
+                        (id_, 0, block_id))        
+        self.db.execute('UPDATE inodes SET size=? WHERE id=?', (129, id_))
         self.assert_fsck(self.fsck.check_inode_sizes)
 
         # Case 3
         self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
                         (id_, 1, block_id))
-        self.db.execute('UPDATE inodes SET block_id=?, size=? WHERE id=?',
-                        (block_id, self.blocksize + 120, id_))
+        self.db.execute('UPDATE inodes SET size=? WHERE id=?',
+                        (self.blocksize + 120, id_))
         self.db.execute('UPDATE blocks SET refcount = refcount + 1 WHERE id = ?', 
                         (block_id,))
         self.assert_fsck(self.fsck.check_inode_sizes)
@@ -229,10 +229,12 @@ class fsck_tests(TestCase):
         block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
                                  (1, obj_id, 128))
         
-        id_ = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size,block_id) "
-                            "VALUES (?,?,?,?,?,?,?,?,?)",
+        id_ = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                            "VALUES (?,?,?,?,?,?,?,?)",
                             (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
-                             0, 0, time.time(), time.time(), time.time(), 1, 128, block_id))
+                             0, 0, time.time(), time.time(), time.time(), 1, 128))
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
+                        (id_, 0, block_id))
      
         self._link('test-entry', id_)
         self.assert_fsck(self.fsck.check_keylist)              
@@ -299,14 +301,16 @@ class fsck_tests(TestCase):
         block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
                                  (1, obj_id, 0))
         
-        inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size,block_id) "
-                              "VALUES (?,?,?,?,?,?,?,?,?)",
+        inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                              "VALUES (?,?,?,?,?,?,?,?)",
                               (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR, os.getuid(), os.getgid(),
-                               time.time(), time.time(), time.time(), 1, self.blocksize, block_id))
+                               time.time(), time.time(), time.time(), 1, self.blocksize))
         self._link('test-entry', inode)
         
         self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
-                        (inode, 1, block_id))
+                        (inode, 0, block_id))
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
+                        (inode, 1, block_id))        
 
         self.assert_fsck(self.fsck.check_block_refcount)
         

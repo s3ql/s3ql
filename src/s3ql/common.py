@@ -12,7 +12,6 @@ import cPickle as pickle
 import hashlib
 import logging
 import os
-import shutil
 import stat
 import sys
 import tempfile
@@ -413,13 +412,7 @@ def create_tables(conn):
         refcount  INT NOT NULL,
         size      INT NOT NULL DEFAULT 0,
         rdev      INT NOT NULL DEFAULT 0,
-        locked    BOOLEAN NOT NULL DEFAULT 0,
-        
-        -- id of first block (blockno == 0)
-        -- since most inodes have only one block, we can make the db 20%
-        -- smaller by not requiring a separate inode_blocks row for these
-        -- cases. 
-        block_id  INT REFERENCES blocks(id)
+        locked    BOOLEAN NOT NULL DEFAULT 0
     )""")
 
     # Further Blocks used by inode (blockno >= 1)
@@ -474,13 +467,3 @@ def create_tables(conn):
     CREATE VIEW contents_v AS
     SELECT * FROM contents JOIN names ON names.id = name_id       
     """)    
-    
-    # We have to be very careful when using the following view, because it
-    # confuses the SQLite optimizer a lot, so it often stops using indices and
-    # always scans both instnead tables.
-    conn.execute("""
-    CREATE VIEW inode_blocks_v AS
-    SELECT * FROM inode_blocks
-    UNION
-    SELECT id as inode, 0 as blockno, block_id FROM inodes WHERE block_id IS NOT NULL       
-    """)        

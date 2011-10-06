@@ -372,15 +372,6 @@ class Operations(llfuse.Operations):
                                'SELECT ?, target FROM symlink_targets WHERE inode=?',
                                (id_new, id_))
                         
-
-                    # Link to block 0
-                    block0_id = db.get_val('SELECT block_id FROM inodes WHERE id=?', (id_,))
-                    db.execute('UPDATE inodes SET block_id=? WHERE id=?', (block0_id, id_new))
-                    db.execute('UPDATE blocks SET refcount=refcount+1 WHERE id = ?',
-                               (block0_id,))
-                    processed += 1
-                               
-                    # Link to other blocks
                     processed += db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) '
                                             'SELECT ?, blockno, block_id FROM inode_blocks '
                                             'WHERE inode=?', (id_new, id_))

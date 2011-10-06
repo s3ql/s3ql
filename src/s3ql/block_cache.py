@@ -357,14 +357,9 @@ class BlockCache(object):
             hash_ = sha256_fh(el)
             
             try:
-                if el.blockno == 0:
-                    old_block_id = self.db.get_val('SELECT block_id FROM inodes '
-                                                   'WHERE id=? AND block_id IS NOT NULL',
-                                                   (el.inode,))
-                else:
-                    old_block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
-                                                   'WHERE inode=? AND blockno=?',
-                                                   (el.inode, el.blockno))
+                old_block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
+                                               'WHERE inode=? AND blockno=?',
+                                               (el.inode, el.blockno))
             except NoSuchRowError:
                 old_block_id = None
                 
@@ -404,12 +399,8 @@ class BlockCache(object):
             self.in_transit.remove((el.inode, el.blockno))
             raise
                          
-
-        if el.blockno == 0:
-            self.db.execute('UPDATE inodes SET block_id=? WHERE id=?', (block_id, el.inode))
-        else:
-            self.db.execute('INSERT OR REPLACE INTO inode_blocks (block_id, inode, blockno) '
-                            'VALUES(?,?,?)', (block_id, el.inode, el.blockno)) 
+        self.db.execute('INSERT OR REPLACE INTO inode_blocks (block_id, inode, blockno) '
+                        'VALUES(?,?,?)', (block_id, el.inode, el.blockno)) 
                                 
         # Check if we have to remove an old block
         if not old_block_id:
@@ -506,13 +497,9 @@ class BlockCache(object):
             except KeyError:
                 filename = os.path.join(self.path, '%d-%d' % (inode, blockno))
                 try:
-                    if blockno == 0:
-                        block_id = self.db.get_val('SELECT block_id FROM inodes '
-                                                   'WHERE id=? AND block_id IS NOT NULL', (inode,))                               
-                    else:
-                        block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
-                                                   'WHERE inode=? AND blockno=?', (inode, blockno))                    
-    
+                    block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
+                                               'WHERE inode=? AND blockno=?', (inode, blockno))                    
+                    
                 # No corresponding object
                 except NoSuchRowError:
                     #log.debug('get(inode=%d, block=%d): creating new block', inode, blockno)
@@ -682,23 +669,15 @@ class BlockCache(object):
                 el.unlink()
 
             try:
-                if blockno == 0:
-                    block_id = self.db.get_val('SELECT block_id FROM inodes '
-                                               'WHERE id=? AND block_id IS NOT NULL',
-                                               (inode,))
-                else:
-                    block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
-                                               'WHERE inode=? AND blockno=?', (inode, blockno))
+                block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
+                                           'WHERE inode=? AND blockno=?', (inode, blockno))
             except NoSuchRowError:
                 log.debug('remove(inode=%d, blockno=%d): block not in db', inode, blockno)
                 continue
 
             # Detach inode from block
-            if blockno == 0:
-                self.db.execute('UPDATE inodes SET block_id=NULL WHERE id=?', (inode,))
-            else:
-                self.db.execute('DELETE FROM inode_blocks WHERE inode=? AND blockno=?',
-                                (inode, blockno))
+            self.db.execute('DELETE FROM inode_blocks WHERE inode=? AND blockno=?',
+                            (inode, blockno))
                 
             # Decrease block refcount
             refcount = self.db.get_val('SELECT refcount FROM blocks WHERE id=?', (block_id,))

@@ -412,6 +412,23 @@ def restore_legacy_metadata2(ifh, conn):
     unpickler = pickle.Unpickler(ifh)
     (to_dump, columns) = unpickler.load()
     create_tables(conn)
+    conn.execute('DROP TABLE inodes')
+    conn.execute("""
+    CREATE TABLE inodes (
+        id        INTEGER PRIMARY KEY,
+        uid       INT NOT NULL,
+        gid       INT NOT NULL,
+        mode      INT NOT NULL,
+        mtime     REAL NOT NULL,
+        atime     REAL NOT NULL,
+        ctime     REAL NOT NULL,
+        refcount  INT NOT NULL,
+        size      INT NOT NULL DEFAULT 0,
+        rdev      INT NOT NULL DEFAULT 0,
+        locked    BOOLEAN NOT NULL DEFAULT 0,
+        block_id  INT REFERENCES blocks(id)
+    )""")
+        
     for (table, _) in to_dump:
         log.info('Loading %s', table)
         if table == 'objects':
@@ -451,7 +468,29 @@ def upgrade_once(bucket, cachepath, db, param):
         db.execute('INSERT INTO objects (id, refcount, size) '
                    'SELECT id, refcount, compr_size FROM leg_objects')
         db.execute('DROP TABLE leg_objects')
-              
+        
+    db.execute('ALTER TABLE inodes RENAME TO leg_inodes')
+    db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) '
+               'SELECT id, 0, block_id FROM leg_inodes WHERE block_id IS NOT NULL')
+    db.execute("""
+    CREATE TABLE inodes (
+        id        INTEGER PRIMARY KEY,
+        uid       INT NOT NULL,
+        gid       INT NOT NULL,
+        mode      INT NOT NULL,
+        mtime     REAL NOT NULL,
+        atime     REAL NOT NULL,
+        ctime     REAL NOT NULL,
+        refcount  INT NOT NULL,
+        size      INT NOT NULL DEFAULT 0,
+        rdev      INT NOT NULL DEFAULT 0,
+        locked    BOOLEAN NOT NULL DEFAULT 0
+    )""")
+    db.execute('insert into inodes (id,uid,gid,mode,mtime,atime,ctime,refcount,size,rdev,locked) '
+               'select id,uid,gid,mode,mtime,atime,ctime,refcount,size,rdev,locked '
+               'FROM leg_inodes')
+    db.execute('DROP TABLE leg_inodes')
+                      
 
     log.info("Uploading database..")
     param['seq_no'] += 1
@@ -466,7 +505,7 @@ def upgrade_once(bucket, cachepath, db, param):
     db.execute('ANALYZE')
     db.execute('VACUUM')        
         
-    
+
 def upgrade_twice(bucket, cachepath, db, param, bucket_factory):
             
     if 's3ql_hash_check_status' not in bucket:        
@@ -703,35 +742,20 @@ def upgrade_metadata(conn):
     ''')
     conn.execute('DROP TABLE leg_objects')
               
-    # Create new inode_blocks table for inodes with multiple blocks
-    conn.execute('''
-         CREATE TEMP TABLE multi_block_inodes AS 
-            SELECT inode FROM leg_blocks
-            GROUP BY inode HAVING COUNT(inode) > 1
-    ''')    
+    # Create new inode_blocks table
     conn.execute('''
          INSERT INTO inode_blocks (inode, blockno, block_id)
             SELECT inode, blockno, obj_id 
-            FROM leg_blocks JOIN multi_block_inodes USING(inode)
+            FROM leg_blocks 
     ''')
     
-    # Create new inodes table for inodes with multiple blocks
+    # Create new inodes table 
     conn.execute('''
         INSERT INTO inodes (id, uid, gid, mode, mtime, atime, ctime, 
-                            refcount, size, rdev, locked, block_id)
+                            refcount, size, rdev, locked)
                SELECT id, uid, gid, mode, mtime, atime, ctime, 
-                      refcount, size, rdev, locked, NULL
-               FROM leg_inodes JOIN multi_block_inodes ON inode == id 
-            ''')
-    
-    # Add inodes with just one block or no block
-    conn.execute('''
-        INSERT INTO inodes (id, uid, gid, mode, mtime, atime, ctime, 
-                            refcount, size, rdev, locked, block_id)
-               SELECT id, uid, gid, mode, mtime, atime, ctime, 
-                      refcount, size, rdev, locked, obj_id
-               FROM leg_inodes LEFT JOIN leg_blocks ON leg_inodes.id == leg_blocks.inode 
-               GROUP BY leg_inodes.id HAVING COUNT(leg_inodes.id) <= 1  
+                      refcount, size, rdev, locked
+               FROM leg_inodes
             ''')
     
     conn.execute('''
