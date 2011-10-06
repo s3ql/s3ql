@@ -121,7 +121,8 @@ def main(args=None):
     bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
 
     log.info('Uploading metadata...')
-    bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", param) 
+    bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata",
+                         metadata=param, is_compressed=True) 
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
 
 

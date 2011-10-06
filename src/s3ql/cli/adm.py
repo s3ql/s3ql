@@ -460,7 +460,8 @@ def upgrade_once(bucket, cachepath, db, param):
     param['last-modified'] = time.time() - time.timezone
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
     cycle_metadata(bucket)
-    bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", param) 
+    bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", 
+                         metadata=param, is_compressed=True) 
     
     db.execute('ANALYZE')
     db.execute('VACUUM')        
@@ -531,7 +532,8 @@ def upgrade_twice(bucket, cachepath, db, param, bucket_factory):
         param['last-modified'] = time.time() - time.timezone
         pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         cycle_metadata(bucket)
-        bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", param) 
+        bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata",
+                             metadata=param, is_compressed=True) 
         
         db.execute('ANALYZE')
         db.execute('VACUUM')        
@@ -625,7 +627,8 @@ def upgrade_twice(bucket, cachepath, db, param, bucket_factory):
     bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
     param['last-modified'] = time.time() - time.timezone
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
-    bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", param) 
+    bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", 
+                         metadata=param, is_compressed=True) 
                 
 def check_hash(queue, bucket):
     

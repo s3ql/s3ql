@@ -204,7 +204,8 @@ def main(args=None):
             log.info('Uploading metadata...')     
             cycle_metadata(bucket)
             param['last-modified'] = time.time() - time.timezone
-            bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", param) 
+            bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata",
+                                 metadata=param, is_compressed=True) 
             pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         else:
             log.error('Remote metadata is newer than local (%d vs %d), '
@@ -526,7 +527,8 @@ class MetadataUploadThread(Thread):
                 def do_write(obj_fh):
                     fh.seek(0)
                     shutil.copyfileobj(fh, obj_fh, BUFSIZE)
-                bucket.perform_write(do_write, "s3ql_metadata", self.param) 
+                bucket.perform_write(do_write, "s3ql_metadata", metadata=self.param,
+                                     is_compressed=True) 
                 self.param['seq_no'] += 1
                 
                 fh.close()

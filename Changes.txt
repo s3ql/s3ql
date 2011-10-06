@@ -1,4 +1,7 @@
 UNRELEASED, S3QL TIP
+ 
+  * Metadata is now always LZMA compressed, mount.s3ql's --compress
+    option only affects compression of file contents.
 
   * Network errors that occur in the middle of a read operation
     are now handled correctly as well.

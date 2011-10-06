@@ -185,7 +185,8 @@ def main(args=None):
     param['needs_fsck'] = False
     param['last_fsck'] = time.time() - time.timezone
     param['last-modified'] = time.time() - time.timezone
-    bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", param) 
+    bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata",
+                         metadata=param, is_compressed=True) 
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         
     db.execute('ANALYZE')

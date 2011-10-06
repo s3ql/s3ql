@@ -17,6 +17,7 @@ import stat
 import sys
 import tempfile
 import time
+import lzma
 
 # Buffer size when writing objects
 BUFSIZE = 256 * 1024
@@ -136,7 +137,10 @@ def cycle_metadata(bucket):
     bucket.copy("s3ql_metadata", "s3ql_metadata_bak_0")             
 
 def dump_metadata(ofh, conn):
-    pickler = pickle.Pickler(ofh, 2)
+    
+    # First write everything into temporary file
+    tmp = tempfile.TemporaryFile()
+    pickler = pickle.Pickler(tmp, 2)
     bufsize = 256
     buf = range(bufsize)
     tables_to_dump = [('objects', 'id'), ('blocks', 'id'),
@@ -171,17 +175,39 @@ def dump_metadata(ofh, conn):
         
         pickler.dump(None)
 
+    # Then compress and send
+    compr = lzma.LZMACompressor(options={ 'level': 7 })
+    tmp.seek(0)
+    while True:
+        buf = tmp.read(BUFSIZE)
+        if not buf:
+            break
+        buf = compr.compress(buf)
+        if buf:
+            ofh.write(buf)
+    buf = compr.flush()
+    if buf:
+        ofh.write(buf)
+    del compr # Free memory ASAP, LZMA level 7 needs 186 MB
+    tmp.close()
 
 def restore_metadata(ifh, conn):
 
-    # Unpickling is terribly slow if fh is not a real file object.
-    if not hasattr(ifh, 'fileno'):
-        with tempfile.TemporaryFile() as tmp:
-            shutil.copyfileobj(ifh, tmp, BUFSIZE)
-            tmp.seek(0)
-            return restore_metadata(tmp, conn)
-    
-    unpickler = pickle.Unpickler(ifh)
+    # Note: unpickling is terribly slow if fh is not a real file object, so
+    # uncompressing to a temporary file also gives a performance boost
+    tmp = tempfile.TemporaryFile()
+    decompressor = lzma.LZMADecompressor()
+    while True:
+        buf = ifh.read(BUFSIZE)
+        if not buf:
+            break
+        buf = decompressor.decompress(buf)
+        if buf:
+            tmp.write(buf)
+    del decompressor
+    tmp.seek(0) 
+
+    unpickler = pickle.Unpickler(tmp)
     (to_dump, columns) = unpickler.load()
     create_tables(conn)
     for (table, _) in to_dump:
@@ -196,6 +222,7 @@ def restore_metadata(ifh, conn):
             for row in buf:
                 conn.execute(sql_str, row)
 
+    tmp.close()
     conn.execute('ANALYZE')
     
 class QuietError(Exception):
