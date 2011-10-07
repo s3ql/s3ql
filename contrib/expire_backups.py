@@ -97,9 +97,12 @@ def main(args=None):
     if not os.path.exists(options.state) and len(backup_list) > 1: 
         if not options.reconstruct_state:
             raise QuietError('Found more than one backup but no state file! Aborting.')
-        else:
-            log.warn('Trying to reconstruct state file..')
-            state = upgrade_to_state(backup_list)
+        
+        log.warn('Trying to reconstruct state file..')
+        state = upgrade_to_state(backup_list)
+        if not options.n:
+            log.info('Saving reconstructed state..')    
+            pickle.dump(state, open(options.state, 'wb'), pickle.HIGHEST_PROTOCOL)        
     elif not os.path.exists(options.state):
         log.warn('Creating state file..')
         state = dict()
