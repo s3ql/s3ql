@@ -5,6 +5,8 @@ UNRELEASED, S3QL TIP
 
   * Fixed support for prefix in storage urls.
 
+  * Retry on timeout when transmitting data to remote server.
+  
 2011-10-06, S3QL 1.4
  
   * Metadata is now always LZMA compressed, mount.s3ql's --compress

@@ -100,7 +100,7 @@ class Bucket(AbstractBucket):
             return True
         
         elif (isinstance(exc, IOError) and 
-              exc.errno in (errno.EPIPE, errno.ECONNRESET)):
+              exc.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT)):
             return True
         
         return False
