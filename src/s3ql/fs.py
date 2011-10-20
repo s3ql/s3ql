@@ -443,6 +443,8 @@ class Operations(llfuse.Operations):
         
         This method releases the global lock.
         '''
+        
+        log.debug('_remove(%d, %s): start', id_p, name)
 
         timestamp = time.time()
 
@@ -468,12 +470,15 @@ class Operations(llfuse.Operations):
         inode_p.ctime = timestamp
 
         if inode.refcount == 0 and id_ not in self.open_inodes:
+            log.debug('_remove(%d, %s): removing from cache', id_p, name)
             self.cache.remove(id_, 0, int(math.ceil(inode.size / self.blocksize)))
             # Since the inode is not open, it's not possible that new blocks
             # get created at this point and we can safely delete the inode
             self.db.execute('DELETE FROM ext_attributes WHERE inode=?', (id_,))
             self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_,))
             del self.inodes[id_]
+            
+        log.debug('_remove(%d, %s): start', id_p, name)
 
     def symlink(self, id_p, name, target, ctx):
         mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | 

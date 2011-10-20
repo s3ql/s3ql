@@ -100,7 +100,7 @@ class Bucket(AbstractBucket):
             return True
         
         elif (isinstance(exc, IOError) and 
-              exc.errno in (errno.EPIPE, errno.ECONNRESET)):
+              exc.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT)):
             return True
         
         return False
@@ -144,7 +144,7 @@ class Bucket(AbstractBucket):
                     log.error('list(): Timeout exceeded, re-raising %r exception', exc)
                     raise
                                         
-                log.debug('list(): trying again after %r exception:', exc)
+                log.info('Encountered %r exception, retrying call to s3.Bucket.list()', exc)
                 time.sleep(interval)
                 waited += interval
                 if interval < 20*60:
@@ -192,7 +192,7 @@ class Bucket(AbstractBucket):
                     
                     elif el.tag == '{%s}Contents' % self.namespace:
                         marker = el.findtext('{%s}Key' % self.namespace)
-                        yield marker
+                        yield marker[len(self.prefix):]
                         root.clear()
                         
             except GeneratorExit:

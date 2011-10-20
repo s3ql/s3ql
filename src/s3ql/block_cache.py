@@ -706,6 +706,8 @@ class BlockCache(object):
                     log.debug('remove(inode=%d, blockno=%d): waiting for transfer of '
                               'object %d to complete', inode, blockno, obj_id)
                     self.wait()           
+                log.debug('remove(inode=%d, blockno=%d): deleting object %d',
+                          inode, blockno, obj_id)                  
                 self.db.execute('DELETE FROM objects WHERE id=?', (obj_id,))
                 with lock_released:
                     if not self.removal_threads:  

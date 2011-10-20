@@ -131,24 +131,31 @@ def main(args=None):
         else:
             llfuse.main(options.single)
         
+        # Re-raise if main loop terminated due to exception in other thread
+        # or during cleanup, but make sure we still unmount file system
+        # (so that Operations' destroy handler gets called)
+        if exc_info:
+            (tmp0, tmp1, tmp2) = exc_info
+            exc_info[:] = []
+            raise tmp0, tmp1, tmp2
+            
         log.info("FUSE main loop terminated.")
         
     except:
-        log.info("Caught exception in main loop, unmounting file system...")  
-          
-        # Tell finally handler that there already is an exception
-        if not exc_info:
-            exc_info = sys.exc_info()
-        
-        # We do *not* unmount on exception. Why? E.g. if someone is mirroring the
-        # mountpoint, and it suddenly becomes empty, all the mirrored data will be
-        # deleted. However, it's crucial to still call llfuse.close, so that
-        # Operations.destroy() can flush the inode cache.
-        with llfuse.lock:
-            llfuse.close(unmount=False)
-
+        # Tell finally handle not to raise any exceptions
+        exc_info[:] = sys.exc_info()
+         
+        # We do *not* free the mountpoint on exception. Why? E.g. if someone is
+        # mirroring the mountpoint, and it suddenly becomes empty, all the
+        # mirrored data will be deleted. However, it's crucial to still call
+        # llfuse.close, so that Operations.destroy() can flush the inode cache.
+        try: 
+            with llfuse.lock:
+                llfuse.close(unmount=False)
+        except:
+            log.exception("Exception during cleanup:")  
         raise
-            
+                
     # Terminate threads
     finally:
         log.debug("Waiting for background threads...")
@@ -174,15 +181,9 @@ def main(args=None):
  
     log.info("Unmounting file system.")
      
-    # Re-raise if main loop terminated due to exception in other thread
-    # or during cleanup. but make sure we still unmount file system
-    # (so that Operations' destroy handler gets called)
+    # Re-raise if there's been an exception during cleanup
+    # (either in main thread or other thread)
     if exc_info:
-        try: 
-            with llfuse.lock:
-                llfuse.close()
-        except:
-            log.exception("Exception during cleanup:")  
         raise exc_info[0], exc_info[1], exc_info[2]
         
     # At this point, there should be no other threads left

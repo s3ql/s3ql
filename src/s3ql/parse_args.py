@@ -216,14 +216,11 @@ class ArgumentParser(argparse.ArgumentParser):
 
 def storage_url_type(s):
     '''Validate and canonicalize storage url'''
-
+    if not re.match(r'^([a-zA-Z0-9]+)://(.+)$', s):
+        raise argparse.ArgumentTypeError('%s is not a valid storage url.' % s)
+    
     if s.startswith('local://'):
         return 'local://%s' % os.path.abspath(s[len('local://'):])
-    elif s.startswith('s3://') or s.startswith('s3rr://'):
-        return s
-    elif re.match(r'^([a-z]+)://([a-zA-Z0-9.-]+)(?::([0-9]+))?(/[a-zA-Z0-9./_-]+)$',
-                  s):
-        return s
-    else:
-        msg = '%s is not a valid storage url.' % s
-        raise argparse.ArgumentTypeError(msg)
+
+    return s
+        
