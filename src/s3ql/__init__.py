@@ -9,8 +9,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function
 
 __all__ = [ 'backends', 'cli', 'parse_args', 'block_cache', "common", 'daemonize', 
-            'database', 'fs', 'fsck', 'multi_lock', 'ordered_dict', 'thread_group',
-            'upload_manager', 'VERSION', 'CURRENT_FS_REV' ]
+            'database', 'fs', 'fsck', 'ordered_dict', 
+            'VERSION', 'CURRENT_FS_REV' ]
 
-VERSION = '1.0.1'
-CURRENT_FS_REV = 11
+VERSION = '1.2'
+CURRENT_FS_REV = 12

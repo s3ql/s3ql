@@ -40,7 +40,7 @@ Note that:
   usage of `s3qlcp` is to regularly duplicate the same source
   directory, say `documents`, to different target directories. For a
   e.g. monthly replication, the target directories would typically be
-  named something like `documents_Januray` for the replication in
+  named something like `documents_January` for the replication in
   January, `documents_February` for the replication in February etc.
   In this case it is clear that the target directories should be
   regarded as snapshots of the source directory.
@@ -50,12 +50,6 @@ Note that:
   magnitude slower, because `cp` would have to read every file
   completely (so that S3QL had to fetch all the data over the network
   from the backend) before writing them into the destination folder.
-
-* Before starting with the replication, S3QL has to flush the local
-  cache. So if you just copied lots of new data into the file system
-  that has not yet been uploaded, replication will take longer than
-  usual.
-
 
 
 Snapshotting vs Hardlinking

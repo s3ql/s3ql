@@ -71,13 +71,9 @@ class OrderedDict(collections.MutableMapping):
     beginning of the list. If the key already exists, the position
     of the element does not change.
     
-    All methods are threadsafe and may be called concurrently
-    from several threads.
-    
     Attributes:
     -----------
     :data:    Backend dict object that holds OrderedDictElement instances
-    :lock:    Global lock, required when rearranging the order
     :head:    First element in list
     :tail:    Last element in list
     
@@ -85,26 +81,23 @@ class OrderedDict(collections.MutableMapping):
 
     def __init__(self):
         self.data = dict()
-        self.lock = threading.Lock()
         self.head = HeadSentinel()
         self.tail = TailSentinel(self.head)
         self.head.next = self.tail
 
     def __setitem__(self, key, value):
-        with self.lock:
-            if key in self.data:
-                self.data[key].value = value
-            else: 
-                el = OrderedDictElement(key, value, next_=self.head.next, prev=self.head)
-                self.head.next.prev = el
-                self.head.next = el
-                self.data[key] = el
+        if key in self.data:
+            self.data[key].value = value
+        else: 
+            el = OrderedDictElement(key, value, next_=self.head.next, prev=self.head)
+            self.head.next.prev = el
+            self.head.next = el
+            self.data[key] = el
 
     def __delitem__(self, key):
-        with self.lock:
-            el = self.data.pop(key)  # exception can be passed on
-            el.prev.next = el.next
-            el.next.prev = el.prev
+        el = self.data.pop(key)  # exception can be passed on
+        el.prev.next = el.next
+        el.next.prev = el.prev
 
     def __getitem__(self, key):
         return self.data[key].value
@@ -137,83 +130,79 @@ class OrderedDict(collections.MutableMapping):
     def to_head(self, key):
         """Moves `key` to the head in the ordering
         """
-        with self.lock:
-            el = self.data[key]
-            # Splice out
-            el.prev.next = el.next
-            el.next.prev = el.prev
+        el = self.data[key]
+        # Splice out
+        el.prev.next = el.next
+        el.next.prev = el.prev
 
-            # Insert back at front
-            el.next = self.head.next
-            el.prev = self.head
+        # Insert back at front
+        el.next = self.head.next
+        el.prev = self.head
 
-            self.head.next.prev = el
-            self.head.next = el
+        self.head.next.prev = el
+        self.head.next = el
 
     def to_tail(self, key):
         """Moves `key` to the end in the ordering
         """
-        with self.lock:
-            el = self.data[key]
-            # Splice out
-            el.prev.next = el.next
-            el.next.prev = el.prev
+        el = self.data[key]
+        # Splice out
+        el.prev.next = el.next
+        el.next.prev = el.prev
 
-            # Insert back at end
-            el.next = self.tail
-            el.prev = self.tail.prev
+        # Insert back at end
+        el.next = self.tail
+        el.prev = self.tail.prev
 
-            self.tail.prev.next = el
-            self.tail.prev = el
+        self.tail.prev.next = el
+        self.tail.prev = el
 
     def pop_last(self):
         """Fetch and remove last element 
         """
-        with self.lock:
-            el = self.tail.prev
-            if el is self.head:
-                raise IndexError()
 
-            del self.data[el.key]
-            self.tail.prev = el.prev
-            el.prev.next = self.tail
+        el = self.tail.prev
+        if el is self.head:
+            raise IndexError()
+
+        del self.data[el.key]
+        self.tail.prev = el.prev
+        el.prev.next = self.tail
 
         return el.value
 
     def get_last(self):
         """Fetch last element"""
-        with self.lock:
-            if self.tail.prev is self.head:
-                raise IndexError()
-    
-            return self.tail.prev.value
+
+        if self.tail.prev is self.head:
+            raise IndexError()
+
+        return self.tail.prev.value
 
     def pop_first(self):
         """Fetch and remove first element"""
-        with self.lock:
-            el = self.head.next
-            if el is self.tail:
-                raise IndexError
-            del self.data[el.key]
-            self.head.next = el.next
-            el.next.prev = self.head
 
-            return el.value
+        el = self.head.next
+        if el is self.tail:
+            raise IndexError
+        del self.data[el.key]
+        self.head.next = el.next
+        el.next.prev = self.head
+
+        return el.value
 
     def get_first(self):
         """Fetch first element"""
         
-        with self.lock:
-            if self.head.next is self.tail:
-                raise IndexError()
-    
-            return self.head.next.value
+        if self.head.next is self.tail:
+            raise IndexError()
+
+        return self.head.next.value
 
     def clear(self):
         '''Delete all elements'''
  
-        with self.lock:
-            self.data.clear()
-            self.head = HeadSentinel()
-            self.tail = TailSentinel(self.head)
-            self.head.next = self.tail
+        self.data.clear()
+        self.head = HeadSentinel()
+        self.tail = TailSentinel(self.head)
+        self.head.next = self.tail

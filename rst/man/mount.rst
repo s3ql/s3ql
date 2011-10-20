@@ -19,10 +19,10 @@ Description
 .. include:: ../include/about.rst
 
 The |command| command mounts the S3QL file system stored in *storage
-url* in the directory *mount point*.
+url* in the directory *mount point*. The storage url depends on the
+backend that is used. The S3QL User's Guide should be consulted for a
+description of the available backends.
 
-.. include:: ../include/backends.rst
- 
 
 Options
 =======

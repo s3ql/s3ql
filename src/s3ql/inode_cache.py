@@ -19,12 +19,16 @@ log = logging.getLogger('inode_cache')
 
 CACHE_SIZE = 100
 ATTRIBUTES = ('mode', 'refcount', 'uid', 'gid', 'size', 'locked',
-              'rdev', 'target', 'atime', 'mtime', 'ctime', 'id')
+              'rdev', 'atime', 'mtime', 'ctime', 'id')
 ATTRIBUTE_STR = ', '.join(ATTRIBUTES)
 UPDATE_ATTRS = ('mode', 'refcount', 'uid', 'gid', 'size', 'locked',
-              'rdev', 'target', 'atime', 'mtime', 'ctime')
+              'rdev', 'atime', 'mtime', 'ctime')
 UPDATE_STR = ', '.join('%s=?' % x for x in UPDATE_ATTRS)
 TIMEZONE = time.timezone
+
+
+# If True, new inodes are assigned randomly rather than sequentially
+RANDOMIZE_INODES = False
 
 class _Inode(object):
     '''An inode with its attributes'''
@@ -192,37 +196,33 @@ class InodeCache(object):
 
     def create_inode(self, **kw):
 
-        inode = _Inode()
-
-        for (key, val) in kw.iteritems():
-            setattr(inode, key, val)
-
         for i in ('atime', 'ctime', 'mtime'):
             kw[i] -= TIMEZONE
 
-        init_attrs = [ x for x in ATTRIBUTES if x in kw ]
-
-        # We want to restrict inodes to 2^32, and we do not want to immediately
-        # reuse deleted inodes (so that the lack of generation numbers isn't too
-        # likely to cause problems with NFS)
-        sql = ('INSERT INTO inodes (id, %s) VALUES(?, %s)'
-               % (', '.join(init_attrs), ','.join('?' for _ in init_attrs)))
-        bindings = [ kw[x] for x in init_attrs ]
-        for _ in range(100):
-            # _Inode.id is not explicitly defined
-            #pylint: disable-msg=W0201
-            inode.id = randint(0, 2 ** 32 - 1)
-            try:
-                self.db.execute(sql, [inode.id] + bindings)
-            except apsw.ConstraintError:
-                pass
+        bindings = [ kw[x] for x in ATTRIBUTES if x in kw ]
+        columns = ', '.join([ x for x in ATTRIBUTES if x in kw])
+        values = ', '.join('?' * len(kw))
+                           
+        if RANDOMIZE_INODES:
+            # We want to restrict inodes to 2^32, and we do not want to immediately
+            # reuse deleted inodes (so that the lack of generation numbers isn't too
+            # likely to cause problems with NFS)
+            sql = 'INSERT INTO inodes (id, %s) VALUES(?, %s)' % (columns, values)
+            for _ in range(100):
+                id_ = randint(0, 2 ** 32 - 1)
+                try:
+                    self.db.execute(sql, [id_] + bindings)
+                except apsw.ConstraintError:
+                    pass
+                else:
+                    break
             else:
-                break
+                raise OutOfInodesError()
         else:
-            raise OutOfInodesError()
+            id_ = self.db.rowid('INSERT INTO inodes (%s) VALUES(%s)' % (columns, values), 
+                                bindings)
 
-
-        return self[inode.id]
+        return self[id_]
 
 
     def setattr(self, inode):
@@ -236,7 +236,7 @@ class InodeCache(object):
         inode.ctime -= TIMEZONE
 
         self.db.execute("UPDATE inodes SET %s WHERE id=?" % UPDATE_STR,
-                          [ getattr(inode, x) for x in UPDATE_ATTRS ] + [inode.id])
+                        [ getattr(inode, x) for x in UPDATE_ATTRS ] + [inode.id])
 
     def flush_id(self, id_):
         if id_ in self.attrs:
@@ -257,6 +257,9 @@ class InodeCache(object):
                 else:
                     del self.attrs[id_]
                     self.setattr(inode)
+        
+        self.cached_rows = None
+        self.attrs = None
 
     def flush(self):
         '''Flush all entries to database'''

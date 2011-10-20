@@ -7,23 +7,25 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function
-
+from _common import TestCase
+from llfuse import FUSEError
 from random import randint
-from s3ql.fsck import Fsck
 from s3ql import fs
 from s3ql.backends import local
+from s3ql.backends.common import BucketPool
+from s3ql.block_cache import BlockCache
 from s3ql.common import ROOT_INODE, create_tables, init_tables
-from llfuse import FUSEError
 from s3ql.database import Connection
-from _common import TestCase
-import os
-import stat
-import time
-import llfuse
-import unittest2 as unittest
+from s3ql.fsck import Fsck
 import errno
+import llfuse
+import os
 import shutil
+import stat
 import tempfile
+import time
+import unittest2 as unittest
+
         
 # We need to access to protected members
 #pylint: disable=W0212
@@ -46,7 +48,8 @@ class fs_api_tests(TestCase):
 
     def setUp(self):
         self.bucket_dir = tempfile.mkdtemp()
-        self.bucket = local.Connection().get_bucket(self.bucket_dir)
+        self.bucket_pool = BucketPool(lambda: local.Bucket(self.bucket_dir, None, None))
+        self.bucket = self.bucket_pool.pop_conn()
         self.cachedir = tempfile.mkdtemp() + "/"
         self.blocksize = 1024
 
@@ -55,24 +58,23 @@ class fs_api_tests(TestCase):
         create_tables(self.db)
         init_tables(self.db)
 
-        self.server = fs.Operations(self.bucket, self.db, self.cachedir,
-                                    self.blocksize, cache_size=self.blocksize * 5)
-        
         # Tested methods assume that they are called from
         # file system request handler
         llfuse.lock.acquire()
-                
+        
+        self.block_cache = BlockCache(self.bucket_pool, self.db, self.cachedir,
+                                      self.blocksize * 5)
+        self.server = fs.Operations(self.block_cache, self.db, self.blocksize)
+          
         self.server.init()
-
-        # We don't want background flushing
-        self.server.cache.commit_thread.stop()
-        self.server.inode_flush_thread.stop()
 
         # Keep track of unused filenames
         self.name_cnt = 0
 
     def tearDown(self):
         self.server.destroy()
+        self.block_cache.destroy()     
+
         if os.path.exists(self.cachedir):
             shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
@@ -84,8 +86,7 @@ class fs_api_tests(TestCase):
             return fd.read(len_)
 
     def fsck(self):
-        self.server.cache.clear()
-        self.server.cache.upload_manager.join_all()
+        self.block_cache.clear()
         self.server.inodes.flush()
         fsck = Fsck(self.cachedir, self.bucket,
                   { 'blocksize': self.blocksize }, self.db)
@@ -109,8 +110,8 @@ class fs_api_tests(TestCase):
         time.sleep(CLOCK_GRANULARITY)
         self.server._create(ROOT_INODE, name, mode, ctx)
 
-        id_ = self.db.get_val('SELECT inode FROM contents WHERE name=? AND '
-                           'parent_inode = ?', (name, ROOT_INODE))
+        id_ = self.db.get_val('SELECT inode FROM contents JOIN names ON name_id = names.id '
+                              'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE))
 
         inode = self.server.getattr(id_)
 
@@ -184,8 +185,8 @@ class fs_api_tests(TestCase):
         inode_after = self.server.lookup(inode_p_new.id, name)
         inode_p_new_after = self.server.getattr(inode_p_new.id)
 
-        id_ = self.db.get_val('SELECT inode FROM contents WHERE name=? AND '
-                                'parent_inode = ?', (name, inode_p_new.id))
+        id_ = self.db.get_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                              'WHERE name=? AND parent_inode = ?', (name, inode_p_new.id))
 
         self.assertEqual(inode_before.id, id_)
         self.assertEqual(inode_after.refcount, 2)
@@ -280,8 +281,8 @@ class fs_api_tests(TestCase):
                                          self.file_mode(), Ctx())
         self.server.write(fh, 0, 'foobar')
         self.server.unlink(ROOT_INODE, name)
-        self.assertFalse(self.db.has_val('SELECT 1 FROM contents WHERE name=? AND '
-                                           'parent_inode = ?', (name, ROOT_INODE)))
+        self.assertFalse(self.db.has_val('SELECT 1 FROM contents JOIN names ON names.id = name_id '
+                                         'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE)))
         self.assertTrue(self.server.getattr(inode.id).id)
         self.server.release(fh)
 
@@ -317,10 +318,10 @@ class fs_api_tests(TestCase):
         inode_p_old_after = self.server.getattr(ROOT_INODE)
         inode_p_new_after = self.server.getattr(inode_p_new.id)
 
-        self.assertFalse(self.db.has_val('SELECT inode FROM contents WHERE name=? AND '
-                                           'parent_inode = ?', (oldname, ROOT_INODE)))
-        id_ = self.db.get_val('SELECT inode FROM contents WHERE name=? AND '
-                                'parent_inode = ?', (newname, inode_p_new.id))
+        self.assertFalse(self.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                                         'WHERE name=? AND parent_inode = ?', (oldname, ROOT_INODE)))
+        id_ = self.db.get_val('SELECT inode FROM contents JOIN names ON names.id == name_id '
+                              'WHERE name=? AND parent_inode = ?', (newname, inode_p_new.id))
         self.assertEqual(inode.id, id_)
 
         self.assertLess(inode_p_new_before.mtime, inode_p_new_after.mtime)
@@ -355,10 +356,10 @@ class fs_api_tests(TestCase):
         inode_p_old_after = self.server.getattr(ROOT_INODE)
         inode_p_new_after = self.server.getattr(inode_p_new.id)
 
-        self.assertFalse(self.db.has_val('SELECT inode FROM contents WHERE name=? AND '
-                                           'parent_inode = ?', (oldname, ROOT_INODE)))
-        id_ = self.db.get_val('SELECT inode FROM contents WHERE name=? AND '
-                                'parent_inode = ?', (newname, inode_p_new.id))
+        self.assertFalse(self.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                                         'WHERE name=? AND parent_inode = ?', (oldname, ROOT_INODE)))
+        id_ = self.db.get_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                              'WHERE name=? AND parent_inode = ?', (newname, inode_p_new.id))
         self.assertEqual(inode.id, id_)
 
         self.assertLess(inode_p_new_before.mtime, inode_p_new_after.mtime)
@@ -388,10 +389,10 @@ class fs_api_tests(TestCase):
         inode_p_old_after = self.server.getattr(ROOT_INODE)
         inode_p_new_after = self.server.getattr(inode_p_new.id)
 
-        self.assertFalse(self.db.has_val('SELECT inode FROM contents WHERE name=? AND '
-                                           'parent_inode = ?', (oldname, ROOT_INODE)))
-        id_ = self.db.get_val('SELECT inode FROM contents WHERE name=? AND '
-                                'parent_inode = ?', (newname, inode_p_new.id))
+        self.assertFalse(self.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                                         'WHERE name=? AND parent_inode = ?', (oldname, ROOT_INODE)))
+        id_ = self.db.get_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                              'WHERE name=? AND parent_inode = ?', (newname, inode_p_new.id))
         self.assertEqual(inode.id, id_)
 
         self.assertLess(inode_p_new_before.mtime, inode_p_new_after.mtime)
@@ -503,8 +504,8 @@ class fs_api_tests(TestCase):
 
         self.assertEqual(target, self.server.readlink(inode.id))
 
-        id_ = self.db.get_val('SELECT inode FROM contents WHERE name=? AND '
-                                'parent_inode = ?', (name, ROOT_INODE))
+        id_ = self.db.get_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                              'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE))
 
         self.assertEqual(inode.id, id_)
         self.assertLess(inode_p_before.mtime, inode_p_after.mtime)
@@ -529,8 +530,8 @@ class fs_api_tests(TestCase):
         self.assertLess(inode_p_before.mtime, inode_p_after.mtime)
         self.assertLess(inode_p_before.ctime, inode_p_after.ctime)
 
-        self.assertFalse(self.db.has_val('SELECT inode FROM contents WHERE name=? AND '
-                                      'parent_inode = ?', (name, ROOT_INODE)))
+        self.assertFalse(self.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                                         'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE)))
         self.assertFalse(self.db.has_val('SELECT id FROM inodes WHERE id=?', (inode.id,)))
 
         self.fsck()
@@ -545,8 +546,8 @@ class fs_api_tests(TestCase):
 
         self.assertLess(inode_p_before.mtime, inode_p_after.mtime)
         self.assertLess(inode_p_before.ctime, inode_p_after.ctime)
-        self.assertFalse(self.db.has_val('SELECT inode FROM contents WHERE name=? AND '
-                                           'parent_inode = ?', (name, ROOT_INODE)))
+        self.assertFalse(self.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                                         'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE)))
         self.assertFalse(self.db.has_val('SELECT id FROM inodes WHERE id=?', (inode.id,)))
 
         self.fsck()
@@ -559,8 +560,8 @@ class fs_api_tests(TestCase):
         (fh, inode) = self.server.create(ROOT_INODE, name, self.file_mode(), Ctx())
         self.server.write(fh, 0, data)
         self.server.unlink(ROOT_INODE, name)
-        self.assertFalse(self.db.has_val('SELECT inode FROM contents WHERE name=? AND '
-                                           'parent_inode = ?', (name, ROOT_INODE)))
+        self.assertFalse(self.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                                         'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE)))
         self.assertTrue(self.db.has_val('SELECT id FROM inodes WHERE id=?', (inode.id,)))
 
         self.server.link(inode.id, ROOT_INODE, name2)
@@ -594,6 +595,25 @@ class fs_api_tests(TestCase):
 
         self.fsck()
 
+    def test_edit(self):
+        len_ = self.blocksize
+        data = self.random_data(len_)
+        (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
+                                     self.file_mode(), Ctx())
+        self.server.write(fh, 0, data)
+        self.server.release(fh)
+        
+        self.block_cache.clear()
+        
+        fh = self.server.open(inode.id, os.O_RDWR)
+        attr = llfuse.EntryAttributes()
+        attr.st_size = 0
+        self.server.setattr(inode.id, attr)
+        self.server.write(fh, 0, data[50:])
+        self.server.release(fh)
+        
+        self.fsck()
+        
     def test_copy_tree(self):
 
         src_inode = self.server.mkdir(ROOT_INODE, 'source', self.dir_mode(), Ctx())
@@ -761,8 +781,8 @@ class fs_api_tests(TestCase):
                              (inode1.id, 'file1'),
                              (inode1.id, 'dir1'),
                              (inode2.id, 'file2')):
-            self.assertFalse(self.db.has_val('SELECT inode FROM contents WHERE name=? AND '
-                                             'parent_inode = ?', (name, id_p)))
+            self.assertFalse(self.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
+                                             'WHERE name=? AND parent_inode = ?', (name, id_p)))
             
         for id_ in (inode1.id, inode1a.id, inode2.id, inode2a.id):
             self.assertFalse(self.db.has_val('SELECT id FROM inodes WHERE id=?', (id_,)))

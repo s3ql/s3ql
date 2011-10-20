@@ -9,6 +9,7 @@
 
    about
    installation
+   general
    backends
    mkfs
    adm

@@ -35,7 +35,6 @@ class cache_tests(TestCase):
                  'uid': 7,
                  'gid': 2,
                  'size': 34674,
-                 'target': 'foobar',
                  'rdev': 11,
                  'atime': time.time(),
                  'ctime': time.time(),
@@ -46,15 +45,13 @@ class cache_tests(TestCase):
         for key in attrs.keys():
             self.assertEqual(attrs[key], getattr(inode, key))
 
-        self.assertTrue(self.db.has_val('SELECT 1 FROM inodes WHERE id=?',
-                                          (inode.id,)))
+        self.assertTrue(self.db.has_val('SELECT 1 FROM inodes WHERE id=?', (inode.id,)))
 
 
     def test_del(self):
         attrs = {'mode': 784,
                 'refcount': 3,
                 'uid': 7,
-                'target': 'foobar',
                 'gid': 2,
                 'size': 34674,
                 'rdev': 11,
@@ -71,22 +68,26 @@ class cache_tests(TestCase):
                 'refcount': 3,
                 'uid': 7,
                 'gid': 2,
-                'target': 'foobar',
                 'size': 34674,
                 'rdev': 11,
                 'atime': time.time(),
                 'ctime': time.time(),
                 'mtime': time.time() }
+        
         inode = self.cache.create_inode(**attrs)
-        self.assertEqual(inode, self.cache[inode.id])
+        for (key, val) in attrs.iteritems():
+            self.assertEqual(getattr(inode, key), val)
 
+        # Create another inode
+        self.cache.create_inode(**attrs)
+        
         self.db.execute('DELETE FROM inodes WHERE id=?', (inode.id,))
         # Entry should still be in cache
         self.assertEqual(inode, self.cache[inode.id])
 
         # Now it should be out of the cache
         for _ in xrange(inode_cache.CACHE_SIZE + 1):
-            dummy = self.cache[self.cache.create_inode(**attrs).id]
+            self.cache.create_inode(**attrs)
 
         self.assertRaises(KeyError, self.cache.__getitem__, inode.id)
 

@@ -7,15 +7,13 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function
+import errno
 import os.path
-from s3ql.cli.cp import main as s3qlcp
 import subprocess
+import t4_fuse
 import tarfile
 import tempfile
-import errno
 import unittest2 as unittest
-import t4_fuse
-
 
 class cpTests(t4_fuse.fuse_tests):
     
@@ -29,11 +27,12 @@ class cpTests(t4_fuse.fuse_tests):
                 raise unittest.SkipTest('rsync not installed')
             raise
 
+        self.mkfs()
         self.mount()
         self.tst_cp()
-        
         self.umount()
-
+        self.fsck()
+                
     def tst_cp(self):
 
         # Extract tar
@@ -46,11 +45,10 @@ class cpTests(t4_fuse.fuse_tests):
                                os.path.join(self.mnt_dir, 'orig') + '/'])
 
         # copy
-        try:
-            s3qlcp([os.path.join(self.mnt_dir, 'orig'),
-                              os.path.join(self.mnt_dir, 'copy')])
-        except BaseException as exc:
-            self.fail("s3qlcp failed: %s" % exc)
+        subprocess.check_call([os.path.join(t4_fuse.BASEDIR, 'bin', 's3qlcp'), 
+                               '--quiet',
+                               os.path.join(self.mnt_dir, 'orig'),
+                               os.path.join(self.mnt_dir, 'copy')])
 
         # compare
         rsync = subprocess.Popen(['rsync', '-anciHAX', '--delete',

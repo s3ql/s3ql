@@ -14,7 +14,7 @@ The syntax is ::
  s3qladm [options] <action> <storage-url>
 
 where :var:`action` may be either of :program:`passphrase`,
-:program:`upgrade`, :program:`delete` or :program:`download-metadata`.
+:program:`upgrade`, :program:`clear` or :program:`download-metadata`.
 
 The :program:`s3qladm` accepts the following general options, no
 matter what specific action is being invoked:
@@ -55,7 +55,7 @@ Deleting a file system
 
 A file system can be deleted with::
 
-  s3qladm delete <storage url>
+  s3qladm clear <storage url>
 
 This physically deletes all the data and file system structures.
 

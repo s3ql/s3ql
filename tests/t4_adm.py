@@ -8,15 +8,21 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function
 from _common import TestCase
-import unittest2 as unittest
-import tempfile
-import sys
-import os
 from cStringIO import StringIO
-import shutil
-import s3ql.cli.mkfs
-import s3ql.cli.adm
 from s3ql.backends import local
+from s3ql.backends.common import BetterBucket
+import shutil
+import sys
+import tempfile
+import unittest2 as unittest
+import subprocess
+import os.path
+
+if __name__ == '__main__':
+    mypath = sys.argv[0]
+else:
+    mypath = __file__
+BASEDIR = os.path.abspath(os.path.join(os.path.dirname(mypath), '..'))
 
 class AdmTests(TestCase):
 
@@ -24,7 +30,7 @@ class AdmTests(TestCase):
         self.cache_dir = tempfile.mkdtemp()
         self.bucket_dir = tempfile.mkdtemp()
 
-        self.bucketname = 'local://' + os.path.join(self.bucket_dir, 'mybucket')
+        self.bucketname = 'local://' + self.bucket_dir
         self.passphrase = 'oeut3d'
 
     def tearDown(self):
@@ -32,29 +38,36 @@ class AdmTests(TestCase):
         shutil.rmtree(self.bucket_dir)
 
     def mkfs(self):
-        sys.stdin = StringIO('%s\n%s\n' % (self.passphrase, self.passphrase))
-        try:
-            s3ql.cli.mkfs.main(['--cachedir', self.cache_dir, self.bucketname ])
-        except BaseException as exc:
-            self.fail("mkfs.s3ql failed: %s" % exc)
+        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'), 
+                                 '-L', 'test fs', '--blocksize', '500',
+                                 '--cachedir', self.cache_dir, '--quiet',
+                                 self.bucketname ], stdin=subprocess.PIPE)
+        
+        print(self.passphrase, file=proc.stdin)
+        print(self.passphrase, file=proc.stdin)
+        proc.stdin.close()
+        
+        self.assertEqual(proc.wait(), 0)
 
     def test_passphrase(self):
         self.mkfs()
 
         passphrase_new = 'sd982jhd'
-        sys.stdin = StringIO('%s\n%s\n%s\n' % (self.passphrase,
-                                               passphrase_new, passphrase_new))
-        try:
-            s3ql.cli.adm.main(['passphrase', self.bucketname ])
-        except BaseException as exc:
-            self.fail("s3qladm failed: %s" % exc)
+        
+        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 's3qladm'), 
+                                 '--quiet', 'passphrase',
+                                 self.bucketname ], stdin=subprocess.PIPE)
+        
+        print(self.passphrase, file=proc.stdin)
+        print(passphrase_new, file=proc.stdin)
+        print(passphrase_new, file=proc.stdin)
+        proc.stdin.close()
+        
+        self.assertEqual(proc.wait(), 0)
 
-
-        bucket = local.Connection().get_bucket(os.path.join(self.bucket_dir, 'mybucket'))
-        bucket.passphrase = passphrase_new
-
-        bucket.passphrase = bucket['s3ql_passphrase']
-        self.assertTrue(isinstance(bucket['s3ql_seq_no_0'], str))
+        plain_bucket = local.Bucket(self.bucket_dir, None, None)
+        bucket = BetterBucket(passphrase_new, 'bzip2', plain_bucket)
+        self.assertTrue(isinstance(bucket['s3ql_passphrase'], str))
 
 
 # Somehow important according to pyunit documentation

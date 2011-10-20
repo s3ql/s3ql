@@ -12,14 +12,16 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-
-import sys
-import time
-import os
+import argparse
+import atexit
 import logging
-import lzma
-import zlib
-import bz2
+import os
+import sys
+import tempfile
+import math
+import time
+import subprocess
+import shutil
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
@@ -28,10 +30,10 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.backends.common import compress_encrypt_fh
-from s3ql.common import (get_backend, QuietError,setup_logging)
+from s3ql.backends.common import get_bucket, BetterBucket
+from s3ql.backends.local import Bucket
+from s3ql.common import setup_logging
 from s3ql.parse_args import ArgumentParser
-import argparse
 
 log = logging.getLogger('benchmark')
 
@@ -39,22 +41,17 @@ def parse_args(args):
     '''Parse command line'''
 
     parser = ArgumentParser(
-        description="Transfers and compresses the test file and gives a recommendation "
-                    "for the compression algorithm to use.")
+                description='Measure S3QL write performance, uplink bandwidth and '
+                            'compression speed and determine limiting factor.')
 
     parser.add_authfile()
     parser.add_quiet()
     parser.add_debug()
     parser.add_version()
-    parser.add_ssl()
-    
     parser.add_storage_url()
     parser.add_argument('file', metavar='<file>', type=argparse.FileType(mode='rb'),
                         help='File to transfer')
-    parser.add_argument("--compression-threads", action="store", type=int,
-                      default=1, metavar='<no>',
-                      help='Number of parallel compression and encryption threads '
-                           'to use (default: %(default)s).')
+    parser.add_cachedir()
     return parser.parse_args(args)
 
 
@@ -62,72 +59,110 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
+    args = ['local:///home/nikratio/tmp/bucket', '/home/nikratio/tmp/testfile0']
+
     options = parse_args(args)
     setup_logging(options)
 
-    with get_backend(options.storage_url, options.authfile,
-                     options.ssl) as (conn, bucketname):
+    size = 100*1024*1024 # KB
+    log.info('Measuring throughput to cache...')
+    bucket_dir = tempfile.mkdtemp()
+    mnt_dir = tempfile.mkdtemp()
+    atexit.register(shutil.rmtree, bucket_dir)
+    atexit.register(shutil.rmtree, mnt_dir)
+    subprocess.check_call(['mkfs.s3ql', '--plain', 'local://%s' % bucket_dir,
+                           '--quiet', '--cachedir', options.cachedir])
+    subprocess.check_call(['mount.s3ql', '--threads', '1', '--quiet', 
+                           '--cachesize', '%d' % (2 * size/1024), '--log',
+                           '%s/mount.log' % bucket_dir, '--cachedir', options.cachedir,
+                           'local://%s' % bucket_dir, mnt_dir])
+    with open('/dev/urandom', 'rb', 0) as src:
+        with open('%s/bigfile' % mnt_dir, 'wb', 0) as dst:
+            stamp = time.time()
+            copied = 0
+            while copied < size:
+                buf = src.read(256*1024)
+                dst.write(buf)
+                copied += len(buf)
+            fuse_speed = copied / (time.time() - stamp)
+    os.unlink('%s/bigfile' % mnt_dir)
+    subprocess.check_call(['umount.s3ql', mnt_dir])                           
+    log.info('Cache throughput: %.2f KB/sec', fuse_speed / 1024)
 
-        if not bucketname in conn:
-            raise QuietError("Bucket does not exist.")
-        bucket = conn.get_bucket(bucketname)
-
-        ifh = options.testfile
-        ofh = open('/dev/null', 'r+b')
-        size = os.fstat(ifh.fileno()).st_size / 1024
-        log.info('Test file size: %.2f MB', (size / 1024))
-
-        log.info('Compressing with LZMA...')
-        stamp = time.time()
-        compress_encrypt_fh(ifh, ofh, 'foobar', 'nonce',
-                            lzma.LZMACompressor(options={ 'level': 7 }))
-        seconds = time.time() - stamp
-        lzma_speed = size / seconds
-        log.info('done. LZMA Compression Speed:  %.2f KB per second', lzma_speed)
-
-        log.info('Compressing with BZip2...')
-        ifh.seek(0)
-        stamp = time.time()
-        compress_encrypt_fh(ifh, ofh, 'foobar', 'nonce',
-                            bz2.BZ2Compressor(9))
-        seconds = time.time() - stamp
-        bzip2_speed = size / seconds
-        log.info('done. Bzip2 Compression Speed:  %.2f KB per second', bzip2_speed)
-
-        log.info('Compressing with zlib...')
-        ifh.seek(0)
-        stamp = time.time()
-        compress_encrypt_fh(ifh, ofh, 'foobar', 'nonce',
-                            zlib.compressobj(9))
-        seconds = time.time() - stamp
-        zlib_speed = size / seconds
-        log.info('done. zlib Compression Speed:  %.2f KB per second', zlib_speed)
-
-        log.info('Transferring to backend...')
-        ifh.seek(0)
-        stamp = time.time()
-        bucket.raw_store(options.testfile, ifh, dict())
-        seconds = time.time() - stamp
-        net_speed = size / seconds
-        log.info('done. Network Uplink Speed:  %.2f KB per second', net_speed)
-
-
-    print('Assuming mount.s3ql will be called with --compression-threads %d'
-          % options.compression_threads)
-    lzma_speed *= options.compression_threads
-    bzip2_speed *= options.compression_threads
-    zlib_speed *= options.compression_threads
+    # Upload random data to prevent effects of compression
+    # on the network layer
+    log.info('Measuring raw backend throughput..')
+    bucket = get_bucket(options, plain=True)
+    with bucket.open_write('s3ql_testdata') as dst:
+        with open('/dev/urandom', 'rb', 0) as src:
+            stamp = time.time()
+            copied = 0
+            while copied < size:
+                buf = src.read(256*1024)
+                dst.write(buf)
+                copied += len(buf)
+            upload_speed = copied / (time.time() - stamp)
+    log.info('Backend throughput: %.2f KB/sec', upload_speed / 1024)
+    bucket.delete('s3ql_testdata')
     
-    if lzma_speed > net_speed:
-        print('You should use LZMA compression.')
-    elif bzip2_speed > net_speed:
-        print('You should use BZip2 compression.')
-    elif zlib_speed > net_speed:
-        print('You should use zlib compression.')
-    else:
-        print('You should use zlib compression, but even that is not fast\n'
-              'enough to saturate your network connection.')
+    src = options.file
+    size = os.fstat(options.file.fileno()).st_size 
+    log.info('Test file size: %.2f MB', (size / 1024**2))
+        
+    times = dict()
+    out_sizes = dict()
+    for alg in ('lzma', 'bzip2', 'zlib'):
+        log.info('compressing with %s...', alg)
+        bucket = BetterBucket('pass', alg, Bucket(bucket_dir, None, None))
+        with bucket.open_write('s3ql_testdata') as dst:
+            src.seek(0)
+            stamp = time.time()
+            while True:
+                buf = src.read(256*1024)
+                if not buf:
+                    break
+                dst.write(buf)
+            times[alg] = time.time() - stamp
+            out_sizes[alg] = dst.compr_size
+        log.info('%s compression speed: %.2f KB/sec (in)', alg, size/times[alg]/1024)
+        log.info('%s compression speed: %.2f KB/sec (out)', alg, 
+                 out_sizes[alg] / times[alg] / 1024)
 
+    print('')
+    
+    req = dict()
+    for alg in ('lzma', 'bzip2', 'zlib'):
+        backend_req = math.ceil(upload_speed * times[alg] / out_sizes[alg])
+        fuse_req = math.ceil(fuse_speed * times[alg] / size)
+        req[alg] = min(backend_req, fuse_req)
+        print('When using %s compression, incoming writes can keep up to %d threads\n'
+              'busy. The backend can handle data from up to %d threads. Therefore,\n'
+              'the maximum achievable throughput is %.2f KB/sec with %d threads.\n'
+              % (alg, fuse_req, backend_req, min(upload_speed, fuse_speed)/1024, req[alg]))
+        
+    print('All numbers assume that the test file is representative and that',
+          'there are enough processor cores to run all threads in parallel.',
+          'To compensate for network latency, you should start about twice as',
+          'many upload threads as you need for optimal performance.\n', sep='\n')
+    
+    cores = os.sysconf('SC_NPROCESSORS_ONLN')
+    best_size = None
+    max_threads = cores
+    while best_size is None:
+        for alg in out_sizes:
+            if req[alg] > max_threads:
+                continue
+            if best_size is None or out_sizes[alg] < best_size:
+                best_size = out_sizes[alg]
+                best_alg = alg
+                threads = req[alg]
+                
+        max_threads = min(req.itervalues())
+    
+    print('This system appears to have %d cores, so best performance with maximum\n'
+          'compression ratio would be achieved by using %s compression with %d\n'
+          'upload threads.' % (cores, best_alg,
+                                2 * threads if cores >= threads else 2 * cores))    
 
 if __name__ == '__main__':
     main(sys.argv[1:])

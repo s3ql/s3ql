@@ -22,33 +22,6 @@ This command accepts the following options:
 .. pipeinclude:: ../bin/mount.s3ql --help
    :start-after: show this help message and exit
 
-.. _bucket_pw:
-
-Storing Encryption Passwords
-============================
-
-If you are trying to mount an encrypted bucket, `mount.s3ql` will first
-try to read the password from the `.s3ql/authinfo` file (the same file
-that is used to read the backend authentication data) and prompt the
-user to enter the password only if this fails.
-
-The `authinfo` entries to specify bucket passwords are of the form ::
-
-  storage-url <storage-url> password <password>
-
-So to always use the password `topsecret` when mounting `s3://joes_bucket`,
-the entry would be ::
-
-  storage-url s3://joes_bucket password topsecret
-
-.. NOTE::
-
-   If you are using the local backend, the storage url will
-   always be converted to an absolute path. So if you are in the
-   `/home/john` directory and try to mount `local://bucket`, the matching
-   `authinfo` entry has to have a storage url of
-   `local:///home/john/bucket`.
-
 
 Compression Algorithms
 ======================
@@ -83,9 +56,8 @@ Parallel Compression
 ====================
 
 If you are running S3QL on a system with multiple cores, you might
-want to set ``--compression-threads`` to a value bigger than one. This
-will instruct S3QL to compress and encrypt several blocks at the same
-time.
+want to set the ``--threads`` value larger than one. This will
+instruct S3QL to compress and encrypt several blocks at the same time.
 
 If you want to do this in combination with using the LZMA compression
 algorithm, you should keep an eye on memory usage though. Every

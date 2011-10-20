@@ -67,12 +67,6 @@ that is not the case.
   this module. If you are upgrading from such a version, make sure to
   completely remove the old S3QL version first.
 
-* If you want to use the SFTP backend, then you also need the
-  `Paramiko Python Module <http://www.lag.net/paramiko/>`_. To check
-  if this module is installed, try to execute `python -c 'import
-  paramiko'`.
-
-
 .. _inst-s3ql:
 
 Installing S3QL

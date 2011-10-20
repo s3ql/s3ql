@@ -4,8 +4,21 @@
 Tips & Tricks
 =============
 
+.. _ssh_tipp:
 
-.. _copy_performance:
+SSH Backend
+===========
+
+By combining S3QL's local backend with `sshfs
+<http://fuse.sourceforge.net/sshfs.html>`_, it is possible to store an
+S3QL file system on arbitrary SSH servers: first mount the remote
+target directory into the local filesystem, ::
+
+  sshfs user@my.server.com:/mnt/s3ql /mnt/sshfs
+
+and then give the mountpoint to S3QL as a local destination::
+
+  mount.s3ql local:///mnt/sshfs/mybucket /mnt/s3ql
 
 
 Permanently mounted backup file system
@@ -28,11 +41,16 @@ If you decide to do so, you should make sure to
   :cmdopt:`--metadata-upload-interval` option of :program:`mount.s3ql`
   to zero).
 
-
+.. _copy_performance:
 
 Improving copy performance
 ==========================
 
+.. NOTE::
+
+   The following applies only when copying data **from** an S3QL file
+   system, **not** when copying data **to** an S3QL file system.
+   
 If you want to copy a lot of smaller files *from* an S3QL file system
 (e.g. for a system restore) you will probably notice that the
 performance is rather bad.
@@ -43,6 +61,7 @@ from the storage backend. This takes a minimum amount of time (the
 network latency), no matter how big or small the file is. So when you
 copy lots of small files, 99% of the time is actually spend waiting
 for network data.
+
 
 Theoretically, this problem is easy to solve: you just have to copy
 several files at the same time. In practice, however, almost all unix

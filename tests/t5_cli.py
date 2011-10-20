@@ -7,29 +7,33 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function
-import os.path
 import errno
+import llfuse
+import os.path
 import s3ql.cli.ctrl
 import s3ql.cli.lock
 import s3ql.cli.remove
-import llfuse
-import unittest2 as unittest
+import sys
 import t4_fuse
+import unittest2 as unittest
 
 class cliTests(t4_fuse.fuse_tests):
     
     def runTest(self):
+        self.mkfs()
         self.mount()
         self.tst_lock_rm()
         self.tst_ctrl_flush()
         self.umount()
+        self.fsck()
 
     def tst_ctrl_flush(self):
 
         try:
             s3ql.cli.ctrl.main(['flushcache', self.mnt_dir])
-        except BaseException as exc:
-            self.fail("s3qladm failed: %s" % exc)
+        except:
+            sys.excepthook(*sys.exc_info())
+            self.fail("s3qlctrl raised exception")
             
     def tst_lock_rm(self):
 
@@ -43,8 +47,9 @@ class cliTests(t4_fuse.fuse_tests):
         # copy
         try:
             s3ql.cli.lock.main([tempdir])
-        except BaseException as exc:
-            self.fail("s3qllock failed: %s" % exc)
+        except:
+            sys.excepthook(*sys.exc_info())
+            self.fail("s3qllock raised exception")
 
         # Try to delete
         with self.assertRaises(OSError) as cm:
@@ -59,8 +64,9 @@ class cliTests(t4_fuse.fuse_tests):
         # delete properly
         try:
             s3ql.cli.remove.main([tempdir])
-        except BaseException as exc:
-            self.fail("s3qlrm failed: %s" % exc)        
+        except:
+            sys.excepthook(*sys.exc_info())
+            self.fail("s3qlrm raised exception")     
 
         self.assertTrue('lock_dir' not in llfuse.listdir(self.mnt_dir))
 
