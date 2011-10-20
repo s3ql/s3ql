@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from ..common import QuietError
+from ..common import QuietError, BUFSIZE
 from abc import ABCMeta, abstractmethod
 from base64 import b64decode, b64encode
 from cStringIO import StringIO
@@ -30,6 +30,7 @@ import sys
 import threading
 import time
 import zlib
+from functools import wraps
 
 # Not available in every pycryptopp version
 if hasattr(aes, 'start_up_self_test'):
@@ -38,6 +39,51 @@ if hasattr(aes, 'start_up_self_test'):
 log = logging.getLogger("backend")
 
 HMAC_SIZE = 32
+
+RETRY_TIMEOUT=60*60*24
+def retry(fn):
+    '''Decorator for retrying a method on some exceptions
+    
+    If the decorated method raises an exception for which the instance's
+    `is_temp_failure(exc)` method is true, the decorated method is called again
+    at increasing intervals. If this persists for more than *timeout* seconds,
+    the most-recently caught exception is re-raised.
+    '''
+    
+    @wraps(fn)
+    def wrapped(self, *a, **kw):    
+        interval = 1/50
+        waited = 0
+        while True:
+            try:
+                return fn(self, *a, **kw)
+            except Exception as exc:
+                # Access to protected member ok
+                #pylint: disable=W0212
+                if not self.is_temp_failure(exc):
+                    raise
+                if waited > RETRY_TIMEOUT:
+                    log.error('%s.%s(*): Timeout exceeded, re-raising %r exception', 
+                            self.__class__.__name__, fn.__name__, exc)
+                    raise
+                
+                log.info('%s.%s(*): trying again after %r exception:', 
+                          self.__class__.__name__, fn.__name__, exc)
+                
+            time.sleep(interval)
+            waited += interval
+            if interval < 20*60:
+                interval *= 2   
+                
+    # False positive
+    #pylint: disable=E1101
+    wrapped.__doc__ += '''
+This method has been decorated and will automatically recall itself in
+increasing intervals for up to s3ql.backends.common.RETRY_TIMEOUT seconds if it
+raises an exception for which the instance's `is_temp_failure` method returns
+True.
+'''  
+    return wrapped 
 
 def sha256(s):
     return hashlib.sha256(s).digest()
@@ -122,7 +168,30 @@ class AbstractBucket(object):
     def iteritems(self):
         for key in self.list():
             yield (key, self[key])
-
+    
+    @retry
+    def perform_read(self, fn, key):
+        '''Read bucket data using *fn*, retry on temporary failure
+        
+        Open bucket for reading, call `fn(fh)` and close bucket. If a temporary
+        error (as defined by `is_temp_failure`) occurs during opening, closing
+        or execution of *fn*, the operation is retried.
+        '''
+        with self.open_read(key) as fh:
+            return fn(fh)
+             
+    @retry
+    def perform_write(self, fn, key, metadata=None, is_compressed=False):
+        '''Read bucket data using *fn*, retry on temporary failure
+        
+        Open bucket for writing, call `fn(fh)` and close bucket. If a temporary
+        error (as defined by `is_temp_failure`) occurs during opening, closing
+        or execution of *fn*, the operation is retried.
+        '''
+        
+        with self.open_write(key, metadata, is_compressed) as fh:
+            return fn(fh)
+                
     def fetch(self, key):
         """Return data stored under `key`.
 
@@ -131,10 +200,11 @@ class AbstractBucket(object):
         ``bucket.fetch(key)[0]``.
         """
 
-        with self.open_read(key) as fh: 
+        def do_read(fh): 
             data = fh.read()
-        
-        return (data, fh.metadata)
+            return (data, fh.metadata)
+            
+        return self.perform_read(do_read, key)
 
     def store(self, key, val, metadata=None):
         """Store data under `key`.
@@ -147,9 +217,25 @@ class AbstractBucket(object):
         equivalent to ``bucket.store(key, val)``.
         """
         
-        with self.open_write(key, metadata) as fh:
-            fh.write(val)
+        self.perform_write(lambda fh: fh.write(val), key, metadata)
 
+    @abstractmethod
+    def is_temp_failure(self, exc):
+        '''Return true if exc indicates a temporary error
+    
+        Return true if the given exception is used by this bucket's backend
+        to indicate a temporary problem. Most instance methods automatically
+        retry the request in this case, so the caller does not need to
+        worry about temporary failures.
+        
+        However, in same cases (e.g. when reading or writing an object), the
+        request cannot automatically be retried. In these case this method can
+        be used to check for temporary problems and so that the request can
+        be manually restarted if applicable.
+        '''   
+               
+        pass
+    
     @abstractmethod
     def lookup(self, key):
         """Return metadata for given key.
@@ -166,18 +252,24 @@ class AbstractBucket(object):
         Return a tuple of a file-like object. Bucket contents can be read from
         the file-like object, metadata is stored in its *metadata* attribute and
         can be modified by the caller at will. The object must be closed
-        explicitly.
+        explicitly. 
         """
         
         pass
     
     @abstractmethod
-    def open_write(self, key, metadata=None):
+    def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
         `metadata` can be a dict of additional attributes to store with the
         object. Returns a file-like object. The object must be closed
-        explicitly.
+        explicitly. After closing, the *get_obj_size* may be used to retrieve
+        the size of the stored object (which may differ from the size of the
+        written data).
+        
+        The *is_compressed* parameter indicates that the caller is going
+        to write compressed data, and may be used to avoid recompression
+        by the bucket.
         """
         
         pass
@@ -278,7 +370,23 @@ class BetterBucket(AbstractBucket):
         metadata = self.bucket.lookup(key)
         convert_legacy_metadata(metadata)
         return self._unwrap_meta(metadata)
-
+  
+    def is_temp_failure(self, exc):
+        '''Return true if exc indicates a temporary error
+    
+        Return true if the given exception is used by this bucket's backend
+        to indicate a temporary problem. Most instance methods automatically
+        retry the request in this case, so the caller does not need to
+        worry about temporary failures.
+        
+        However, in same cases (e.g. when reading or writing an object), the
+        request cannot automatically be retried. In these case this method can
+        be used to check for temporary problems and so that the request can
+        be manually restarted if applicable.
+        '''          
+        
+        return self.bucket.is_temp_failure(exc)
+    
     def _unwrap_meta(self, metadata):
         '''Unwrap metadata
         
@@ -357,11 +465,18 @@ class BetterBucket(AbstractBucket):
         
         return fh
 
-    def open_write(self, key, metadata=None):
+    def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
         `metadata` can be a dict of additional attributes to store with the
-        object. Returns a file-like object.
+        object. Returns a file-like object. The object must be closed
+        explicitly. After closing, the *get_obj_size* may be used to retrieve
+        the size of the stored object (which may differ from the size of the
+        written data).
+        
+        The *is_compressed* parameter indicates that the caller is going
+        to write compressed data, and may be used to avoid recompression
+        by the bucket.        
         """
    
         # We always store metadata (even if it's just None), so that we can
@@ -379,7 +494,10 @@ class BetterBucket(AbstractBucket):
             meta_raw['meta'] = b64encode(meta_buf)
             nonce = None
 
-        if self.compression == 'zlib':
+        if is_compressed or not self.compression:
+            compr = None
+            meta_raw['compression'] = 'None'            
+        elif self.compression == 'zlib':
             compr = zlib.compressobj(9)
             meta_raw['compression'] = 'ZLIB'
         elif self.compression == 'bzip2':
@@ -388,9 +506,6 @@ class BetterBucket(AbstractBucket):
         elif self.compression == 'lzma':
             compr = lzma.LZMACompressor(options={ 'level': 7 })
             meta_raw['compression'] = 'LZMA'
-        elif not self.compression:
-            compr = None
-            meta_raw['compression'] = 'None'
 
         fh = self.bucket.open_write(key, meta_raw)
 
@@ -465,7 +580,6 @@ class AbstractInputFilter(object):
     
     def __init__(self):
         super(AbstractInputFilter, self).__init__()
-        self.bs = 256 * 1024
         self.buffer = ''
         
     def read(self, size=None):
@@ -480,7 +594,7 @@ class AbstractInputFilter(object):
             remaining = size - len(self.buffer)
 
         while remaining > 0:
-            buf = self._read(self.bs)
+            buf = self._read(BUFSIZE)
             if not buf:
                 break
             remaining -= len(buf)
@@ -501,11 +615,7 @@ class AbstractInputFilter(object):
         pass
         
 class CompressFilter(object):
-    '''Compress data while writing
-    
-    The `compr_size` attribute is used to keep track of the
-    compressed size.
-    '''
+    '''Compress data while writing'''
     
     def __init__(self, fh, compr):
         '''Initialize
@@ -517,21 +627,23 @@ class CompressFilter(object):
         
         self.fh = fh
         self.compr = compr
-        self.compr_size = 0
-    
+        self.obj_size = 0
+        self.closed = False
+        
     def write(self, data):
         '''Write *data*'''
         
         buf = self.compr.compress(data)
         if buf:
             self.fh.write(buf)
-            self.compr_size += len(buf)
+            self.obj_size += len(buf)
             
     def close(self):
         buf = self.compr.flush()
         self.fh.write(buf)
-        self.compr_size += len(buf)
+        self.obj_size += len(buf)
         self.fh.close()
+        self.closed = True
 
     def __enter__(self):
         return self
@@ -539,6 +651,12 @@ class CompressFilter(object):
     def __exit__(self, *a):
         self.close()
         return False
+        
+    def get_obj_size(self):
+        if not self.closed:
+            raise RuntimeError('Object must be closed first.')
+        return self.obj_size
+                
                 
 class DecompressFilter(AbstractInputFilter):
     '''Decompress data while reading'''
@@ -606,6 +724,8 @@ class EncryptFilter(object):
         super(EncryptFilter, self).__init__()
         
         self.fh = fh
+        self.obj_size = 0
+        self.closed = False
         
         if isinstance(nonce, unicode):
             nonce = nonce.encode('utf-8')
@@ -616,6 +736,8 @@ class EncryptFilter(object):
     
         self.fh.write(struct.pack(b'<B', len(nonce)))
         self.fh.write(nonce)
+        
+        self.obj_size += len(nonce) + 1
     
     def write(self, data):
         '''Write *data*
@@ -636,6 +758,7 @@ class EncryptFilter(object):
         buf = self.cipher.process(buf)
         if buf:
             self.fh.write(buf)
+            self.obj_size += len(buf)
             
     def close(self):
         # Packet length of 0 indicates end of stream, only HMAC follows
@@ -643,7 +766,9 @@ class EncryptFilter(object):
         self.hmac.update(buf)
         buf = self.cipher.process(buf + self.hmac.digest())
         self.fh.write(buf)
+        self.obj_size += len(buf)
         self.fh.close()
+        self.closed = True
 
     def __enter__(self):
         return self
@@ -651,7 +776,13 @@ class EncryptFilter(object):
     def __exit__(self, *a):
         self.close()
         return False
-    
+        
+    def get_obj_size(self):
+        if not self.closed:
+            raise RuntimeError('Object must be closed first.')
+        return self.obj_size
+        
+        
 class DecryptFilter(AbstractInputFilter):
     '''Decrypt data while reading
     
@@ -1028,7 +1159,7 @@ def get_bucket_factory(options, plain=False):
     if hasattr(options, 'compress'):
         compress = options.compress
     else:
-        compress = 'zlib'
+        compress = None
             
     if not encrypted:
         return lambda: BetterBucket(None, compress, 

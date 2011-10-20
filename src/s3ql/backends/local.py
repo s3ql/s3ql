@@ -8,14 +8,14 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from .common import AbstractBucket, NoSuchBucket, NoSuchObject
+from .common import AbstractBucket, NoSuchBucket, NoSuchObject, ChecksumError
+from ..common import BUFSIZE
 import shutil
 import logging
 import cPickle as pickle
 import os
 import errno
 import thread
-from s3ql.backends.common import ChecksumError
 
 log = logging.getLogger("backend.local")
 
@@ -40,6 +40,11 @@ class Bucket(AbstractBucket):
     def __str__(self):
         return 'local://%s' % self.name
 
+    def is_temp_failure(self, exc): #IGNORE:W0613
+        '''Return true if exc indicates a temporary error'''
+        
+        return False
+    
     def lookup(self, key):
         """Return metadata for given key.
 
@@ -87,11 +92,18 @@ class Bucket(AbstractBucket):
             raise
         return fh
     
-    def open_write(self, key, metadata=None):
+    def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
         `metadata` can be a dict of additional attributes to store with the
-        object. Returns a file-like object.
+        object. Returns a file-like object. The object must be closed
+        explicitly. After closing, the *get_obj_size* may be used to retrieve
+        the size of the stored object (which may differ from the size of the
+        written data).
+        
+        The *is_compressed* parameter indicates that the caller is going
+        to write compressed data, and may be used to avoid recompression
+        by the bucket.           
         """
         
         if metadata is None:
@@ -105,7 +117,7 @@ class Bucket(AbstractBucket):
         tmpname = '%s#%d-%d' % (path, os.getpid(), thread.get_ident()) 
         
         try:
-            dest = open(tmpname, 'wb')
+            dest = ObjectW(tmpname)
         except IOError as exc:
             if exc.errno != errno.ENOENT:
                 raise
@@ -117,7 +129,7 @@ class Bucket(AbstractBucket):
                 else:
                     # Another thread may have created the directory already
                     pass
-            dest = open(tmpname, 'wb', 0)
+            dest = ObjectW(tmpname)
             
         os.rename(tmpname, path)
         pickle.dump(metadata, dest, 2)
@@ -240,7 +252,7 @@ class Bucket(AbstractBucket):
         
         try:
             with open(path_src, 'rb') as src:
-                shutil.copyfileobj(src, dest)
+                shutil.copyfileobj(src, dest, BUFSIZE)
         except IOError as exc:
             if exc.errno == errno.ENOENT:
                 raise NoSuchObject(src)
@@ -317,3 +329,37 @@ class ObjectR(file):
     def __init__(self, name, metadata=None):
         super(ObjectR, self).__init__(name, 'rb', buffering=0)
         self.metadata = metadata     
+        
+class ObjectW(object):
+    '''A local storage object opened for writing'''
+    
+    def __init__(self, name):
+        super(ObjectW, self).__init__()
+        self.fh = open(name, 'wb', 0)
+        self.obj_size = 0
+        self.closed = False
+        
+    def write(self, buf):
+        '''Write object data'''
+        
+        self.fh.write(buf)
+        self.obj_size += len(buf)
+   
+    def close(self):
+        '''Close object and upload data'''
+        
+        self.fh.close()
+        self.closed = True
+          
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *a):
+        self.close()
+        return False
+    
+    def get_obj_size(self):
+        if not self.closed:
+            raise RuntimeError('Object must be closed first.')
+        return self.obj_size   
+    

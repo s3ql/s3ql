@@ -8,7 +8,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from .common import AbstractBucket, NoSuchObject
+from .common import AbstractBucket, NoSuchObject, retry
+from ..common import BUFSIZE
 import logging
 import httplib
 import re
@@ -19,9 +20,7 @@ import hashlib
 import tempfile
 import urllib
 import xml.etree.cElementTree as ElementTree
-import os
 import errno
-from functools import wraps
 
 log = logging.getLogger("backend.s3")
 
@@ -29,50 +28,6 @@ C_DAY_NAMES = [ 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ]
 C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ]
     
 XML_CONTENT_RE = re.compile('^application/xml(?:;\s+|$)', re.IGNORECASE)
-
-RETRY_TIMEOUT=60*60*24
-def retry(fn):
-    '''Decorator for retrying a method on some exceptions
-    
-    If the decorated method raises an exception for which the instance's
-    `_retry_on(exc)` method is true, the decorated method is called again at
-    increasing intervals. If this persists for more than *timeout* seconds,
-    the most-recently caught exception is re-raised.
-    '''
-    
-    @wraps(fn)
-    def wrapped(self, *a, **kw):    
-        interval = 1/50
-        waited = 0
-        while True:
-            try:
-                return fn(self, *a, **kw)
-            except Exception as exc:
-                # Access to protected member ok
-                #pylint: disable=W0212
-                if not self._retry_on(exc):
-                    raise
-                if waited > RETRY_TIMEOUT:
-                    log.error('%s.%s(*): Timeout exceeded, re-raising %r exception', 
-                            self.__class__.__name__, fn.__name__, exc)
-                    raise
-                
-                log.debug('%s.%s(*): trying again after %r exception:', 
-                          self.__class__.__name__, fn.__name__, exc)
-                
-            time.sleep(interval)
-            waited += interval
-            if interval < 20*60:
-                interval *= 2   
-                
-    # False positive
-    #pylint: disable=E1101
-    wrapped.__doc__ += '''
-This method has been decorated and will automatically recall itself in
-increasing intervals for up to s3ql.common.RETRY_TIMEOUT seconds if it raises an
-exception for which the instance's `_retry_on` method returns True.
-'''  
-    return wrapped 
 
 
 class Bucket(AbstractBucket):
@@ -119,9 +74,8 @@ class Bucket(AbstractBucket):
         '''Return connection to server'''
         
         return httplib.HTTPConnection('%s.s3.amazonaws.com' % self.bucket_name)          
-      
-    @staticmethod    
-    def is_temp_failure(exc):
+       
+    def is_temp_failure(self, exc): #IGNORE:W0613
         '''Return true if exc indicates a temporary error
     
         Return true if the given exception is used by this bucket's backend
@@ -134,7 +88,7 @@ class Bucket(AbstractBucket):
         be used to check for temporary problems and so that the request can
         be manually restarted if applicable.
         '''          
-    
+        
         if isinstance(exc, (InternalError, BadDigest, IncompleteBody, RequestTimeout,
                             OperationAborted, SlowDown, RequestTimeTooSkewed,
                             httplib.IncompleteRead)):
@@ -150,9 +104,7 @@ class Bucket(AbstractBucket):
             return True
         
         return False
-
-    _retry_on = is_temp_failure
-        
+     
     @retry
     def delete(self, key, force=False):
         '''Delete the specified object'''
@@ -246,7 +198,7 @@ class Bucket(AbstractBucket):
             except GeneratorExit:
                 # Need to read rest of response
                 while True:
-                    buf = resp.read(8192)
+                    buf = resp.read(BUFSIZE)
                     if buf == '':
                         break   
                 break               
@@ -305,13 +257,19 @@ class Bucket(AbstractBucket):
 
         return ObjectR(key, resp, self, extractmeta(resp))
     
-    def open_write(self, key, metadata=None):
+    def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
         `metadata` can be a dict of additional attributes to store with the
-        object. Returns a file-like object that must be closed when all data has
-        been written.
-        
+        object. Returns a file-like object. The object must be closed
+        explicitly. After closing, the *get_obj_size* may be used to retrieve
+        the size of the stored object (which may differ from the size of the
+        written data).
+
+        The *is_compressed* parameter indicates that the caller is going
+        to write compressed data, and may be used to avoid recompression
+        by the bucket.   
+                
         Since Amazon S3 does not support chunked uploads, the entire data will
         be buffered in memory before upload.
         """
@@ -364,7 +322,7 @@ class Bucket(AbstractBucket):
             raise NoSuchObject(src)
     
     def _do_request(self, method, url, subres=None, query_string=None,
-                    headers=None, body=None ):
+                    headers=None, body=None):
         '''Send request, read and return response object'''
         
         log.debug('_do_request(): start with parameters (%r, %r, %r, %r, %r, %r)', 
@@ -382,11 +340,11 @@ class Bucket(AbstractBucket):
         
         redirect_count = 0
         while True:
-            log.debug('_do_request(): sending request')
-            self.conn.request(method, full_url, body, headers)
-                                      
-            log.debug('_do_request(): Reading response')
             try:
+                log.debug('_do_request(): sending request')
+                self.conn.request(method, full_url, body, headers)
+                                      
+                log.debug('_do_request(): Reading response')            
                 resp = self.conn.getresponse()
             except:
                 # We probably can't use the connection anymore
@@ -403,7 +361,7 @@ class Bucket(AbstractBucket):
                 raise RuntimeError('Too many chained redirections')
             full_url = resp.getheader('Location')
             
-            log.debug('_do_request(): redirecting to %s', full_url)
+            log.info('_do_request(): redirected to %s', full_url)
             
             if body and not isinstance(body, bytes):
                 body.seek(0)
@@ -552,38 +510,24 @@ class ObjectR(object):
     def __exit__(self, *a):
         self.close()
         return False
-        
-    def _retry_on(self, exc):
-        return self.bucket._retry_on(exc) #IGNORE:W0212
     
-    @retry
     def close(self):
         '''Close object'''
-
-        # Access to protected member ok
-        #pylint: disable=W0212
         
         log.debug('ObjectR(%s).close(): start', self.key)        
         self.closed = True
 
         while True:
-            buf = self.read(8192)
+            buf = self.read(BUFSIZE)
             if buf == '':
                 break
 
         etag = self.resp.getheader('ETag').strip('"')
+        log.debug('ObjectR(%s).close(): md5sum/etag: %s', self.key, etag)        
         
         if etag != self.md5.hexdigest():
             log.warn('ObjectR(%s).close(): MD5 mismatch: %s vs %s', self.key, etag, self.md5.hexdigest())
             raise BadDigest('BadDigest', 'Received ETag does not agree with our calculations.')
-        
-    def __del__(self):
-        if not self.closed:
-            try:
-                self.close()
-            except:
-                pass
-            raise RuntimeError('ObjectR %s has been destroyed without calling close()!' % self.key)
     
 class ObjectW(object):
     '''An S3 object open for writing
@@ -597,6 +541,7 @@ class ObjectW(object):
         self.bucket = bucket
         self.headers = headers
         self.closed = False
+        self.obj_size = 0
         self.fh = tempfile.TemporaryFile(bufsize=0) # no Python buffering
         
         # False positive, hashlib *does* have md5 member
@@ -608,9 +553,10 @@ class ObjectW(object):
         
         self.fh.write(buf)
         self.md5.update(buf)
+        self.obj_size += len(buf)
        
-    def _retry_on(self, exc):
-        return self.bucket._retry_on(exc) #IGNORE:W0212
+    def is_temp_failure(self, exc):
+        return self.bucket.is_temp_failure(exc)
            
     @retry
     def close(self):
@@ -622,7 +568,7 @@ class ObjectW(object):
         log.debug('ObjectW(%s).close(): start', self.key)
         
         self.closed = True
-        self.headers['Content-Length'] = os.fstat(self.fh.fileno()).st_size
+        self.headers['Content-Length'] = self.obj_size
         
         self.fh.seek(0)
         resp = self.bucket._do_request('PUT', '/%s%s' % (self.bucket.prefix, self.key), 
@@ -634,14 +580,6 @@ class ObjectW(object):
             log.warn('ObjectW(%s).close(): MD5 mismatch (%s vs %s)', self.key, etag, 
                      self.md5.hexdigest)
             raise BadDigest('BadDigest', 'Received ETag does not agree with our calculations.')
-        
-    def __del__(self):
-        if not self.closed:
-            try:
-                self.close()
-            except:
-                pass
-            raise RuntimeError('ObjectW %s has been destroyed without calling close()!' % self.key)
           
     def __enter__(self):
         return self
@@ -649,7 +587,11 @@ class ObjectW(object):
     def __exit__(self, *a):
         self.close()
         return False
-    
+
+    def get_obj_size(self):
+        if not self.closed:
+            raise RuntimeError('Object must be closed first.')
+        return self.obj_size    
           
 def get_S3Error(code, msg):
     '''Instantiate most specific S3Error subclass'''

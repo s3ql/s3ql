@@ -8,12 +8,11 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from .backends.common import NoSuchObject
-from .common import ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh, get_path
+from .common import ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE
 from .database import NoSuchRowError
 from os.path import basename
 from random import randint
-from s3ql.backends.common import CompressFilter
-from s3ql.inode_cache import MIN_INODE, MAX_INODE, OutOfInodesError
+from .inode_cache import MIN_INODE, MAX_INODE, OutOfInodesError
 import apsw
 import logging
 import os
@@ -57,8 +56,7 @@ class Fsck(object):
         log.info('Creating temporary extra indices...')
         self.conn.execute('CREATE INDEX tmp1 ON blocks(obj_id)')
         self.conn.execute('CREATE INDEX tmp2 ON inode_blocks(block_id)')
-        self.conn.execute('CREATE INDEX tmp3 ON inodes(block_id)')
-        self.conn.execute('CREATE INDEX tmp4 ON contents(inode)')
+        self.conn.execute('CREATE INDEX tmp3 ON contents(inode)')
         try:
             self.check_foreign_keys()
             self.check_cache()
@@ -74,7 +72,7 @@ class Fsck(object):
             self.check_keylist()
         finally:
             log.info('Dropping temporary indices...')
-            for idx in ('tmp1', 'tmp2', 'tmp3', 'tmp4'):
+            for idx in ('tmp1', 'tmp2', 'tmp3'):
                 self.conn.execute('DROP INDEX %s' % idx)
     
     def log_error(self, *a, **kw):
@@ -153,15 +151,14 @@ class Fsck(object):
                 obj_id = self.conn.rowid('INSERT INTO objects (refcount) VALUES(1)')
                 block_id = self.conn.rowid('INSERT INTO blocks (refcount, hash, obj_id, size) '
                                            'VALUES(?, ?, ?, ?)', (1, hash_, obj_id, size))
-                with self.bucket.open_write('s3ql_data_%d' % obj_id) as dest:
+                def do_write(obj_fh):
                     fh.seek(0)
-                    shutil.copyfileobj(fh, dest)
-                
-                if isinstance(dest, CompressFilter):
-                    obj_size = dest.compr_size
-                else:
-                    obj_size = fh.tell()                    
-                self.conn.execute('UPDATE objects SET compr_size=? WHERE id=?', 
+                    shutil.copyfileobj(fh, obj_fh, BUFSIZE)
+                    return obj_fh
+                                        
+                obj_size = self.bucket.perform_write(do_write, 's3ql_data_%d' % obj_id).get_obj_size()
+
+                self.conn.execute('UPDATE objects SET size=? WHERE id=?', 
                                   (obj_size, obj_id))
     
             else:
@@ -169,31 +166,18 @@ class Fsck(object):
     
     
             try:
-                if blockno == 0:
-                    old_block_id = self.conn.get_val('SELECT block_id FROM inodes '
-                                                     'WHERE id=? AND block_id IS NOT NULL', (inode,))
-                else:                
-                    old_block_id = self.conn.get_val('SELECT block_id FROM inode_blocks '
-                                                     'WHERE inode=? AND blockno=?', (inode, blockno))
+                old_block_id = self.conn.get_val('SELECT block_id FROM inode_blocks '
+                                                 'WHERE inode=? AND blockno=?', (inode, blockno))
             except NoSuchRowError:
-                if blockno == 0:
-                    self.conn.execute('UPDATE inodes SET block_id=? WHERE id=?',
-                                      (block_id, inode))
-                else:
-                    self.conn.execute('INSERT INTO inode_blocks (block_id, inode, blockno) VALUES(?,?,?)',
-                                      (block_id, inode, blockno))
+                self.conn.execute('INSERT INTO inode_blocks (block_id, inode, blockno) VALUES(?,?,?)',
+                                  (block_id, inode, blockno))
             else:
-                if blockno == 0:
-                    self.conn.execute('UPDATE inodes SET block_id=? WHERE id=?',
-                                      (block_id, inode))                    
-                else:
-                    self.conn.execute('UPDATE inode_blocks SET block_id=? WHERE inode=? AND blockno=?',
-                                      (block_id, inode, blockno))
+                self.conn.execute('UPDATE inode_blocks SET block_id=? WHERE inode=? AND blockno=?',
+                                  (block_id, inode, blockno))
     
                 # We just decrease the refcount, but don't take any action
                 # because the reference count might be wrong 
-                self.conn.execute('UPDATE blocks SET refcount=refcount-1 WHERE id=?',
-                                  (old_block_id,))
+                self.conn.execute('UPDATE blocks SET refcount=refcount-1 WHERE id=?', (old_block_id,))
                 self.unlinked_blocks.add(old_block_id)
                 
                 fh.close()
@@ -288,7 +272,7 @@ class Fsck(object):
             self.conn.execute('''
             INSERT INTO min_sizes (id, min_size) 
             SELECT inode, MAX(blockno * ? + size) 
-            FROM inode_blocks_v JOIN blocks ON block_id == blocks.id 
+            FROM inode_blocks JOIN blocks ON block_id == blocks.id 
             GROUP BY inode''', (self.blocksize,))
             
             self.conn.execute('''
@@ -380,7 +364,7 @@ class Fsck(object):
             self.conn.execute('''
                INSERT INTO refcounts (id, refcount) 
                  SELECT block_id, COUNT(blockno)  
-                 FROM inode_blocks_v
+                 FROM inode_blocks
                  GROUP BY block_id
             ''')
             
@@ -411,7 +395,9 @@ class Fsck(object):
                     size = self.conn.get_val('SELECT size FROM blocks WHERE id=?', (id_,))
                     inode = self.create_inode(mode=stat.S_IFREG|stat.S_IRUSR|stat.S_IWUSR|stat.S_IXUSR,
                                               mtime=timestamp, atime=timestamp, ctime=timestamp, 
-                                              refcount=1, block_id=id_, size=size)
+                                              refcount=1, size=size)
+                    self.conn.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
+                                      (inode, 0, id_))
                     self.conn.execute("INSERT INTO contents (name_id, inode, parent_inode) VALUES (?,?,?)", 
                                       (self._add_name(basename(name)), inode, id_p))
                     self.conn.execute("UPDATE blocks SET refcount=? WHERE id=?", (1, id_))
@@ -428,16 +414,15 @@ class Fsck(object):
                     
     def create_inode(self, mode, uid=os.getuid(), gid=os.getgid(),
                      mtime=None, atime=None, ctime=None, refcount=None,
-                     block_id=None, size=0):
+                     size=0):
         '''Create inode with id fitting into 32bit'''
         
         for _ in range(100):
             id_ = randint(MIN_INODE, MAX_INODE)
             try:
                 self.conn.execute('INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,'
-                                  'refcount,block_id,size) VALUES (?,?,?,?,?,?,?,?,?,?)',
-                                   (id_, mode, uid, gid, mtime, atime, ctime, refcount,
-                                    block_id, size))
+                                  'refcount,size) VALUES (?,?,?,?,?,?,?,?,?)',
+                                   (id_, mode, uid, gid, mtime, atime, ctime, refcount, size))
             except apsw.ConstraintError:
                 pass
             else:
@@ -543,9 +528,7 @@ class Fsck(object):
                                inode, get_path(inode, self.conn))
     
             if (not stat.S_ISREG(mode) and 
-                self.conn.has_val('SELECT 1 FROM inode_blocks WHERE inode=? '
-                                  'UNION SELECT 1 FROM inodes WHERE id=? '
-                                  'AND block_id IS NOT NULL', (inode, inode))):
+                self.conn.has_val('SELECT 1 FROM inode_blocks WHERE inode=?', (inode,))):
                 self.found_errors = True
                 self.log_error('Inode %d (%s) is not a regular file but has data blocks. '
                                'This is probably going to confuse your system!',
@@ -648,11 +631,7 @@ class Fsck(object):
                 self.log_error("object %s only exists in table but not in bucket, deleting", obj_id)
                 
                 for (id_,) in self.conn.query('SELECT inode FROM inode_blocks JOIN blocks ON block_id = id '
-                                              'WHERE obj_id=? '
-                                              'UNION '
-                                              'SELECT inodes.id FROM inodes JOIN blocks ON block_id = blocks.id '
-                                              'WHERE obj_id=? AND block_id IS NOT NULL',
-                                              (obj_id, obj_id)):
+                                              'WHERE obj_id=? ', (obj_id,)):
 
                     # Same file may lack several blocks, but we want to move it 
                     # only once
@@ -675,7 +654,6 @@ class Fsck(object):
                 # Unlink missing blocks
                 for (block_id,) in self.conn.query('SELECT id FROM blocks WHERE obj_id=?', (obj_id,)):
                     self.conn.execute('DELETE FROM inode_blocks WHERE block_id=?', (block_id,))
-                    self.conn.execute('UPDATE inodes SET block_id = NULL WHERE block_id=?', (block_id,))
                     
                 self.conn.execute("DELETE FROM blocks WHERE obj_id=?", (obj_id,))
                 self.conn.execute("DELETE FROM objects WHERE id=?", (obj_id,))

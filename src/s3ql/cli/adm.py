@@ -14,7 +14,7 @@ from s3ql import CURRENT_FS_REV
 from s3ql.backends.common import (BetterBucket, get_bucket, NoSuchBucket, 
     ChecksumError, AbstractBucket, NoSuchObject)
 from s3ql.backends.local import Bucket as LocalBucket, ObjectR, unescape, escape
-from s3ql.common import (QuietError, restore_metadata, cycle_metadata, 
+from s3ql.common import (QuietError, restore_metadata, cycle_metadata, BUFSIZE,
     dump_metadata, create_tables, setup_logging, get_bucket_cachedir)
 from s3ql.database import Connection
 from s3ql.fsck import Fsck
@@ -34,7 +34,6 @@ import tempfile
 import textwrap
 import time
 
-
 log = logging.getLogger("adm")
 
 def parse_args(args):
@@ -50,7 +49,7 @@ def parse_args(args):
                Hint: run `%(prog)s --help` to get help on other available actions and
                optional arguments that can be used with all actions.'''))
     pparser.add_storage_url()
-    
+        
     subparsers = parser.add_subparsers(metavar='<action>', dest='action',
                                        help='may be either of') 
     subparsers.add_parser("passphrase", help="change bucket passphrase", 
@@ -97,7 +96,8 @@ def main(args=None):
                      get_bucket_cachedir(options.storage_url, options.cachedir))
     
     if options.action == 'upgrade':
-        return upgrade(get_possibly_old_bucket(options))
+        return upgrade(get_possibly_old_bucket(options),
+                       get_bucket_cachedir(options.storage_url, options.cachedir))
         
     bucket = get_bucket(options)
     
@@ -143,15 +143,15 @@ def download_metadata(bucket, storage_url):
         if os.path.exists(cachepath + i):
             raise QuietError('%s already exists, aborting.' % cachepath+i)
     
-    os.close(os.open(cachepath + '.db', os.O_RDWR | os.O_CREAT,
-                     stat.S_IRUSR | stat.S_IWUSR), 'w+b')
     param = bucket.lookup(name)
     try:
-        db = Connection(cachepath + '.db')
         log.info('Reading metadata...')
-        with bucket.open_read(name) as fh:
+        def do_read(fh):
+            os.close(os.open(cachepath + '.db', os.O_RDWR | os.O_CREAT,
+                             stat.S_IRUSR | stat.S_IWUSR), 'w+b')            
+            db = Connection(cachepath + '.db')
             restore_metadata(fh, db)
-        restore_metadata(fh, db)
+        bucket.perform_read(do_read, name)
     except:
         # Don't keep file if it doesn't contain anything sensible
         os.unlink(cachepath + '.db')
@@ -308,13 +308,11 @@ def get_possibly_old_bucket(options, plain=False):
     return lambda: BetterBucket(data_pw, compress, 
                                 bucket_class(bucket_name, backend_login, backend_pw))
     
-def upgrade(bucket_factory):
+def upgrade(bucket_factory, cachepath):
     '''Upgrade file system to newest revision'''
 
     bucket = bucket_factory()
     
-    # Access to protected member
-    #pylint: disable=W0212
     log.info('Getting file system parameters..')
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
     seq_no = max(seq_nos)
@@ -325,8 +323,20 @@ def upgrade(bucket_factory):
             You need to use an older S3QL version to upgrade to a more recent
             revision before you can use this version to upgrade to the newest
             revision.
-            '''))                     
-    param = bucket.lookup('s3ql_metadata')
+            '''))
+        
+    # Check for cached metadata
+    db = None
+    if os.path.exists(cachepath + '.params'):
+        param = pickle.load(open(cachepath + '.params', 'rb'))
+        if param['seq_no'] < seq_no:
+            log.info('Ignoring locally cached metadata (outdated).')
+            param = bucket.lookup('s3ql_metadata')
+        else:
+            log.info('Using cached metadata.')
+            db = Connection(cachepath + '.db')
+    else:
+        param = bucket.lookup('s3ql_metadata')
 
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:
@@ -350,7 +360,7 @@ def upgrade(bucket_factory):
         raise QuietError("File system damaged, run fsck!")
     
     # Check revision
-    if param['revision'] < CURRENT_FS_REV - 1:
+    if param['revision'] < CURRENT_FS_REV - 2:
         raise QuietError(textwrap.dedent(''' 
             File system revision too old to upgrade!
             
@@ -382,9 +392,120 @@ def upgrade(bucket_factory):
     if sys.stdin.readline().strip().lower() != 'yes':
         raise QuietError()
 
-    log.info('Upgrading from revision %d to %d...', CURRENT_FS_REV - 1,
+    log.info('Upgrading from revision %d to %d...', param['revision'],
              CURRENT_FS_REV)
     
+    if param['revision'] == CURRENT_FS_REV - 1:
+        upgrade_once(bucket, cachepath, db, param)
+    else:
+        upgrade_twice(bucket, cachepath, db, param, bucket_factory)
+  
+def restore_legacy_metadata2(ifh, conn):
+
+    # Unpickling is terribly slow if fh is not a real file object.
+    if not hasattr(ifh, 'fileno'):
+        with tempfile.TemporaryFile() as tmp:
+            shutil.copyfileobj(ifh, tmp, BUFSIZE)
+            tmp.seek(0)
+            return restore_legacy_metadata2(tmp, conn)
+    
+    unpickler = pickle.Unpickler(ifh)
+    (to_dump, columns) = unpickler.load()
+    create_tables(conn)
+    conn.execute('DROP TABLE inodes')
+    conn.execute("""
+    CREATE TABLE inodes (
+        id        INTEGER PRIMARY KEY,
+        uid       INT NOT NULL,
+        gid       INT NOT NULL,
+        mode      INT NOT NULL,
+        mtime     REAL NOT NULL,
+        atime     REAL NOT NULL,
+        ctime     REAL NOT NULL,
+        refcount  INT NOT NULL,
+        size      INT NOT NULL DEFAULT 0,
+        rdev      INT NOT NULL DEFAULT 0,
+        locked    BOOLEAN NOT NULL DEFAULT 0,
+        block_id  INT REFERENCES blocks(id)
+    )""")
+        
+    for (table, _) in to_dump:
+        log.info('Loading %s', table)
+        if table == 'objects':
+            columns[table][columns[table].index('compr_size')] = 'size'
+        col_str = ', '.join(columns[table])
+        val_str = ', '.join('?' for _ in columns[table])
+        sql_str = 'INSERT INTO %s (%s) VALUES(%s)' % (table, col_str, val_str)
+        while True:
+            buf = unpickler.load()
+            if not buf:
+                break
+            for row in buf:
+                conn.execute(sql_str, row)
+                        
+def upgrade_once(bucket, cachepath, db, param):
+        
+    # Download metadata
+    if not db:
+        log.info("Downloading & uncompressing metadata...")
+        def do_read(fh):
+            os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                             stat.S_IRUSR | stat.S_IWUSR)) 
+            db = Connection(cachepath + '.db.tmp', fast_mode=True)
+            restore_legacy_metadata2(fh, db)
+            db.close()
+        bucket.perform_read(do_read, "s3ql_metadata") 
+        os.rename(cachepath + '.db.tmp', cachepath + '.db')
+        db = Connection(cachepath + '.db')
+    else:
+        db.execute('ALTER TABLE objects RENAME TO leg_objects')
+        db.execute("""
+        CREATE TABLE objects (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            refcount  INT NOT NULL, 
+            size      INT  
+        )""")
+        db.execute('INSERT INTO objects (id, refcount, size) '
+                   'SELECT id, refcount, compr_size FROM leg_objects')
+        db.execute('DROP TABLE leg_objects')
+        
+    db.execute('ALTER TABLE inodes RENAME TO leg_inodes')
+    db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) '
+               'SELECT id, 0, block_id FROM leg_inodes WHERE block_id IS NOT NULL')
+    db.execute("""
+    CREATE TABLE inodes (
+        id        INTEGER PRIMARY KEY,
+        uid       INT NOT NULL,
+        gid       INT NOT NULL,
+        mode      INT NOT NULL,
+        mtime     REAL NOT NULL,
+        atime     REAL NOT NULL,
+        ctime     REAL NOT NULL,
+        refcount  INT NOT NULL,
+        size      INT NOT NULL DEFAULT 0,
+        rdev      INT NOT NULL DEFAULT 0,
+        locked    BOOLEAN NOT NULL DEFAULT 0
+    )""")
+    db.execute('insert into inodes (id,uid,gid,mode,mtime,atime,ctime,refcount,size,rdev,locked) '
+               'select id,uid,gid,mode,mtime,atime,ctime,refcount,size,rdev,locked '
+               'FROM leg_inodes')
+    db.execute('DROP TABLE leg_inodes')
+                      
+    param['seq_no'] += 1
+    bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
+    param['revision'] = CURRENT_FS_REV
+    param['last-modified'] = time.time() - time.timezone
+    pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+    cycle_metadata(bucket)
+    bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", 
+                         metadata=param, is_compressed=True) 
+     
+    db.execute('ANALYZE')
+    db.execute('VACUUM')        
+        
+
+def upgrade_twice(bucket, cachepath, db, param, bucket_factory):
+            
     if 's3ql_hash_check_status' not in bucket:        
         if (isinstance(bucket, LegacyLocalBucket) or
             (isinstance(bucket, BetterBucket) and
@@ -407,7 +528,7 @@ def upgrade(bucket_factory):
                     with open(os.path.join(path, name), 'r+b') as dst:
                         dst.seek(0, os.SEEK_END)
                         with open(os.path.join(path, basename + '.dat'), 'rb') as src:
-                            shutil.copyfileobj(src, dst)
+                            shutil.copyfileobj(src, dst, BUFSIZE)
                     
                     basename = basename.replace('#', '=23')
                     os.rename(os.path.join(path, name),
@@ -422,40 +543,48 @@ def upgrade(bucket_factory):
             return
                          
         # Download metadata
-        log.info("Downloading & uncompressing metadata...")
-        dbfile = tempfile.NamedTemporaryFile()
-        with tempfile.TemporaryFile() as tmp:    
-            with bucket.open_read("s3ql_metadata") as fh:
-                shutil.copyfileobj(fh, tmp)
-        
-            db = Connection(dbfile.name, fast_mode=True)
-            tmp.seek(0)
-            restore_legacy_metadata(tmp, db)
-    
-        # Increase metadata sequence no
+        if not db:
+            log.info("Downloading & uncompressing metadata...")
+            with tempfile.TemporaryFile() as tmp:    
+                def do_read(fh):
+                    tmp.seek(0)
+                    tmp.truncate()
+                    shutil.copyfileobj(fh, tmp, BUFSIZE)
+                bucket.perform_read(do_read, "s3ql_metadata")
+                os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                                 stat.S_IRUSR | stat.S_IWUSR)) 
+                db = Connection(cachepath + '.db.tmp', fast_mode=True)
+                tmp.seek(0)
+                restore_legacy_metadata(tmp, db)
+                db.close()
+                os.rename(cachepath + '.db.tmp', cachepath + '.db')
+                db = Connection(cachepath + '.db')
+                        
+        log.info('Upgrading metadata..')
+        upgrade_metadata(db)
+
         param['seq_no'] += 1
         bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
-        for i in seq_nos:
-            if i < param['seq_no'] - 5:
-                del bucket['s3ql_seq_no_%d' % i ]
-    
-        log.info("Uploading database..")
-        cycle_metadata(bucket)
         param['last-modified'] = time.time() - time.timezone
-        with bucket.open_write("s3ql_metadata", param) as fh:
-            dump_metadata(fh, db)
-            
-    else:
-        log.info("Downloading & uncompressing metadata...")
-        dbfile = tempfile.NamedTemporaryFile()
-        with tempfile.TemporaryFile() as tmp:    
-            with bucket.open_read("s3ql_metadata") as fh:
-                shutil.copyfileobj(fh, tmp)
+        pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+        cycle_metadata(bucket)
+        bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata",
+                             metadata=param, is_compressed=True) 
         
-            db = Connection(dbfile.name, fast_mode=True)
-            tmp.seek(0)
-            restore_metadata(tmp, db)        
-
+        db.execute('ANALYZE')
+        db.execute('VACUUM')        
+        
+    elif not db: # Metadata must have been already updated
+        def do_read(fh):
+            os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                             stat.S_IRUSR | stat.S_IWUSR)) 
+            db = Connection(cachepath + '.db.tmp', fast_mode=True)
+            restore_metadata(fh, db)
+            db.close()
+        bucket.perform_read(do_read, "s3ql_metadata") 
+        os.rename(cachepath + '.db.tmp', cachepath + '.db')
+        db = Connection(cachepath + '.db')
+            
     print(textwrap.dedent('''
         The following process may take a long time, but can be interrupted
         with Ctrl-C and resumed from this point by calling `s3qladm upgrade`
@@ -464,14 +593,14 @@ def upgrade(bucket_factory):
 
     if 's3ql_hash_check_status' not in bucket:
         log.info("Starting hash verification..")
-        start_obj = 0
-        bucket['s3ql_hash_check_status'] = '%d' % start_obj
+        obj_id = 0
+        bucket['s3ql_hash_check_status'] = '%d' % obj_id
     else:
-        start_obj = int(bucket['s3ql_hash_check_status'])
-        log.info("Resuming hash verification with object %d..", start_obj)
+        obj_id = int(bucket['s3ql_hash_check_status'])
+        log.info("Resuming hash verification with object %d..", obj_id)
     
     try:
-        total = db.get_val('SELECT COUNT(id) FROM objects WHERE id > ?', (start_obj,))
+        total = db.get_val('SELECT COUNT(id) FROM objects WHERE id > ?', (obj_id,))
         i = 0
         queue = Queue(1)
         queue.error = None
@@ -489,10 +618,10 @@ def upgrade(bucket_factory):
             t.start()
             threads.append(t)
             
-        for tmp in db.query('SELECT obj_id, hash FROM blocks JOIN objects '
-                            'ON obj_id == objects.id WHERE obj_id > ? '
-                            'ORDER BY obj_id ASC', (start_obj,)):
-            queue.put(tmp)
+        for (obj_id, hash_) in db.query('SELECT obj_id, hash FROM blocks JOIN objects '
+                                        'ON obj_id == objects.id WHERE obj_id > ? '
+                                        'ORDER BY obj_id ASC', (obj_id,)):
+            queue.put((obj_id, hash_))
             i += 1
             if i % 100 == 0:
                 log.info(' ..checked %d/%d objects..', i, total)      
@@ -511,16 +640,16 @@ def upgrade(bucket_factory):
             queue.put(None)
         for t in threads:
             t.join()
-        bucket['s3ql_hash_check_status'] = '%d' % tmp[0]
+        bucket['s3ql_hash_check_status'] = '%d' % obj_id
         raise QuietError('Aborting..')
 
     except:
         log.info("Storing verification status...")
-        bucket['s3ql_hash_check_status'] = '%d' % tmp[0]
+        bucket['s3ql_hash_check_status'] = '%d' % obj_id
         raise
         
     log.info('Running fsck...')
-    bucket['s3ql_hash_check_status'] = '%d' % tmp[0]
+    bucket['s3ql_hash_check_status'] = '%d' % obj_id
     fsck = Fsck(tempfile.mkdtemp(), bucket, param, db)
     fsck.check()    
     
@@ -530,14 +659,11 @@ def upgrade(bucket_factory):
     param['revision'] = CURRENT_FS_REV
     param['seq_no'] += 1
     bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
-
-    log.info("Uploading database..")
-    cycle_metadata(bucket)
     param['last-modified'] = time.time() - time.timezone
-    with bucket.open_write("s3ql_metadata", param) as fh:
-        dump_metadata(fh, db)
+    pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+    bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", 
+                         metadata=param, is_compressed=True) 
                 
-        
 def check_hash(queue, bucket):
     
     try:
@@ -548,14 +674,18 @@ def check_hash(queue, bucket):
                   
             (obj_id, hash_) = tmp
               
-            sha = hashlib.sha256()
+            
+            def do_read(fh):
+                sha = hashlib.sha256()
+                while True:
+                    buf = fh.read(BUFSIZE)
+                    if not buf:
+                        break
+                    sha.update(buf)
+                return sha           
             try:
-                with bucket.open_read("s3ql_data_%d" % obj_id) as fh:
-                    while True:
-                        buf = fh.read(128*1024)
-                        if not buf:
-                            break
-                        sha.update(buf)
+                sha = bucket.perform_read(do_read, "s3ql_data_%d" % obj_id)
+    
             except ChecksumError:
                 log.warn('Object %d corrupted! Deleting..', obj_id)
                 bucket.delete('s3ql_data_%d' % obj_id)
@@ -576,61 +706,51 @@ def restore_legacy_metadata(ifh, conn):
     unpickler = pickle.Unpickler(ifh)
     (data_start, to_dump, sizes, columns) = unpickler.load()
     ifh.seek(data_start)
-    create_tables(conn)
     create_legacy_tables(conn)
     for (table, _) in to_dump:
         log.info('Loading %s', table)
         col_str = ', '.join(columns[table])
         val_str = ', '.join('?' for _ in columns[table])
-        if table in ('inodes', 'blocks', 'objects', 'contents'):
-            sql_str = 'INSERT INTO leg_%s (%s) VALUES(%s)' % (table, col_str, val_str)
-        else:
-            sql_str = 'INSERT INTO %s (%s) VALUES(%s)' % (table, col_str, val_str)
+        sql_str = 'INSERT INTO %s (%s) VALUES(%s)' % (table, col_str, val_str)
         for _ in xrange(sizes[table]):
             buf = unpickler.load()
             for row in buf:
                 conn.execute(sql_str, row)
 
+def upgrade_metadata(conn):
+    for table in ('inodes', 'blocks', 'objects', 'contents', 'ext_attributes'):
+        conn.execute('ALTER TABLE %s RENAME TO leg_%s' % (table, table))
+              
+    create_tables(conn)
+        
+    conn.execute('DROP TABLE ext_attributes')
+    conn.execute('ALTER TABLE leg_ext_attributes RENAME TO ext_attributes')
+    
     # Create a block for each object
     conn.execute('''
          INSERT INTO blocks (id, hash, refcount, obj_id, size)
             SELECT id, hash, refcount, id, size FROM leg_objects
     ''')
     conn.execute('''
-         INSERT INTO objects (id, refcount, compr_size)
+         INSERT INTO objects (id, refcount, size)
             SELECT id, 1, compr_size FROM leg_objects
     ''')
     conn.execute('DROP TABLE leg_objects')
               
-    # Create new inode_blocks table for inodes with multiple blocks
-    conn.execute('''
-         CREATE TEMP TABLE multi_block_inodes AS 
-            SELECT inode FROM leg_blocks
-            GROUP BY inode HAVING COUNT(inode) > 1
-    ''')    
+    # Create new inode_blocks table
     conn.execute('''
          INSERT INTO inode_blocks (inode, blockno, block_id)
             SELECT inode, blockno, obj_id 
-            FROM leg_blocks JOIN multi_block_inodes USING(inode)
+            FROM leg_blocks 
     ''')
     
-    # Create new inodes table for inodes with multiple blocks
+    # Create new inodes table 
     conn.execute('''
         INSERT INTO inodes (id, uid, gid, mode, mtime, atime, ctime, 
-                            refcount, size, rdev, locked, block_id)
+                            refcount, size, rdev, locked)
                SELECT id, uid, gid, mode, mtime, atime, ctime, 
-                      refcount, size, rdev, locked, NULL
-               FROM leg_inodes JOIN multi_block_inodes ON inode == id 
-            ''')
-    
-    # Add inodes with just one block or no block
-    conn.execute('''
-        INSERT INTO inodes (id, uid, gid, mode, mtime, atime, ctime, 
-                            refcount, size, rdev, locked, block_id)
-               SELECT id, uid, gid, mode, mtime, atime, ctime, 
-                      refcount, size, rdev, locked, obj_id
-               FROM leg_inodes LEFT JOIN leg_blocks ON leg_inodes.id == leg_blocks.inode 
-               GROUP BY leg_inodes.id HAVING COUNT(leg_inodes.id) <= 1  
+                      refcount, size, rdev, locked
+               FROM leg_inodes
             ''')
     
     conn.execute('''
@@ -657,7 +777,7 @@ def restore_legacy_metadata(ifh, conn):
     
 def create_legacy_tables(conn):
     conn.execute("""
-    CREATE TABLE leg_inodes (
+    CREATE TABLE inodes (
         id        INTEGER PRIMARY KEY,
         uid       INT NOT NULL,
         gid       INT NOT NULL,
@@ -673,7 +793,7 @@ def create_legacy_tables(conn):
     )
     """)    
     conn.execute("""
-    CREATE TABLE leg_objects (
+    CREATE TABLE objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
         refcount  INT NOT NULL,
         hash      BLOB(16) UNIQUE,
@@ -681,14 +801,14 @@ def create_legacy_tables(conn):
         compr_size INT                  
     )""")
     conn.execute("""
-    CREATE TABLE leg_blocks (
+    CREATE TABLE blocks (
         inode     INTEGER NOT NULL REFERENCES leg_inodes(id),
         blockno   INT NOT NULL,
         obj_id    INTEGER NOT NULL REFERENCES leg_objects(id),
         PRIMARY KEY (inode, blockno)
     )""")
     conn.execute("""
-    CREATE TABLE leg_contents (
+    CREATE TABLE contents (
         rowid     INTEGER PRIMARY KEY AUTOINCREMENT,
         name      BLOB(256) NOT NULL,
         inode     INT NOT NULL REFERENCES leg_inodes(id),
@@ -696,15 +816,16 @@ def create_legacy_tables(conn):
         
         UNIQUE (name, parent_inode)
     )""")
-        
-def create_legacy_indices(conn):
-    conn.execute('CREATE INDEX ix_leg_contents_parent_inode ON contents(parent_inode)')
-    conn.execute('CREATE INDEX ix_leg_contents_inode ON contents(inode)')
-    conn.execute('CREATE INDEX ix_leg_objects_hash ON objects(hash)')
-    conn.execute('CREATE INDEX ix_leg_blocks_obj_id ON blocks(obj_id)')
-    conn.execute('CREATE INDEX ix_leg_blocks_inode ON blocks(inode)')
-
-
+    conn.execute("""
+    CREATE TABLE ext_attributes (
+        inode     INTEGER NOT NULL REFERENCES inodes(id),
+        name      BLOB NOT NULL,
+        value     BLOB NOT NULL,
+ 
+        PRIMARY KEY (inode, name)               
+    )""")
+    
+    
 class LegacyLocalBucket(AbstractBucket):
     needs_login = False
     
@@ -725,6 +846,9 @@ class LegacyLocalBucket(AbstractBucket):
             else:
                 raise
 
+    def is_temp_failure(self, exc):
+        return False
+    
     def open_read(self, key):
         path = self._key_to_path(key)
         try:
@@ -739,7 +863,7 @@ class LegacyLocalBucket(AbstractBucket):
         
         return fh
     
-    def open_write(self, key, metadata=None):
+    def open_write(self, key, metadata=None, is_compressed=False):
         raise RuntimeError('Not implemented')
 
     def clear(self):

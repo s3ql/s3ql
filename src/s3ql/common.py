@@ -12,11 +12,14 @@ import cPickle as pickle
 import hashlib
 import logging
 import os
-import shutil
 import stat
 import sys
 import tempfile
 import time
+import lzma
+
+# Buffer size when writing objects
+BUFSIZE = 256 * 1024
 
 log = logging.getLogger('common')
         
@@ -124,6 +127,7 @@ def get_seq_no(bucket):
 def cycle_metadata(bucket):
     from .backends.common import NoSuchObject
     
+    log.info('Backing up old metadata...')
     for i in reversed(range(10)):
         try:
             bucket.copy("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
@@ -133,7 +137,11 @@ def cycle_metadata(bucket):
     bucket.copy("s3ql_metadata", "s3ql_metadata_bak_0")             
 
 def dump_metadata(ofh, conn):
-    pickler = pickle.Pickler(ofh, 2)
+    
+    log.info('Dumping metadata...')
+    # First write everything into temporary file
+    tmp = tempfile.TemporaryFile()
+    pickler = pickle.Pickler(tmp, 2)
     bufsize = 256
     buf = range(bufsize)
     tables_to_dump = [('objects', 'id'), ('blocks', 'id'),
@@ -151,7 +159,7 @@ def dump_metadata(ofh, conn):
     pickler.dump((tables_to_dump, columns))
     
     for (table, order) in tables_to_dump:
-        log.info('Saving %s' % table)
+        log.info('..%s..' % table)
         pickler.clear_memo()
         i = 0
         for row in conn.query('SELECT %s FROM %s ORDER BY %s' 
@@ -168,22 +176,46 @@ def dump_metadata(ofh, conn):
         
         pickler.dump(None)
 
+    # Then compress and send
+    log.info("Compressing and uploading metadata...")
+    compr = lzma.LZMACompressor(options={ 'level': 7 })
+    tmp.seek(0)
+    while True:
+        buf = tmp.read(BUFSIZE)
+        if not buf:
+            break
+        buf = compr.compress(buf)
+        if buf:
+            ofh.write(buf)
+    buf = compr.flush()
+    if buf:
+        ofh.write(buf)
+    del compr # Free memory ASAP, LZMA level 7 needs 186 MB
+    tmp.close()
 
 def restore_metadata(ifh, conn):
 
-    # Unpickling is terribly slow if fh is not a real file
-    # object.
-    if not hasattr(ifh, 'fileno'):
-        with tempfile.TemporaryFile() as tmp:
-            shutil.copyfileobj(ifh, tmp)
-            tmp.seek(0)
-            return restore_metadata(tmp, conn)
-    
-    unpickler = pickle.Unpickler(ifh)
+    # Note: unpickling is terribly slow if fh is not a real file object, so
+    # uncompressing to a temporary file also gives a performance boost
+    log.info('Downloading and decompressing metadata...')
+    tmp = tempfile.TemporaryFile()
+    decompressor = lzma.LZMADecompressor()
+    while True:
+        buf = ifh.read(BUFSIZE)
+        if not buf:
+            break
+        buf = decompressor.decompress(buf)
+        if buf:
+            tmp.write(buf)
+    del decompressor
+    tmp.seek(0) 
+
+    log.info("Reading metadata...")
+    unpickler = pickle.Unpickler(tmp)
     (to_dump, columns) = unpickler.load()
     create_tables(conn)
     for (table, _) in to_dump:
-        log.info('Loading %s', table)
+        log.info('..%s..', table)
         col_str = ', '.join(columns[table])
         val_str = ', '.join('?' for _ in columns[table])
         sql_str = 'INSERT INTO %s (%s) VALUES(%s)' % (table, col_str, val_str)
@@ -194,6 +226,7 @@ def restore_metadata(ifh, conn):
             for row in buf:
                 conn.execute(sql_str, row)
 
+    tmp.close()
     conn.execute('ANALYZE')
     
 class QuietError(Exception):
@@ -312,7 +345,7 @@ def sha256_fh(fh):
     sha = hashlib.sha256()
 
     while True:
-        buf = fh.read(128 * 1024)
+        buf = fh.read(BUFSIZE)
         if not buf:
             break
         sha.update(buf)
@@ -351,7 +384,7 @@ def create_tables(conn):
     CREATE TABLE objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
         refcount  INT NOT NULL, 
-        compr_size INT  
+        size      INT  
     )""")
 
     # Table of known data blocks
@@ -384,13 +417,7 @@ def create_tables(conn):
         refcount  INT NOT NULL,
         size      INT NOT NULL DEFAULT 0,
         rdev      INT NOT NULL DEFAULT 0,
-        locked    BOOLEAN NOT NULL DEFAULT 0,
-        
-        -- id of first block (blockno == 0)
-        -- since most inodes have only one block, we can make the db 20%
-        -- smaller by not requiring a separate inode_blocks row for these
-        -- cases. 
-        block_id  INT REFERENCES blocks(id)
+        locked    BOOLEAN NOT NULL DEFAULT 0
     )""")
 
     # Further Blocks used by inode (blockno >= 1)
@@ -445,13 +472,3 @@ def create_tables(conn):
     CREATE VIEW contents_v AS
     SELECT * FROM contents JOIN names ON names.id = name_id       
     """)    
-    
-    # We have to be very careful when using the following view, because it
-    # confuses the SQLite optimizer a lot, so it often stops using indices and
-    # always scans both instnead tables.
-    conn.execute("""
-    CREATE VIEW inode_blocks_v AS
-    SELECT * FROM inode_blocks
-    UNION
-    SELECT id as inode, 0 as blockno, block_id FROM inodes WHERE block_id IS NOT NULL       
-    """)        

@@ -11,7 +11,7 @@ from s3ql import fs, CURRENT_FS_REV
 from s3ql.backends.common import get_bucket_factory, BucketPool
 from s3ql.block_cache import BlockCache
 from s3ql.common import (setup_logging, get_bucket_cachedir, get_seq_no, 
-    QuietError, cycle_metadata, dump_metadata, 
+    QuietError, cycle_metadata, dump_metadata, BUFSIZE,
     restore_metadata)
 from s3ql.daemonize import daemonize
 from s3ql.database import Connection
@@ -200,15 +200,11 @@ def main(args=None):
             del bucket['s3ql_seq_no_%d' % param['seq_no']]         
             param['seq_no'] -= 1
             pickle.dump(param, open(cachepath + '.params', 'wb'), 2)         
-        elif seq_no == param['seq_no']:
-            log.info('Uploading metadata...')     
+        elif seq_no == param['seq_no']:   
             cycle_metadata(bucket)
             param['last-modified'] = time.time() - time.timezone
-            with tempfile.TemporaryFile() as tmp:
-                dump_metadata(tmp, db)
-                tmp.seek(0)
-                with bucket.open_write('s3ql_metadata', param) as fh:
-                    shutil.copyfileobj(tmp, fh)
+            bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata",
+                                 metadata=param, is_compressed=True) 
             pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         else:
             log.error('Remote metadata is newer than local (%d vs %d), '
@@ -322,13 +318,13 @@ def get_metadata(bucket, cachepath):
     
     # Download metadata
     if not db:
-        log.info("Downloading & uncompressing metadata...")
-        os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                         stat.S_IRUSR | stat.S_IWUSR)) 
-        db = Connection(cachepath + '.db.tmp', fast_mode=True)
-        with bucket.open_read("s3ql_metadata") as fh:
+        def do_read(fh):
+            os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                             stat.S_IRUSR | stat.S_IWUSR)) 
+            db = Connection(cachepath + '.db.tmp', fast_mode=True)
             restore_metadata(fh, db)
-        db.close()
+            db.close()
+        bucket.perform_read(do_read, "s3ql_metadata") 
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')
  
@@ -519,15 +515,17 @@ class MetadataUploadThread(Thread):
                     fh.close()
                     continue
                               
-                log.info("Compressing & uploading metadata..")
                 cycle_metadata(bucket)
                 fh.seek(0)
                 self.param['last-modified'] = time.time() - time.timezone
                 
                 # Temporarily decrease sequence no, this is not the final upload
                 self.param['seq_no'] -= 1
-                with bucket.open_write("s3ql_metadata", self.param) as obj_fh:
-                    shutil.copyfileobj(fh, obj_fh)
+                def do_write(obj_fh):
+                    fh.seek(0)
+                    shutil.copyfileobj(fh, obj_fh, BUFSIZE)
+                bucket.perform_write(do_write, "s3ql_metadata", metadata=self.param,
+                                     is_compressed=True) 
                 self.param['seq_no'] += 1
                 
                 fh.close()
