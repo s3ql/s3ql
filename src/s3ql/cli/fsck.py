@@ -10,7 +10,7 @@ from __future__ import division, print_function, absolute_import
 from s3ql import CURRENT_FS_REV
 from s3ql.backends.common import get_bucket
 from s3ql.common import (get_bucket_cachedir, cycle_metadata, setup_logging, 
-    QuietError, get_seq_no, restore_metadata, dump_metadata)
+    QuietError, get_seq_no, restore_metadata, dump_metadata, CTRL_INODE)
 from s3ql.database import Connection
 from s3ql.fsck import Fsck
 from s3ql.parse_args import ArgumentParser
@@ -44,11 +44,12 @@ def parse_args(args):
                       help="If user input is required, exit without prompting.")
     parser.add_argument("--force", action="store_true", default=False,
                       help="Force checking even if file system is marked clean.")
-
+    parser.add_argument("--renumber-inodes", action="store_true", default=False,
+                      help="Renumber inodes to be stricly sequential starting from %d"
+                           % (CTRL_INODE+1))
     options = parser.parse_args(args)
 
     return options
-
 
 def main(args=None):
 
@@ -132,7 +133,7 @@ def main(args=None):
     if (not param['needs_fsck'] 
         and ((time.time() - time.timezone) - param['last_fsck'])
              < 60 * 60 * 24 * 31): # last check more than 1 month ago
-        if options.force:
+        if options.force or options.renumber_inodes:
             log.info('File system seems clean, checking anyway.')
         else:
             log.info('File system is marked as clean. Use --force to force checking.')
@@ -178,6 +179,9 @@ def main(args=None):
     if os.path.exists(cachepath + '-cache'):
         os.rmdir(cachepath + '-cache')
         
+    if options.renumber_inodes:
+        renumber_inodes(db)
+        
     log.info('Saving metadata...')
     fh = tempfile.TemporaryFile()
     dump_metadata(fh, db)  
@@ -198,5 +202,50 @@ def main(args=None):
     db.execute('VACUUM')
     db.close() 
 
+    if options.renumber_inodes:
+        print('',
+              'Inodes were renumbered. If this file system has been exported over NFS,',
+              'all NFS clients need to be restarted before mounting the S3QL file system ',
+              'again or data corruption may occur.', sep='\n')
+        
+
+def renumber_inodes(db):
+    '''Renumber inodes'''
+    
+    log.info('Renumbering inodes...')
+    total = db.get_val('SELECT COUNT(id) FROM inodes')
+    db.execute('CREATE TEMPORARY TABLE inode_ids AS '
+               'SELECT id FROM inodes WHERE id > ? ORDER BY id DESC', 
+               (max(total, CTRL_INODE),))
+    db.execute('CREATE INDEX IF NOT EXISTS ix_contents_inode ON contents(inode)')
+    try:
+        i = 0
+        cur = CTRL_INODE+1
+        for (id_,) in db.query("SELECT id FROM inode_ids"):
+            while True:
+                try:
+                    db.execute('UPDATE inodes SET id=? WHERE id=?', (cur, id_))
+                except apsw.ConstraintError:
+                    cur += 1
+                else:
+                    break            
+            
+            db.execute('UPDATE contents SET inode=? WHERE inode=?', (cur, id_))
+            db.execute('UPDATE contents SET parent_inode=? WHERE parent_inode=?', (cur, id_))
+            db.execute('UPDATE inode_blocks SET inode=? WHERE inode=?', (cur, id_))
+            db.execute('UPDATE symlink_targets SET inode=? WHERE inode=?', (cur, id_))
+            db.execute('UPDATE ext_attributes SET inode=? WHERE inode=?', (cur, id_))
+                                    
+            cur += 1
+            i += 1
+            if i % 5000 == 0:
+                log.info('..processed %d inodes so far..', i)
+        
+    finally:
+        db.execute('DROP TABLE inode_ids')
+        db.execute('DROP INDEX ix_contents_inode')
+
+        
 if __name__ == '__main__':
     main(sys.argv[1:])
+

@@ -174,7 +174,6 @@ def restore_metadata(ifh, conn):
     # Unpickling is terribly slow if fh is not a real file
     # object.
     if not hasattr(ifh, 'fileno'):
-        log.info('Caching tables...')
         with tempfile.TemporaryFile() as tmp:
             shutil.copyfileobj(ifh, tmp)
             tmp.seek(0)

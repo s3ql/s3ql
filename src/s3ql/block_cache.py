@@ -231,8 +231,7 @@ class BlockCache(object):
         self.removal_threads = []
         self.transfer_completed = SimpleEvent()
 
-        if not os.path.exists(self.path):
-            os.mkdir(self.path)
+        os.mkdir(self.path)
         
     def __len__(self):
         '''Get number of objects in cache'''

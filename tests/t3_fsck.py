@@ -25,7 +25,7 @@ class fsck_tests(TestCase):
     def setUp(self):
         self.bucket_dir = tempfile.mkdtemp()
         self.bucket = local.Bucket(self.bucket_dir, None, None)
-        self.cachedir = tempfile.mkdtemp() + "/"
+        self.cachedir = tempfile.mkdtemp()
         self.blocksize = 1024
 
         self.dbfile = tempfile.NamedTemporaryFile()
@@ -61,7 +61,7 @@ class fsck_tests(TestCase):
         self._link('test-entry', inode)
 
         # Create new block
-        fh = open(self.cachedir + '%d-0' % inode, 'wb')
+        fh = open(self.cachedir + '/%d-0' % inode, 'wb')
         fh.write('somedata')
         fh.close()
         self.assert_fsck(self.fsck.check_cache)
@@ -70,17 +70,17 @@ class fsck_tests(TestCase):
         # Existing block
         self.db.execute('UPDATE inodes SET size=? WHERE id=?',
                         (self.blocksize + 8, inode))
-        with open(self.cachedir + '%d-1' % inode, 'wb') as fh:
+        with open(self.cachedir + '/%d-1' % inode, 'wb') as fh:
             fh.write('somedata')    
         self.assert_fsck(self.fsck.check_cache)
                 
         # Old block preserved
-        with open(self.cachedir + '%d-0' % inode, 'wb') as fh:
+        with open(self.cachedir + '/%d-0' % inode, 'wb') as fh:
             fh.write('somedat2')
         self.assert_fsck(self.fsck.check_cache)
         
         # Old block removed
-        with open(self.cachedir + '%d-1' % inode, 'wb') as fh:
+        with open(self.cachedir + '/%d-1' % inode, 'wb') as fh:
             fh.write('somedat3')
         self.assert_fsck(self.fsck.check_cache)
                 
@@ -315,7 +315,7 @@ class fsck_tests(TestCase):
         obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
         self.bucket['s3ql_data_%d' % obj_id] = 'foo'
         self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
-                      (1, obj_id, 0))
+                      (1, obj_id, 3))
         self.assert_fsck(self.fsck.check_block_refcount)
                 
     def test_unix_size(self):

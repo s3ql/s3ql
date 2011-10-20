@@ -1,3 +1,19 @@
+2011-10-04, S3QL 1.3
+
+  * Fixed an s3qlcp crash happening when source or destination inode
+    number was a 64 bit value. 
+  
+  * "Connection reset by peer" network errors are now handled
+    correctly.
+    
+  * fsck.s3ql can now renumber inodes. This is useful if the file
+    system was mounted using S3QL 1.2 or 1.1.x without the --nfs
+    option and can now no longer be accessed on 32bit systems.
+
+  * Use only 32 bits for inodes, even when --nfs is not specified.
+    This ensures that file systems can be safely used by both 32 and
+    64 bit systems.
+    
 2011-09-28, S3QL 1.2
 
   * Fixed a database problem that was responsible for file

@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-from s3ql import fs, CURRENT_FS_REV, inode_cache
+from s3ql import fs, CURRENT_FS_REV
 from s3ql.backends.common import get_bucket_factory, BucketPool
 from s3ql.block_cache import BlockCache
 from s3ql.common import (setup_logging, get_bucket_cachedir, get_seq_no, 
@@ -92,13 +92,10 @@ def main(args=None):
         (param, db) = get_metadata(bucket, cachepath)
             
     if options.nfs:
-        log.info('Creating NFS indices...')
         # NFS may try to look up '..', so we have to speed up this kind of query
+        log.info('Creating NFS indices...')
         db.execute('CREATE INDEX IF NOT EXISTS ix_contents_inode ON contents(inode)')
-        
-        # Since we do not support generation numbers, we have to keep the
-        # likelihood of reusing a just-deleted inode low
-        inode_cache.RANDOMIZE_INODES = True
+
     else:
         db.execute('DROP INDEX IF EXISTS ix_contents_inode')
                        
@@ -175,15 +172,21 @@ def main(args=None):
 
         log.debug("All background threads terminated.")
  
+    log.info("Unmounting file system.")
+     
     # Re-raise if main loop terminated due to exception in other thread
-    # or during cleanup
+    # or during cleanup. but make sure we still unmount file system
+    # (so that Operations' destroy handler gets called)
     if exc_info:
+        try: 
+            with llfuse.lock:
+                llfuse.close()
+        except:
+            log.exception("Exception during cleanup:")  
         raise exc_info[0], exc_info[1], exc_info[2]
         
     # At this point, there should be no other threads left
 
-    # Unmount
-    log.info("Unmounting file system.")
     with llfuse.lock:
         llfuse.close()
     
@@ -393,10 +396,8 @@ def parse_args(args):
     parser.add_version()
     parser.add_storage_url()
     
-    parser.add_argument("mountpoint", metavar='<mountpoint>',
-                        type=(lambda x: os.path.abspath(x)),
+    parser.add_argument("mountpoint", metavar='<mountpoint>', type=os.path.abspath,
                         help='Where to mount the file system')
-        
     parser.add_argument("--cachesize", type=int, default=102400, metavar='<size>', 
                       help="Cache size in kb (default: 102400 (100 MB)). Should be at least 10 times "
                       "the blocksize of the filesystem, otherwise an object may be retrieved and "

@@ -13,6 +13,7 @@ import logging
 from random import randint
 import apsw
 from .database import NoSuchRowError
+from s3ql.common import CTRL_INODE
 
 __all__ = [ 'InodeCache', 'OutOfInodesError' ]
 log = logging.getLogger('inode_cache')
@@ -26,9 +27,8 @@ UPDATE_ATTRS = ('mode', 'refcount', 'uid', 'gid', 'size', 'locked',
 UPDATE_STR = ', '.join('%s=?' % x for x in UPDATE_ATTRS)
 TIMEZONE = time.timezone
 
-
-# If True, new inodes are assigned randomly rather than sequentially
-RANDOMIZE_INODES = False
+MAX_INODE = 2**32 - 1 
+MIN_INODE = CTRL_INODE+1
 
 class _Inode(object):
     '''An inode with its attributes'''
@@ -199,28 +199,24 @@ class InodeCache(object):
         for i in ('atime', 'ctime', 'mtime'):
             kw[i] -= TIMEZONE
 
-        bindings = [ kw[x] for x in ATTRIBUTES if x in kw ]
-        columns = ', '.join([ x for x in ATTRIBUTES if x in kw])
+        bindings = tuple(kw[x] for x in ATTRIBUTES if x in kw)
+        columns = ', '.join(x for x in ATTRIBUTES if x in kw)
         values = ', '.join('?' * len(kw))
-                           
-        if RANDOMIZE_INODES:
-            # We want to restrict inodes to 2^32, and we do not want to immediately
-            # reuse deleted inodes (so that the lack of generation numbers isn't too
-            # likely to cause problems with NFS)
-            sql = 'INSERT INTO inodes (id, %s) VALUES(?, %s)' % (columns, values)
-            for _ in range(100):
-                id_ = randint(0, 2 ** 32 - 1)
-                try:
-                    self.db.execute(sql, [id_] + bindings)
-                except apsw.ConstraintError:
-                    pass
-                else:
-                    break
+                                  
+        # We want to restrict inodes to 32bit, and we do not want to
+        # immediately reuse deleted inodes (so that the lack of generation
+        # numbers isn't too likely to cause problems with NFS)
+        sql = 'INSERT INTO inodes (id, %s) VALUES(?, %s)' % (columns, values)
+        for _ in range(100):
+            id_ = randint(MIN_INODE, MAX_INODE)
+            try:
+                self.db.execute(sql, (id_,) + bindings)
+            except apsw.ConstraintError:
+                pass
             else:
-                raise OutOfInodesError()
+                break
         else:
-            id_ = self.db.rowid('INSERT INTO inodes (%s) VALUES(%s)' % (columns, values), 
-                                bindings)
+            raise OutOfInodesError()
 
         return self[id_]
 

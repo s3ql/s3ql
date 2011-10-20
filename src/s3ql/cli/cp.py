@@ -13,7 +13,7 @@ import os
 import logging
 from s3ql.common import (setup_logging, CTRL_NAME, QuietError)
 from s3ql.parse_args import ArgumentParser
-import struct
+import cPickle as pickle
 import stat
 import textwrap
 import errno
@@ -95,7 +95,8 @@ def main(args=None):
             raise
     
     fstat_t = os.stat(options.target)
-    llfuse.setxattr(ctrlfile, 'copy', struct.pack('II', fstat_s.st_ino, fstat_t.st_ino))
+    llfuse.setxattr(ctrlfile, 'copy',  pickle.dumps((fstat_s.st_ino, fstat_t.st_ino), 
+                                                    pickle.HIGHEST_PROTOCOL))
 
 
 if __name__ == '__main__':

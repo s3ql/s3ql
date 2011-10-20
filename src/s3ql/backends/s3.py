@@ -145,7 +145,8 @@ class Bucket(AbstractBucket):
               and (not exc.line or exc.line == "''")):
             return True
         
-        elif isinstance(exc, IOError) and exc.errno == errno.EPIPE:
+        elif (isinstance(exc, IOError) and 
+              exc.errno in (errno.EPIPE, errno.ECONNRESET)):
             return True
         
         return False
@@ -383,20 +384,15 @@ class Bucket(AbstractBucket):
         while True:
             log.debug('_do_request(): sending request')
             self.conn.request(method, full_url, body, headers)
-              
+                                      
             log.debug('_do_request(): Reading response')
             try:
                 resp = self.conn.getresponse()
-            except httplib.BadStatusLine as exc:
-                if exc.line == "''" or not exc.line:
-                    # Server closed connection, reconnect
-                    self.conn.close()
+            except:
+                # We probably can't use the connection anymore
+                self.conn.close()
                 raise
-            except httplib.CannotSendRequest:
-                log.warn('_do_request(): httplib can not send request, '
-                         'retrying (current state: %s)..', self.conn.__state)
-                raise
-                        
+            
             log.debug('_do_request(): request-id: %s',  resp.getheader('x-amz-request-id'))
             
             if (resp.status < 300 or resp.status > 399):
