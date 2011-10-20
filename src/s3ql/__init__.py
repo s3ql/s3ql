@@ -12,5 +12,5 @@ __all__ = [ 'backends', 'cli', 'parse_args', 'block_cache', "common", 'daemonize
             'database', 'fs', 'fsck', 'ordered_dict', 
             'VERSION', 'CURRENT_FS_REV' ]
 
-VERSION = '1.4'
+VERSION = '1.5'
 CURRENT_FS_REV = 13

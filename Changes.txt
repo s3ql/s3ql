@@ -1,4 +1,4 @@
-UNRELEASED, S3QL TIP
+2011-10-20, S3QL 1.5
 
   * Fixed parsing of storage urls, s3s:// no longer generates bogus
     error message.
