@@ -452,8 +452,12 @@ def upgrade_once(bucket, cachepath, db, param):
             os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                              stat.S_IRUSR | stat.S_IWUSR)) 
             db = Connection(cachepath + '.db.tmp', fast_mode=True)
-            restore_legacy_metadata2(fh, db)
-            db.close()
+            try:
+                restore_legacy_metadata2(fh, db)
+            finally:
+                # If metata reading has to be retried, we don't want to hold
+                # a lock on the database.
+                db.close()
         bucket.perform_read(do_read, "s3ql_metadata") 
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')
