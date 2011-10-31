@@ -103,8 +103,7 @@ def main():
     with open(os.path.join(basedir, 'rst', 'about.rst'), 'r') as fh:
         long_desc = fh.read()
 
-    compile_args = ['-Wall', '-Wextra', '-Wconversion', '-Wno-sign-conversion',
-                    '-Werror=conversion', '-Wno-unused-parameter' ]
+    compile_args = ['-Wall', '-Wextra', '-Wno-unused-parameter' ]
     
     # http://trac.cython.org/cython_trac/ticket/704
     compile_args.append('-Wno-unused-but-set-variable')
