@@ -172,8 +172,11 @@ class fuse_tests(TestCase):
         retry(5, lambda: subprocess.call(['fuser', '-m', self.mnt_dir],
                                          stdout=devnull, stderr=devnull) == 1)
         
-        subprocess.check_call([os.path.join(BASEDIR, 'bin', 'umount.s3ql'), 
-                                '--quiet', self.mnt_dir])
+        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'umount.s3ql'), 
+                                 '--quiet', self.mnt_dir])
+        retry(30, lambda : proc.poll() is not None)
+        self.assertEquals(proc.wait(), 0)
+        
         self.assertEqual(self.mount_process.wait(), 0)
         self.assertFalse(os.path.ismount(self.mnt_dir))
 
