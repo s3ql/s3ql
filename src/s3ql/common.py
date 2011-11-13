@@ -8,6 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from llfuse import ROOT_INODE
+from .deltadump import INTEGER, BLOB, TIME, dump_table, load_table
 import cPickle as pickle
 import hashlib
 import logging
@@ -22,7 +23,51 @@ import lzma
 BUFSIZE = 256 * 1024
 
 log = logging.getLogger('common')
-        
+ 
+ 
+# Has to be kept in sync with create_tables()!
+DUMP_SPEC = [
+             ('objects', 'id', (('id', INTEGER, 1),
+                                ('size', INTEGER))),
+             
+             ('blocks', 'id', (('id', INTEGER, 1),
+                             ('hash', BLOB, 32),
+                             ('size', INTEGER),
+                             ('obj_id', INTEGER, 1))),
+             
+             ('inodes', 'id', (('id', INTEGER, 1),
+                               ('uid', INTEGER),
+                               ('gid', INTEGER),
+                               ('mode', INTEGER),
+                               ('mtime', TIME),
+                               ('atime', TIME),
+                               ('ctime', TIME),
+                               ('size', INTEGER),
+                               ('rdev', INTEGER),
+                               ('locked', INTEGER))),
+             
+             ('inode_blocks', 'inode, blockno', 
+              (('inode', INTEGER),
+               ('blockno', INTEGER, 1),
+               ('block_id', INTEGER, 1))),
+             
+             ('symlink_targets', 'inode', (('inode', INTEGER, 1),
+                                           ('target', BLOB))),
+           
+             ('names', 'id', (('id', INTEGER, 1),
+                              ('name', BLOB))),
+           
+             ('contents', 'parent_inode, name_id',
+              (('name_id', INTEGER, 1),
+               ('inode', INTEGER, 1),
+               ('parent_inode', INTEGER))),
+             
+             ('ext_attributes', 'inode', (('inode', INTEGER),
+                                          ('name', BLOB),
+                                          ('value', BLOB))),      
+] 
+    
+            
 def setup_logging(options):        
     root_logger = logging.getLogger()
     if root_logger.handlers:
@@ -136,52 +181,23 @@ def cycle_metadata(bucket):
                 
     bucket.copy("s3ql_metadata", "s3ql_metadata_bak_0")             
 
-def dump_metadata(ofh, conn):
+def dump_metadata(ofh, db):
     
     log.info('Dumping metadata...')
-    # First write everything into temporary file
-    tmp = tempfile.TemporaryFile()
-    pickler = pickle.Pickler(tmp, 2)
-    bufsize = 256
-    buf = range(bufsize)
-    tables_to_dump = [('objects', 'id'), ('blocks', 'id'),
-                      ('inode_blocks', 'inode, blockno'),
-                      ('inodes', 'id'), ('symlink_targets', 'inode'),
-                      ('names', 'id'), ('contents', 'parent_inode, name_id'),
-                      ('ext_attributes', 'inode, name')]
-
-    columns = dict()
-    for (table, _) in tables_to_dump:
-        columns[table] = list()
-        for row in conn.query('PRAGMA table_info(%s)' % table):
-            columns[table].append(row[1])
-
-    pickler.dump((tables_to_dump, columns))
-    
-    for (table, order) in tables_to_dump:
-        log.info('..%s..' % table)
-        pickler.clear_memo()
-        i = 0
-        for row in conn.query('SELECT %s FROM %s ORDER BY %s' 
-                              % (','.join(columns[table]), table, order)):
-            buf[i] = row
-            i += 1
-            if i == bufsize:
-                pickler.dump(buf)
-                pickler.clear_memo()
-                i = 0
-
-        if i != 0:
-            pickler.dump(buf[:i])
+    tmpfh = tempfile.TemporaryFile()
+       
+    for (table, order, columns) in DUMP_SPEC:
+        log.info('..%s..', table)
+        dump_table(table, order, columns, db=db, fh=tmpfh)
         
-        pickler.dump(None)
-
-    # Then compress and send
+    # compress and send
+    # FIXME: IIRC bzip2 was the best choice, need to benchmark
+    # FIXME: Still need to document new build requirements
     log.info("Compressing and uploading metadata...")
     compr = lzma.LZMACompressor(options={ 'level': 7 })
-    tmp.seek(0)
+    tmpfh.seek(0)
     while True:
-        buf = tmp.read(BUFSIZE)
+        buf = tmpfh.read(BUFSIZE)
         if not buf:
             break
         buf = compr.compress(buf)
@@ -191,13 +207,13 @@ def dump_metadata(ofh, conn):
     if buf:
         ofh.write(buf)
     del compr # Free memory ASAP, LZMA level 7 needs 186 MB
-    tmp.close()
+    tmpfh.close()
 
 def restore_metadata(ifh, conn):
 
-    # Note: unpickling is terribly slow if fh is not a real file object, so
-    # uncompressing to a temporary file also gives a performance boost
     log.info('Downloading and decompressing metadata...')
+    
+    # decompress to temporary file, deltadump can't read from Python object
     tmp = tempfile.TemporaryFile()
     decompressor = lzma.LZMADecompressor()
     while True:
@@ -211,22 +227,22 @@ def restore_metadata(ifh, conn):
     tmp.seek(0) 
 
     log.info("Reading metadata...")
-    unpickler = pickle.Unpickler(tmp)
-    (to_dump, columns) = unpickler.load()
     create_tables(conn)
-    for (table, _) in to_dump:
+    for (table, _, columns) in DUMP_SPEC:
         log.info('..%s..', table)
-        col_str = ', '.join(columns[table])
-        val_str = ', '.join('?' for _ in columns[table])
-        sql_str = 'INSERT INTO %s (%s) VALUES(%s)' % (table, col_str, val_str)
-        while True:
-            buf = unpickler.load()
-            if not buf:
-                break
-            for row in buf:
-                conn.execute(sql_str, row)
-
+        load_table(table, columns, db=conn, fh=tmp)
     tmp.close()
+    
+    log.info("Analyzing metadata...")
+    conn.execute('UPDATE objects SET refcount='
+                 '(SELECT COUNT(obj_id) FROM blocks WHERE obj_id = objects.id)')
+    conn.execute('UPDATE blocks SET refcount='
+                 '(SELECT COUNT(block_id) FROM inode_blocks WHERE block_id = blocks.id)')
+    conn.execute('UPDATE inodes SET refcount='
+                 '(SELECT COUNT(inode) FROM contents WHERE inode = inodes.id)')
+    conn.execute('UPDATE names SET refcount='
+                 '(SELECT COUNT(name_id) FROM contents WHERE name_id = names.id)')
+    
     conn.execute('ANALYZE')
     
 class QuietError(Exception):
@@ -383,7 +399,7 @@ def create_tables(conn):
     conn.execute("""
     CREATE TABLE objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
-        refcount  INT NOT NULL, 
+        refcount  INT, 
         size      INT  
     )""")
 
@@ -393,7 +409,7 @@ def create_tables(conn):
     CREATE TABLE blocks (
         id        INTEGER PRIMARY KEY,
         hash      BLOB(16) UNIQUE,
-        refcount  INT NOT NULL,
+        refcount  INT,
         size      INT NOT NULL,    
         obj_id    INTEGER NOT NULL REFERENCES objects(id)
     )""")
@@ -414,7 +430,7 @@ def create_tables(conn):
         mtime     REAL NOT NULL,
         atime     REAL NOT NULL,
         ctime     REAL NOT NULL,
-        refcount  INT NOT NULL,
+        refcount  INT,
         size      INT NOT NULL DEFAULT 0,
         rdev      INT NOT NULL DEFAULT 0,
         locked    BOOLEAN NOT NULL DEFAULT 0
@@ -441,7 +457,7 @@ def create_tables(conn):
     CREATE TABLE names (
         id     INTEGER PRIMARY KEY,
         name   BLOB NOT NULL,
-        refcount  INT NOT NULL,
+        refcount  INT,
         UNIQUE (name)
     )""")
 
