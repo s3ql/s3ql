@@ -217,18 +217,6 @@ class fuse_tests(TestCase):
         self.umount()
         self.fsck()
         
-        # Empty cache
-        shutil.rmtree(self.cache_dir)
-        self.cache_dir = tempfile.mkdtemp()
-        
-        self.mount()
-        self.umount()
-        
-        # Empty cache
-        shutil.rmtree(self.cache_dir)
-        self.cache_dir = tempfile.mkdtemp()
-        self.fsck()
-        
     def newname(self):
         self.name_cnt += 1
         return "s3ql_%d" % self.name_cnt
