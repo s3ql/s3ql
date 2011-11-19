@@ -147,10 +147,13 @@ def download_metadata(bucket, storage_url):
     try:
         log.info('Reading metadata...')
         def do_read(fh):
-            os.close(os.open(cachepath + '.db', os.O_RDWR | os.O_CREAT,
-                             stat.S_IRUSR | stat.S_IWUSR), 'w+b')            
-            db = Connection(cachepath + '.db')
-            restore_metadata(fh, db)
+            os.close(os.open(cachepath + '.db', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                             stat.S_IRUSR | stat.S_IWUSR))
+            db = Connection(cachepath + '.db', fast_mode=True)
+            try:
+                restore_metadata(fh, db)
+            finally:
+                db.close()
         bucket.perform_read(do_read, name)
     except:
         # Don't keep file if it doesn't contain anything sensible
