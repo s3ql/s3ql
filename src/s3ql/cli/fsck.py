@@ -161,7 +161,8 @@ def main(args=None):
                 # If metata reading has to be retried, we don't want to hold
                 # a lock on the database.
                 db.close()
-        db = bucket.perform_read(do_read, "s3ql_metadata") 
+        
+        bucket.perform_read(do_read, "s3ql_metadata") 
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')
     
