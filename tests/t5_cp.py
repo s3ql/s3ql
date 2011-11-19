@@ -14,6 +14,7 @@ import t4_fuse
 import tarfile
 import tempfile
 import unittest2 as unittest
+import shutil
 
 class cpTests(t4_fuse.fuse_tests):
     
@@ -38,30 +39,33 @@ class cpTests(t4_fuse.fuse_tests):
         # Extract tar
         data_file = os.path.join(os.path.dirname(__file__), 'data.tar.bz2')
         tempdir = tempfile.mkdtemp()
-        tarfile.open(data_file).extractall(tempdir)
-
-        # Rsync
-        subprocess.check_call(['rsync', '-aHAX', tempdir + '/',
-                               os.path.join(self.mnt_dir, 'orig') + '/'])
-
-        # copy
-        subprocess.check_call([os.path.join(t4_fuse.BASEDIR, 'bin', 's3qlcp'), 
-                               '--quiet',
-                               os.path.join(self.mnt_dir, 'orig'),
-                               os.path.join(self.mnt_dir, 'copy')])
-
-        # compare
-        rsync = subprocess.Popen(['rsync', '-anciHAX', '--delete',
-                                  tempdir + '/',
-                                  os.path.join(self.mnt_dir, 'copy') + '/'],
-                                  stdout=subprocess.PIPE,
-                                  stderr=subprocess.STDOUT)
-        out = rsync.communicate()[0]
-        if out:
-            self.fail('Copy not equal to original, rsync says:\n' + out)
-        elif rsync.returncode != 0:
-            self.fail('rsync failed with ' + out)
-
+        try:
+            tarfile.open(data_file).extractall(tempdir)
+    
+            # Rsync
+            subprocess.check_call(['rsync', '-aHAX', tempdir + '/',
+                                   os.path.join(self.mnt_dir, 'orig') + '/'])
+    
+            # copy
+            subprocess.check_call([os.path.join(t4_fuse.BASEDIR, 'bin', 's3qlcp'), 
+                                   '--quiet',
+                                   os.path.join(self.mnt_dir, 'orig'),
+                                   os.path.join(self.mnt_dir, 'copy')])
+    
+            # compare
+            rsync = subprocess.Popen(['rsync', '-anciHAX', '--delete',
+                                      tempdir + '/',
+                                      os.path.join(self.mnt_dir, 'copy') + '/'],
+                                      stdout=subprocess.PIPE,
+                                      stderr=subprocess.STDOUT)
+            out = rsync.communicate()[0]
+            if out:
+                self.fail('Copy not equal to original, rsync says:\n' + out)
+            elif rsync.returncode != 0:
+                self.fail('rsync failed with ' + out)
+                
+        finally:
+            shutil.rmtree(tempdir)
 
 # Somehow important according to pyunit documentation
 def suite():
