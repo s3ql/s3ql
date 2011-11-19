@@ -506,6 +506,8 @@ class MetadataUploadThread(Thread):
                 # lock for quite so long.
                 log.info('Saving metadata...')
                 fh = tempfile.TemporaryFile()
+                
+                # FIXME: This blocks a long time, since it does LZMA compression
                 dump_metadata(fh, self.db) 
               
             with self.bucket_pool() as bucket:

@@ -31,6 +31,7 @@ from distribute_setup import use_setuptools
 use_setuptools(version='0.6.14', download_delay=5)
 import setuptools
 import setuptools.command.test as setuptools_test
+from setuptools import Extension
                        
 class build_docs(setuptools.Command):
     description = 'Build Sphinx documentation'
@@ -102,6 +103,20 @@ def main():
     with open(os.path.join(basedir, 'rst', 'about.rst'), 'r') as fh:
         long_desc = fh.read()
 
+    compile_args = ['-Wall', '-Wextra', '-Wconversion', '-Wno-sign-conversion',
+                    '-Werror=conversion', '-Wno-unused-parameter' ]
+    
+    # http://trac.cython.org/cython_trac/ticket/704
+    compile_args.append('-Wno-unused-but-set-variable')
+    
+    # http://bugs.python.org/issue969718
+    if sys.version_info[0] == 2: 
+        compile_args.append('-fno-strict-aliasing')
+
+    # http://bugs.python.org/issue7576
+    if sys.version_info[0] == 3 and sys.version_info[1] < 2:
+        compile_args.append('-Wno-missing-field-initializers')
+        
     setuptools.setup(
           name='s3ql',
           zip_safe=True,
@@ -126,6 +141,9 @@ def main():
           package_dir={'': 'src'},
           packages=setuptools.find_packages('src'),
           provides=['s3ql'],
+          ext_modules=[Extension('s3ql._deltadump', ['src/s3ql/_deltadump.c'], 
+                                 extra_compile_args=compile_args,
+                                 extra_link_args=[ '-lsqlite3'] )],          
           data_files = [ ('share/man/man1', 
                           [ os.path.join('doc/man/', x) for x
                             in glob(os.path.join(basedir, 'doc', 'man', '*.1')) ]) ],
@@ -156,11 +174,51 @@ def main():
           test_suite='tests',
           cmdclass={'test': test,
                     'upload_docs': upload_docs,
+                    'build_cython': build_cython,
                     'build_sphinx': build_docs }, 
           command_options = { 'sdist': { 'formats': ('setup.py', 'bztar') } }, 
          )
 
-  
+class build_cython(setuptools.Command):
+    user_options = []
+    boolean_options = []
+    description = "Compile .pyx to .c"
+
+    def initialize_options(self):
+        pass
+
+    def finalize_options(self):
+        # Attribute defined outside init
+        #pylint: disable=W0201
+        self.extensions = self.distribution.ext_modules
+
+    def run(self):
+        try:
+            from Cython.Compiler.Main import compile as cython_compile
+            from Cython.Compiler.Options import extra_warnings
+        except ImportError:
+            raise SystemExit('Cython needs to be installed for this command')
+
+        directives = dict(extra_warnings)
+        directives['embedsignature'] = True
+        options = { 'recursive': False, 'verbose': True, 'timestamps': False, 
+                   'compiler_directives': directives, 'warning_errors': True }
+        
+        for extension in self.extensions:
+            for file_ in extension.sources:
+                (file_, ext) = os.path.splitext(file_)
+                path = os.path.join(basedir, file_)
+                if ext != '.c':
+                    continue 
+                if os.path.exists(path + '.pyx'):
+                    print('compiling %s to %s' % (file_ + '.pyx', file_ + ext))
+                    res = cython_compile(path + '.pyx', full_module_name=extension.name,
+                                         **options)
+                    if res.num_errors != 0:
+                        raise SystemExit('Cython encountered errors.')
+                else:
+                    print('%s is up to date' % (file_ + ext,))
+                      
 class test(setuptools_test.test):
     # Attributes defined outside init, required by setuptools.
     # pylint: disable=W0201

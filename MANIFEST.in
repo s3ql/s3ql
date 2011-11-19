@@ -6,6 +6,8 @@ graft debian
 graft util
 graft bin
 include src/*.py
+include src/*.c
+include src/*.pyx
 include Changes.txt
 include INSTALL.txt
 include README.txt
