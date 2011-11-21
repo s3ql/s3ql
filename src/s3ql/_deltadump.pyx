@@ -84,8 +84,8 @@ cdef uint8_t INT16 = 126
 cdef uint8_t INT32 = 125
 cdef uint8_t INT64 = 124
 
-# Maximum size of variable length BLOBs
-cdef int MAX_BLOB_SIZE = 4096
+# Maximum size of BLOBs
+MAX_BLOB_SIZE = 4096    
     
 # Scale factor from time floats to integers
 # 1e9 would be perfect, but introduces rounding errors
@@ -307,9 +307,10 @@ cdef _dump_table(int* col_types, int* col_args, int64_t* int64_prev,
             elif col_types[i] == _BLOB:
                 buf = sqlite3_column_blob(stmt, i)
                 len_ = sqlite3_column_bytes(stmt, i)
+                if len_ > MAX_BLOB_SIZE:
+                        raise ValueError('Can not dump BLOB of size %d (max: %d)', 
+                                         len_, MAX_BLOB_SIZE)
                 if col_args[i] == 0:
-                    if len_ > MAX_BLOB_SIZE:
-                        raise ValueError('Can not dump BLOB of size %d (max: %d)', len_, MAX_BLOB_SIZE)
                     write_integer(len_ - int64_prev[i], fp)
                     int64_prev[i] = len_
                 elif len_ != col_args[i]:

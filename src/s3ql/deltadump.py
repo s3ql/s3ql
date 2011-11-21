@@ -6,11 +6,14 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
+#@PydevCodeAnalysisIgnore
+
 from __future__ import division, print_function, absolute_import
 
 import apsw
 from . import _deltadump
-from ._deltadump import (INTEGER, BLOB, TIME, dump_table, load_table)
+from ._deltadump import (INTEGER, BLOB, TIME, dump_table, load_table,
+                         MAX_BLOB_SIZE)
 import subprocess
 import re
 
