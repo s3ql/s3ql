@@ -11,6 +11,7 @@ from .backends.common import NoSuchObject, ChecksumError
 from .common import (get_path, CTRL_NAME, CTRL_INODE, LoggerFilter)
 from .database import NoSuchRowError
 from .inode_cache import InodeCache, OutOfInodesError
+from . import deltadump
 from cStringIO import StringIO
 from llfuse import FUSEError
 import cPickle as pickle
@@ -211,6 +212,9 @@ class Operations(llfuse.Operations):
             if self.inodes[id_].locked:
                 raise FUSEError(errno.EPERM)
                     
+            if len(value) > deltadump.MAX_BLOB_SIZE:
+                raise FUSEError(errno.EINVAL)
+            
             self.db.execute('INSERT OR REPLACE INTO ext_attributes (inode, name, value) '
                             'VALUES(?, ?, ?)', (id_, name, value))
             self.inodes[id_].ctime = time.time()
