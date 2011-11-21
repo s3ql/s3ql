@@ -14,3 +14,9 @@ __all__ = [ 'backends', 'cli', 'parse_args', 'block_cache', "common", 'daemonize
 
 VERSION = '1.5'
 CURRENT_FS_REV = 14
+
+# Maps file system revisions to the last S3QL version that
+# supported this revision.
+REV_VER_MAP = { 13: '1.6',
+                12: '1.3',
+                11: '1.0.1' }

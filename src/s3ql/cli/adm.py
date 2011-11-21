@@ -9,14 +9,15 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 from datetime import datetime as Datetime
 from getpass import getpass
-from s3ql import CURRENT_FS_REV
-from s3ql.backends.common import (BetterBucket, get_bucket)
-from s3ql.common import (QuietError, restore_metadata, cycle_metadata, BUFSIZE,
-    dump_metadata, create_tables, setup_logging, get_bucket_cachedir)
+from s3ql import CURRENT_FS_REV, REV_VER_MAP
+from s3ql.backends.common import BetterBucket, get_bucket
+from s3ql.common import (QuietError, restore_metadata, cycle_metadata, BUFSIZE, 
+    dump_metadata, create_tables, setup_logging, get_bucket_cachedir, get_seq_no)
 from s3ql.database import Connection
 from s3ql.parse_args import ArgumentParser
 import cPickle as pickle
 import logging
+import lzma
 import os
 import shutil
 import stat
@@ -24,9 +25,10 @@ import sys
 import tempfile
 import textwrap
 import time
-import lzma
 
 log = logging.getLogger("adm")
+
+
 
 def parse_args(args):
     '''Parse command line'''
@@ -202,22 +204,36 @@ def clear(bucket, cachepath):
     if not bucket.is_get_consistent():
         log.info('Note: it may take a while for the removals to propagate through the backend.')
                 
-    
+def get_old_rev_msg(rev, prog): 
+    return textwrap.dedent('''\
+        The last S3QL version that supported this file system revision
+        was %(version)s. You can run this version's %(prog)s by executing:
+        
+          $ wget http://s3ql.googlecode.com/files/s3ql-%(version)s.tar.bz2
+          $ tar xjf s3ql-%(version)s.tar.bz2
+          $ s3ql-%(version)s/bin/%(prog)s <options>
+        ''' % { 'version': REV_VER_MAP[rev],
+                'prog': prog })
+        
 def upgrade(bucket, cachepath):
     '''Upgrade file system to newest revision'''
 
     log.info('Getting file system parameters..')
-    seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
-    seq_no = max(seq_nos)
-    if not seq_nos:
-        raise QuietError(textwrap.dedent(''' 
+    
+    seq_nos = list(bucket.list('s3ql_seq_no_')) 
+    if (seq_nos[0].endswith('.meta') 
+        or seq_nos[0].endswith('.dat')): 
+        print(textwrap.dedent(''' 
             File system revision too old to upgrade!
             
             You need to use an older S3QL version to upgrade to a more recent
             revision before you can use this version to upgrade to the newest
             revision.
             '''))
-        
+        print(get_old_rev_msg(11+1, 's3qladm'))
+        raise QuietError()
+    seq_no = get_seq_no(bucket)
+ 
     # Check for cached metadata
     db = None
     if os.path.exists(cachepath + '.params'):
@@ -234,19 +250,22 @@ def upgrade(bucket, cachepath):
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:
         if bucket.is_get_consistent():
-            raise QuietError(textwrap.fill(textwrap.dedent('''\
+            print(textwrap.fill(textwrap.dedent('''\
                 It appears that the file system is still mounted somewhere else. If this is not
                 the case, the file system may have not been unmounted cleanly and you should try
                 to run fsck on the computer where the file system has been mounted most recently.
                 ''')))
         else:                
-            raise QuietError(textwrap.fill(textwrap.dedent('''\
+            print(textwrap.fill(textwrap.dedent('''\
                 It appears that the file system is still mounted somewhere else. If this is not the
                 case, the file system may have not been unmounted cleanly or the data from the 
                 most-recent mount may have not yet propagated through the backend. In the later case,
                 waiting for a while should fix the problem, in the former case you should try to run
                 fsck on the computer where the file system has been mounted most recently.
-                ''')))    
+                ''')))
+            
+        print(get_old_rev_msg(param['revision'], 'fsck.s3ql'))
+        raise QuietError()
 
     # Check that the fs itself is clean
     if param['needs_fsck']:
@@ -254,13 +273,15 @@ def upgrade(bucket, cachepath):
     
     # Check revision
     if param['revision'] < CURRENT_FS_REV - 1:
-        raise QuietError(textwrap.dedent(''' 
+        print(textwrap.dedent(''' 
             File system revision too old to upgrade!
             
             You need to use an older S3QL version to upgrade to a more recent
             revision before you can use this version to upgrade to the newest
             revision.
             '''))
+        print(get_old_rev_msg(param['revision']+1, 's3qladm'))
+        raise QuietError()
 
     elif param['revision'] >= CURRENT_FS_REV:
         print('File system already at most-recent revision')
