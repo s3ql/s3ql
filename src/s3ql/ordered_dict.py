@@ -8,7 +8,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function
 
-import threading
 import collections
 
 

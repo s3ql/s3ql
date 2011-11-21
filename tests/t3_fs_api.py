@@ -613,7 +613,9 @@ class fs_api_tests(TestCase):
         self.fsck()
         
     def test_copy_tree(self):
-
+        ext_attr_name = 'system.foo.brazl'
+        ext_attr_val = 'schulla dku woumm bramp'
+        
         src_inode = self.server.mkdir(ROOT_INODE, 'source', self.dir_mode(), Ctx())
         dst_inode = self.server.mkdir(ROOT_INODE, 'dest', self.dir_mode(), Ctx())
 
@@ -622,6 +624,7 @@ class fs_api_tests(TestCase):
                                             self.file_mode(), Ctx())
         self.server.write(fh, 0, 'file1 contents')
         self.server.release(fh)
+        self.server.setxattr(f1_inode.id, ext_attr_name, ext_attr_val)
 
         # Create hardlink
         (fh, f2_inode) = self.server.create(src_inode.id, 'file2',
@@ -662,6 +665,8 @@ class fs_api_tests(TestCase):
         self.assertEqual(self.server.read(fh, 0, 42), 'file1 contents')
         self.server.release(fh)
         self.assertNotEqual(f1_inode.id, f1_inode_c.id)
+        self.assertEqual(self.server.getxattr(f1_inode_c.id, ext_attr_name), 
+                         ext_attr_val)
 
         # Check file2
         fh = self.server.open(f2_inode_c.id, os.O_RDWR)

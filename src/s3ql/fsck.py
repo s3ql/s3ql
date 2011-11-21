@@ -54,6 +54,9 @@ class Fsck(object):
         
         # Create indices required for reference checking
         log.info('Creating temporary extra indices...')
+        self.conn.execute('DROP INDEX IF EXISTS tmp1')
+        self.conn.execute('DROP INDEX IF EXISTS tmp2')
+        self.conn.execute('DROP INDEX IF EXISTS tmp3')
         self.conn.execute('CREATE INDEX tmp1 ON blocks(obj_id)')
         self.conn.execute('CREATE INDEX tmp2 ON inode_blocks(block_id)')
         self.conn.execute('CREATE INDEX tmp3 ON contents(inode)')

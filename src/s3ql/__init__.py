@@ -12,7 +12,7 @@ __all__ = [ 'backends', 'cli', 'parse_args', 'block_cache', "common", 'daemonize
             'database', 'fs', 'fsck', 'ordered_dict',  'deltadump',
             'VERSION', 'CURRENT_FS_REV' ]
 
-VERSION = '1.5'
+VERSION = '1.7'
 CURRENT_FS_REV = 14
 
 # Maps file system revisions to the last S3QL version that

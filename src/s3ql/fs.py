@@ -375,6 +375,10 @@ class Operations(llfuse.Operations):
                     db.execute('INSERT INTO symlink_targets (inode, target) '
                                'SELECT ?, target FROM symlink_targets WHERE inode=?',
                                (id_new, id_))
+
+                    db.execute('INSERT INTO ext_attributes (inode, name, value) '
+                               'SELECT ?, name, value FROM ext_attributes WHERE inode=?',
+                               (id_new, id_))
                         
                     processed += db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) '
                                             'SELECT ?, blockno, block_id FROM inode_blocks '
