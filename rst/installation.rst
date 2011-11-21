@@ -34,7 +34,7 @@ that is not the case.
   possible*.
 
 * `Python <http://www.python.org/>`_, version 2.6.6 or newer, but not
-  Python 3.x.
+  Python 3.x. Make sure to also install the development headers.
   
 * The `PyCrypto++ Python Module
   <http://pypi.python.org/pypi/pycryptopp>`_. To check if this module
@@ -46,13 +46,19 @@ that is not the case.
   argparse.__version__'`. If argparse is installed, this will print
   the version number. You need version 1.1 or later.
   
+* `SQLite <http://www.sqlite.org/>`_ version 3.7.0 or newer. SQLite
+  has to be installed as a *shared library* with development headers.
+
 * The `APSW Python Module <http://code.google.com/p/apsw/>`_. To check
   which (if any) version of APWS is installed, run the command ::
 
-    python -c 'import apsw; print apsw.apswversion(), apsw.sqlitelibversion()'
+    python -c 'import apsw; print apsw.apswversion()'
 
-  If APSW is installed, this should print two version numbers which
-  both have to be at least 3.7.0.
+  The printed version number should be at least 3.7.0. Note that APSW
+  must be linked *dynamically* against SQLite, so you can *not* use
+  the Ubuntu PPA at
+  https://launchpad.net/~ubuntu-rogerbinns/+archive/apsw (these
+  packages are statically linked).
 
 * The `PyLibLZMA Python module
   <http://pypi.python.org/pypi/pyliblzma>`_. To check if this module
@@ -64,9 +70,9 @@ that is not the case.
   <http://code.google.com/p/python-llfuse/>`_. To check if this module
   is installed, execute `python -c 'import llfuse; print
   llfuse.__version__'`. This should print a version number. You need at
-  least version 0.29.
+  least version 0.36.
 
-  Note that earlier S3QL versions shipped with a builtin version of
+  Note that early S3QL versions shipped with a built-in version of
   this module. If you are upgrading from such a version, make sure to
   completely remove the old S3QL version first.
 
@@ -79,7 +85,8 @@ To install S3QL itself, proceed as follows:
 
 1. Download S3QL from http://code.google.com/p/s3ql/downloads/list
 2. Unpack it into a folder of your choice
-3. Run `python setup.py test` to run a self-test. If this fails, ask
+3. Run `python setup.py build` to build S3QL.
+4. Run `python setup.py test` to run a self-test. If this fails, ask
    for help on the `mailing list
    <http://groups.google.com/group/s3ql>`_ or report a bug in the
    `issue tracker <http://code.google.com/p/s3ql/issues/list>`_.
