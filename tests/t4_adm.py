@@ -8,7 +8,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function
 from _common import TestCase
-from cStringIO import StringIO
 from s3ql.backends import local
 from s3ql.backends.common import BetterBucket
 import shutil
