@@ -142,8 +142,10 @@ def download_metadata(bucket, storage_url):
             os.close(os.open(cachepath + '.db', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                              stat.S_IRUSR | stat.S_IWUSR)) 
             db = Connection(cachepath + '.db', fast_mode=True)
-            restore_metadata(fh, db)
-            db.close()                    
+            try:
+                restore_metadata(fh, db)
+            finally:
+                db.close()
         bucket.perform_read(do_read, name)
     except:
         # Don't keep file if it doesn't contain anything sensible
@@ -290,6 +292,8 @@ def upgrade(bucket, cachepath):
             try:
                 restore_legacy_metadata(fh, db)
             finally:
+                # If metata reading has to be retried, we don't want to hold
+                # a lock on the database.
                 db.close()
         bucket.perform_read(do_read, "s3ql_metadata") 
         os.rename(cachepath + '.db.tmp', cachepath + '.db')

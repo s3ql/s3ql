@@ -521,6 +521,7 @@ class ObjectR(object):
             buf = self.read(BUFSIZE)
             if buf == '':
                 break
+            self.md5.update(buf)
 
         etag = self.resp.getheader('ETag').strip('"')
         log.debug('ObjectR(%s).close(): md5sum/etag: %s', self.key, etag)        
