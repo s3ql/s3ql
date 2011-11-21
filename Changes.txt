@@ -1,3 +1,7 @@
+UNRELEASED, S3QL TIP
+
+  * s3qlcp now also copies extended attributes.
+
 2011-11-20, S3QL 1.6
 
   * fsck: gracefully recover if temporary indices already exist
