@@ -1,3 +1,8 @@
+UNRELEASED, S3QL TIP
+
+  * fsck: gracefully recover if temporary indices already exist
+    (e.g. if previous fsck was interrupted).
+
 2011-10-20, S3QL 1.5
 
   * Fixed parsing of storage urls, s3s:// no longer generates bogus
