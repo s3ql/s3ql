@@ -3,6 +3,9 @@ UNRELEASED, S3QL TIP
   * fsck: gracefully recover if temporary indices already exist
     (e.g. if previous fsck was interrupted).
 
+  * Due not fail with "BadDigest" error when objects are only
+    partially retrieved from backend.
+
 2011-10-20, S3QL 1.5
 
   * Fixed parsing of storage urls, s3s:// no longer generates bogus
