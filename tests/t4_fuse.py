@@ -174,7 +174,7 @@ class fuse_tests(TestCase):
         
         proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'umount.s3ql'), 
                                  '--quiet', self.mnt_dir])
-        retry(30, lambda : proc.poll() is not None)
+        retry(60, lambda : proc.poll() is not None)
         self.assertEquals(proc.wait(), 0)
         
         self.assertEqual(self.mount_process.wait(), 0)
