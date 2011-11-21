@@ -1,4 +1,4 @@
-UNRELEASED, S3QL TIP
+2011-11-20, S3QL 1.6
 
   * fsck: gracefully recover if temporary indices already exist
     (e.g. if previous fsck was interrupted).
