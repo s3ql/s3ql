@@ -121,6 +121,31 @@ class TimeoutError(Exception):
 
     pass
 
+def skip_if_no_fusermount():
+    '''Raise SkipTest if fusermount is not available'''
+
+    which = subprocess.Popen(['which', 'fusermount'], stdout=subprocess.PIPE)
+    fusermount_path = which.communicate()[0].strip()
+    
+    if not fusermount_path or which.wait() != 0:
+        raise unittest.SkipTest("Can't find fusermount executable")
+    
+    if not os.path.exists('/dev/fuse'):
+        raise unittest.SkipTest("FUSE kernel module does not seem to be loaded")
+                          
+    if os.getuid() == 0:
+        return
+    
+    mode = os.stat(fusermount_path).st_mode
+    if mode & stat.S_ISUID == 0:
+        raise unittest.SkipTest('fusermount executable not setuid, and we are not root.')
+    
+    try:
+        subprocess.check_call([fusermount_path, '-V'], 
+                              stdout=open('/dev/null', 'wb'))
+    except subprocess.CalledProcessError:
+        raise unittest.SkipTest('Unable to execute fusermount')
+    
 if __name__ == '__main__':
     mypath = sys.argv[0]
 else:
@@ -130,6 +155,8 @@ BASEDIR = os.path.abspath(os.path.join(os.path.dirname(mypath), '..'))
 class fuse_tests(TestCase):
     
     def setUp(self):
+        skip_if_no_fusermount()
+        
         # We need this to test multi block operations
         self.src = __file__
         if os.path.getsize(self.src) < 1048:
