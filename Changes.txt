@@ -1,4 +1,8 @@
-UNRELEASED, S3QL TIP
+UNRELEASED, S3QL TIP(default)
+
+  * Extended attribute names are now de-duplicated.
+  
+UNRELEASED, S3QL TIP(stable)
 
   * s3qlcp now also copies extended attributes.
 

@@ -473,7 +473,28 @@ class fs_api_tests(TestCase):
         self.assertEqual(self.server.getxattr(inode.id, 'my-attr'), 'strabumm!')
 
         self.fsck()
+        
+    def test_names(self):
+        name1 = self.newname()
+        name2 = self.newname()
 
+        (fh, _) = self.server.create(ROOT_INODE, name1, self.file_mode(), Ctx())
+        self.server.release(fh)
+                
+        (fh, inode) = self.server.create(ROOT_INODE, name2, self.file_mode(), Ctx())
+        self.server.release(fh)
+
+        self.server.setxattr(inode.id, name1, 'strabumm!')     
+        self.fsck()
+        
+        self.server.removexattr(inode.id, name1)
+        self.fsck()
+        
+        self.server.setxattr(inode.id, name1, 'strabumm karacho!!')     
+        self.server.unlink(ROOT_INODE, name1)
+        self.fsck()
+                
+        
     def test_statfs(self):
         # Test with zero contents
         self.server.statfs()

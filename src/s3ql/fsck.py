@@ -443,10 +443,13 @@ class Fsck(object):
         self.conn.execute('CREATE TEMPORARY TABLE refcounts '
                           '(id INTEGER PRIMARY KEY, refcount INTEGER NOT NULL)')
         try:
-            self.conn.execute('''
-               INSERT INTO refcounts (id, refcount) 
-                 SELECT name_id, COUNT(name_id) FROM contents GROUP BY name_id''')
-            
+            self.conn.execute('INSERT INTO refcounts (id, refcount) '
+                              'SELECT id, 0 FROM names')
+            self.conn.execute('UPDATE refcounts SET refcount='
+                              '(SELECT COUNT(name_id) FROM contents WHERE name_id = refcounts.id)'
+                              '+ (SELECT COUNT(name_id) FROM ext_attributes '
+                              '   WHERE name_id = refcounts.id)')
+                
             self.conn.execute('''
                CREATE TEMPORARY TABLE wrong_refcounts AS 
                SELECT id, refcounts.refcount, names.refcount 

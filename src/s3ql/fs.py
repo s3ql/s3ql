@@ -173,7 +173,7 @@ class Operations(llfuse.Operations):
 
         else:
             try:
-                value = self.db.get_val('SELECT value FROM ext_attributes WHERE inode=? AND name=?',
+                value = self.db.get_val('SELECT value FROM ext_attributes_v WHERE inode=? AND name=?',
                                           (id_, name))
             except NoSuchRowError:
                 raise llfuse.FUSEError(llfuse.ENOATTR)
@@ -181,7 +181,7 @@ class Operations(llfuse.Operations):
 
     def listxattr(self, id_):
         names = list()
-        for (name,) in self.db.query('SELECT name FROM ext_attributes WHERE inode=?', (id_,)):
+        for (name,) in self.db.query('SELECT name FROM ext_attributes_v WHERE inode=?', (id_,)):
             names.append(name)
         return names
 
@@ -215,8 +215,8 @@ class Operations(llfuse.Operations):
             if len(value) > deltadump.MAX_BLOB_SIZE:
                 raise FUSEError(errno.EINVAL)
             
-            self.db.execute('INSERT OR REPLACE INTO ext_attributes (inode, name, value) '
-                            'VALUES(?, ?, ?)', (id_, name, value))
+            self.db.execute('INSERT OR REPLACE INTO ext_attributes (inode, name_id, value) '
+                            'VALUES(?, ?, ?)', (id_, self._add_name(name), value))
             self.inodes[id_].ctime = time.time()
 
     def removexattr(self, id_, name):
@@ -224,10 +224,16 @@ class Operations(llfuse.Operations):
         if self.inodes[id_].locked:
             raise FUSEError(errno.EPERM)
             
-        changes = self.db.execute('DELETE FROM ext_attributes WHERE inode=? AND name=?',
-                                  (id_, name))
+        try:
+            name_id =  self._del_name(name)
+        except NoSuchRowError:
+            raise llfuse.FUSEError(llfuse.ENOATTR)
+        
+        changes = self.db.execute('DELETE FROM ext_attributes WHERE inode=? AND name_id=?',
+                                  (id_, name_id))
         if changes == 0:
             raise llfuse.FUSEError(llfuse.ENOATTR)
+        
         self.inodes[id_].ctime = time.time()
 
     def lock_tree(self, id0):
@@ -376,10 +382,13 @@ class Operations(llfuse.Operations):
                                'SELECT ?, target FROM symlink_targets WHERE inode=?',
                                (id_new, id_))
 
-                    db.execute('INSERT INTO ext_attributes (inode, name, value) '
-                               'SELECT ?, name, value FROM ext_attributes WHERE inode=?',
+                    db.execute('INSERT INTO ext_attributes (inode, name_id, value) '
+                               'SELECT ?, name_id, value FROM ext_attributes WHERE inode=?',
                                (id_new, id_))
-                        
+                    db.execute('UPDATE names SET refcount = refcount + 1 WHERE '
+                               'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
+                               (id_,))
+                                            
                     processed += db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) '
                                             'SELECT ?, blockno, block_id FROM inode_blocks '
                                             'WHERE inode=?', (id_new, id_))
@@ -482,6 +491,10 @@ class Operations(llfuse.Operations):
             self.cache.remove(id_, 0, int(math.ceil(inode.size / self.blocksize)))
             # Since the inode is not open, it's not possible that new blocks
             # get created at this point and we can safely delete the inode
+            self.db.execute('UPDATE names SET refcount = refcount - 1 WHERE '
+                            'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)', 
+                            (id_,))
+            self.db.execute('DELETE FROM names WHERE refcount=0')                 
             self.db.execute('DELETE FROM ext_attributes WHERE inode=?', (id_,))
             self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_,))
             del self.inodes[id_]
@@ -621,6 +634,10 @@ class Operations(llfuse.Operations):
                               int(math.ceil(inode_new.size / self.blocksize)))
             # Since the inode is not open, it's not possible that new blocks
             # get created at this point and we can safely delete the inode
+            self.db.execute('UPDATE names SET refcount = refcount - 1 WHERE '
+                            'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)', 
+                            (id_new,))
+            self.db.execute('DELETE FROM names WHERE refcount=0')                 
             self.db.execute('DELETE FROM ext_attributes WHERE inode=?', (id_new,))
             self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_new,))
             del self.inodes[id_new]

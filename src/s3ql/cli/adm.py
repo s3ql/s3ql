@@ -13,7 +13,7 @@ from s3ql import CURRENT_FS_REV, REV_VER_MAP
 from s3ql.backends.common import BetterBucket, get_bucket
 from s3ql.common import (QuietError, restore_metadata, cycle_metadata, BUFSIZE, 
     dump_metadata, create_tables, setup_logging, get_bucket_cachedir, get_seq_no)
-from s3ql.database import Connection
+from s3ql.database import Connection, NoSuchRowError
 from s3ql.parse_args import ArgumentParser
 import cPickle as pickle
 import logging
@@ -322,7 +322,25 @@ def upgrade(bucket, cachepath):
 
     log.info('Upgrading from revision %d to %d...', param['revision'],
                       CURRENT_FS_REV)
-                                   
+
+    db.execute("""
+    CREATE TABLE ext_attributes_new (
+        inode     INTEGER NOT NULL REFERENCES inodes(id),
+        name_id   INTEGER NOT NULL REFERENCES names(id),
+        value     BLOB NOT NULL,
+ 
+        PRIMARY KEY (inode, name_id)               
+    )""")        
+    for (inode, name, val) in db.query('SELECT inode, name, value FROM ext_attributes'):
+        db.execute('INSERT INTO ext_attributes_new (inode, name_id, value) VALUES(?,?,?)',
+                   (inode, _add_name(db, name), val))
+    db.execute('DROP TABLE ext_attributes')
+    db.execute('ALTER TABLE ext_attributes_new RENAME TO ext_attributes')
+    db.execute("""
+    CREATE VIEW ext_attributes_v AS
+    SELECT * FROM ext_attributes JOIN names ON names.id = name_id
+    """)    
+                                       
     param['seq_no'] += 1
     bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
     param['revision'] = CURRENT_FS_REV
@@ -335,7 +353,22 @@ def upgrade(bucket, cachepath):
     db.execute('ANALYZE')
     db.execute('VACUUM')
         
+def _add_name(db, name):
+    '''Get id for *name* and increase refcount
+    
+    Name is inserted in table if it does not yet exist.
+    '''
+    
+    try:
+        name_id = db.get_val('SELECT id FROM names WHERE name=?', (name,))
+    except NoSuchRowError:
+        name_id = db.rowid('INSERT INTO names (name, refcount) VALUES(?,?)',
+                                (name, 1))
+    else:
+        db.execute('UPDATE names SET refcount=refcount+1 WHERE id=?', (name_id,))
         
+    return name_id
+            
 def restore_legacy_metadata(ifh, conn):
 
     # Note: unpickling is terribly slow if fh is not a real file object, so
@@ -357,6 +390,17 @@ def restore_legacy_metadata(ifh, conn):
     unpickler = pickle.Unpickler(tmp)
     (to_dump, columns) = unpickler.load()
     create_tables(conn)
+    conn.execute("""
+    DROP VIEW ext_attributes_v;
+    DROP TABLE ext_attributes;
+    CREATE TABLE ext_attributes (
+        inode     INTEGER NOT NULL REFERENCES inodes(id),
+        name      BLUB NOT NULL,
+        value     BLOB NOT NULL,
+ 
+        PRIMARY KEY (inode, name)               
+    )""")
+        
     for (table, _) in to_dump:
         log.info('..%s..', table)
         col_str = ', '.join(columns[table])

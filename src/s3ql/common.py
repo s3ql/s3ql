@@ -63,7 +63,7 @@ DUMP_SPEC = [
                ('parent_inode', INTEGER))),
              
              ('ext_attributes', 'inode', (('inode', INTEGER),
-                                          ('name', BLOB),
+                                          ('name_id', INTEGER),
                                           ('value', BLOB))),      
 ] 
     
@@ -241,7 +241,8 @@ def restore_metadata(ifh, conn):
     conn.execute('UPDATE inodes SET refcount='
                  '(SELECT COUNT(inode) FROM contents WHERE inode = inodes.id)')
     conn.execute('UPDATE names SET refcount='
-                 '(SELECT COUNT(name_id) FROM contents WHERE name_id = names.id)')
+                 '(SELECT COUNT(name_id) FROM contents WHERE name_id = names.id)'
+                 '+ (SELECT COUNT(name_id) FROM ext_attributes WHERE name_id = names.id)')
     
     conn.execute('ANALYZE')
     
@@ -477,14 +478,18 @@ def create_tables(conn):
     conn.execute("""
     CREATE TABLE ext_attributes (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
-        name      BLOB NOT NULL,
+        name_id   INTEGER NOT NULL REFERENCES names(id),
         value     BLOB NOT NULL,
  
-        PRIMARY KEY (inode, name)               
+        PRIMARY KEY (inode, name_id)               
     )""")
 
-    # Shortcurts
+    # Shortcuts
     conn.execute("""
     CREATE VIEW contents_v AS
     SELECT * FROM contents JOIN names ON names.id = name_id       
     """)    
+    conn.execute("""
+    CREATE VIEW ext_attributes_v AS
+    SELECT * FROM ext_attributes JOIN names ON names.id = name_id
+    """)        
