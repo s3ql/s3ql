@@ -192,7 +192,11 @@ class fuse_tests(TestCase):
                                                   stdin=subprocess.PIPE)
         print(self.passphrase, file=self.mount_process.stdin)
         self.mount_process.stdin.close()
-        retry(30, os.path.ismount, self.mnt_dir)                              
+        def poll():
+            if os.path.ismount(self.mnt_dir):
+                return True
+            self.assertIsNone(self.mount_process.poll())
+        retry(30, poll)                              
 
     def umount(self):
         devnull = open('/dev/null', 'wb')
