@@ -1,40 +1,31 @@
 '''
-t5_cli.py - this file is part of S3QL (http://s3ql.googlecode.com)
+t5_lock_rm.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function
+from __future__ import division, print_function, absolute_import
+
 import errno
 import llfuse
 import os.path
-import s3ql.cli.ctrl
 import s3ql.cli.lock
 import s3ql.cli.remove
 import sys
 import t4_fuse
 import unittest2 as unittest
 
-class cliTests(t4_fuse.fuse_tests):
+class LockRemoveTests(t4_fuse.fuse_tests):
     
     def runTest(self):
         self.mkfs()
         self.mount()
         self.tst_lock_rm()
-        self.tst_ctrl_flush()
         self.umount()
         self.fsck()
 
-    def tst_ctrl_flush(self):
-
-        try:
-            s3ql.cli.ctrl.main(['flushcache', self.mnt_dir])
-        except:
-            sys.excepthook(*sys.exc_info())
-            self.fail("s3qlctrl raised exception")
-            
     def tst_lock_rm(self):
 
         # Extract tar
@@ -72,7 +63,7 @@ class cliTests(t4_fuse.fuse_tests):
 
 # Somehow important according to pyunit documentation
 def suite():
-    return unittest.makeSuite(cliTests)
+    return unittest.makeSuite(LockRemoveTests)
 
 
 # Allow calling from command line
