@@ -45,28 +45,6 @@ Known Issues
   the `--noleaf` option to work correctly on S3QL file systems. This
   bug has already been fixed in recent find versions.
 
-
-* In theory, S3QL is not fully compatible with NFS. Since S3QL does
-  not support *inode generation numbers*, NFS clients may (once again,
-  in theory) accidentally read or write the wrong file in the
-  following situation:
-
-  #. An S3QL file system is exported over NFS
-  #. NFS client 1 opens a file A
-  #. Another NFS client 2 (or the server itself) deletes file A (without
-     client 1 knowing about this)
-  #. A new file B is created by either of the clients or the server
-  #. NFS client 1 tries to read or write file A (which has actually already been deleted).
-
-  In this situation it is possible that NFS client 1 actually writes
-  or reads the newly created file B instead. The chances of this are 1
-  to (2^32 - *n*) where *n* is the total number of directory entries
-  in the S3QL file system (as displayed by `s3qlstat`).
-
-  Luckily enough, as long as you have less than about 2 thousand
-  million directory entries (2^31), the chances for this are totally
-  irrelevant and you don't have to worry about it.
-
 * The `umount` and `fusermount -u` commands will *not* block until all
   data has been uploaded to the backend. (this is a FUSE limitation
   that will hopefully be removed in the future, see `issue 159

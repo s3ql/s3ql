@@ -24,7 +24,7 @@ class cache_tests(TestCase):
         self.db = Connection(self.dbfile.name)
         create_tables(self.db)
         init_tables(self.db)
-        self.cache = inode_cache.InodeCache(self.db)
+        self.cache = inode_cache.InodeCache(self.db, 0)
 
     def tearDown(self):
         self.cache.destroy()

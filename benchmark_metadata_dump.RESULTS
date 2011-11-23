@@ -5,6 +5,30 @@ DB Size:  79 MB
 Inodes:  580330
 Blocks:   58668
 
+Sorted:
+Reference recovery:  16.37 sek
+delta_f         :   5.62 sek,  15.47 MB
+delta_f + zlib  :  10.27 sek,   4.95 MB
+delta_f + BZIP2 :   8.65 sek,   4.73 MB
+delta_f + LZMA  :  16.84 sek,   4.22 MB
+delta           :   4.06 sek,  14.75 MB
+delta + zlib    :   8.11 sek,   4.87 MB
+delta + BZIP2   :   6.67 sek,   4.70 MB
+delta + LZMA    :  14.34 sek,   4.18 MB
+pickle          :  14.95 sek,  57.40 MB
+pickle + zlib   :  34.46 sek,  13.70 MB
+pickle + BZIP2  :  23.33 sek,  11.99 MB
+pickle + LZMA   :  61.09 sek,   7.13 MB
+apsw_csv        :  93.77 sek,  67.62 MB
+apsw_csv + zlib : 117.51 sek,   8.01 MB
+apsw_csv + BZIP2: 103.88 sek,   8.92 MB
+apsw_csv + LZMA : 146.90 sek,   3.59 MB
+apsw_sql        :  39.51 sek, 127.12 MB
+apsw_sql + zlib :  54.22 sek,  14.65 MB
+apsw_sql + BZIP2:  70.76 sek,  13.11 MB
+apsw_sql + LZMA : 152.65 sek,   7.82 MB
+
+Unsorted:
 Reference recovery:  11.82 sek
 delta_f         :   4.10 sek,  34.39 MB
 delta_f + zlib  :  26.23 sek,  22.98 MB
@@ -28,6 +52,7 @@ apsw_sql + BZIP2:  63.66 sek,  21.68 MB
 apsw_sql + LZMA : 194.53 sek,  14.73 MB
 
 
+
 System B
 ========
 
@@ -35,6 +60,24 @@ DB Size:  685 MB
 Inodes:  3976335
 Blocks:   349204
 
+Sorted:
+Reference recovery: 124.72 sek
+delta_f         :  31.70 sek,  96.50 MB
+delta_f + zlib  :  58.56 sek,  27.73 MB
+delta_f + BZIP2 :  53.40 sek,  25.38 MB
+delta_f + LZMA  : 111.54 sek,  23.09 MB
+delta           :  29.37 sek,  91.82 MB
+delta + zlib    :  52.92 sek,  27.26 MB
+delta + BZIP2   :  48.93 sek,  25.24 MB
+delta + LZMA    : 112.10 sek,  22.68 MB
+pickle          : 101.97 sek, 393.28 MB
+pickle + zlib   : 239.76 sek,  88.14 MB
+pickle + BZIP2  : 160.98 sek,  72.61 MB
+pickle + LZMA   : 471.08 sek,  43.06 MB
+
+
+
+Unsorted:
 Reference recovery: 177.79 sek
 delta_f         :  46.43 sek, 227.64 MB
 delta_f + zlib  : 181.96 sek, 148.00 MB
@@ -65,6 +108,30 @@ DB Size:  317 MB
 Inodes:  1939461
 Blocks:   132150
 
+Sorted:
+Reference recovery: 119.47 sek
+delta_f         :  27.14 sek,  44.10 MB
+delta_f + zlib  :  39.16 sek,   8.67 MB
+delta_f + BZIP2 :  35.10 sek,   7.57 MB
+delta_f + LZMA  :  58.95 sek,   7.50 MB
+delta           :  13.82 sek,  41.83 MB
+delta + zlib    :  25.24 sek,   8.59 MB
+delta + BZIP2   :  20.11 sek,   7.63 MB
+delta + LZMA    :  44.12 sek,   7.44 MB
+pickle          :  49.02 sek, 195.27 MB
+pickle + zlib   : 138.18 sek,  35.28 MB
+pickle + BZIP2  :  78.08 sek,  26.35 MB
+pickle + LZMA   : 234.60 sek,  12.98 MB
+apsw_csv        : 316.74 sek, 232.52 MB
+apsw_csv + zlib : 377.46 sek,  26.55 MB
+apsw_csv + BZIP2: 353.40 sek,  24.64 MB
+apsw_csv + LZMA : 516.68 sek,   8.83 MB
+apsw_sql        : 132.55 sek, 429.22 MB
+apsw_sql + zlib : 176.34 sek,  40.06 MB
+apsw_sql + BZIP2: 220.52 sek,  33.39 MB
+apsw_sql + LZMA : 505.88 sek,  17.43 MB
+
+Unsorted:
 Reference recovery:  93.64 sek
 delta_f         :  21.26 sek, 112.73 MB
 delta_f + zlib  : 136.65 sek,  65.21 MB
@@ -86,3 +153,6 @@ apsw_sql        : 134.66 sek, 452.74 MB
 apsw_sql + zlib : 198.06 sek,  79.08 MB
 apsw_sql + BZIP2: 231.54 sek,  63.55 MB
 apsw_sql + LZMA : 670.06 sek,  46.08 MB
+
+
+

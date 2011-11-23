@@ -15,6 +15,7 @@ from s3ql.common import (setup_logging, get_bucket_cachedir, get_seq_no,
     stream_write_bz2, stream_read_bz2)
 from s3ql.daemonize import daemonize
 from s3ql.database import Connection
+from s3ql.inode_cache import InodeCache
 from s3ql.parse_args import ArgumentParser
 from threading import Thread
 import cPickle as pickle
@@ -104,6 +105,7 @@ def main(args=None):
                              options.cachesize * 1024, options.max_cache_entries)
     commit_thread = CommitThread(block_cache)
     operations = fs.Operations(block_cache, db, blocksize=param['blocksize'],
+                               inode_cache=InodeCache(db, param['inode_gen']),
                                upload_event=metadata_upload_thread.event)
     
     log.info('Mounting filesystem...')
@@ -192,7 +194,7 @@ def main(args=None):
     
     # Do not update .params yet, dump_metadata() may fail if the database is
     # corrupted, in which case we want to force an fsck.
-       
+    param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')   
     with bucket_pool() as bucket:   
         seq_no = get_seq_no(bucket)
         if metadata_upload_thread.db_mtime == os.stat(cachepath + '.db').st_mtime:
@@ -320,6 +322,11 @@ def get_metadata(bucket, cachepath):
         log.warn('Last file system check was more than 1 month ago, '
                  'running fsck.s3ql is recommended.')
     
+    if  param['max_inode'] > 2**32 - 50000:
+        raise QuietError('Insufficient free inodes, fsck run required.')
+    elif param['max_inode'] > 2**31:
+        log.warn('Few free inodes remaining, running fsck is recommended')
+            
     # Download metadata
     if not db:
         def do_read(fh):

@@ -10,10 +10,7 @@ from __future__ import division, print_function, absolute_import
 
 import time
 import logging
-from random import randint
-import apsw
 from .database import NoSuchRowError
-from s3ql.common import CTRL_INODE
 
 __all__ = [ 'InodeCache', 'OutOfInodesError' ]
 log = logging.getLogger('inode_cache')
@@ -28,12 +25,11 @@ UPDATE_STR = ', '.join('%s=?' % x for x in UPDATE_ATTRS)
 TIMEZONE = time.timezone
 
 MAX_INODE = 2**32 - 1 
-MIN_INODE = CTRL_INODE+1
 
 class _Inode(object):
     '''An inode with its attributes'''
 
-    __slots__ = ATTRIBUTES + ('dirty',)
+    __slots__ = ATTRIBUTES + ('dirty', 'generation')
 
     def __init__(self):
         super(_Inode, self).__init__()
@@ -60,10 +56,6 @@ class _Inode(object):
         # write requests
         elif key == 'st_blksize':
             return 128 * 1024
-
-        # Our inodes are already unique
-        elif key == 'generation':
-            return 1
 
         elif key.startswith('st_'):
             return getattr(self, key[3:])
@@ -130,10 +122,11 @@ class InodeCache(object):
     to the effects of the current method call.
     '''
 
-    def __init__(self, db):
+    def __init__(self, db, inode_gen):
         self.attrs = dict()
         self.cached_rows = list()
         self.db = db
+        self.generation = inode_gen
 
         # Fill the cache with dummy data, so that we don't have to
         # check if the cache is full or not (it will always be full)        
@@ -175,7 +168,7 @@ class InodeCache(object):
             self.attrs[id_] = inode
             return inode
 
-    def getattr(self, id_):
+    def getattr(self, id_): #@ReservedAssignment
         attrs = self.db.get_row("SELECT %s FROM inodes WHERE id=? " % ATTRIBUTE_STR,
                                   (id_,))
         inode = _Inode()
@@ -191,6 +184,7 @@ class InodeCache(object):
         inode.ctime += TIMEZONE
 
         inode.dirty = False
+        inode.generation = self.generation
 
         return inode
 
@@ -203,19 +197,10 @@ class InodeCache(object):
         columns = ', '.join(x for x in ATTRIBUTES if x in kw)
         values = ', '.join('?' * len(kw))
                                   
-        # We want to restrict inodes to 32bit, and we do not want to
-        # immediately reuse deleted inodes (so that the lack of generation
-        # numbers isn't too likely to cause problems with NFS)
-        sql = 'INSERT INTO inodes (id, %s) VALUES(?, %s)' % (columns, values)
-        for _ in range(100):
-            id_ = randint(MIN_INODE, MAX_INODE)
-            try:
-                self.db.execute(sql, (id_,) + bindings)
-            except apsw.ConstraintError:
-                pass
-            else:
-                break
-        else:
+        id_ = self.db.rowid('INSERT INTO inodes (%s) VALUES(%s)' % (columns, values),
+                            bindings)
+        if id_ > MAX_INODE-1:
+            self.db.execute('DELETE FROM inodes WHERE id=?', (id_,))
             raise OutOfInodesError()
 
         return self[id_]

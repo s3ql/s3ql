@@ -411,7 +411,7 @@ def create_tables(conn):
     CREATE TABLE inodes (
         -- id has to specified *exactly* as follows to become
         -- an alias for the rowid.
-        id        INTEGER PRIMARY KEY,
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
         uid       INT NOT NULL,
         gid       INT NOT NULL,
         mode      INT NOT NULL,

@@ -112,6 +112,8 @@ def main(args=None):
     param['label'] = options.label
     param['blocksize'] = options.blocksize * 1024
     param['needs_fsck'] = False
+    param['inode_gen'] = 0
+    param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')   
     param['last_fsck'] = time.time() - time.timezone
     param['last-modified'] = time.time() - time.timezone
     

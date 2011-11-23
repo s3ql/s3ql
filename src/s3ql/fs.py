@@ -10,7 +10,7 @@ from __future__ import division, print_function, absolute_import
 from .backends.common import NoSuchObject, ChecksumError
 from .common import (get_path, CTRL_NAME, CTRL_INODE, LoggerFilter)
 from .database import NoSuchRowError
-from .inode_cache import InodeCache, OutOfInodesError
+from .inode_cache import OutOfInodesError
 from . import deltadump
 from cStringIO import StringIO
 from llfuse import FUSEError
@@ -69,10 +69,11 @@ class Operations(llfuse.Operations):
     explicitly checks the st_mode attribute.
     """
         
-    def __init__(self, block_cache, db, blocksize, upload_event=None):
+    def __init__(self, block_cache, db, blocksize, inode_cache,
+                 upload_event=None):
         super(Operations, self).__init__()
 
-        self.inodes = InodeCache(db)
+        self.inodes = inode_cache
         self.db = db
         self.upload_event = upload_event
         self.open_inodes = collections.defaultdict(lambda: 0)

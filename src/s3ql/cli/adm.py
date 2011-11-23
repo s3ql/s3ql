@@ -9,11 +9,12 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 from datetime import datetime as Datetime
 from getpass import getpass
+from llfuse import ROOT_INODE
 from s3ql import CURRENT_FS_REV, REV_VER_MAP
 from s3ql.backends.common import BetterBucket, get_bucket
 from s3ql.common import (QuietError, restore_metadata, cycle_metadata, BUFSIZE, 
     dump_metadata, create_tables, setup_logging, get_bucket_cachedir, get_seq_no, 
-    stream_write_bz2)
+    stream_write_bz2, CTRL_INODE)
 from s3ql.database import Connection, NoSuchRowError
 from s3ql.parse_args import ArgumentParser
 import cPickle as pickle
@@ -340,8 +341,10 @@ def upgrade(bucket, cachepath):
     SELECT * FROM ext_attributes JOIN names ON names.id = name_id
     """)    
                                        
-    param['seq_no'] += 1
-    bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
+    renumber_inodes(db)
+    
+    param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
+    param['inode_gen'] = 1
     param['revision'] = CURRENT_FS_REV
     param['last-modified'] = time.time() - time.timezone
     
@@ -379,7 +382,62 @@ def _add_name(db, name):
         db.execute('UPDATE names SET refcount=refcount+1 WHERE id=?', (name_id,))
         
     return name_id
-            
+
+def renumber_inodes(db):
+    '''Renumber inodes'''
+    
+    log.info('Renumbering inodes...')
+    for table in ('inodes', 'inode_blocks', 'symlink_targets',
+                  'contents', 'names', 'blocks', 'objects', 'ext_attributes'):
+        db.execute('ALTER TABLE %s RENAME TO %s_old' % (table, table))
+    
+    for table in ('contents_v', 'ext_attributes_v'):
+        db.execute('DROP VIEW %s' % table)
+        
+    create_tables(db)
+    for table in ('names', 'blocks', 'objects'):
+        db.execute('DROP TABLE %s' % table)
+        db.execute('ALTER TABLE %s_old RENAME TO %s' % (table, table))
+    
+    log.info('..mapping..')
+    db.execute('CREATE TEMPORARY TABLE inode_map (rowid INTEGER PRIMARY KEY AUTOINCREMENT, id INTEGER UNIQUE)')
+    db.execute('INSERT INTO inode_map (rowid, id) VALUES(?,?)', (ROOT_INODE, ROOT_INODE))
+    db.execute('INSERT INTO inode_map (rowid, id) VALUES(?,?)', (CTRL_INODE, CTRL_INODE))
+    db.execute('INSERT INTO inode_map (id) SELECT id FROM inodes_old WHERE id > ? ORDER BY ctime ASC',
+               (CTRL_INODE,))
+
+    log.info('..inodes..')    
+    db.execute('INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,size,locked,rdev) '
+               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = inodes_old.id), '
+               '       mode,uid,gid,mtime,atime,ctime,refcount,size,locked,rdev FROM inodes_old')
+    
+    log.info('..inode_blocks..')
+    db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) '
+               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = inode_blocks_old.inode), '
+               '       blockno, block_id FROM inode_blocks_old')
+    
+    log.info('..contents..')
+    db.execute('INSERT INTO contents (inode, parent_inode, name_id) '
+               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = contents_old.inode), '
+               '       (SELECT rowid FROM inode_map WHERE inode_map.id = contents_old.parent_inode), '
+               '       name_id FROM contents_old')
+    
+    log.info('..symlink_targets..')
+    db.execute('INSERT INTO symlink_targets (inode, target) '
+               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = symlink_targets_old.inode), '
+               '       target FROM symlink_targets_old')
+    
+    log.info('..ext_attributes..')        
+    db.execute('INSERT INTO ext_attributes (inode, name_id, value) '
+               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = ext_attributes_old.inode), '
+               '       name_id, value FROM ext_attributes_old')
+
+    for table in ('inodes', 'inode_blocks', 'symlink_targets',
+                  'contents', 'ext_attributes'):
+        db.execute('DROP TABLE %s_old' % table)
+       
+    db.execute('DROP TABLE inode_map')
+                    
 def restore_legacy_metadata(ifh, conn):
 
     # Note: unpickling is terribly slow if fh is not a real file object, so

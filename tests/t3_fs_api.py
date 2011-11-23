@@ -17,6 +17,7 @@ from s3ql.block_cache import BlockCache
 from s3ql.common import ROOT_INODE, create_tables, init_tables
 from s3ql.database import Connection
 from s3ql.fsck import Fsck
+from s3ql.inode_cache import InodeCache
 import errno
 import llfuse
 import os
@@ -64,7 +65,8 @@ class fs_api_tests(TestCase):
         
         self.block_cache = BlockCache(self.bucket_pool, self.db, self.cachedir + "/cache",
                                       self.blocksize * 5)
-        self.server = fs.Operations(self.block_cache, self.db, self.blocksize)
+        self.server = fs.Operations(self.block_cache, self.db, self.blocksize,
+                                    InodeCache(self.db, 0))
           
         self.server.init()
 

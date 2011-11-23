@@ -11,9 +11,6 @@ from .backends.common import NoSuchObject
 from .common import ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE
 from .database import NoSuchRowError
 from os.path import basename
-from random import randint
-from .inode_cache import MIN_INODE, MAX_INODE, OutOfInodesError
-import apsw
 import logging
 import os
 import re
@@ -52,14 +49,17 @@ class Fsck(object):
         Sets instance variable `found_errors`.
         """
         
+        # FIXME: Check for NULL values in columns that shouldn't be NULL
+        
         # Create indices required for reference checking
         log.info('Creating temporary extra indices...')
-        self.conn.execute('DROP INDEX IF EXISTS tmp1')
-        self.conn.execute('DROP INDEX IF EXISTS tmp2')
-        self.conn.execute('DROP INDEX IF EXISTS tmp3')
+        for idx in ('tmp1', 'tmp2', 'tmp3', 'tmp4', 'tmp5'):
+            self.conn.execute('DROP INDEX IF EXISTS %s' % idx)
         self.conn.execute('CREATE INDEX tmp1 ON blocks(obj_id)')
         self.conn.execute('CREATE INDEX tmp2 ON inode_blocks(block_id)')
         self.conn.execute('CREATE INDEX tmp3 ON contents(inode)')
+        self.conn.execute('CREATE INDEX tmp4 ON contents(name_id)')
+        self.conn.execute('CREATE INDEX tmp5 ON ext_attributes(name_id)')        
         try:
             self.check_foreign_keys()
             self.check_cache()
@@ -75,7 +75,7 @@ class Fsck(object):
             self.check_keylist()
         finally:
             log.info('Dropping temporary indices...')
-            for idx in ('tmp1', 'tmp2', 'tmp3'):
+            for idx in ('tmp1', 'tmp2', 'tmp3', 'tmp4', 'tmp5'):
                 self.conn.execute('DROP INDEX %s' % idx)
     
     def log_error(self, *a, **kw):
@@ -418,21 +418,12 @@ class Fsck(object):
     def create_inode(self, mode, uid=os.getuid(), gid=os.getgid(),
                      mtime=None, atime=None, ctime=None, refcount=None,
                      size=0):
-        '''Create inode with id fitting into 32bit'''
+        '''Create inode'''
         
-        for _ in range(100):
-            id_ = randint(MIN_INODE, MAX_INODE)
-            try:
-                self.conn.execute('INSERT INTO inodes (id, mode,uid,gid,mtime,atime,ctime,'
-                                  'refcount,size) VALUES (?,?,?,?,?,?,?,?,?)',
-                                   (id_, mode, uid, gid, mtime, atime, ctime, refcount, size))
-            except apsw.ConstraintError:
-                pass
-            else:
-                break
-        else:
-            raise OutOfInodesError()
-                
+        id_ = self.conn.rowid('INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,'
+                              'refcount,size) VALUES (?,?,?,?,?,?,?,?)',
+                              (mode, uid, gid, mtime, atime, ctime, refcount, size))
+
         return id_
     
     def check_name_refcount(self):

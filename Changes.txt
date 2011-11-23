@@ -3,8 +3,13 @@ UNRELEASED, S3QL TIP(default)
   * Extended attribute names are now de-duplicated.
 
   * Metadata is now stored in a custom, delta-encoded binary format and
-    then BZIP2 compressed, resulting in a 5-fold speedup with same
-    resulting file size.
+    then BZIP2 compressed, resulting in a 5-fold speedup when dumping
+    and compressing.
+
+  * Inodes are now assigned sequentially rather than randomly, and old
+    inodes are not reused. This makes S3QL fully NFS compatible and
+    allows metadata to be stored much more efficiently, resulting in
+    a 4 to 8 fold decrease in compressed metadata size.
   
 UNRELEASED, S3QL TIP(stable)
 

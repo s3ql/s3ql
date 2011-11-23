@@ -7,11 +7,12 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
+from llfuse import ROOT_INODE
 from s3ql import CURRENT_FS_REV
 from s3ql.backends.common import get_bucket
 from s3ql.common import (get_bucket_cachedir, cycle_metadata, setup_logging, 
     QuietError, get_seq_no, restore_metadata, dump_metadata, CTRL_INODE, 
-    stream_write_bz2, stream_read_bz2)
+    stream_write_bz2, stream_read_bz2, create_tables)
 from s3ql.database import Connection
 from s3ql.fsck import Fsck
 from s3ql.parse_args import ArgumentParser
@@ -44,9 +45,6 @@ def parse_args(args):
                       help="If user input is required, exit without prompting.")
     parser.add_argument("--force", action="store_true", default=False,
                       help="Force checking even if file system is marked clean.")
-    parser.add_argument("--renumber-inodes", action="store_true", default=False,
-                      help="Renumber inodes to be stricly sequential starting from %d"
-                           % (CTRL_INODE+1))
     options = parser.parse_args(args)
 
     return options
@@ -129,10 +127,11 @@ def main(args=None):
         param['needs_fsck'] = True
     
     
-    if (not param['needs_fsck'] 
+    if (not param['needs_fsck']
+        and param['max_inode'] < 2**31 
         and ((time.time() - time.timezone) - param['last_fsck'])
              < 60 * 60 * 24 * 31): # last check more than 1 month ago
-        if options.force or options.renumber_inodes:
+        if options.force:
             log.info('File system seems clean, checking anyway.')
         else:
             log.info('File system is marked as clean. Use --force to force checking.')
@@ -177,6 +176,7 @@ def main(args=None):
     
     fsck = Fsck(cachepath + '-cache', bucket, param, db)
     fsck.check()
+    param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
     
     if fsck.uncorrectable_errors:
         raise QuietError("Uncorrectable errors found, aborting.")
@@ -184,13 +184,16 @@ def main(args=None):
     if os.path.exists(cachepath + '-cache'):
         os.rmdir(cachepath + '-cache')
         
-    if options.renumber_inodes:
+    if param['max_inode'] >= 2**31: 
         renumber_inodes(db)
+        param['inode_gen'] += 1
+        param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
             
     cycle_metadata(bucket)
     param['needs_fsck'] = False
     param['last_fsck'] = time.time() - time.timezone
     param['last-modified'] = time.time() - time.timezone
+    
     log.info('Dumping metadata...')
     fh = tempfile.TemporaryFile()
     dump_metadata(db, fh)            
@@ -207,50 +210,62 @@ def main(args=None):
         
     db.execute('ANALYZE')
     db.execute('VACUUM')
-    db.close() 
-
-    if options.renumber_inodes:
-        print('',
-              'Inodes were renumbered. If this file system has been exported over NFS,',
-              'all NFS clients need to be restarted before mounting the S3QL file system ',
-              'again or data corruption may occur.', sep='\n')
-        
+    db.close()      
 
 def renumber_inodes(db):
     '''Renumber inodes'''
     
     log.info('Renumbering inodes...')
-    total = db.get_val('SELECT COUNT(id) FROM inodes')
-    db.execute('CREATE TEMPORARY TABLE inode_ids AS '
-               'SELECT id FROM inodes WHERE id > ? ORDER BY id DESC', 
-               (max(total, CTRL_INODE),))
-    db.execute('CREATE INDEX IF NOT EXISTS ix_contents_inode ON contents(inode)')
-    try:
-        i = 0
-        cur = CTRL_INODE+1
-        for (id_,) in db.query("SELECT id FROM inode_ids"):
-            while True:
-                try:
-                    db.execute('UPDATE inodes SET id=? WHERE id=?', (cur, id_))
-                except apsw.ConstraintError:
-                    cur += 1
-                else:
-                    break            
-            
-            db.execute('UPDATE contents SET inode=? WHERE inode=?', (cur, id_))
-            db.execute('UPDATE contents SET parent_inode=? WHERE parent_inode=?', (cur, id_))
-            db.execute('UPDATE inode_blocks SET inode=? WHERE inode=?', (cur, id_))
-            db.execute('UPDATE symlink_targets SET inode=? WHERE inode=?', (cur, id_))
-            db.execute('UPDATE ext_attributes SET inode=? WHERE inode=?', (cur, id_))
-                                    
-            cur += 1
-            i += 1
-            if i % 5000 == 0:
-                log.info('..processed %d inodes so far..', i)
+    for table in ('inodes', 'inode_blocks', 'symlink_targets',
+                  'contents', 'names', 'blocks', 'objects', 'ext_attributes'):
+        db.execute('ALTER TABLE %s RENAME TO %s_old' % (table, table))
+    
+    for table in ('contents_v', 'ext_attributes_v'):
+        db.execute('DROP VIEW %s' % table)
         
-    finally:
-        db.execute('DROP TABLE inode_ids')
-        db.execute('DROP INDEX ix_contents_inode')
+    create_tables(db)
+    for table in ('names', 'blocks', 'objects'):
+        db.execute('DROP TABLE %s' % table)
+        db.execute('ALTER TABLE %s_old RENAME TO %s' % (table, table))
+    
+    log.info('..mapping..')
+    db.execute('CREATE TEMPORARY TABLE inode_map (rowid INTEGER PRIMARY KEY AUTOINCREMENT, id INTEGER UNIQUE)')
+    db.execute('INSERT INTO inode_map (rowid, id) VALUES(?,?)', (ROOT_INODE, ROOT_INODE))
+    db.execute('INSERT INTO inode_map (rowid, id) VALUES(?,?)', (CTRL_INODE, CTRL_INODE))
+    db.execute('INSERT INTO inode_map (id) SELECT id FROM inodes_old WHERE id > ? ORDER BY id ASC',
+               (CTRL_INODE,))
+
+    log.info('..inodes..')    
+    db.execute('INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,size,locked,rdev) '
+               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = inodes_old.id), '
+               '       mode,uid,gid,mtime,atime,ctime,refcount,size,locked,rdev FROM inodes_old')
+    
+    log.info('..inode_blocks..')
+    db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) '
+               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = inode_blocks_old.inode), '
+               '       blockno, block_id FROM inode_blocks_old')
+    
+    log.info('..contents..')
+    db.execute('INSERT INTO contents (inode, parent_inode, name_id) '
+               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = contents_old.inode), '
+               '       (SELECT rowid FROM inode_map WHERE inode_map.id = contents_old.parent_inode), '
+               '       name_id FROM contents_old')
+    
+    log.info('..symlink_targets..')
+    db.execute('INSERT INTO symlink_targets (inode, target) '
+               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = symlink_targets_old.inode), '
+               '       target FROM symlink_targets_old')
+    
+    log.info('..ext_attributes..')        
+    db.execute('INSERT INTO ext_attributes (inode, name_id, value) '
+               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = ext_attributes_old.inode), '
+               '       name_id, value FROM ext_attributes_old')
+
+    for table in ('inodes', 'inode_blocks', 'symlink_targets',
+                  'contents', 'ext_attributes'):
+        db.execute('DROP TABLE %s_old' % table)
+       
+    db.execute('DROP TABLE inode_map')
 
         
 if __name__ == '__main__':
