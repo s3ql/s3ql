@@ -202,7 +202,7 @@ def main(args=None):
     log.info("Compressing and uploading metadata...")
     obj_fh = bucket.perform_write(do_write, "s3ql_metadata", metadata=param,
                                   is_compressed=True) 
-    log.info('Wrote %.2 MB of compressed metadata.', obj_fh.get_obj_size() / 1024**2)
+    log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024**2)
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         
     db.execute('ANALYZE')

@@ -215,7 +215,7 @@ def main(args=None):
             log.info("Compressing and uploading metadata...")
             obj_fh = bucket.perform_write(do_write, "s3ql_metadata", metadata=param,
                                           is_compressed=True) 
-            log.info('Wrote %.2 MB of compressed metadata.', obj_fh.get_obj_size() / 1024**2)
+            log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024**2)
             pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         else:
             log.error('Remote metadata is newer than local (%d vs %d), '
@@ -537,7 +537,7 @@ class MetadataUploadThread(Thread):
                 log.info("Compressing and uploading metadata...")
                 obj_fh = bucket.perform_write(do_write, "s3ql_metadata", metadata=self.param,
                                               is_compressed=True) 
-                log.info('Wrote %.2 MB of compressed metadata.', obj_fh.get_obj_size() / 1024**2)
+                log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024**2)
                 self.param['seq_no'] += 1
                 
                 fh.close()
