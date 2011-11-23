@@ -6,6 +6,9 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
+# Analysis of Cython code not really working yet
+#@PydevCodeAnalysisIgnore
+
 from __future__ import print_function, division 
 
 from cpython.long cimport PyLong_AsVoidPtr
@@ -409,9 +412,9 @@ cdef inline int write_integer(int64_t int64, FILE* fp) except -1:
 cdef inline int read_integer(int64_t* out, FILE* fp) except -1:
     '''Read integer written using `write_integer` from *fp*'''
 
-    cdef uint8_t int8 #@DuplicatedSignature
-    cdef size_t len_ #@DuplicatedSignature
-    cdef uint64_t uint64 #@DuplicatedSignature
+    cdef uint8_t int8 
+    cdef size_t len_
+    cdef uint64_t uint64
     cdef char negative
 
     fread(&int8, 1, fp)
