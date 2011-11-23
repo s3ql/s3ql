@@ -17,6 +17,8 @@ from ._deltadump import (INTEGER, BLOB, TIME, dump_table, load_table,
 import subprocess
 import re
 
+__all__ = ('INTEGER', 'BLOB', 'TIME', 'dump_table', 'load_table', 'MAX_BLOB_SIZE')
+
 def get_libraries(pathname):
     '''Return shared libraries required for *pathname*'''
     
