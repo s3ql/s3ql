@@ -49,8 +49,6 @@ class Fsck(object):
         Sets instance variable `found_errors`.
         """
         
-        # FIXME: Check for NULL values in columns that shouldn't be NULL
-        
         # Create indices required for reference checking
         log.info('Creating temporary extra indices...')
         for idx in ('tmp1', 'tmp2', 'tmp3', 'tmp4', 'tmp5'):
@@ -73,6 +71,7 @@ class Fsck(object):
             self.check_block_refcount()
             self.check_obj_refcounts()
             self.check_keylist()
+            self.check_obj_sizes()
         finally:
             log.info('Dropping temporary indices...')
             for idx in ('tmp1', 'tmp2', 'tmp3', 'tmp4', 'tmp5'):
@@ -658,7 +657,20 @@ class Fsck(object):
             self.conn.execute('DROP TABLE obj_ids')
             self.conn.execute('DROP TABLE IF EXISTS missing')
     
+
+    def check_obj_sizes(self):
+        """Check size column of objects table"""
     
+        log.info('Checking object sizes...')
+    
+        for (obj_id,) in self.conn.query('SELECT id FROM objects WHERE size IS NULL'):
+            self.found_errors = True
+            self.log_error("Object %d has no size information, retrieving from backend...",  obj_id)               
+        
+            self.conn.execute('UPDATE objects SET size=? WHERE id=?',
+                              (self.bucket.get_size('s3ql_data_%d' % obj_id), obj_id))
+  
+                
     def resolve_free(self, path, name):
         '''Return parent inode and name of an unused directory entry
         

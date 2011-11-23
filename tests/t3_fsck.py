@@ -186,7 +186,7 @@ class fsck_tests(TestCase):
                              0, 0, time.time(), time.time(), time.time(), 1, 128))
         self._link('test-entry', id_)
 
-        obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
+        obj_id = self.db.rowid('INSERT INTO objects (refcount,size) VALUES(?,?)', (1, 36))
         block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
                                  (1, obj_id, 512))
         self.bucket['s3ql_data_%d' % obj_id] = 'foo'
@@ -220,12 +220,12 @@ class fsck_tests(TestCase):
         self.assert_fsck(self.fsck.check_keylist)
 
         # Create an object that does not exist in the bucket
-        self.db.execute('INSERT INTO objects (id, refcount) VALUES(?, ?)', (34, 1))
+        self.db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)', (34, 1, 27))
         self.assert_fsck(self.fsck.check_keylist)
 
     def test_missing_obj(self):
         
-        obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
+        obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 32)')
         block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
                                  (1, obj_id, 128))
         
@@ -269,7 +269,7 @@ class fsck_tests(TestCase):
 
     def test_obj_refcounts(self):
 
-        obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
+        obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 42)')
         block_id_1 = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
                                  (1, obj_id, 0))
         block_id_2 = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
@@ -291,12 +291,12 @@ class fsck_tests(TestCase):
 
     def test_orphaned_obj(self):
 
-        self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
+        self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 33)')
         self.assert_fsck(self.fsck.check_obj_refcounts)
         
     def test_wrong_block_refcount(self):
 
-        obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
+        obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 23)')
         self.bucket['s3ql_data_%d' % obj_id] = 'foo'
         block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
                                  (1, obj_id, 0))
@@ -316,7 +316,7 @@ class fsck_tests(TestCase):
         
     def test_orphaned_block(self):
         
-        obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
+        obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 24)')
         self.bucket['s3ql_data_%d' % obj_id] = 'foo'
         self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
                       (1, obj_id, 3))
@@ -432,7 +432,7 @@ class fsck_tests(TestCase):
         self.fsck.check_inode_unix()
         self.assertFalse(self.fsck.found_errors)
         
-        obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
+        obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 32)')
         block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
                                  (1, obj_id, 0))
 
