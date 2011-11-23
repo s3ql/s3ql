@@ -2,8 +2,7 @@
 
 from __future__ import print_function, division, absolute_import
 
-import s3ql.deltadump
-from s3ql.deltadump import INTEGER, BLOB, TIME, dump_table, load_table
+from s3ql.deltadump import INTEGER, BLOB, TIME, dump_table
 import logging
 import zlib
 import bz2
