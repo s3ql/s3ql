@@ -356,7 +356,11 @@ class TestBucketPool(AbstractBucket):
         """
         return self.bucket.rename(src, dest)
 
-
+    def get_size(self, key):
+        '''Return size of object stored under *key*'''
+        
+        return self.bucket.get_size(key) 
+    
 def commit(cache, inode, block=None):
     """Upload data for `inode`
     

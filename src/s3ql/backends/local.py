@@ -66,6 +66,11 @@ class Bucket(AbstractBucket):
                 raise ChecksumError('Invalid metadata')
             raise
         
+    def get_size(self, key):
+        '''Return size of object stored under *key*'''
+        
+        return os.path.getsize(self._key_to_path(key)) 
+            
     def open_read(self, key):
         """Open object for reading
 

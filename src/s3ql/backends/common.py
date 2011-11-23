@@ -246,6 +246,11 @@ class AbstractBucket(object):
         pass
     
     @abstractmethod
+    def get_size(self, key):
+        '''Return size of object stored under *key*'''
+        pass 
+    
+    @abstractmethod
     def open_read(self, key):
         """Open object for reading
 
@@ -371,6 +376,15 @@ class BetterBucket(AbstractBucket):
         convert_legacy_metadata(metadata)
         return self._unwrap_meta(metadata)
   
+    def get_size(self, key):
+        '''Return size of object stored under *key*
+        
+        This method returns the compressed size, i.e. the storage space
+        that's actually occupied by the object.
+        '''
+        
+        return self.bucket.get_size(key) 
+      
     def is_temp_failure(self, exc):
         '''Return true if exc indicates a temporary error
     

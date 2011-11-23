@@ -242,6 +242,27 @@ class Bucket(AbstractBucket):
         return extractmeta(resp)
     
     @retry
+    def get_size(self, key):
+        '''Return size of object stored under *key*'''
+        
+        log.debug('get_size(%s)', key)
+        
+        try:
+            resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
+            assert resp.length == 0
+        except HTTPError as exc:
+            if exc.status == 404:
+                raise NoSuchObject(key)
+            else:
+                raise
+
+        for (name, val) in resp.getheaders():
+            if name.lower() == 'content-length':
+                return int(val)
+        raise RuntimeError('HEAD request did not return Content-Length')
+        
+            
+    @retry
     def open_read(self, key):
         ''''Open object for reading
 
