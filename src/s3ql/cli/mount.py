@@ -11,8 +11,8 @@ from s3ql import fs, CURRENT_FS_REV
 from s3ql.backends.common import get_bucket_factory, BucketPool
 from s3ql.block_cache import BlockCache
 from s3ql.common import (setup_logging, get_bucket_cachedir, get_seq_no, 
-    QuietError, cycle_metadata, dump_metadata, BUFSIZE,
-    restore_metadata)
+    QuietError, cycle_metadata, dump_metadata, restore_metadata, 
+    stream_write_bz2, stream_read_bz2)
 from s3ql.daemonize import daemonize
 from s3ql.database import Connection
 from s3ql.parse_args import ArgumentParser
@@ -21,7 +21,6 @@ import cPickle as pickle
 import llfuse
 import logging
 import os
-import shutil
 import signal
 import stat
 import sys
@@ -90,7 +89,7 @@ def main(args=None):
     # Retrieve metadata
     with bucket_pool() as bucket:
         (param, db) = get_metadata(bucket, cachepath)
-            
+        
     if options.nfs:
         # NFS may try to look up '..', so we have to speed up this kind of query
         log.info('Creating NFS indices...')
@@ -204,8 +203,19 @@ def main(args=None):
         elif seq_no == param['seq_no']:   
             cycle_metadata(bucket)
             param['last-modified'] = time.time() - time.timezone
-            bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata",
-                                 metadata=param, is_compressed=True) 
+            
+            log.info('Dumping metadata...')
+            fh = tempfile.TemporaryFile()
+            dump_metadata(db, fh)            
+            def do_write(obj_fh):
+                fh.seek(0)
+                stream_write_bz2(fh, obj_fh)
+                return obj_fh
+            
+            log.info("Compressing and uploading metadata...")
+            obj_fh = bucket.perform_write(do_write, "s3ql_metadata", metadata=param,
+                                          is_compressed=True) 
+            log.info('Wrote %.2 MB of compressed metadata.', obj_fh.get_obj_size() / 1024**2)
             pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         else:
             log.error('Remote metadata is newer than local (%d vs %d), '
@@ -262,14 +272,7 @@ def determine_threads(options):
     
         
 def get_metadata(bucket, cachepath):
-    '''Retrieve metadata
-    
-    Checks:
-    - Revision
-    - Unclean mounts
-    
-    Locally cached metadata is used if up-to-date.
-    '''
+    '''Retrieve metadata'''
                 
     seq_no = get_seq_no(bucket)
 
@@ -320,19 +323,21 @@ def get_metadata(bucket, cachepath):
     # Download metadata
     if not db:
         def do_read(fh):
-            os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                             stat.S_IRUSR | stat.S_IWUSR)) 
-            db = Connection(cachepath + '.db.tmp', fast_mode=True)
-            try:
-                restore_metadata(fh, db)
-            finally:
-                # If metata reading has to be retried, we don't want to hold
-                # a lock on the database.
-                db.close()
-        bucket.perform_read(do_read, "s3ql_metadata") 
+            tmpfh = tempfile.TemporaryFile()
+            stream_read_bz2(fh, tmpfh)
+            return tmpfh
+        log.info('Downloading and decompressing metadata...')
+        tmpfh = bucket.perform_read(do_read, "s3ql_metadata") 
+        os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                         stat.S_IRUSR | stat.S_IWUSR)) 
+        db = Connection(cachepath + '.db.tmp', fast_mode=True)
+        log.info("Reading metadata...")
+        tmpfh.seek(0)
+        restore_metadata(tmpfh, db)
+        db.close()
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')
- 
+    
     # Increase metadata sequence no 
     param['seq_no'] += 1
     param['needs_fsck'] = True
@@ -506,13 +511,10 @@ class MetadataUploadThread(Thread):
                     log.info('File system unchanged, not uploading metadata.')
                     continue
                 
-                # We dump to a file first, so that we don't hold the
-                # lock for quite so long.
-                log.info('Saving metadata...')
+                log.info('Dumping metadata...')
                 fh = tempfile.TemporaryFile()
-                
-                # FIXME: This blocks a long time, since it does LZMA compression
-                dump_metadata(fh, self.db) 
+                dump_metadata(self.db, fh)
+            
               
             with self.bucket_pool() as bucket:
                 seq_no = get_seq_no(bucket)
@@ -530,9 +532,12 @@ class MetadataUploadThread(Thread):
                 self.param['seq_no'] -= 1
                 def do_write(obj_fh):
                     fh.seek(0)
-                    shutil.copyfileobj(fh, obj_fh, BUFSIZE)
-                bucket.perform_write(do_write, "s3ql_metadata", metadata=self.param,
-                                     is_compressed=True) 
+                    stream_write_bz2(fh, obj_fh)
+                    return obj_fh
+                log.info("Compressing and uploading metadata...")
+                obj_fh = bucket.perform_write(do_write, "s3ql_metadata", metadata=self.param,
+                                              is_compressed=True) 
+                log.info('Wrote %.2 MB of compressed metadata.', obj_fh.get_obj_size() / 1024**2)
                 self.param['seq_no'] += 1
                 
                 fh.close()

@@ -12,7 +12,8 @@ from getpass import getpass
 from s3ql import CURRENT_FS_REV, REV_VER_MAP
 from s3ql.backends.common import BetterBucket, get_bucket
 from s3ql.common import (QuietError, restore_metadata, cycle_metadata, BUFSIZE, 
-    dump_metadata, create_tables, setup_logging, get_bucket_cachedir, get_seq_no)
+    dump_metadata, create_tables, setup_logging, get_bucket_cachedir, get_seq_no, 
+    stream_write_bz2)
 from s3ql.database import Connection, NoSuchRowError
 from s3ql.parse_args import ArgumentParser
 import cPickle as pickle
@@ -27,8 +28,6 @@ import textwrap
 import time
 
 log = logging.getLogger("adm")
-
-
 
 def parse_args(args):
     '''Parse command line'''
@@ -345,10 +344,22 @@ def upgrade(bucket, cachepath):
     bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
     param['revision'] = CURRENT_FS_REV
     param['last-modified'] = time.time() - time.timezone
-    pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+    
     cycle_metadata(bucket)
-    bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata", 
-                         metadata=param, is_compressed=True) 
+    log.info('Dumping metadata...')
+    fh = tempfile.TemporaryFile()
+    dump_metadata(db, fh)            
+    def do_write(obj_fh):
+        fh.seek(0)
+        stream_write_bz2(fh, obj_fh)
+        return obj_fh
+    
+    log.info("Compressing and uploading metadata...")
+    bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
+    obj_fh = bucket.perform_write(do_write, "s3ql_metadata", metadata=param,
+                                  is_compressed=True) 
+    log.info('Wrote %.2 MB of compressed metadata.', obj_fh.get_obj_size() / 1024**2)
+    pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
      
     db.execute('ANALYZE')
     db.execute('VACUUM')

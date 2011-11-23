@@ -7,33 +7,32 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-from llfuse import ROOT_INODE
 from .deltadump import INTEGER, BLOB, TIME, dump_table, load_table
-import cPickle as pickle
+from llfuse import ROOT_INODE
+import bz2
 import hashlib
 import logging
 import os
 import stat
 import sys
-import tempfile
 import time
-import lzma
 
 # Buffer size when writing objects
 BUFSIZE = 256 * 1024
 
 log = logging.getLogger('common')
  
- 
 # Has to be kept in sync with create_tables()!
 DUMP_SPEC = [
              ('objects', 'id', (('id', INTEGER, 1),
-                                ('size', INTEGER))),
+                                ('size', INTEGER),
+                                ('refcount', INTEGER))),
              
              ('blocks', 'id', (('id', INTEGER, 1),
                              ('hash', BLOB, 32),
                              ('size', INTEGER),
-                             ('obj_id', INTEGER, 1))),
+                             ('obj_id', INTEGER, 1),
+                             ('refcount', INTEGER))),
              
              ('inodes', 'id', (('id', INTEGER, 1),
                                ('uid', INTEGER),
@@ -44,7 +43,8 @@ DUMP_SPEC = [
                                ('ctime', TIME),
                                ('size', INTEGER),
                                ('rdev', INTEGER),
-                               ('locked', INTEGER))),
+                               ('locked', INTEGER),
+                               ('refcount', INTEGER))),
              
              ('inode_blocks', 'inode, blockno', 
               (('inode', INTEGER),
@@ -55,7 +55,8 @@ DUMP_SPEC = [
                                            ('target', BLOB))),
            
              ('names', 'id', (('id', INTEGER, 1),
-                              ('name', BLOB))),
+                              ('name', BLOB),
+                              ('refcount', INTEGER))),
            
              ('contents', 'parent_inode, name_id',
               (('name_id', INTEGER, 1),
@@ -181,23 +182,23 @@ def cycle_metadata(bucket):
                 
     bucket.copy("s3ql_metadata", "s3ql_metadata_bak_0")             
 
-def dump_metadata(ofh, db):
+def dump_metadata(db, fh):
+    '''Dump metadata into fh
     
-    log.info('Dumping metadata...')
-    tmpfh = tempfile.TemporaryFile()
-       
+    *fh* must be able to return an actual file descriptor from
+    its `fileno` method.
+    '''
+        
     for (table, order, columns) in DUMP_SPEC:
         log.info('..%s..', table)
-        dump_table(table, order, columns, db=db, fh=tmpfh)
-        
-    # compress and send
-    # FIXME: IIRC bzip2 was the best choice, need to benchmark
-    # FIXME: Still need to document new build requirements
-    log.info("Compressing and uploading metadata...")
-    compr = lzma.LZMACompressor(options={ 'level': 7 })
-    tmpfh.seek(0)
+        dump_table(table, order, columns, db=db, fh=fh)
+
+def stream_write_bz2(ifh, ofh):
+    '''Compress *ifh* into *ofh* using bz2 compression'''
+    
+    compr = bz2.BZ2Compressor(9)
     while True:
-        buf = tmpfh.read(BUFSIZE)
+        buf = ifh.read(BUFSIZE)
         if not buf:
             break
         buf = compr.compress(buf)
@@ -206,45 +207,31 @@ def dump_metadata(ofh, db):
     buf = compr.flush()
     if buf:
         ofh.write(buf)
-    del compr # Free memory ASAP, LZMA level 7 needs 186 MB
-    tmpfh.close()
 
-def restore_metadata(ifh, conn):
-
-    log.info('Downloading and decompressing metadata...')
+def stream_read_bz2(ifh, ofh):
+    '''Uncompress bz2 compressed *ifh* into *ofh*'''
     
-    # decompress to temporary file, deltadump can't read from Python object
-    tmp = tempfile.TemporaryFile()
-    decompressor = lzma.LZMADecompressor()
+    decompressor = bz2.BZ2Decompressor()
     while True:
         buf = ifh.read(BUFSIZE)
         if not buf:
             break
         buf = decompressor.decompress(buf)
         if buf:
-            tmp.write(buf)
-    del decompressor
-    tmp.seek(0) 
+            ofh.write(buf)       
+                
+def restore_metadata(fh, db):
+    '''Read metadata from *fh* and write into *db*
+    
+    *fh* must be able to return an actual file descriptor from
+    its `fileno` method.
+    '''
 
-    log.info("Reading metadata...")
-    create_tables(conn)
+    create_tables(db)
     for (table, _, columns) in DUMP_SPEC:
         log.info('..%s..', table)
-        load_table(table, columns, db=conn, fh=tmp)
-    tmp.close()
-    
-    log.info("Analyzing metadata...")
-    conn.execute('UPDATE objects SET refcount='
-                 '(SELECT COUNT(obj_id) FROM blocks WHERE obj_id = objects.id)')
-    conn.execute('UPDATE blocks SET refcount='
-                 '(SELECT COUNT(block_id) FROM inode_blocks WHERE block_id = blocks.id)')
-    conn.execute('UPDATE inodes SET refcount='
-                 '(SELECT COUNT(inode) FROM contents WHERE inode = inodes.id)')
-    conn.execute('UPDATE names SET refcount='
-                 '(SELECT COUNT(name_id) FROM contents WHERE name_id = names.id)'
-                 '+ (SELECT COUNT(name_id) FROM ext_attributes WHERE name_id = names.id)')
-    
-    conn.execute('ANALYZE')
+        load_table(table, columns, db=db, fh=fh)
+    db.execute('ANALYZE')
     
 class QuietError(Exception):
     '''

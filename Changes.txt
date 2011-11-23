@@ -1,6 +1,10 @@
 UNRELEASED, S3QL TIP(default)
 
   * Extended attribute names are now de-duplicated.
+
+  * Metadata is now stored in a custom, delta-encoded binary format and
+    then BZIP2 compressed, resulting in a 5-fold speedup with same
+    resulting file size.
   
 UNRELEASED, S3QL TIP(stable)
 

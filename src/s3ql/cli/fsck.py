@@ -10,7 +10,8 @@ from __future__ import division, print_function, absolute_import
 from s3ql import CURRENT_FS_REV
 from s3ql.backends.common import get_bucket
 from s3ql.common import (get_bucket_cachedir, cycle_metadata, setup_logging, 
-    QuietError, get_seq_no, restore_metadata, dump_metadata, CTRL_INODE)
+    QuietError, get_seq_no, restore_metadata, dump_metadata, CTRL_INODE, 
+    stream_write_bz2, stream_read_bz2)
 from s3ql.database import Connection
 from s3ql.fsck import Fsck
 from s3ql.parse_args import ArgumentParser
@@ -20,6 +21,7 @@ import logging
 import os
 import stat
 import sys
+import tempfile
 import textwrap
 import time
 
@@ -152,17 +154,18 @@ def main(args=None):
                              + cachepath + '.param (intact)')
     else:
         def do_read(fh):
-            os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                             stat.S_IRUSR | stat.S_IWUSR)) 
-            db = Connection(cachepath + '.db.tmp', fast_mode=True)
-            try:
-                restore_metadata(fh, db)
-            finally:
-                # If metata reading has to be retried, we don't want to hold
-                # a lock on the database.
-                db.close()
-        
-        bucket.perform_read(do_read, "s3ql_metadata") 
+            tmpfh = tempfile.TemporaryFile()
+            stream_read_bz2(fh, tmpfh)
+            return tmpfh
+        log.info('Downloading and decompressing metadata...')
+        tmpfh = bucket.perform_read(do_read, "s3ql_metadata") 
+        os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                         stat.S_IRUSR | stat.S_IWUSR)) 
+        db = Connection(cachepath + '.db.tmp', fast_mode=True)
+        log.info("Reading metadata...")
+        tmpfh.seek(0)
+        restore_metadata(tmpfh, db)
+        db.close()
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')
     
@@ -188,8 +191,18 @@ def main(args=None):
     param['needs_fsck'] = False
     param['last_fsck'] = time.time() - time.timezone
     param['last-modified'] = time.time() - time.timezone
-    bucket.perform_write(lambda fh: dump_metadata(fh, db) , "s3ql_metadata",
-                         metadata=param, is_compressed=True) 
+    log.info('Dumping metadata...')
+    fh = tempfile.TemporaryFile()
+    dump_metadata(db, fh)            
+    def do_write(obj_fh):
+        fh.seek(0)
+        stream_write_bz2(fh, obj_fh)
+        return obj_fh
+    
+    log.info("Compressing and uploading metadata...")
+    obj_fh = bucket.perform_write(do_write, "s3ql_metadata", metadata=param,
+                                  is_compressed=True) 
+    log.info('Wrote %.2 MB of compressed metadata.', obj_fh.get_obj_size() / 1024**2)
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         
     db.execute('ANALYZE')
