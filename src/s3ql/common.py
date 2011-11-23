@@ -387,8 +387,8 @@ def create_tables(conn):
     conn.execute("""
     CREATE TABLE objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
-        refcount  INT, 
-        size      INT  
+        refcount  INT NOT NULL, 
+        size      INT
     )""")
 
     # Table of known data blocks
@@ -418,7 +418,7 @@ def create_tables(conn):
         mtime     REAL NOT NULL,
         atime     REAL NOT NULL,
         ctime     REAL NOT NULL,
-        refcount  INT,
+        refcount  INT NOT NULL,
         size      INT NOT NULL DEFAULT 0,
         rdev      INT NOT NULL DEFAULT 0,
         locked    BOOLEAN NOT NULL DEFAULT 0
@@ -445,7 +445,7 @@ def create_tables(conn):
     CREATE TABLE names (
         id     INTEGER PRIMARY KEY,
         name   BLOB NOT NULL,
-        refcount  INT,
+        refcount  INT NOT NULL,
         UNIQUE (name)
     )""")
 
