@@ -228,9 +228,9 @@ def _dump_or_load(table, order, columns, db, fh):
         
         # Initialize col_args and col_types   
         for i in range(col_count):
-            col_types[i] = columns[i][1]
-            if col_types[i] not in (_BLOB, _INTEGER, _TIME):
+            if columns[i][1] not in (BLOB, INTEGER, TIME):
                 raise ValueError("Invalid type for column %d" % i)
+            col_types[i] = columns[i][1]
             
             if len(columns[i]) == 3:
                 col_args[i] = columns[i][2]
