@@ -8,9 +8,12 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from .backends.common import NoSuchObject
-from .common import ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE
+from .common import (ROOT_INODE, CTRL_INODE, inode_for_path, sha256_fh, get_path, 
+    BUFSIZE)
 from .database import NoSuchRowError
 from os.path import basename
+from s3ql.database import Connection
+import cPickle as pickle
 import logging
 import os
 import re
@@ -97,7 +100,7 @@ class Fsck(object):
             log.info('Dropping temporary indices...')
             for idx in ('tmp1', 'tmp2', 'tmp3', 'tmp4', 'tmp5'):
                 self.conn.execute('DROP INDEX %s' % idx)
-    
+                    
     def log_error(self, *a, **kw):
         '''Log file system error if not expected'''
     
@@ -942,3 +945,61 @@ class Fsck(object):
         self.conn.execute('UPDATE names SET refcount=refcount-1 WHERE id=?', (name_id,))
         self.conn.execute('DELETE FROM names WHERE refcount=0 AND id=?', (name_id,))
                             
+                            
+class ROFsck(Fsck):
+    '''
+    Check file system database only, and don't correct any errors.
+    '''
+    
+    def __init__(self, path):
+        
+        db = Connection(path + '.db')
+        db.execute('PRAGMA journal_mode = WAL')
+        
+        param = pickle.load(open(path + '.params', 'rb'))
+        super(ROFsck, self).__init__(None, None, param, db)
+
+    def check(self):
+        
+        self.conn.execute('BEGIN TRANSACTION')
+        try:        
+            log.info('Creating temporary indices...')
+            for idx in ('tmp1', 'tmp2', 'tmp3', 'tmp4', 'tmp5'):
+                self.conn.execute('DROP INDEX IF EXISTS %s' % idx)
+            self.conn.execute('CREATE INDEX tmp1 ON blocks(obj_id)')
+            self.conn.execute('CREATE INDEX tmp2 ON inode_blocks(block_id)')
+            self.conn.execute('CREATE INDEX tmp3 ON contents(inode)')
+            self.conn.execute('CREATE INDEX tmp4 ON contents(name_id)')
+            self.conn.execute('CREATE INDEX tmp5 ON ext_attributes(name_id)')        
+
+            self.check_lof()
+            self.check_names_refcount()
+            
+            self.check_contents_name()
+            self.check_contents_inode()
+            self.check_contents_parent_inode()
+            
+            self.check_objects_refcount()
+            self.check_objects_size()
+            
+            self.check_blocks_obj_id()
+            self.check_blocks_refcount()
+            
+            self.check_inode_blocks_block_id()
+            self.check_inode_blocks_inode()
+            
+            self.check_inodes_refcount()   
+            self.check_inodes_size()
+            
+            self.check_ext_attributes_name()
+            self.check_ext_attributes_inode()
+            
+            self.check_symlinks_inode()
+            
+            self.check_loops()
+            self.check_unix()
+            self.check_foreign_keys()
+            
+        finally:
+            log.info('Dropping temporary indices...')
+            self.conn.execute('ROLLBACK')                            
