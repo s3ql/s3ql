@@ -348,12 +348,7 @@ class fsck_tests(TestCase):
                             (self._add_name(bytes(inode)), inode, last))
             last = inode
 
-        self.fsck.found_errors = False
-        self.fsck.check_inodes_refcount()
-        self.assertFalse(self.fsck.found_errors)
-        self.fsck.check_loops()
-        self.assertTrue(self.fsck.found_errors)
-        # We can't fix loops yet
+        self.assert_fsck(self.fsck.check_loops)
 
     def test_obj_refcounts(self):
 

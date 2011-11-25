@@ -348,28 +348,54 @@ class Fsck(object):
         log.info('Checking directory reachability...')
     
         self.conn.execute('CREATE TEMPORARY TABLE loopcheck (inode INTEGER PRIMARY KEY, '
-                     'parent_inode INTEGER)')
+                          'parent_inode INTEGER)')
         self.conn.execute('CREATE INDEX ix_loopcheck_parent_inode ON loopcheck(parent_inode)')
-        self.conn.execute('INSERT INTO loopcheck (inode, parent_inode) '
-                     'SELECT inode, parent_inode FROM contents JOIN inodes ON inode == id '
-                     'WHERE mode & ? == ?', (S_IFMT, stat.S_IFDIR))
+        self.conn.execute('INSERT INTO loopcheck (inode) '
+                          'SELECT parent_inode FROM contents GROUP BY parent_inode')
+        self.conn.execute('UPDATE loopcheck SET parent_inode = '
+                          '(SELECT contents.parent_inode FROM contents '
+                          ' WHERE contents.inode = loopcheck.inode LIMIT 1)')
         self.conn.execute('CREATE TEMPORARY TABLE loopcheck2 (inode INTEGER PRIMARY KEY)')
         self.conn.execute('INSERT INTO loopcheck2 (inode) SELECT inode FROM loopcheck')
     
+        
         def delete_tree(inode_p):
             for (inode,) in self.conn.query("SELECT inode FROM loopcheck WHERE parent_inode=?",
                                             (inode_p,)):
                 delete_tree(inode)
             self.conn.execute('DELETE FROM loopcheck2 WHERE inode=?', (inode_p,))
     
-        delete_tree(ROOT_INODE)
+        root = ROOT_INODE
+        while True:
+            delete_tree(root)
     
-        if self.conn.has_val("SELECT 1 FROM loopcheck2"):
+            if not self.conn.has_val("SELECT 1 FROM loopcheck2"):
+                break
+            
             self.found_errors = True
-            self.uncorrectable_errors = True
-            self.log_error("Found unreachable filesystem entries!\n"
-                           "This problem cannot be corrected automatically yet.")
-    
+            
+            # Try obvious culprits first
+            try:
+                inode = self.conn.get_val('SELECT loopcheck2.inode FROM loopcheck2 JOIN contents '
+                                          'ON loopcheck2.inode = contents.inode '
+                                          'WHERE parent_inode = contents.inode LIMIT 1')
+            except NoSuchRowError:
+                inode = self.conn.get_val("SELECT inode FROM loopcheck2 ORDER BY inode ASC LIMIT 1")
+                
+            (name, name_id) = self.conn.get_row("SELECT name, name_id FROM contents_v "
+                                                "WHERE inode=? LIMIT 1", (inode,))
+            (id_p, name) = self.resolve_free(b"/lost+found", name)
+            
+            self.log_error("Found unreachable filesystem entries, re-anchoring %s [%d] "
+                           "in /lost+found",  name, inode)
+            self.conn.execute('UPDATE contents SET parent_inode=?, name_id=? ' 
+                              'WHERE inode=? AND name_id=?', 
+                              (id_p, self._add_name(name), inode, name_id))
+            self._del_name(name_id)
+            self.conn.execute('UPDATE loopcheck SET parent_inode=? WHERE inode=?',
+                              (id_p, inode))
+            root = inode
+            
         self.conn.execute("DROP TABLE loopcheck")
         self.conn.execute("DROP TABLE loopcheck2")
     
