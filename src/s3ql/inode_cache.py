@@ -46,7 +46,7 @@ class _Inode(object):
             return self.refcount
 
         elif key == 'st_blocks':
-            return self.size // 512
+            return (self.size+511) // 512
 
         elif key == 'st_ino':
             return self.id
