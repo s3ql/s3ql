@@ -1002,4 +1002,15 @@ class ROFsck(Fsck):
             
         finally:
             log.info('Dropping temporary indices...')
-            self.conn.execute('ROLLBACK')                            
+            self.conn.execute('ROLLBACK')         
+            
+    def check_objects_size(self):
+        """Check objects.size"""
+    
+        log.info('Checking objects (sizes)...')
+    
+        for (obj_id,) in self.conn.query('SELECT id FROM objects WHERE size IS NULL'):
+            self.found_errors = True
+            self.log_error("Object %d has no size information, setting to zero...",  obj_id)               
+        
+            self.conn.execute('UPDATE objects SET size=? WHERE id=?', (0, obj_id))
