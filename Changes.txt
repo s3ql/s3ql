@@ -5,6 +5,8 @@ UNRELEASED, S3QL TIP
   * s3qlcp no longer generates incorrect block reference counts when
     copying a file that has identical blocks (i.e., that can be
     de-duplicated within itself). 
+    
+  * "mkfs.s3ql --force" and "s3qladm clear" are working again.
 
 2011-11-20, S3QL 1.6
 

@@ -403,7 +403,9 @@ class Bucket(AbstractBucket):
         False.
         """
 
-        for (no, s3key) in enumerate(self):
+        # We have to cache keys, because otherwise we can't use the
+        # http connection to delete keys.
+        for (no, s3key) in enumerate(list(self)):
             if no != 0 and no % 1000 == 0:
                 log.info('clear(): deleted %d objects so far..', no)
 
