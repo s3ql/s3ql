@@ -380,9 +380,9 @@ class Operations(llfuse.Operations):
                                             'SELECT ?, blockno, block_id FROM inode_blocks '
                                             'WHERE inode=?', (id_new, id_))
                     db.execute('REPLACE INTO blocks (id, hash, refcount, size, obj_id) '
-                               'SELECT id, hash, refcount+1, size, obj_id '
+                               'SELECT id, hash, refcount+COUNT(id), size, obj_id '
                                'FROM inode_blocks JOIN blocks ON block_id = id '
-                               'WHERE inode = ?', (id_new,))
+                               'WHERE inode = ? GROUP BY id', (id_new,))
                     
                     if db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
                         queue.append((id_, id_new, 0))

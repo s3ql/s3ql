@@ -683,6 +683,21 @@ class fs_api_tests(TestCase):
         
         self.fsck()
 
+    def test_copy_tree_2(self):   
+        src_inode = self.server.mkdir(ROOT_INODE, 'source', self.dir_mode(), Ctx())
+        dst_inode = self.server.mkdir(ROOT_INODE, 'dest', self.dir_mode(), Ctx())
+
+        # Create file
+        (fh, _) = self.server.create(src_inode.id, 'file1',
+                                     self.file_mode(), Ctx())
+        self.server.write(fh, 0, 'block 1 contents')
+        self.server.write(fh, self.blocksize, 'block 1 contents')
+        self.server.release(fh)
+
+        self.server.copy_tree(src_inode.id, dst_inode.id)
+        
+        self.fsck()
+        
     def test_lock_tree(self):
 
         inode1 = self.server.mkdir(ROOT_INODE, 'source', self.dir_mode(), Ctx())
