@@ -11,12 +11,13 @@ from __future__ import division, print_function, absolute_import
 from . import CURRENT_FS_REV
 from .backends.common import NoSuchObject, get_bucket
 from .common import (ROOT_INODE, inode_for_path, sha256_fh, get_path, 
-    BUFSIZE, get_bucket_cachedir, cycle_metadata, setup_logging, QuietError, 
-    get_seq_no, restore_metadata, dump_metadata, CTRL_INODE, stream_write_bz2, 
-    stream_read_bz2, create_tables)
+    BUFSIZE, get_bucket_cachedir, setup_logging, QuietError, 
+    get_seq_no, CTRL_INODE, stream_write_bz2, 
+    stream_read_bz2)
 from .database import NoSuchRowError, Connection
 from .parse_args import ArgumentParser
 from os.path import basename
+from .metadata import restore_metadata, cycle_metadata,dump_metadata, create_tables
 import apsw
 import cPickle as pickle
 import logging

@@ -12,7 +12,8 @@ from contextlib import contextmanager
 from s3ql.backends import local
 from s3ql.backends.common import BucketPool, AbstractBucket
 from s3ql.block_cache import BlockCache
-from s3ql.common import create_tables, init_tables
+from s3ql.mkfs import init_tables
+from s3ql.metadata import create_tables
 from s3ql.database import Connection
 import llfuse
 import os

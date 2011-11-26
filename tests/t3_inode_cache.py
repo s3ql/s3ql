@@ -10,7 +10,8 @@ from __future__ import division, print_function
 
 
 from s3ql import inode_cache
-from s3ql.common import create_tables, init_tables
+from s3ql.mkfs import init_tables
+from s3ql.metadata import create_tables
 from s3ql.database import Connection
 from _common import TestCase
 import unittest2 as unittest

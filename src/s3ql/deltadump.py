@@ -6,6 +6,9 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
+# This is a wrapper for _deltadump to work around
+# http://trac.cython.org/cython_trac/ticket/475
+
 #@PydevCodeAnalysisIgnore
 
 from __future__ import division, print_function, absolute_import

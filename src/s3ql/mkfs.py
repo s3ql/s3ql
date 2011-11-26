@@ -7,21 +7,23 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
+from . import CURRENT_FS_REV
+from .backends.common import get_bucket, BetterBucket
+from .common import (get_bucket_cachedir, setup_logging, QuietError, 
+    stream_write_bz2, CTRL_INODE)
+from .database import Connection
+from .metadata import dump_metadata, create_tables
+from .parse_args import ArgumentParser
 from getpass import getpass
-from s3ql import CURRENT_FS_REV
-from s3ql.backends.common import get_bucket, BetterBucket
-from s3ql.common import (get_bucket_cachedir, setup_logging, QuietError, 
-    dump_metadata, create_tables, init_tables, stream_write_bz2)
-from s3ql.database import Connection
-from s3ql.parse_args import ArgumentParser
+from llfuse import ROOT_INODE
 import cPickle as pickle
 import logging
 import os
 import shutil
+import stat
 import sys
 import tempfile
 import time
-
 
 log = logging.getLogger("mkfs")
 
@@ -50,6 +52,31 @@ def parse_args(args):
         
     return options
 
+def init_tables(conn):
+    # Insert root directory
+    timestamp = time.time() - time.timezone
+    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
+                 "VALUES (?,?,?,?,?,?,?,?)",
+                   (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
+                   | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
+                    os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
+
+    # Insert control inode, the actual values don't matter that much 
+    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
+                 "VALUES (?,?,?,?,?,?,?,?)",
+                 (CTRL_INODE, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
+                  0, 0, timestamp, timestamp, timestamp, 42))
+
+    # Insert lost+found directory
+    inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                       "VALUES (?,?,?,?,?,?,?)",
+                       (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
+                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
+    name_id = conn.rowid('INSERT INTO names (name, refcount) VALUES(?,?)',
+                         (b'lost+found', 1))
+    conn.execute("INSERT INTO contents (name_id, inode, parent_inode) VALUES(?,?,?)",
+                 (name_id, inode, ROOT_INODE))
+    
 def main(args=None):
 
     if args is None:

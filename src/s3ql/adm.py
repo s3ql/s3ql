@@ -10,13 +10,14 @@ from __future__ import division, print_function, absolute_import
 from datetime import datetime as Datetime
 from getpass import getpass
 from llfuse import ROOT_INODE
-from s3ql import CURRENT_FS_REV, REV_VER_MAP
-from s3ql.backends.common import BetterBucket, get_bucket
-from s3ql.common import (QuietError, restore_metadata, cycle_metadata, BUFSIZE, 
-    dump_metadata, create_tables, setup_logging, get_bucket_cachedir, get_seq_no, 
+from . import CURRENT_FS_REV, REV_VER_MAP
+from .backends.common import BetterBucket, get_bucket
+from .common import (QuietError, BUFSIZE, 
+    setup_logging, get_bucket_cachedir, get_seq_no, 
     stream_write_bz2, CTRL_INODE)
-from s3ql.database import Connection, NoSuchRowError
-from s3ql.parse_args import ArgumentParser
+from .database import Connection, NoSuchRowError
+from .parse_args import ArgumentParser
+from .metadata import restore_metadata, cycle_metadata,dump_metadata, create_tables
 import cPickle as pickle
 import logging
 import lzma

@@ -14,7 +14,9 @@ from s3ql import fs
 from s3ql.backends import local
 from s3ql.backends.common import BucketPool
 from s3ql.block_cache import BlockCache
-from s3ql.common import ROOT_INODE, create_tables, init_tables
+from s3ql.common import ROOT_INODE
+from s3ql.mkfs import init_tables
+from s3ql.metadata import create_tables
 from s3ql.database import Connection
 from s3ql.fsck import Fsck
 from s3ql.inode_cache import InodeCache

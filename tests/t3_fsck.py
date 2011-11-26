@@ -9,7 +9,9 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function
 from _common import TestCase
 from s3ql.backends import local
-from s3ql.common import ROOT_INODE, create_tables, init_tables
+from s3ql.common import ROOT_INODE
+from s3ql.mkfs import init_tables
+from s3ql.metadata import create_tables
 from s3ql.database import Connection, NoSuchRowError
 from s3ql.fsck import Fsck
 import os

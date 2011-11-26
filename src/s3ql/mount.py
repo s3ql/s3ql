@@ -7,16 +7,16 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-from s3ql import fs, CURRENT_FS_REV
-from s3ql.backends.common import get_bucket_factory, BucketPool
-from s3ql.block_cache import BlockCache
-from s3ql.common import (setup_logging, get_bucket_cachedir, get_seq_no, 
-    QuietError, cycle_metadata, dump_metadata, restore_metadata, 
+from . import fs, CURRENT_FS_REV
+from .backends.common import get_bucket_factory, BucketPool
+from .block_cache import BlockCache
+from .common import (setup_logging, get_bucket_cachedir, get_seq_no, QuietError, 
     stream_write_bz2, stream_read_bz2)
-from s3ql.daemonize import daemonize
-from s3ql.database import Connection
-from s3ql.inode_cache import InodeCache
-from s3ql.parse_args import ArgumentParser
+from .daemonize import daemonize
+from .database import Connection
+from .inode_cache import InodeCache
+from .metadata import cycle_metadata, dump_metadata, restore_metadata
+from .parse_args import ArgumentParser
 from threading import Thread
 import cPickle as pickle
 import llfuse
