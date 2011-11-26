@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 '''
 daemonize.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
@@ -32,9 +31,6 @@ import sys
 import logging
 
 log = logging.getLogger('daemonize')
-
-__all__ = [ 'daemonize' ]
-
 
 def daemonize(workdir='/'):
     '''Daemonize the process'''

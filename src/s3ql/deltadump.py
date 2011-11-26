@@ -15,12 +15,9 @@ from __future__ import division, print_function, absolute_import
 
 import apsw
 from . import _deltadump
-from ._deltadump import (INTEGER, BLOB, TIME, dump_table, load_table,
-                         MAX_BLOB_SIZE)
+from ._deltadump import *
 import subprocess
 import re
-
-__all__ = ('INTEGER', 'BLOB', 'TIME', 'dump_table', 'load_table', 'MAX_BLOB_SIZE')
 
 def get_libraries(pathname):
     '''Return shared libraries required for *pathname*'''

@@ -10,9 +10,6 @@ from __future__ import division, print_function
 
 import collections
 
-
-__all__ = [ "OrderedDict" ]
-
 class OrderedDictElement(object):
     """An element in an OrderedDict
     

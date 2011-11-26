@@ -12,7 +12,6 @@ import time
 import logging
 from .database import NoSuchRowError
 
-__all__ = [ 'InodeCache', 'OutOfInodesError' ]
 log = logging.getLogger('inode_cache')
 
 CACHE_SIZE = 100

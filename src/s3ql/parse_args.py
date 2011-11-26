@@ -44,8 +44,6 @@ import os
 import logging.handlers
 import sys
 
-__all__ = [ 'ArgumentParser', 'DEFAULT_USAGE']
-
 DEFAULT_USAGE = object()
 
 class HelpFormatter(argparse.RawDescriptionHelpFormatter):

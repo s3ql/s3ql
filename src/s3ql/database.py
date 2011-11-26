@@ -22,8 +22,6 @@ import os
 import types
 from .common import QuietError
 
-__all__ = ['Connection', 'NoUniqueValueError', 'NoSuchRowError' ]
-
 log = logging.getLogger("database")
 
 sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
