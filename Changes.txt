@@ -14,10 +14,20 @@ UNRELEASED, S3QL TIP(default)
 UNRELEASED, S3QL TIP(stable)
 
   * s3qlcp now also copies extended attributes.
-  
+
   * s3qlcp no longer generates incorrect block reference counts when
     copying a file that has identical blocks (i.e., that can be
     de-duplicated within itself). 
+
+  * Eliminated a very obscure race condition that resulted in files
+    containing only zero bytes when using s3qlcp to copy files
+    immediately after they have been created.
+
+    fsck.s3ql has been modified to print a warning if it finds files
+    containing just zeros so that files that have been affected by 
+    this in the past will not go unnoticed.
+
+  * "mkfs.s3ql --force" and "s3qladm clear" are working again.
 
 2011-11-20, S3QL 1.6
 
