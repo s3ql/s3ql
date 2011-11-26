@@ -11,8 +11,8 @@ from __future__ import division, print_function, absolute_import
 import errno
 import llfuse
 import os.path
-import s3ql.cli.lock
-import s3ql.cli.remove
+import s3ql.lock
+import s3ql.remove
 import sys
 import t4_fuse
 import unittest2 as unittest
@@ -37,7 +37,7 @@ class LockRemoveTests(t4_fuse.fuse_tests):
 
         # copy
         try:
-            s3ql.cli.lock.main([tempdir])
+            s3ql.lock.main([tempdir])
         except:
             sys.excepthook(*sys.exc_info())
             self.fail("s3qllock raised exception")
@@ -54,7 +54,7 @@ class LockRemoveTests(t4_fuse.fuse_tests):
 
         # delete properly
         try:
-            s3ql.cli.remove.main([tempdir])
+            s3ql.remove.main([tempdir])
         except:
             sys.excepthook(*sys.exc_info())
             self.fail("s3qlrm raised exception")     

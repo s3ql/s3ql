@@ -8,9 +8,11 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function
 
-__all__ = [ 'backends', 'cli', 'parse_args', 'block_cache', "common", 'daemonize', 
-            'database', 'fs', 'fsck', 'ordered_dict',  'deltadump',
-            'VERSION', 'CURRENT_FS_REV' ]
+__all__ = [ 'adm', 'backends', 'block_cache', 'cleanup_manager', 'common',
+            'cp', 'ctrl', 'daemonize', 'database', 'deltadump', '_deltadump',
+            'fs', 'fsck', 'inode_cache', 'lock', 'mkfs', 'mount', 'ordered_dict',
+            'parse_args', 'remove', 'statfs', 'umount', 'VERSION', 
+            'CURRENT_FS_REV', 'REV_VER_MAP' ]
 
 VERSION = '1.7'
 CURRENT_FS_REV = 14

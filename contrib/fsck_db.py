@@ -25,7 +25,7 @@ from s3ql import CURRENT_FS_REV
 from s3ql.common import setup_logging
 from s3ql.fsck import ROFsck
 from s3ql.parse_args import ArgumentParser
-from s3ql.cli.adm import _add_name
+from s3ql.adm import _add_name
 from s3ql.database import Connection    
 
 log = logging.getLogger("fsck")

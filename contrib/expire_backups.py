@@ -29,7 +29,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     
 from s3ql.common import setup_logging, QuietError
 from s3ql.parse_args import ArgumentParser
-from s3ql.cli.remove import main as s3qlrm
+from s3ql.remove import main as s3qlrm
     
 log = logging.getLogger('expire_backups')
 

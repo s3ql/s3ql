@@ -19,5 +19,5 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
     
-import s3ql.cli.adm
-s3ql.cli.adm.main(sys.argv[1:])
+import s3ql.adm
+s3ql.adm.main(sys.argv[1:])

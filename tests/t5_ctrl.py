@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-import s3ql.cli.ctrl
+import s3ql.ctrl
 import sys
 import t4_fuse
 import unittest2 as unittest
@@ -24,7 +24,7 @@ class CtrlTests(t4_fuse.fuse_tests):
     def tst_ctrl_flush(self):
 
         try:
-            s3ql.cli.ctrl.main(['flushcache', self.mnt_dir])
+            s3ql.ctrl.main(['flushcache', self.mnt_dir])
         except:
             sys.excepthook(*sys.exc_info())
             self.fail("s3qlctrl raised exception")

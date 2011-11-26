@@ -19,5 +19,5 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
     
-import s3ql.cli.fsck
-s3ql.cli.fsck.main(sys.argv[1:])
+import s3ql.fsck
+s3ql.fsck.main(sys.argv[1:])
