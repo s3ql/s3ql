@@ -31,9 +31,10 @@ class _Inode(object):
 
     __slots__ = ATTRIBUTES + ('dirty', 'generation')
 
-    def __init__(self):
+    def __init__(self, generation):
         super(_Inode, self).__init__()
         self.dirty = False
+        self.generation = generation
 
     # This allows access to all st_* attributes, even if they're
     # not defined in the table
@@ -72,7 +73,7 @@ class _Inode(object):
 
 
     def copy(self):
-        copy = _Inode()
+        copy = _Inode(self.generation)
 
         for attr in ATTRIBUTES:
             setattr(copy, attr, getattr(self, attr))
@@ -171,7 +172,7 @@ class InodeCache(object):
     def getattr(self, id_): #@ReservedAssignment
         attrs = self.db.get_row("SELECT %s FROM inodes WHERE id=? " % ATTRIBUTE_STR,
                                   (id_,))
-        inode = _Inode()
+        inode = _Inode(self.generation)
 
         for (i, id_) in enumerate(ATTRIBUTES):
             setattr(inode, id_, attrs[i])
@@ -184,7 +185,6 @@ class InodeCache(object):
         inode.ctime += TIMEZONE
 
         inode.dirty = False
-        inode.generation = self.generation
 
         return inode
 
