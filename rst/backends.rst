@@ -154,11 +154,11 @@ problems.
 S3 compatible
 =============
 
-S3QL is also able to access other, S3 compatible storage services for
-which no specific backend exists. Note that when accessing such
-services, only the lowest common denominator of available features can
-be used, so it is generally recommended to use a service specific
-backend instead.
+S3QL is also able to access other, S3 compatible storage services like
+OpenStack_ for which no specific backend exists. Note that when
+accessing such services, only the lowest common denominator of
+available features can be used, so it is generally recommended to use
+a service specific backend instead.
 
 The storage URL for accessing an arbitrary S3 compatible storage
 service is ::
@@ -173,6 +173,7 @@ to use HTTPS connections. Note, however, that at this point S3QL does
 not verify the server certificate (cf. `issue 267
 <http://code.google.com/p/s3ql/issues/detail?id=267>`_).
 
+.. _OpenStack: http://www.openstack.org/
 
 Local
 =====
