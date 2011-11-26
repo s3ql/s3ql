@@ -19,13 +19,14 @@ UNRELEASED, S3QL TIP(stable)
     copying a file that has identical blocks (i.e., that can be
     de-duplicated within itself). 
 
-  * Eliminated a very obscure race condition that resulted in files
-    containing only zero bytes when using s3qlcp to copy files
-    immediately after they have been created.
+  * Eliminated a race condition in s3qlcp. When copying a file with
+    s3qlcp immediately after it was modified or created, it was
+    possible that s3qlcp would copy the new file attributes (size,
+    modification time, etc.) but the old data blocks.
 
-    fsck.s3ql has been modified to print a warning if it finds files
-    containing just zeros so that files that have been affected by 
-    this in the past will not go unnoticed.
+    A copy of a newly created file would then contain only zero bytes,
+    while a copy of a modified file would look like the original but
+    contain data from before the modification.
 
   * "mkfs.s3ql --force" and "s3qladm clear" are working again.
 

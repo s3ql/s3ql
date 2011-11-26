@@ -432,20 +432,6 @@ class Fsck(object):
         finally:
             self.conn.execute('DROP TABLE min_sizes')
             self.conn.execute('DROP TABLE IF EXISTS wrong_sizes')
-            
-    def check_bug_299(self):
-        """Check if files may have been affected by bug 299"""
-    
-        log.info('Checking for bug 299...')
-    
-        for (inode,) in self.conn.query('SELECT id FROM inodes LEFT JOIN inode_blocks ON '
-                                        'inode = id WHERE inode IS NULL AND size > 0'):
-            
-            for (name, inode_p) in self.conn.query('SELECT name, parent_inode '
-                                                   'FROM contents_v WHERE inode=?', (inode,)):
-                path = get_path(inode_p, self.conn, name)
-                log.warn("File %s contains just zero bytes. If this file was created by "
-                         "s3qlcp < 1.7, data may have been corrupted.", path)
           
     def check_inodes_refcount(self):
         """Check inodes.refcount"""
@@ -1011,7 +997,6 @@ class ROFsck(Fsck):
             
             self.check_loops()
             self.check_unix()
-            self.check_bug_299()
             self.check_foreign_keys()
             
         finally:
