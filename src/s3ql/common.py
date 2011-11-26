@@ -248,9 +248,14 @@ def setup_excepthook():
         if isinstance(val, QuietError):
             root_logger.error(val.msg)
         else:
-            root_logger.error('Uncaught top-level exception. %s',
-                              format_tb((type_, val, tb)))
-            
+            try:
+                msg = format_tb((type_, val, tb))
+            except:
+                root_logger.error('Uncaught top-level exception -- and tb handler failed!',
+                                  exc_info=(type_, val, tb))
+            else:        
+                root_logger.error('Uncaught top-level exception. %s', msg)
+                
     sys.excepthook = excepthook 
     
 def inode_for_path(path, conn):
