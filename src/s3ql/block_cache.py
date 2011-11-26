@@ -374,6 +374,13 @@ class BlockCache(object):
                                          'VALUES(?,?,?,?)', (1, obj_id, hash_, el.size))
                 log.debug('upload(%s): created new block %d', el, block_id)
                 log.debug('upload(%s): adding to upload queue', el)
+                
+                # Note: we must finish all db transactions before adding to
+                # in_transit, otherwise commit() may return before all blocks
+                # are available in db.
+                self.db.execute('INSERT OR REPLACE INTO inode_blocks (block_id, inode, blockno) '
+                                'VALUES(?,?,?)', (block_id, el.inode, el.blockno)) 
+                
                 self.in_transit.add(obj_id)
                 with lock_released:
                     if not self.upload_threads:
@@ -393,15 +400,14 @@ class BlockCache(object):
                 log.debug('upload(%s): (re)linking to %d', el, block_id)
                 self.db.execute('UPDATE blocks SET refcount=refcount+1 WHERE id=?',
                                 (block_id,))
+                self.db.execute('INSERT OR REPLACE INTO inode_blocks (block_id, inode, blockno) '
+                                'VALUES(?,?,?)', (block_id, el.inode, el.blockno)) 
                 el.dirty = False
                 self.in_transit.remove((el.inode, el.blockno))
         except:
             self.in_transit.remove((el.inode, el.blockno))
             raise
-                         
-        self.db.execute('INSERT OR REPLACE INTO inode_blocks (block_id, inode, blockno) '
-                        'VALUES(?,?,?)', (block_id, el.inode, el.blockno)) 
-                                
+                                                      
         # Check if we have to remove an old block
         if not old_block_id:
             log.debug('upload(%s): no old block, returning', el)

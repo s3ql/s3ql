@@ -73,6 +73,7 @@ class Fsck(object):
             self.check_block_refcount()
             self.check_obj_refcounts()
             self.check_keylist()
+            self.check_bug_299()
         finally:
             log.info('Dropping temporary indices...')
             for idx in ('tmp1', 'tmp2', 'tmp3'):
@@ -295,6 +296,21 @@ class Fsck(object):
             self.conn.execute('DROP TABLE min_sizes')
             self.conn.execute('DROP TABLE IF EXISTS wrong_sizes')
             
+    def check_bug_299(self):
+        """Check if files may have been affected by bug 299"""
+    
+        log.info('Checking for bug 299...')
+    
+        for (inode,) in self.conn.query('SELECT id FROM inodes LEFT JOIN inode_blocks ON '
+                                        'inode = id WHERE inode IS NULL AND size > 0'):
+            
+            for (name, inode_p) in self.conn.query('SELECT name, parent_inode '
+                                                   'FROM contents_v WHERE inode=?', (inode,)):
+                path = get_path(inode_p, self.conn, name)
+                log.warn("File %s contains just zero bytes. If this file was created by "
+                         "s3qlcp < 1.7, data may have been corrupted.", path)
+
+                        
     def _add_name(self, name):
         '''Get id for *name* and increase refcount
         
