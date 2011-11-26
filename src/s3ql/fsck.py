@@ -94,7 +94,6 @@ class Fsck(object):
             
             self.check_loops()
             self.check_unix()
-            self.check_bug_299()
             self.check_foreign_keys()
         finally:
             log.info('Dropping temporary indices...')
