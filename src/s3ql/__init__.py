@@ -19,6 +19,7 @@ CURRENT_FS_REV = 14
 
 # Maps file system revisions to the last S3QL version that
 # supported this revision.
-REV_VER_MAP = { 13: '1.6',
+REV_VER_MAP = { 14: '1.7',
+                13: '1.6',
                 12: '1.3',
                 11: '1.0.1' }

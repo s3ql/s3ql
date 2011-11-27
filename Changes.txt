@@ -1,4 +1,4 @@
-UNRELEASED, S3QL TIP(default)
+2011-11-27, S3QL 1.7
 
   * Extended attribute names are now de-duplicated.
 
@@ -10,14 +10,12 @@ UNRELEASED, S3QL TIP(default)
     inodes are not reused. This makes S3QL fully NFS compatible and
     allows metadata to be stored much more efficiently, resulting in
     a 4 to 8 fold decrease in compressed metadata size.
-  
-UNRELEASED, S3QL TIP(stable)
 
   * s3qlcp now also copies extended attributes.
 
   * s3qlcp no longer generates incorrect block reference counts when
     copying a file that has identical blocks (i.e., that can be
-    de-duplicated within itself). 
+    de-duplicated within itself).
 
   * Eliminated a race condition in s3qlcp. When copying a file with
     s3qlcp immediately after it was modified or created, it was
