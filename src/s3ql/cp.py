@@ -7,17 +7,16 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-
-import llfuse
-import os
-import logging
-from s3ql.common import (setup_logging, CTRL_NAME, QuietError)
-from s3ql.parse_args import ArgumentParser
+from .common import setup_logging, CTRL_NAME, QuietError
+from .parse_args import ArgumentParser
 import cPickle as pickle
-import stat
-import textwrap
 import errno
+import llfuse
+import logging
+import os
+import stat
 import sys
+import textwrap
 
 log = logging.getLogger("cp")
 

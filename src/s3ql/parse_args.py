@@ -36,13 +36,13 @@ are:
 #pylint: disable-all
 
 from __future__ import division, print_function, absolute_import
-
-import s3ql
+from . import VERSION
 import argparse
-import re
-import os
 import logging.handlers
+import os
+import re
 import sys
+
 
 DEFAULT_USAGE = object()
 
@@ -135,7 +135,7 @@ class ArgumentParser(argparse.ArgumentParser):
     def add_version(self):
         self.add_argument('--version', action='version', 
                           help="just print program version and exit",
-                          version='S3QL %s' % s3ql.VERSION)
+                          version='S3QL %s' % VERSION)
 
     def add_quiet(self):
         self.add_argument("--quiet", action="store_true", default=False,

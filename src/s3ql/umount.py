@@ -7,17 +7,16 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-
+from .common import CTRL_NAME, QuietError, setup_logging
+from .parse_args import ArgumentParser
 import llfuse
-import sys
-import os
 import logging
-from s3ql.common import (CTRL_NAME, QuietError, setup_logging)
-from s3ql.parse_args import ArgumentParser
+import os
 import posixpath
 import subprocess
-import time
+import sys
 import textwrap
+import time
 
 log = logging.getLogger("umount")
 
