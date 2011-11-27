@@ -2,12 +2,9 @@ graft doc
 graft rst
 graft contrib
 graft tests
-graft debian
 graft util
 graft bin
-include src/*.py
-include src/*.c
-include src/*.pyx
+recursive-include src *.py *.c *.pyx
 include Changes.txt
 include INSTALL.txt
 include README.txt
@@ -15,5 +12,5 @@ include LICENSE
 exclude MANIFEST.in
 prune doc/doctrees
 prune doc/man/.doctrees
-prune debian/s3ql
 global-exclude *.pyc
+global-exclude *.pyo
