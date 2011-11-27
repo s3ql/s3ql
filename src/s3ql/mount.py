@@ -17,6 +17,7 @@ from .database import Connection
 from .inode_cache import InodeCache
 from .metadata import cycle_metadata, dump_metadata, restore_metadata
 from .parse_args import ArgumentParser
+from s3ql.backends.common import NoSuchBucket
 from threading import Thread
 import cPickle as pickle
 import llfuse
@@ -88,9 +89,12 @@ def main(args=None):
     cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
 
     # Retrieve metadata
-    with bucket_pool() as bucket:
-        (param, db) = get_metadata(bucket, cachepath)
-        
+    try:
+        with bucket_pool() as bucket:
+            (param, db) = get_metadata(bucket, cachepath)
+    except NoSuchBucket as exc:
+        raise QuietError(str(exc))
+               
     if options.nfs:
         # NFS may try to look up '..', so we have to speed up this kind of query
         log.info('Creating NFS indices...')

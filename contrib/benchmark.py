@@ -12,16 +12,20 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
+from s3ql.backends.common import get_bucket, BetterBucket, NoSuchBucket
+from s3ql.backends.local import Bucket
+from s3ql.common import setup_logging, BUFSIZE, QuietError
+from s3ql.parse_args import ArgumentParser
 import argparse
 import atexit
 import logging
+import math
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
-import math
 import time
-import subprocess
-import shutil
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
@@ -30,10 +34,6 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.backends.common import get_bucket, BetterBucket
-from s3ql.backends.local import Bucket
-from s3ql.common import setup_logging, BUFSIZE
-from s3ql.parse_args import ArgumentParser
 
 log = logging.getLogger('benchmark')
 
@@ -92,7 +92,10 @@ def main(args=None):
     # Upload random data to prevent effects of compression
     # on the network layer
     log.info('Measuring raw backend throughput..')
-    bucket = get_bucket(options, plain=True)
+    try:
+        bucket = get_bucket(options, plain=True)
+    except NoSuchBucket as exc:
+        raise QuietError(str(exc))           
     with bucket.open_write('s3ql_testdata') as dst:
         with open('/dev/urandom', 'rb', 0) as src:
             stamp = time.time()

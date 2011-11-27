@@ -7,18 +7,19 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
+from . import CURRENT_FS_REV, REV_VER_MAP
+from .backends.common import BetterBucket, get_bucket
+from .common import (QuietError, BUFSIZE, setup_logging, get_bucket_cachedir, 
+    get_seq_no, stream_write_bz2, CTRL_INODE)
+from .database import Connection, NoSuchRowError
+from .fsck import Fsck
+from .metadata import (restore_metadata, cycle_metadata, dump_metadata, 
+    create_tables)
+from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
 from getpass import getpass
 from llfuse import ROOT_INODE
-from . import CURRENT_FS_REV, REV_VER_MAP
-from .fsck import Fsck
-from .backends.common import BetterBucket, get_bucket
-from .common import (QuietError, BUFSIZE, 
-    setup_logging, get_bucket_cachedir, get_seq_no, 
-    stream_write_bz2, CTRL_INODE)
-from .database import Connection, NoSuchRowError
-from .parse_args import ArgumentParser
-from .metadata import restore_metadata, cycle_metadata,dump_metadata, create_tables
+from s3ql.backends.common import NoSuchBucket
 import cPickle as pickle
 import logging
 import lzma
@@ -88,10 +89,17 @@ def main(args=None):
                 raise QuietError('Can not work on mounted file system.')
                
     if options.action == 'clear':
-        return clear(get_bucket(options, plain=True),
+        try:
+            bucket = get_bucket(options, plain=True)
+        except NoSuchBucket as exc:
+            raise QuietError(str(exc))        
+        return clear(bucket,
                      get_bucket_cachedir(options.storage_url, options.cachedir))
     
-    bucket = get_bucket(options)
+    try:
+        bucket = get_bucket(options)
+    except NoSuchBucket as exc:
+        raise QuietError(str(exc))
     
     if options.action == 'upgrade':
         return upgrade(bucket, get_bucket_cachedir(options.storage_url, 

@@ -7,17 +7,17 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-
 from . import CURRENT_FS_REV
 from .backends.common import NoSuchObject, get_bucket
-from .common import (ROOT_INODE, inode_for_path, sha256_fh, get_path, 
-    BUFSIZE, get_bucket_cachedir, setup_logging, QuietError, 
-    get_seq_no, CTRL_INODE, stream_write_bz2, 
-    stream_read_bz2)
+from .common import (ROOT_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE, 
+    get_bucket_cachedir, setup_logging, QuietError, get_seq_no, CTRL_INODE, 
+    stream_write_bz2, stream_read_bz2)
 from .database import NoSuchRowError, Connection
+from .metadata import (restore_metadata, cycle_metadata, dump_metadata, 
+    create_tables)
 from .parse_args import ArgumentParser
 from os.path import basename
-from .metadata import restore_metadata, cycle_metadata,dump_metadata, create_tables
+from s3ql.backends.common import NoSuchBucket
 import apsw
 import cPickle as pickle
 import logging
@@ -29,6 +29,7 @@ import sys
 import tempfile
 import textwrap
 import time
+
 
 log = logging.getLogger("fsck")
 
@@ -1060,7 +1061,10 @@ def main(args=None):
             if line.startswith(match):
                 raise QuietError('Can not check mounted file system.')
     
-    bucket = get_bucket(options)
+    try:
+        bucket = get_bucket(options)
+    except NoSuchBucket as exc:
+        raise QuietError(str(exc))           
     
     cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
     seq_no = get_seq_no(bucket)

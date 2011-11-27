@@ -16,6 +16,7 @@ from .metadata import dump_metadata, create_tables
 from .parse_args import ArgumentParser
 from getpass import getpass
 from llfuse import ROOT_INODE
+from s3ql.backends.common import NoSuchBucket
 import cPickle as pickle
 import logging
 import os
@@ -85,7 +86,10 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
     
-    plain_bucket = get_bucket(options, plain=True)
+    try:
+        plain_bucket = get_bucket(options, plain=True)
+    except NoSuchBucket as exc:
+        raise QuietError(str(exc))
     
     if 's3ql_metadata' in plain_bucket:
         if not options.force:
