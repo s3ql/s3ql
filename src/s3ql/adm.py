@@ -11,6 +11,7 @@ from datetime import datetime as Datetime
 from getpass import getpass
 from llfuse import ROOT_INODE
 from . import CURRENT_FS_REV, REV_VER_MAP
+from .fsck import Fsck
 from .backends.common import BetterBucket, get_bucket
 from .common import (QuietError, BUFSIZE, 
     setup_logging, get_bucket_cachedir, get_seq_no, 
@@ -343,6 +344,13 @@ def upgrade(bucket, cachepath):
     """)    
                                        
     renumber_inodes(db)
+    
+    # fsck required to make sure that dump will work
+    fsck = Fsck(cachepath + '-cache', bucket, param, db)
+    fsck.check()
+    
+    if fsck.uncorrectable_errors:
+        raise QuietError("Uncorrectable errors found, aborting.")
     
     param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
     param['inode_gen'] = 1
