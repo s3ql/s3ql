@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from .common import AbstractBucket, NoSuchObject, retry
+from .common import AbstractBucket, NoSuchObject, retry, NoSuchBucket as NoSuchBucket_common
 from ..common import BUFSIZE
 import logging
 import httplib
@@ -655,7 +655,7 @@ class S3Error(Exception):
     '''
     
     def __init__(self, code, msg):
-        super(S3Error, self).__init__()
+        super(S3Error, self).__init__(msg)
         self.code = code
         self.msg = msg
         
@@ -673,3 +673,4 @@ class OperationAborted(S3Error): pass
 class RequestTimeout(S3Error): pass
 class SlowDown(S3Error): pass
 class RequestTimeTooSkewed(S3Error): pass
+class NoSuchBucket(S3Error, NoSuchBucket_common): pass
