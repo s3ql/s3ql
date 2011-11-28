@@ -1188,6 +1188,10 @@ def main(args=None):
         param['inode_gen'] += 1
         param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
             
+    if fsck.found_errors and not param['needs_fsck']:
+        log.warn('File system was marked as clean, yet fsck found problems.')
+        log.warn('Please report this to the S3QL mailing list, http://groups.google.com/group/s3ql')
+        
     cycle_metadata(bucket)
     param['needs_fsck'] = False
     param['last_fsck'] = time.time() - time.timezone
