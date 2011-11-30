@@ -368,7 +368,7 @@ class BlockCache(object):
     
             # No block with same hash
             except NoSuchRowError:
-                obj_id = self.db.rowid('INSERT INTO objects (refcount) VALUES(1)')
+                obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, -1)')
                 log.debug('upload(%s): created new object %d', el, obj_id)
                 block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, hash, size) '
                                          'VALUES(?,?,?,?)', (1, obj_id, hash_, el.size))

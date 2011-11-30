@@ -104,7 +104,7 @@ def create_tables(conn):
     CREATE TABLE objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
         refcount  INT NOT NULL, 
-        size      INT
+        size      INT NOT NULL
     )""")
 
     # Table of known data blocks

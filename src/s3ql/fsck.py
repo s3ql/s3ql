@@ -177,7 +177,7 @@ class Fsck(object):
                 (block_id, obj_id) = self.conn.get_row('SELECT id, obj_id FROM blocks WHERE hash=?', (hash_,))
                 
             except NoSuchRowError:
-                obj_id = self.conn.rowid('INSERT INTO objects (refcount) VALUES(1)')
+                obj_id = self.conn.rowid('INSERT INTO objects (refcount, size) VALUES(1, -1)')
                 block_id = self.conn.rowid('INSERT INTO blocks (refcount, hash, obj_id, size) '
                                            'VALUES(?, ?, ?, ?)', (1, hash_, obj_id, size))
                 def do_write(obj_fh):
@@ -892,7 +892,7 @@ class Fsck(object):
     
         log.info('Checking objects (sizes)...')
     
-        for (obj_id,) in self.conn.query('SELECT id FROM objects WHERE size IS NULL'):
+        for (obj_id,) in self.conn.query('SELECT id FROM objects WHERE size = -1 OR size IS NULL'):
             self.found_errors = True
             self.log_error("Object %d has no size information, retrieving from backend...",  obj_id)               
         
