@@ -495,7 +495,9 @@ class Operations(llfuse.Operations):
             self.db.execute('UPDATE names SET refcount = refcount - 1 WHERE '
                             'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)', 
                             (id_,))
-            self.db.execute('DELETE FROM names WHERE refcount=0')                 
+            self.db.execute('DELETE FROM names WHERE refcount=0 AND '
+                            'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)', 
+                            (id_,))                                       
             self.db.execute('DELETE FROM ext_attributes WHERE inode=?', (id_,))
             self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_,))
             del self.inodes[id_]

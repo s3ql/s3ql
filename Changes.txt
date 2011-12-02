@@ -3,6 +3,9 @@ UNRELEASED, S3QL tip
   * Fixed "ValueError: Can't dump NULL values" crash when file system
     metadata was uploaded during heavy file system activity.
 
+  * Deleting files no longer takes O(number of distinct filenames)
+    time (bug introduced in 1.7).
+    
 2011-11-27, S3QL 1.7
 
   * Extended attribute names are now de-duplicated.
