@@ -136,8 +136,12 @@ class Operations(llfuse.Operations):
         try:
             return self.db.get_val("SELECT target FROM symlink_targets WHERE inode=?", (id_,))
         except NoSuchRowError:
-            log.warn('Inode does not have symlink target: %d', id_)
-            raise FUSEError(errno.EINVAL)
+            # Inode may have been deleted
+            if id_ in self.inodes:
+                log.warn('Inode does not have symlink target: %d', id_)
+                raise FUSEError(errno.EINVAL)
+            else:
+                raise FUSEError(errno.ENOENT)
 
     def opendir(self, id_):
         log.debug('opendir(%d): start', id_)
@@ -155,7 +159,10 @@ class Operations(llfuse.Operations):
         if off == 0:
             off = -1
             
-        inode = self.inodes[id_]
+        try:
+            inode = self.inodes[id_]
+        except KeyError:
+            raise FUSEError(errno.ENOENT)
         if inode.atime < inode.ctime or inode.atime < inode.mtime:
             inode.atime = time.time() 
 
@@ -218,8 +225,11 @@ class Operations(llfuse.Operations):
             else:
                 raise llfuse.FUSEError(errno.EINVAL)
         else:
-            if self.inodes[id_].locked:
-                raise FUSEError(errno.EPERM)
+            try:
+                if self.inodes[id_].locked:
+                    raise FUSEError(errno.EPERM)
+            except KeyError:
+                raise FUSEError(errno.ENOENT)                
                     
             if len(value) > deltadump.MAX_BLOB_SIZE:
                 raise FUSEError(errno.EINVAL)
@@ -231,8 +241,11 @@ class Operations(llfuse.Operations):
     def removexattr(self, id_, name):
         log.debug('removexattr(%d, %r): start', id_, name)
         
-        if self.inodes[id_].locked:
-            raise FUSEError(errno.EPERM)
+        try:
+            if self.inodes[id_].locked:
+                raise FUSEError(errno.EPERM)
+        except KeyError:
+            raise FUSEError(errno.ENOENT)            
             
         try:
             name_id =  self._del_name(name)
@@ -349,8 +362,11 @@ class Operations(llfuse.Operations):
         log.debug('copy_tree(%d, %d): committed cache', src_id, target_id)
 
         # Copy target attributes
-        src_inode = self.inodes[src_id]
-        target_inode = self.inodes[target_id]
+        try:
+            src_inode = self.inodes[src_id]
+            target_inode = self.inodes[target_id]
+        except KeyError:
+            raise FUSEError(errno.ENOENT)            
         for attr in ('atime', 'ctime', 'mtime', 'mode', 'uid', 'gid'):
             setattr(target_inode, attr, getattr(src_inode, attr))
 
@@ -701,7 +717,10 @@ class Operations(llfuse.Operations):
                       [ getattr(attr, x) for x in attr.__slots__ 
                        if getattr(attr, x) is not None ])
         
-        inode = self.inodes[id_]
+        try:
+            inode = self.inodes[id_]
+        except KeyError:
+            raise FUSEError(errno.ENOENT)            
         timestamp = time.time()
 
         if inode.locked:
@@ -829,8 +848,11 @@ class Operations(llfuse.Operations):
 
     def open(self, id_, flags):
         log.debug('open(%d): start', id_)
-        if (self.inodes[id_].locked and
-            (flags & os.O_RDWR or flags & os.O_WRONLY)):
+        try:
+            inode = self.inodes[id_]
+        except KeyError:
+            raise FUSEError(errno.ENOENT)            
+        if (inode.locked and (flags & os.O_RDWR or flags & os.O_WRONLY)):
             raise FUSEError(errno.EPERM)
         
         self.open_inodes[id_] += 1
