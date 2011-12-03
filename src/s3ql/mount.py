@@ -269,13 +269,19 @@ def determine_threads(options):
         log.warn("Can't determine number of cores, using 2 upload threads.")
         return 1
     elif 2*cores * mem_per_thread > (memory/2):
-        threads = int((memory/2) // mem_per_thread)
-        log.info('Using %d upload threads (memory limited).', threads)
+        threads = min(int((memory/2) // mem_per_thread), 10)
+        if threads > 0:
+            log.info('Using %d upload threads (memory limited).', threads)
+        else:
+            log.warn('Warning: compression will require %d MB memory '
+                     '(%d%% of total system memory', mem_per_thread / 1024**2,
+                     mem_per_thread * 100 / memory)
+            threads = 1
         return threads
     else:
-        log.info("Using %d upload threads.", 2*cores)
-        return 2*cores
-    
+        threads = min(2*cores, 10)
+        log.info("Using %d upload threads.", threads)
+        return threads
         
 def get_metadata(bucket, cachepath):
     '''Retrieve metadata'''
