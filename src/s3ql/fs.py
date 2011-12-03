@@ -84,6 +84,7 @@ class Operations(llfuse.Operations):
         self.inodes.destroy()
 
     def lookup(self, id_p, name):
+        log.debug('lookup(%d, %r): start', id_p, name)
         if name == CTRL_NAME:
             inode = self.inodes[CTRL_INODE]
             
@@ -110,6 +111,7 @@ class Operations(llfuse.Operations):
         return self.inodes[id_]
 
     def getattr(self, id_):
+        log.debug('getattr(%d): start', id_)
         if id_ == CTRL_INODE:
             # Make sure the control file is only writable by the user
             # who mounted the file system (but don't mark inode as dirty)
@@ -126,6 +128,7 @@ class Operations(llfuse.Operations):
             raise FUSEError(errno.ENOENT)
 
     def readlink(self, id_):
+        log.debug('readlink(%d): start', id_)
         timestamp = time.time()
         inode = self.inodes[id_]
         if inode.atime < inode.ctime or inode.atime < inode.mtime:
@@ -137,6 +140,7 @@ class Operations(llfuse.Operations):
             raise FUSEError(errno.EINVAL)
 
     def opendir(self, id_):
+        log.debug('opendir(%d): start', id_)
         return id_
 
     def check_args(self, args):
@@ -147,6 +151,7 @@ class Operations(llfuse.Operations):
         args.append('no_remote_lock')
 
     def readdir(self, id_, off):
+        log.debug('readdir(%d, %d): start', id_, off)
         if off == 0:
             off = -1
             
@@ -162,6 +167,7 @@ class Operations(llfuse.Operations):
             yield (name, self.inodes[cid_], next_)
 
     def getxattr(self, id_, name):
+        log.debug('getxattr(%d, %r): start', id_, name)
         # Handle S3QL commands
         if id_ == CTRL_INODE:
             if name == b's3ql_pid?':
@@ -181,13 +187,15 @@ class Operations(llfuse.Operations):
             return value
 
     def listxattr(self, id_):
+        log.debug('listxattr(%d): start', id_)
         names = list()
         for (name,) in self.db.query('SELECT name FROM ext_attributes_v WHERE inode=?', (id_,)):
             names.append(name)
         return names
 
     def setxattr(self, id_, name, value):
-        
+        log.debug('setxattr(%d, %r, %r): start', id_,name, value)
+                  
         # Handle S3QL commands
         if id_ == CTRL_INODE:
             if name == b's3ql_flushcache!':
@@ -221,6 +229,7 @@ class Operations(llfuse.Operations):
             self.inodes[id_].ctime = time.time()
 
     def removexattr(self, id_, name):
+        log.debug('removexattr(%d, %r): start', id_, name)
         
         if self.inodes[id_].locked:
             raise FUSEError(errno.EPERM)
@@ -434,6 +443,7 @@ class Operations(llfuse.Operations):
         log.debug('copy_tree(%d, %d): end', src_inode.id, target_inode.id)
 
     def unlink(self, id_p, name):
+        log.debug('rmdir(%d, %r): start', id_p, name)
         inode = self.lookup(id_p, name)
 
         if stat.S_ISDIR(inode.mode):
@@ -442,6 +452,7 @@ class Operations(llfuse.Operations):
         self._remove(id_p, name, inode.id)
 
     def rmdir(self, id_p, name):
+        log.debug('rmdir(%d, %r): start', id_p, name)
         inode = self.lookup(id_p, name)
 
         if self.inodes[id_p].locked:
@@ -505,6 +516,8 @@ class Operations(llfuse.Operations):
         log.debug('_remove(%d, %s): start', id_p, name)
 
     def symlink(self, id_p, name, target, ctx):
+        log.debug('symlink(%d, %r, %r): start', id_p, name, target)
+        
         mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | 
                 stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | 
                 stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
@@ -521,6 +534,7 @@ class Operations(llfuse.Operations):
         return inode
 
     def rename(self, id_p_old, name_old, id_p_new, name_new):
+        log.debug('rename(%d, %r, %d, %r): start', id_p_old, name_old, id_p_new, name_new)
         if name_new == CTRL_NAME or name_old == CTRL_NAME:
             log.warn('Attempted to rename s3ql control file (%s -> %s)',
                       get_path(id_p_old, self.db, name_old),
@@ -647,6 +661,8 @@ class Operations(llfuse.Operations):
 
 
     def link(self, id_, new_id_p, new_name):
+        log.debug('link(%d, %d, %r): start', id_, new_id_p, new_name)
+        
         if new_name == CTRL_NAME or id_ == CTRL_INODE:
             log.warn('Attempted to create s3ql control file at %s',
                       get_path(new_id_p, self.db, new_name))
@@ -676,7 +692,11 @@ class Operations(llfuse.Operations):
 
     def setattr(self, id_, attr):
         """Handles FUSE setattr() requests"""
-
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug('setattr(%d, %s): start', id_,
+                      [ getattr(attr, x) for x in attr.__slots__ 
+                       if getattr(attr, x) is not None ])
+        
         inode = self.inodes[id_]
         timestamp = time.time()
 
@@ -741,14 +761,18 @@ class Operations(llfuse.Operations):
         return inode
 
     def mknod(self, id_p, name, mode, rdev, ctx):
+        log.debug('mknod(%d, %r): start', id_p, name)
         return self._create(id_p, name, mode, ctx, rdev=rdev)
 
     def mkdir(self, id_p, name, mode, ctx):
+        log.debug('mkdir(%d, %r): start', id_p, name)
         return self._create(id_p, name, mode, ctx)
 
     def extstat(self):
         '''Return extended file system statistics'''
 
+        log.debug('extstat(%d): start')
+        
         # Flush inode cache to get better estimate of total fs size
         self.inodes.flush()
         
@@ -764,6 +788,8 @@ class Operations(llfuse.Operations):
 
 
     def statfs(self):
+        log.debug('statfs(): start')
+        
         stat_ = llfuse.StatvfsData
 
         # Get number of blocks & inodes
@@ -798,6 +824,7 @@ class Operations(llfuse.Operations):
         return stat_
 
     def open(self, id_, flags):
+        log.debug('open(%d): start', id_)
         if (self.inodes[id_].locked and
             (flags & os.O_RDWR or flags & os.O_WRONLY)):
             raise FUSEError(errno.EPERM)
@@ -815,9 +842,11 @@ class Operations(llfuse.Operations):
         # Yeah, could be a function and has unused arguments
         #pylint: disable=R0201,W0613
 
+        log.debug('access(%d): executed', id_)
         return True
 
     def create(self, id_p, name, mode, ctx):
+        log.debug('create(id_p=%d, %s): started', id_p, name)
         inode = self._create(id_p, name, mode, ctx)
         self.open_inodes[inode.id] += 1
         return (inode.id, inode)
@@ -862,6 +891,7 @@ class Operations(llfuse.Operations):
         
         This method releases the global lock while it is running.
         '''
+        log.debug('read(%d, %d, %d): start', fh, offset, length)
         buf = StringIO()
         inode = self.inodes[fh]
 
@@ -929,6 +959,7 @@ class Operations(llfuse.Operations):
         
         This method releases the global lock while it is running.
         '''
+        log.debug('write(%d, %d, datalen=%d): start', fh, offset, len(buf))
         
         if self.inodes[fh].locked:
             raise FUSEError(errno.EPERM)
@@ -988,17 +1019,18 @@ class Operations(llfuse.Operations):
         return len(buf)
 
     def fsync(self, fh, datasync):
+        log.debug('fsync(%d, %s): start', fh, datasync)
         if not datasync:
             self.inodes.flush_id(fh)
 
         self.cache.flush(fh)
 
     def releasedir(self, fh):
-        # Unused argument
-        #pylint: disable=W0613
+        log.debug('releasedir(%d): start', fh)
         return
 
     def release(self, fh):
+        log.debug('release(%d): start', fh)
         self.open_inodes[fh] -= 1
 
         if self.open_inodes[fh] == 0:
@@ -1015,9 +1047,11 @@ class Operations(llfuse.Operations):
 
     # Called for close() calls. 
     def flush(self, fh):
+        log.debug('flush(%d): start', fh)
         pass
 
     def fsyncdir(self, fh, datasync):
+        log.debug('fsyncdir(%d, %s): start', fh, datasync)
         if not datasync:
             self.inodes.flush_id(fh)
 
