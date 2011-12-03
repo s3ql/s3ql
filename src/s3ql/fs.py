@@ -275,6 +275,7 @@ class Operations(llfuse.Operations):
                           id0, gil_step)  
                 processed = 0
                 llfuse.lock.yield_()
+                log.debug('lock_tree(%d): re-acquired lock', id0)
                 stamp = time.time()
 
         log.debug('lock_tree(%d): end', id0)
@@ -324,10 +325,11 @@ class Operations(llfuse.Operations):
             if processed > gil_step:  
                 dt = time.time() - stamp
                 gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 500)
-                log.debug('remove_tree(%d, %s): Adjusting gil_step to %d', 
+                log.debug('remove_tree(%d, %s): Adjusting gil_step to %d and yielding', 
                           id_p0, name0, gil_step)  
                 processed = 0
                 llfuse.lock.yield_()
+                log.debug('remove_tree(%d, %s): re-acquired lock', id_p0, name0)
                 stamp = time.time()    
         
         log.debug('remove_tree(%d, %s): end', id_p0, name0)
@@ -428,10 +430,12 @@ class Operations(llfuse.Operations):
             if processed > gil_step:
                 dt = time.time() - stamp
                 gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 500)
-                log.debug('copy_tree(%d, %d): Adjusting gil_step to %d', 
+                log.debug('copy_tree(%d, %d): Adjusting gil_step to %d and yielding', 
                           src_inode.id, target_inode.id, gil_step) 
                 processed = 0
                 llfuse.lock.yield_()
+                log.debug('copy_tree(%d, %d): re-acquired lock',
+                          src_inode.id, target_inode.id)
                 stamp = time.time()
 
         # Make replication visible
