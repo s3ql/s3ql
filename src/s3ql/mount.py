@@ -358,6 +358,9 @@ def get_metadata(bucket, cachepath):
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')
     
+    if 'max_obj_size' not in param:
+        param['max_obj_size'] = param['blocksize']
+        
     # Increase metadata sequence no 
     param['seq_no'] += 1
     param['needs_fsck'] = True

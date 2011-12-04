@@ -1125,7 +1125,9 @@ def main(args=None):
         param['seq_no'] = seq_no
         param['needs_fsck'] = True
     
-    
+    if 'max_obj_size' not in param:
+        param['max_obj_size'] = param['blocksize']
+            
     if (not param['needs_fsck']
         and param['max_inode'] < 2**31 
         and ((time.time() - time.timezone) - param['last_fsck'])
