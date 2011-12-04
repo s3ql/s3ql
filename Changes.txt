@@ -28,6 +28,10 @@ UNRELEASED, S3QL tip
   * mount.s3ql has a new --min-obj-size option. In the future, files
     smaller than the minimum object size may be combined into groups
     that are stored as single objects in the storage backend.
+
+  * Depend on python-llfuse 0.37. This fixes a problem with the file system 
+    effectively blocking any other request while an s3qlrm, s3qllock
+    or s3qlcp instance is running.
    
   
 2011-11-27, S3QL 1.7
