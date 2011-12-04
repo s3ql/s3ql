@@ -45,7 +45,7 @@ class Fsck(object):
         self.expect_errors = False
         self.found_errors = False
         self.uncorrectable_errors = False
-        self.blocksize = param['blocksize']
+        self.max_obj_size = param['max_obj_size']
         self.conn = conn     
         
         # Set of blocks that have been unlinked by check_cache.
@@ -423,7 +423,7 @@ class Fsck(object):
             INSERT INTO min_sizes (id, min_size) 
             SELECT inode, MAX(blockno * ? + size) 
             FROM inode_blocks JOIN blocks ON block_id == blocks.id 
-            GROUP BY inode''', (self.blocksize,))
+            GROUP BY inode''', (self.max_obj_size,))
             
             self.conn.execute('''
                CREATE TEMPORARY TABLE wrong_sizes AS 

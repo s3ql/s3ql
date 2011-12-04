@@ -95,6 +95,9 @@ def main(args=None):
     except NoSuchBucket as exc:
         raise QuietError(str(exc))
                
+    if param['max_obj_size'] < options.min_obj_size:
+        raise QuietError('Maximum object size must be bigger than minimum object size.')
+        
     if options.nfs:
         # NFS may try to look up '..', so we have to speed up this kind of query
         log.info('Creating NFS indices...')
@@ -108,7 +111,7 @@ def main(args=None):
     block_cache = BlockCache(bucket_pool, db, cachepath + '-cache',
                              options.cachesize * 1024, options.max_cache_entries)
     commit_thread = CommitThread(block_cache)
-    operations = fs.Operations(block_cache, db, blocksize=param['blocksize'],
+    operations = fs.Operations(block_cache, db, max_obj_size=param['max_obj_size'],
                                inode_cache=InodeCache(db, param['inode_gen']),
                                upload_event=metadata_upload_thread.event)
     
@@ -423,14 +426,18 @@ def parse_args(args):
                         help='Where to mount the file system')
     parser.add_argument("--cachesize", type=int, default=102400, metavar='<size>', 
                       help="Cache size in kb (default: 102400 (100 MB)). Should be at least 10 times "
-                      "the blocksize of the filesystem, otherwise an object may be retrieved and "
-                      "written several times during a single write() or read() operation.")
+                      "the maximum object size of the filesystem, otherwise an object may be retrieved "
+                      "and written several times during a single write() or read() operation.")
     parser.add_argument("--max-cache-entries", type=int, default=768, metavar='<num>',
                       help="Maximum number of entries in cache (default: %(default)d). "
                       'Each cache entry requires one file descriptor, so if you increase '
                       'this number you have to make sure that your process file descriptor '
                       'limit (as set with `ulimit -n`) is high enough (at least the number ' 
                       'of cache entries + 100).')
+    parser.add_argument("--min-obj-size", type=int, default=512, metavar='<size>',
+                      help="Minimum size of storage objects in KB. Files smaller than this "
+                           "may be combined into groups that are stored as single objects "
+                           "in the storage backend. Default: %(default)d KB.")    
     parser.add_argument("--allow-other", action="store_true", default=False, help=
                       'Normally, only the user who called `mount.s3ql` can access the mount '
                       'point. This user then also has full access to it, independent of '

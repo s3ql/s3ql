@@ -42,8 +42,10 @@ def parse_args(args):
     
     parser.add_argument("-L", default='', help="Filesystem label",
                       dest="label", metavar='<name>',)
-    parser.add_argument("--blocksize", type=int, default=10240, metavar='<size>',
-                      help="Maximum block size in KB (default: %(default)d)")
+    parser.add_argument("--max-obj-size", type=int, default=10240, metavar='<size>',
+                      help="Maximum size of storage objects in KB. Files bigger than this "
+                           "will be spread over multiple objects in the storage backend. "
+                           "Default: %(default)d KB.")
     parser.add_argument("--plain", action="store_true", default=False,
                       help="Create unencrypted file system.")
     parser.add_argument("--force", action="store_true", default=False,
@@ -86,6 +88,10 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
     
+    if options.max_obj_size < 1024:
+        log.warn('Warning: maximum object sizes less than 1 MB will seriously degrade '
+                 'performance.')
+        
     try:
         plain_bucket = get_bucket(options, plain=True)
     except NoSuchBucket as exc:
@@ -141,7 +147,7 @@ def main(args=None):
     param['revision'] = CURRENT_FS_REV
     param['seq_no'] = 1
     param['label'] = options.label
-    param['blocksize'] = options.blocksize * 1024
+    param['max_obj_size'] = options.max_obj_size * 1024
     param['needs_fsck'] = False
     param['inode_gen'] = 0
     param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')   

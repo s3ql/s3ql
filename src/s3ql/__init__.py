@@ -14,6 +14,8 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'cleanup_manager', 'common',
             'parse_args', 'remove', 'statfs', 'umount', 'VERSION', 
             'CURRENT_FS_REV', 'REV_VER_MAP' ]
 
+# On next revision, make sure to explicitly rename
+# param['blocksize'] to param['max_block_size'] 
 VERSION = '1.7'
 CURRENT_FS_REV = 14
 

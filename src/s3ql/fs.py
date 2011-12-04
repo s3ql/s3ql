@@ -69,7 +69,7 @@ class Operations(llfuse.Operations):
     explicitly checks the st_mode attribute.
     """
         
-    def __init__(self, block_cache, db, blocksize, inode_cache,
+    def __init__(self, block_cache, db, max_obj_size, inode_cache,
                  upload_event=None):
         super(Operations, self).__init__()
 
@@ -77,7 +77,7 @@ class Operations(llfuse.Operations):
         self.db = db
         self.upload_event = upload_event
         self.open_inodes = collections.defaultdict(lambda: 0)
-        self.blocksize = blocksize
+        self.max_obj_size = max_obj_size
         self.cache = block_cache
 
     def destroy(self):
@@ -520,7 +520,7 @@ class Operations(llfuse.Operations):
 
         if inode.refcount == 0 and id_ not in self.open_inodes:
             log.debug('_remove(%d, %s): removing from cache', id_p, name)
-            self.cache.remove(id_, 0, int(math.ceil(inode.size / self.blocksize)))
+            self.cache.remove(id_, 0, int(math.ceil(inode.size / self.max_obj_size)))
             # Since the inode is not open, it's not possible that new blocks
             # get created at this point and we can safely delete the inode
             self.db.execute('UPDATE names SET refcount = refcount - 1 WHERE '
@@ -668,7 +668,7 @@ class Operations(llfuse.Operations):
 
         if inode_new.refcount == 0 and id_new not in self.open_inodes:
             self.cache.remove(id_new, 0, 
-                              int(math.ceil(inode_new.size / self.blocksize)))
+                              int(math.ceil(inode_new.size / self.max_obj_size)))
             # Since the inode is not open, it's not possible that new blocks
             # get created at this point and we can safely delete the inode
             self.db.execute('UPDATE names SET refcount = refcount - 1 WHERE '
@@ -730,9 +730,9 @@ class Operations(llfuse.Operations):
             len_ = attr.st_size
 
             # Determine blocks to delete
-            last_block = len_ // self.blocksize
-            cutoff = len_ % self.blocksize
-            total_blocks = int(math.ceil(inode.size / self.blocksize)) 
+            last_block = len_ // self.max_obj_size
+            cutoff = len_ % self.max_obj_size
+            total_blocks = int(math.ceil(inode.size / self.max_obj_size)) 
             
             # Adjust file size
             inode.size = len_
@@ -827,8 +827,8 @@ class Operations(llfuse.Operations):
         # It would be more appropriate to switch f_bsize and f_frsize,
         # but since df and stat ignore f_frsize, this way we can
         # export more information  
-        stat_.f_bsize = int(size // blocks) if blocks != 0 else self.blocksize
-        stat_.f_frsize = self.blocksize
+        stat_.f_bsize = int(size // blocks) if blocks != 0 else self.max_obj_size
+        stat_.f_frsize = self.max_obj_size
 
         # size of fs in f_frsize units 
         # (since backend is supposed to be unlimited, always return a half-full filesystem,
@@ -944,7 +944,7 @@ class Operations(llfuse.Operations):
     def _read(self, id_, offset, length):
         """Reads at the specified position until the end of the block
 
-        This method may return less than `length` bytes if a blocksize
+        This method may return less than `length` bytes if a max_obj_size
         boundary is encountered. It may also read beyond the end of
         the file, filling the buffer with additional null bytes.
         
@@ -952,12 +952,12 @@ class Operations(llfuse.Operations):
         """
 
         # Calculate required block
-        blockno = offset // self.blocksize
-        offset_rel = offset - blockno * self.blocksize
+        blockno = offset // self.max_obj_size
+        offset_rel = offset - blockno * self.max_obj_size
 
         # Don't try to read into the next block
-        if offset_rel + length > self.blocksize:
-            length = self.blocksize - offset_rel
+        if offset_rel + length > self.max_obj_size:
+            length = self.max_obj_size - offset_rel
 
         try:
             with self.cache.get(id_, blockno) as fh:
@@ -1020,12 +1020,12 @@ class Operations(llfuse.Operations):
         """
 
         # Calculate required block
-        blockno = offset // self.blocksize
-        offset_rel = offset - blockno * self.blocksize
+        blockno = offset // self.max_obj_size
+        offset_rel = offset - blockno * self.max_obj_size
 
         # Don't try to write into the next block
-        if offset_rel + len(buf) > self.blocksize:
-            buf = buf[:self.blocksize - offset_rel]
+        if offset_rel + len(buf) > self.max_obj_size:
+            buf = buf[:self.max_obj_size - offset_rel]
 
         try:
             with self.cache.get(id_, blockno) as fh:
@@ -1065,7 +1065,7 @@ class Operations(llfuse.Operations):
             inode = self.inodes[fh]
             if inode.refcount == 0:
                 self.cache.remove(inode.id, 0, 
-                                  int(math.ceil(inode.size / self.blocksize)))
+                                  int(math.ceil(inode.size / self.max_obj_size)))
                 # Since the inode is not open, it's not possible that new blocks
                 # get created at this point and we can safely delete the in
                 del self.inodes[fh]

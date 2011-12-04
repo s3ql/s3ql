@@ -174,7 +174,7 @@ class fuse_tests(TestCase):
                     
     def mkfs(self):
         proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'), 
-                                 '-L', 'test fs', '--blocksize', '500',
+                                 '-L', 'test fs', '--max-obj-size', '500',
                                  '--cachedir', self.cache_dir, '--quiet',
                                  self.bucketname ], stdin=subprocess.PIPE)
         

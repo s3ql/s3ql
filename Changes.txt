@@ -7,6 +7,28 @@ UNRELEASED, S3QL tip
     time (bug introduced in 1.7).
     
   * Improved s3qlcp performance for very large directories.
+
+  * The --blocksize option of mkfs.s3ql has often been misunderstood,
+    leading people to create file systems with block sizes
+    significantly smaller than 1 MB.
+
+    As a matter of fact, a small S3QL block size does *not* have any
+    advantage over a large block size when storing lots of small
+    files. A small block size, however, seriously degrades performance
+    when storing larger files. This is because S3QL is effectively
+    using a dynamic block size, and the --blocksize value merely
+    specifies an upper limit.
+
+    To make this more clear, the --blocksize option has been renamed
+    to --max-obj-size. If you created your file system with a block
+    size of less than 1 MB, it is strongly recommended to recreate it
+    with a larger block size. Unfortunately, an in-place conversion of
+    the block size is not possible.
+
+  * mount.s3ql has a new --min-obj-size option. In the future, files
+    smaller than the minimum object size may be combined into groups
+    that are stored as single objects in the storage backend.
+   
   
 2011-11-27, S3QL 1.7
 

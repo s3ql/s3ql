@@ -54,7 +54,7 @@ class fs_api_tests(TestCase):
         self.bucket_pool = BucketPool(lambda: local.Bucket(self.bucket_dir, None, None))
         self.bucket = self.bucket_pool.pop_conn()
         self.cachedir = tempfile.mkdtemp()
-        self.blocksize = 1024
+        self.max_obj_size = 1024
 
         self.dbfile = tempfile.NamedTemporaryFile()
         self.db = Connection(self.dbfile.name)
@@ -66,8 +66,8 @@ class fs_api_tests(TestCase):
         llfuse.lock.acquire()
         
         self.block_cache = BlockCache(self.bucket_pool, self.db, self.cachedir + "/cache",
-                                      self.blocksize * 5)
-        self.server = fs.Operations(self.block_cache, self.db, self.blocksize,
+                                      self.max_obj_size * 5)
+        self.server = fs.Operations(self.block_cache, self.db, self.max_obj_size,
                                     InodeCache(self.db, 0))
           
         self.server.init()
@@ -91,7 +91,7 @@ class fs_api_tests(TestCase):
         self.block_cache.clear()
         self.server.inodes.flush()
         fsck = Fsck(self.cachedir + '/cache', self.bucket,
-                  { 'blocksize': self.blocksize }, self.db)
+                  { 'max_obj_size': self.max_obj_size }, self.db)
         fsck.check()
         self.assertFalse(fsck.found_errors)
 
@@ -216,9 +216,9 @@ class fs_api_tests(TestCase):
 
     def test_read(self):
 
-        len_ = self.blocksize
+        len_ = self.max_obj_size
         data = self.random_data(len_)
-        off = self.blocksize // 2
+        off = self.max_obj_size // 2
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
                                      self.file_mode(), Ctx())
 
@@ -229,7 +229,7 @@ class fs_api_tests(TestCase):
         inode_after = self.server.getattr(inode.id)
         self.assertGreater(inode_after.atime, inode_before.atime)
         self.assertTrue(self.server.read(fh, 0, len_) == b"\0" * off + data[:off])
-        self.assertTrue(self.server.read(fh, self.blocksize, len_) == data[off:])
+        self.assertTrue(self.server.read(fh, self.max_obj_size, len_) == data[off:])
         self.server.release(fh)
 
         self.fsck()
@@ -431,7 +431,7 @@ class fs_api_tests(TestCase):
 
 
     def test_truncate(self):
-        len_ = int(2.7 * self.blocksize)
+        len_ = int(2.7 * self.max_obj_size)
         data = self.random_data(len_)
         attr = llfuse.EntryAttributes()
 
@@ -596,9 +596,9 @@ class fs_api_tests(TestCase):
         self.fsck()
 
     def test_write(self):
-        len_ = self.blocksize
+        len_ = self.max_obj_size
         data = self.random_data(len_)
-        off = self.blocksize // 2
+        off = self.max_obj_size // 2
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
                                      self.file_mode(), Ctx())
         inode_before = self.server.getattr(inode.id).copy()
@@ -619,7 +619,7 @@ class fs_api_tests(TestCase):
         self.fsck()
 
     def test_edit(self):
-        len_ = self.blocksize
+        len_ = self.max_obj_size
         data = self.random_data(len_)
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
                                      self.file_mode(), Ctx())
@@ -716,7 +716,7 @@ class fs_api_tests(TestCase):
         (fh, _) = self.server.create(src_inode.id, 'file1',
                                      self.file_mode(), Ctx())
         self.server.write(fh, 0, 'block 1 contents')
-        self.server.write(fh, self.blocksize, 'block 1 contents')
+        self.server.write(fh, self.max_obj_size, 'block 1 contents')
         self.server.release(fh)
 
         self.server.copy_tree(src_inode.id, dst_inode.id)

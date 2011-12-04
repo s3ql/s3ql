@@ -33,7 +33,7 @@ class cache_tests(TestCase):
         self.bucket_pool = BucketPool(lambda: local.Bucket(self.bucket_dir, None, None))
 
         self.cachedir = tempfile.mkdtemp() 
-        self.blocksize = 1024
+        self.max_obj_size = 1024
         
         self.dbfile = tempfile.NamedTemporaryFile()
         self.db =  Connection(self.dbfile.name)
@@ -49,7 +49,7 @@ class cache_tests(TestCase):
                          os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 32))
 
         self.cache = BlockCache(self.bucket_pool, self.db, self.cachedir + "/cache",
-                                self.blocksize * 100)
+                                self.max_obj_size * 100)
         
         # Tested methods assume that they are called from
         # file system request handler
@@ -71,7 +71,7 @@ class cache_tests(TestCase):
     def test_get(self):
         inode = self.inode
         blockno = 11
-        data = self.random_data(int(0.5 * self.blocksize))
+        data = self.random_data(int(0.5 * self.max_obj_size))
 
         # Case 1: Object does not exist yet
         with self.cache.get(inode, blockno) as fh:
@@ -218,7 +218,7 @@ class cache_tests(TestCase):
 
     def test_remove_cache(self):
         inode = self.inode
-        data1 = self.random_data(int(0.4 * self.blocksize))
+        data1 = self.random_data(int(0.4 * self.max_obj_size))
 
         # Case 1: Elements only in cache
         with self.cache.get(inode, 1) as fh:
@@ -231,7 +231,7 @@ class cache_tests(TestCase):
 
     def test_remove_cache_db(self):
         inode = self.inode
-        data1 = self.random_data(int(0.4 * self.blocksize))
+        data1 = self.random_data(int(0.4 * self.max_obj_size))
 
         # Case 2: Element in cache and db 
         with self.cache.get(inode, 1) as fh:
@@ -251,7 +251,7 @@ class cache_tests(TestCase):
         
     def test_remove_db(self):
         inode = self.inode
-        data1 = self.random_data(int(0.4 * self.blocksize))
+        data1 = self.random_data(int(0.4 * self.max_obj_size))
 
         # Case 3: Element only in DB
         with self.cache.get(inode, 1) as fh:

@@ -28,7 +28,7 @@ class fsck_tests(TestCase):
         self.bucket_dir = tempfile.mkdtemp()
         self.bucket = local.Bucket(self.bucket_dir, None, None)
         self.cachedir = tempfile.mkdtemp()
-        self.blocksize = 1024
+        self.max_obj_size = 1024
 
         self.dbfile = tempfile.NamedTemporaryFile()
         self.db = Connection(self.dbfile.name)
@@ -36,7 +36,7 @@ class fsck_tests(TestCase):
         init_tables(self.db)
 
         self.fsck = Fsck(self.cachedir, self.bucket,
-                  { 'blocksize': self.blocksize }, self.db)
+                  { 'max_obj_size': self.max_obj_size }, self.db)
         self.fsck.expect_errors = True
 
     def tearDown(self):
@@ -71,7 +71,7 @@ class fsck_tests(TestCase):
 
         # Existing block
         self.db.execute('UPDATE inodes SET size=? WHERE id=?',
-                        (self.blocksize + 8, inode))
+                        (self.max_obj_size + 8, inode))
         with open(self.cachedir + '/%d-1' % inode, 'wb') as fh:
             fh.write('somedata')    
         self.assert_fsck(self.fsck.check_cache)
@@ -214,7 +214,7 @@ class fsck_tests(TestCase):
         self.bucket['s3ql_data_%d' % obj_id] = 'foo'
         
         # Case 1
-        self.db.execute('UPDATE inodes SET size=? WHERE id=?', (self.blocksize + 120, id_))
+        self.db.execute('UPDATE inodes SET size=? WHERE id=?', (self.max_obj_size + 120, id_))
         self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
                         (id_, 1, block_id))
         self.assert_fsck(self.fsck.check_inodes_size)
@@ -230,7 +230,7 @@ class fsck_tests(TestCase):
         self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
                         (id_, 1, block_id))
         self.db.execute('UPDATE inodes SET size=? WHERE id=?',
-                        (self.blocksize + 120, id_))
+                        (self.max_obj_size + 120, id_))
         self.db.execute('UPDATE blocks SET refcount = refcount + 1 WHERE id = ?', 
                         (block_id,))
         self.assert_fsck(self.fsck.check_inodes_size)
@@ -389,7 +389,7 @@ class fsck_tests(TestCase):
         inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
                               "VALUES (?,?,?,?,?,?,?,?)",
                               (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR, os.getuid(), os.getgid(),
-                               time.time(), time.time(), time.time(), 1, self.blocksize))
+                               time.time(), time.time(), time.time(), 1, self.max_obj_size))
         self._link('test-entry', inode)
         
         self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
