@@ -618,6 +618,18 @@ class fs_api_tests(TestCase):
 
         self.fsck()
 
+    def test_create_open(self):
+        name = self.newname()
+        # Create a new file
+        (fh, inode) = self.server.create(ROOT_INODE, name, self.file_mode(), Ctx())
+        self.server.release(fh)
+        
+        # Open it atomically
+        (fh, inode) = self.server.create(ROOT_INODE, name, self.file_mode(), Ctx())
+        self.server.release(fh)
+        
+        self.fsck()
+        
     def test_edit(self):
         len_ = self.max_obj_size
         data = self.random_data(len_)

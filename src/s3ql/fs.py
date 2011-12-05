@@ -873,7 +873,15 @@ class Operations(llfuse.Operations):
 
     def create(self, id_p, name, mode, ctx):
         log.debug('create(id_p=%d, %s): started', id_p, name)
-        inode = self._create(id_p, name, mode, ctx)
+        try:
+            id_ = self.db.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
+                                  (name, id_p))
+        except NoSuchRowError:
+            inode = self._create(id_p, name, mode, ctx)
+        else:
+            self.open(id_, os.O_RDWR)
+            inode = self.inodes[id_]
+        
         self.open_inodes[inode.id] += 1
         return (inode.id, inode)
 
