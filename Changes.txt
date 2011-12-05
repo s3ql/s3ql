@@ -34,6 +34,8 @@ UNRELEASED, S3QL tip
     effectively blocking any other request while an s3qlrm, s3qllock
     or s3qlcp instance is running.
    
+  * Fixed some crashes happening under heavily concurrent file system 
+    usage.
   
 2011-11-27, S3QL 1.7
 

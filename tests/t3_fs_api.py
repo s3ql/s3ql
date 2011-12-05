@@ -76,7 +76,7 @@ class fs_api_tests(TestCase):
         self.name_cnt = 0
 
     def tearDown(self):
-        self.server.destroy()
+        self.server.inodes.flush()
         self.block_cache.destroy()     
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.bucket_dir)
@@ -89,7 +89,7 @@ class fs_api_tests(TestCase):
 
     def fsck(self):
         self.block_cache.clear()
-        self.server.inodes.flush()
+        self.server.inodes.flush() 
         fsck = Fsck(self.cachedir + '/cache', self.bucket,
                   { 'max_obj_size': self.max_obj_size }, self.db)
         fsck.check()
@@ -128,6 +128,7 @@ class fs_api_tests(TestCase):
         self.assertGreater(inode_p_new.mtime, inode_p_old.mtime)
         self.assertGreater(inode_p_new.ctime, inode_p_old.ctime)
 
+        self.server.forget([(id_, 1)])
         self.fsck()
 
     def test_extstat(self):
@@ -136,7 +137,7 @@ class fs_api_tests(TestCase):
 
         # Test with empty file
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
-                                         self.file_mode(), Ctx())
+                                         self.file_mode(), os.O_RDWR, Ctx())
         self.server.release(fh)
         self.server.extstat()
 
@@ -146,7 +147,7 @@ class fs_api_tests(TestCase):
         self.server.release(fh)
 
         self.server.extstat()
-
+        self.server.forget([(inode.id, 1)])
         self.fsck()
 
     @staticmethod
@@ -159,14 +160,15 @@ class fs_api_tests(TestCase):
 
     def test_getxattr(self):
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
-                                         self.file_mode(), Ctx())
+                                         self.file_mode(), os.O_RDWR, Ctx())
         self.server.release(fh)
 
         self.assertRaises(FUSEError, self.server.getxattr, inode.id, 'nonexistant-attr')
 
         self.server.setxattr(inode.id, 'my-attr', 'strabumm!')
         self.assertEqual(self.server.getxattr(inode.id, 'my-attr'), 'strabumm!')
-
+        
+        self.server.forget([(inode.id, 1)])
         self.fsck()
 
     def test_link(self):
@@ -177,7 +179,7 @@ class fs_api_tests(TestCase):
         inode_p_new_before = self.server.getattr(inode_p_new.id).copy()
 
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
-                                         self.file_mode(), Ctx())
+                                         self.file_mode(), os.O_RDWR, Ctx())
         self.server.release(fh)
         time.sleep(CLOCK_GRANULARITY)
 
@@ -195,12 +197,12 @@ class fs_api_tests(TestCase):
         self.assertGreater(inode_after.ctime, inode_before.ctime)
         self.assertLess(inode_p_new_before.mtime, inode_p_new_after.mtime)
         self.assertLess(inode_p_new_before.ctime, inode_p_new_after.ctime)
-
+        self.server.forget([(inode.id, 1), (inode_p_new.id, 1), (inode_after.id, 1)])
         self.fsck()
 
     def test_listxattr(self):
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
-                                         self.file_mode(), Ctx())
+                                         self.file_mode(), os.O_RDWR, Ctx())
         self.server.release(fh)
 
         self.assertListEqual([], self.server.listxattr(inode.id))
@@ -211,7 +213,7 @@ class fs_api_tests(TestCase):
         self.server.setxattr(inode.id, 'key2', 'blub')
         self.assertListEqual(sorted(['key1', 'key2']),
                              sorted(self.server.listxattr(inode.id)))
-
+        self.server.forget([(inode.id, 1)])
         self.fsck()
 
     def test_read(self):
@@ -220,7 +222,7 @@ class fs_api_tests(TestCase):
         data = self.random_data(len_)
         off = self.max_obj_size // 2
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
-                                     self.file_mode(), Ctx())
+                                     self.file_mode(), os.O_RDWR, Ctx())
 
         self.server.write(fh, off, data)
         inode_before = self.server.getattr(inode.id).copy()
@@ -231,7 +233,7 @@ class fs_api_tests(TestCase):
         self.assertTrue(self.server.read(fh, 0, len_) == b"\0" * off + data[:off])
         self.assertTrue(self.server.read(fh, self.max_obj_size, len_) == data[off:])
         self.server.release(fh)
-
+        self.server.forget([(inode.id, 1)])
         self.fsck()
 
     def test_readdir(self):
@@ -239,9 +241,10 @@ class fs_api_tests(TestCase):
         # Create a few entries
         names = [ 'entry_%2d' % i for i in range(20) ]
         for name in names:
-            (fh, _) = self.server.create(ROOT_INODE, name,
-                                         self.file_mode(), Ctx())
+            (fh, inode) = self.server.create(ROOT_INODE, name,
+                                         self.file_mode(), os.O_RDWR, Ctx())
             self.server.release(fh)
+            self.server.forget([(inode.id, 1)])
             
         # Delete some to make sure that we don't have continous rowids
         remove_no = [0, 2, 3, 5, 9]
@@ -275,33 +278,34 @@ class fs_api_tests(TestCase):
 
         self.fsck()
 
-    def test_release(self):
+    def test_forget(self):
         name = self.newname()
 
         # Test that entries are deleted when they're no longer referenced
         (fh, inode) = self.server.create(ROOT_INODE, name,
-                                         self.file_mode(), Ctx())
+                                         self.file_mode(), os.O_RDWR, Ctx())
         self.server.write(fh, 0, 'foobar')
         self.server.unlink(ROOT_INODE, name)
         self.assertFalse(self.db.has_val('SELECT 1 FROM contents JOIN names ON names.id = name_id '
                                          'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE)))
         self.assertTrue(self.server.getattr(inode.id).id)
         self.server.release(fh)
-
+        self.server.forget([(inode.id, 1)])
+        
         self.assertFalse(self.db.has_val('SELECT 1 FROM inodes WHERE id=?', (inode.id,)))
 
         self.fsck()
 
     def test_removexattr(self):
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
-                                         self.file_mode(), Ctx())
+                                         self.file_mode(), os.O_RDWR, Ctx())
         self.server.release(fh)
 
         self.assertRaises(FUSEError, self.server.removexattr, inode.id, 'some name')
         self.server.setxattr(inode.id, 'key1', 'blub')
         self.server.removexattr(inode.id, 'key1')
         self.assertListEqual([], self.server.listxattr(inode.id))
-
+        self.server.forget([(inode.id, 1)])
         self.fsck()
 
     def test_rename(self):
@@ -331,14 +335,15 @@ class fs_api_tests(TestCase):
         self.assertLess(inode_p_old_before.mtime, inode_p_old_after.mtime)
         self.assertLess(inode_p_old_before.ctime, inode_p_old_after.ctime)
 
-
+        self.server.forget([(inode.id, 1), (inode_p_new.id, 1)])
         self.fsck()
 
     def test_replace_file(self):
         oldname = self.newname()
         newname = self.newname()
 
-        (fh, inode) = self.server.create(ROOT_INODE, oldname, self.file_mode(), Ctx())
+        (fh, inode) = self.server.create(ROOT_INODE, oldname, self.file_mode(), 
+                                         os.O_RDWR, Ctx())
         self.server.write(fh, 0, 'some data to deal with')
         self.server.release(fh)
         self.server.setxattr(inode.id, 'test_xattr', '42*8')
@@ -347,11 +352,13 @@ class fs_api_tests(TestCase):
         inode_p_new_before = self.server.getattr(inode_p_new.id).copy()
         inode_p_old_before = self.server.getattr(ROOT_INODE).copy()
 
-        (fh, inode2) = self.server.create(inode_p_new.id, newname, self.file_mode(), Ctx())
+        (fh, inode2) = self.server.create(inode_p_new.id, newname, self.file_mode(), 
+                                          os.O_RDWR, Ctx())
         self.server.write(fh, 0, 'even more data to deal with')
         self.server.release(fh)
         self.server.setxattr(inode2.id, 'test_xattr', '42*8')
-
+        self.server.forget([(inode2.id, 1)])
+        
         time.sleep(CLOCK_GRANULARITY)
         self.server.rename(ROOT_INODE, oldname, inode_p_new.id, newname)
 
@@ -370,7 +377,7 @@ class fs_api_tests(TestCase):
         self.assertLess(inode_p_old_before.ctime, inode_p_old_after.ctime)
 
         self.assertFalse(self.db.has_val('SELECT id FROM inodes WHERE id=?', (inode2.id,)))
-
+        self.server.forget([(inode.id, 1), (inode_p_new.id, 1)])
         self.fsck()
 
     def test_replace_dir(self):
@@ -384,7 +391,8 @@ class fs_api_tests(TestCase):
         inode_p_old_before = self.server.getattr(ROOT_INODE).copy()
 
         inode2 = self.server.mkdir(inode_p_new.id, newname, self.dir_mode(), Ctx())
-
+        self.server.forget([(inode2.id, 1)])
+        
         time.sleep(CLOCK_GRANULARITY)
         self.server.rename(ROOT_INODE, oldname, inode_p_new.id, newname)
 
@@ -402,12 +410,13 @@ class fs_api_tests(TestCase):
         self.assertLess(inode_p_old_before.mtime, inode_p_old_after.mtime)
         self.assertLess(inode_p_old_before.ctime, inode_p_old_after.ctime)
 
+        self.server.forget([(inode.id, 1), (inode_p_new.id, 1)])
         self.assertFalse(self.db.has_val('SELECT id FROM inodes WHERE id=?', (inode2.id,)))
-
         self.fsck()
 
     def test_setattr(self):
-        (fh, inode) = self.server.create(ROOT_INODE, self.newname(), 0641, Ctx())
+        (fh, inode) = self.server.create(ROOT_INODE, self.newname(), 0641, 
+                                         os.O_RDWR, Ctx())
         self.server.release(fh)
         inode_old = self.server.getattr(inode.id).copy()
 
@@ -415,7 +424,6 @@ class fs_api_tests(TestCase):
         attr.st_mode = self.file_mode()
         attr.st_uid = randint(0, 2 ** 32)
         attr.st_gid = randint(0, 2 ** 32)
-        attr.st_rdev = randint(0, 2 ** 32)
         attr.st_atime = time.timezone + randint(0, 2 ** 32) / 10 ** 6
         attr.st_mtime = time.timezone + randint(0, 2 ** 32) / 10 ** 6
 
@@ -429,13 +437,16 @@ class fs_api_tests(TestCase):
                 self.assertEquals(getattr(attr, key), 
                                   getattr(inode_new, key))
 
-
+        self.server.forget([(inode.id, 1)])
+        self.fsck()
+        
     def test_truncate(self):
         len_ = int(2.7 * self.max_obj_size)
         data = self.random_data(len_)
         attr = llfuse.EntryAttributes()
 
-        (fh, inode) = self.server.create(ROOT_INODE, self.newname(), self.file_mode(), Ctx())
+        (fh, inode) = self.server.create(ROOT_INODE, self.newname(), self.file_mode(), 
+                                         os.O_RDWR, Ctx())
         self.server.write(fh, 0, data)
         
         attr.st_size = len_ // 2
@@ -446,7 +457,7 @@ class fs_api_tests(TestCase):
         self.assertTrue(self.server.read(fh, 0, len_)
                         == data[:len_ // 2] + b'\0' * (len_ // 2))
         self.server.release(fh)
-
+        self.server.forget([(inode.id, 1)])
         self.fsck()
 
     def test_truncate_0(self):
@@ -455,7 +466,7 @@ class fs_api_tests(TestCase):
         attr = llfuse.EntryAttributes()
         
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
-                                         self.file_mode(), Ctx())
+                                         self.file_mode(), os.O_RDWR, Ctx())
         self.server.write(fh, 0, self.random_data(len1))
         self.server.release(fh)
         self.server.inodes.flush()
@@ -465,27 +476,30 @@ class fs_api_tests(TestCase):
         self.server.setattr(inode.id, attr)
         self.server.write(fh, 0, self.random_data(len2))
         self.server.release(fh)
-
+        self.server.forget([(inode.id, 1)])
         self.fsck()
         
     def test_setxattr(self):
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
-                                         self.file_mode(), Ctx())
+                                         self.file_mode(), os.O_RDWR, Ctx())
         self.server.release(fh)
 
         self.server.setxattr(inode.id, 'my-attr', 'strabumm!')
         self.assertEqual(self.server.getxattr(inode.id, 'my-attr'), 'strabumm!')
-
+        self.server.forget([(inode.id, 1)])
         self.fsck()
         
     def test_names(self):
         name1 = self.newname()
         name2 = self.newname()
 
-        (fh, _) = self.server.create(ROOT_INODE, name1, self.file_mode(), Ctx())
+        (fh, inode) = self.server.create(ROOT_INODE, name1, self.file_mode(), 
+                                     os.O_RDWR, Ctx())
         self.server.release(fh)
+        self.server.forget([(inode.id, 1)])
                 
-        (fh, inode) = self.server.create(ROOT_INODE, name2, self.file_mode(), Ctx())
+        (fh, inode) = self.server.create(ROOT_INODE, name2, self.file_mode(), 
+                                         os.O_RDWR, Ctx())
         self.server.release(fh)
 
         self.server.setxattr(inode.id, name1, 'strabumm!')     
@@ -496,6 +510,7 @@ class fs_api_tests(TestCase):
         
         self.server.setxattr(inode.id, name1, 'strabumm karacho!!')     
         self.server.unlink(ROOT_INODE, name1)
+        self.server.forget([(inode.id, 1)])
         self.fsck()
                 
         
@@ -505,15 +520,15 @@ class fs_api_tests(TestCase):
 
         # Test with empty file
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
-                                         self.file_mode(), Ctx())
+                                         self.file_mode(), os.O_RDWR, Ctx())
         self.server.release(fh)
         self.server.statfs()
 
         # Test with data in file
-        fh = self.server.open(inode.id, None)
+        fh = self.server.open(inode.id, os.O_RDWR)
         self.server.write(fh, 0, 'foobar')
         self.server.release(fh)
-
+        self.server.forget([(inode.id, 1)])
         self.server.statfs()
 
     def test_symlink(self):
@@ -534,17 +549,20 @@ class fs_api_tests(TestCase):
         self.assertLess(inode_p_before.mtime, inode_p_after.mtime)
         self.assertLess(inode_p_before.ctime, inode_p_after.ctime)
 
+        self.server.forget([(inode.id, 1)])
+        self.fsck()
 
     def test_unlink(self):
         name = self.newname()
 
-        (fh, inode) = self.server.create(ROOT_INODE, name, self.file_mode(), Ctx())
+        (fh, inode) = self.server.create(ROOT_INODE, name, self.file_mode(), os.O_RDWR, Ctx())
         self.server.write(fh, 0, 'some data to deal with')
         self.server.release(fh)
-
+        
         # Add extended attributes
         self.server.setxattr(inode.id, 'test_xattr', '42*8')
-
+        self.server.forget([(inode.id, 1)])
+        
         inode_p_before = self.server.getattr(ROOT_INODE).copy()
         time.sleep(CLOCK_GRANULARITY)
         self.server.unlink(ROOT_INODE, name)
@@ -562,6 +580,7 @@ class fs_api_tests(TestCase):
     def test_rmdir(self):
         name = self.newname()
         inode = self.server.mkdir(ROOT_INODE, name, self.dir_mode(), Ctx())
+        self.server.forget([(inode.id, 1)])
         inode_p_before = self.server.getattr(ROOT_INODE).copy()
         time.sleep(CLOCK_GRANULARITY)
         self.server.rmdir(ROOT_INODE, name)
@@ -580,19 +599,22 @@ class fs_api_tests(TestCase):
         name2 = self.newname()
         data = 'some data to deal with'
 
-        (fh, inode) = self.server.create(ROOT_INODE, name, self.file_mode(), Ctx())
+        (fh, inode) = self.server.create(ROOT_INODE, name, self.file_mode(), os.O_RDWR, Ctx())
         self.server.write(fh, 0, data)
+        self.server.release(fh)
         self.server.unlink(ROOT_INODE, name)
+        self.server.inodes.flush()
         self.assertFalse(self.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
                                          'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE)))
         self.assertTrue(self.db.has_val('SELECT id FROM inodes WHERE id=?', (inode.id,)))
-
         self.server.link(inode.id, ROOT_INODE, name2)
-        self.server.release(fh)
+        self.server.forget([(inode.id, 2)])
 
+        inode = self.server.lookup(ROOT_INODE, name2)
         fh = self.server.open(inode.id, os.O_RDONLY)
         self.assertTrue(self.server.read(fh, 0, len(data)) == data)
         self.server.release(fh)
+        self.server.forget([(inode.id, 1)])
         self.fsck()
 
     def test_write(self):
@@ -600,7 +622,7 @@ class fs_api_tests(TestCase):
         data = self.random_data(len_)
         off = self.max_obj_size // 2
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
-                                     self.file_mode(), Ctx())
+                                     self.file_mode(), os.O_RDWR, Ctx())
         inode_before = self.server.getattr(inode.id).copy()
         time.sleep(CLOCK_GRANULARITY)
         self.server.write(fh, off, data)
@@ -615,18 +637,22 @@ class fs_api_tests(TestCase):
         self.assertEqual(inode_after.size, off + len_)
 
         self.server.release(fh)
-
+        self.server.forget([(inode.id, 1)])
         self.fsck()
 
     def test_create_open(self):
         name = self.newname()
         # Create a new file
-        (fh, inode) = self.server.create(ROOT_INODE, name, self.file_mode(), Ctx())
+        (fh, inode) = self.server.create(ROOT_INODE, name, self.file_mode(),
+                                         os.O_RDWR, Ctx())
         self.server.release(fh)
+        self.server.forget([(inode, 1)])
         
         # Open it atomically
-        (fh, inode) = self.server.create(ROOT_INODE, name, self.file_mode(), Ctx())
+        (fh, inode) = self.server.create(ROOT_INODE, name, self.file_mode(),
+                                         os.O_RDWR, Ctx())
         self.server.release(fh)
+        self.server.forget([(inode, 1)])
         
         self.fsck()
         
@@ -634,7 +660,7 @@ class fs_api_tests(TestCase):
         len_ = self.max_obj_size
         data = self.random_data(len_)
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
-                                     self.file_mode(), Ctx())
+                                         self.file_mode(), os.O_RDWR, Ctx())
         self.server.write(fh, 0, data)
         self.server.release(fh)
         
@@ -646,7 +672,7 @@ class fs_api_tests(TestCase):
         self.server.setattr(inode.id, attr)
         self.server.write(fh, 0, data[50:])
         self.server.release(fh)
-        
+        self.server.forget([(inode.id, 1)])
         self.fsck()
         
     def test_copy_tree(self):
@@ -658,14 +684,14 @@ class fs_api_tests(TestCase):
 
         # Create file
         (fh, f1_inode) = self.server.create(src_inode.id, 'file1',
-                                            self.file_mode(), Ctx())
+                                            self.file_mode(), os.O_RDWR, Ctx())
         self.server.write(fh, 0, 'file1 contents')
         self.server.release(fh)
         self.server.setxattr(f1_inode.id, ext_attr_name, ext_attr_val)
 
         # Create hardlink
         (fh, f2_inode) = self.server.create(src_inode.id, 'file2',
-                                            self.file_mode(), Ctx())
+                                            self.file_mode(), os.O_RDWR, Ctx())
         self.server.write(fh, 0, 'file2 contents')
         self.server.release(fh)
         f2_inode = self.server.link(f2_inode.id, src_inode.id, 'file2_hardlink')
@@ -717,7 +743,7 @@ class fs_api_tests(TestCase):
         # Check subdir1
         self.assertNotEqual(d1_inode.id, d1_inode_c.id)
         self.assertNotEqual(d2_inode.id, d2_inode_c.id)     
-        
+        self.server.forget(self.server.open_inodes.items())
         self.fsck()
 
     def test_copy_tree_2(self):   
@@ -725,14 +751,16 @@ class fs_api_tests(TestCase):
         dst_inode = self.server.mkdir(ROOT_INODE, 'dest', self.dir_mode(), Ctx())
 
         # Create file
-        (fh, _) = self.server.create(src_inode.id, 'file1',
-                                     self.file_mode(), Ctx())
+        (fh, inode) = self.server.create(src_inode.id, 'file1',
+                                     self.file_mode(), os.O_RDWR, Ctx())
         self.server.write(fh, 0, 'block 1 contents')
         self.server.write(fh, self.max_obj_size, 'block 1 contents')
         self.server.release(fh)
-
+        self.server.forget([(inode.id, 1)])
+        
         self.server.copy_tree(src_inode.id, dst_inode.id)
         
+        self.server.forget([(src_inode.id, 1), (dst_inode.id, 1)])
         self.fsck()
         
     def test_lock_tree(self):
@@ -741,20 +769,20 @@ class fs_api_tests(TestCase):
 
         # Create file
         (fh, inode1a) = self.server.create(inode1.id, 'file1',
-                                            self.file_mode(), Ctx())
+                                            self.file_mode(), os.O_RDWR, Ctx())
         self.server.write(fh, 0, 'file1 contents')
         self.server.release(fh)
 
         # Create subdirectory
         inode2 = self.server.mkdir(inode1.id, 'dir1', self.dir_mode(), Ctx())
         (fh, inode2a) = self.server.create(inode2.id, 'file2',
-                                           self.file_mode(), Ctx())
+                                           self.file_mode(), os.O_RDWR, Ctx())
         self.server.write(fh, 0, 'file2 contents')
         self.server.release(fh)   
 
         # Another file
         (fh, inode3) = self.server.create(ROOT_INODE, 'file1',
-                                          self.file_mode(), Ctx())
+                                          self.file_mode(), os.O_RDWR, Ctx())
         self.server.release(fh)  
         
         # Lock
@@ -794,7 +822,7 @@ class fs_api_tests(TestCase):
         
         # Create
         with self.assertRaises(FUSEError) as cm:
-            self.server._create(inode2.id, 'dir1', self.dir_mode(), Ctx())
+            self.server._create(inode2.id, 'dir1', self.dir_mode(), os.O_RDWR, Ctx())
         self.assertEqual(cm.exception.errno, errno.EPERM)
                  
         # Setattr
@@ -809,7 +837,7 @@ class fs_api_tests(TestCase):
         with self.assertRaises(FUSEError) as cm:
             self.server.removexattr(inode2.id, 'name')
         self.assertEqual(cm.exception.errno, errno.EPERM)        
-
+        self.server.forget(self.server.open_inodes.items())
         self.fsck()
         
     def test_remove_tree(self):
@@ -818,18 +846,19 @@ class fs_api_tests(TestCase):
 
         # Create file
         (fh, inode1a) = self.server.create(inode1.id, 'file1',
-                                            self.file_mode(), Ctx())
+                                            self.file_mode(), os.O_RDWR, Ctx())
         self.server.write(fh, 0, 'file1 contents')
         self.server.release(fh)
-
+        
         # Create subdirectory
         inode2 = self.server.mkdir(inode1.id, 'dir1', self.dir_mode(), Ctx())
         (fh, inode2a) = self.server.create(inode2.id, 'file2',
-                                           self.file_mode(), Ctx())
+                                           self.file_mode(), os.O_RDWR, Ctx())
         self.server.write(fh, 0, 'file2 contents')
         self.server.release(fh)   
-
+        
         # Remove
+        self.server.forget(self.server.open_inodes.items())
         self.server.remove_tree(ROOT_INODE, 'source')
 
         for (id_p, name) in ((ROOT_INODE, 'source'),

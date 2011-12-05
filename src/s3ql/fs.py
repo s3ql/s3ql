@@ -81,10 +81,12 @@ class Operations(llfuse.Operations):
         self.cache = block_cache
 
     def destroy(self):
+        self.forget(self.open_inodes.items())
         self.inodes.destroy()
 
     def lookup(self, id_p, name):
         log.debug('lookup(%d, %r): start', id_p, name)
+        
         if name == CTRL_NAME:
             inode = self.inodes[CTRL_INODE]
             
@@ -92,23 +94,25 @@ class Operations(llfuse.Operations):
             # who mounted the file system (but don't mark inode as dirty)
             object.__setattr__(inode, 'uid', os.getuid())
             object.__setattr__(inode, 'gid', os.getgid())
-            
-            return inode
-            
-        if name == '.':
-            return self.inodes[id_p]
+        
+        elif name == '.':
+            inode = self.inodes[id_p]
 
-        if name == '..':
+        elif name == '..':
             id_ = self.db.get_val("SELECT parent_inode FROM contents WHERE inode=?",
                                   (id_p,))
-            return self.inodes[id_]
-
-        try:
-            id_ = self.db.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
-                                  (name, id_p))
-        except NoSuchRowError:
-            raise(llfuse.FUSEError(errno.ENOENT))
-        return self.inodes[id_]
+            inode = self.inodes[id_]
+            
+        else:
+            try:
+                id_ = self.db.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
+                                      (name, id_p))
+            except NoSuchRowError:
+                raise(llfuse.FUSEError(errno.ENOENT))
+            inode = self.inodes[id_]
+            
+        self.open_inodes[inode.id] += 1
+        return inode
 
     def getattr(self, id_):
         log.debug('getattr(%d): start', id_)
@@ -120,12 +124,7 @@ class Operations(llfuse.Operations):
             object.__setattr__(inode, 'gid', os.getgid())
             return inode
             
-        try:
-            return self.inodes[id_]
-        except KeyError:
-            # It is possible to get getattr() for an inode that
-            # has just been unlinked()
-            raise FUSEError(errno.ENOENT)
+        return self.inodes[id_]
 
     def readlink(self, id_):
         log.debug('readlink(%d): start', id_)
@@ -136,12 +135,8 @@ class Operations(llfuse.Operations):
         try:
             return self.db.get_val("SELECT target FROM symlink_targets WHERE inode=?", (id_,))
         except NoSuchRowError:
-            # Inode may have been deleted
-            if id_ in self.inodes:
-                log.warn('Inode does not have symlink target: %d', id_)
-                raise FUSEError(errno.EINVAL)
-            else:
-                raise FUSEError(errno.ENOENT)
+            log.warn('Inode does not have symlink target: %d', id_)
+            raise FUSEError(errno.EINVAL)
 
     def opendir(self, id_):
         log.debug('opendir(%d): start', id_)
@@ -155,14 +150,12 @@ class Operations(llfuse.Operations):
         args.append('no_remote_lock')
 
     def readdir(self, id_, off):
+        # FIXME: Do the returned entries acquire a lookup count?
         log.debug('readdir(%d, %d): start', id_, off)
         if off == 0:
             off = -1
             
-        try:
-            inode = self.inodes[id_]
-        except KeyError:
-            raise FUSEError(errno.ENOENT)
+        inode = self.inodes[id_]
         if inode.atime < inode.ctime or inode.atime < inode.mtime:
             inode.atime = time.time() 
 
@@ -225,12 +218,9 @@ class Operations(llfuse.Operations):
             else:
                 raise llfuse.FUSEError(errno.EINVAL)
         else:
-            try:
-                if self.inodes[id_].locked:
-                    raise FUSEError(errno.EPERM)
-            except KeyError:
-                raise FUSEError(errno.ENOENT)                
-                    
+            if self.inodes[id_].locked:
+                raise FUSEError(errno.EPERM)
+                      
             if len(value) > deltadump.MAX_BLOB_SIZE:
                 raise FUSEError(errno.EINVAL)
             
@@ -241,12 +231,9 @@ class Operations(llfuse.Operations):
     def removexattr(self, id_, name):
         log.debug('removexattr(%d, %r): start', id_, name)
         
-        try:
-            if self.inodes[id_].locked:
-                raise FUSEError(errno.EPERM)
-        except KeyError:
-            raise FUSEError(errno.ENOENT)            
-            
+        if self.inodes[id_].locked:
+            raise FUSEError(errno.EPERM)
+               
         try:
             name_id =  self._del_name(name)
         except NoSuchRowError:
@@ -320,7 +307,8 @@ class Operations(llfuse.Operations):
                     
                 else:
                     name = self.db.get_val("SELECT name FROM names WHERE id=?", (name_id,))
-                    llfuse.invalidate_entry(id_p, name)
+                    if id_p in self.open_inodes:
+                        llfuse.invalidate_entry(id_p, name)
                     self._remove(id_p, name, id_, force=True)
                 
                 processed += 1   
@@ -331,7 +319,8 @@ class Operations(llfuse.Operations):
                     break
                 
             if not queue:
-                llfuse.invalidate_entry(id_p0, name0)
+                if id_p0 in self.open_inodes:
+                    llfuse.invalidate_entry(id_p0, name0)
                 self._remove(id_p0, name0, id0, force=True)
                 break              
           
@@ -345,6 +334,7 @@ class Operations(llfuse.Operations):
                 log.debug('remove_tree(%d, %s): re-acquired lock', id_p0, name0)
                 stamp = time.time()    
         
+        self.forget([(id0, 1)])
         log.debug('remove_tree(%d, %s): end', id_p0, name0)
         
     
@@ -362,6 +352,8 @@ class Operations(llfuse.Operations):
         log.debug('copy_tree(%d, %d): committed cache', src_id, target_id)
 
         # Copy target attributes
+        # These come from setxattr, so they may have been deleted
+        # without being in open_inodes
         try:
             src_inode = self.inodes[src_id]
             target_inode = self.inodes[target_id]
@@ -470,7 +462,9 @@ class Operations(llfuse.Operations):
             raise llfuse.FUSEError(errno.EISDIR)
 
         self._remove(id_p, name, inode.id)
-
+        
+        self.forget([(inode.id, 1)])
+        
     def rmdir(self, id_p, name):
         log.debug('rmdir(%d, %r): start', id_p, name)
         inode = self.lookup(id_p, name)
@@ -483,6 +477,7 @@ class Operations(llfuse.Operations):
 
         self._remove(id_p, name, inode.id)
 
+        self.forget([(inode.id, 1)])
 
     def _remove(self, id_p, name, id_, force=False):
         '''Remove entry `name` with parent inode `id_p` 
@@ -550,7 +545,7 @@ class Operations(llfuse.Operations):
         inode = self._create(id_p, name, mode, ctx, size=len(target))
         self.db.execute('INSERT INTO symlink_targets (inode, target) VALUES(?,?)',
                         (inode.id, target))
-        
+        self.open_inodes[inode.id] += 1
         return inode
 
     def rename(self, id_p_old, name_old, id_p_new, name_new):
@@ -577,14 +572,14 @@ class Operations(llfuse.Operations):
         else:
             target_exists = True
 
-
         if target_exists:
             self._replace(id_p_old, name_old, id_p_new, name_new,
                           inode_old.id, inode_new.id)
+            self.forget([(inode_old.id, 1), (inode_new.id, 1)])
         else:
             self._rename(id_p_old, name_old, id_p_new, name_new)
-
-
+            self.forget([(inode_old.id, 1)])
+        
     def _add_name(self, name):
         '''Get id for *name* and increase refcount
         
@@ -648,7 +643,6 @@ class Operations(llfuse.Operations):
         self.db.execute("UPDATE contents SET inode=? WHERE name_id=? AND parent_inode=?",
                         (id_old, name_id_new, id_p_new))
         
-
         # Delete old name
         name_id_old = self._del_name(name_old)          
         self.db.execute('DELETE FROM contents WHERE name_id=? AND parent_inode=?',
@@ -707,7 +701,8 @@ class Operations(llfuse.Operations):
         inode = self.inodes[id_]
         inode.refcount += 1
         inode.ctime = timestamp
-
+        
+        self.open_inodes[inode.id] += 1
         return inode
 
     def setattr(self, id_, attr):
@@ -717,10 +712,7 @@ class Operations(llfuse.Operations):
                       [ getattr(attr, x) for x in attr.__slots__ 
                        if getattr(attr, x) is not None ])
         
-        try:
-            inode = self.inodes[id_]
-        except KeyError:
-            raise FUSEError(errno.ENOENT)            
+        inode = self.inodes[id_]       
         timestamp = time.time()
 
         if inode.locked:
@@ -742,21 +734,18 @@ class Operations(llfuse.Operations):
                 self.cache.remove(id_, last_block, total_blocks)
             else:
                 self.cache.remove(id_, last_block + 1, total_blocks)
-                
                 try:
                     with self.cache.get(id_, last_block) as fh:
                         fh.truncate(cutoff)
-                        
                 except NoSuchObject as exc:
                     log.warn('Backend lost block %d of inode %d (id %s)!', 
                              last_block, id_, exc.key)
-                    raise FUSEError(errno.EIO)
-                
+                    raise 
+                                    
                 except ChecksumError as exc:
                     log.warn('Backend returned malformed data for block %d of inode %d (%s)',
                              last_block, id_, exc)
-                    raise FUSEError(errno.EIO)
-            
+                    raise                          
 
         if attr.st_mode is not None:
             inode.mode = attr.st_mode
@@ -785,11 +774,15 @@ class Operations(llfuse.Operations):
 
     def mknod(self, id_p, name, mode, rdev, ctx):
         log.debug('mknod(%d, %r): start', id_p, name)
-        return self._create(id_p, name, mode, ctx, rdev=rdev)
+        inode = self._create(id_p, name, mode, ctx, rdev=rdev)
+        self.open_inodes[inode.id] += 1
+        return inode
 
     def mkdir(self, id_p, name, mode, ctx):
         log.debug('mkdir(%d, %r): start', id_p, name)
-        return self._create(id_p, name, mode, ctx)
+        inode = self._create(id_p, name, mode, ctx)
+        self.open_inodes[inode.id] += 1
+        return inode
 
     def extstat(self):
         '''Return extended file system statistics'''
@@ -848,14 +841,10 @@ class Operations(llfuse.Operations):
 
     def open(self, id_, flags):
         log.debug('open(%d): start', id_)
-        try:
-            inode = self.inodes[id_]
-        except KeyError:
-            raise FUSEError(errno.ENOENT)            
-        if (inode.locked and (flags & os.O_RDWR or flags & os.O_WRONLY)):
+        if ((flags & os.O_RDWR or flags & os.O_WRONLY)
+            and self.inodes[id_].locked):
             raise FUSEError(errno.EPERM)
         
-        self.open_inodes[id_] += 1
         return id_
 
     def access(self, id_, mode, ctx):
@@ -871,7 +860,7 @@ class Operations(llfuse.Operations):
         log.debug('access(%d): executed', id_)
         return True
 
-    def create(self, id_p, name, mode, ctx):
+    def create(self, id_p, name, mode, flags, ctx):
         log.debug('create(id_p=%d, %s): started', id_p, name)
         try:
             id_ = self.db.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
@@ -879,7 +868,7 @@ class Operations(llfuse.Operations):
         except NoSuchRowError:
             inode = self._create(id_p, name, mode, ctx)
         else:
-            self.open(id_, os.O_RDWR)
+            self.open(id_, flags)
             inode = self.inodes[id_]
         
         self.open_inodes[inode.id] += 1
@@ -975,12 +964,12 @@ class Operations(llfuse.Operations):
         except NoSuchObject as exc:
             log.warn('Backend lost block %d of inode %d (id %s)!', 
                      blockno, id_, exc.key)
-            raise FUSEError(errno.EIO)
+            raise
         
         except ChecksumError as exc:
             log.warn('Backend returned malformed data for block %d of inode %d (%s)',
                      blockno, id_, exc)
-            raise FUSEError(errno.EIO)
+            raise 
 
         if len(buf) == length:
             return buf
@@ -1043,12 +1032,12 @@ class Operations(llfuse.Operations):
         except NoSuchObject as exc:
             log.warn('Backend lost block %d of inode %d (id %s)!', 
                      blockno, id_, exc.key)
-            raise FUSEError(errno.EIO)
+            raise 
                             
         except ChecksumError as exc:
             log.warn('Backend returned malformed data for block %d of inode %d (%s)',
                      blockno, id_, exc)
-            raise FUSEError(errno.EIO)
+            raise 
                 
         return len(buf)
 
@@ -1058,37 +1047,47 @@ class Operations(llfuse.Operations):
             self.inodes.flush_id(fh)
 
         self.cache.flush(fh)
+        
+    def forget(self, forget_list):
+        log.debug('forget(%s): start', forget_list)
+        
+        for (id_, nlookup) in forget_list:
+            self.open_inodes[id_] -= nlookup
 
-    def releasedir(self, fh):
-        log.debug('releasedir(%d): start', fh)
-        return
-
-    def release(self, fh):
-        log.debug('release(%d): start', fh)
-        self.open_inodes[fh] -= 1
-
-        if self.open_inodes[fh] == 0:
-            del self.open_inodes[fh]
-
-            inode = self.inodes[fh]
-            if inode.refcount == 0:
-                self.cache.remove(inode.id, 0, 
-                                  int(math.ceil(inode.size / self.max_obj_size)))
-                # Since the inode is not open, it's not possible that new blocks
-                # get created at this point and we can safely delete the in
-                del self.inodes[fh]
-
-
-    # Called for close() calls. 
-    def flush(self, fh):
-        log.debug('flush(%d): start', fh)
-        pass
+            if self.open_inodes[id_] == 0:
+                del self.open_inodes[id_]
+    
+                inode = self.inodes[id_]
+                if inode.refcount == 0:
+                    log.debug('_forget(%s): removing %d from cache', forget_list, id_)
+                    self.cache.remove(id_, 0, int(math.ceil(inode.size / self.max_obj_size)))
+                    # Since the inode is not open, it's not possible that new blocks
+                    # get created at this point and we can safely delete the inode
+                    self.db.execute('UPDATE names SET refcount = refcount - 1 WHERE '
+                                    'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)', 
+                                    (id_,))
+                    self.db.execute('DELETE FROM names WHERE refcount=0 AND '
+                                    'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)', 
+                                    (id_,))                                       
+                    self.db.execute('DELETE FROM ext_attributes WHERE inode=?', (id_,))
+                    self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_,))
+                    del self.inodes[id_]
+                                
 
     def fsyncdir(self, fh, datasync):
         log.debug('fsyncdir(%d, %s): start', fh, datasync)
         if not datasync:
             self.inodes.flush_id(fh)
 
+    def releasedir(self, fh):
+        log.debug('releasedir(%d): start', fh)
+
+    def release(self, fh):
+        log.debug('release(%d): start', fh)
+        
+    def flush(self, fh):
+        log.debug('flush(%d): start', fh)
+            
 def update_logging(level, modules):           
     root_logger = logging.getLogger()
     if level == logging.DEBUG:
