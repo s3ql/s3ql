@@ -6,7 +6,8 @@ UNRELEASED, S3QL tip
   * Deleting files no longer takes O(number of distinct filenames)
     time (bug introduced in 1.7).
     
-  * Improved s3qlcp performance for very large directories.
+  * Improved s3qlcp and directory listing performance for very large
+    directories.
 
   * The --blocksize option of mkfs.s3ql has often been misunderstood,
     leading people to create file systems with block sizes

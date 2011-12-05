@@ -16,6 +16,8 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'cleanup_manager', 'common',
 
 # On next revision, make sure to explicitly rename
 # param['blocksize'] to param['max_block_size'] 
+
+# Also, remove obsolete rowid column from contents
 VERSION = '1.7'
 CURRENT_FS_REV = 14
 

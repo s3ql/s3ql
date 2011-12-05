@@ -168,8 +168,8 @@ class Operations(llfuse.Operations):
 
         # The ResultSet is automatically deleted
         # when yield raises GeneratorExit.  
-        res = self.db.query("SELECT rowid, name, inode FROM contents_v "
-                            'WHERE parent_inode=? AND contents_v.rowid > ? ORDER BY rowid', (id_, off))
+        res = self.db.query("SELECT name_id, name, inode FROM contents_v "
+                            'WHERE parent_inode=? AND name_id > ? ORDER BY name_id', (id_, off))
         for (next_, name, cid_) in res:
             yield (name, self.inodes[cid_], next_)
 
@@ -382,12 +382,12 @@ class Operations(llfuse.Operations):
         stamp = time.time() # Time of last GIL release
         gil_step = 500 # Approx. number of steps between GIL releases
         while queue:
-            (src_id, target_id, rowid) = queue.pop()
+            (src_id, target_id, off) = queue.pop()
             log.debug('copy_tree(%d, %d): Processing directory (%d, %d, %d)', 
-                      src_inode.id, target_inode.id, src_id, target_id, rowid)
-            for (name_id, id_, rowid) in db.query('SELECT name_id, inode, rowid FROM contents '
-                                                  'WHERE parent_inode=? AND rowid > ? '
-                                                  'ORDER BY rowid', (src_id, rowid)):
+                      src_inode.id, target_inode.id, src_id, target_id, off)
+            for (name_id, id_) in db.query('SELECT name_id, inode FROM contents '
+                                           'WHERE parent_inode=? AND name_id > ? '
+                                           'ORDER BY name_id', (src_id, off)):
 
                 if id_ not in id_cache:
                     inode = self.inodes[id_]
@@ -439,8 +439,8 @@ class Operations(llfuse.Operations):
                 
                 if processed > gil_step:
                     log.debug('copy_tree(%d, %d): Requeueing (%d, %d, %d) to yield lock', 
-                              src_inode.id, target_inode.id, src_id, target_id, rowid)
-                    queue.append((src_id, target_id, rowid))
+                              src_inode.id, target_inode.id, src_id, target_id, name_id)
+                    queue.append((src_id, target_id, name_id))
                     break
             
             if processed > gil_step:
