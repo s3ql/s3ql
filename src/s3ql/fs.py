@@ -254,7 +254,7 @@ class Operations(llfuse.Operations):
         self.inodes[id0].locked = True
         processed = 0 # Number of steps since last GIL release
         stamp = time.time() # Time of last GIL release
-        gil_step = 500 # Approx. number of steps between GIL releases
+        gil_step = 250 # Approx. number of steps between GIL releases
         while True:    
             id_p = queue.pop()
             for (id_,) in self.db.query('SELECT inode FROM contents WHERE parent_inode=?',
@@ -270,11 +270,11 @@ class Operations(llfuse.Operations):
                             
             if processed > gil_step:
                 dt = time.time() - stamp
-                gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 500)
+                gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 250)
                 log.debug('lock_tree(%d): Adjusting gil_step to %d', 
                           id0, gil_step)  
                 processed = 0
-                llfuse.lock.yield_()
+                llfuse.lock.yield_(100)
                 log.debug('lock_tree(%d): re-acquired lock', id0)
                 stamp = time.time()
 
@@ -292,7 +292,7 @@ class Operations(llfuse.Operations):
         queue = [ id0 ]
         processed = 0 # Number of steps since last GIL release
         stamp = time.time() # Time of last GIL release
-        gil_step = 50 # Approx. number of steps between GIL releases
+        gil_step = 250 # Approx. number of steps between GIL releases
         while True:
             found_subdirs = False
             id_p = queue.pop()  
@@ -326,11 +326,11 @@ class Operations(llfuse.Operations):
           
             if processed > gil_step:  
                 dt = time.time() - stamp
-                gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 500)
+                gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 250)
                 log.debug('remove_tree(%d, %s): Adjusting gil_step to %d and yielding', 
                           id_p0, name0, gil_step)  
                 processed = 0
-                llfuse.lock.yield_()
+                llfuse.lock.yield_(100)
                 log.debug('remove_tree(%d, %s): re-acquired lock', id_p0, name0)
                 stamp = time.time()    
         
@@ -372,7 +372,7 @@ class Operations(llfuse.Operations):
         id_cache = dict()
         processed = 0 # Number of steps since last GIL release
         stamp = time.time() # Time of last GIL release
-        gil_step = 500 # Approx. number of steps between GIL releases
+        gil_step = 250 # Approx. number of steps between GIL releases
         while queue:
             (src_id, target_id, off) = queue.pop()
             log.debug('copy_tree(%d, %d): Processing directory (%d, %d, %d)', 
@@ -437,11 +437,11 @@ class Operations(llfuse.Operations):
             
             if processed > gil_step:
                 dt = time.time() - stamp
-                gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 500)
+                gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 250)
                 log.debug('copy_tree(%d, %d): Adjusting gil_step to %d and yielding', 
                           src_inode.id, target_inode.id, gil_step) 
                 processed = 0
-                llfuse.lock.yield_()
+                llfuse.lock.yield_(100)
                 log.debug('copy_tree(%d, %d): re-acquired lock',
                           src_inode.id, target_inode.id)
                 stamp = time.time()
