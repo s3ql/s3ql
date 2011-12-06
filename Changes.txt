@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2011-12-05, S3QL 1.8
 
   * Fixed "ValueError: Can't dump NULL values" crash when file system
     metadata was uploaded during heavy file system activity.
