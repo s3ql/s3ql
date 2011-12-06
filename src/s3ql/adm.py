@@ -333,6 +333,9 @@ def upgrade(bucket, cachepath):
     log.info('Upgrading from revision %d to %d...', param['revision'],
                       CURRENT_FS_REV)
 
+    if 'max_obj_size' not in param:
+        param['max_obj_size'] = param['blocksize']
+        
     db.execute("""
     CREATE TABLE ext_attributes_new (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
