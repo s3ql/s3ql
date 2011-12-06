@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2011-12-06, S3QL 1.8.1
 
   * Fixed direct updates from 1.6 to 1.8.
     
