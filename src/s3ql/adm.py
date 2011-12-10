@@ -20,6 +20,7 @@ from datetime import datetime as Datetime
 from getpass import getpass
 from llfuse import ROOT_INODE
 from s3ql.backends.common import NoSuchBucket
+from s3ql.common import stream_read_bz2
 import cPickle as pickle
 import logging
 import lzma
@@ -139,8 +140,6 @@ def download_metadata(bucket, storage_url):
             name = backups[int(buf.strip())]
         except:
             log.warn('Invalid input')
-        
-    log.info('Downloading %s...', name)
     
     cachepath = get_bucket_cachedir(storage_url, '.')
     for i in ('.db', '.params'):
@@ -149,19 +148,24 @@ def download_metadata(bucket, storage_url):
     
     param = bucket.lookup(name)
     try:
-        log.info('Reading metadata...')
+        log.info('Downloading and decompressing %s...', name)
         def do_read(fh):
-            os.close(os.open(cachepath + '.db', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                             stat.S_IRUSR | stat.S_IWUSR)) 
-            db = Connection(cachepath + '.db', fast_mode=True)
-            try:
-                restore_metadata(fh, db)
-            finally:
-                db.close()
-        bucket.perform_read(do_read, name)
+            tmpfh = tempfile.TemporaryFile()
+            stream_read_bz2(fh, tmpfh)
+            return tmpfh
+        tmpfh = bucket.perform_read(do_read, name) 
+        os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                         stat.S_IRUSR | stat.S_IWUSR)) 
+        db = Connection(cachepath + '.db.tmp', fast_mode=True)
+        log.info("Reading metadata...")
+        tmpfh.seek(0)
+        restore_metadata(tmpfh, db)
+        db.close()
+        os.rename(cachepath + '.db.tmp', cachepath + '.db')       
+
     except:
         # Don't keep file if it doesn't contain anything sensible
-        os.unlink(cachepath + '.db')
+        os.unlink(cachepath + '.db.tmp')
         raise
     
     # Raise sequence number so that fsck.s3ql actually uses the
