@@ -952,11 +952,6 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
         self.close()
         return False       
     
-    # pickle requires a readline() method for unpickling, but isn't actually
-    # using it if we're using the binary protocols.
-    def readline(self):
-        raise RuntimeError('not implemented')
-    
 def encrypt(buf, passphrase, nonce):
     '''Encrypt *buf*'''
 
