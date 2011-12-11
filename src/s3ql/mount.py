@@ -153,16 +153,26 @@ def main(args=None):
         # Tell finally handle not to raise any exceptions
         exc_info[:] = sys.exc_info()
          
+        log.exception('Encountered exception, trying to clean up...')
+         
         # We do *not* free the mountpoint on exception. Why? E.g. if someone is
         # mirroring the mountpoint, and it suddenly becomes empty, all the
         # mirrored data will be deleted. However, it's crucial to still call
         # llfuse.close, so that Operations.destroy() can flush the inode cache.
         try: 
+            log.info("Unmounting file system...")
             with llfuse.lock:
                 llfuse.close(unmount=False)
         except:
             log.exception("Exception during cleanup:")  
-        raise
+        
+        raise QuietError('Aborted with exception.')
+    
+    else:
+        # llfuse.close() still needs block_cache.
+        log.info("Unmounting file system...")
+        with llfuse.lock:
+            llfuse.close()
                 
     # Terminate threads
     finally:
@@ -187,17 +197,12 @@ def main(args=None):
 
         log.debug("All background threads terminated.")
  
-    log.info("Unmounting file system.")
-     
     # Re-raise if there's been an exception during cleanup
     # (either in main thread or other thread)
     if exc_info:
         raise exc_info[0], exc_info[1], exc_info[2]
         
     # At this point, there should be no other threads left
-
-    with llfuse.lock:
-        llfuse.close()
     
     # Do not update .params yet, dump_metadata() may fail if the database is
     # corrupted, in which case we want to force an fsck.
