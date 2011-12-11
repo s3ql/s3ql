@@ -152,7 +152,22 @@ def stream_read_bz2(ifh, ofh):
         buf = decompressor.decompress(buf)
         if buf:
             ofh.write(buf)       
-                  
+            
+    if decompressor.unused_data or ifh.read(1) != '':
+        raise ChecksumError('Data after end of bz2 stream')
+
+class ChecksumError(Exception):
+    """
+    Raised if there is a checksum error in the data that we received.
+    """
+    
+    def __init__(self, str_):
+        super(ChecksumError, self).__init__()
+        self.str = str_
+    
+    def __str__(self):
+        return self.str
+                      
 class QuietError(Exception):
     '''
     QuietError is the base class for exceptions that should not result

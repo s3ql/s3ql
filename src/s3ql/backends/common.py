@@ -7,14 +7,15 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-
 from ..common import QuietError, BUFSIZE
 from abc import ABCMeta, abstractmethod
 from base64 import b64decode, b64encode
 from cStringIO import StringIO
 from contextlib import contextmanager
+from functools import wraps
 from getpass import getpass
 from pycryptopp.cipher import aes
+from s3ql.common import ChecksumError
 import ConfigParser
 import bz2
 import cPickle as pickle
@@ -30,7 +31,7 @@ import sys
 import threading
 import time
 import zlib
-from functools import wraps
+
 
 # Not available in every pycryptopp version
 if hasattr(aes, 'start_up_self_test'):
@@ -999,20 +1000,6 @@ def decrypt(buf, passphrase):
         raise ChecksumError('HMAC mismatch')
 
     return buf
-
-
-class ChecksumError(Exception):
-    """
-    Raised if there is a checksum error in the data that we received.
-    """
-    
-    def __init__(self, str_):
-        super(ChecksumError, self).__init__()
-        self.str = str_
-    
-    def __str__(self):
-        return self.str
-    
 
 class ObjectNotEncrypted(Exception):
     '''
