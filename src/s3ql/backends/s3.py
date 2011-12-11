@@ -512,7 +512,7 @@ class ObjectR(object):
     def __init__(self, key, resp, bucket, metadata=None):
         self.key = key
         self.resp = resp
-        self.closed = False
+        self.md5_checked = False
         self.bucket = bucket
         self.metadata = metadata
         
@@ -521,10 +521,26 @@ class ObjectR(object):
         self.md5 = hashlib.md5()
             
     def read(self, size=None):
-        '''Read object data'''
+        '''Read object data
+        
+        For integrity checking to work, this method has to be called until
+        it returns an empty string, indicating that all data has been read
+        (and verified).
+        '''
         
         # chunked encoding handled by httplib
         buf = self.resp.read(size)
+        
+        # Check MD5 on EOF
+        if not buf and not self.md5_checked:
+            etag = self.resp.getheader('ETag').strip('"')
+            self.md5_checked = True
+            if etag != self.md5.hexdigest():
+                log.warn('ObjectR(%s).close(): MD5 mismatch: %s vs %s', self.key, etag, 
+                         self.md5.hexdigest())
+                raise BadDigest('BadDigest', 'ETag header does not agree with calculated MD5')
+            return buf
+        
         self.md5.update(buf)
         return buf
        
@@ -532,26 +548,12 @@ class ObjectR(object):
         return self
     
     def __exit__(self, *a):
-        self.close()
         return False
     
     def close(self):
         '''Close object'''
         
-        log.debug('ObjectR(%s).close(): start', self.key)        
-        self.closed = True
-
-        while True:
-            buf = self.read(BUFSIZE)
-            if buf == '':
-                break
-
-        etag = self.resp.getheader('ETag').strip('"')
-        log.debug('ObjectR(%s).close(): md5sum/etag: %s', self.key, etag)        
-        
-        if etag != self.md5.hexdigest():
-            log.warn('ObjectR(%s).close(): MD5 mismatch: %s vs %s', self.key, etag, self.md5.hexdigest())
-            raise BadDigest('BadDigest', 'Received ETag does not agree with our calculations.')
+        pass
     
 class ObjectW(object):
     '''An S3 object open for writing
