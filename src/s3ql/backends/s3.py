@@ -219,10 +219,6 @@ class Bucket(AbstractBucket):
         if not region:
             region = 'us-standard'
             
-        if region not in ('EU', 'us-west-1', 'ap-southeast-1', 
-                          'ap-northeast-1', 'us-standard'):
-            raise RuntimeError('Unknown bucket region: %s' % region)
-        
         return region
         
     @retry
