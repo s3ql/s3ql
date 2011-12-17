@@ -8,7 +8,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from .common import AbstractBucket, NoSuchObject, retry, NoSuchBucket as NoSuchBucket_common
+from .common import AbstractBucket, NoSuchObject, retry
+from .common import NoSuchBucket as NoSuchBucket_common
 from ..common import BUFSIZE
 import logging
 import httplib
