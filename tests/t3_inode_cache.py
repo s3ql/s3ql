@@ -74,14 +74,14 @@ class cache_tests(TestCase):
                 'atime': time.time(),
                 'ctime': time.time(),
                 'mtime': time.time() }
-        
+
         inode = self.cache.create_inode(**attrs)
         for (key, val) in attrs.iteritems():
             self.assertEqual(getattr(inode, key), val)
 
         # Create another inode
         self.cache.create_inode(**attrs)
-        
+
         self.db.execute('DELETE FROM inodes WHERE id=?', (inode.id,))
         # Entry should still be in cache
         self.assertEqual(inode, self.cache[inode.id])

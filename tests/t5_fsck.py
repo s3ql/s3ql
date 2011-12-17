@@ -19,7 +19,7 @@ import tempfile
 import unittest2 as unittest
 
 class FsckTests(t4_fuse.fuse_tests):
-    
+
     def runTest(self):
         try:
             subprocess.call(['rsync', '--version'],
@@ -34,14 +34,14 @@ class FsckTests(t4_fuse.fuse_tests):
         ref_dir = tempfile.mkdtemp()
         try:
             tarfile.open(data_file).extractall(ref_dir)
-        
+
             # Make file system and fake high inode number
             self.mkfs()
             db = Connection(get_bucket_cachedir(self.bucketname, self.cache_dir) + '.db')
             db.execute('UPDATE sqlite_sequence SET seq=? WHERE name=?',
-                       (2**31+10, u'inodes'))
+                       (2 ** 31 + 10, u'inodes'))
             db.close()
-            
+
             # Copy source data
             self.mount()
             subprocess.check_call(['rsync', '-aHAX', ref_dir + '/',
@@ -50,19 +50,19 @@ class FsckTests(t4_fuse.fuse_tests):
 
             # Check that inode watermark is high
             db = Connection(get_bucket_cachedir(self.bucketname, self.cache_dir) + '.db')
-            self.assertGreater(db.get_val('SELECT seq FROM sqlite_sequence WHERE name=?', (u'inodes',)), 2**31+10)
-            self.assertGreater(db.get_val('SELECT MAX(id) FROM inodes'), 2**31+10)            
+            self.assertGreater(db.get_val('SELECT seq FROM sqlite_sequence WHERE name=?', (u'inodes',)), 2 ** 31 + 10)
+            self.assertGreater(db.get_val('SELECT MAX(id) FROM inodes'), 2 ** 31 + 10)
             db.close()
-                        
+
             # Renumber inodes
             self.fsck()
-            
+
             # Check if renumbering was done
             db = Connection(get_bucket_cachedir(self.bucketname, self.cache_dir) + '.db')
-            self.assertLess(db.get_val('SELECT seq FROM sqlite_sequence WHERE name=?', (u'inodes',)), 2**31)
-            self.assertLess(db.get_val('SELECT MAX(id) FROM inodes'), 2**31)            
+            self.assertLess(db.get_val('SELECT seq FROM sqlite_sequence WHERE name=?', (u'inodes',)), 2 ** 31)
+            self.assertLess(db.get_val('SELECT MAX(id) FROM inodes'), 2 ** 31)
             db.close()
-                        
+
             # Compare
             self.mount()
             rsync = subprocess.Popen(['rsync', '-anciHAX', '--delete',
@@ -73,11 +73,11 @@ class FsckTests(t4_fuse.fuse_tests):
             if out:
                 self.fail('Copy not equal to original, rsync says:\n' + out)
             elif rsync.returncode != 0:
-                self.fail('rsync failed with ' + out)      
-                      
-            self.umount()            
+                self.fail('rsync failed with ' + out)
+
+            self.umount()
         finally:
-            shutil.rmtree(ref_dir)    
+            shutil.rmtree(ref_dir)
 
 
 # Somehow important according to pyunit documentation

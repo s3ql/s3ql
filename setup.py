@@ -32,7 +32,7 @@ use_setuptools(version='0.6.14', download_delay=5)
 import setuptools
 import setuptools.command.test as setuptools_test
 from setuptools import Extension
-                       
+
 class build_docs(setuptools.Command):
     description = 'Build Sphinx documentation'
     user_options = [
@@ -40,7 +40,7 @@ class build_docs(setuptools.Command):
         ('all-files', 'a', 'build all files'),
     ]
     boolean_options = ['fresh-env', 'all-files']
-    
+
     def initialize_options(self):
         self.fresh_env = False
         self.all_files = False
@@ -54,25 +54,25 @@ class build_docs(setuptools.Command):
             from docutils.utils import SystemMessage
         except ImportError:
             raise QuietError('This command requires Sphinx to be installed.')
-            
+
         dest_dir = os.path.join(basedir, 'doc')
         src_dir = os.path.join(basedir, 'rst')
-                    
+
         confoverrides = {}
         confoverrides['version'] = s3ql.VERSION
         confoverrides['release'] = s3ql.VERSION
-        
+
         for builder in ('html', 'latex', 'man'):
             print('Running %s builder...' % builder)
             self.mkpath(os.path.join(dest_dir, builder))
-            app = Sphinx(srcdir=src_dir, confdir=src_dir, 
+            app = Sphinx(srcdir=src_dir, confdir=src_dir,
                          outdir=os.path.join(dest_dir, builder),
-                         doctreedir=os.path.join(dest_dir, 'doctrees'), 
+                         doctreedir=os.path.join(dest_dir, 'doctrees'),
                          buildername=builder, confoverrides=confoverrides,
                          freshenv=self.fresh_env)
             self.fresh_env = False
             self.all_files = False
-        
+
             try:
                 if self.all_files:
                     app.builder.build_all()
@@ -82,9 +82,9 @@ class build_docs(setuptools.Command):
                 print('reST markup error:',
                       err.args[0].encode('ascii', 'backslashreplace'),
                       file=sys.stderr)
-                
+
         # These shouldn't be installed by default                    
-        for name in ('expire_backups.1', 'pcp.1'):     
+        for name in ('expire_backups.1', 'pcp.1'):
             os.rename(os.path.join(dest_dir, 'man', name),
                       os.path.join(basedir, 'contrib', name))
 
@@ -92,30 +92,30 @@ class build_docs(setuptools.Command):
         for _ in range(3):
             subprocess.check_call(['pdflatex', '-interaction',
                                    'batchmode', 'manual.tex'],
-                                  cwd=os.path.join(dest_dir, 'latex'), 
+                                  cwd=os.path.join(dest_dir, 'latex'),
                                   stdout=open('/dev/null', 'wb'))
         os.rename(os.path.join(dest_dir, 'latex', 'manual.pdf'),
                   os.path.join(dest_dir, 'manual.pdf'))
-                  
-    
+
+
 def main():
 
     with open(os.path.join(basedir, 'rst', 'about.rst'), 'r') as fh:
         long_desc = fh.read()
 
     compile_args = ['-Wall', '-Wextra', '-Wno-unused-parameter' ]
-    
+
     # http://trac.cython.org/cython_trac/ticket/704
     compile_args.append('-Wno-unused-but-set-variable')
-    
+
     # http://bugs.python.org/issue969718
-    if sys.version_info[0] == 2: 
+    if sys.version_info[0] == 2:
         compile_args.append('-fno-strict-aliasing')
 
     # http://bugs.python.org/issue7576
     if sys.version_info[0] == 3 and sys.version_info[1] < 2:
         compile_args.append('-Wno-missing-field-initializers')
-        
+
     setuptools.setup(
           name='s3ql',
           zip_safe=True,
@@ -140,10 +140,10 @@ def main():
           package_dir={'': 'src'},
           packages=setuptools.find_packages('src'),
           provides=['s3ql'],
-          ext_modules=[Extension('s3ql._deltadump', ['src/s3ql/_deltadump.c'], 
+          ext_modules=[Extension('s3ql._deltadump', ['src/s3ql/_deltadump.c'],
                                  extra_compile_args=compile_args,
-                                 extra_link_args=[ '-lsqlite3'] )],          
-          data_files = [ ('share/man/man1', 
+                                 extra_link_args=[ '-lsqlite3'])],
+          data_files=[ ('share/man/man1',
                           [ os.path.join('doc/man/', x) for x
                             in glob(os.path.join(basedir, 'doc', 'man', '*.1')) ]) ],
           entry_points={ 'console_scripts':
@@ -174,8 +174,8 @@ def main():
           cmdclass={'test': test,
                     'upload_docs': upload_docs,
                     'build_cython': build_cython,
-                    'build_sphinx': build_docs }, 
-          command_options = { 'sdist': { 'formats': ('setup.py', 'bztar') } }, 
+                    'build_sphinx': build_docs },
+          command_options={ 'sdist': { 'formats': ('setup.py', 'bztar') } },
          )
 
 class build_cython(setuptools.Command):
@@ -200,15 +200,15 @@ class build_cython(setuptools.Command):
 
         directives = dict(extra_warnings)
         directives['embedsignature'] = True
-        options = { 'recursive': False, 'verbose': True, 'timestamps': False, 
+        options = { 'recursive': False, 'verbose': True, 'timestamps': False,
                    'compiler_directives': directives, 'warning_errors': True }
-        
+
         for extension in self.extensions:
             for file_ in extension.sources:
                 (file_, ext) = os.path.splitext(file_)
                 path = os.path.join(basedir, file_)
                 if ext != '.c':
-                    continue 
+                    continue
                 if os.path.exists(path + '.pyx'):
                     print('compiling %s to %s' % (file_ + '.pyx', file_ + ext))
                     res = cython_compile(path + '.pyx', full_module_name=extension.name,
@@ -217,12 +217,12 @@ class build_cython(setuptools.Command):
                         raise SystemExit('Cython encountered errors.')
                 else:
                     print('%s is up to date' % (file_ + ext,))
-                      
+
 class test(setuptools_test.test):
     # Attributes defined outside init, required by setuptools.
     # pylint: disable=W0201
     description = "Run self-tests"
-    user_options = (setuptools_test.test.user_options + 
+    user_options = (setuptools_test.test.user_options +
                     [('debug=', None, 'Activate debugging for specified modules '
                                       '(separated by commas, specify "all" for all modules)')])
 
@@ -250,18 +250,18 @@ class test(setuptools_test.test):
         if not root_logger.handlers:
             add_stdout_logging(quiet=True)
             handler = logging.handlers.RotatingFileHandler("setup.log",
-                                                           maxBytes=10*1024**2, backupCount=0)
+                                                           maxBytes=10 * 1024 ** 2, backupCount=0)
             formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
                                           '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
-            handler.setFormatter(formatter)                                                
+            handler.setFormatter(formatter)
             root_logger.addHandler(handler)
-            setup_excepthook()  
+            setup_excepthook()
             if self.debug:
                 root_logger.setLevel(logging.DEBUG)
                 if 'all' not in self.debug:
                     root_logger.addFilter(LoggerFilter(self.debug, logging.INFO))
             else:
-                root_logger.setLevel(logging.INFO) 
+                root_logger.setLevel(logging.INFO)
         else:
             root_logger.debug("Logging already initialized.")
 
@@ -273,31 +273,31 @@ class test(setuptools_test.test):
             def loadTestsFromModule(self, module):
                 """Return a suite of all tests cases contained in the given module"""
                 tests = []
-                if module.__name__!='setuptools.tests.doctest':  # ugh
-                    tests.append(unittest.TestLoader.loadTestsFromModule(self,module))
+                if module.__name__ != 'setuptools.tests.doctest':  # ugh
+                    tests.append(unittest.TestLoader.loadTestsFromModule(self, module))
                 if hasattr(module, "additional_tests"):
                     tests.append(module.additional_tests())
                 if hasattr(module, '__path__'):
                     for file in sorted(resource_listdir(module.__name__, '')):
-                        if file.endswith('.py') and file!='__init__.py':
-                            submodule = module.__name__+'.'+file[:-3]
+                        if file.endswith('.py') and file != '__init__.py':
+                            submodule = module.__name__ + '.' + file[:-3]
                         else:
                             if resource_exists(
-                                module.__name__, file+'/__init__.py'
+                                module.__name__, file + '/__init__.py'
                             ):
-                                submodule = module.__name__+'.'+file
+                                submodule = module.__name__ + '.' + file
                             else:
                                 continue
                         tests.append(self.loadTestsFromName(submodule))
-                if len(tests)!=1:
+                if len(tests) != 1:
                     return self.suiteClass(tests)
                 else:
                     return tests[0] # don't create a nested suite for only one return
-                
+
         unittest.main(
-            None, None, [unittest.__file__]+self.test_args,
-            testLoader = ScanningLoader())
-        
+            None, None, [unittest.__file__] + self.test_args,
+            testLoader=ScanningLoader())
+
 
 class upload_docs(setuptools.Command):
     user_options = []

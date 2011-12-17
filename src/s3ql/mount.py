@@ -10,7 +10,7 @@ from __future__ import division, print_function, absolute_import
 from . import fs, CURRENT_FS_REV
 from .backends.common import get_bucket_factory, BucketPool
 from .block_cache import BlockCache
-from .common import (setup_logging, get_bucket_cachedir, get_seq_no, QuietError, 
+from .common import (setup_logging, get_bucket_cachedir, get_seq_no, QuietError,
     stream_write_bz2, stream_read_bz2)
 from .daemonize import daemonize
 from .database import Connection
@@ -56,10 +56,10 @@ def install_thread_excepthook():
             except:
                 sys.excepthook(*sys.exc_info())
         self.run = run_with_except_hook
-        
-    threading.Thread.__init__ = init   
-install_thread_excepthook()    
-    
+
+    threading.Thread.__init__ = init
+install_thread_excepthook()
+
 def main(args=None):
     '''Mount S3QL file system'''
 
@@ -67,16 +67,16 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-    
+
     # Save handler so that we can remove it when daemonizing
     stdout_log_handler = setup_logging(options)
-    
+
     if options.threads is None:
         options.threads = determine_threads(options)
 
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.')
-        
+
     if options.profile:
         import cProfile
         import pstats
@@ -84,7 +84,7 @@ def main(args=None):
 
     bucket_factory = get_bucket_factory(options)
     bucket_pool = BucketPool(bucket_factory)
-    
+
     # Get paths
     cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
 
@@ -94,10 +94,10 @@ def main(args=None):
             (param, db) = get_metadata(bucket, cachepath)
     except NoSuchBucket as exc:
         raise QuietError(str(exc))
-               
+
     if param['max_obj_size'] < options.min_obj_size:
         raise QuietError('Maximum object size must be bigger than minimum object size.')
-        
+
     if options.nfs:
         # NFS may try to look up '..', so we have to speed up this kind of query
         log.info('Creating NFS indices...')
@@ -105,7 +105,7 @@ def main(args=None):
 
     else:
         db.execute('DROP INDEX IF EXISTS ix_contents_inode')
-                       
+
     metadata_upload_thread = MetadataUploadThread(bucket_pool, param, db,
                                                   options.metadata_upload_interval)
     block_cache = BlockCache(bucket_pool, db, cachepath + '-cache',
@@ -114,7 +114,7 @@ def main(args=None):
     operations = fs.Operations(block_cache, db, max_obj_size=param['max_obj_size'],
                                inode_cache=InodeCache(db, param['inode_gen']),
                                upload_event=metadata_upload_thread.event)
-    
+
     log.info('Mounting filesystem...')
     llfuse.init(operations, options.mountpoint, get_fuse_opts(options))
 
@@ -131,14 +131,14 @@ def main(args=None):
         block_cache.init(options.threads)
         metadata_upload_thread.start()
         commit_thread.start()
-        
+
         if options.upstart:
             os.kill(os.getpid(), signal.SIGSTOP)
         if options.profile:
             prof.runcall(llfuse.main, options.single)
         else:
             llfuse.main(options.single)
-        
+
         # Re-raise if main loop terminated due to exception in other thread
         # or during cleanup, but make sure we still unmount file system
         # (so that Operations' destroy handler gets called)
@@ -146,34 +146,34 @@ def main(args=None):
             (tmp0, tmp1, tmp2) = exc_info
             exc_info[:] = []
             raise tmp0, tmp1, tmp2
-            
+
         log.info("FUSE main loop terminated.")
-        
+
     except:
         # Tell finally handle not to raise any exceptions
         exc_info[:] = sys.exc_info()
-         
+
         log.exception('Encountered exception, trying to clean up...')
-         
+
         # We do *not* free the mountpoint on exception. Why? E.g. if someone is
         # mirroring the mountpoint, and it suddenly becomes empty, all the
         # mirrored data will be deleted. However, it's crucial to still call
         # llfuse.close, so that Operations.destroy() can flush the inode cache.
-        try: 
+        try:
             log.info("Unmounting file system...")
             with llfuse.lock:
                 llfuse.close(unmount=False)
         except:
-            log.exception("Exception during cleanup:")  
-        
+            log.exception("Exception during cleanup:")
+
         raise QuietError('Aborted with exception.')
-    
+
     else:
         # llfuse.close() still needs block_cache.
         log.info("Unmounting file system...")
         with llfuse.lock:
             llfuse.close()
-                
+
     # Terminate threads
     finally:
         log.debug("Waiting for background threads...")
@@ -190,46 +190,46 @@ def main(args=None):
                     op()
             except:
                 # We just live with the race cond here
-                if not exc_info: 
+                if not exc_info:
                     exc_info = sys.exc_info()
                 else:
                     log.exception("Exception during cleanup:")
 
         log.debug("All background threads terminated.")
- 
+
     # Re-raise if there's been an exception during cleanup
     # (either in main thread or other thread)
     if exc_info:
         raise exc_info[0], exc_info[1], exc_info[2]
-        
+
     # At this point, there should be no other threads left
-    
+
     # Do not update .params yet, dump_metadata() may fail if the database is
     # corrupted, in which case we want to force an fsck.
-    param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')   
-    with bucket_pool() as bucket:   
+    param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
+    with bucket_pool() as bucket:
         seq_no = get_seq_no(bucket)
         if metadata_upload_thread.db_mtime == os.stat(cachepath + '.db').st_mtime:
             log.info('File system unchanged, not uploading metadata.')
-            del bucket['s3ql_seq_no_%d' % param['seq_no']]         
+            del bucket['s3ql_seq_no_%d' % param['seq_no']]
             param['seq_no'] -= 1
-            pickle.dump(param, open(cachepath + '.params', 'wb'), 2)         
-        elif seq_no == param['seq_no']:   
+            pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+        elif seq_no == param['seq_no']:
             cycle_metadata(bucket)
             param['last-modified'] = time.time() - time.timezone
-            
+
             log.info('Dumping metadata...')
             fh = tempfile.TemporaryFile()
-            dump_metadata(db, fh)            
+            dump_metadata(db, fh)
             def do_write(obj_fh):
                 fh.seek(0)
                 stream_write_bz2(fh, obj_fh)
                 return obj_fh
-            
+
             log.info("Compressing and uploading metadata...")
             obj_fh = bucket.perform_write(do_write, "s3ql_metadata", metadata=param,
-                                          is_compressed=True) 
-            log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024**2)
+                                          is_compressed=True)
+            log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
             pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         else:
             log.error('Remote metadata is newer than local (%d vs %d), '
@@ -239,12 +239,12 @@ def main(args=None):
             for name in (cachepath + '.params', cachepath + '.db'):
                 for i in reversed(range(4)):
                     if os.path.exists(name + '.%d' % i):
-                        os.rename(name + '.%d' % i, name + '.%d' % (i+1))     
+                        os.rename(name + '.%d' % i, name + '.%d' % (i + 1))
                 os.rename(name, name + '.0')
-   
+
     db.execute('ANALYZE')
     db.execute('VACUUM')
-    db.close() 
+    db.close()
 
     if options.profile:
         tmp = tempfile.NamedTemporaryFile()
@@ -258,42 +258,42 @@ def main(args=None):
         p.sort_stats('time')
         p.print_stats(50)
         fh.close()
-    
+
 def determine_threads(options):
     '''Return optimum number of upload threads'''
-            
+
     cores = os.sysconf('SC_NPROCESSORS_ONLN')
     memory = os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGESIZE')
-        
+
     if options.compress == 'lzma':
         # Keep this in sync with compression level in backends/common.py
         # Memory usage according to man xz(1)
-        mem_per_thread = 186 * 1024**2
+        mem_per_thread = 186 * 1024 ** 2
     else:
         # Only check LZMA memory usage
         mem_per_thread = 0
-                
+
     if cores == -1 or memory == -1:
         log.warn("Can't determine number of cores, using 2 upload threads.")
         return 1
-    elif 2*cores * mem_per_thread > (memory/2):
-        threads = min(int((memory/2) // mem_per_thread), 10)
+    elif 2 * cores * mem_per_thread > (memory / 2):
+        threads = min(int((memory / 2) // mem_per_thread), 10)
         if threads > 0:
             log.info('Using %d upload threads (memory limited).', threads)
         else:
             log.warn('Warning: compression will require %d MB memory '
-                     '(%d%% of total system memory', mem_per_thread / 1024**2,
+                     '(%d%% of total system memory', mem_per_thread / 1024 ** 2,
                      mem_per_thread * 100 / memory)
             threads = 1
         return threads
     else:
-        threads = min(2*cores, 10)
+        threads = min(2 * cores, 10)
         log.info("Using %d upload threads.", threads)
         return threads
-        
+
 def get_metadata(bucket, cachepath):
     '''Retrieve metadata'''
-                
+
     seq_no = get_seq_no(bucket)
 
     # Check for cached metadata
@@ -308,7 +308,7 @@ def get_metadata(bucket, cachepath):
             db = Connection(cachepath + '.db')
     else:
         param = bucket.lookup('s3ql_metadata')
- 
+
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:
         if bucket.is_get_consistent():
@@ -317,7 +317,7 @@ def get_metadata(bucket, cachepath):
                 the case, the file system may have not been unmounted cleanly and you should try
                 to run fsck on the computer where the file system has been mounted most recently.
                 ''')))
-        else:                
+        else:
             raise QuietError(textwrap.fill(textwrap.dedent('''\
                 It appears that the file system is still mounted somewhere else. If this is not the
                 case, the file system may have not been unmounted cleanly or the data from the 
@@ -325,26 +325,26 @@ def get_metadata(bucket, cachepath):
                 waiting for a while should fix the problem, in the former case you should try to run
                 fsck on the computer where the file system has been mounted most recently.
                 ''')))
-       
+
     # Check revision
     if param['revision'] < CURRENT_FS_REV:
         raise QuietError('File system revision too old, please run `s3qladm upgrade` first.')
     elif param['revision'] > CURRENT_FS_REV:
         raise QuietError('File system revision too new, please update your '
                          'S3QL installation.')
-        
+
     # Check that the fs itself is clean
     if param['needs_fsck']:
-        raise QuietError("File system damaged or not unmounted cleanly, run fsck!")        
+        raise QuietError("File system damaged or not unmounted cleanly, run fsck!")
     if (time.time() - time.timezone) - param['last_fsck'] > 60 * 60 * 24 * 31:
         log.warn('Last file system check was more than 1 month ago, '
                  'running fsck.s3ql is recommended.')
-    
-    if  param['max_inode'] > 2**32 - 50000:
+
+    if  param['max_inode'] > 2 ** 32 - 50000:
         raise QuietError('Insufficient free inodes, fsck run required.')
-    elif param['max_inode'] > 2**31:
+    elif param['max_inode'] > 2 ** 31:
         log.warn('Few free inodes remaining, running fsck is recommended')
-            
+
     # Download metadata
     if not db:
         def do_read(fh):
@@ -352,9 +352,9 @@ def get_metadata(bucket, cachepath):
             stream_read_bz2(fh, tmpfh)
             return tmpfh
         log.info('Downloading and decompressing metadata...')
-        tmpfh = bucket.perform_read(do_read, "s3ql_metadata") 
+        tmpfh = bucket.perform_read(do_read, "s3ql_metadata")
         os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                         stat.S_IRUSR | stat.S_IWUSR)) 
+                         stat.S_IRUSR | stat.S_IWUSR))
         db = Connection(cachepath + '.db.tmp', fast_mode=True)
         log.info("Reading metadata...")
         tmpfh.seek(0)
@@ -362,17 +362,17 @@ def get_metadata(bucket, cachepath):
         db.close()
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')
-    
+
     if 'max_obj_size' not in param:
         param['max_obj_size'] = param['blocksize']
-        
+
     # Increase metadata sequence no 
     param['seq_no'] += 1
     param['needs_fsck'] = True
     bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
     param['needs_fsck'] = False
-    
+
     return (param, db)
 
 def get_fuse_opts(options):
@@ -429,10 +429,10 @@ def parse_args(args):
     parser.add_quiet()
     parser.add_version()
     parser.add_storage_url()
-    
+
     parser.add_argument("mountpoint", metavar='<mountpoint>', type=os.path.abspath,
                         help='Where to mount the file system')
-    parser.add_argument("--cachesize", type=int, default=102400, metavar='<size>', 
+    parser.add_argument("--cachesize", type=int, default=102400, metavar='<size>',
                       help="Cache size in kb (default: 102400 (100 MB)). Should be at least 10 times "
                       "the maximum object size of the filesystem, otherwise an object may be retrieved "
                       "and written several times during a single write() or read() operation.")
@@ -440,12 +440,12 @@ def parse_args(args):
                       help="Maximum number of entries in cache (default: %(default)d). "
                       'Each cache entry requires one file descriptor, so if you increase '
                       'this number you have to make sure that your process file descriptor '
-                      'limit (as set with `ulimit -n`) is high enough (at least the number ' 
+                      'limit (as set with `ulimit -n`) is high enough (at least the number '
                       'of cache entries + 100).')
     parser.add_argument("--min-obj-size", type=int, default=512, metavar='<size>',
                       help="Minimum size of storage objects in KB. Files smaller than this "
                            "may be combined into groups that are stored as single objects "
-                           "in the storage backend. Default: %(default)d KB.")    
+                           "in the storage backend. Default: %(default)d KB.")
     parser.add_argument("--allow-other", action="store_true", default=False, help=
                       'Normally, only the user who called `mount.s3ql` can access the mount '
                       'point. This user then also has full access to it, independent of '
@@ -471,16 +471,16 @@ def parse_args(args):
                       help="Compression algorithm to use when storing new data. Allowed "
                            "values: `lzma`, `bzip2`, `zlib`, none. (default: `%(default)s`)")
     parser.add_argument("--metadata-upload-interval", action="store", type=int,
-                      default=24*60*60, metavar='<seconds>',
+                      default=24 * 60 * 60, metavar='<seconds>',
                       help='Interval in seconds between complete metadata uploads. '
                            'Set to 0 to disable. Default: 24h.')
     parser.add_argument("--threads", action="store", type=int,
                       default=None, metavar='<no>',
                       help='Number of parallel upload threads to use (default: auto).')
     parser.add_argument("--nfs", action="store_true", default=False,
-                      help='Support export of S3QL file systems over NFS ' 
+                      help='Support export of S3QL file systems over NFS '
                            '(default: %(default)s)')
-        
+
     options = parser.parse_args(args)
 
     if options.allow_other and options.allow_root:
@@ -488,16 +488,16 @@ def parse_args(args):
 
     if not options.log and not options.fg:
         parser.error("Please activate logging to a file or syslog, or use the --fg option.")
-        
+
     if options.profile:
         options.single = True
 
     if options.upstart:
         options.fg = True
-        
+
     if options.metadata_upload_interval == 0:
         options.metadata_upload_interval = None
-        
+
     if options.compress == 'none':
         options.compress = None
 
@@ -511,8 +511,8 @@ class MetadataUploadThread(Thread):
     
     This class uses the llfuse global lock. When calling objects
     passed in the constructor, the global lock is acquired first.    
-    '''    
-    
+    '''
+
     def __init__(self, bucket_pool, param, db, interval):
         super(MetadataUploadThread, self).__init__()
         self.bucket_pool = bucket_pool
@@ -520,34 +520,34 @@ class MetadataUploadThread(Thread):
         self.db = db
         self.interval = interval
         self.daemon = True
-        self.db_mtime = os.stat(db.file).st_mtime 
+        self.db_mtime = os.stat(db.file).st_mtime
         self.event = threading.Event()
         self.quit = False
         self.name = 'Metadata-Upload-Thread'
-           
+
     def run(self):
         log.debug('MetadataUploadThread: start')
-        
+
         while not self.quit:
             self.event.wait(self.interval)
             self.event.clear()
-            
+
             if self.quit:
                 break
-            
+
             with llfuse.lock:
                 if self.quit:
                     break
-                new_mtime = os.stat(self.db.file).st_mtime 
+                new_mtime = os.stat(self.db.file).st_mtime
                 if self.db_mtime == new_mtime:
                     log.info('File system unchanged, not uploading metadata.')
                     continue
-                
+
                 log.info('Dumping metadata...')
                 fh = tempfile.TemporaryFile()
                 dump_metadata(self.db, fh)
-            
-              
+
+
             with self.bucket_pool() as bucket:
                 seq_no = get_seq_no(bucket)
                 if seq_no != self.param['seq_no']:
@@ -555,11 +555,11 @@ class MetadataUploadThread(Thread):
                               'refusing to overwrite!', seq_no, self.param['seq_no'])
                     fh.close()
                     continue
-                              
+
                 cycle_metadata(bucket)
                 fh.seek(0)
                 self.param['last-modified'] = time.time() - time.timezone
-                
+
                 # Temporarily decrease sequence no, this is not the final upload
                 self.param['seq_no'] -= 1
                 def do_write(obj_fh):
@@ -568,32 +568,32 @@ class MetadataUploadThread(Thread):
                     return obj_fh
                 log.info("Compressing and uploading metadata...")
                 obj_fh = bucket.perform_write(do_write, "s3ql_metadata", metadata=self.param,
-                                              is_compressed=True) 
-                log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024**2)
+                                              is_compressed=True)
+                log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
                 self.param['seq_no'] += 1
-                
-                fh.close()
-                self.db_mtime = new_mtime    
 
-        log.debug('MetadataUploadThread: end')    
-        
+                fh.close()
+                self.db_mtime = new_mtime
+
+        log.debug('MetadataUploadThread: end')
+
     def stop(self):
         '''Signal thread to terminate'''
-        
+
         self.quit = True
-        self.event.set()     
-    
+        self.event.set()
+
 def setup_exchook():
     '''Send SIGTERM if any other thread terminates with an exception
     
     The exc_info will be saved in the list object returned
     by this function.
     '''
-    
+
     this_thread = thread.get_ident()
     old_exchook = sys.excepthook
     exc_info = []
-    
+
     def exchook(type_, val, tb):
         if (thread.get_ident() != this_thread
             and not exc_info):
@@ -601,39 +601,39 @@ def setup_exchook():
             exc_info.append(type_)
             exc_info.append(val)
             exc_info.append(tb)
-        
+
             old_exchook(type_, val, tb)
-            
+
         # If the main thread re-raised exception, there is no need to call
         # excepthook again
         elif not (thread.get_ident() == this_thread
                   and exc_info == [type_, val, tb]):
             old_exchook(type_, val, tb)
-        
-    sys.excepthook = exchook
-    
-    return exc_info
- 
 
-   
+    sys.excepthook = exchook
+
+    return exc_info
+
+
+
 class CommitThread(Thread):
     '''
     Periodically upload dirty blocks.
     
     This class uses the llfuse global lock. When calling objects
     passed in the constructor, the global lock is acquired first.
-    '''    
-    
+    '''
+
 
     def __init__(self, block_cache):
         super(CommitThread, self).__init__()
-        self.block_cache = block_cache 
+        self.block_cache = block_cache
         self.stop_event = threading.Event()
         self.name = 'CommitThread'
-                    
+
     def run(self):
         log.debug('CommitThread: start')
- 
+
         while not self.stop_event.is_set():
             did_sth = False
             stamp = time.time()
@@ -642,7 +642,7 @@ class CommitThread(Thread):
                     break
                 if not (el.dirty and (el.inode, el.blockno) not in self.block_cache.in_transit):
                     continue
-                        
+
                 # Acquire global lock to access UploadManager instance
                 with llfuse.lock:
                     if self.stop_event.is_set():
@@ -655,17 +655,17 @@ class CommitThread(Thread):
 
                 if self.stop_event.is_set():
                     break
-            
+
             if not did_sth:
                 self.stop_event.wait(5)
 
-        log.debug('CommitThread: end')    
-        
+        log.debug('CommitThread: end')
+
     def stop(self):
         '''Signal thread to terminate'''
-        
+
         self.stop_event.set()
-        
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])

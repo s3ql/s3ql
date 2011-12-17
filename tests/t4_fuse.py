@@ -36,13 +36,13 @@ class ExceptionStoringThread(threading.Thread):
 
     def run_protected(self):
         pass
-    
+
     def run(self):
         try:
             self.run_protected()
         except:
             # This creates a circular reference chain
-            self._exc_info = sys.exc_info() 
+            self._exc_info = sys.exc_info()
 
     def join_get_exc(self):
         self._joined = True
@@ -51,11 +51,11 @@ class ExceptionStoringThread(threading.Thread):
 
     def join_and_raise(self):
         '''Wait for the thread to finish, raise any occurred exceptions'''
-        
+
         self._joined = True
         if self.is_alive():
             self.join()
-      
+
         if self._exc_info is not None:
             # Break reference chain
             exc_info = self._exc_info
@@ -66,7 +66,7 @@ class ExceptionStoringThread(threading.Thread):
         if not self._joined:
             raise RuntimeError("ExceptionStoringThread instance was destroyed "
                                "without calling join_and_raise()!")
-                
+
 class EmbeddedException(Exception):
     '''Encapsulates an exception that happened in a different thread
     '''
@@ -75,22 +75,22 @@ class EmbeddedException(Exception):
         super(EmbeddedException, self).__init__()
         self.exc_info = exc_info
         self.threadname = threadname
-        
+
         log.error('Thread %s terminated with exception:\n%s',
-                  self.threadname, ''.join(traceback.format_exception(*self.exc_info)))               
+                  self.threadname, ''.join(traceback.format_exception(*self.exc_info)))
 
     def __str__(self):
         return ''.join(['caused by an exception in thread %s.\n' % self.threadname,
-                       'Original/inner traceback (most recent call last): \n' ] +  
+                       'Original/inner traceback (most recent call last): \n' ] +
                        traceback.format_exception(*self.exc_info))
-        
+
 class AsyncFn(ExceptionStoringThread):
     def __init__(self, fn, *args, **kwargs):
         super(AsyncFn, self).__init__()
         self.target = fn
         self.args = args
         self.kwargs = kwargs
-        
+
     def run_protected(self):
         self.target(*self.args, **self.kwargs)
 
@@ -126,37 +126,37 @@ def skip_if_no_fusermount():
 
     which = subprocess.Popen(['which', 'fusermount'], stdout=subprocess.PIPE)
     fusermount_path = which.communicate()[0].strip()
-    
+
     if not fusermount_path or which.wait() != 0:
         raise unittest.SkipTest("Can't find fusermount executable")
-    
+
     if not os.path.exists('/dev/fuse'):
         raise unittest.SkipTest("FUSE kernel module does not seem to be loaded")
-                          
+
     if os.getuid() == 0:
         return
-    
+
     mode = os.stat(fusermount_path).st_mode
     if mode & stat.S_ISUID == 0:
         raise unittest.SkipTest('fusermount executable not setuid, and we are not root.')
-    
+
     try:
-        subprocess.check_call([fusermount_path, '-V'], 
+        subprocess.check_call([fusermount_path, '-V'],
                               stdout=open('/dev/null', 'wb'))
     except subprocess.CalledProcessError:
         raise unittest.SkipTest('Unable to execute fusermount')
-    
+
 if __name__ == '__main__':
     mypath = sys.argv[0]
 else:
     mypath = __file__
 BASEDIR = os.path.abspath(os.path.join(os.path.dirname(mypath), '..'))
-            
+
 class fuse_tests(TestCase):
-    
+
     def setUp(self):
         skip_if_no_fusermount()
-        
+
         # We need this to test multi block operations
         self.src = __file__
         if os.path.getsize(self.src) < 1048:
@@ -171,21 +171,21 @@ class fuse_tests(TestCase):
 
         self.mount_process = None
         self.name_cnt = 0
-                    
+
     def mkfs(self):
-        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'), 
+        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
                                  '-L', 'test fs', '--max-obj-size', '500',
                                  '--cachedir', self.cache_dir, '--quiet',
                                  self.bucketname ], stdin=subprocess.PIPE)
-        
+
         print(self.passphrase, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
-        
+
         self.assertEqual(proc.wait(), 0)
-        
-    def mount(self):  
-        self.mount_process = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mount.s3ql'), 
+
+    def mount(self):
+        self.mount_process = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mount.s3ql'),
                                                 "--fg", '--cachedir', self.cache_dir,
                                                 '--log', 'none', '--quiet',
                                                   self.bucketname, self.mnt_dir],
@@ -196,39 +196,39 @@ class fuse_tests(TestCase):
             if os.path.ismount(self.mnt_dir):
                 return True
             self.assertIsNone(self.mount_process.poll())
-        retry(30, poll)                              
+        retry(30, poll)
 
     def umount(self):
         devnull = open('/dev/null', 'wb')
         retry(5, lambda: subprocess.call(['fuser', '-m', self.mnt_dir],
                                          stdout=devnull, stderr=devnull) == 1)
-        
-        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'umount.s3ql'), 
+
+        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'umount.s3ql'),
                                  '--quiet', self.mnt_dir])
         retry(60, lambda : proc.poll() is not None)
         self.assertEquals(proc.wait(), 0)
-        
+
         self.assertEqual(self.mount_process.wait(), 0)
         self.assertFalse(os.path.ismount(self.mnt_dir))
 
     def fsck(self):
-        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'fsck.s3ql'), 
+        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'fsck.s3ql'),
                                  '--force', '--quiet', '--log', 'none',
-                                 '--cachedir', self.cache_dir, 
+                                 '--cachedir', self.cache_dir,
                                  self.bucketname ], stdin=subprocess.PIPE)
         print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
-        self.assertEqual(proc.wait(), 0)                
+        self.assertEqual(proc.wait(), 0)
 
     def tearDown(self):
         subprocess.call(['fusermount', '-z', '-u', self.mnt_dir],
                         stderr=open('/dev/null', 'wb'))
         os.rmdir(self.mnt_dir)
-        
+
         # Give mount process a little while to terminate
         if self.mount_process is not None:
             retry(10, lambda : self.mount_process.poll() is not None)
-              
+
         shutil.rmtree(self.cache_dir)
         shutil.rmtree(self.bucket_dir)
 
@@ -251,7 +251,7 @@ class fuse_tests(TestCase):
         self.tst_write()
         self.umount()
         self.fsck()
-        
+
     def newname(self):
         self.name_cnt += 1
         return "s3ql_%d" % self.name_cnt
@@ -392,7 +392,7 @@ class fuse_tests(TestCase):
 
         os.close(fd)
         os.unlink(filename)
-            
+
     def tst_truncate_nocache(self):
         filename = os.path.join(self.mnt_dir, self.newname())
         src = self.src
@@ -400,10 +400,10 @@ class fuse_tests(TestCase):
         self.assertTrue(filecmp.cmp(filename, src, False))
         fstat = os.stat(filename)
         size = fstat.st_size
-        
-        subprocess.check_call([os.path.join(BASEDIR, 'bin', 's3qlctrl'), 
+
+        subprocess.check_call([os.path.join(BASEDIR, 'bin', 's3qlctrl'),
                                '--quiet', 'flushcache', self.mnt_dir ])
-                    
+
         fd = os.open(filename, os.O_RDWR)
 
         os.ftruncate(fd, size + 1024) # add > 1 block
@@ -414,7 +414,7 @@ class fuse_tests(TestCase):
 
         os.close(fd)
         os.unlink(filename)
-                
+
 # Somehow important according to pyunit documentation
 def suite():
     return unittest.makeSuite(fuse_tests)

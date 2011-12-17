@@ -22,11 +22,11 @@ class Bucket(s3c.Bucket):
     
     The bucket guarantees only immediate get after create consistency.
     """
-            
+
     def _get_conn(self):
         '''Return connection to server'''
-        
+
         return httplib.HTTPSConnection(self.bucket_name)
-    
+
     def __str__(self):
         return 's3cs://%s/%s' % (self.bucket_name, self.prefix)

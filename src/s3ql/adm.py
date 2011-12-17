@@ -9,11 +9,11 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.common import BetterBucket, get_bucket
-from .common import (QuietError, BUFSIZE, setup_logging, get_bucket_cachedir, 
+from .common import (QuietError, BUFSIZE, setup_logging, get_bucket_cachedir,
     get_seq_no, stream_write_bz2, CTRL_INODE)
 from .database import Connection, NoSuchRowError
 from .fsck import Fsck
-from .metadata import (restore_metadata, cycle_metadata, dump_metadata, 
+from .metadata import (restore_metadata, cycle_metadata, dump_metadata,
     create_tables)
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
@@ -47,29 +47,29 @@ def parse_args(args):
                Hint: run `%(prog)s --help` to get help on other available actions and
                optional arguments that can be used with all actions.'''))
     pparser.add_storage_url()
-        
+
     subparsers = parser.add_subparsers(metavar='<action>', dest='action',
-                                       help='may be either of') 
-    subparsers.add_parser("passphrase", help="change bucket passphrase", 
+                                       help='may be either of')
+    subparsers.add_parser("passphrase", help="change bucket passphrase",
                           parents=[pparser])
     subparsers.add_parser("upgrade", help="upgrade file system to newest revision",
                           parents=[pparser])
     subparsers.add_parser("clear", help="delete all S3QL data from the bucket",
-                          parents=[pparser])                                        
-    subparsers.add_parser("download-metadata", 
+                          parents=[pparser])
+    subparsers.add_parser("download-metadata",
                           help="Interactively download metadata backups. "
                                "Use only if you know what you are doing.",
-                          parents=[pparser])    
-                
+                          parents=[pparser])
+
     parser.add_debug_modules()
     parser.add_quiet()
     parser.add_log()
     parser.add_authfile()
     parser.add_cachedir()
     parser.add_version()
-        
+
     options = parser.parse_args(args)
-        
+
     return options
 
 def main(args=None):
@@ -88,39 +88,39 @@ def main(args=None):
         for line in fh:
             if line.startswith(match):
                 raise QuietError('Can not work on mounted file system.')
-               
+
     if options.action == 'clear':
         try:
             bucket = get_bucket(options, plain=True)
         except NoSuchBucket as exc:
-            raise QuietError(str(exc))        
+            raise QuietError(str(exc))
         return clear(bucket,
                      get_bucket_cachedir(options.storage_url, options.cachedir))
-    
+
     try:
         bucket = get_bucket(options)
     except NoSuchBucket as exc:
         raise QuietError(str(exc))
-    
+
     if options.action == 'upgrade':
-        return upgrade(bucket, get_bucket_cachedir(options.storage_url, 
+        return upgrade(bucket, get_bucket_cachedir(options.storage_url,
                                                    options.cachedir))
-        
+
     if options.action == 'passphrase':
         return change_passphrase(bucket)
 
     if options.action == 'download-metadata':
         return download_metadata(bucket, options.storage_url)
-        
+
 
 def download_metadata(bucket, storage_url):
     '''Download old metadata backups'''
-    
+
     backups = sorted(bucket.list('s3ql_metadata_bak_'))
-    
+
     if not backups:
         raise QuietError('No metadata backups found.')
-    
+
     log.info('The following backups are available:')
     log.info('%3s  %-23s %-15s', 'No', 'Name', 'Date')
     for (i, name) in enumerate(backups):
@@ -130,9 +130,9 @@ def download_metadata(bucket, storage_url):
         else:
             # (metadata might from an older fs revision)
             date = '(unknown)'
-            
+
         log.info('%3d  %-23s %-15s', i, name, date)
-        
+
     name = None
     while name is None:
         buf = raw_input('Enter no to download: ')
@@ -140,12 +140,12 @@ def download_metadata(bucket, storage_url):
             name = backups[int(buf.strip())]
         except:
             log.warn('Invalid input')
-    
+
     cachepath = get_bucket_cachedir(storage_url, '.')
     for i in ('.db', '.params'):
         if os.path.exists(cachepath + i):
-            raise QuietError('%s already exists, aborting.' % cachepath+i)
-    
+            raise QuietError('%s already exists, aborting.' % cachepath + i)
+
     param = bucket.lookup(name)
     try:
         log.info('Downloading and decompressing %s...', name)
@@ -153,21 +153,21 @@ def download_metadata(bucket, storage_url):
             tmpfh = tempfile.TemporaryFile()
             stream_read_bz2(fh, tmpfh)
             return tmpfh
-        tmpfh = bucket.perform_read(do_read, name) 
+        tmpfh = bucket.perform_read(do_read, name)
         os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                         stat.S_IRUSR | stat.S_IWUSR)) 
+                         stat.S_IRUSR | stat.S_IWUSR))
         db = Connection(cachepath + '.db.tmp', fast_mode=True)
         log.info("Reading metadata...")
         tmpfh.seek(0)
         restore_metadata(tmpfh, db)
         db.close()
-        os.rename(cachepath + '.db.tmp', cachepath + '.db')       
+        os.rename(cachepath + '.db.tmp', cachepath + '.db')
 
     except:
         # Don't keep file if it doesn't contain anything sensible
         os.unlink(cachepath + '.db.tmp')
         raise
-    
+
     # Raise sequence number so that fsck.s3ql actually uses the
     # downloaded backup
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
@@ -201,24 +201,24 @@ def clear(bucket, cachepath):
         raise QuietError()
 
     log.info('Deleting...')
-    
+
     for suffix in ('.db', '.params'):
         name = cachepath + suffix
         if os.path.exists(name):
             os.unlink(name)
-            
+
     name = cachepath + '-cache'
     if os.path.exists(name):
         shutil.rmtree(name)
 
     bucket.clear()
-    
+
     print('File system deleted.')
-    
+
     if not bucket.is_get_consistent():
         log.info('Note: it may take a while for the removals to propagate through the backend.')
-                
-def get_old_rev_msg(rev, prog): 
+
+def get_old_rev_msg(rev, prog):
     return textwrap.dedent('''\
         The last S3QL version that supported this file system revision
         was %(version)s. You can run this version's %(prog)s by executing:
@@ -228,15 +228,15 @@ def get_old_rev_msg(rev, prog):
           $ s3ql-%(version)s/bin/%(prog)s <options>
         ''' % { 'version': REV_VER_MAP[rev],
                 'prog': prog })
-        
+
 def upgrade(bucket, cachepath):
     '''Upgrade file system to newest revision'''
 
     log.info('Getting file system parameters..')
-    
-    seq_nos = list(bucket.list('s3ql_seq_no_')) 
-    if (seq_nos[0].endswith('.meta') 
-        or seq_nos[0].endswith('.dat')): 
+
+    seq_nos = list(bucket.list('s3ql_seq_no_'))
+    if (seq_nos[0].endswith('.meta')
+        or seq_nos[0].endswith('.dat')):
         print(textwrap.dedent(''' 
             File system revision too old to upgrade!
             
@@ -244,10 +244,10 @@ def upgrade(bucket, cachepath):
             revision before you can use this version to upgrade to the newest
             revision.
             '''))
-        print(get_old_rev_msg(11+1, 's3qladm'))
+        print(get_old_rev_msg(11 + 1, 's3qladm'))
         raise QuietError()
     seq_no = get_seq_no(bucket)
- 
+
     # Check for cached metadata
     db = None
     if os.path.exists(cachepath + '.params'):
@@ -269,7 +269,7 @@ def upgrade(bucket, cachepath):
                 the case, the file system may have not been unmounted cleanly and you should try
                 to run fsck on the computer where the file system has been mounted most recently.
                 ''')))
-        else:                
+        else:
             print(textwrap.fill(textwrap.dedent('''\
                 It appears that the file system is still mounted somewhere else. If this is not the
                 case, the file system may have not been unmounted cleanly or the data from the 
@@ -277,14 +277,14 @@ def upgrade(bucket, cachepath):
                 waiting for a while should fix the problem, in the former case you should try to run
                 fsck on the computer where the file system has been mounted most recently.
                 ''')))
-            
+
         print(get_old_rev_msg(param['revision'], 'fsck.s3ql'))
         raise QuietError()
 
     # Check that the fs itself is clean
     if param['needs_fsck']:
         raise QuietError("File system damaged, run fsck first!")
-    
+
     # Check revision
     if param['revision'] < CURRENT_FS_REV - 1:
         print(textwrap.dedent(''' 
@@ -294,13 +294,13 @@ def upgrade(bucket, cachepath):
             revision before you can use this version to upgrade to the newest
             revision.
             '''))
-        print(get_old_rev_msg(param['revision']+1, 's3qladm'))
+        print(get_old_rev_msg(param['revision'] + 1, 's3qladm'))
         raise QuietError()
 
     elif param['revision'] >= CURRENT_FS_REV:
         print('File system already at most-recent revision')
         return
-    
+
     print(textwrap.dedent('''
         I am about to update the file system to the newest revision. 
         You will not be able to access the file system with any older version
@@ -316,13 +316,13 @@ def upgrade(bucket, cachepath):
 
     if sys.stdin.readline().strip().lower() != 'yes':
         raise QuietError()
-   
+
     # Download metadata
     if not db:
         log.info("Downloading & uncompressing metadata...")
         def do_read(fh):
             os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                             stat.S_IRUSR | stat.S_IWUSR)) 
+                             stat.S_IRUSR | stat.S_IWUSR))
             db = Connection(cachepath + '.db.tmp', fast_mode=True)
             try:
                 restore_legacy_metadata(fh, db)
@@ -330,7 +330,7 @@ def upgrade(bucket, cachepath):
                 # If metata reading has to be retried, we don't want to hold
                 # a lock on the database.
                 db.close()
-        bucket.perform_read(do_read, "s3ql_metadata") 
+        bucket.perform_read(do_read, "s3ql_metadata")
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')
 
@@ -339,7 +339,7 @@ def upgrade(bucket, cachepath):
 
     if 'max_obj_size' not in param:
         param['max_obj_size'] = param['blocksize']
-        
+
     db.execute("""
     CREATE TABLE ext_attributes_new (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
@@ -347,7 +347,7 @@ def upgrade(bucket, cachepath):
         value     BLOB NOT NULL,
  
         PRIMARY KEY (inode, name_id)               
-    )""")        
+    )""")
     for (inode, name, val) in db.query('SELECT inode, name, value FROM ext_attributes'):
         db.execute('INSERT INTO ext_attributes_new (inode, name_id, value) VALUES(?,?,?)',
                    (inode, _add_name(db, name), val))
@@ -356,47 +356,47 @@ def upgrade(bucket, cachepath):
     db.execute("""
     CREATE VIEW ext_attributes_v AS
     SELECT * FROM ext_attributes JOIN names ON names.id = name_id
-    """)    
-                                       
+    """)
+
     renumber_inodes(db)
-    
+
     # fsck required to make sure that dump will work
     fsck = Fsck(cachepath + '-cache', bucket, param, db)
     fsck.check()
-    
+
     if fsck.uncorrectable_errors:
         raise QuietError("Uncorrectable errors found, aborting.")
-    
+
     param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
     param['inode_gen'] = 1
     param['revision'] = CURRENT_FS_REV
     param['last-modified'] = time.time() - time.timezone
-    
+
     cycle_metadata(bucket)
     log.info('Dumping metadata...')
     fh = tempfile.TemporaryFile()
-    dump_metadata(db, fh)            
+    dump_metadata(db, fh)
     def do_write(obj_fh):
         fh.seek(0)
         stream_write_bz2(fh, obj_fh)
         return obj_fh
-    
+
     log.info("Compressing and uploading metadata...")
     bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
     obj_fh = bucket.perform_write(do_write, "s3ql_metadata", metadata=param,
-                                  is_compressed=True) 
-    log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024**2)
+                                  is_compressed=True)
+    log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
-     
+
     db.execute('ANALYZE')
     db.execute('VACUUM')
-        
+
 def _add_name(db, name):
     '''Get id for *name* and increase refcount
     
     Name is inserted in table if it does not yet exist.
     '''
-    
+
     try:
         name_id = db.get_val('SELECT id FROM names WHERE name=?', (name,))
     except NoSuchRowError:
@@ -404,25 +404,25 @@ def _add_name(db, name):
                                 (name, 1))
     else:
         db.execute('UPDATE names SET refcount=refcount+1 WHERE id=?', (name_id,))
-        
+
     return name_id
 
 def renumber_inodes(db):
     '''Renumber inodes'''
-    
+
     log.info('Renumbering inodes...')
     for table in ('inodes', 'inode_blocks', 'symlink_targets',
                   'contents', 'names', 'blocks', 'objects', 'ext_attributes'):
         db.execute('ALTER TABLE %s RENAME TO %s_old' % (table, table))
-    
+
     for table in ('contents_v', 'ext_attributes_v'):
         db.execute('DROP VIEW %s' % table)
-        
+
     create_tables(db)
     for table in ('names', 'blocks', 'objects'):
         db.execute('DROP TABLE %s' % table)
         db.execute('ALTER TABLE %s_old RENAME TO %s' % (table, table))
-    
+
     log.info('..mapping..')
     db.execute('CREATE TEMPORARY TABLE inode_map (rowid INTEGER PRIMARY KEY AUTOINCREMENT, id INTEGER UNIQUE)')
     db.execute('INSERT INTO inode_map (rowid, id) VALUES(?,?)', (ROOT_INODE, ROOT_INODE))
@@ -430,28 +430,28 @@ def renumber_inodes(db):
     db.execute('INSERT INTO inode_map (id) SELECT id FROM inodes_old WHERE id > ? ORDER BY ctime ASC',
                (CTRL_INODE,))
 
-    log.info('..inodes..')    
+    log.info('..inodes..')
     db.execute('INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,size,locked,rdev) '
                'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = inodes_old.id), '
                '       mode,uid,gid,mtime,atime,ctime,refcount,size,locked,rdev FROM inodes_old')
-    
+
     log.info('..inode_blocks..')
     db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) '
                'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = inode_blocks_old.inode), '
                '       blockno, block_id FROM inode_blocks_old')
-    
+
     log.info('..contents..')
     db.execute('INSERT INTO contents (inode, parent_inode, name_id) '
                'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = contents_old.inode), '
                '       (SELECT rowid FROM inode_map WHERE inode_map.id = contents_old.parent_inode), '
                '       name_id FROM contents_old')
-    
+
     log.info('..symlink_targets..')
     db.execute('INSERT INTO symlink_targets (inode, target) '
                'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = symlink_targets_old.inode), '
                '       target FROM symlink_targets_old')
-    
-    log.info('..ext_attributes..')        
+
+    log.info('..ext_attributes..')
     db.execute('INSERT INTO ext_attributes (inode, name_id, value) '
                'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = ext_attributes_old.inode), '
                '       name_id, value FROM ext_attributes_old')
@@ -459,9 +459,9 @@ def renumber_inodes(db):
     for table in ('inodes', 'inode_blocks', 'symlink_targets',
                   'contents', 'ext_attributes'):
         db.execute('DROP TABLE %s_old' % table)
-       
+
     db.execute('DROP TABLE inode_map')
-                    
+
 def restore_legacy_metadata(ifh, conn):
 
     # Note: unpickling is terribly slow if fh is not a real file object, so
@@ -477,7 +477,7 @@ def restore_legacy_metadata(ifh, conn):
         if buf:
             tmp.write(buf)
     del decompressor
-    tmp.seek(0) 
+    tmp.seek(0)
 
     log.info("Reading metadata...")
     unpickler = pickle.Unpickler(tmp)
@@ -493,7 +493,7 @@ def restore_legacy_metadata(ifh, conn):
  
         PRIMARY KEY (inode, name)               
     )""")
-        
+
     for (table, _) in to_dump:
         log.info('..%s..', table)
         col_str = ', '.join(columns[table])
@@ -508,7 +508,7 @@ def restore_legacy_metadata(ifh, conn):
 
     tmp.close()
     conn.execute('ANALYZE')
-                            
+
 if __name__ == '__main__':
     main(sys.argv[1:])
 

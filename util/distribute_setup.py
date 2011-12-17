@@ -148,7 +148,7 @@ def use_setuptools(version=DEFAULT_VERSION, download_base=DEFAULT_URL,
         except ImportError:
             return _do_download(version, download_base, to_dir, download_delay)
         try:
-            pkg_resources.require("distribute>="+version)
+            pkg_resources.require("distribute>=" + version)
             return
         except pkg_resources.VersionConflict:
             e = sys.exc_info()[1]
@@ -354,7 +354,7 @@ def _before_install():
 def _under_prefix(location):
     if 'install' not in sys.argv:
         return True
-    args = sys.argv[sys.argv.index('install')+1:]
+    args = sys.argv[sys.argv.index('install') + 1:]
     for index, arg in enumerate(args):
         for option in ('--root', '--prefix'):
             if arg.startswith('%s=' % option):
@@ -362,7 +362,7 @@ def _under_prefix(location):
                 return location.startswith(top_dir)
             elif arg == option:
                 if len(args) > index:
-                    top_dir = args[index+1]
+                    top_dir = args[index + 1]
                     return location.startswith(top_dir)
             elif option == '--user' and USER_SITE is not None:
                 return location.startswith(USER_SITE)

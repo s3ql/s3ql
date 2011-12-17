@@ -84,7 +84,7 @@ class OrderedDict(collections.MutableMapping):
     def __setitem__(self, key, value):
         if key in self.data:
             self.data[key].value = value
-        else: 
+        else:
             el = OrderedDictElement(key, value, next_=self.head.next, prev=self.head)
             self.head.next.prev = el
             self.head.next = el
@@ -189,7 +189,7 @@ class OrderedDict(collections.MutableMapping):
 
     def get_first(self):
         """Fetch first element"""
-        
+
         if self.head.next is self.tail:
             raise IndexError()
 
@@ -197,7 +197,7 @@ class OrderedDict(collections.MutableMapping):
 
     def clear(self):
         '''Delete all elements'''
- 
+
         self.data.clear()
         self.head = HeadSentinel()
         self.tail = TailSentinel(self.head)

@@ -18,7 +18,7 @@ import t4_fuse
 import unittest2 as unittest
 
 class LockRemoveTests(t4_fuse.fuse_tests):
-    
+
     def runTest(self):
         self.mkfs()
         self.mount()
@@ -57,7 +57,7 @@ class LockRemoveTests(t4_fuse.fuse_tests):
             s3ql.remove.main([tempdir])
         except:
             sys.excepthook(*sys.exc_info())
-            self.fail("s3qlrm raised exception")     
+            self.fail("s3qlrm raised exception")
 
         self.assertTrue('lock_dir' not in llfuse.listdir(self.mnt_dir))
 

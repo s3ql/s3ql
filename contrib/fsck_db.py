@@ -20,13 +20,13 @@ basedir = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), '..'))
 if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
-    
+
 from s3ql import CURRENT_FS_REV
 from s3ql.common import setup_logging
 from s3ql.fsck import ROFsck
 from s3ql.parse_args import ArgumentParser
 from s3ql.adm import _add_name
-from s3ql.database import Connection    
+from s3ql.database import Connection
 
 log = logging.getLogger("fsck")
 
@@ -47,10 +47,10 @@ def parse_args(args):
         if not os.path.exists(s + '.params'):
             raise ArgumentTypeError('Unable to read %s.params' % s)
         return s
-    
-    parser.add_argument("path", metavar='<path>', type=db_path, 
+
+    parser.add_argument("path", metavar='<path>', type=db_path,
                         help='Database to be checked')
-        
+
     options = parser.parse_args(args)
 
     return options
@@ -62,12 +62,12 @@ def main(args=None):
 
     options = parse_args(args)
     setup_logging(options)
-      
+
     # Temporary hack to allow checking previous revision with most recent fsck
     param = pickle.load(open(options.path + '.params', 'rb'))
-    if param['revision'] == CURRENT_FS_REV-1:
+    if param['revision'] == CURRENT_FS_REV - 1:
         log.info('Upgrading...')
-        db = Connection(options.path + '.db')  
+        db = Connection(options.path + '.db')
         db.execute("""
         CREATE TABLE ext_attributes_new (
             inode     INTEGER NOT NULL REFERENCES inodes(id),
@@ -75,7 +75,7 @@ def main(args=None):
             value     BLOB NOT NULL,
      
             PRIMARY KEY (inode, name_id)               
-        )""")        
+        )""")
         for (inode, name, val) in db.query('SELECT inode, name, value FROM ext_attributes'):
             db.execute('INSERT INTO ext_attributes_new (inode, name_id, value) VALUES(?,?,?)',
                        (inode, _add_name(db, name), val))
@@ -84,14 +84,14 @@ def main(args=None):
         db.execute("""
         CREATE VIEW ext_attributes_v AS
         SELECT * FROM ext_attributes JOIN names ON names.id = name_id
-        """)  
-        db.close()  
+        """)
+        db.close()
         param['revision'] = CURRENT_FS_REV
         pickle.dump(param, open(options.path + '.params', 'wb'), 2)
-           
+
     fsck = ROFsck(options.path)
     fsck.check()
-        
+
 if __name__ == '__main__':
     main(sys.argv[1:])
 

@@ -19,7 +19,7 @@ class CleanupManager(object):
 
     def unregister(self, callback, *args, **kwargs):
         self.cleanup_callbacks.remove((callback, args, kwargs))
-        
+
     def __enter__(self):
         return self
 

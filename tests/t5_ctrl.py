@@ -13,7 +13,7 @@ import t4_fuse
 import unittest2 as unittest
 
 class CtrlTests(t4_fuse.fuse_tests):
-    
+
     def runTest(self):
         self.mkfs()
         self.mount()
@@ -28,7 +28,7 @@ class CtrlTests(t4_fuse.fuse_tests):
         except:
             sys.excepthook(*sys.exc_info())
             self.fail("s3qlctrl raised exception")
-            
+
 
 # Somehow important according to pyunit documentation
 def suite():

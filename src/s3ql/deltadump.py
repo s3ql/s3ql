@@ -21,7 +21,7 @@ import re
 
 def get_libraries(pathname):
     '''Return shared libraries required for *pathname*'''
-    
+
     libs = dict()
     ldd = subprocess.Popen(['ldd', pathname], stdout=subprocess.PIPE)
     for line in ldd.stdout:
@@ -30,24 +30,24 @@ def get_libraries(pathname):
         else:
             path = line.strip()
             soname = None
-            
+
         hit = re.match(r'^\s*(.+)\s+\(0x[0-9a-fA-F]+\)$', path)
         if hit:
             path = hit.group(1).strip()
         else:
             path = path.strip()
-            
+
         if path == 'not found':
             path = None
-            
+
         if not soname:
             soname = path
-            
+
         libs[soname.strip()] = path
-    
+
     if ldd.wait() != 0:
         raise ImportError('ldd call failed')
-    
+
     return libs
 
 

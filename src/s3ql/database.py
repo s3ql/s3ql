@@ -27,7 +27,7 @@ log = logging.getLogger("database")
 sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
 if sqlite_ver < (3, 7, 0):
     raise QuietError('SQLite version too old, must be 3.7.0 or newer!\n')
-        
+
 initsql = ('PRAGMA foreign_keys = OFF',
            'PRAGMA locking_mode = EXCLUSIVE',
            'PRAGMA recursize_triggers = on',
@@ -36,7 +36,7 @@ initsql = ('PRAGMA foreign_keys = OFF',
            'PRAGMA temp_store = FILE',
            'PRAGMA legacy_file_format = off',
            )
-    
+
 class Connection(object):
     '''
     This class wraps an APSW connection object. It should be used instead of any
@@ -66,44 +66,44 @@ class Connection(object):
     def __init__(self, file_, fast_mode=False):
         self.conn = apsw.Connection(file_)
         self.file = file_
-        
+
         cur = self.conn.cursor()
         for s in initsql:
             cur.execute(s)
 
         self.fast_mode(fast_mode)
-        
+
     def fast_mode(self, on):
         '''Switch to fast, but insecure mode
         
         In fast mode, SQLite operates as quickly as possible, but
         application and system crashes may lead to data corruption.
         '''
-        
+
         # WAL mode causes trouble with e.g. copy_tree, so we
         # always disable WAL for now. See 
         # http://article.gmane.org/gmane.comp.db.sqlite.general/65243
-        on = True 
+        on = True
         cur = self.conn.cursor()
         if on:
             cur.execute('PRAGMA synchronous = OFF')
             cur.execute('PRAGMA journal_mode = OFF')
-        else:                
+        else:
             cur.execute('PRAGMA synchronous = NORMAL')
             cur.execute('PRAGMA journal_mode = WAL')
-            
-        
+
+
     def close(self):
         self.conn.close()
-        
+
     def get_size(self):
         '''Return size of database file'''
-    
+
         if self.file is not None and self.file not in ('', ':memory:'):
             return os.path.getsize(self.file)
         else:
             return 0
-            
+
     def query(self, *a, **kw):
         '''Execute the given SQL statement. Return ResultSet.
         
@@ -225,14 +225,14 @@ class NoUniqueValueError(Exception):
 
     def __str__(self):
         return 'Query generated more than 1 result row'
-    
-    
+
+
 class NoSuchRowError(Exception):
     '''Raised if the query did not produce any result rows'''
-    
+
     def __str__(self):
         return 'Query produced 0 result rows'
-    
+
 
 class ResultSet(object):
     '''Iterator over the result of an SQL query

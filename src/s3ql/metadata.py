@@ -18,13 +18,13 @@ DUMP_SPEC = [
              ('objects', 'id', (('id', INTEGER, 1),
                                 ('size', INTEGER),
                                 ('refcount', INTEGER))),
-             
+
              ('blocks', 'id', (('id', INTEGER, 1),
                              ('hash', BLOB, 32),
                              ('size', INTEGER),
                              ('obj_id', INTEGER, 1),
                              ('refcount', INTEGER))),
-             
+
              ('inodes', 'id', (('id', INTEGER, 1),
                                ('uid', INTEGER),
                                ('gid', INTEGER),
@@ -36,28 +36,28 @@ DUMP_SPEC = [
                                ('rdev', INTEGER),
                                ('locked', INTEGER),
                                ('refcount', INTEGER))),
-             
-             ('inode_blocks', 'inode, blockno', 
+
+             ('inode_blocks', 'inode, blockno',
               (('inode', INTEGER),
                ('blockno', INTEGER, 1),
                ('block_id', INTEGER, 1))),
-             
+
              ('symlink_targets', 'inode', (('inode', INTEGER, 1),
                                            ('target', BLOB))),
-           
+
              ('names', 'id', (('id', INTEGER, 1),
                               ('name', BLOB),
                               ('refcount', INTEGER))),
-           
+
              ('contents', 'parent_inode, name_id',
               (('name_id', INTEGER, 1),
                ('inode', INTEGER, 1),
                ('parent_inode', INTEGER))),
-             
+
              ('ext_attributes', 'inode', (('inode', INTEGER),
                                           ('name_id', INTEGER),
-                                          ('value', BLOB))),      
-] 
+                                          ('value', BLOB))),
+]
 
 
 
@@ -73,18 +73,18 @@ def restore_metadata(fh, db):
         log.info('..%s..', table)
         load_table(table, columns, db=db, fh=fh)
     db.execute('ANALYZE')
-    
+
 def cycle_metadata(bucket):
     from .backends.common import NoSuchObject
-    
+
     log.info('Backing up old metadata...')
     for i in reversed(range(10)):
         try:
             bucket.copy("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
         except NoSuchObject:
             pass
-                
-    bucket.copy("s3ql_metadata", "s3ql_metadata_bak_0")             
+
+    bucket.copy("s3ql_metadata", "s3ql_metadata_bak_0")
 
 def dump_metadata(db, fh):
     '''Dump metadata into fh
@@ -92,12 +92,12 @@ def dump_metadata(db, fh):
     *fh* must be able to return an actual file descriptor from
     its `fileno` method.
     '''
-        
+
     for (table, order, columns) in DUMP_SPEC:
         log.info('..%s..', table)
         dump_table(table, order, columns, db=db, fh=fh)
-       
-def create_tables(conn): 
+
+def create_tables(conn):
     # Table of storage objects
     # Refcount is included for performance reasons
     conn.execute("""
@@ -117,7 +117,7 @@ def create_tables(conn):
         size      INT NOT NULL,    
         obj_id    INTEGER NOT NULL REFERENCES objects(id)
     )""")
-                
+
     # Table with filesystem metadata
     # The number of links `refcount` to an inode can in theory
     # be determined from the `contents` table. However, managing
@@ -148,14 +148,14 @@ def create_tables(conn):
         block_id    INTEGER NOT NULL REFERENCES blocks(id),
         PRIMARY KEY (inode, blockno)
     )""")
-    
+
     # Symlinks
     conn.execute("""
     CREATE TABLE symlink_targets (
         inode     INTEGER PRIMARY KEY REFERENCES inodes(id),
         target    BLOB NOT NULL
     )""")
-    
+
     # Names of file system objects
     conn.execute("""
     CREATE TABLE names (
@@ -191,9 +191,8 @@ def create_tables(conn):
     conn.execute("""
     CREATE VIEW contents_v AS
     SELECT * FROM contents JOIN names ON names.id = name_id       
-    """)    
+    """)
     conn.execute("""
     CREATE VIEW ext_attributes_v AS
     SELECT * FROM ext_attributes JOIN names ON names.id = name_id
-    """)    
-                
+    """)

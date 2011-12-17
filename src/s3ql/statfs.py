@@ -56,7 +56,7 @@ def main(args=None):
 
     if os.stat(ctrlfile).st_uid != os.geteuid() and os.geteuid() != 0:
         raise QuietError('Only root and the mounting user may run s3qlstat.')
-    
+
     # Use a decent sized buffer, otherwise the statistics have to be
     # calculated thee(!) times because we need to invoce getxattr
     # three times.
@@ -67,19 +67,19 @@ def main(args=None):
     p_dedup = dedup_size * 100 / fs_size if fs_size else 0
     p_compr_1 = compr_size * 100 / fs_size if fs_size else 0
     p_compr_2 = compr_size * 100 / dedup_size if dedup_size else 0
-    mb= 1024**2
+    mb = 1024 ** 2
     print ('Directory entries:    %d' % entries,
-           'Inodes:               %d' % inodes, 
+           'Inodes:               %d' % inodes,
            'Data blocks:          %d' % blocks,
-           'Total data size:      %.2f MB' % (fs_size/mb),
-           'After de-duplication: %.2f MB (%.2f%% of total)' 
+           'Total data size:      %.2f MB' % (fs_size / mb),
+           'After de-duplication: %.2f MB (%.2f%% of total)'
              % (dedup_size / mb, p_dedup),
            'After compression:    %.2f MB (%.2f%% of total, %.2f%% of de-duplicated)'
-             % (compr_size /mb, p_compr_1, p_compr_2),
+             % (compr_size / mb, p_compr_1, p_compr_2),
            'Database size:        %.2f MB (uncompressed)' % (db_size / mb),
-           '(some values do not take into account not-yet-uploaded dirty blocks in cache)', 
+           '(some values do not take into account not-yet-uploaded dirty blocks in cache)',
            sep='\n')
-    
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])

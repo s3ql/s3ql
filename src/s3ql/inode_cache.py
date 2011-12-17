@@ -23,7 +23,7 @@ UPDATE_ATTRS = ('mode', 'refcount', 'uid', 'gid', 'size', 'locked',
 UPDATE_STR = ', '.join('%s=?' % x for x in UPDATE_ATTRS)
 TIMEZONE = time.timezone
 
-MAX_INODE = 2**32 - 1 
+MAX_INODE = 2 ** 32 - 1
 
 class _Inode(object):
     '''An inode with its attributes'''
@@ -42,7 +42,7 @@ class _Inode(object):
             return self.refcount
 
         elif key == 'st_blocks':
-            return (self.size+511) // 512
+            return (self.size + 511) // 512
 
         elif key == 'st_ino':
             return self.id
@@ -152,7 +152,7 @@ class InodeCache(object):
                 inode = self.getattr(id_)
             except NoSuchRowError:
                 raise KeyError('No such inode: %d' % id_)
-            
+
             old_id = self.cached_rows[self.pos]
             self.cached_rows[self.pos] = id_
             self.pos = (self.pos + 1) % CACHE_SIZE
@@ -195,10 +195,10 @@ class InodeCache(object):
         bindings = tuple(kw[x] for x in ATTRIBUTES if x in kw)
         columns = ', '.join(x for x in ATTRIBUTES if x in kw)
         values = ', '.join('?' * len(kw))
-                                  
+
         id_ = self.db.rowid('INSERT INTO inodes (%s) VALUES(%s)' % (columns, values),
                             bindings)
-        if id_ > MAX_INODE-1:
+        if id_ > MAX_INODE - 1:
             self.db.execute('DELETE FROM inodes WHERE id=?', (id_,))
             raise OutOfInodesError()
 
@@ -237,7 +237,7 @@ class InodeCache(object):
                 else:
                     del self.attrs[id_]
                     self.setattr(inode)
-        
+
         self.cached_rows = None
         self.attrs = None
 
@@ -261,8 +261,8 @@ class InodeCache(object):
         if self.attrs:
             raise RuntimeError('InodeCache instance was destroyed without calling close()')
 
-        
-        
+
+
 class OutOfInodesError(Exception):
 
     def __str__(self):

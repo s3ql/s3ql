@@ -38,7 +38,7 @@ def parse_args(args):
     parser.add_argument("mountpoint", metavar='<mountpoint>',
                         type=(lambda x: x.rstrip('/')),
                         help='Mount point to un-mount')
-    
+
     parser.add_argument('--lazy', "-z", action="store_true", default=False,
                       help="Lazy umount. Detaches the file system immediately, even if there "
                       'are still open files. The data will be uploaded in the background '
@@ -60,7 +60,7 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
     mountpoint = options.mountpoint
-        
+
     # Check if it's a mount point
     if not posixpath.ismount(mountpoint):
         print('Not a mount point.', file=sys.stderr)
@@ -89,7 +89,7 @@ def lazy_umount(mountpoint):
         umount_cmd = ('umount', '-l', mountpoint)
     else:
         umount_cmd = ('fusermount', '-u', '-z', mountpoint)
-    
+
     if not subprocess.call(umount_cmd) == 0:
         sys.exit(1)
 
@@ -108,7 +108,7 @@ def blocking_umount(mountpoint):
         raise QuietError()
 
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
-    
+
     log.debug('Flushing cache...')
     llfuse.setxattr(ctrlfile, b's3ql_flushcache!', b'dummy')
 
@@ -126,12 +126,12 @@ def blocking_umount(mountpoint):
     log.debug('Unmounting...')
     # This seems to be necessary to prevent weird busy errors
     time.sleep(3)
-    
+
     if os.getuid() == 0:
         umount_cmd = ['umount', mountpoint]
     else:
         umount_cmd = ['fusermount', '-u', mountpoint]
-            
+
     if subprocess.call(umount_cmd) != 0:
         sys.exit(1)
 

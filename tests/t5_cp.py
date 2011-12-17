@@ -17,7 +17,7 @@ import unittest2 as unittest
 import shutil
 
 class cpTests(t4_fuse.fuse_tests):
-    
+
     def runTest(self):
         try:
             subprocess.call(['rsync', '--version'],
@@ -33,7 +33,7 @@ class cpTests(t4_fuse.fuse_tests):
         self.tst_cp()
         self.umount()
         self.fsck()
-                
+
     def tst_cp(self):
 
         # Extract tar
@@ -41,17 +41,17 @@ class cpTests(t4_fuse.fuse_tests):
         tempdir = tempfile.mkdtemp()
         try:
             tarfile.open(data_file).extractall(tempdir)
-    
+
             # Rsync
             subprocess.check_call(['rsync', '-aHAX', tempdir + '/',
                                    os.path.join(self.mnt_dir, 'orig') + '/'])
-    
+
             # copy
-            subprocess.check_call([os.path.join(t4_fuse.BASEDIR, 'bin', 's3qlcp'), 
+            subprocess.check_call([os.path.join(t4_fuse.BASEDIR, 'bin', 's3qlcp'),
                                    '--quiet',
                                    os.path.join(self.mnt_dir, 'orig'),
                                    os.path.join(self.mnt_dir, 'copy')])
-    
+
             # compare
             rsync = subprocess.Popen(['rsync', '-anciHAX', '--delete',
                                       tempdir + '/',
@@ -63,7 +63,7 @@ class cpTests(t4_fuse.fuse_tests):
                 self.fail('Copy not equal to original, rsync says:\n' + out)
             elif rsync.returncode != 0:
                 self.fail('rsync failed with ' + out)
-                
+
         finally:
             shutil.rmtree(tempdir)
 

@@ -17,7 +17,7 @@ import unittest2 as unittest
 import shutil
 
 class FullTests(t4_fuse.fuse_tests):
-    
+
     def runTest(self):
         try:
             subprocess.call(['rsync', '--version'],
@@ -32,7 +32,7 @@ class FullTests(t4_fuse.fuse_tests):
         ref_dir = tempfile.mkdtemp()
         try:
             tarfile.open(data_file).extractall(ref_dir)
-        
+
             # Copy source data
             self.mkfs()
             self.mount()
@@ -40,7 +40,7 @@ class FullTests(t4_fuse.fuse_tests):
                                    self.mnt_dir + '/'])
             self.umount()
             self.fsck()
-            
+
             # Delete cache, run fsck and compare
             shutil.rmtree(self.cache_dir)
             self.cache_dir = tempfile.mkdtemp()
@@ -54,19 +54,19 @@ class FullTests(t4_fuse.fuse_tests):
             if out:
                 self.fail('Copy not equal to original, rsync says:\n' + out)
             elif rsync.returncode != 0:
-                self.fail('rsync failed with ' + out)      
-                      
+                self.fail('rsync failed with ' + out)
+
             self.umount()
-            
+
             # Delete cache and mount
             shutil.rmtree(self.cache_dir)
             self.cache_dir = tempfile.mkdtemp()
             self.mount()
             self.umount()
-        
-                        
+
+
         finally:
-            shutil.rmtree(ref_dir)    
+            shutil.rmtree(ref_dir)
 
 
 # Somehow important according to pyunit documentation

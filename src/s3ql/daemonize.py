@@ -57,13 +57,13 @@ def detach_process_context():
 
     # Protected member
     #pylint: disable=W0212
-        
+
     pid = os.fork()
     if pid > 0:
         os._exit(0)
-        
+
     os.setsid()
-    
+
     pid = os.fork()
     if pid > 0:
         log.info('Daemonizing, new PID is %d', pid)

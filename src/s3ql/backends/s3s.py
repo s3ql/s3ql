@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from . import s3 
+from . import s3
 import httplib
 
 class Bucket(s3.Bucket):
@@ -20,11 +20,11 @@ class Bucket(s3.Bucket):
     object will be immediately retrievable. Additional consistency guarantees
     may or may not be available and can be queried for with instance methods.    
     """
-            
+
     def _get_conn(self):
         '''Return connection to server'''
-        
+
         return httplib.HTTPSConnection('%s.s3.amazonaws.com' % self.bucket_name)
-    
+
     def __str__(self):
-        return 's3s://%s/%s' % (self.bucket_name, self.prefix)            
+        return 's3s://%s/%s' % (self.bucket_name, self.prefix)

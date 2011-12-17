@@ -46,7 +46,7 @@ class TestCase(unittest.TestCase):
             setup_excepthook()
             handler.setLevel(logging.DEBUG)
             root_logger.setLevel(logging.WARN)
-            
+
             # For debugging:
             #root_logger.setLevel(logging.DEBUG)
             #handler.addFilter(LoggerFilter(['UploadManager'], 

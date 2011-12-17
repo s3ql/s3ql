@@ -22,7 +22,7 @@ add_literal_role('var') # A variable defined in a :samp: role
 
 # Add our own Pygments Lexer
 import pygments.lexers._mapping as pmap
-pmap.LEXERS['CommandLineLexer'] = ('cmdline_lexer', 'CommandLine', 
+pmap.LEXERS['CommandLineLexer'] = ('cmdline_lexer', 'CommandLine',
                                    ('CommandLine', 'commandline'), (), ())
 
 # If extensions (or modules to document with autodoc) are in another directory,
@@ -214,9 +214,9 @@ latex_documents = [
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [         
+man_pages = [
     ('man/mkfs', 'mkfs.s3ql', u'Create an S3QL file system',
-     None, 1),     
+     None, 1),
     ('man/mount', 'mount.s3ql', u'Mount an S3QL file system',
      None, 1),
     ('man/umount', 'umount.s3ql', u'Unmount an S3QL file system',
@@ -234,11 +234,11 @@ man_pages = [
     ('man/rm', 's3qlrm', u'Fast tree removal on S3QL file systems',
      None, 1),
     ('man/stat', 's3qlstat', u'Gather S3QL file system statistics',
-     None, 1),      
+     None, 1),
     ('man/expire_backups', 'expire_backups', u'Intelligently expire old backups',
-     None, 1),    
+     None, 1),
     ('man/pcp', 'pcp', u'Recursive, parallel copy of directory trees',
-     None, 1),    
+     None, 1),
 ]
 
 

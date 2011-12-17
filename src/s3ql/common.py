@@ -24,21 +24,21 @@ import types
 BUFSIZE = 256 * 1024
 
 log = logging.getLogger('common')
-            
-def setup_logging(options):        
+
+def setup_logging(options):
     root_logger = logging.getLogger()
     if root_logger.handlers:
         log.debug("Logging already initialized.")
         return
-        
+
     stdout_handler = add_stdout_logging(options.quiet)
     if hasattr(options, 'log') and options.log:
         root_logger.addHandler(options.log)
-        debug_handler = options.log  
+        debug_handler = options.log
     else:
         debug_handler = stdout_handler
     setup_excepthook()
-    
+
     if options.debug:
         root_logger.setLevel(logging.DEBUG)
         debug_handler.setLevel(logging.NOTSET)
@@ -49,10 +49,10 @@ def setup_logging(options):
     else:
         root_logger.setLevel(logging.INFO)
         logging.disable(logging.DEBUG)
-        
-    return stdout_handler 
- 
-                        
+
+    return stdout_handler
+
+
 class LoggerFilter(object):
     """
     For use with the logging module as a message filter.
@@ -63,7 +63,7 @@ class LoggerFilter(object):
 
     def __init__(self, acceptnames, acceptlevel):
         """Initializes a Filter object"""
-        
+
         self.acceptlevel = acceptlevel
         self.acceptnames = [ x.lower() for x in acceptnames ]
 
@@ -77,12 +77,12 @@ class LoggerFilter(object):
             return True
 
         return False
-    
+
 def add_stdout_logging(quiet=False):
     '''Add stdout logging handler to root logger'''
 
     root_logger = logging.getLogger()
-    formatter = logging.Formatter('%(message)s') 
+    formatter = logging.Formatter('%(message)s')
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)
     if quiet:
@@ -93,42 +93,42 @@ def add_stdout_logging(quiet=False):
     return handler
 
 def get_seq_no(bucket):
-    '''Get current metadata sequence number'''   
+    '''Get current metadata sequence number'''
     from .backends.common import NoSuchObject
-    
-    seq_nos = list(bucket.list('s3ql_seq_no_')) 
+
+    seq_nos = list(bucket.list('s3ql_seq_no_'))
     if not seq_nos:
         # Maybe list result is outdated
         seq_nos = [ 's3ql_seq_no_1' ]
-    
-    if (seq_nos[0].endswith('.meta') 
-        or seq_nos[0].endswith('.dat')): 
+
+    if (seq_nos[0].endswith('.meta')
+        or seq_nos[0].endswith('.dat')):
         raise QuietError('Old file system revision, please run `s3qladm upgrade` first.')
-         
+
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in seq_nos ]
-    seq_no = max(seq_nos) 
-    
+    seq_no = max(seq_nos)
+
     # Make sure that object really exists
     while ('s3ql_seq_no_%d' % seq_no) not in bucket:
-        seq_no -= 1 
+        seq_no -= 1
         if seq_no == 0:
             raise QuietError('No S3QL file system found in bucket.')
     while ('s3ql_seq_no_%d' % seq_no) in bucket:
-        seq_no += 1 
+        seq_no += 1
     seq_no -= 1
-    
+
     # Delete old seq nos
     for i in [ x for x in seq_nos if x < seq_no - 10 ]:
         try:
             del bucket['s3ql_seq_no_%d' % i]
         except NoSuchObject:
             pass # Key list may not be up to date
-        
-    return seq_no   
+
+    return seq_no
 
 def stream_write_bz2(ifh, ofh):
     '''Compress *ifh* into *ofh* using bz2 compression'''
-    
+
     compr = bz2.BZ2Compressor(9)
     while True:
         buf = ifh.read(BUFSIZE)
@@ -143,7 +143,7 @@ def stream_write_bz2(ifh, ofh):
 
 def stream_read_bz2(ifh, ofh):
     '''Uncompress bz2 compressed *ifh* into *ofh*'''
-    
+
     decompressor = bz2.BZ2Decompressor()
     while True:
         buf = ifh.read(BUFSIZE)
@@ -151,8 +151,8 @@ def stream_read_bz2(ifh, ofh):
             break
         buf = decompressor.decompress(buf)
         if buf:
-            ofh.write(buf)       
-            
+            ofh.write(buf)
+
     if decompressor.unused_data or ifh.read(1) != '':
         raise ChecksumError('Data after end of bz2 stream')
 
@@ -160,14 +160,14 @@ class ChecksumError(Exception):
     """
     Raised if there is a checksum error in the data that we received.
     """
-    
+
     def __init__(self, str_):
         super(ChecksumError, self).__init__()
         self.str = str_
-    
+
     def __str__(self):
         return self.str
-                      
+
 class QuietError(Exception):
     '''
     QuietError is the base class for exceptions that should not result
@@ -177,7 +177,7 @@ class QuietError(Exception):
     supplying invalid input data. The exception argument should be a
     string containing sufficient information about the problem.
     '''
-    
+
     def __init__(self, msg=''):
         super(QuietError, self).__init__()
         self.msg = msg
@@ -188,7 +188,7 @@ class QuietError(Exception):
 # Adapted from cgitb.text, but less verbose
 def format_tb(einfo):
     """Return a plain text document describing a given traceback."""
-    
+
     etype, evalue, etb = einfo
     if type(etype) is types.ClassType:
         etype = etype.__name__
@@ -201,11 +201,11 @@ def format_tb(einfo):
                                       formatvalue=lambda value: '=' + pydoc.text.repr(value))
 
         rows = ['  File %r, line %d, in %s%s' % (file_, lnum, func, sig) ]
-        
+
         # To print just current line
         if index is not None:
             rows.append('    %s' % lines[index].strip())
-            
+
 #        # To print with context:
 #        if index is not None:
 #            i = lnum - index
@@ -213,9 +213,9 @@ def format_tb(einfo):
 #                num = '%5d ' % i
 #                rows.append(num+line.rstrip())
 #                i += 1
-                            
+
         def reader(lnum=[lnum]): #pylint: disable=W0102 
-            try: 
+            try:
                 return linecache.getline(file_, lnum[0])
             finally:
                 lnum[0] += 1
@@ -223,16 +223,16 @@ def format_tb(einfo):
         printed = set()
         rows.append('  Current bindings:')
         for (name, where, value) in scanvars(reader, frame, locals_):
-            if name in printed: 
+            if name in printed:
                 continue
             printed.add(name)
             if value is not __UNDEF__:
-                if where == 'global': 
+                if where == 'global':
                     where = '(global)'
-                elif where != 'local': 
+                elif where != 'local':
                     name = where + name.split('.')[-1]
                     where = '(local)'
-                else: 
+                else:
                     where = ''
                 rows.append('    %s = %s %s' % (name, pydoc.text.repr(value), where))
             else:
@@ -257,7 +257,7 @@ def setup_excepthook():
     Also makes sure that exceptions derived from `QuietException`
     do not result in stacktraces.
     '''
-    
+
     def excepthook(type_, val, tb):
         root_logger = logging.getLogger()
         if isinstance(val, QuietError):
@@ -268,18 +268,18 @@ def setup_excepthook():
             except:
                 root_logger.error('Uncaught top-level exception -- and tb handler failed!',
                                   exc_info=(type_, val, tb))
-            else:        
+            else:
                 root_logger.error('Uncaught top-level exception. %s', msg)
-                
-    sys.excepthook = excepthook 
-    
+
+    sys.excepthook = excepthook
+
 def inode_for_path(path, conn):
     """Return inode of directory entry at `path`
     
      Raises `KeyError` if the path does not exist.
     """
     from .database import NoSuchRowError
-    
+
     if not isinstance(path, bytes):
         raise TypeError('path must be of type bytes')
 
@@ -290,7 +290,7 @@ def inode_for_path(path, conn):
     inode = ROOT_INODE
     for el in path.split(b'/'):
         try:
-            inode = conn.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?", 
+            inode = conn.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
                                  (el, inode))
         except NoSuchRowError:
             raise KeyError('Path %s does not exist' % path)
@@ -349,7 +349,7 @@ CTRL_INODE = 2
 
 def sha256_fh(fh):
     fh.seek(0)
-    
+
     # Bogus error about hashlib not having a sha256 member
     #pylint: disable=E1101
     sha = hashlib.sha256()
@@ -362,4 +362,3 @@ def sha256_fh(fh):
 
     return sha.digest()
 
-    

@@ -37,31 +37,31 @@ class AdmTests(TestCase):
         shutil.rmtree(self.bucket_dir)
 
     def mkfs(self):
-        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'), 
+        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
                                  '-L', 'test fs', '--max-obj-size', '500',
                                  '--cachedir', self.cache_dir, '--quiet',
                                  self.bucketname ], stdin=subprocess.PIPE)
-        
+
         print(self.passphrase, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
-        
+
         self.assertEqual(proc.wait(), 0)
 
     def test_passphrase(self):
         self.mkfs()
 
         passphrase_new = 'sd982jhd'
-        
-        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 's3qladm'), 
+
+        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 's3qladm'),
                                  '--quiet', 'passphrase',
                                  self.bucketname ], stdin=subprocess.PIPE)
-        
+
         print(self.passphrase, file=proc.stdin)
         print(passphrase_new, file=proc.stdin)
         print(passphrase_new, file=proc.stdin)
         proc.stdin.close()
-        
+
         self.assertEqual(proc.wait(), 0)
 
         plain_bucket = local.Bucket(self.bucket_dir, None, None)

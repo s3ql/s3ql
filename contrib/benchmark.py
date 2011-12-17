@@ -64,7 +64,7 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    size = 100*1024*1024 # KB
+    size = 100 * 1024 * 1024 # KB
     log.info('Measuring throughput to cache...')
     bucket_dir = tempfile.mkdtemp()
     mnt_dir = tempfile.mkdtemp()
@@ -72,8 +72,8 @@ def main(args=None):
     atexit.register(shutil.rmtree, mnt_dir)
     subprocess.check_call(['mkfs.s3ql', '--plain', 'local://%s' % bucket_dir,
                            '--quiet', '--cachedir', options.cachedir])
-    subprocess.check_call(['mount.s3ql', '--threads', '1', '--quiet', 
-                           '--cachesize', '%d' % (2 * size/1024), '--log',
+    subprocess.check_call(['mount.s3ql', '--threads', '1', '--quiet',
+                           '--cachesize', '%d' % (2 * size / 1024), '--log',
                            '%s/mount.log' % bucket_dir, '--cachedir', options.cachedir,
                            'local://%s' % bucket_dir, mnt_dir])
     with open('/dev/urandom', 'rb', 0) as src:
@@ -86,7 +86,7 @@ def main(args=None):
                 copied += len(buf)
             fuse_speed = copied / (time.time() - stamp)
     os.unlink('%s/bigfile' % mnt_dir)
-    subprocess.check_call(['umount.s3ql', mnt_dir])                           
+    subprocess.check_call(['umount.s3ql', mnt_dir])
     log.info('Cache throughput: %.2f KB/sec', fuse_speed / 1024)
 
     # Upload random data to prevent effects of compression
@@ -95,7 +95,7 @@ def main(args=None):
     try:
         bucket = get_bucket(options, plain=True)
     except NoSuchBucket as exc:
-        raise QuietError(str(exc))           
+        raise QuietError(str(exc))
     with bucket.open_write('s3ql_testdata') as dst:
         with open('/dev/urandom', 'rb', 0) as src:
             stamp = time.time()
@@ -107,11 +107,11 @@ def main(args=None):
             upload_speed = copied / (time.time() - stamp)
     log.info('Backend throughput: %.2f KB/sec', upload_speed / 1024)
     bucket.delete('s3ql_testdata')
-    
+
     src = options.file
-    size = os.fstat(options.file.fileno()).st_size 
-    log.info('Test file size: %.2f MB', (size / 1024**2))
-        
+    size = os.fstat(options.file.fileno()).st_size
+    log.info('Test file size: %.2f MB', (size / 1024 ** 2))
+
     times = dict()
     out_sizes = dict()
     for alg in ('lzma', 'bzip2', 'zlib'):
@@ -127,12 +127,12 @@ def main(args=None):
                 dst.write(buf)
             times[alg] = time.time() - stamp
             out_sizes[alg] = dst.get_obj_size()
-        log.info('%s compression speed: %.2f KB/sec (in)', alg, size/times[alg]/1024)
-        log.info('%s compression speed: %.2f KB/sec (out)', alg, 
+        log.info('%s compression speed: %.2f KB/sec (in)', alg, size / times[alg] / 1024)
+        log.info('%s compression speed: %.2f KB/sec (out)', alg,
                  out_sizes[alg] / times[alg] / 1024)
 
     print('')
-    
+
     req = dict()
     for alg in ('lzma', 'bzip2', 'zlib'):
         backend_req = math.ceil(upload_speed * times[alg] / out_sizes[alg])
@@ -141,13 +141,13 @@ def main(args=None):
         print('When using %s compression, incoming writes can keep up to %d threads\n'
               'busy. The backend can handle data from up to %d threads. Therefore,\n'
               'the maximum achievable throughput is %.2f KB/sec with %d threads.\n'
-              % (alg, fuse_req, backend_req, min(upload_speed, fuse_speed)/1024, req[alg]))
-        
+              % (alg, fuse_req, backend_req, min(upload_speed, fuse_speed) / 1024, req[alg]))
+
     print('All numbers assume that the test file is representative and that',
           'there are enough processor cores to run all threads in parallel.',
           'To compensate for network latency, you should start about twice as',
           'many upload threads as you need for optimal performance.\n', sep='\n')
-    
+
     cores = os.sysconf('SC_NPROCESSORS_ONLN')
     best_size = None
     max_threads = cores
@@ -159,13 +159,13 @@ def main(args=None):
                 best_size = out_sizes[alg]
                 best_alg = alg
                 threads = req[alg]
-                
+
         max_threads = min(req.itervalues())
-    
+
     print('This system appears to have %d cores, so best performance with maximum\n'
           'compression ratio would be achieved by using %s compression with %d\n'
           'upload threads.' % (cores, best_alg,
-                                2 * threads if cores >= threads else 2 * cores))    
+                                2 * threads if cores >= threads else 2 * cores))
 
 if __name__ == '__main__':
     main(sys.argv[1:])

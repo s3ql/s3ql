@@ -22,17 +22,17 @@ class PipeInclude(Include):
     Include program output as ReST source.
     """
 
-    def run(self):   
+    def run(self):
         source = self.state_machine.input_lines.source(
             self.lineno - self.state_machine.input_offset - 1)
         source_dir = os.path.dirname(os.path.abspath(source))
-        
+
         command = self.arguments[0].encode('UTF-8')
         encoding = self.options.get(
             'encoding', self.state.document.settings.input_encoding)
         tab_width = self.options.get(
             'tab-width', self.state.document.settings.tab_width)
-        
+
         try:
             child = subprocess.Popen(shlex.split(command), stdout=subprocess.PIPE,
                                      cwd=source_dir)
@@ -86,7 +86,7 @@ class PipeInclude(Include):
                 text = include_text.expandtabs(tab_width)
             else:
                 text = include_text
-            literal_block = nodes.literal_block(include_text, text, 
+            literal_block = nodes.literal_block(include_text, text,
                                                 source=command)
             literal_block.line = 1
             return [literal_block]

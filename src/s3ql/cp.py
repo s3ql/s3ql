@@ -38,8 +38,8 @@ def parse_args(args):
     parser.add_debug()
     parser.add_quiet()
     parser.add_version()
-    
-    parser.add_argument('source', help='source directory', 
+
+    parser.add_argument('source', help='source directory',
                         type=(lambda x: x.rstrip('/')))
     parser.add_argument('target', help='target directory',
                         type=(lambda x: x.rstrip('/')))
@@ -84,7 +84,7 @@ def main(args=None):
 
     if os.stat(ctrlfile).st_uid != os.geteuid() and os.geteuid() != 0:
         raise QuietError('Only root and the mounting user may run s3qlcp.')
-        
+
     try:
         os.mkdir(options.target)
     except OSError as exc:
@@ -92,9 +92,9 @@ def main(args=None):
             raise QuietError('No permission to create target directory')
         else:
             raise
-    
+
     fstat_t = os.stat(options.target)
-    llfuse.setxattr(ctrlfile, 'copy',  pickle.dumps((fstat_s.st_ino, fstat_t.st_ino), 
+    llfuse.setxattr(ctrlfile, 'copy', pickle.dumps((fstat_s.st_ino, fstat_t.st_ino),
                                                     pickle.HIGHEST_PROTOCOL))
 
 

@@ -11,7 +11,7 @@ from __future__ import division, print_function
 __all__ = [ 'adm', 'backends', 'block_cache', 'cleanup_manager', 'common',
             'cp', 'ctrl', 'daemonize', 'database', 'deltadump', '_deltadump',
             'fs', 'fsck', 'inode_cache', 'lock', 'mkfs', 'mount', 'ordered_dict',
-            'parse_args', 'remove', 'statfs', 'umount', 'VERSION', 
+            'parse_args', 'remove', 'statfs', 'umount', 'VERSION',
             'CURRENT_FS_REV', 'REV_VER_MAP' ]
 
 # On next revision, make sure to explicitly rename
