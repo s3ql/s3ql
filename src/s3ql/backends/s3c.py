@@ -7,11 +7,10 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-from ..common import BUFSIZE
-from .common import AbstractBucket, NoSuchObject, retry
+from ..common import BUFSIZE, QuietError
+from .common import AbstractBucket, NoSuchObject, retry, AuthorizationError
 from .common import NoSuchBucket as NoSuchBucket_common
 from base64 import b64encode
-from s3ql.common import QuietError
 import errno
 import hashlib
 import hmac
@@ -649,12 +648,12 @@ class S3Error(Exception):
         return '%s: %s' % (self.code, self.msg)
 
 class NoSuchKey(S3Error): pass
-class AccessDenied(S3Error): pass
+class AccessDenied(S3Error, AuthorizationError): pass
 class BadDigest(S3Error): pass
 class IncompleteBody(S3Error): pass
 class InternalError(S3Error): pass
-class InvalidAccessKeyId(S3Error): pass
-class InvalidSecurity(S3Error): pass
+class InvalidAccessKeyId(S3Error, AuthorizationError): pass
+class InvalidSecurity(S3Error, AuthorizationError): pass
 class OperationAborted(S3Error): pass
 class RequestTimeout(S3Error): pass
 class SlowDown(S3Error): pass

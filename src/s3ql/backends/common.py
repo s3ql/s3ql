@@ -1029,6 +1029,16 @@ class NoSuchBucket(Exception):
         return 'Bucket %r does not exist' % self.name
 
 
+class AuthorizationError(Exception):
+    '''Raised if the credentials don't give access to the requested bucket'''
+
+    def __init__(self, msg):
+        super(AuthorizationError, self).__init__()
+        self.msg = msg
+
+    def __str__(self):
+        return 'Access denied. Server said: %s' % self.msg
+
 def convert_legacy_metadata(meta):
     if ('encryption' in meta and
         'compression' in meta):
