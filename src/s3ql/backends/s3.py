@@ -19,6 +19,14 @@ log = logging.getLogger("backend.s3")
 # Pylint goes berserk with false positives
 #pylint: disable=E1002,E1101
 
+
+# These regions provide read after write consistency for new objects
+# http://docs.amazonwebservices.com/AmazonS3/2006-03-01/dev/LocationSelection.html
+GOOD_REGIONS=('EU', 'us-west-1', 'us-west-2', 'ap-southeast-1', 'ap-northeast-1', 'sa-east-1')
+
+# These don't
+BAD_REGIONS=('us-standard',)
+              
 class Bucket(s3c.Bucket):
     """A bucket stored in Amazon S3
     
@@ -33,9 +41,9 @@ class Bucket(s3c.Bucket):
         super(Bucket, self).__init__(storage_url, login, password)
 
         self.region = self._get_region()
-        if self.region == 'us-standard':
+        if self.region in BAD_REGIONS:
             log.warn('Warning: bucket provides insufficient consistency guarantees!')
-        elif self.region not in ('EU', 'us-west-1', 'eu-west-1', 'ap-southeast-1'):
+        elif self.region not in GOOD_REGIONS:
             log.warn('Unknown region: %s - please file a bug report. ')
 
     @staticmethod
@@ -83,4 +91,4 @@ class Bucket(s3c.Bucket):
         reflected when retrieving the list of available objects.
         '''
 
-        return self.region in ('EU', 'eu-west-1', 'us-west-1', 'ap-southeast-1')
+        return self.region in GOOD_REGIONS
