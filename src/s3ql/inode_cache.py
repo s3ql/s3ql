@@ -21,7 +21,6 @@ ATTRIBUTE_STR = ', '.join(ATTRIBUTES)
 UPDATE_ATTRS = ('mode', 'refcount', 'uid', 'gid', 'size', 'locked',
               'rdev', 'atime', 'mtime', 'ctime')
 UPDATE_STR = ', '.join('%s=?' % x for x in UPDATE_ATTRS)
-TIMEZONE = time.timezone
 
 MAX_INODE = 2 ** 32 - 1
 
@@ -176,21 +175,11 @@ class InodeCache(object):
         for (i, id_) in enumerate(ATTRIBUTES):
             setattr(inode, id_, attrs[i])
 
-        # Convert to local time
-        # Pylint does not detect the attributes
-        #pylint: disable=E1101
-        inode.atime += TIMEZONE
-        inode.mtime += TIMEZONE
-        inode.ctime += TIMEZONE
-
         inode.dirty = False
 
         return inode
 
     def create_inode(self, **kw):
-
-        for i in ('atime', 'ctime', 'mtime'):
-            kw[i] -= TIMEZONE
 
         bindings = tuple(kw[x] for x in ATTRIBUTES if x in kw)
         columns = ', '.join(x for x in ATTRIBUTES if x in kw)
@@ -209,11 +198,6 @@ class InodeCache(object):
         if not inode.dirty:
             return
         inode.dirty = False
-        inode = inode.copy()
-
-        inode.atime -= TIMEZONE
-        inode.mtime -= TIMEZONE
-        inode.ctime -= TIMEZONE
 
         self.db.execute("UPDATE inodes SET %s WHERE id=?" % UPDATE_STR,
                         [ getattr(inode, x) for x in UPDATE_ATTRS ] + [inode.id])

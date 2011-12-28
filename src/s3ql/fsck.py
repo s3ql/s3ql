@@ -216,7 +216,7 @@ class Fsck(object):
 
         log.info('Checking lost+found...')
 
-        timestamp = time.time() - time.timezone
+        timestamp = time.time()
         try:
             (inode_l, name_id) = self.conn.get_row("SELECT inode, name_id FROM contents_v "
                                                    "WHERE name=? AND parent_inode=?", (b"lost+found", ROOT_INODE))
@@ -617,7 +617,7 @@ class Fsck(object):
                     self.found_errors = True
                     (id_p, name) = self.resolve_free(b"/lost+found", b"block-%d" % id_)
                     self.log_error("Block %d not referenced, adding as /lost+found/%s", id_, name)
-                    timestamp = time.time() - time.timezone
+                    timestamp = time.time()
                     size = self.conn.get_val('SELECT size FROM blocks WHERE id=?', (id_,))
                     inode = self.create_inode(mode=stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
                                               mtime=timestamp, atime=timestamp, ctime=timestamp,
@@ -1125,12 +1125,9 @@ def main(args=None):
         param['seq_no'] = seq_no
         param['needs_fsck'] = True
 
-    if 'max_obj_size' not in param:
-        param['max_obj_size'] = param['blocksize']
-
     if (not param['needs_fsck']
         and param['max_inode'] < 2 ** 31
-        and ((time.time() - time.timezone) - param['last_fsck'])
+        and (time.time() - param['last_fsck'])
              < 60 * 60 * 24 * 31): # last check more than 1 month ago
         if options.force:
             log.info('File system seems clean, checking anyway.')
@@ -1196,8 +1193,8 @@ def main(args=None):
 
     cycle_metadata(bucket)
     param['needs_fsck'] = False
-    param['last_fsck'] = time.time() - time.timezone
-    param['last-modified'] = time.time() - time.timezone
+    param['last_fsck'] = time.time()
+    param['last-modified'] = time.time()
 
     log.info('Dumping metadata...')
     fh = tempfile.TemporaryFile()

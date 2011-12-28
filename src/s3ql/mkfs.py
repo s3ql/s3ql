@@ -57,7 +57,7 @@ def parse_args(args):
 
 def init_tables(conn):
     # Insert root directory
-    timestamp = time.time() - time.timezone
+    timestamp = time.time()
     conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
                  "VALUES (?,?,?,?,?,?,?,?)",
                    (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
@@ -151,8 +151,8 @@ def main(args=None):
     param['needs_fsck'] = False
     param['inode_gen'] = 0
     param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
-    param['last_fsck'] = time.time() - time.timezone
-    param['last-modified'] = time.time() - time.timezone
+    param['last_fsck'] = time.time()
+    param['last-modified'] = time.time()
 
     # This indicates that the convert_legacy_metadata() stuff
     # in BetterBucket is not required for this file system.

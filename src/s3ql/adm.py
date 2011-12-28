@@ -334,43 +334,18 @@ def upgrade(bucket, cachepath):
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')
 
-    log.info('Upgrading from revision %d to %d...', param['revision'],
-                      CURRENT_FS_REV)
+    log.info('Upgrading from revision %d to %d...', param['revision'], CURRENT_FS_REV)
 
     if 'max_obj_size' not in param:
         param['max_obj_size'] = param['blocksize']
+    if 'blocksize' in param:
+        del param['blocksize']
 
-    db.execute("""
-    CREATE TABLE ext_attributes_new (
-        inode     INTEGER NOT NULL REFERENCES inodes(id),
-        name_id   INTEGER NOT NULL REFERENCES names(id),
-        value     BLOB NOT NULL,
- 
-        PRIMARY KEY (inode, name_id)               
-    )""")
-    for (inode, name, val) in db.query('SELECT inode, name, value FROM ext_attributes'):
-        db.execute('INSERT INTO ext_attributes_new (inode, name_id, value) VALUES(?,?,?)',
-                   (inode, _add_name(db, name), val))
-    db.execute('DROP TABLE ext_attributes')
-    db.execute('ALTER TABLE ext_attributes_new RENAME TO ext_attributes')
-    db.execute("""
-    CREATE VIEW ext_attributes_v AS
-    SELECT * FROM ext_attributes JOIN names ON names.id = name_id
-    """)
-
-    renumber_inodes(db)
-
-    # fsck required to make sure that dump will work
-    fsck = Fsck(cachepath + '-cache', bucket, param, db)
-    fsck.check()
-
-    if fsck.uncorrectable_errors:
-        raise QuietError("Uncorrectable errors found, aborting.")
-
-    param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
-    param['inode_gen'] = 1
+    db.execute('UPDATE inodes SET mtime=mtime+?, ctime=ctime+?, atime=atime+?',
+               (time.timezone, time.timezone, time.timezone))
+    
     param['revision'] = CURRENT_FS_REV
-    param['last-modified'] = time.time() - time.timezone
+    param['last-modified'] = time.time()
 
     cycle_metadata(bucket)
     log.info('Dumping metadata...')

@@ -502,7 +502,7 @@ class BetterBucket(AbstractBucket):
 
         if self.passphrase:
             meta_raw['encryption'] = 'AES_v2'
-            nonce = struct.pack(b'<f', time.time() - time.timezone) + bytes(key)
+            nonce = struct.pack(b'<f', time.time()) + bytes(key)
             meta_raw['meta'] = b64encode(encrypt(meta_buf, self.passphrase, nonce))
         else:
             meta_raw['encryption'] = 'None'

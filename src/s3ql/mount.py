@@ -216,7 +216,7 @@ def main(args=None):
             pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         elif seq_no == param['seq_no']:
             cycle_metadata(bucket)
-            param['last-modified'] = time.time() - time.timezone
+            param['last-modified'] = time.time()
 
             log.info('Dumping metadata...')
             fh = tempfile.TemporaryFile()
@@ -336,7 +336,7 @@ def get_metadata(bucket, cachepath):
     # Check that the fs itself is clean
     if param['needs_fsck']:
         raise QuietError("File system damaged or not unmounted cleanly, run fsck!")
-    if (time.time() - time.timezone) - param['last_fsck'] > 60 * 60 * 24 * 31:
+    if time.time() - param['last_fsck'] > 60 * 60 * 24 * 31:
         log.warn('Last file system check was more than 1 month ago, '
                  'running fsck.s3ql is recommended.')
 
@@ -362,9 +362,6 @@ def get_metadata(bucket, cachepath):
         db.close()
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')
-
-    if 'max_obj_size' not in param:
-        param['max_obj_size'] = param['blocksize']
 
     # Increase metadata sequence no 
     param['seq_no'] += 1
@@ -558,7 +555,7 @@ class MetadataUploadThread(Thread):
 
                 cycle_metadata(bucket)
                 fh.seek(0)
-                self.param['last-modified'] = time.time() - time.timezone
+                self.param['last-modified'] = time.time()
 
                 # Temporarily decrease sequence no, this is not the final upload
                 self.param['seq_no'] -= 1

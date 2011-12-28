@@ -425,8 +425,8 @@ class fs_api_tests(TestCase):
         attr.st_mode = self.file_mode()
         attr.st_uid = randint(0, 2 ** 32)
         attr.st_gid = randint(0, 2 ** 32)
-        attr.st_atime = time.timezone + randint(0, 2 ** 32) / 10 ** 6
-        attr.st_mtime = time.timezone + randint(0, 2 ** 32) / 10 ** 6
+        attr.st_atime = randint(0, 2 ** 32) / 10 ** 6
+        attr.st_mtime = randint(0, 2 ** 32) / 10 ** 6
 
         time.sleep(CLOCK_GRANULARITY)
         self.server.setattr(inode.id, attr)

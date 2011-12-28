@@ -14,16 +14,14 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'cleanup_manager', 'common',
             'parse_args', 'remove', 'statfs', 'umount', 'VERSION',
             'CURRENT_FS_REV', 'REV_VER_MAP' ]
 
-# On next revision, make sure to explicitly rename
-# param['blocksize'] to param['max_block_size'] 
-
 # Also, remove obsolete rowid column from contents
-VERSION = '1.8.1'
-CURRENT_FS_REV = 14
+VERSION = '1.9'
+CURRENT_FS_REV = 15
 
 # Maps file system revisions to the last S3QL version that
 # supported this revision.
-REV_VER_MAP = { 14: '1.8.1',
+REV_VER_MAP = { 15: '1.9',
+                14: '1.8.1',
                 13: '1.6',
                 12: '1.3',
                 11: '1.0.1' }
