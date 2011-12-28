@@ -116,6 +116,13 @@ def main():
     if sys.version_info[0] == 3 and sys.version_info[1] < 2:
         compile_args.append('-Wno-missing-field-initializers')
 
+    required_pkgs = ['apsw >= 3.7.0',
+                     'pycryptopp',
+                     'llfuse >= 0.37',
+                     'pyliblzma >= 0.5.3' ]
+    if sys.version_info[0] == 2 and sys.version_info[1] < 7:
+        required_pkgs.append('argparse >= 1.1')
+
     setuptools.setup(
           name='s3ql',
           zip_safe=True,
@@ -160,16 +167,8 @@ def main():
                          's3qlrm = s3ql.remove:main',
                          ]
                           },
-          install_requires=['apsw >= 3.7.0',
-                            'pycryptopp',
-                            'llfuse >= 0.37',
-                            'argparse >= 1.1',
-                            'pyliblzma >= 0.5.3' ],
-          tests_require=['apsw >= 3.7.0', 'unittest2',
-                         'pycryptopp',
-                         'llfuse >= 0.37',
-                         'argparse >= 1.1',
-                         'pyliblzma >= 0.5.3' ],
+          install_requires=required_pkgs,
+          tests_require=required_pkgs + [ 'unittest2' ],
           test_suite='tests',
           cmdclass={'test': test,
                     'upload_docs': upload_docs,

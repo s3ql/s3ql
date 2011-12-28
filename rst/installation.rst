@@ -35,16 +35,19 @@ that is not the case.
 
 * `Python <http://www.python.org/>`_, version 2.6.6 or newer, but not
   Python 3.x. Make sure to also install the development headers.
+
+* When using Python 2.6, the `argparse Python Module
+  <http://pypi.python.org/pypi/argparse>`_ is also required. Newer
+  Python versions (2.7 and up) already include this module.
+
+  To check if this module is installed, try to execute `python -c
+  'import argparse; print argparse.__version__'`. If argparse is
+  installed, this will print the version number. You need version 1.1
+  or later.
   
 * The `PyCrypto++ Python Module
   <http://pypi.python.org/pypi/pycryptopp>`_. To check if this module
   is installed, try to execute `python -c 'import pycryptopp'`. 
-
-* The `argparse Python Module
-  <http://pypi.python.org/pypi/argparse>`_. To check if this module is
-  installed, try to execute `python -c 'import argparse; print
-  argparse.__version__'`. If argparse is installed, this will print
-  the version number. You need version 1.1 or later.
   
 * `SQLite <http://www.sqlite.org/>`_ version 3.7.0 or newer. SQLite
   has to be installed as a *shared library* with development headers.
