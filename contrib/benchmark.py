@@ -115,7 +115,7 @@ def main(args=None):
     for alg in ('lzma', 'bzip2', 'zlib'):
         log.info('compressing with %s...', alg)
         bucket = BetterBucket('pass', alg, Bucket('local://' + bucket_dir, None, None))
-        with bucket.open_write('s3ql_testdata') as dst:
+        def do_write(dst):
             src.seek(0)
             stamp = time.time()
             while True:
@@ -124,7 +124,8 @@ def main(args=None):
                     break
                 dst.write(buf)
             times[alg] = time.time() - stamp
-            out_sizes[alg] = dst.get_obj_size()
+            return dst            
+        out_sizes[alg] = bucket.perform_write(do_write, 's3ql_testdata').get_obj_size()
         log.info('%s compression speed: %.2f KB/sec (in)', alg, size / times[alg] / 1024)
         log.info('%s compression speed: %.2f KB/sec (out)', alg,
                  out_sizes[alg] / times[alg] / 1024)
