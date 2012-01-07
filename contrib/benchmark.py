@@ -12,10 +12,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-from s3ql.backends.common import get_bucket, BetterBucket, NoSuchBucket
-from s3ql.backends.local import Bucket
-from s3ql.common import setup_logging, BUFSIZE, QuietError
-from s3ql.parse_args import ArgumentParser
 import argparse
 import atexit
 import logging
@@ -34,6 +30,10 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
+from s3ql.backends.common import get_bucket, BetterBucket, NoSuchBucket
+from s3ql.backends.local import Bucket
+from s3ql.common import setup_logging, BUFSIZE, QuietError
+from s3ql.parse_args import ArgumentParser
 
 log = logging.getLogger('benchmark')
 
