@@ -62,7 +62,7 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    size = 100 * 1024 * 1024 # KB
+    size = 50 * 1024 * 1024
     log.info('Measuring throughput to cache...')
     bucket_dir = tempfile.mkdtemp()
     mnt_dir = tempfile.mkdtemp()
@@ -74,17 +74,19 @@ def main(args=None):
                            '--cachesize', '%d' % (2 * size / 1024), '--log',
                            '%s/mount.log' % bucket_dir, '--cachedir', options.cachedir,
                            'local://%s' % bucket_dir, mnt_dir])
-    with open('/dev/urandom', 'rb', 0) as src:
-        with open('%s/bigfile' % mnt_dir, 'wb', 0) as dst:
-            stamp = time.time()
-            copied = 0
-            while copied < size:
-                buf = src.read(BUFSIZE)
-                dst.write(buf)
-                copied += len(buf)
-            fuse_speed = copied / (time.time() - stamp)
-    os.unlink('%s/bigfile' % mnt_dir)
-    subprocess.check_call(['umount.s3ql', mnt_dir])
+    try:
+        with open('/dev/urandom', 'rb', 0) as src:
+            with open('%s/bigfile' % mnt_dir, 'wb', 0) as dst:
+                stamp = time.time()
+                copied = 0
+                while copied < size:
+                    buf = src.read(BUFSIZE)
+                    dst.write(buf)
+                    copied += len(buf)
+                fuse_speed = copied / (time.time() - stamp)
+        os.unlink('%s/bigfile' % mnt_dir)
+    finally:
+        subprocess.check_call(['umount.s3ql', mnt_dir])
     log.info('Cache throughput: %.2f KB/sec', fuse_speed / 1024)
 
     # Upload random data to prevent effects of compression
@@ -94,15 +96,24 @@ def main(args=None):
         bucket = get_bucket(options, plain=True)
     except NoSuchBucket as exc:
         raise QuietError(str(exc))
-    with bucket.open_write('s3ql_testdata') as dst:
-        with open('/dev/urandom', 'rb', 0) as src:
-            stamp = time.time()
-            copied = 0
-            while copied < size:
-                buf = src.read(BUFSIZE)
-                dst.write(buf)
-                copied += len(buf)
-            upload_speed = copied / (time.time() - stamp)
+    
+    upload_time = 0
+    size = 512 * 1024
+    while upload_time < 10:
+        size *= 2
+        def do_write(dst):
+            with open('/dev/urandom', 'rb', 0) as src:
+                stamp = time.time()
+                copied = 0
+                while copied < size:
+                    buf = src.read(BUFSIZE)
+                    dst.write(buf)
+                    copied += len(buf)
+                return (copied, stamp)
+        (upload_size, upload_time) = bucket.perform_write(do_write, 's3ql_testdata')
+        upload_time = time.time() - upload_time
+        log.info('Wrote %d in %.3f sec', upload_size, upload_time)
+    upload_speed = upload_size / upload_time
     log.info('Backend throughput: %.2f KB/sec', upload_speed / 1024)
     bucket.delete('s3ql_testdata')
 
@@ -115,17 +126,17 @@ def main(args=None):
     for alg in ('lzma', 'bzip2', 'zlib'):
         log.info('compressing with %s...', alg)
         bucket = BetterBucket('pass', alg, Bucket('local://' + bucket_dir, None, None))
-        def do_write(dst):
+        def do_write(dst): #pylint: disable=E0102
             src.seek(0)
-            stamp = time.time()
+            times[alg] = time.time()
             while True:
                 buf = src.read(BUFSIZE)
                 if not buf:
                     break
                 dst.write(buf)
-            times[alg] = time.time() - stamp
             return dst            
         out_sizes[alg] = bucket.perform_write(do_write, 's3ql_testdata').get_obj_size()
+        times[alg] = time.time() - times[alg]
         log.info('%s compression speed: %.2f KB/sec (in)', alg, size / times[alg] / 1024)
         log.info('%s compression speed: %.2f KB/sec (out)', alg,
                  out_sizes[alg] / times[alg] / 1024)
