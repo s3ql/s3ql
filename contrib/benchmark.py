@@ -59,8 +59,6 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
-    args = ['local:///home/nikratio/tmp/bucket', '/home/nikratio/tmp/testfile0']
-
     options = parse_args(args)
     setup_logging(options)
 
