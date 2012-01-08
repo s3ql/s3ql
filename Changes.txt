@@ -2,6 +2,9 @@ xxx, S3QL TIP(default)
 
   * Fixed a problem with file and directory time stamps 
     changing with the time zone of the mount.s3ql process. 
+    
+  * Fixed a crash in contrib/benchmark.py and made output
+    (hopefully) easier to understand.
 
 2011-12-06, S3QL 1.8.1
 
