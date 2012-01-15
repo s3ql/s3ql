@@ -6,6 +6,9 @@ xxx, S3QL TIP(default)
   * Fixed a crash in contrib/benchmark.py and made output
     (hopefully) easier to understand.
 
+  * Fixed "Too many chained redirections" bug when trying to access
+    a new bucket immediately after creation.
+
 2011-12-06, S3QL 1.8.1
 
   * Fixed direct updates from 1.6 to 1.8.

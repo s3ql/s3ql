@@ -11,6 +11,7 @@ from ..common import BUFSIZE, QuietError
 from .common import AbstractBucket, NoSuchObject, retry, AuthorizationError
 from .common import NoSuchBucket as NoSuchBucket_common
 from base64 import b64encode
+from urlparse import urlsplit
 import errno
 import hashlib
 import hmac
@@ -313,12 +314,12 @@ class Bucket(AbstractBucket):
         except NoSuchKey:
             raise NoSuchObject(src)
 
-    def _do_request(self, method, url, subres=None, query_string=None,
+    def _do_request(self, method, path, subres=None, query_string=None,
                     headers=None, body=None):
         '''Send request, read and return response object'''
 
         log.debug('_do_request(): start with parameters (%r, %r, %r, %r, %r, %r)',
-                  method, url, subres, query_string, headers, body)
+                  method, path, subres, query_string, headers, body)
 
         if headers is None:
             headers = dict()
@@ -328,51 +329,45 @@ class Bucket(AbstractBucket):
         if not body:
             headers['content-length'] = '0'
 
-        # When signing, always include bucket name in URL
-        self._add_auth(method, '/%s%s' % (self.bucket_name, url), headers, subres)
-
-        # Construct full URL
-        if not self.hostname.startswith(self.bucket_name):
-            url = '/%s%s' % (self.bucket_name, url)
-        if query_string:
-            s = urllib.urlencode(query_string, doseq=True)
-            if subres:
-                url += '?%s&%s' % (subres, s)
-            else:
-                url += '?%s' % s
-        elif subres:
-            url += '?%s' % subres
-
         redirect_count = 0
         while True:
-            try:
-                log.debug('_do_request(): sending request')
-                self.conn.request(method, url, body, headers)
-
-                log.debug('_do_request(): Reading response')
-                resp = self.conn.getresponse()
-            except:
-                # We probably can't use the connection anymore
-                self.conn.close()
-                raise
-
+                
+            resp = self._send_request(method, path, headers, subres, query_string, body)
             log.debug('_do_request(): request-id: %s', resp.getheader('x-amz-request-id'))
 
             if (resp.status < 300 or resp.status > 399):
                 break
 
+            # Assume redirect
+            new_url = resp.getheader('Location')
+            if new_url is None:
+                break
+            log.info('_do_request(): redirected to %s', new_url)
+                        
             redirect_count += 1
             if redirect_count > 10:
                 raise RuntimeError('Too many chained redirections')
-            url = resp.getheader('Location')
-
-            log.info('_do_request(): redirected to %s', url)
-
+    
+            # Pylint can't infer SplitResult Types
+            #pylint: disable=E1103
+            o = urlsplit(new_url)
+            if o.scheme:
+                if isinstance(self.conn, httplib.HTTPConnection) and o.scheme != 'http':
+                    raise RuntimeError('Redirect to non-http URL')
+                elif isinstance(self.conn, httplib.HTTPSConnection) and o.scheme != 'https':
+                    raise RuntimeError('Redirect to non-https URL')
+            if o.hostname != self.hostname or o.port != self.port:
+                self.hostname = o.hostname
+                self.port = o.port
+                self.conn = self._get_conn()
+            else:
+                raise RuntimeError('Redirect to different path on same host')
+            
             if body and not isinstance(body, bytes):
                 body.seek(0)
 
             # Read and discard body
-            resp.read()
+            log.debug('Response body: %s', resp.read())
 
         # We need to call read() at least once for httplib to consider this
         # request finished, even if there is no response body.
@@ -387,7 +382,6 @@ class Bucket(AbstractBucket):
         # even in case of errors
         if method.upper() == 'HEAD':
             raise HTTPError(resp.status, resp.reason)
-
 
         content_type = resp.getheader('Content-Type')
         if not content_type or not XML_CONTENT_RE.match(content_type):
@@ -439,11 +433,10 @@ class Bucket(AbstractBucket):
     def __str__(self):
         return 's3c://%s/%s/%s' % (self.hostname, self.bucket_name, self.prefix)
 
-    def _add_auth(self, method, url, headers, subres=None):
-        '''Add authentication to *headers*
+    def _send_request(self, method, path, headers, subres=None, query_string=None, body=None):
+        '''Add authentication and send request
         
-        Note that * headers * is modified in -place. *subres * must be a
-        string or * None * .
+        Note that *headers* is modified in-place. Returns the response object.
         '''
 
         # See http://docs.amazonwebservices.com/AmazonS3/latest/dev/RESTAuthentication.html
@@ -477,8 +470,10 @@ class Bucket(AbstractBucket):
             val = ' '.join(re.split(r'\s*\n\s*', headers[hdr].strip()))
             auth_strs.append('%s:%s\n' % (hdr, val))
 
-        url = urllib.quote(url)
-        auth_strs.append(url)
+
+        # Always include bucket name in path for signing
+        sign_path = urllib.quote('/%s%s' % (self.bucket_name, path))
+        auth_strs.append(sign_path)
         if subres:
             auth_strs.append('?%s' % subres)
 
@@ -488,6 +483,29 @@ class Bucket(AbstractBucket):
 
         headers['authorization'] = 'AWS %s:%s' % (self.login, signature)
 
+        # Construct full path
+        if not self.hostname.startswith(self.bucket_name):
+            path = '/%s%s' % (self.bucket_name, path)
+        if query_string:
+            s = urllib.urlencode(query_string, doseq=True)
+            if subres:
+                path += '?%s&%s' % (subres, s)
+            else:
+                path += '?%s' % s
+        elif subres:
+            path += '?%s' % subres
+
+        try:
+            log.debug('_do_request(): sending request for %s', path)
+            self.conn.request(method, path, body, headers)
+
+            log.debug('_do_request(): Reading response..')
+            return self.conn.getresponse()
+        except:
+            # We probably can't use the connection anymore
+            self.conn.close()
+            raise
+        
 class ObjectR(object):
     '''An S3 object open for reading'''
 
