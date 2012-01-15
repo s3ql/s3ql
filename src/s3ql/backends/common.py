@@ -1082,12 +1082,11 @@ def get_bucket_factory(options, plain=False):
     BetterBucket.    
     '''
 
-    hit = re.match(r'^([a-zA-Z0-9]+)://(.+)$', options.storage_url)
+    hit = re.match(r'^([a-zA-Z0-9]+)://', options.storage_url)
     if not hit:
         raise QuietError('Unknown storage url: %s' % options.storage_url)
 
     backend_name = 's3ql.backends.%s' % hit.group(1)
-    bucket_name = hit.group(2)
     try:
         __import__(backend_name)
     except ImportError:
@@ -1135,14 +1134,14 @@ def get_bucket_factory(options, plain=False):
             backend_pw = sys.stdin.readline().rstrip()
 
     if plain:
-        return lambda: bucket_class(bucket_name, backend_login, backend_pw)
+        return lambda: bucket_class(options.storage_url, backend_login, backend_pw)
 
-    bucket = bucket_class(bucket_name, backend_login, backend_pw)
+    bucket = bucket_class(options.storage_url, backend_login, backend_pw)
 
     try:
         encrypted = 's3ql_passphrase' in bucket
     except NoSuchBucket:
-        raise QuietError('Bucket %d does not exist' % bucket_name)
+        raise QuietError('Bucket does not exist')
 
     if encrypted and not bucket_passphrase:
         if sys.stdin.isatty():
@@ -1159,7 +1158,7 @@ def get_bucket_factory(options, plain=False):
 
     if not encrypted:
         return lambda: BetterBucket(None, compress,
-                                    bucket_class(bucket_name, backend_login, backend_pw))
+                                    bucket_class(options.storage_url, backend_login, backend_pw))
 
     tmp_bucket = BetterBucket(bucket_passphrase, compress, bucket)
 
@@ -1169,4 +1168,4 @@ def get_bucket_factory(options, plain=False):
         raise QuietError('Wrong bucket passphrase')
 
     return lambda: BetterBucket(data_pw, compress,
-                                bucket_class(bucket_name, backend_login, backend_pw))
+                                bucket_class(options.storage_url, backend_login, backend_pw))

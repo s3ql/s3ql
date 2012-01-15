@@ -26,12 +26,13 @@ class Bucket(AbstractBucket):
 
     needs_login = False
 
-    def __init__(self, name, backend_login, backend_pw): #IGNORE:W0613
+    def __init__(self, storage_url, backend_login, backend_pw): #IGNORE:W0613
         '''Initialize local bucket
         
         Login and password are ignored.
         '''
         super(Bucket, self).__init__()
+        name = storage_url[len('local://'):]
         self.name = name
 
         if not os.path.exists(name):

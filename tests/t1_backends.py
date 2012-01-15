@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function
 from _common import TestCase
-from s3ql.backends import local, s3, s3s, gs, gss, s3c
+from s3ql.backends import local, s3, s3s, gs, gss, s3c, s3cs
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBucket)
 import ConfigParser
@@ -183,43 +183,109 @@ class S3Tests(BackendTestsMixin, TestCase):
 class S3STests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
-        # This is the time in which we expect S3 changes to propagate. It may
-        # be much longer for larger objects, but for tests this is usually enough.
         self.delay = 15
-
-        self.bucket = s3s.Bucket(*self.get_credentials('s3-test'))
+        self.bucket = s3s.Bucket(*self.get_credentials('s3s-test'))
 
 class GSTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
-        # This is the time in which we expect S3 changes to propagate. It may
-        # be much longer for larger objects, but for tests this is usually enough.
         self.delay = 15
-
         self.bucket = gs.Bucket(*self.get_credentials('gs-test'))
 
 class GSSTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
-        # This is the time in which we expect S3 changes to propagate. It may
-        # be much longer for larger objects, but for tests this is usually enough.
         self.delay = 15
-        self.bucket = gss.Bucket(*self.get_credentials('gs-test'))
+        self.bucket = gss.Bucket(*self.get_credentials('gss-test'))
 
 class S3CTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
-        # This is the time in which we expect S3 changes to propagate. It may
-        # be much longer for larger objects, but for tests this is usually enough.
         self.delay = 0
         self.bucket = s3c.Bucket(*self.get_credentials('s3c-test'))
 
+class S3CSTests(S3Tests):
+    def setUp(self):
+        self.name_cnt = 0
+        self.delay = 0
+        self.bucket = s3cs.Bucket(*self.get_credentials('s3cs-test'))
+      
+
+class URLTests(TestCase):
+    
+    # access to protected members
+    #pylint: disable=W0212
+     
+    def test_s3(self):
+        self.assertEquals(s3.Bucket._parse_storage_url('s3://name')[2:],
+                          ('name', ''))
+        self.assertEquals(s3.Bucket._parse_storage_url('s3://name/')[2:],
+                          ('name', ''))
+        self.assertEquals(s3.Bucket._parse_storage_url('s3://name/pref/')[2:],
+                          ('name', 'pref/'))
+        self.assertEquals(s3.Bucket._parse_storage_url('s3://name//pref/')[2:],
+                          ('name', '/pref/'))
+        
+    def test_s3s(self):
+        self.assertEquals(s3s.Bucket._parse_storage_url('s3s://name')[2:],
+                          ('name', ''))
+        self.assertEquals(s3s.Bucket._parse_storage_url('s3s://name/')[2:],
+                          ('name', ''))
+        self.assertEquals(s3s.Bucket._parse_storage_url('s3s://name/pref/')[2:],
+                          ('name', 'pref/'))
+        self.assertEquals(s3s.Bucket._parse_storage_url('s3s://name//pref/')[2:],
+                          ('name', '/pref/'))
+
+    def test_gs(self):
+        self.assertEquals(gs.Bucket._parse_storage_url('gs://name')[2:],
+                          ('name', ''))
+        self.assertEquals(gs.Bucket._parse_storage_url('gs://name/')[2:],
+                          ('name', ''))
+        self.assertEquals(gs.Bucket._parse_storage_url('gs://name/pref/')[2:],
+                          ('name', 'pref/'))
+        self.assertEquals(gs.Bucket._parse_storage_url('gs://name//pref/')[2:],
+                          ('name', '/pref/'))
+              
+    def test_gss(self):
+        self.assertEquals(gss.Bucket._parse_storage_url('gss://name')[2:],
+                          ('name', ''))
+        self.assertEquals(gss.Bucket._parse_storage_url('gss://name/')[2:],
+                          ('name', ''))
+        self.assertEquals(gss.Bucket._parse_storage_url('gss://name/pref/')[2:],
+                          ('name', 'pref/'))
+        self.assertEquals(gss.Bucket._parse_storage_url('gss://name//pref/')[2:],
+                          ('name', '/pref/'))
+                        
+    def test_s3c(self):
+        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org/name'),
+                          ('host.org', 80, 'name', ''))
+        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org:23/name'),
+                          ('host.org', 23, 'name', ''))
+        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org/name/'),
+                          ('host.org', 80, 'name', ''))
+        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org/name/pref'),
+                          ('host.org', 80, 'name', 'pref'))
+        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org:17/name/pref/'),
+                          ('host.org', 17, 'name', 'pref/'))
+
+    def test_s3cs(self):
+        self.assertEquals(s3cs.Bucket._parse_storage_url('s3cs://host.org/name'),
+                          ('host.org', 443, 'name', ''))
+        self.assertEquals(s3cs.Bucket._parse_storage_url('s3cs://host.org:23/name'),
+                          ('host.org', 23, 'name', ''))
+        self.assertEquals(s3cs.Bucket._parse_storage_url('s3cs://host.org/name/'),
+                          ('host.org', 443, 'name', ''))
+        self.assertEquals(s3cs.Bucket._parse_storage_url('s3cs://host.org/name/pref'),
+                          ('host.org', 443, 'name', 'pref'))
+        self.assertEquals(s3cs.Bucket._parse_storage_url('s3cs://host.org:17/name/pref/'),
+                          ('host.org', 17, 'name', 'pref/'))
+                                
 class LocalTests(BackendTestsMixin, TestCase):
 
     def setUp(self):
         self.name_cnt = 0
         self.bucket_dir = tempfile.mkdtemp()
-        self.bucket = local.Bucket(self.bucket_dir, None, None)
+        self.bucket = local.Bucket('local://' + self.bucket_dir, None, None)
         self.delay = 0
 
     def tearDown(self):
@@ -231,7 +297,7 @@ class CompressionTests(BackendTestsMixin, TestCase):
     def setUp(self):
         self.name_cnt = 0
         self.bucket_dir = tempfile.mkdtemp()
-        self.plain_bucket = local.Bucket(self.bucket_dir, None, None)
+        self.plain_bucket = local.Bucket('local://' + self.bucket_dir, None, None)
         self.bucket = self._wrap_bucket()
         self.delay = 0
 

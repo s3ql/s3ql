@@ -30,7 +30,8 @@ class cache_tests(TestCase):
     def setUp(self):
 
         self.bucket_dir = tempfile.mkdtemp()
-        self.bucket_pool = BucketPool(lambda: local.Bucket(self.bucket_dir, None, None))
+        self.bucket_pool = BucketPool(lambda: local.Bucket('local://' + self.bucket_dir, 
+                                                           None, None))
 
         self.cachedir = tempfile.mkdtemp()
         self.max_obj_size = 1024

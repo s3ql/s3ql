@@ -116,7 +116,7 @@ def main(args=None):
     out_sizes = dict()
     for alg in ('lzma', 'bzip2', 'zlib'):
         log.info('compressing with %s...', alg)
-        bucket = BetterBucket('pass', alg, Bucket(bucket_dir, None, None))
+        bucket = BetterBucket('pass', alg, Bucket('local://' + bucket_dir, None, None))
         with bucket.open_write('s3ql_testdata') as dst:
             src.seek(0)
             stamp = time.time()

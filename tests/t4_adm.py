@@ -64,7 +64,7 @@ class AdmTests(TestCase):
 
         self.assertEqual(proc.wait(), 0)
 
-        plain_bucket = local.Bucket(self.bucket_dir, None, None)
+        plain_bucket = local.Bucket(self.bucketname, None, None)
         bucket = BetterBucket(passphrase_new, 'bzip2', plain_bucket)
         self.assertTrue(isinstance(bucket['s3ql_passphrase'], str))
 

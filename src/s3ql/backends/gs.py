@@ -7,10 +7,11 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-from . import s3
-from .s3 import retry
-import httplib
+from . import s3c
+from .s3c import retry
+from s3ql.common import QuietError
 import logging
+import re
 import xml.etree.cElementTree as ElementTree
 
 # Pylint goes berserk with false positives
@@ -18,7 +19,7 @@ import xml.etree.cElementTree as ElementTree
 
 log = logging.getLogger("backends.gs")
 
-class Bucket(s3.Bucket):
+class Bucket(s3c.Bucket):
     """A bucket stored in Google Storage
     
     This class uses standard HTTP connections to connect to GS.
@@ -27,23 +28,21 @@ class Bucket(s3.Bucket):
     consistency.
     """
 
-    def __init__(self, bucket_name, gs_key, gs_secret):
-        super(Bucket, self).__init__(bucket_name, gs_key, gs_secret)
+    def __init__(self, storage_url, gs_key, gs_secret):
+        super(Bucket, self).__init__(storage_url, gs_key, gs_secret)
 
         self.namespace = 'http://doc.s3.amazonaws.com/2006-03-01'
 
-    def _init(self):
-        '''Additional initialization code
-        
-        Called by constructor and provided solely for easier subclassing.
-        '''
+    @staticmethod
+    def _parse_storage_url(storage_url):
+        hit = re.match(r'^gs://([^/]+)(?:/(.*))?$', storage_url)
+        if not hit:
+            raise QuietError('Invalid storage URL')
 
-        self.conn = self._get_conn()
-
-    def _get_conn(self):
-        '''Return connection to server'''
-
-        return httplib.HTTPConnection('%s.commondatastorage.googleapis.com' % self.bucket_name)
+        bucket_name = hit.group(1)
+        hostname = '%s.commondatastorage.googleapis.com' % bucket_name
+        prefix = hit.group(2) or ''
+        return (hostname, 80, bucket_name, prefix)
 
     @retry
     def _get_region(self):

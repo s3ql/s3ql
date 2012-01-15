@@ -26,7 +26,7 @@ class fsck_tests(TestCase):
 
     def setUp(self):
         self.bucket_dir = tempfile.mkdtemp()
-        self.bucket = local.Bucket(self.bucket_dir, None, None)
+        self.bucket = local.Bucket('local://' + self.bucket_dir, None, None)
         self.cachedir = tempfile.mkdtemp()
         self.max_obj_size = 1024
 
