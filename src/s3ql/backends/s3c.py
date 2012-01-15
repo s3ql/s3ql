@@ -12,6 +12,7 @@ from .common import AbstractBucket, NoSuchObject, retry, AuthorizationError
 from .common import NoSuchBucket as NoSuchBucket_common
 from base64 import b64encode
 from urlparse import urlsplit
+from email.utils import parsedate_tz, mktime_tz
 import errno
 import hashlib
 import hmac
@@ -110,7 +111,10 @@ class Bucket(AbstractBucket):
               exc.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT,
                             errno.EINTR)):
             return True
-
+        
+        elif isinstance(exc, HTTPError) and exc.status >= 500 and exc.status <= 599:
+            return True
+        
         return False
 
     @retry
@@ -385,10 +389,8 @@ class Bucket(AbstractBucket):
 
         content_type = resp.getheader('Content-Type')
         if not content_type or not XML_CONTENT_RE.match(content_type):
-            raise RuntimeError('\n'.join(['Unexpected S3 reply:',
-                                          '%d %s' % (resp.status, resp.reason) ]
-                                         + [ '%s: %s' % x for x in resp.getheaders() ])
-                               + '\n' + resp.read())
+            raise HTTPError(resp.status, resp.reason, resp.getheaders(), resp.read())
+ 
         # Error
         tree = ElementTree.parse(resp).getroot()
         raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'))
@@ -639,15 +641,41 @@ def extractmeta(resp):
 
 class HTTPError(Exception):
     '''
-    Represents an HTTP error returned by S3 in response to a 
-    HEAD request.
+    Represents an HTTP error returned by S3.
     '''
 
-    def __init__(self, status, msg):
+    def __init__(self, status, msg, headers=None, body=None):
         super(HTTPError, self).__init__()
         self.status = status
         self.msg = msg
-
+        self.headers = headers
+        self.body = body
+        self.retry_after = None
+        
+        self._set_retry_after()
+        
+    def _set_retry_after(self):
+        '''Parse headers for Retry-After value'''
+        
+        val = None
+        for (k, v) in self.headers:
+            if k.lower() == 'retry-after':
+                hit = re.match(r'^\s*([0-9]+)\s*$', v)
+                if hit:
+                    val = int(v)
+                else:
+                    date = parsedate_tz(v)
+                    if date is None:
+                        log.warn('Unable to parse header: %s: %s', k, v)
+                        continue
+                    val = mktime_tz(*date) - time.time()
+                    
+        if val is not None:
+            if val > 300 or val < 0:
+                log.warn('Ignoring invalid retry-after value of %.3f', val)
+            else:
+                self.retry_after = val
+            
     def __str__(self):
         return '%d %s' % (self.status, self.msg)
 
@@ -677,4 +705,3 @@ class RequestTimeout(S3Error): pass
 class SlowDown(S3Error): pass
 class RequestTimeTooSkewed(S3Error): pass
 class NoSuchBucket(S3Error, NoSuchBucket_common): pass
-

@@ -68,13 +68,15 @@ def retry(fn):
                             self.__class__.__name__, fn.__name__, exc)
                     raise
 
-                log.info('Encountered %r exception, retrying call to %s.%s...',
-                          exc, self.__class__.__name__, fn.__name__)
+                log.info('Encountered %r exception (%s), retrying call to %s.%s...',
+                          exc, exc, self.__class__.__name__, fn.__name__)
 
+            if hasattr(exc, 'retry_after') and exc.retry_after:
+                interval = exc.retry_after
+                
             time.sleep(interval)
             waited += interval
-            if interval < 20 * 60:
-                interval *= 2
+            interval = min(5*60, 2*interval)
 
     # False positive
     #pylint: disable=E1101

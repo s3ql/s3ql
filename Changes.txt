@@ -9,6 +9,9 @@ xxx, S3QL TIP(default)
   * Fixed "Too many chained redirections" bug when trying to access
     a new bucket immediately after creation.
 
+  * When receiving 5xx errors from the server, S3QL now waits and
+    retries instead of aborting immediately.
+  
 2011-12-06, S3QL 1.8.1
 
   * Fixed direct updates from 1.6 to 1.8.
