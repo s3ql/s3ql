@@ -39,36 +39,18 @@ For maximum file system performance, the best algorithm therefore
 depends on your network connection speed: the compression algorithm
 should be fast enough to saturate your network connection.
 
-To find the optimal algorithm for your system, S3QL ships with a
-program called `benchmark.py` in the `contrib` directory. You should
-run this program on a file that has a size that is roughly equal to
-the block size of your file system and has similar contents. It will
-then determine the compression speeds for the different algorithms and
-the upload speeds for the specified backend and recommend the best
-algorithm that is fast enough to saturate your network connection.
+To find the optimal algorithm and number of parallel compression
+threads for your system, S3QL ships with a program called
+`benchmark.py` in the `contrib` directory. You should run this program
+on a file that has a size that is roughly equal to the block size of
+your file system and has similar contents. It will then determine the
+compression speeds for the different algorithms and the upload speeds
+for the specified backend and recommend the best algorithm that is
+fast enough to saturate your network connection.
 
 Obviously you should make sure that there is little other system load
 when you run `benchmark.py` (i.e., don't compile software or encode
 videos at the same time).
-
-
-Parallel Compression
-====================
-
-If you are running S3QL on a system with multiple cores, you might
-want to set the ``--threads`` value larger than one. This will
-instruct S3QL to compress and encrypt several blocks at the same time.
-
-If you want to do this in combination with using the LZMA compression
-algorithm, you should keep an eye on memory usage though. Every
-LZMA compression threads requires about 200 MB of RAM.
-
-
-.. NOTE::
-
-   To determine the optimal compression algorithm for your network
-   connection when using multiple threads, you can pass the
-   ``--compression-threads`` option to  `contrib/benchmark.py`.
 
 
 Notes about Caching
