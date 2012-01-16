@@ -150,15 +150,39 @@ consistency guarantees that completely eliminate any of the described
 problems.
 
 
+OpenStack/Swift
+===============
+
+OpenStack_ is an open-source cloud server application suite. Swift_ is
+the cloud storage module of OpenStack. Swift/OpenStack storage is
+offered by many different companies.
+
+The storage URL for the OpenStack backend has the form ::
+  
+   swift://<hostname>[:<port>]/<container>[/<prefix>]
+
+Note that the storage container must already exist. Most OpenStack
+providers offer a web frontend that you can use to create storage
+containers. *prefix* can be an arbitrary prefix that will be prepended
+to all object names used by S3QL. This allows you to store several
+S3QL file systems in the same container.
+
+The OpenStack backend always uses HTTPS connections. Note, however,
+that at this point S3QL does not verify the server certificate (cf.
+`issue 267 <http://code.google.com/p/s3ql/issues/detail?id=267>`_).
+
+.. _OpenStack: http://www.openstack.org/
+.. _Swift: http://openstack.org/projects/storage/
+
 
 S3 compatible
 =============
 
-S3QL is also able to access other, S3 compatible storage services like
-OpenStack_ for which no specific backend exists. Note that when
-accessing such services, only the lowest common denominator of
-available features can be used, so it is generally recommended to use
-a service specific backend instead.
+S3QL is also able to access other, S3 compatible storage services for
+which no specific backend exists. Note that when accessing such
+services, only the lowest common denominator of available features can
+be used, so it is generally recommended to use a service specific
+backend instead.
 
 The storage URL for accessing an arbitrary S3 compatible storage
 service is ::
@@ -173,7 +197,6 @@ to use HTTPS connections. Note, however, that at this point S3QL does
 not verify the server certificate (cf. `issue 267
 <http://code.google.com/p/s3ql/issues/detail?id=267>`_).
 
-.. _OpenStack: http://www.openstack.org/
 
 Local
 =====
