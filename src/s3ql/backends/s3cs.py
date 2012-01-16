@@ -11,7 +11,7 @@ from . import s3c
 from s3ql.common import QuietError
 import httplib
 import re
-
+import os
 
 # Pylint goes berserk with false positives
 #pylint: disable=E1002,E1101,W0232
@@ -28,7 +28,12 @@ class Bucket(s3c.Bucket):
     def _get_conn(self):
         '''Return connection to server'''
 
-        return httplib.HTTPSConnection(self.hostname, self.port)
+        if 'https_proxy' in os.environ:
+            conn = httplib.HTTPSConnection(os.environ['https_proxy'])
+            conn.set_tunnel(self.hostname, self.port)
+            return conn
+        else:
+            return httplib.HTTPSConnection(self.hostname, self.port)
 
     def __str__(self):
         return 's3cs://%s/%s/%s' % (self.hostname, self.bucket_name, self.prefix)

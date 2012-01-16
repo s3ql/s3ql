@@ -16,6 +16,7 @@ from s3ql.backends.common import AuthenticationError
 from urlparse import urlsplit
 import errno
 import hashlib
+import os
 import hmac
 import httplib
 import logging
@@ -82,7 +83,12 @@ class Bucket(AbstractBucket):
     def _get_conn(self):
         '''Return connection to server'''
 
-        return httplib.HTTPConnection(self.hostname, self.port)
+        if 'http_proxy' in os.environ:
+            conn = httplib.HTTPConnection(os.environ['http_proxy'])
+            conn.set_tunnel(self.hostname, self.port)
+            return conn
+        else:
+            return httplib.HTTPConnection(self.hostname, self.port)
 
     def is_temp_failure(self, exc): #IGNORE:W0613
         '''Return true if exc indicates a temporary error

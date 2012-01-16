@@ -8,9 +8,10 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from . import s3
-from s3ql.common import QuietError
+from ..common import QuietError
 import httplib
 import re
+import os
 
 # Pylint goes berserk with false positives
 #pylint: disable=E1002,E1101,W0232
@@ -28,7 +29,12 @@ class Bucket(s3.Bucket):
     def _get_conn(self):
         '''Return connection to server'''
 
-        return httplib.HTTPSConnection(self.hostname, self.port)
+        if 'https_proxy' in os.environ:
+            conn = httplib.HTTPSConnection(os.environ['https_proxy'])
+            conn.set_tunnel(self.hostname, self.port)
+            return conn
+        else:
+            return httplib.HTTPSConnection(self.hostname, self.port)
 
     def __str__(self):
         return 's3s://%s/%s' % (self.bucket_name, self.prefix)

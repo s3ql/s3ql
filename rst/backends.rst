@@ -6,7 +6,8 @@
  Storage Backends
 ==================
 
-The following backends are currently available in S3QL:
+All storage backends respect the ``http_proxy`` and ``https_proxy``
+environment variables.
 
 Google Storage
 ==============
