@@ -11,6 +11,9 @@ xxx, S3QL TIP(default)
 
   * When receiving 5xx errors from the server, S3QL now waits and
     retries instead of aborting immediately.
+
+  * contrib/s3ql_upstart.conf now supports running S3QL as an
+    ordinary user.
   
 2011-12-06, S3QL 1.8.1
 

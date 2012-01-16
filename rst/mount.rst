@@ -120,7 +120,7 @@ init script for each S3QL file system.
 If your system is using upstart, an appropriate job can be defined
 as follows (and should be placed in `/etc/init/`):
 
-.. literalinclude:: ../contrib/s3ql.conf
+.. literalinclude:: ../contrib/s3ql_upstart.conf
    :linenos:
    :lines: 5-
 

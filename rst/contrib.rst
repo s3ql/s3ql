@@ -80,10 +80,10 @@ For a full list of available options, run :program:`expire_backups.py
 --help`.
 
 
-s3ql.conf
-=========
+s3ql_upstart.conf
+=================
 
-``s3ql.conf`` is an example upstart job definition file. It defines a
-job that automatically mounts an S3QL file system on system start, and
-properly unmounts it when the system is shut down.
+``s3ql_upstart.conf`` is an example upstart job definition file. It
+defines a job that automatically mounts an S3QL file system on system
+start, and properly unmounts it when the system is shut down.
 
