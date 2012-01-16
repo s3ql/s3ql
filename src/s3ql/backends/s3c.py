@@ -653,7 +653,8 @@ class HTTPError(Exception):
         self.body = body
         self.retry_after = None
         
-        self._set_retry_after()
+        if self.headers is not None:
+            self._set_retry_after()
         
     def _set_retry_after(self):
         '''Parse headers for Retry-After value'''
