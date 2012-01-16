@@ -110,8 +110,7 @@ On the plus side, if a backend looses or corrupts some of the stored
 data, S3QL *will* detect the problem. Missing data will be detected
 when running `fsck.s3ql` or when attempting to access the data in the
 mounted file system. In the later case you will get an IO Error, and
-on unmounting S3QL will warn you that the file system is damaged and
-you need to run `fsck.s3ql`.
+the S3QL mount point will become inaccessible.
 
 `fsck.s3ql` will report all the affected files and move them into the
 `/lost+found` directory of the file system.
