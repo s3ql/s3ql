@@ -15,7 +15,6 @@ from __future__ import division, print_function, absolute_import
 import argparse
 import atexit
 import logging
-import math
 import os
 import shutil
 import subprocess
@@ -79,16 +78,26 @@ def main(args=None):
                            '--cachesize', '%d' % (2 * size / 1024), '--log',
                            '%s/mount.log' % bucket_dir, '--cachedir', options.cachedir,
                            'local://%s' % bucket_dir, mnt_dir])
+    
+    # /dev/urandom may be slow, so we cache the data first
+    rnd_fh = tempfile.TemporaryFile()
+    with open('/dev/urandom', 'rb', 0) as src:
+        copied = 0
+        while copied < size:
+            buf = src.read(BUFSIZE)
+            rnd_fh.write(buf)
+            copied += len(buf)
+    
     try:
-        with open('/dev/urandom', 'rb', 0) as src:
-            with open('%s/bigfile' % mnt_dir, 'wb', 0) as dst:
-                stamp = time.time()
-                copied = 0
-                while copied < size:
-                    buf = src.read(BUFSIZE)
-                    dst.write(buf)
-                    copied += len(buf)
-                fuse_speed = copied / (time.time() - stamp)
+        with open('%s/bigfile' % mnt_dir, 'wb', 0) as dst:
+            rnd_fh.seek(0)
+            stamp = time.time()
+            copied = 0
+            while copied < size:
+                buf = rnd_fh.read(BUFSIZE)
+                dst.write(buf)
+                copied += len(buf)
+            fuse_speed = copied / (time.time() - stamp)
         os.unlink('%s/bigfile' % mnt_dir)
     finally:
         subprocess.check_call(['umount.s3ql', mnt_dir])
@@ -107,14 +116,14 @@ def main(args=None):
     while upload_time < 10:
         size *= 2
         def do_write(dst):
-            with open('/dev/urandom', 'rb', 0) as src:
-                stamp = time.time()
-                copied = 0
-                while copied < size:
-                    buf = src.read(BUFSIZE)
-                    dst.write(buf)
-                    copied += len(buf)
-                return (copied, stamp)
+            rnd_fh.seek(0)
+            stamp = time.time()
+            copied = 0
+            while copied < size:
+                buf = rnd_fh.read(BUFSIZE)
+                dst.write(buf)
+                copied += len(buf)
+            return (copied, stamp)
         (upload_size, upload_time) = bucket.perform_write(do_write, 's3ql_testdata')
         upload_time = time.time() - upload_time
     backend_speed = upload_size / upload_time
