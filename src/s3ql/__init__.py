@@ -15,7 +15,7 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'cleanup_manager', 'common',
             'CURRENT_FS_REV', 'REV_VER_MAP' ]
 
 # Also, remove obsolete rowid column from contents
-VERSION = '1.9'
+VERSION = '1.9-rc1'
 CURRENT_FS_REV = 15
 
 # Maps file system revisions to the last S3QL version that
