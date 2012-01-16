@@ -11,8 +11,9 @@ from ..common import BUFSIZE, QuietError
 from .common import AbstractBucket, NoSuchObject, retry, AuthorizationError
 from .common import NoSuchBucket as NoSuchBucket_common
 from base64 import b64encode
-from urlparse import urlsplit
 from email.utils import parsedate_tz, mktime_tz
+from s3ql.backends.common import AuthenticationError
+from urlparse import urlsplit
 import errno
 import hashlib
 import hmac
@@ -698,8 +699,9 @@ class AccessDenied(S3Error, AuthorizationError): pass
 class BadDigest(S3Error): pass
 class IncompleteBody(S3Error): pass
 class InternalError(S3Error): pass
-class InvalidAccessKeyId(S3Error, AuthorizationError): pass
-class InvalidSecurity(S3Error, AuthorizationError): pass
+class InvalidAccessKeyId(S3Error, AuthenticationError): pass
+class InvalidSecurity(S3Error, AuthenticationError): pass
+class SignatureDoesNotMatch(S3Error, AuthenticationError): pass
 class OperationAborted(S3Error): pass
 class RequestTimeout(S3Error): pass
 class SlowDown(S3Error): pass

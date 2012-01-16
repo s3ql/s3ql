@@ -32,7 +32,6 @@ import threading
 import time
 import zlib
 
-
 # Not available in every pycryptopp version
 if hasattr(aes, 'start_up_self_test'):
     aes.start_up_self_test()
@@ -1041,6 +1040,16 @@ class AuthorizationError(Exception):
     def __str__(self):
         return 'Access denied. Server said: %s' % self.msg
 
+class AuthenticationError(Exception):
+    '''Raised if the credentials are invalid'''
+
+    def __init__(self, msg):
+        super(AuthenticationError, self).__init__()
+        self.msg = msg
+
+    def __str__(self):
+        return 'Access denied. Server said: %s' % self.msg
+    
 def convert_legacy_metadata(meta):
     if ('encryption' in meta and
         'compression' in meta):
@@ -1145,16 +1154,34 @@ def get_bucket_factory(options, plain=False):
         else:
             backend_pw = sys.stdin.readline().rstrip()
 
-    if plain:
-        return lambda: bucket_class(options.storage_url, backend_login, backend_pw)
 
-    bucket = bucket_class(options.storage_url, backend_login, backend_pw)
 
     try:
-        encrypted = 's3ql_passphrase' in bucket
+        bucket = bucket_class(options.storage_url, backend_login, backend_pw)
+        
+        # Do not use bucket.lookup(), this would use a HEAD request and
+        # not provide any useful error messages if something goes wrong
+        # (e.g. wrong credentials)
+        _ = bucket['s3ql_passphrase']
+        
     except NoSuchBucket:
-        raise QuietError('Bucket does not exist')
+        raise QuietError('Bucket does not exist')   
+    
+    except AuthorizationError:
+        raise QuietError('No permission to access bucket.')
 
+    except AuthenticationError:
+        raise QuietError('Invalid credentials or skewed system clock.')
+        
+    except NoSuchObject:
+        encrypted = False
+        
+    else:
+        encrypted = True
+        
+    if plain:
+        return lambda: bucket_class(options.storage_url, backend_login, backend_pw)
+            
     if encrypted and not bucket_passphrase:
         if sys.stdin.isatty():
             bucket_passphrase = getpass("Enter bucket encryption passphrase: ")
