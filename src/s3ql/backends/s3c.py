@@ -135,7 +135,8 @@ class Bucket(AbstractBucket):
     def list(self, prefix=''):
         '''List keys in bucket
 
-        Returns an iterator over all keys in the bucket.
+        Returns an iterator over all keys in the bucket. This method
+        handles temporary errors.
         '''
 
         log.debug('list(%s): start', prefix)
@@ -154,14 +155,19 @@ class Bucket(AbstractBucket):
                 if not self.is_temp_failure(exc):
                     raise
                 if waited > 60 * 60:
-                    log.error('list(): Timeout exceeded, re-raising %r exception', exc)
+                    log.error('list(): Timeout exceeded, re-raising %s exception', 
+                              type(exc).__name__)
                     raise
 
-                log.info('Encountered %r exception, retrying call to s3.Bucket.list()', exc)
+                log.info('Encountered %s exception (%s), retrying call to swift.Bucket.list()',
+                          type(exc).__name__, exc)
+                
+                if hasattr(exc, 'retry_after') and exc.retry_after:
+                    interval = exc.retry_after
+                                    
                 time.sleep(interval)
                 waited += interval
-                if interval < 20 * 60:
-                    interval *= 2
+                interval = min(5*60, 2*interval)
                 iterator = self._list(prefix, marker)
 
             else:
@@ -170,7 +176,8 @@ class Bucket(AbstractBucket):
     def _list(self, prefix='', start=''):
         '''List keys in bucket, starting with *start*
 
-        Returns an iterator over all keys in the bucket.
+        Returns an iterator over all keys in the bucket. This method
+        does not retry on errors.
         '''
 
         keys_remaining = True
@@ -489,6 +496,7 @@ class Bucket(AbstractBucket):
         # Construct full path
         if not self.hostname.startswith(self.bucket_name):
             path = '/%s%s' % (self.bucket_name, path)
+        path = urllib.quote(path)
         if query_string:
             s = urllib.urlencode(query_string, doseq=True)
             if subres:
@@ -499,10 +507,10 @@ class Bucket(AbstractBucket):
             path += '?%s' % subres
 
         try:
-            log.debug('_do_request(): sending request for %s', path)
+            log.debug('_send_request(): sending request for %s', path)
             self.conn.request(method, path, body, headers)
 
-            log.debug('_do_request(): Reading response..')
+            log.debug('_send_request(): Reading response..')
             return self.conn.getresponse()
         except:
             # We probably can't use the connection anymore
@@ -608,6 +616,11 @@ class ObjectW(object):
         if etag != self.md5.hexdigest():
             log.warn('ObjectW(%s).close(): MD5 mismatch (%s vs %s)', self.key, etag,
                      self.md5.hexdigest)
+            try:
+                self.bucket.delete(self.key)
+            except:
+                log.exception('Objectw(%s).close(): unable to delete corrupted object!',
+                              self.key)
             raise BadDigest('BadDigest', 'Received ETag does not agree with our calculations.')
 
     def __enter__(self):
