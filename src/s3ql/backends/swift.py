@@ -13,6 +13,7 @@ from .s3c import HTTPError, BadDigest
 from urlparse import urlsplit
 import json
 import errno
+import os
 import hashlib
 import httplib
 import logging
@@ -100,8 +101,12 @@ class Bucket(AbstractBucket):
     @retry
     def _get_conn(self):
         '''Obtain connection to server and authentication token'''
-        
-        conn = httplib.HTTPSConnection(self.hostname, self.port)
+
+        if 'https_proxy' in os.environ:
+            conn = httplib.HTTPSConnection(os.environ['https_proxy'].rstrip('/'))
+            conn.set_tunnel(self.hostname, self.port)
+        else:
+            conn = httplib.HTTPSConnection(self.hostname, self.port)
         
         log.debug('_refresh_auth(): start')
         headers={ 'X-Auth-User': self.login,
@@ -131,8 +136,13 @@ class Bucket(AbstractBucket):
             o = urlsplit(resp.getheader('X-Storage-Url'))
             self.auth_prefix = o.path
             conn.close()
-            
-            return httplib.HTTPSConnection(o.hostname, o.port)
+
+            if 'https_proxy' in os.environ:
+                conn = httplib.HTTPSConnection(os.environ['https_proxy'].rstrip('/'))
+                conn.set_tunnel(o.hostname, o.port)
+                return conn
+            else:
+                return httplib.HTTPSConnection(o.hostname, o.port)
         
         raise RuntimeError('No valid authentication path found')
     
