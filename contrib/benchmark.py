@@ -66,41 +66,52 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    size = 50 * 1024 * 1024
+    # /dev/urandom may be slow, so we cache the data first
+    log.info('Preparing test data...')
+    rnd_fh = tempfile.TemporaryFile()
+    with open('/dev/urandom', 'rb', 0) as src:
+        copied = 0
+        while copied < 50 * 1024 * 1024:
+            buf = src.read(BUFSIZE)
+            rnd_fh.write(buf)
+            copied += len(buf)
+            
     log.info('Measuring throughput to cache...')
     bucket_dir = tempfile.mkdtemp()
     mnt_dir = tempfile.mkdtemp()
     atexit.register(shutil.rmtree, bucket_dir)
     atexit.register(shutil.rmtree, mnt_dir)
-    subprocess.check_call(['mkfs.s3ql', '--plain', 'local://%s' % bucket_dir,
-                           '--quiet', '--cachedir', options.cachedir])
-    subprocess.check_call(['mount.s3ql', '--threads', '1', '--quiet',
-                           '--cachesize', '%d' % (2 * size / 1024), '--log',
-                           '%s/mount.log' % bucket_dir, '--cachedir', options.cachedir,
-                           'local://%s' % bucket_dir, mnt_dir])
     
-    # /dev/urandom may be slow, so we cache the data first
-    rnd_fh = tempfile.TemporaryFile()
-    with open('/dev/urandom', 'rb', 0) as src:
-        copied = 0
-        while copied < size:
-            buf = src.read(BUFSIZE)
-            rnd_fh.write(buf)
-            copied += len(buf)
-    
-    try:
-        with open('%s/bigfile' % mnt_dir, 'wb', 0) as dst:
-            rnd_fh.seek(0)
-            stamp = time.time()
-            copied = 0
-            while copied < size:
-                buf = rnd_fh.read(BUFSIZE)
-                dst.write(buf)
-                copied += len(buf)
-            fuse_speed = copied / (time.time() - stamp)
-        os.unlink('%s/bigfile' % mnt_dir)
-    finally:
-        subprocess.check_call(['umount.s3ql', mnt_dir])
+    write_time = 0
+    size = 50 * 1024 * 1024
+    while write_time < 3:        
+        log.debug('Write took %.3g seconds, retrying', write_time) 
+        subprocess.check_call(['mkfs.s3ql', '--plain', 'local://%s' % bucket_dir,
+                               '--quiet', '--force', '--cachedir', options.cachedir])
+        subprocess.check_call(['mount.s3ql', '--threads', '1', '--quiet',
+                               '--cachesize', '%d' % (2 * size / 1024), '--log',
+                               '%s/mount.log' % bucket_dir, '--cachedir', options.cachedir,
+                               'local://%s' % bucket_dir, mnt_dir])
+        try:    
+            size *= 2    
+            with open('%s/bigfile' % mnt_dir, 'wb', 0) as dst:
+                rnd_fh.seek(0)
+                write_time = time.time()
+                copied = 0
+                while copied < size:
+                    buf = rnd_fh.read(BUFSIZE)
+                    if not buf:
+                        rnd_fh.seek(0)
+                        continue
+                    dst.write(buf)
+                    copied += len(buf)
+        
+            write_time = time.time() - write_time
+            os.unlink('%s/bigfile' % mnt_dir)
+        finally:
+            subprocess.check_call(['umount.s3ql', mnt_dir])
+            
+    fuse_speed = copied / write_time
     log.info('Cache throughput: %d KB/sec', fuse_speed / 1024)
 
     # Upload random data to prevent effects of compression
@@ -121,6 +132,9 @@ def main(args=None):
             copied = 0
             while copied < size:
                 buf = rnd_fh.read(BUFSIZE)
+                if not buf:
+                    rnd_fh.seek(0)
+                    continue
                 dst.write(buf)
                 copied += len(buf)
             return (copied, stamp)
