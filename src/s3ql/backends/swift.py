@@ -418,7 +418,7 @@ class Bucket(AbstractBucket):
             try:
                 for dataset in json.load(resp):
                     count += 1
-                    marker = dataset['name']
+                    marker = dataset['name'].encode('utf-8')
                     yield marker[strip:]
                 
             except GeneratorExit:
