@@ -84,7 +84,7 @@ class Bucket(AbstractBucket):
         '''Return connection to server'''
 
         if 'http_proxy' in os.environ:
-            conn = httplib.HTTPConnection(os.environ['http_proxy'])
+            conn = httplib.HTTPConnection(os.environ['http_proxy'].rstrip('/'))
             conn.set_tunnel(self.hostname, self.port)
             return conn
         else:

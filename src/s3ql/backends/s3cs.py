@@ -29,7 +29,7 @@ class Bucket(s3c.Bucket):
         '''Return connection to server'''
 
         if 'https_proxy' in os.environ:
-            conn = httplib.HTTPSConnection(os.environ['https_proxy'])
+            conn = httplib.HTTPSConnection(os.environ['https_proxy'].rstrip('/'))
             conn.set_tunnel(self.hostname, self.port)
             return conn
         else:
