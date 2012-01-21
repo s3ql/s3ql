@@ -8,11 +8,11 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from ..common import BUFSIZE, QuietError
-from .common import AbstractBucket, NoSuchObject, retry, AuthorizationError
+from .common import AbstractBucket, NoSuchObject, retry, AuthorizationError, http_connection, \
+    AuthenticationError
 from .common import NoSuchBucket as NoSuchBucket_common
 from base64 import b64encode
 from email.utils import parsedate_tz, mktime_tz
-from s3ql.backends.common import AuthenticationError
 from urlparse import urlsplit
 import errno
 import hashlib
@@ -81,8 +81,8 @@ class Bucket(AbstractBucket):
 
     def _get_conn(self):
         '''Return connection to server'''
-
-        return httplib.HTTPConnection(self.hostname, self.port)
+        
+        return http_connection(self.hostname, self.port, ssl=False)
 
     def is_temp_failure(self, exc): #IGNORE:W0613
         '''Return true if exc indicates a temporary error

@@ -18,6 +18,9 @@ xxx, S3QL TIP(default)
   * S3QL now has experimental, native support for OpenStack/SWIFT
     servers. Thanks to the guys from www.bitbucket.de for providing
     support and a test server!
+
+  * S3QL now has experimental proxy support and will honor the
+    http_proxy and https_proxy environment variables.
   
 2011-12-06, S3QL 1.8.1
 
