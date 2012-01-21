@@ -175,6 +175,32 @@ that at this point S3QL does not verify the server certificate (cf.
 .. _Swift: http://openstack.org/projects/storage/
 
 
+RackSpace CloudFiles
+====================
+
+RackSpace_ CloudFiles uses OpenStack internally, so you can use the
+OpenStack/Swift backend (see above). The hostname for CloudFiles
+containers is ``auth.api.rackspacecloud.com``. Use your normal
+RackSpace user name for the backend login, and your RackSpace API key
+as the backend passphrase. You can create a storage container for S3QL
+using the `Control Panel <https://manage.rackspacecloud.com/>`_ (go to
+*Cloud Files* under *Hosting*).
+
+You should note that opinions about RackSpace differ widely among S3QL
+users and developers. On the one hand, people praise RackSpace for
+their backing of the (open source) OpenStack project. On the other
+hand, their heavily advertised "fanatical support" is in practice
+often not only `less than helpful
+<http://code.google.com/p/s3ql/issues/detail?id=243#c5>`_, but their
+support agents also seem to be `downright incompetent
+<http://code.google.com/p/s3ql/issues/detail?id=243#c11>`_. However,
+there are reports that the support quality increases dramatically once
+you are a customer and use the "Live Chat" link when you are logged
+into the control panel.
+
+.. _RackSpace: http://www.rackspace.com/
+
+
 S3 compatible
 =============
 
