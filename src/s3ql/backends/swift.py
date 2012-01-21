@@ -20,6 +20,7 @@ import re
 import tempfile
 import time
 import urllib
+from s3ql.backends.common import NoSuchBucket
 
 log = logging.getLogger("backend.swift")
 
@@ -45,6 +46,19 @@ class Bucket(AbstractBucket):
         self.auth_prefix = None
         self.conn = self._get_conn()
         
+        self._bucket_exists()
+    
+    def _bucket_exists(self):
+        '''Make sure that the bucket exists'''
+        
+        try:
+            resp = self._do_request('GET', '/', query_string={'limit': 1 })
+        except HTTPError as exc:
+            if exc.status == 404:
+                raise NoSuchBucket(self.bucket_name)
+            raise
+        resp.read()   
+                    
     @staticmethod
     def _parse_storage_url(storage_url):
         '''Extract information from storage URL
@@ -396,7 +410,7 @@ class Bucket(AbstractBucket):
             else:
                 yield marker
 
-    def _list(self, prefix='', start=''):
+    def _list(self, prefix='', start='', batch_size=5000):
         '''List keys in bucket, starting with *start*
 
         Returns an iterator over all keys in the bucket. This method
@@ -406,15 +420,19 @@ class Bucket(AbstractBucket):
         keys_remaining = True
         marker = start
         prefix = self.prefix + prefix
-        batch_size = 5000
         
         while keys_remaining:
             log.debug('list(%s): requesting with marker=%s', prefix, marker)
 
-            resp = self._do_request('GET', '/', query_string={'prefix': prefix,
-                                                              'format': 'json',
-                                                              'marker': marker,
-                                                              'limit': batch_size })
+            try:
+                resp = self._do_request('GET', '/', query_string={'prefix': prefix,
+                                                                  'format': 'json',
+                                                                  'marker': marker,
+                                                                  'limit': batch_size })
+            except HTTPError as exc:
+                if exc.status == 404:
+                    raise NoSuchBucket(self.bucket_name)
+                raise
             
             if resp.status == 204:
                 return
