@@ -122,6 +122,7 @@ class Bucket(AbstractBucket):
                   'X-Auth-Key': self.password }
         
         for auth_path in ('/v1.0', '/auth/v1.0'):
+            log.debug('_get_conn(): GET %s', auth_path)
             conn.request('GET', auth_path, None, headers)
             resp = conn.getresponse()
             
@@ -143,7 +144,7 @@ class Bucket(AbstractBucket):
             #pylint: disable=E1103                
             self.auth_token = resp.getheader('X-Auth-Token')
             o = urlsplit(resp.getheader('X-Storage-Url'))
-            self.auth_prefix = o.path
+            self.auth_prefix = urllib.unquote(o.path)
             conn.close()
 
             return http_connection(o.hostname, o.port, ssl=True)
@@ -168,7 +169,7 @@ class Bucket(AbstractBucket):
             headers['content-length'] = '0'
             
         # Construct full path
-        path = '%s/%s%s' % (self.auth_prefix, self.bucket_name, path)
+        path = urllib.quote('%s/%s%s' % (self.auth_prefix, self.bucket_name, path))
         if query_string:
             s = urllib.urlencode(query_string, doseq=True)
             if subres:
@@ -184,7 +185,7 @@ class Bucket(AbstractBucket):
             headers['X-Auth-Token'] = self.auth_token
     
             try:
-                log.debug('_do_request(): sending request for %s', path)
+                log.debug('_do_request(): %s %s', method, path)
                 self.conn.request(method, path, body, headers)
     
                 log.debug('_do_request(): Reading response..')
