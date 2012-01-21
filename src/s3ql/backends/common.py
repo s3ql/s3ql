@@ -21,6 +21,7 @@ import bz2
 import cPickle as pickle
 import hashlib
 import hmac
+import httplib
 import logging
 import lzma
 import os
@@ -87,6 +88,45 @@ True.
 '''
     return wrapped
 
+def http_connection(hostname, port, ssl=False):
+    '''Return http connection to *hostname*:*port*
+    
+    This method honors the http_proxy and https_proxy environment
+    variables.
+    '''
+    
+    log.debug('Connecting to %s...', hostname)
+    
+    if 'https_proxy' in os.environ:
+        proxy = os.environ['https_proxy']
+        hit = re.match(r'^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?/?$', proxy)
+        if not hit:
+            log.warn('Unable to parse proxy setting %s', proxy)
+        
+        if hit.group(1) == 'https://':
+            log.warn('HTTPS connection to proxy is probably pointless and not supported, '
+                     'will use standard HTTP')
+        
+        if hit.group(3):
+            proxy_port = int(hit.group(3)[1:])
+        else:
+            proxy_port = 80
+            
+        proxy_host = hit.group(2)
+        log.info('Using proxy %s:%d', proxy_host, proxy_port)
+        
+        if ssl:
+            conn = httplib.HTTPSConnection(proxy_host, proxy_port)
+        else:
+            conn = httplib.HTTPConnection(proxy_host, proxy_port)
+        conn.set_tunnel(hostname, port)
+        return conn
+    
+    elif ssl:
+        return httplib.HTTPSConnection(hostname, port)
+    else:
+        return httplib.HTTPConnection(hostname, port)
+    
 def sha256(s):
     return hashlib.sha256(s).digest()
 

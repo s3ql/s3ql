@@ -120,8 +120,6 @@ def main():
                      'pycryptopp',
                      'llfuse >= 0.37',
                      'pyliblzma >= 0.5.3' ]
-    if sys.version_info[0] == 2 and sys.version_info[1] < 7:
-        required_pkgs.append('argparse >= 1.1')
 
     setuptools.setup(
           name='s3ql',

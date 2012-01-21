@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function
 from _common import TestCase
-from s3ql.backends import local, s3, s3s, gs, gss, s3c, s3cs
+from s3ql.backends import local, s3, s3s, gs, gss, s3c, s3cs, swift
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBucket)
 import ConfigParser
@@ -96,7 +96,7 @@ class BackendTestsMixin(object):
         time.sleep(self.delay)
         self.assertEquals(len(list(self.bucket)), 2)
         self.bucket.clear()
-        time.sleep(self.delay)
+        time.sleep(5*self.delay)
         self.assertTrue(key1 not in self.bucket)
         self.assertTrue(key2 not in self.bucket)
         self.assertEquals(len(list(self.bucket)), 0)
@@ -178,14 +178,19 @@ class S3Tests(BackendTestsMixin, TestCase):
             self.skipTest("Authentication file does not have test section")
 
         return (bucket_name, backend_login, backend_password)
-
-
+    
 class S3STests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
         self.delay = 15
         self.bucket = s3s.Bucket(*self.get_credentials('s3s-test'))
 
+class SwiftTests(S3Tests):
+    def setUp(self):
+        self.name_cnt = 0
+        self.delay = 0
+        self.bucket = swift.Bucket(*self.get_credentials('swift-test'))
+        
 class GSTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0

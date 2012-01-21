@@ -150,15 +150,65 @@ consistency guarantees that completely eliminate any of the described
 problems.
 
 
+OpenStack/Swift
+===============
+
+OpenStack_ is an open-source cloud server application suite. Swift_ is
+the cloud storage module of OpenStack. Swift/OpenStack storage is
+offered by many different companies.
+
+The storage URL for the OpenStack backend has the form ::
+  
+   swift://<hostname>[:<port>]/<container>[/<prefix>]
+
+Note that the storage container must already exist. Most OpenStack
+providers offer a web frontend that you can use to create storage
+containers. *prefix* can be an arbitrary prefix that will be prepended
+to all object names used by S3QL. This allows you to store several
+S3QL file systems in the same container.
+
+The OpenStack backend always uses HTTPS connections. Note, however,
+that at this point S3QL does not verify the server certificate (cf.
+`issue 267 <http://code.google.com/p/s3ql/issues/detail?id=267>`_).
+
+.. _OpenStack: http://www.openstack.org/
+.. _Swift: http://openstack.org/projects/storage/
+
+
+RackSpace CloudFiles
+====================
+
+RackSpace_ CloudFiles uses OpenStack internally, so you can use the
+OpenStack/Swift backend (see above). The hostname for CloudFiles
+containers is ``auth.api.rackspacecloud.com``. Use your normal
+RackSpace user name for the backend login, and your RackSpace API key
+as the backend passphrase. You can create a storage container for S3QL
+using the `Control Panel <https://manage.rackspacecloud.com/>`_ (go to
+*Cloud Files* under *Hosting*).
+
+You should note that opinions about RackSpace differ widely among S3QL
+users and developers. On the one hand, people praise RackSpace for
+their backing of the (open source) OpenStack project. On the other
+hand, their heavily advertised "fanatical support" is in practice
+often not only `less than helpful
+<http://code.google.com/p/s3ql/issues/detail?id=243#c5>`_, but their
+support agents also seem to be `downright incompetent
+<http://code.google.com/p/s3ql/issues/detail?id=243#c11>`_. However,
+there are reports that the support quality increases dramatically once
+you are a customer and use the "Live Chat" link when you are logged
+into the control panel.
+
+.. _RackSpace: http://www.rackspace.com/
+
 
 S3 compatible
 =============
 
-S3QL is also able to access other, S3 compatible storage services like
-OpenStack_ for which no specific backend exists. Note that when
-accessing such services, only the lowest common denominator of
-available features can be used, so it is generally recommended to use
-a service specific backend instead.
+S3QL is also able to access other, S3 compatible storage services for
+which no specific backend exists. Note that when accessing such
+services, only the lowest common denominator of available features can
+be used, so it is generally recommended to use a service specific
+backend instead.
 
 The storage URL for accessing an arbitrary S3 compatible storage
 service is ::
@@ -173,7 +223,6 @@ to use HTTPS connections. Note, however, that at this point S3QL does
 not verify the server certificate (cf. `issue 267
 <http://code.google.com/p/s3ql/issues/detail?id=267>`_).
 
-.. _OpenStack: http://www.openstack.org/
 
 Local
 =====
