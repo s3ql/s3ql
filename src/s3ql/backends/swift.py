@@ -8,12 +8,11 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from ..common import QuietError, BUFSIZE
-from .common import AbstractBucket, NoSuchObject, retry, AuthorizationError
+from .common import AbstractBucket, NoSuchObject, retry, AuthorizationError, http_connection
 from .s3c import HTTPError, BadDigest
 from urlparse import urlsplit
 import json
 import errno
-import os
 import hashlib
 import httplib
 import logging
@@ -102,13 +101,9 @@ class Bucket(AbstractBucket):
     def _get_conn(self):
         '''Obtain connection to server and authentication token'''
 
-        if 'https_proxy' in os.environ:
-            conn = httplib.HTTPSConnection(os.environ['https_proxy'].rstrip('/'))
-            conn.set_tunnel(self.hostname, self.port)
-        else:
-            conn = httplib.HTTPSConnection(self.hostname, self.port)
+        log.debug('_get_conn(): start')
         
-        log.debug('_refresh_auth(): start')
+        conn = http_connection(self.hostname, self.port, ssl=True)
         headers={ 'X-Auth-User': self.login,
                   'X-Auth-Key': self.password }
         
@@ -137,12 +132,7 @@ class Bucket(AbstractBucket):
             self.auth_prefix = o.path
             conn.close()
 
-            if 'https_proxy' in os.environ:
-                conn = httplib.HTTPSConnection(os.environ['https_proxy'].rstrip('/'))
-                conn.set_tunnel(o.hostname, o.port)
-                return conn
-            else:
-                return httplib.HTTPSConnection(o.hostname, o.port)
+            return http_connection(o.hostname, o.port, ssl=True)
         
         raise RuntimeError('No valid authentication path found')
     
@@ -159,8 +149,6 @@ class Bucket(AbstractBucket):
         if headers is None:
             headers = dict()
 
-        headers['connection'] = 'keep-alive'
-        headers['X-Auth-Token'] = self.auth_token
 
         if not body:
             headers['content-length'] = '0'
@@ -176,34 +164,44 @@ class Bucket(AbstractBucket):
         elif subres:
             path += '?%s' % subres
 
-        try:
-            log.debug('_do_request(): sending request for %s', path)
-            self.conn.request(method, path, body, headers)
-
-            log.debug('_do_request(): Reading response..')
-            resp = self.conn.getresponse()
-        except:
-            # We probably can't use the connection anymore
-            self.conn.close()
-            raise
+        headers['connection'] = 'keep-alive'
         
-        # We need to call read() at least once for httplib to consider this
-        # request finished, even if there is no response body.
-        if resp.length == 0:
-            resp.read()
-
-        # Success 
-        if resp.status >= 200 and resp.status <= 299:
-            return resp
-
-        # TODO: Catch and handle expired auth token here
+        while True:
+            headers['X-Auth-Token'] = self.auth_token
+    
+            try:
+                log.debug('_do_request(): sending request for %s', path)
+                self.conn.request(method, path, body, headers)
+    
+                log.debug('_do_request(): Reading response..')
+                resp = self.conn.getresponse()
+            except:
+                # We probably can't use the connection anymore
+                self.conn.close()
+                raise
         
-        # If method == HEAD, server must not return response body
-        # even in case of errors
-        if method.upper() == 'HEAD':
-            raise HTTPError(resp.status, resp.reason)
-        else:
-            raise HTTPError(resp.status, resp.reason, resp.getheaders(), resp.read())
+            # We need to call read() at least once for httplib to consider this
+            # request finished, even if there is no response body.
+            if resp.length == 0:
+                resp.read()
+    
+            # Success 
+            if resp.status >= 200 and resp.status <= 299:
+                return resp
+    
+            # Expired auth token
+            if resp.status == 401:
+                log.info('OpenStack auth token seems to have expired, requesting new one.')
+                resp.read()
+                self.conn = self._get_conn()
+                continue
+            
+            # If method == HEAD, server must not return response body
+            # even in case of errors
+            if method.upper() == 'HEAD':
+                raise HTTPError(resp.status, resp.reason)
+            else:
+                raise HTTPError(resp.status, resp.reason, resp.getheaders(), resp.read())
      
     @retry 
     def lookup(self, key):
