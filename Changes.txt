@@ -1,4 +1,4 @@
-xxx, S3QL TIP(default)
+2012-01-21, S3QL 1.9
 
   * Fixed a problem with file and directory time stamps 
     changing with the time zone of the mount.s3ql process. 
