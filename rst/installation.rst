@@ -33,18 +33,9 @@ that is not the case.
   so under Linux you should actually use *2.6.26 or newer whenever
   possible*.
 
-* `Python <http://www.python.org/>`_, version 2.6.6 or newer, but not
-  Python 3.x. Make sure to also install the development headers.
+* `Python <http://www.python.org/>`_ 2.7 (but not Python 3.x). Make
+  sure to also install the development headers.
 
-* When using Python 2.6, the `argparse Python Module
-  <http://pypi.python.org/pypi/argparse>`_ is also required. Newer
-  Python versions (2.7 and up) already include this module.
-
-  To check if this module is installed, try to execute `python -c
-  'import argparse; print argparse.__version__'`. If argparse is
-  installed, this will print the version number. You need version 1.1
-  or later.
-  
 * The `PyCrypto++ Python Module
   <http://pypi.python.org/pypi/pycryptopp>`_. To check if this module
   is installed, try to execute `python -c 'import pycryptopp'`. 
