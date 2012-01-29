@@ -532,7 +532,6 @@ class BlockCache(object):
                         shutil.copyfileobj(fh, el, BUFSIZE)
                         return el
                     try:
-
                         with lock_released:
                             with self.bucket_pool() as bucket:
                                 el = bucket.perform_read(do_read, 's3ql_data_%d' % obj_id)
@@ -546,7 +545,8 @@ class BlockCache(object):
                         self.size += el.size
 
                     except:
-                        el.unlink()
+                        if el is not None:
+                            el.unlink()
                         raise
                     finally:
                         self.in_transit.remove(obj_id)
