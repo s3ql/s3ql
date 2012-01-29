@@ -150,10 +150,10 @@ def main(args=None):
         log.info("FUSE main loop terminated.")
 
     except:
-        # Tell finally handle not to raise any exceptions
+        # Tell finally block not to raise any additional exceptions
         exc_info[:] = sys.exc_info()
 
-        log.exception('Encountered exception, trying to clean up...')
+        log.warn('Encountered exception, trying to clean up...')
 
         # We do *not* free the mountpoint on exception. Why? E.g. if someone is
         # mirroring the mountpoint, and it suddenly becomes empty, all the
@@ -166,7 +166,7 @@ def main(args=None):
         except:
             log.exception("Exception during cleanup:")
 
-        raise QuietError('Aborted with exception.')
+        raise
 
     else:
         # llfuse.close() still needs block_cache.
