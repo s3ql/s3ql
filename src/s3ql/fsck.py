@@ -1098,10 +1098,11 @@ def main(args=None):
 
     if param['seq_no'] < seq_no:
         print(textwrap.fill(textwrap.dedent('''\
-              Up to date metadata is not available. Either the file system has not been unmounted
-              cleanly or the data has not yet propagated through the backend. In the later case,
-              waiting for a while should fix the problem, in the former case you should try to run
-              fsck on the computer where the file system has been mounted most recently
+              Backend reports that file system is still mounted elsewhere. Either the file system
+              has not been unmounted cleanly or the data has not yet propagated through the backend.
+              In the later case, waiting for a while should fix the problem, in the former case you
+              should try to run fsck on the computer where the file system has been mounted most
+              recently. 
               ''')))
 
         print('Enter "continue" to use the outdated data anyway:',
