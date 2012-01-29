@@ -8,15 +8,13 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from . import CURRENT_FS_REV
-from .backends.common import get_bucket, BetterBucket
-from .common import (get_bucket_cachedir, setup_logging, QuietError,
-    stream_write_bz2, CTRL_INODE)
+from .backends.common import get_bucket, BetterBucket, NoSuchBucket
+from .common import get_bucket_cachedir, setup_logging, QuietError, CTRL_INODE, stream_write_bz2
 from .database import Connection
 from .metadata import dump_metadata, create_tables
 from .parse_args import ArgumentParser
 from getpass import getpass
 from llfuse import ROOT_INODE
-from s3ql.backends.common import NoSuchBucket
 import cPickle as pickle
 import logging
 import os

@@ -8,16 +8,15 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from . import fs, CURRENT_FS_REV
-from .backends.common import get_bucket_factory, BucketPool
+from .backends.common import get_bucket_factory, BucketPool, NoSuchBucket
 from .block_cache import BlockCache
-from .common import (setup_logging, get_bucket_cachedir, get_seq_no, QuietError,
-    stream_write_bz2, stream_read_bz2)
+from .common import (setup_logging, get_bucket_cachedir, get_seq_no, QuietError, stream_write_bz2, 
+    stream_read_bz2)
 from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
 from .metadata import cycle_metadata, dump_metadata, restore_metadata
 from .parse_args import ArgumentParser
-from s3ql.backends.common import NoSuchBucket
 from threading import Thread
 import cPickle as pickle
 import llfuse
@@ -31,6 +30,7 @@ import textwrap
 import thread
 import threading
 import time
+    
 
 log = logging.getLogger("mount")
 
