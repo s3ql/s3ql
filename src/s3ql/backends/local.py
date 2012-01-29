@@ -26,11 +26,14 @@ class Bucket(AbstractBucket):
 
     needs_login = False
 
-    def __init__(self, storage_url, backend_login, backend_pw): #IGNORE:W0613
+    def __init__(self, storage_url, backend_login, backend_pw, use_ssl=False):
         '''Initialize local bucket
         
         Login and password are ignored.
         '''
+        # Unused argument
+        #pylint: disable=W0613
+
         super(Bucket, self).__init__()
         name = storage_url[len('local://'):]
         self.name = name

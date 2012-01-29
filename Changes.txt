@@ -1,3 +1,8 @@
+UNRELEASED, S3QL TIP
+
+  * The s3s, s3cs and gss backends have been removed. Use the new
+    --ssl option together with the s3, s3c and gs backends instead.
+
 2012-01-21, S3QL 1.9
 
   * Fixed a problem with file and directory time stamps 

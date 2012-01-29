@@ -37,8 +37,8 @@ class Bucket(s3c.Bucket):
     may or may not be available and can be queried for with instance methods.    
     """
 
-    def __init__(self, storage_url, login, password):
-        super(Bucket, self).__init__(storage_url, login, password)
+    def __init__(self, storage_url, login, password, use_ssl):
+        super(Bucket, self).__init__(storage_url, login, password, use_ssl)
 
         self.region = self._get_region()
         if self.region in BAD_REGIONS:
@@ -47,7 +47,7 @@ class Bucket(s3c.Bucket):
             log.warn('Unknown region: %s - please file a bug report.', self.region)
 
     @staticmethod
-    def _parse_storage_url(storage_url):
+    def _parse_storage_url(storage_url, use_ssl):
         hit = re.match(r'^s3s?://([^/]+)(?:/(.*))?$', storage_url)
         if not hit:
             raise QuietError('Invalid storage URL')
@@ -55,7 +55,8 @@ class Bucket(s3c.Bucket):
         bucket_name = hit.group(1)
         hostname = '%s.s3.amazonaws.com' % bucket_name
         prefix = hit.group(2) or ''
-        return (hostname, 80, bucket_name, prefix)
+        port = 443 if use_ssl else 80
+        return (hostname, port, bucket_name, prefix)
 
     @retry
     def _get_region(self):

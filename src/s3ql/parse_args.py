@@ -141,6 +141,12 @@ class ArgumentParser(argparse.ArgumentParser):
         self.add_argument("--quiet", action="store_true", default=False,
                           help="be really quiet")
 
+    def add_ssl(self):
+        self.add_argument("--ssl", action="store_true", default=False,
+                          help="Always use SSL connections when connecting to remote servers. "
+                          "For backends that allow only encrypted connections, "
+                          "S3QL uses SSL automatically, even if this option is not set.")
+        
     def add_debug_modules(self):
         self.add_argument("--debug", action="append", metavar='<module>',
                           help="activate debugging output from <module>. Use `all` "

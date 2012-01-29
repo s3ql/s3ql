@@ -31,11 +31,14 @@ class Bucket(AbstractBucket):
     object will be immediately retrievable. 
     """
 
-    def __init__(self, storage_url, login, password):
+    def __init__(self, storage_url, login, password, use_ssl=True):
+        # Unused argument
+        #pylint: disable=W0613
+        
         super(Bucket, self).__init__()
 
         (host, port, bucket_name, prefix) = self._parse_storage_url(storage_url)
-        
+            
         self.hostname = host
         self.port = port
         self.bucket_name = bucket_name

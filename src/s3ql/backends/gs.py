@@ -28,13 +28,13 @@ class Bucket(s3c.Bucket):
     consistency.
     """
 
-    def __init__(self, storage_url, gs_key, gs_secret):
-        super(Bucket, self).__init__(storage_url, gs_key, gs_secret)
+    def __init__(self, storage_url, gs_key, gs_secret, use_ssl):
+        super(Bucket, self).__init__(storage_url, gs_key, gs_secret, use_ssl)
 
         self.namespace = 'http://doc.s3.amazonaws.com/2006-03-01'
 
     @staticmethod
-    def _parse_storage_url(storage_url):
+    def _parse_storage_url(storage_url, use_ssl):
         hit = re.match(r'^gs://([^/]+)(?:/(.*))?$', storage_url)
         if not hit:
             raise QuietError('Invalid storage URL')
@@ -42,7 +42,8 @@ class Bucket(s3c.Bucket):
         bucket_name = hit.group(1)
         hostname = '%s.commondatastorage.googleapis.com' % bucket_name
         prefix = hit.group(2) or ''
-        return (hostname, 80, bucket_name, prefix)
+        port = 443 if use_ssl else 80
+        return (hostname, port, bucket_name, prefix)        
 
     @retry
     def _get_region(self):

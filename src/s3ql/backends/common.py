@@ -1136,7 +1136,7 @@ def get_bucket(options, plain=False):
 
     return get_bucket_factory(options, plain)()
 
-def get_bucket_factory(options, plain=False):
+def get_bucket_factory(options, plain=False, ssl=False):
     '''Return factory producing bucket objects for given storage-url
     
     If *plain* is true, don't attempt to unlock and don't wrap into
@@ -1194,10 +1194,9 @@ def get_bucket_factory(options, plain=False):
         else:
             backend_pw = sys.stdin.readline().rstrip()
 
-
-
     try:
-        bucket = bucket_class(options.storage_url, backend_login, backend_pw)
+        bucket = bucket_class(options.storage_url, backend_login, backend_pw,
+                              options.ssl)
         
         # Do not use bucket.lookup(), this would use a HEAD request and
         # not provide any useful error messages if something goes wrong
@@ -1220,7 +1219,8 @@ def get_bucket_factory(options, plain=False):
         encrypted = True
         
     if plain:
-        return lambda: bucket_class(options.storage_url, backend_login, backend_pw)
+        return lambda: bucket_class(options.storage_url, backend_login, backend_pw,
+                                    options.ssl)
             
     if encrypted and not bucket_passphrase:
         if sys.stdin.isatty():
@@ -1237,7 +1237,8 @@ def get_bucket_factory(options, plain=False):
 
     if not encrypted:
         return lambda: BetterBucket(None, compress,
-                                    bucket_class(options.storage_url, backend_login, backend_pw))
+                                    bucket_class(options.storage_url, backend_login, backend_pw,
+                                                 options.ssl))
 
     tmp_bucket = BetterBucket(bucket_passphrase, compress, bucket)
 
@@ -1247,4 +1248,5 @@ def get_bucket_factory(options, plain=False):
         raise QuietError('Wrong bucket passphrase')
 
     return lambda: BetterBucket(data_pw, compress,
-                                bucket_class(options.storage_url, backend_login, backend_pw))
+                                bucket_class(options.storage_url, backend_login, backend_pw,
+                                             options.ssl))
