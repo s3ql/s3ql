@@ -104,9 +104,8 @@ def main(args=None):
 
         log.info('Purging existing file system data..')
         plain_bucket.clear()
-        if not plain_bucket.is_get_consistent():
-            log.info('Please note that the new file system may appear inconsistent\n'
-                     'for a while until the removals have propagated through the backend.')
+        log.info('Please note that the new file system may appear inconsistent\n'
+                 'for a while until the removals have propagated through the backend.')
 
     if not options.plain:
         if sys.stdin.isatty():

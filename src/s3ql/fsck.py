@@ -847,8 +847,7 @@ class Fsck(object):
             self.conn.execute('CREATE TEMPORARY TABLE missing AS '
                               'SELECT id FROM objects EXCEPT SELECT id FROM obj_ids')
             for (obj_id,) in self.conn.query('SELECT * FROM missing'):
-                if (not self.bucket.is_list_create_consistent()
-                    and ('s3ql_data_%d' % obj_id) in self.bucket):
+                if ('s3ql_data_%d' % obj_id) in self.bucket:
                     # Object was just not in list yet
                     continue
 
@@ -1101,20 +1100,12 @@ def main(args=None):
                          'S3QL installation.')
 
     if param['seq_no'] < seq_no:
-        if bucket.is_get_consistent():
-            print(textwrap.fill(textwrap.dedent('''\
-                  Up to date metadata is not available. Probably the file system has not
-                  been properly unmounted and you should try to run fsck on the computer 
-                  where the file system has been mounted most recently.
-                  ''')))
-        else:
-            print(textwrap.fill(textwrap.dedent('''\
-                  Up to date metadata is not available. Either the file system has not
-                  been unmounted cleanly or the data has not yet propagated through the backend.
-                  In the later case, waiting for a while should fix the problem, in
-                  the former case you should try to run fsck on the computer where
-                  the file system has been mounted most recently
-                  ''')))
+        print(textwrap.fill(textwrap.dedent('''\
+              Up to date metadata is not available. Either the file system has not been unmounted
+              cleanly or the data has not yet propagated through the backend. In the later case,
+              waiting for a while should fix the problem, in the former case you should try to run
+              fsck on the computer where the file system has been mounted most recently
+              ''')))
 
         print('Enter "continue" to use the outdated data anyway:',
               '> ', sep='\n', end='')

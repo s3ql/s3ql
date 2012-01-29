@@ -414,8 +414,7 @@ class Bucket(AbstractBucket):
         """Delete all objects in bucket
         
         Note that this method may not be able to see (and therefore also not
-        delete) recently uploaded objects if `is_list_create_consistent` is
-        False.
+        delete) recently uploaded objects.
         """
 
         # We have to cache keys, because otherwise we can't use the
@@ -428,23 +427,6 @@ class Bucket(AbstractBucket):
 
             # Ignore missing objects when clearing bucket
             self.delete(s3key, True)
-
-    def is_get_consistent(self):
-        '''If True, objects retrievals are guaranteed to be up-to-date
-        
-        If this method returns True, then creating, deleting, or overwriting an
-        object is guaranteed to be immediately reflected in subsequent object
-        retrieval attempts.
-        '''
-        return False
-
-    def is_list_create_consistent(self):
-        '''If True, new objects are guaranteed to show up in object listings
-        
-        If this method returns True, creation of objects will immediately be
-        reflected when retrieving the list of available objects.
-        '''
-        return False
 
     def __str__(self):
         return 's3c://%s/%s/%s' % (self.hostname, self.bucket_name, self.prefix)

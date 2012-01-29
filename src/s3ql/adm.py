@@ -214,10 +214,8 @@ def clear(bucket, cachepath):
 
     bucket.clear()
 
-    print('File system deleted.')
-
-    if not bucket.is_get_consistent():
-        log.info('Note: it may take a while for the removals to propagate through the backend.')
+    log.info('File system deleted.')
+    log.info('Note: it may take a while for the removals to propagate through the backend.')
 
 def get_old_rev_msg(rev, prog):
     return textwrap.dedent('''\
@@ -264,20 +262,13 @@ def upgrade(bucket, cachepath):
 
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:
-        if bucket.is_get_consistent():
-            print(textwrap.fill(textwrap.dedent('''\
-                It appears that the file system is still mounted somewhere else. If this is not
-                the case, the file system may have not been unmounted cleanly and you should try
-                to run fsck on the computer where the file system has been mounted most recently.
-                ''')))
-        else:
-            print(textwrap.fill(textwrap.dedent('''\
-                It appears that the file system is still mounted somewhere else. If this is not the
-                case, the file system may have not been unmounted cleanly or the data from the 
-                most-recent mount may have not yet propagated through the backend. In the later case,
-                waiting for a while should fix the problem, in the former case you should try to run
-                fsck on the computer where the file system has been mounted most recently.
-                ''')))
+        print(textwrap.fill(textwrap.dedent('''\
+            Backend reports that fs is still mounted. If this is not the case, the file system may
+            have not been unmounted cleanly or the data from the most-recent mount may have not yet
+            propagated through the backend. In the later case, waiting for a while should fix the
+            problem, in the former case you should try to run fsck on the computer where the file
+            system has been mounted most recently.
+            ''')))
 
         print(get_old_rev_msg(param['revision'], 'fsck.s3ql'))
         raise QuietError()

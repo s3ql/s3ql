@@ -45,35 +45,6 @@ class Bucket(s3c.Bucket):
         port = 443 if use_ssl else 80
         return (hostname, port, bucket_name, prefix)        
 
-    @retry
-    def _get_region(self):
-        ''''Return bucket region'''
-
-        log.debug('_get_region()')
-        resp = self._do_request('GET', '/', subres='location')
-        region = ElementTree.parse(resp).getroot().text
-
-        return region
-
-    def is_get_consistent(self):
-        '''If True, objects retrievals are guaranteed to be up-to-date
-        
-        If this method returns True, then creating, deleting, or overwriting an
-        object is guaranteed to be immediately reflected in subsequent object
-        retrieval attempts.
-        '''
-
-        return True
-
-    def is_list_create_consistent(self):
-        '''If True, new objects are guaranteed to show up in object listings
-        
-        If this method returns True, creation of objects will immediately be
-        reflected when retrieving the list of available objects.
-        '''
-
-        return False
-
     def __str__(self):
         return 'gs://%s/%s' % (self.bucket_name, self.prefix)
 

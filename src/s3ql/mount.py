@@ -311,20 +311,13 @@ def get_metadata(bucket, cachepath):
 
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:
-        if bucket.is_get_consistent():
-            raise QuietError(textwrap.fill(textwrap.dedent('''\
-                It appears that the file system is still mounted somewhere else. If this is not
-                the case, the file system may have not been unmounted cleanly and you should try
-                to run fsck on the computer where the file system has been mounted most recently.
-                ''')))
-        else:
-            raise QuietError(textwrap.fill(textwrap.dedent('''\
-                It appears that the file system is still mounted somewhere else. If this is not the
-                case, the file system may have not been unmounted cleanly or the data from the 
-                most-recent mount may have not yet propagated through the backend. In the later case,
-                waiting for a while should fix the problem, in the former case you should try to run
-                fsck on the computer where the file system has been mounted most recently.
-                ''')))
+        raise QuietError(textwrap.fill(textwrap.dedent('''\
+            Backend reports that fs is still mounted. If this is not the case, the file system may
+            have not been unmounted cleanly or the data from the most-recent mount may have not yet
+            propagated through the backend. In the later case, waiting for a while should fix the
+            problem, in the former case you should try to run fsck on the computer where the file
+            system has been mounted most recently.
+            ''')))          
 
     # Check revision
     if param['revision'] < CURRENT_FS_REV:
