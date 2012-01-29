@@ -8,9 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from . import s3c
-from s3ql.backends.common import retry
 from s3ql.common import QuietError
-import xml.etree.cElementTree as ElementTree
 import logging
 import re
 
@@ -28,6 +26,10 @@ class Bucket(s3c.Bucket):
     object will be immediately retrievable. Additional consistency guarantees
     may or may not be available and can be queried for with instance methods.    
     """
+    
+    def __init__(self, storage_url, login, password, use_ssl):
+        super(Bucket, self).__init__(storage_url, login, password, use_ssl)
+
 
     @staticmethod
     def _parse_storage_url(storage_url, use_ssl):
