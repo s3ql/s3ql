@@ -44,7 +44,7 @@ class Bucket(s3c.Bucket):
         if self.region in BAD_REGIONS:
             log.warn('Warning: bucket provides insufficient consistency guarantees!')
         elif self.region not in GOOD_REGIONS:
-            log.warn('Unknown region: %s - please file a bug report. ')
+            log.warn('Unknown region: %s - please file a bug report.', self.region)
 
     @staticmethod
     def _parse_storage_url(storage_url):
