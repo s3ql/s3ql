@@ -44,12 +44,6 @@ secret* that you can manage with the `Google Storage key management
 tool
 <https://code.google.com/apis/console/#:storage:legacy>`_.
 
-If you would like S3QL to connect using HTTPS instead of standard
-HTTP, start the storage url with ``gss://`` instead of ``gs://``. Note
-that at this point S3QL does not perform any server certificate
-validation (see `issue 267
-<http://code.google.com/p/s3ql/issues/detail?id=267>`_).
-
 
 Amazon S3
 =========
@@ -79,13 +73,6 @@ user id and password that you use to log into the Amazon Webpage, but
 the *AWS access key id* and *AWS secret access key* shown under `My
 Account/Access Identifiers
 <https://aws-portal.amazon.com/gp/aws/developer/account/index.html?ie=UTF8&action=access-key>`_.
-
-If you would like S3QL to connect using HTTPS instead of standard
-HTTP, start the storage url with ``s3s://`` instead of ``s3://``. Note
-that, as of May 2011, Amazon S3 is faster when accessed using a
-standard HTTP connection, and that S3QL does not perform any server
-certificate validation (see `issue 267
-<http://code.google.com/p/s3ql/issues/detail?id=267>`_).
 
 
 Reduced Redundancy Storage (RRS)
@@ -216,13 +203,10 @@ service is ::
 
    s3c://<hostname>:<port>/<bucketname>/<prefix>
 
-or ::
-
-   s3cs://<hostname>:<port>/<bucketname>/<prefix>
-
-to use HTTPS connections. Note, however, that at this point S3QL does
-not verify the server certificate (cf. `issue 267
-<http://code.google.com/p/s3ql/issues/detail?id=267>`_).
+Here *bucketname* is the name of an (existing) bucket, and *prefix*
+can be an arbitrary prefix that will be prepended to all object names
+used by S3QL. This allows you to store several S3QL file systems in
+the same S3 bucket.
 
 
 Local
