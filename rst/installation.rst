@@ -66,10 +66,6 @@ that is not the case.
   llfuse.__version__'`. This should print a version number. You need at
   least version 0.37.
 
-  Note that early S3QL versions shipped with a built-in version of
-  this module. If you are upgrading from such a version, make sure to
-  completely remove the old S3QL version first.
-
 .. _inst-s3ql:
 
 Installing S3QL
