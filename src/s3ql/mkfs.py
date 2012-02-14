@@ -8,15 +8,13 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from . import CURRENT_FS_REV
-from .backends.common import get_bucket, BetterBucket
-from .common import (get_bucket_cachedir, setup_logging, QuietError,
-    stream_write_bz2, CTRL_INODE)
+from .backends.common import get_bucket, BetterBucket, NoSuchBucket
+from .common import get_bucket_cachedir, setup_logging, QuietError, CTRL_INODE, stream_write_bz2
 from .database import Connection
 from .metadata import dump_metadata, create_tables
 from .parse_args import ArgumentParser
 from getpass import getpass
 from llfuse import ROOT_INODE
-from s3ql.backends.common import NoSuchBucket
 import cPickle as pickle
 import logging
 import os
@@ -98,15 +96,17 @@ def main(args=None):
     except NoSuchBucket as exc:
         raise QuietError(str(exc))
 
+    log.info("Before using S3QL, make sure to read the user's guide, especially\n"
+             "the 'Important Rules to Avoid Loosing Data' section.")
+    
     if 's3ql_metadata' in plain_bucket:
         if not options.force:
             raise QuietError("Found existing file system! Use --force to overwrite")
 
         log.info('Purging existing file system data..')
         plain_bucket.clear()
-        if not plain_bucket.is_get_consistent():
-            log.info('Please note that the new file system may appear inconsistent\n'
-                     'for a while until the removals have propagated through the backend.')
+        log.info('Please note that the new file system may appear inconsistent\n'
+                 'for a while until the removals have propagated through the backend.')
 
     if not options.plain:
         if sys.stdin.isatty():

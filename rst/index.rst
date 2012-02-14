@@ -9,16 +9,18 @@
 
    about
    installation
-   general
    backends
+   durability
    mkfs
    adm
    mount
    special
    umount
    fsck
+   authinfo
    contrib
    tips
    issues
    man/index
    resources
+   impl_details

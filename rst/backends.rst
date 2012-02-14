@@ -6,6 +6,19 @@
  Storage Backends
 ==================
 
+S3QL can store data at different service providers and using different
+protocols. The term *backend* refers to both the part of S3QL that
+implements communication with a specific storage service and the
+storage service itself. Most backends can hold more than one S3QL file
+system and thus require some additional information that specifies the
+file system location within the backend. This location is called a
+*bucket* (for historical reasons).
+
+Many S3QL commands expect a *storage url* as a parameter. A storage
+url specifies both the backend and the bucket and thus uniquely
+identifies an S3QL file system. The form of the storage url depends on
+the backend and is described for every backend below.
+
 All storage backends respect the ``http_proxy`` and ``https_proxy``
 environment variables.
 
@@ -98,46 +111,6 @@ combination of three factors:
   :ref:`backend_reliability` for details).
 
 
-Potential issues when using the US Standard storage region
-----------------------------------------------------------
-
-In the US Standard storage region, Amazon S3 does not guarantee read
-after create consistency. This means that after a new object has been
-stored, requests to read this object may still fail for a little
-while. While the file system is mounted, S3QL is able to automatically
-handle all issues related to this so-called eventual consistency.
-However, problems may arise during the mount process and when the file
-system is checked:
-
-Suppose that you mount the file system, store some new data, delete
-some old data and unmount it again. Now there is no guarantee that
-these changes will be visible immediately. At least in theory it is
-therefore possible that if you mount the file system again, S3QL
-does not see any of the changes that you have done and presents you
-an "old version" of the file system without them. Even worse, if you
-notice the problem and unmount the file system, S3QL will upload the
-old status (which S3QL necessarily has to consider as current) and
-thereby permanently override the newer version (even though this
-change may not become immediately visible either).
-
-The same problem applies when checking the file system. If S3
-provides S3QL with only partially updated data, S3QL has no way to
-find out if this a real consistency problem that needs to be fixed or
-if it is only a temporary problem that will resolve itself
-automatically (because there are still changes that have not become
-visible yet).
-
-The likelihood of this to happen is rather low. In practice, most
-objects are ready for retrieval just a few seconds after they have
-been stored, so to trigger this problem one would have to unmount and
-remount the file system in a very short time window. However, since S3
-does not place any upper limit on the length of this window, it is
-recommended to not place S3QL buckets in the US Standard storage
-region. As of May 2011, all other storage regions provide stronger
-consistency guarantees that completely eliminate any of the described
-problems.
-
-
 OpenStack/Swift
 ===============
 
@@ -174,6 +147,19 @@ as the backend passphrase. You can create a storage container for S3QL
 using the `Control Panel <https://manage.rackspacecloud.com/>`_ (go to
 *Cloud Files* under *Hosting*).
 
+
+.. WARNING::
+
+   As of January 2012, RackSpace does not give any information about
+   data consistency or data durability on their web page. However,
+   RackSpace support agents (especially in the live chat) often claim
+   very high guarantees. Any such statement is wrong. As of 01/2012,
+   RackSpace CloudFiles does *not* give *any* durability or
+   consistency guarantees (see :ref:`durability` for why this is
+   important). Why this fact is only acknowledged RackSpace's
+   technical engineers, and/or not communicated to their sales agents
+   is not known.
+   
 You should note that opinions about RackSpace differ widely among S3QL
 users and developers. On the one hand, people praise RackSpace for
 their backing of the (open source) OpenStack project. On the other
@@ -192,14 +178,8 @@ into the control panel.
 S3 compatible
 =============
 
-S3QL is also able to access other, S3 compatible storage services for
-which no specific backend exists. Note that when accessing such
-services, only the lowest common denominator of available features can
-be used, so it is generally recommended to use a service specific
-backend instead.
-
-The storage URL for accessing an arbitrary S3 compatible storage
-service is ::
+The S3 compatible backend allows S3QL to access any storage service
+that uses the same protocol as Amazon S3. The storage URL has the form ::
 
    s3c://<hostname>:<port>/<bucketname>/<prefix>
 
@@ -226,10 +206,10 @@ The storage URL for local storage is ::
 Note that you have to write three consecutive slashes to specify an
 absolute path, e.g. `local:///var/archive`. Also, relative paths will
 automatically be converted to absolute paths before the authentication
-file is read, i.e. if you are in the `/home/john` directory and try to
-mount `local://bucket`, the corresponding section in the
-authentication file must match the storage url
-`local:///home/john/bucket`.
+file (see :ref:`authinfo`) is read, i.e. if you are in the
+`/home/john` directory and try to mount `local://bucket`, the
+corresponding section in the authentication file must match the
+storage url `local:///home/john/bucket`.
 
 SSH/SFTP
 ========
