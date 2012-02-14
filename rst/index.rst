@@ -9,14 +9,15 @@
 
    about
    installation
-   general
    backends
+   durability
    mkfs
    adm
    mount
    special
    umount
    fsck
+   authinfo
    contrib
    tips
    issues
