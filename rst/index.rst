@@ -22,3 +22,4 @@
    issues
    man/index
    resources
+   impl_details
