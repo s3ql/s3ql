@@ -96,6 +96,9 @@ def main(args=None):
     except NoSuchBucket as exc:
         raise QuietError(str(exc))
 
+    log.info("Before using S3QL, make sure to read the user's guide, especially\n"
+             "the 'Important Rules to Avoid Loosing Data' section.")
+    
     if 's3ql_metadata' in plain_bucket:
         if not options.force:
             raise QuietError("Found existing file system! Use --force to overwrite")
