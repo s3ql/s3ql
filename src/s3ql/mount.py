@@ -27,7 +27,6 @@ import signal
 import stat
 import sys
 import tempfile
-import textwrap
 import thread
 import threading
 import time
@@ -476,8 +475,8 @@ def parse_args(args):
                       default=None, metavar='<no>',
                       help='Number of parallel upload threads to use (default: auto).')
     parser.add_argument("--nfs", action="store_true", default=False,
-                      help='Support export of S3QL file systems over NFS '
-                           '(default: %(default)s)')
+                      help='Enable some optimizations for exporting the file system '
+                           'over NFS. (default: %(default)s)')
 
     options = parser.parse_args(args)
 
