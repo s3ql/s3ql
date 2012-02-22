@@ -203,35 +203,35 @@ class URLTests(TestCase):
     #pylint: disable=W0212
      
     def test_s3(self):
-        self.assertEquals(s3.Bucket._parse_storage_url('s3://name')[2:],
+        self.assertEquals(s3.Bucket._parse_storage_url('s3://name', use_ssl=False)[2:],
                           ('name', ''))
-        self.assertEquals(s3.Bucket._parse_storage_url('s3://name/')[2:],
+        self.assertEquals(s3.Bucket._parse_storage_url('s3://name/', use_ssl=False)[2:],
                           ('name', ''))
-        self.assertEquals(s3.Bucket._parse_storage_url('s3://name/pref/')[2:],
+        self.assertEquals(s3.Bucket._parse_storage_url('s3://name/pref/', use_ssl=False)[2:],
                           ('name', 'pref/'))
-        self.assertEquals(s3.Bucket._parse_storage_url('s3://name//pref/')[2:],
+        self.assertEquals(s3.Bucket._parse_storage_url('s3://name//pref/', use_ssl=False)[2:],
                           ('name', '/pref/'))
 
     def test_gs(self):
-        self.assertEquals(gs.Bucket._parse_storage_url('gs://name')[2:],
+        self.assertEquals(gs.Bucket._parse_storage_url('gs://name', use_ssl=False)[2:],
                           ('name', ''))
-        self.assertEquals(gs.Bucket._parse_storage_url('gs://name/')[2:],
+        self.assertEquals(gs.Bucket._parse_storage_url('gs://name/', use_ssl=False)[2:],
                           ('name', ''))
-        self.assertEquals(gs.Bucket._parse_storage_url('gs://name/pref/')[2:],
+        self.assertEquals(gs.Bucket._parse_storage_url('gs://name/pref/', use_ssl=False)[2:],
                           ('name', 'pref/'))
-        self.assertEquals(gs.Bucket._parse_storage_url('gs://name//pref/')[2:],
+        self.assertEquals(gs.Bucket._parse_storage_url('gs://name//pref/', use_ssl=False)[2:],
                           ('name', '/pref/'))
                         
     def test_s3c(self):
-        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org/name'),
+        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org/name', use_ssl=False),
                           ('host.org', 80, 'name', ''))
-        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org:23/name'),
+        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org:23/name', use_ssl=False),
                           ('host.org', 23, 'name', ''))
-        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org/name/'),
+        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org/name/', use_ssl=False),
                           ('host.org', 80, 'name', ''))
-        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org/name/pref'),
+        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org/name/pref', use_ssl=False),
                           ('host.org', 80, 'name', 'pref'))
-        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org:17/name/pref/'),
+        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org:17/name/pref/', use_ssl=False),
                           ('host.org', 17, 'name', 'pref/'))
                                 
 class LocalTests(BackendTestsMixin, TestCase):
