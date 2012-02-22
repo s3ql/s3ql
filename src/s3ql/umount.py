@@ -46,66 +46,73 @@ def parse_args(args):
 
     return parser.parse_args(args)
 
+class MountError(Exception):
+    """
+    Base class for mountpoint errors.
+    """
 
-def main(args=None):
-    '''Umount S3QL file system
+    message = ''
     
-    This function writes to stdout/stderr and calls `system.exit()` instead
-    of returning.
-    '''
+    def __init__(self, mountpoint):
+        super(MountError, self).__init__()
+        self.mountpoint = mountpoint
 
-    if args is None:
-        args = sys.argv[1:]
+    def __str__(self):
+        return self.message.format(self.mountpoint)
 
-    options = parse_args(args)
-    setup_logging(options)
-    mountpoint = options.mountpoint
 
-    # Check if it's a mount point
+class NotMountPointError(MountError):
+
+    message = '"{}" is not a mountpoint.'
+
+
+class NotS3qlFsError(MountError):
+
+    message = '"{}" is not an S3QL file system.'
+
+
+class UmountError(MountError):
+
+    message = 'Error while unmounting "{}".'
+
+
+class MountInUseError(MountError):
+
+    message = '"{}" is being used.'
+
+
+def check_mount(mountpoint):
+    '''Check that "mountpoint" is a mountpoint and a valid s3ql fs'''
+    
     if not posixpath.ismount(mountpoint):
-        print('Not a mount point.', file=sys.stderr)
-        sys.exit(1)
+        raise NotMountPointError(mountpoint)
 
-    # Check if it's an S3QL mountpoint
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
-    if not (CTRL_NAME not in llfuse.listdir(mountpoint)
-            and os.path.exists(ctrlfile)):
-        print('Not an S3QL file system.', file=sys.stderr)
-        sys.exit(1)
-
-    if options.lazy:
-        lazy_umount(mountpoint)
-    else:
-        blocking_umount(mountpoint)
-
+    if not (
+        CTRL_NAME not in llfuse.listdir(mountpoint) and
+        os.path.exists(ctrlfile)
+    ):
+        raise NotS3qlFsError(mountpoint)
 
 def lazy_umount(mountpoint):
-    '''Invoke fusermount -u -z for mountpoint
-    
-    This function writes to stdout/stderr and calls `system.exit()`.
-    '''
+    '''Invoke fusermount -u -z for mountpoint'''
 
     if os.getuid() == 0:
         umount_cmd = ('umount', '-l', mountpoint)
     else:
         umount_cmd = ('fusermount', '-u', '-z', mountpoint)
 
-    if not subprocess.call(umount_cmd) == 0:
-        sys.exit(1)
+    if subprocess.call(umount_cmd)!=0:
+        raise UmountError(mountpoint)
 
 def blocking_umount(mountpoint):
-    '''Invoke fusermount and wait for daemon to terminate.
-    
-    This function writes to stdout/stderr and calls `system.exit()`.
-    '''
+    '''Invoke fusermount and wait for daemon to terminate.'''
 
     devnull = open('/dev/null', 'wb')
-    if subprocess.call(['fuser', '-m', mountpoint], stdout=devnull,
-                       stderr=devnull) == 0:
-        print('Cannot unmount, the following processes still access the mountpoint:')
-        subprocess.call(['fuser', '-v', '-m', mountpoint], stdout=sys.stdout,
-                        stderr=sys.stdout)
-        raise QuietError()
+    if subprocess.call(
+        ['fuser', '-m', mountpoint], stdout=devnull, stderr=devnull
+    ) == 0:
+        raise MountInUseError(mountpoint)
 
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
 
@@ -133,7 +140,7 @@ def blocking_umount(mountpoint):
         umount_cmd = ['fusermount', '-u', mountpoint]
 
     if subprocess.call(umount_cmd) != 0:
-        sys.exit(1)
+        raise UmountError(mountpoint)
 
     # Wait for daemon
     log.debug('Uploading metadata...')
@@ -165,6 +172,44 @@ def blocking_umount(mountpoint):
         time.sleep(step)
         if step < 10:
             step *= 2
+
+def umount(mountpoint, lazy=False):
+    '''Umount "mountpoint", blocks if not "lazy".'''
+
+    check_mount(mountpoint)
+    if lazy:
+        lazy_umount(mountpoint)
+    else:
+        blocking_umount(mountpoint)
+
+def main(args=None):
+    '''Umount S3QL file system'''
+
+    if args is None:
+        args = sys.argv[1:]
+
+    options = parse_args(args)
+    setup_logging(options)
+
+    try:
+        umount(options.mountpoint, options.lazy)
+    except NotMountPointError as err:
+        print(err, file=sys.stderr)
+        sys.exit(1)
+    except NotS3qlFsError as err:
+        print(err, file=sys.stderr)
+        sys.exit(2)
+    except UmountError as err:
+        print(err, file=sys.stderr)
+        sys.exit(3)
+    except MountInUseError:
+        print('Cannot unmount, the following processes still access the mountpoint:',
+              file=sys.stderr)
+        subprocess.call(['fuser', '-v', '-m', options.mountpoint],
+                        stdout=sys.stderr, stderr=sys.stderr)
+        sys.exit(4)
+    else:
+        sys.exit(0)
 
 if __name__ == '__main__':
     main(sys.argv[1:])
