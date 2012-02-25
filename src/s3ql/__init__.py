@@ -17,6 +17,10 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'cleanup_manager', 'common',
 VERSION = '1.10'
 CURRENT_FS_REV = 15
 
+# TODO: On next fs upgrade, explicitly change ctrl file mode
+# from  stat.S_IFIFO to stat.S_IFREG for OS-X compatibility
+# (and remove override from mount.py)
+
 # Maps file system revisions to the last S3QL version that
 # supported this revision.
 REV_VER_MAP = { 15: '1.10',

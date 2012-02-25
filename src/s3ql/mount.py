@@ -11,7 +11,7 @@ from . import fs, CURRENT_FS_REV
 from .backends.common import get_bucket_factory, BucketPool, NoSuchBucket
 from .block_cache import BlockCache
 from .common import (setup_logging, get_bucket_cachedir, get_seq_no, QuietError, stream_write_bz2, 
-    stream_read_bz2)
+    stream_read_bz2, CTRL_INODE)
 from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
@@ -29,7 +29,6 @@ import tempfile
 import thread
 import threading
 import time
-    
 
 log = logging.getLogger("mount")
 
@@ -114,6 +113,10 @@ def main(args=None):
                                inode_cache=InodeCache(db, param['inode_gen']),
                                upload_event=metadata_upload_thread.event)
 
+    # Force control file mode, should be integrated into next fs revision upgrade
+    db.execute('UPDATE inodes SET mode=? WHERE id=?',
+               (CTRL_INODE, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR))
+    
     log.info('Mounting filesystem...')
     llfuse.init(operations, options.mountpoint, get_fuse_opts(options))
 

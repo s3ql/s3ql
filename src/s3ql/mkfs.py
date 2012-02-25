@@ -66,7 +66,7 @@ def init_tables(conn):
     # Insert control inode, the actual values don't matter that much 
     conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
                  "VALUES (?,?,?,?,?,?,?,?)",
-                 (CTRL_INODE, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
+                 (CTRL_INODE, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                   0, 0, timestamp, timestamp, timestamp, 42))
 
     # Insert lost+found directory
