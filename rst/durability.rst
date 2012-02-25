@@ -209,21 +209,24 @@ well. Consider the following scenario:
    have a backup of the important file (since both copies refer to the
    same data blocks that have been lost by the storage service).
 
-To some degree, :program:`fsck.s3ql` can mitigate this effect. When
-used with the ``--full-check`` option, :program:`fsck.s3ql` asks the
-storage service to look up every stored object. This way, S3QL learns
-about any missing and, depending on the storage service, corrupted
-objects. It can then mark the damaged files and prevent the problem
-from spreading forwards in time. Figuratively speaking, this
-establishes a "checkpoint": data loss that occurred before running
-:program:`fsck.s3ql` with ``--full-check`` can not affect any file
-system operations that are performed after the check.
+For some storage services, :program:`fsck.s3ql` can mitigate this
+effect. When :program:`fsck.s3ql` runs, it asks the storage service
+for a list of all stored objects. If objects are missing, it can then
+mark the damaged files and prevent the problem from spreading forwards
+in time. Figuratively speaking, this establishes a "checkpoint": data
+loss that occurred before running :program:`fsck.s3ql` can not affect
+any file system operations that are performed after the check.
+Unfortunately, many storage services only "discover" that objects are
+missing or broken when the object actually needs to be retrieved. In
+this case, :program:`fsck.s3ql` will not learn anything by just
+querying the list of objects.
 
-Unfortunately, a full check is rather time consuming and expensive
-because of the need to check every single stored object. It is
-generally a better choice to choose a storage service where the
-expected data durability is so high that the possibility of a lost
-object (and thus the need to run any full checks) can be neglected
-over long periods of time.
+In the future, :program:`fsck.s3ql` will have an additional
+"full-check" mode, in which it attempts to retrieve every single
+object. However, this is expected to be rather time consuming and
+expensive. Therefore, it is generally a better choice to choose a
+storage service where the expected data durability is so high that the
+possibility of a lost object (and thus the need to run any full
+checks) can be neglected over long periods of time.
 
 
