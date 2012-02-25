@@ -10,7 +10,7 @@ services like `Google Storage
 <http://aws.amazon.com/s3 Amazon S3>`_ or `OpenStack
 <http://openstack.org/projects/storage/>`_. S3QL effectively provides
 a hard disk of dynamic, infinite capacity that can be accessed from
-any computer with internet access.
+any computer with internet access running Linux, FreeBSD or OS-X.
 
 S3QL is a standard conforming, full featured UNIX file system that is
 conceptually indistinguishable from any local file system.
