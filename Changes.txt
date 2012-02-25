@@ -9,7 +9,7 @@
     levels makes this no longer feasible.
 
   * The User's Guide contains a new section "Important Rules to Avoid
-    Loosing Data". Reading it is strongly recommended.
+    Losing Data". Reading it is strongly recommended.
 
 2012-01-21, S3QL 1.9
 

@@ -95,9 +95,9 @@ S3QL does not allow the use of `reduced redundancy storage
 <http://aws.amazon.com/s3/#protecting>`_. The reason for that is a
 combination of three factors:
 
-* RRS has a relatively low reliability, on average you loose one
+* RRS has a relatively low reliability, on average you lose one
   out of every ten-thousand objects a year. So you can expect to
-  occasionally loose some data.
+  occasionally lose some data.
 
 * When `fsck.s3ql` asks S3 for a list of the stored objects, this list
   includes even those objects that have been lost. Therefore

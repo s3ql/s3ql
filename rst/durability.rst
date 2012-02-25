@@ -3,7 +3,7 @@
 .. _durability:
 
 =======================================
- Important Rules to Avoid Loosing Data
+ Important Rules to Avoid Losing Data
 =======================================
 
 Most S3QL backends store data in distributed storage systems. These
@@ -14,7 +14,7 @@ read very carefully.
 Rules in a Nutshell
 ===================
 
-To avoid loosing your data, obey the following rules.
+To avoid losing your data, obey the following rules:
 
 #. Know what durability you can expect from your chosen storage
    service. The durability describes how likely it is that a stored
