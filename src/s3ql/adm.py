@@ -309,18 +309,20 @@ def upgrade(bucket, cachepath):
     if not db:
         log.info("Downloading & uncompressing metadata...")
         def do_read(fh):
-            os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                             stat.S_IRUSR | stat.S_IWUSR))
-            db = Connection(cachepath + '.db.tmp', fast_mode=True)
-            try:
-                restore_legacy_metadata(fh, db)
-            finally:
-                # If metata reading has to be retried, we don't want to hold
-                # a lock on the database.
-                db.close()
-        bucket.perform_read(do_read, "s3ql_metadata")
+            tmpfh = tempfile.TemporaryFile()
+            stream_read_bz2(fh, tmpfh)
+            return tmpfh
+        tmpfh = bucket.perform_read(do_read, "s3ql_metadata")
+        os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                         stat.S_IRUSR | stat.S_IWUSR))
+        db = Connection(cachepath + '.db.tmp', fast_mode=True)
+        log.info("Reading metadata...")
+        tmpfh.seek(0)
+        restore_metadata(tmpfh, db)
+        db.close()
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')
+
 
     log.info('Upgrading from revision %d to %d...', param['revision'], CURRENT_FS_REV)
 
@@ -354,123 +356,6 @@ def upgrade(bucket, cachepath):
     db.execute('ANALYZE')
     db.execute('VACUUM')
 
-def _add_name(db, name):
-    '''Get id for *name* and increase refcount
-    
-    Name is inserted in table if it does not yet exist.
-    '''
-
-    try:
-        name_id = db.get_val('SELECT id FROM names WHERE name=?', (name,))
-    except NoSuchRowError:
-        name_id = db.rowid('INSERT INTO names (name, refcount) VALUES(?,?)',
-                                (name, 1))
-    else:
-        db.execute('UPDATE names SET refcount=refcount+1 WHERE id=?', (name_id,))
-
-    return name_id
-
-def renumber_inodes(db):
-    '''Renumber inodes'''
-
-    log.info('Renumbering inodes...')
-    for table in ('inodes', 'inode_blocks', 'symlink_targets',
-                  'contents', 'names', 'blocks', 'objects', 'ext_attributes'):
-        db.execute('ALTER TABLE %s RENAME TO %s_old' % (table, table))
-
-    for table in ('contents_v', 'ext_attributes_v'):
-        db.execute('DROP VIEW %s' % table)
-
-    create_tables(db)
-    for table in ('names', 'blocks', 'objects'):
-        db.execute('DROP TABLE %s' % table)
-        db.execute('ALTER TABLE %s_old RENAME TO %s' % (table, table))
-
-    log.info('..mapping..')
-    db.execute('CREATE TEMPORARY TABLE inode_map (rowid INTEGER PRIMARY KEY AUTOINCREMENT, id INTEGER UNIQUE)')
-    db.execute('INSERT INTO inode_map (rowid, id) VALUES(?,?)', (ROOT_INODE, ROOT_INODE))
-    db.execute('INSERT INTO inode_map (rowid, id) VALUES(?,?)', (CTRL_INODE, CTRL_INODE))
-    db.execute('INSERT INTO inode_map (id) SELECT id FROM inodes_old WHERE id > ? ORDER BY ctime ASC',
-               (CTRL_INODE,))
-
-    log.info('..inodes..')
-    db.execute('INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,size,locked,rdev) '
-               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = inodes_old.id), '
-               '       mode,uid,gid,mtime,atime,ctime,refcount,size,locked,rdev FROM inodes_old')
-
-    log.info('..inode_blocks..')
-    db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) '
-               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = inode_blocks_old.inode), '
-               '       blockno, block_id FROM inode_blocks_old')
-
-    log.info('..contents..')
-    db.execute('INSERT INTO contents (inode, parent_inode, name_id) '
-               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = contents_old.inode), '
-               '       (SELECT rowid FROM inode_map WHERE inode_map.id = contents_old.parent_inode), '
-               '       name_id FROM contents_old')
-
-    log.info('..symlink_targets..')
-    db.execute('INSERT INTO symlink_targets (inode, target) '
-               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = symlink_targets_old.inode), '
-               '       target FROM symlink_targets_old')
-
-    log.info('..ext_attributes..')
-    db.execute('INSERT INTO ext_attributes (inode, name_id, value) '
-               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = ext_attributes_old.inode), '
-               '       name_id, value FROM ext_attributes_old')
-
-    for table in ('inodes', 'inode_blocks', 'symlink_targets',
-                  'contents', 'ext_attributes'):
-        db.execute('DROP TABLE %s_old' % table)
-
-    db.execute('DROP TABLE inode_map')
-
-def restore_legacy_metadata(ifh, conn):
-
-    # Note: unpickling is terribly slow if fh is not a real file object, so
-    # uncompressing to a temporary file also gives a performance boost
-    log.info('Downloading and decompressing metadata...')
-    tmp = tempfile.TemporaryFile()
-    decompressor = lzma.LZMADecompressor()
-    while True:
-        buf = ifh.read(BUFSIZE)
-        if not buf:
-            break
-        buf = decompressor.decompress(buf)
-        if buf:
-            tmp.write(buf)
-    del decompressor
-    tmp.seek(0)
-
-    log.info("Reading metadata...")
-    unpickler = pickle.Unpickler(tmp)
-    (to_dump, columns) = unpickler.load()
-    create_tables(conn)
-    conn.execute("""
-    DROP VIEW ext_attributes_v;
-    DROP TABLE ext_attributes;
-    CREATE TABLE ext_attributes (
-        inode     INTEGER NOT NULL REFERENCES inodes(id),
-        name      BLUB NOT NULL,
-        value     BLOB NOT NULL,
- 
-        PRIMARY KEY (inode, name)               
-    )""")
-
-    for (table, _) in to_dump:
-        log.info('..%s..', table)
-        col_str = ', '.join(columns[table])
-        val_str = ', '.join('?' for _ in columns[table])
-        sql_str = 'INSERT INTO %s (%s) VALUES(%s)' % (table, col_str, val_str)
-        while True:
-            buf = unpickler.load()
-            if not buf:
-                break
-            for row in buf:
-                conn.execute(sql_str, row)
-
-    tmp.close()
-    conn.execute('ANALYZE')
 
 if __name__ == '__main__':
     main(sys.argv[1:])
