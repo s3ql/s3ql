@@ -229,4 +229,19 @@ storage service where the expected data durability is so high that the
 possibility of a lost object (and thus the need to run any full
 checks) can be neglected over long periods of time.
 
+To some degree, :program:`fsck.s3ql` can mitigate this effect. When
+used with the ``--full-check`` option, :program:`fsck.s3ql` asks the
+storage service to look up every stored object. This way, S3QL learns
+about any missing and, depending on the storage service, corrupted
+objects. It can then mark the damaged files and prevent the problem
+from spreading forwards in time. Figuratively speaking, this
+establishes a "checkpoint": data loss that occurred before running
+:program:`fsck.s3ql` with ``--full-check`` can not affect any file
+system operations that are performed after the check.
 
+Unfortunately, a full check is rather time consuming and expensive
+because of the need to check every single stored object. It is
+generally a better choice to choose a storage service where the
+expected data durability is so high that the possibility of a lost
+object (and thus the need to run any full checks) can be neglected
+over long periods of time.
