@@ -29,6 +29,7 @@ import re
 import stat
 import struct
 import sys
+import math
 import threading
 import time
 import zlib
@@ -440,7 +441,9 @@ class BetterBucket(AbstractBucket):
         elif not encrypted and self.passphrase:
             raise ObjectNotEncrypted()
 
-        buf = b64decode(metadata['meta'])
+        buf = b64decode(''.join(metadata[k] 
+                                for k in sorted(metadata.keys()) 
+                                if k.startswith('meta')))
         if encrypted:
             buf = decrypt(buf, self.passphrase)
 
@@ -525,12 +528,18 @@ class BetterBucket(AbstractBucket):
         if self.passphrase:
             meta_raw['encryption'] = 'AES_v2'
             nonce = struct.pack(b'<f', time.time()) + bytes(key)
-            meta_raw['meta'] = b64encode(encrypt(meta_buf, self.passphrase, nonce))
+            meta_buf = b64encode(encrypt(meta_buf, self.passphrase, nonce))
         else:
             meta_raw['encryption'] = 'None'
-            meta_raw['meta'] = b64encode(meta_buf)
+            meta_buf = b64encode(meta_buf)
             nonce = None
 
+        # Some backends restrict individual metadata fields to 256 bytes,
+        # so we split the data into several fields if necessary
+        chunksize = 255
+        for i in range(int(math.ceil(len(meta_buf) / chunksize))):
+            meta_raw['meta-%2d' % i] = meta_buf[i*chunksize:(i+1)*chunksize]
+             
         if is_compressed or not self.compression:
             compr = None
             meta_raw['compression'] = 'None'
