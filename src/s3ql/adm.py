@@ -9,17 +9,15 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.common import BetterBucket, get_bucket, NoSuchBucket
-from .common import (QuietError, BUFSIZE, setup_logging, get_bucket_cachedir, get_seq_no, 
+from .common import (QuietError, setup_logging, get_bucket_cachedir, get_seq_no, 
     stream_write_bz2, stream_read_bz2, CTRL_INODE)
-from .database import Connection, NoSuchRowError
-from .metadata import restore_metadata, cycle_metadata, dump_metadata, create_tables
+from .database import Connection
+from .metadata import restore_metadata, cycle_metadata, dump_metadata
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
 from getpass import getpass
-from llfuse import ROOT_INODE
 import cPickle as pickle
 import logging
-import lzma
 import os
 import shutil
 import stat
@@ -326,13 +324,8 @@ def upgrade(bucket, cachepath):
 
     log.info('Upgrading from revision %d to %d...', param['revision'], CURRENT_FS_REV)
 
-    if 'max_obj_size' not in param:
-        param['max_obj_size'] = param['blocksize']
-    if 'blocksize' in param:
-        del param['blocksize']
-
-    db.execute('UPDATE inodes SET mtime=mtime+?, ctime=ctime+?, atime=atime+?',
-               (time.timezone, time.timezone, time.timezone))
+    db.execute('UPDATE inodes SET mode=? WHERE id=?',
+               (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR, CTRL_INODE))
     
     param['revision'] = CURRENT_FS_REV
     param['last-modified'] = time.time()
