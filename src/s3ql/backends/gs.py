@@ -8,28 +8,26 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from . import s3c
-from .s3c import retry
 from s3ql.common import QuietError
 import logging
 import re
-import xml.etree.cElementTree as ElementTree
 
 # Pylint goes berserk with false positives
 #pylint: disable=E1002,E1101,W0201
 
 log = logging.getLogger("backends.gs")
 
-class Bucket(s3c.Bucket):
-    """A bucket stored in Google Storage
+class Backend(s3c.Backend):
+    """A backend to store data in Google Storage
     
     This class uses standard HTTP connections to connect to GS.
     
-    The bucket guarantees immediate get consistency and eventual list
+    The backend guarantees immediate get consistency and eventual list
     consistency.
     """
 
     def __init__(self, storage_url, gs_key, gs_secret, use_ssl):
-        super(Bucket, self).__init__(storage_url, gs_key, gs_secret, use_ssl)
+        super(Backend, self).__init__(storage_url, gs_key, gs_secret, use_ssl)
 
         self.namespace = 'http://doc.s3.amazonaws.com/2006-03-01'
 

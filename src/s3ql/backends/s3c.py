@@ -8,9 +8,9 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from ..common import BUFSIZE, QuietError
-from .common import AbstractBucket, NoSuchObject, retry, AuthorizationError, http_connection, \
+from .common import AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, \
     AuthenticationError
-from .common import NoSuchBucket as NoSuchBucket_common
+from .common import DanglingStorageURL as DanglingStorageURL_common
 from base64 import b64encode
 from email.utils import parsedate_tz, mktime_tz
 from urlparse import urlsplit
@@ -33,16 +33,16 @@ XML_CONTENT_RE = re.compile('^application/xml(?:;\s+|$)', re.IGNORECASE)
 
 log = logging.getLogger("backends.s3c")
 
-class Bucket(AbstractBucket):
-    """A bucket stored in some S3 compatible storage service.
+class Backend(AbstractBackend):
+    """A backend to stored data in some S3 compatible storage service.
     
     This class uses standard HTTP connections to connect to GS.
     
-    The bucket guarantees only immediate get after create consistency.
+    The backend guarantees only immediate get after create consistency.
     """
 
     def __init__(self, storage_url, login, password, use_ssl):
-        super(Bucket, self).__init__()
+        super(Backend, self).__init__()
 
         (host, port, bucket_name, prefix) = self._parse_storage_url(storage_url, use_ssl)
 
@@ -93,15 +93,13 @@ class Bucket(AbstractBucket):
     def is_temp_failure(self, exc): #IGNORE:W0613
         '''Return true if exc indicates a temporary error
     
-        Return true if the given exception is used by this bucket's backend
-        to indicate a temporary problem. Most instance methods automatically
-        retry the request in this case, so the caller does not need to
-        worry about temporary failures.
+        Return true if the given exception indicates a temporary problem. Most instance methods
+        automatically retry the request in this case, so the caller does not need to worry about
+        temporary failures.
         
-        However, in same cases (e.g. when reading or writing an object), the
-        request cannot automatically be retried. In these case this method can
-        be used to check for temporary problems and so that the request can
-        be manually restarted if applicable.
+        However, in same cases (e.g. when reading or writing an object), the request cannot
+        automatically be retried. In these case this method can be used to check for temporary
+        problems and so that the request can be manually restarted if applicable.
         '''
 
         if isinstance(exc, (InternalError, BadDigest, IncompleteBody, RequestTimeout,
@@ -139,9 +137,9 @@ class Bucket(AbstractBucket):
                 raise NoSuchObject(key)
 
     def list(self, prefix=''):
-        '''List keys in bucket
+        '''List keys in backend
 
-        Returns an iterator over all keys in the bucket. This method
+        Returns an iterator over all keys in the backend. This method
         handles temporary errors.
         '''
 
@@ -165,7 +163,7 @@ class Bucket(AbstractBucket):
                               type(exc).__name__)
                     raise
 
-                log.info('Encountered %s exception (%s), retrying call to swift.Bucket.list()',
+                log.info('Encountered %s exception (%s), retrying call to s3c.Backend.list()',
                           type(exc).__name__, exc)
                 
                 if hasattr(exc, 'retry_after') and exc.retry_after:
@@ -180,9 +178,9 @@ class Bucket(AbstractBucket):
                 yield marker
 
     def _list(self, prefix='', start=''):
-        '''List keys in bucket, starting with *start*
+        '''List keys in backend, starting with *start*
 
-        Returns an iterator over all keys in the bucket. This method
+        Returns an iterator over all keys in the backend. This method
         does not retry on errors.
         '''
 
@@ -272,12 +270,12 @@ class Bucket(AbstractBucket):
 
     @retry
     def open_read(self, key):
-        ''''Open object for reading
+        """Open object for reading
 
-        Return a tuple of a file-like object. Bucket contents can be read from
-        the file-like object, metadata is stored in its *metadata* attribute and
-        can be modified by the caller at will. The object must be closed explicitly.
-        '''
+        Return a file-like object. Data can be read using the `read` method. metadata is stored in
+        its *metadata* attribute and can be modified by the caller at will. The object must be
+        closed explicitly.
+        """
 
         try:
             resp = self._do_request('GET', '/%s%s' % (self.prefix, key))
@@ -289,16 +287,14 @@ class Bucket(AbstractBucket):
     def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
-        `metadata` can be a dict of additional attributes to store with the
-        object. Returns a file-like object. The object must be closed
-        explicitly. After closing, the *get_obj_size* may be used to retrieve
-        the size of the stored object (which may differ from the size of the
+        `metadata` can be a dict of additional attributes to store with the object. Returns a file-
+        like object. The object must be closed explicitly. After closing, the *get_obj_size* may be
+        used to retrieve the size of the stored object (which may differ from the size of the
         written data).
-
-        The *is_compressed* parameter indicates that the caller is going
-        to write compressed data, and may be used to avoid recompression
-        by the bucket.   
-                
+        
+        The *is_compressed* parameter indicates that the caller is going to write compressed data,
+        and may be used to avoid recompression by the backend.
+                        
         Since Amazon S3 does not support chunked uploads, the entire data will
         be buffered in memory before upload.
         """
@@ -411,7 +407,7 @@ class Bucket(AbstractBucket):
 
 
     def clear(self):
-        """Delete all objects in bucket
+        """Delete all objects in backend
         
         Note that this method may not be able to see (and therefore also not
         delete) recently uploaded objects.
@@ -508,11 +504,11 @@ class Bucket(AbstractBucket):
 class ObjectR(object):
     '''An S3 object open for reading'''
 
-    def __init__(self, key, resp, bucket, metadata=None):
+    def __init__(self, key, resp, backend, metadata=None):
         self.key = key
         self.resp = resp
         self.md5_checked = False
-        self.bucket = bucket
+        self.backend = backend
         self.metadata = metadata
 
         # False positive, hashlib *does* have md5 member
@@ -561,9 +557,9 @@ class ObjectW(object):
     the close() method is called.
     '''
 
-    def __init__(self, key, bucket, headers):
+    def __init__(self, key, backend, headers):
         self.key = key
-        self.bucket = bucket
+        self.backend = backend
         self.headers = headers
         self.closed = False
         self.obj_size = 0
@@ -581,7 +577,7 @@ class ObjectW(object):
         self.obj_size += len(buf)
 
     def is_temp_failure(self, exc):
-        return self.bucket.is_temp_failure(exc)
+        return self.backend.is_temp_failure(exc)
 
     @retry
     def close(self):
@@ -596,7 +592,7 @@ class ObjectW(object):
         self.headers['Content-Length'] = self.obj_size
 
         self.fh.seek(0)
-        resp = self.bucket._do_request('PUT', '/%s%s' % (self.bucket.prefix, self.key),
+        resp = self.backend._do_request('PUT', '/%s%s' % (self.backend.prefix, self.key),
                                        headers=self.headers, body=self.fh)
         etag = resp.getheader('ETag').strip('"')
         assert resp.length == 0
@@ -605,7 +601,7 @@ class ObjectW(object):
             log.warn('ObjectW(%s).close(): MD5 mismatch (%s vs %s)', self.key, etag,
                      self.md5.hexdigest)
             try:
-                self.bucket.delete(self.key)
+                self.backend.delete(self.key)
             except:
                 log.exception('Objectw(%s).close(): unable to delete corrupted object!',
                               self.key)
@@ -708,4 +704,4 @@ class OperationAborted(S3Error): pass
 class RequestTimeout(S3Error): pass
 class SlowDown(S3Error): pass
 class RequestTimeTooSkewed(S3Error): pass
-class NoSuchBucket(S3Error, NoSuchBucket_common): pass
+class DanglingStorageURL(S3Error, DanglingStorageURL_common): pass

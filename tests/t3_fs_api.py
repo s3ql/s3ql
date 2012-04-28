@@ -12,7 +12,7 @@ from llfuse import FUSEError
 from random import randint
 from s3ql import fs
 from s3ql.backends import local
-from s3ql.backends.common import BucketPool
+from s3ql.backends.common import BackendPool
 from s3ql.block_cache import BlockCache
 from s3ql.common import ROOT_INODE
 from s3ql.mkfs import init_tables
@@ -50,10 +50,10 @@ del stamp2
 class fs_api_tests(TestCase):
 
     def setUp(self):
-        self.bucket_dir = tempfile.mkdtemp()
-        self.bucket_pool = BucketPool(lambda: local.Bucket('local://' + self.bucket_dir, 
+        self.backend_dir = tempfile.mkdtemp()
+        self.backend_pool = BackendPool(lambda: local.Backend('local://' + self.backend_dir, 
                                                            None, None))
-        self.bucket = self.bucket_pool.pop_conn()
+        self.backend = self.backend_pool.pop_conn()
         self.cachedir = tempfile.mkdtemp()
         self.max_obj_size = 1024
 
@@ -66,7 +66,7 @@ class fs_api_tests(TestCase):
         # file system request handler
         llfuse.lock.acquire()
 
-        self.block_cache = BlockCache(self.bucket_pool, self.db, self.cachedir + "/cache",
+        self.block_cache = BlockCache(self.backend_pool, self.db, self.cachedir + "/cache",
                                       self.max_obj_size * 5)
         self.server = fs.Operations(self.block_cache, self.db, self.max_obj_size,
                                     InodeCache(self.db, 0))
@@ -80,7 +80,7 @@ class fs_api_tests(TestCase):
         self.server.inodes.flush()
         self.block_cache.destroy()
         shutil.rmtree(self.cachedir)
-        shutil.rmtree(self.bucket_dir)
+        shutil.rmtree(self.backend_dir)
         llfuse.lock.release()
 
     @staticmethod
@@ -91,7 +91,7 @@ class fs_api_tests(TestCase):
     def fsck(self):
         self.block_cache.clear()
         self.server.inodes.flush()
-        fsck = Fsck(self.cachedir + '/cache', self.bucket,
+        fsck = Fsck(self.cachedir + '/cache', self.backend,
                   { 'max_obj_size': self.max_obj_size }, self.db)
         fsck.check()
         self.assertFalse(fsck.found_errors)

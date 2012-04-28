@@ -8,9 +8,9 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from . import fs, CURRENT_FS_REV
-from .backends.common import get_bucket_factory, BucketPool, NoSuchBucket
+from .backends.common import get_backend_factory, BackendPool, DanglingStorageURL
 from .block_cache import BlockCache
-from .common import (setup_logging, get_bucket_cachedir, get_seq_no, QuietError, stream_write_bz2, 
+from .common import (setup_logging, get_backend_cachedir, get_seq_no, QuietError, stream_write_bz2, 
     stream_read_bz2)
 from .daemonize import daemonize
 from .database import Connection
@@ -80,17 +80,17 @@ def main(args=None):
         import pstats
         prof = cProfile.Profile()
 
-    bucket_factory = get_bucket_factory(options)
-    bucket_pool = BucketPool(bucket_factory)
+    backend_factory = get_backend_factory(options)
+    backend_pool = BackendPool(backend_factory)
 
     # Get paths
-    cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
+    cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
 
     # Retrieve metadata
     try:
-        with bucket_pool() as bucket:
-            (param, db) = get_metadata(bucket, cachepath)
-    except NoSuchBucket as exc:
+        with backend_pool() as backend:
+            (param, db) = get_metadata(backend, cachepath)
+    except DanglingStorageURL as exc:
         raise QuietError(str(exc))
 
     if param['max_obj_size'] < options.min_obj_size:
@@ -104,9 +104,9 @@ def main(args=None):
     else:
         db.execute('DROP INDEX IF EXISTS ix_contents_inode')
 
-    metadata_upload_thread = MetadataUploadThread(bucket_pool, param, db,
+    metadata_upload_thread = MetadataUploadThread(backend_pool, param, db,
                                                   options.metadata_upload_interval)
-    block_cache = BlockCache(bucket_pool, db, cachepath + '-cache',
+    block_cache = BlockCache(backend_pool, db, cachepath + '-cache',
                              options.cachesize * 1024, options.max_cache_entries)
     commit_thread = CommitThread(block_cache)
     operations = fs.Operations(block_cache, db, max_obj_size=param['max_obj_size'],
@@ -205,15 +205,15 @@ def main(args=None):
     # Do not update .params yet, dump_metadata() may fail if the database is
     # corrupted, in which case we want to force an fsck.
     param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
-    with bucket_pool() as bucket:
-        seq_no = get_seq_no(bucket)
+    with backend_pool() as backend:
+        seq_no = get_seq_no(backend)
         if metadata_upload_thread.db_mtime == os.stat(cachepath + '.db').st_mtime:
             log.info('File system unchanged, not uploading metadata.')
-            del bucket['s3ql_seq_no_%d' % param['seq_no']]
+            del backend['s3ql_seq_no_%d' % param['seq_no']]
             param['seq_no'] -= 1
             pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         elif seq_no == param['seq_no']:
-            cycle_metadata(bucket)
+            cycle_metadata(backend)
             param['last-modified'] = time.time()
 
             log.info('Dumping metadata...')
@@ -225,7 +225,7 @@ def main(args=None):
                 return obj_fh
 
             log.info("Compressing and uploading metadata...")
-            obj_fh = bucket.perform_write(do_write, "s3ql_metadata", metadata=param,
+            obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
                                           is_compressed=True)
             log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
             pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
@@ -289,10 +289,10 @@ def determine_threads(options):
         log.info("Using %d upload threads.", threads)
         return threads
 
-def get_metadata(bucket, cachepath):
+def get_metadata(backend, cachepath):
     '''Retrieve metadata'''
 
-    seq_no = get_seq_no(bucket)
+    seq_no = get_seq_no(backend)
 
     # Check for cached metadata
     db = None
@@ -300,12 +300,12 @@ def get_metadata(bucket, cachepath):
         param = pickle.load(open(cachepath + '.params', 'rb'))
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
-            param = bucket.lookup('s3ql_metadata')
+            param = backend.lookup('s3ql_metadata')
         else:
             log.info('Using cached metadata.')
             db = Connection(cachepath + '.db')
     else:
-        param = bucket.lookup('s3ql_metadata')
+        param = backend.lookup('s3ql_metadata')
 
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:
@@ -337,7 +337,7 @@ def get_metadata(bucket, cachepath):
             stream_read_bz2(fh, tmpfh)
             return tmpfh
         log.info('Downloading and decompressing metadata...')
-        tmpfh = bucket.perform_read(do_read, "s3ql_metadata")
+        tmpfh = backend.perform_read(do_read, "s3ql_metadata")
         os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                          stat.S_IRUSR | stat.S_IWUSR))
         db = Connection(cachepath + '.db.tmp', fast_mode=True)
@@ -351,7 +351,7 @@ def get_metadata(bucket, cachepath):
     # Increase metadata sequence no 
     param['seq_no'] += 1
     param['needs_fsck'] = True
-    bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
+    backend['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
     param['needs_fsck'] = False
 
@@ -496,9 +496,9 @@ class MetadataUploadThread(Thread):
     passed in the constructor, the global lock is acquired first.    
     '''
 
-    def __init__(self, bucket_pool, param, db, interval):
+    def __init__(self, backend_pool, param, db, interval):
         super(MetadataUploadThread, self).__init__()
-        self.bucket_pool = bucket_pool
+        self.backend_pool = backend_pool
         self.param = param
         self.db = db
         self.interval = interval
@@ -531,15 +531,15 @@ class MetadataUploadThread(Thread):
                 dump_metadata(self.db, fh)
 
 
-            with self.bucket_pool() as bucket:
-                seq_no = get_seq_no(bucket)
+            with self.backend_pool() as backend:
+                seq_no = get_seq_no(backend)
                 if seq_no != self.param['seq_no']:
                     log.error('Remote metadata is newer than local (%d vs %d), '
                               'refusing to overwrite!', seq_no, self.param['seq_no'])
                     fh.close()
                     continue
 
-                cycle_metadata(bucket)
+                cycle_metadata(backend)
                 fh.seek(0)
                 self.param['last-modified'] = time.time()
 
@@ -550,7 +550,7 @@ class MetadataUploadThread(Thread):
                     stream_write_bz2(fh, obj_fh)
                     return obj_fh
                 log.info("Compressing and uploading metadata...")
-                obj_fh = bucket.perform_write(do_write, "s3ql_metadata", metadata=self.param,
+                obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=self.param,
                                               is_compressed=True)
                 log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
                 self.param['seq_no'] += 1

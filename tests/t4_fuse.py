@@ -164,9 +164,9 @@ class fuse_tests(TestCase):
 
         self.mnt_dir = tempfile.mkdtemp()
         self.cache_dir = tempfile.mkdtemp()
-        self.bucket_dir = tempfile.mkdtemp()
+        self.backend_dir = tempfile.mkdtemp()
 
-        self.bucketname = 'local://' + self.bucket_dir
+        self.storage_url = 'local://' + self.backend_dir
         self.passphrase = 'oeut3d'
 
         self.mount_process = None
@@ -176,7 +176,7 @@ class fuse_tests(TestCase):
         proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
                                  '-L', 'test fs', '--max-obj-size', '500',
                                  '--cachedir', self.cache_dir, '--quiet',
-                                 self.bucketname ], stdin=subprocess.PIPE)
+                                 self.storage_url ], stdin=subprocess.PIPE)
 
         print(self.passphrase, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
@@ -188,7 +188,7 @@ class fuse_tests(TestCase):
         self.mount_process = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mount.s3ql'),
                                                 "--fg", '--cachedir', self.cache_dir,
                                                 '--log', 'none', '--quiet',
-                                                  self.bucketname, self.mnt_dir],
+                                                  self.storage_url, self.mnt_dir],
                                                   stdin=subprocess.PIPE)
         print(self.passphrase, file=self.mount_process.stdin)
         self.mount_process.stdin.close()
@@ -215,7 +215,7 @@ class fuse_tests(TestCase):
         proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'fsck.s3ql'),
                                  '--force', '--quiet', '--log', 'none',
                                  '--cachedir', self.cache_dir,
-                                 self.bucketname ], stdin=subprocess.PIPE)
+                                 self.storage_url ], stdin=subprocess.PIPE)
         print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
         self.assertEqual(proc.wait(), 0)
@@ -230,7 +230,7 @@ class fuse_tests(TestCase):
             retry(10, lambda : self.mount_process.poll() is not None)
 
         shutil.rmtree(self.cache_dir)
-        shutil.rmtree(self.bucket_dir)
+        shutil.rmtree(self.backend_dir)
 
 
     def runTest(self):

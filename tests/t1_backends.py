@@ -10,7 +10,7 @@ from __future__ import division, print_function
 from _common import TestCase
 from s3ql.backends import local, s3, gs, s3c, swift
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
-    BetterBucket)
+    BetterBackend)
 import ConfigParser
 import os
 import stat
@@ -30,117 +30,117 @@ class BackendTestsMixin(object):
         value = self.newname()
         metadata = { 'jimmy': 'jups@42' }
 
-        self.assertRaises(NoSuchObject, self.bucket.lookup, key)
-        self.assertRaises(NoSuchObject, self.bucket.fetch, key)
+        self.assertRaises(NoSuchObject, self.backend.lookup, key)
+        self.assertRaises(NoSuchObject, self.backend.fetch, key)
 
-        with self.bucket.open_write(key, metadata) as fh:
+        with self.backend.open_write(key, metadata) as fh:
             fh.write(value)
 
         time.sleep(self.delay)
 
-        with self.bucket.open_read(key) as fh:
+        with self.backend.open_read(key) as fh:
             value2 = fh.read()
 
         self.assertEquals(value, value2)
         self.assertEquals(metadata, fh.metadata)
-        self.assertEquals(self.bucket[key], value)
-        self.assertEquals(self.bucket.lookup(key), metadata)
+        self.assertEquals(self.backend[key], value)
+        self.assertEquals(self.backend.lookup(key), metadata)
 
     def test_setitem(self):
         key = self.newname()
         value = self.newname()
         metadata = { 'jimmy': 'jups@42' }
 
-        self.assertRaises(NoSuchObject, self.bucket.lookup, key)
-        self.assertRaises(NoSuchObject, self.bucket.__getitem__, key)
+        self.assertRaises(NoSuchObject, self.backend.lookup, key)
+        self.assertRaises(NoSuchObject, self.backend.__getitem__, key)
 
-        with self.bucket.open_write(key, metadata) as fh:
+        with self.backend.open_write(key, metadata) as fh:
             fh.write(self.newname())
         time.sleep(self.delay)
-        self.bucket[key] = value
+        self.backend[key] = value
         time.sleep(self.delay)
 
-        with self.bucket.open_read(key) as fh:
+        with self.backend.open_read(key) as fh:
             value2 = fh.read()
 
         self.assertEquals(value, value2)
         self.assertEquals(fh.metadata, dict())
-        self.assertEquals(self.bucket.lookup(key), dict())
+        self.assertEquals(self.backend.lookup(key), dict())
 
     def test_contains(self):
         key = self.newname()
         value = self.newname()
 
-        self.assertFalse(key in self.bucket)
-        self.bucket[key] = value
+        self.assertFalse(key in self.backend)
+        self.backend[key] = value
         time.sleep(self.delay)
-        self.assertTrue(key in self.bucket)
+        self.assertTrue(key in self.backend)
 
     def test_delete(self):
         key = self.newname()
         value = self.newname()
-        self.bucket[key] = value
+        self.backend[key] = value
         time.sleep(self.delay)
 
-        self.assertTrue(key in self.bucket)
-        del self.bucket[key]
+        self.assertTrue(key in self.backend)
+        del self.backend[key]
         time.sleep(self.delay)
-        self.assertFalse(key in self.bucket)
+        self.assertFalse(key in self.backend)
 
     def test_clear(self):
         key1 = self.newname()
         key2 = self.newname()
-        self.bucket[key1] = self.newname()
-        self.bucket[key2] = self.newname()
+        self.backend[key1] = self.newname()
+        self.backend[key2] = self.newname()
 
         time.sleep(self.delay)
-        self.assertEquals(len(list(self.bucket)), 2)
-        self.bucket.clear()
+        self.assertEquals(len(list(self.backend)), 2)
+        self.backend.clear()
         time.sleep(5*self.delay)
-        self.assertTrue(key1 not in self.bucket)
-        self.assertTrue(key2 not in self.bucket)
-        self.assertEquals(len(list(self.bucket)), 0)
+        self.assertTrue(key1 not in self.backend)
+        self.assertTrue(key2 not in self.backend)
+        self.assertEquals(len(list(self.backend)), 0)
 
     def test_list(self):
 
         keys = [ self.newname() for dummy in range(12) ]
         values = [ self.newname() for dummy in range(12) ]
         for i in range(12):
-            self.bucket[keys[i]] = values[i]
+            self.backend[keys[i]] = values[i]
 
         time.sleep(self.delay)
-        self.assertEquals(sorted(self.bucket.list()), sorted(keys))
+        self.assertEquals(sorted(self.backend.list()), sorted(keys))
 
     def test_copy(self):
 
         key1 = self.newname()
         key2 = self.newname()
         value = self.newname()
-        self.assertRaises(NoSuchObject, self.bucket.lookup, key1)
-        self.assertRaises(NoSuchObject, self.bucket.lookup, key2)
+        self.assertRaises(NoSuchObject, self.backend.lookup, key1)
+        self.assertRaises(NoSuchObject, self.backend.lookup, key2)
 
-        self.bucket.store(key1, value)
+        self.backend.store(key1, value)
         time.sleep(self.delay)
-        self.bucket.copy(key1, key2)
+        self.backend.copy(key1, key2)
 
         time.sleep(self.delay)
-        self.assertEquals(self.bucket[key2], value)
+        self.assertEquals(self.backend[key2], value)
 
     def test_rename(self):
 
         key1 = self.newname()
         key2 = self.newname()
         value = self.newname()
-        self.assertRaises(NoSuchObject, self.bucket.lookup, key1)
-        self.assertRaises(NoSuchObject, self.bucket.lookup, key2)
+        self.assertRaises(NoSuchObject, self.backend.lookup, key1)
+        self.assertRaises(NoSuchObject, self.backend.lookup, key2)
 
-        self.bucket.store(key1, value)
+        self.backend.store(key1, value)
         time.sleep(self.delay)
-        self.bucket.rename(key1, key2)
+        self.backend.rename(key1, key2)
 
         time.sleep(self.delay)
-        self.assertEquals(self.bucket[key2], value)
-        self.assertRaises(NoSuchObject, self.bucket.lookup, key1)
+        self.assertEquals(self.backend[key2], value)
+        self.assertRaises(NoSuchObject, self.backend.lookup, key1)
 
 # This test just takes too long (because we have to wait really long so that we don't
 # get false errors due to propagation delays)
@@ -152,10 +152,10 @@ class S3Tests(BackendTestsMixin, TestCase):
         # be much longer for larger objects, but for tests this is usually enough.
         self.delay = 15
 
-        self.bucket = s3.Bucket(*self.get_credentials('s3-test'))
+        self.backend = s3.Backend(*self.get_credentials('s3-test'))
 
     def tearDown(self):
-        self.bucket.clear()
+        self.backend.clear()
 
     def get_credentials(self, name):
 
@@ -171,7 +171,7 @@ class S3Tests(BackendTestsMixin, TestCase):
         config.read(authfile)
 
         try:
-            bucket_name = config.get(name, 'test-bucket')
+            bucket_name = config.get(name, 'test-fs')
             backend_login = config.get(name, 'backend-login')
             backend_password = config.get(name, 'backend-password')
         except (ConfigParser.NoOptionError, ConfigParser.NoSectionError):
@@ -183,19 +183,19 @@ class SwiftTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
         self.delay = 0
-        self.bucket = swift.Bucket(*self.get_credentials('swift-test'))
+        self.backend = swift.Backend(*self.get_credentials('swift-test'))
         
 class GSTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
         self.delay = 15
-        self.bucket = gs.Bucket(*self.get_credentials('gs-test'))
+        self.backend = gs.Backend(*self.get_credentials('gs-test'))
 
 class S3CTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
         self.delay = 0
-        self.bucket = s3c.Bucket(*self.get_credentials('s3c-test'))   
+        self.backend = s3c.Backend(*self.get_credentials('s3c-test'))   
 
 class URLTests(TestCase):
     
@@ -203,93 +203,93 @@ class URLTests(TestCase):
     #pylint: disable=W0212
      
     def test_s3(self):
-        self.assertEquals(s3.Bucket._parse_storage_url('s3://name', use_ssl=False)[2:],
+        self.assertEquals(s3.Backend._parse_storage_url('s3://name', use_ssl=False)[2:],
                           ('name', ''))
-        self.assertEquals(s3.Bucket._parse_storage_url('s3://name/', use_ssl=False)[2:],
+        self.assertEquals(s3.Backend._parse_storage_url('s3://name/', use_ssl=False)[2:],
                           ('name', ''))
-        self.assertEquals(s3.Bucket._parse_storage_url('s3://name/pref/', use_ssl=False)[2:],
+        self.assertEquals(s3.Backend._parse_storage_url('s3://name/pref/', use_ssl=False)[2:],
                           ('name', 'pref/'))
-        self.assertEquals(s3.Bucket._parse_storage_url('s3://name//pref/', use_ssl=False)[2:],
+        self.assertEquals(s3.Backend._parse_storage_url('s3://name//pref/', use_ssl=False)[2:],
                           ('name', '/pref/'))
 
     def test_gs(self):
-        self.assertEquals(gs.Bucket._parse_storage_url('gs://name', use_ssl=False)[2:],
+        self.assertEquals(gs.Backend._parse_storage_url('gs://name', use_ssl=False)[2:],
                           ('name', ''))
-        self.assertEquals(gs.Bucket._parse_storage_url('gs://name/', use_ssl=False)[2:],
+        self.assertEquals(gs.Backend._parse_storage_url('gs://name/', use_ssl=False)[2:],
                           ('name', ''))
-        self.assertEquals(gs.Bucket._parse_storage_url('gs://name/pref/', use_ssl=False)[2:],
+        self.assertEquals(gs.Backend._parse_storage_url('gs://name/pref/', use_ssl=False)[2:],
                           ('name', 'pref/'))
-        self.assertEquals(gs.Bucket._parse_storage_url('gs://name//pref/', use_ssl=False)[2:],
+        self.assertEquals(gs.Backend._parse_storage_url('gs://name//pref/', use_ssl=False)[2:],
                           ('name', '/pref/'))
                         
     def test_s3c(self):
-        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org/name', use_ssl=False),
+        self.assertEquals(s3c.Backend._parse_storage_url('s3c://host.org/name', use_ssl=False),
                           ('host.org', 80, 'name', ''))
-        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org:23/name', use_ssl=False),
+        self.assertEquals(s3c.Backend._parse_storage_url('s3c://host.org:23/name', use_ssl=False),
                           ('host.org', 23, 'name', ''))
-        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org/name/', use_ssl=False),
+        self.assertEquals(s3c.Backend._parse_storage_url('s3c://host.org/name/', use_ssl=False),
                           ('host.org', 80, 'name', ''))
-        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org/name/pref', use_ssl=False),
+        self.assertEquals(s3c.Backend._parse_storage_url('s3c://host.org/name/pref', use_ssl=False),
                           ('host.org', 80, 'name', 'pref'))
-        self.assertEquals(s3c.Bucket._parse_storage_url('s3c://host.org:17/name/pref/', use_ssl=False),
+        self.assertEquals(s3c.Backend._parse_storage_url('s3c://host.org:17/name/pref/', use_ssl=False),
                           ('host.org', 17, 'name', 'pref/'))
                                 
 class LocalTests(BackendTestsMixin, TestCase):
 
     def setUp(self):
         self.name_cnt = 0
-        self.bucket_dir = tempfile.mkdtemp()
-        self.bucket = local.Bucket('local://' + self.bucket_dir, None, None)
+        self.backend_dir = tempfile.mkdtemp()
+        self.backend = local.Backend('local://' + self.backend_dir, None, None)
         self.delay = 0
 
     def tearDown(self):
-        self.bucket.clear()
-        os.rmdir(self.bucket_dir)
+        self.backend.clear()
+        os.rmdir(self.backend_dir)
 
 class CompressionTests(BackendTestsMixin, TestCase):
 
     def setUp(self):
         self.name_cnt = 0
-        self.bucket_dir = tempfile.mkdtemp()
-        self.plain_bucket = local.Bucket('local://' + self.bucket_dir, None, None)
-        self.bucket = self._wrap_bucket()
+        self.backend_dir = tempfile.mkdtemp()
+        self.plain_backend = local.Backend('local://' + self.backend_dir, None, None)
+        self.backend = self._wrap_backend()
         self.delay = 0
 
-    def _wrap_bucket(self):
-        return BetterBucket(None, 'zlib', self.plain_bucket)
+    def _wrap_backend(self):
+        return BetterBackend(None, 'zlib', self.plain_backend)
 
     def tearDown(self):
-        self.bucket.clear()
-        os.rmdir(self.bucket_dir)
+        self.backend.clear()
+        os.rmdir(self.backend_dir)
 
 class EncryptionTests(CompressionTests):
 
-    def _wrap_bucket(self):
-        return BetterBucket('schlurz', None, self.plain_bucket)
+    def _wrap_backend(self):
+        return BetterBackend('schlurz', None, self.plain_backend)
 
     def test_encryption(self):
 
-        self.plain_bucket['plain'] = b'foobar452'
-        self.bucket.store('encrypted', 'testdata', { 'tag': True })
+        self.plain_backend['plain'] = b'foobar452'
+        self.backend.store('encrypted', 'testdata', { 'tag': True })
         time.sleep(self.delay)
-        self.assertEquals(self.bucket['encrypted'], b'testdata')
-        self.assertNotEquals(self.plain_bucket['encrypted'], b'testdata')
-        self.assertRaises(ObjectNotEncrypted, self.bucket.fetch, 'plain')
-        self.assertRaises(ObjectNotEncrypted, self.bucket.lookup, 'plain')
+        self.assertEquals(self.backend['encrypted'], b'testdata')
+        self.assertNotEquals(self.plain_backend['encrypted'], b'testdata')
+        self.assertRaises(ObjectNotEncrypted, self.backend.fetch, 'plain')
+        self.assertRaises(ObjectNotEncrypted, self.backend.lookup, 'plain')
 
-        self.bucket.passphrase = None
-        self.assertRaises(ChecksumError, self.bucket.fetch, 'encrypted')
-        self.assertRaises(ChecksumError, self.bucket.lookup, 'encrypted')
+        self.backend.passphrase = None
+        self.assertRaises(ChecksumError, self.backend.fetch, 'encrypted')
+        self.assertRaises(ChecksumError, self.backend.lookup, 'encrypted')
 
-        self.bucket.passphrase = 'jobzrul'
-        self.assertRaises(ChecksumError, self.bucket.fetch, 'encrypted')
-        self.assertRaises(ChecksumError, self.bucket.lookup, 'encrypted')
+        self.backend.passphrase = 'jobzrul'
+        self.assertRaises(ChecksumError, self.backend.fetch, 'encrypted')
+        self.assertRaises(ChecksumError, self.backend.lookup, 'encrypted')
 
 
 class EncryptionCompressionTests(EncryptionTests):
 
-    def _wrap_bucket(self):
-        return BetterBucket('schlurz', 'zlib', self.plain_bucket)
+    def _wrap_backend(self):
+        return BetterBackend('schlurz', 'zlib', self.plain_backend)
 
 
 # Somehow important according to pyunit documentation

@@ -4,15 +4,15 @@
 set -e
 
 # Backup destination  (storage url)
-bucket="s3://my_backup_bucket"
+storage_url="s3://my_backup_bucket"
 
 # Recover cache if e.g. system was shut down while fs was mounted
-fsck.s3ql --batch "$bucket"
+fsck.s3ql --batch "$storage_url"
 
 # Create a temporary mountpoint and mount file system
 mountpoint="/tmp/s3ql_backup_$$"
 mkdir "$mountpoint"
-mount.s3ql "$bucket" "$mountpoint"
+mount.s3ql "$storage_url" "$mountpoint"
 
 # Make sure the file system is unmounted when we are done
 trap "cd /; umount.s3ql '$mountpoint'; rmdir '$mountpoint'" EXIT

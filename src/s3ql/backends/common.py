@@ -131,8 +131,8 @@ def http_connection(hostname, port, ssl=False):
 def sha256(s):
     return hashlib.sha256(s).digest()
 
-class BucketPool(object):
-    '''A pool of buckets
+class BackendPool(object):
+    '''A pool of backends
 
     This class is threadsafe. All methods (except for internal methods
     starting with underscore) may be called concurrently by different
@@ -176,13 +176,13 @@ class BucketPool(object):
             self.push_conn(conn)
 
 
-class AbstractBucket(object):
+class AbstractBackend(object):
     '''Functionality shared between all backends.
     
     Instances behave similarly to dicts. They can be iterated over and
     indexed into, but raise a separate set of exceptions.
     
-    The bucket guarantees get after create consistency, i.e. a newly created
+    The backend guarantees get after create consistency, i.e. a newly created
     object will be immediately retrievable. Additional consistency guarantees
     may or may not be available and can be queried for with instance methods.
     '''
@@ -191,7 +191,7 @@ class AbstractBucket(object):
     needs_login = True
 
     def __init__(self):
-        super(AbstractBucket, self).__init__()
+        super(AbstractBackend, self).__init__()
 
     def __getitem__(self, key):
         return self.fetch(key)[0]
@@ -214,22 +214,22 @@ class AbstractBucket(object):
 
     @retry
     def perform_read(self, fn, key):
-        '''Read bucket data using *fn*, retry on temporary failure
+        '''Read object data using *fn*, retry on temporary failure
         
-        Open bucket for reading, call `fn(fh)` and close bucket. If a temporary
-        error (as defined by `is_temp_failure`) occurs during opening, closing
-        or execution of *fn*, the operation is retried.
+        Open object for reading, call `fn(fh)` and close object. If a temporary error (as defined by
+        `is_temp_failure`) occurs during opening, closing or execution of *fn*, the operation is
+        retried.
         '''
         with self.open_read(key) as fh:
             return fn(fh)
 
     @retry
     def perform_write(self, fn, key, metadata=None, is_compressed=False):
-        '''Read bucket data using *fn*, retry on temporary failure
+        '''Read object data using *fn*, retry on temporary failure
         
-        Open bucket for writing, call `fn(fh)` and close bucket. If a temporary
-        error (as defined by `is_temp_failure`) occurs during opening, closing
-        or execution of *fn*, the operation is retried.
+        Open object for writing, call `fn(fh)` and close object. If a temporary error (as defined by
+        `is_temp_failure`) occurs during opening, closing or execution of *fn*, the operation is
+        retried.
         '''
 
         with self.open_write(key, metadata, is_compressed) as fh:
@@ -239,8 +239,8 @@ class AbstractBucket(object):
         """Return data stored under `key`.
 
         Returns a tuple with the data and metadata. If only the data itself is
-        required, ``bucket[key]`` is a more concise notation for
-        ``bucket.fetch(key)[0]``.
+        required, ``backend[key]`` is a more concise notation for
+        ``backend.fetch(key)[0]``.
         """
 
         def do_read(fh):
@@ -256,8 +256,8 @@ class AbstractBucket(object):
         object.
 
         If no metadata is required, one can simply assign to the subscripted
-        bucket instead of using this function: ``bucket[key] = val`` is
-        equivalent to ``bucket.store(key, val)``.
+        backend instead of using this function: ``backend[key] = val`` is
+        equivalent to ``backend.store(key, val)``.
         """
 
         self.perform_write(lambda fh: fh.write(val), key, metadata)
@@ -266,15 +266,13 @@ class AbstractBucket(object):
     def is_temp_failure(self, exc):
         '''Return true if exc indicates a temporary error
     
-        Return true if the given exception is used by this bucket's backend
-        to indicate a temporary problem. Most instance methods automatically
-        retry the request in this case, so the caller does not need to
-        worry about temporary failures.
+        Return true if the given exception indicates a temporary problem. Most instance methods
+        automatically retry the request in this case, so the caller does not need to worry about
+        temporary failures.
         
-        However, in same cases (e.g. when reading or writing an object), the
-        request cannot automatically be retried. In these case this method can
-        be used to check for temporary problems and so that the request can
-        be manually restarted if applicable.
+        However, in same cases (e.g. when reading or writing an object), the request cannot
+        automatically be retried. In these case this method can be used to check for temporary
+        problems and so that the request can be manually restarted if applicable.
         '''
 
         pass
@@ -297,10 +295,9 @@ class AbstractBucket(object):
     def open_read(self, key):
         """Open object for reading
 
-        Return a tuple of a file-like object. Bucket contents can be read from
-        the file-like object, metadata is stored in its *metadata* attribute and
-        can be modified by the caller at will. The object must be closed
-        explicitly. 
+        Return a file-like object. Data can be read using the `read` method. metadata is stored in
+        its *metadata* attribute and can be modified by the caller at will. The object must be
+        closed explicitly.
         """
 
         pass
@@ -309,26 +306,24 @@ class AbstractBucket(object):
     def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
-        `metadata` can be a dict of additional attributes to store with the
-        object. Returns a file-like object. The object must be closed
-        explicitly. After closing, the *get_obj_size* may be used to retrieve
-        the size of the stored object (which may differ from the size of the
+        `metadata` can be a dict of additional attributes to store with the object. Returns a file-
+        like object. The object must be closed explicitly. After closing, the *get_obj_size* may be
+        used to retrieve the size of the stored object (which may differ from the size of the
         written data).
         
-        The *is_compressed* parameter indicates that the caller is going
-        to write compressed data, and may be used to avoid recompression
-        by the bucket.
+        The *is_compressed* parameter indicates that the caller is going to write compressed data,
+        and may be used to avoid recompression by the backend.
         """
 
         pass
 
     @abstractmethod
     def clear(self):
-        """Delete all objects in bucket"""
+        """Delete all objects in backend"""
         pass
 
     def contains(self, key):
-        '''Check if `key` is in bucket'''
+        '''Check if `key` is in backend'''
 
         try:
             self.lookup(key)
@@ -341,16 +336,16 @@ class AbstractBucket(object):
     def delete(self, key, force=False):
         """Delete object stored under `key`
 
-        ``bucket.delete(key)`` can also be written as ``del bucket[key]``.
+        ``backend.delete(key)`` can also be written as ``del backend[key]``.
         If `force` is true, do not return an error if the key does not exist.
         """
         pass
 
     @abstractmethod
     def list(self, prefix=''):
-        '''List keys in bucket
+        '''List keys in backend
 
-        Returns an iterator over all keys in the bucket.
+        Returns an iterator over all keys in the backend.
         '''
         pass
 
@@ -374,18 +369,18 @@ class AbstractBucket(object):
         self.copy(src, dest)
         self.delete(src)
 
-class BetterBucket(AbstractBucket):
+class BetterBackend(AbstractBackend):
     '''
     This class adds encryption, compression and integrity protection to a plain
-    bucket.
+    backend.
     '''
 
-    def __init__(self, passphrase, compression, bucket):
-        super(BetterBucket, self).__init__()
+    def __init__(self, passphrase, compression, backend):
+        super(BetterBackend, self).__init__()
 
         self.passphrase = passphrase
         self.compression = compression
-        self.bucket = bucket
+        self.backend = backend
 
         if compression not in ('bzip2', 'lzma', 'zlib', None):
             raise ValueError('Unsupported compression: %s' % compression)
@@ -396,7 +391,7 @@ class BetterBucket(AbstractBucket):
         If the key does not exist, `NoSuchObject` is raised.
         """
 
-        metadata = self.bucket.lookup(key)
+        metadata = self.backend.lookup(key)
         convert_legacy_metadata(metadata)
         return self._unwrap_meta(metadata)
 
@@ -407,28 +402,26 @@ class BetterBucket(AbstractBucket):
         that's actually occupied by the object.
         '''
 
-        return self.bucket.get_size(key)
+        return self.backend.get_size(key)
 
     def is_temp_failure(self, exc):
         '''Return true if exc indicates a temporary error
     
-        Return true if the given exception is used by this bucket's backend
-        to indicate a temporary problem. Most instance methods automatically
-        retry the request in this case, so the caller does not need to
-        worry about temporary failures.
+        Return true if the given exception indicates a temporary problem. Most instance methods
+        automatically retry the request in this case, so the caller does not need to worry about
+        temporary failures.
         
-        However, in same cases (e.g. when reading or writing an object), the
-        request cannot automatically be retried. In these case this method can
-        be used to check for temporary problems and so that the request can
-        be manually restarted if applicable.
+        However, in same cases (e.g. when reading or writing an object), the request cannot
+        automatically be retried. In these case this method can be used to check for temporary
+        problems and so that the request can be manually restarted if applicable.
         '''
 
-        return self.bucket.is_temp_failure(exc)
+        return self.backend.is_temp_failure(exc)
 
     def _unwrap_meta(self, metadata):
         '''Unwrap metadata
         
-        If the bucket has a password set but the object is not encrypted,
+        If the backend has a password set but the object is not encrypted,
         `ObjectNotEncrypted` is raised.
         '''
 
@@ -463,15 +456,15 @@ class BetterBucket(AbstractBucket):
     def open_read(self, key):
         """Open object for reading
 
-        Return a tuple of a file-like object. Bucket contents can be read from
-        the file-like object, metadata is stored in its *metadata* attribute and
-        can be modified by the caller at will. The object must be closed explicitly.
+        Return a file-like object. Data can be read using the `read` method. metadata is stored in
+        its *metadata* attribute and can be modified by the caller at will. The object must be
+        closed explicitly.
         
-        If the bucket has a password set but the object is not encrypted,
-        `ObjectNotEncrypted` is raised.
+        If the backend has a password set but the object is not encrypted, `ObjectNotEncrypted` is
+        raised.
         """
 
-        fh = self.bucket.open_read(key)
+        fh = self.backend.open_read(key)
         convert_legacy_metadata(fh.metadata)
 
         compr_alg = fh.metadata['compression']
@@ -516,7 +509,7 @@ class BetterBucket(AbstractBucket):
         
         The *is_compressed* parameter indicates that the caller is going
         to write compressed data, and may be used to avoid recompression
-        by the bucket.        
+        by the backend.        
         """
 
         # We always store metadata (even if it's just None), so that we can
@@ -553,7 +546,7 @@ class BetterBucket(AbstractBucket):
             compr = lzma.LZMACompressor(options={ 'level': 7 })
             meta_raw['compression'] = 'LZMA'
 
-        fh = self.bucket.open_write(key, meta_raw)
+        fh = self.backend.open_write(key, meta_raw)
 
         if nonce:
             fh = EncryptFilter(fh, self.passphrase, nonce)
@@ -563,27 +556,27 @@ class BetterBucket(AbstractBucket):
         return fh
 
     def clear(self):
-        """Delete all objects in bucket"""
-        return self.bucket.clear()
+        """Delete all objects in backend"""
+        return self.backend.clear()
 
     def contains(self, key):
-        '''Check if `key` is in bucket'''
-        return self.bucket.contains(key)
+        '''Check if `key` is in backend'''
+        return self.backend.contains(key)
 
     def delete(self, key, force=False):
         """Delete object stored under `key`
 
-        ``bucket.delete(key)`` can also be written as ``del bucket[key]``.
+        ``backend.delete(key)`` can also be written as ``del backend[key]``.
         If `force` is true, do not return an error if the key does not exist.
         """
-        return self.bucket.delete(key, force)
+        return self.backend.delete(key, force)
 
     def list(self, prefix=''):
-        '''List keys in bucket
+        '''List keys in backend
 
-        Returns an iterator over all keys in the bucket.
+        Returns an iterator over all keys in the backend.
         '''
-        return self.bucket.list(prefix)
+        return self.backend.list(prefix)
 
     def copy(self, src, dest):
         """Copy data stored under key `src` to key `dest`
@@ -591,7 +584,7 @@ class BetterBucket(AbstractBucket):
         If `dest` already exists, it will be overwritten. The copying
         is done on the remote side. 
         """
-        return self.bucket.copy(src, dest)
+        return self.backend.copy(src, dest)
 
     def rename(self, src, dest):
         """Rename key `src` to `dest`
@@ -599,7 +592,7 @@ class BetterBucket(AbstractBucket):
         If `dest` already exists, it will be overwritten. The rename
         is done on the remote side.
         """
-        return self.bucket.rename(src, dest)
+        return self.backend.rename(src, dest)
 
 
 class AbstractInputFilter(object):
@@ -1013,7 +1006,7 @@ def decrypt(buf, passphrase):
 class ObjectNotEncrypted(Exception):
     '''
     Raised by the backend if an object was requested from an encrypted
-    bucket, but the object was stored without encryption.
+    backend, but the object was stored without encryption.
     
     We do not want to simply return the uncrypted object, because the
     caller may rely on the objects integrity being cryptographically
@@ -1023,28 +1016,28 @@ class ObjectNotEncrypted(Exception):
     pass
 
 class NoSuchObject(Exception):
-    '''Raised if the requested object does not exist in the bucket'''
+    '''Raised if the requested object does not exist in the backend'''
 
     def __init__(self, key):
         super(NoSuchObject, self).__init__()
         self.key = key
 
     def __str__(self):
-        return 'Bucket does not have anything stored under key %r' % self.key
+        return 'Backend does not have anything stored under key %r' % self.key
 
-class NoSuchBucket(Exception):
-    '''Raised if the requested bucket does not exist'''
+class DanglingStorageURL(Exception):
+    '''Raised if the backend can't store data at the given location'''
 
-    def __init__(self, name):
-        super(NoSuchBucket, self).__init__()
-        self.name = name
+    def __init__(self, loc):
+        super(DanglingStorageURL, self).__init__()
+        self.loc = loc
 
     def __str__(self):
-        return 'Bucket %r does not exist' % self.name
+        return '%r does not exist' % self.loc
 
 
 class AuthorizationError(Exception):
-    '''Raised if the credentials don't give access to the requested bucket'''
+    '''Raised if the credentials don't give access to the requested backend'''
 
     def __init__(self, msg):
         super(AuthorizationError, self).__init__()
@@ -1100,20 +1093,20 @@ def convert_legacy_metadata(meta):
         meta['compression'] = 'None'
 
 
-def get_bucket(options, plain=False):
-    '''Return bucket for given storage-url
+def get_backend(options, plain=False):
+    '''Return backend for given storage-url
     
     If *plain* is true, don't attempt to unlock and don't wrap into
-    BetterBucket.
+    BetterBackend.
     '''
 
-    return get_bucket_factory(options, plain)()
+    return get_backend_factory(options, plain)()
 
-def get_bucket_factory(options, plain=False, ssl=False):
-    '''Return factory producing bucket objects for given storage-url
+def get_backend_factory(options, plain=False):
+    '''Return factory producing backend objects for given storage-url
     
     If *plain* is true, don't attempt to unlock and don't wrap into
-    BetterBucket.    
+    BetterBackend.    
     '''
 
     hit = re.match(r'^([a-zA-Z0-9]+)://', options.storage_url)
@@ -1126,7 +1119,7 @@ def get_bucket_factory(options, plain=False, ssl=False):
     except ImportError:
         raise QuietError('No such backend: %s' % hit.group(1))
 
-    bucket_class = getattr(sys.modules[backend_name], 'Bucket')
+    backend_class = getattr(sys.modules[backend_name], 'Backend')
 
     # Read authfile
     config = ConfigParser.SafeConfigParser()
@@ -1138,7 +1131,7 @@ def get_bucket_factory(options, plain=False, ssl=False):
 
     backend_login = None
     backend_pw = None
-    bucket_passphrase = None
+    backend_passphrase = None
     for section in config.sections():
         def getopt(name):
             try:
@@ -1153,38 +1146,38 @@ def get_bucket_factory(options, plain=False, ssl=False):
 
         backend_login = backend_login or getopt('backend-login')
         backend_pw = backend_pw or getopt('backend-password')
-        bucket_passphrase = bucket_passphrase or getopt('fs-passphrase')
-        if bucket_passphrase is None and getopt('bucket-passphrase') is not None:
-            bucket_passphrase = getopt('bucket-passphrase')
+        backend_passphrase = backend_passphrase or getopt('fs-passphrase')
+        if backend_passphrase is None and getopt('bucket-passphrase') is not None:
+            backend_passphrase = getopt('bucket-passphrase')
             log.warn("Warning: the 'bucket-passphrase' configuration option has been "
                      "renamed to 'fs-passphrase'! Please update your authinfo file.")
 
-    if not backend_login and bucket_class.needs_login:
+    if not backend_login and backend_class.needs_login:
         if sys.stdin.isatty():
             backend_login = getpass("Enter backend login: ")
         else:
             backend_login = sys.stdin.readline().rstrip()
 
-    if not backend_pw and bucket_class.needs_login:
+    if not backend_pw and backend_class.needs_login:
         if sys.stdin.isatty():
             backend_pw = getpass("Enter backend password: ")
         else:
             backend_pw = sys.stdin.readline().rstrip()
 
     try:
-        bucket = bucket_class(options.storage_url, backend_login, backend_pw,
+        backend = backend_class(options.storage_url, backend_login, backend_pw,
                               options.ssl)
         
-        # Do not use bucket.lookup(), this would use a HEAD request and
+        # Do not use backend.lookup(), this would use a HEAD request and
         # not provide any useful error messages if something goes wrong
         # (e.g. wrong credentials)
-        _ = bucket['s3ql_passphrase']
+        _ = backend['s3ql_passphrase']
         
-    except NoSuchBucket:
-        raise QuietError('Bucket does not exist')   
+    except DanglingStorageURL as exc:
+        raise QuietError(str(exc))   
     
     except AuthorizationError:
-        raise QuietError('No permission to access bucket.')
+        raise QuietError('No permission to access backend.')
 
     except AuthenticationError:
         raise QuietError('Invalid credentials or skewed system clock.')
@@ -1196,16 +1189,16 @@ def get_bucket_factory(options, plain=False, ssl=False):
         encrypted = True
         
     if plain:
-        return lambda: bucket_class(options.storage_url, backend_login, backend_pw,
+        return lambda: backend_class(options.storage_url, backend_login, backend_pw,
                                     options.ssl)
             
-    if encrypted and not bucket_passphrase:
+    if encrypted and not backend_passphrase:
         if sys.stdin.isatty():
-            bucket_passphrase = getpass("Enter bucket encryption passphrase: ")
+            backend_passphrase = getpass("Enter file system encryption passphrase: ")
         else:
-            bucket_passphrase = sys.stdin.readline().rstrip()
+            backend_passphrase = sys.stdin.readline().rstrip()
     elif not encrypted:
-        bucket_passphrase = None
+        backend_passphrase = None
 
     if hasattr(options, 'compress'):
         compress = options.compress
@@ -1213,17 +1206,17 @@ def get_bucket_factory(options, plain=False, ssl=False):
         compress = None
 
     if not encrypted:
-        return lambda: BetterBucket(None, compress,
-                                    bucket_class(options.storage_url, backend_login, backend_pw,
+        return lambda: BetterBackend(None, compress,
+                                    backend_class(options.storage_url, backend_login, backend_pw,
                                                  options.ssl))
 
-    tmp_bucket = BetterBucket(bucket_passphrase, compress, bucket)
+    tmp_backend = BetterBackend(backend_passphrase, compress, backend)
 
     try:
-        data_pw = tmp_bucket['s3ql_passphrase']
+        data_pw = tmp_backend['s3ql_passphrase']
     except ChecksumError:
-        raise QuietError('Wrong bucket passphrase')
+        raise QuietError('Wrong backend passphrase')
 
-    return lambda: BetterBucket(data_pw, compress,
-                                bucket_class(options.storage_url, backend_login, backend_pw,
+    return lambda: BetterBackend(data_pw, compress,
+                                backend_class(options.storage_url, backend_login, backend_pw,
                                              options.ssl))

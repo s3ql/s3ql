@@ -74,17 +74,17 @@ def restore_metadata(fh, db):
         load_table(table, columns, db=db, fh=fh)
     db.execute('ANALYZE')
 
-def cycle_metadata(bucket):
+def cycle_metadata(backend):
     from .backends.common import NoSuchObject
 
     log.info('Backing up old metadata...')
     for i in reversed(range(10)):
         try:
-            bucket.copy("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
+            backend.copy("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
         except NoSuchObject:
             pass
 
-    bucket.copy("s3ql_metadata", "s3ql_metadata_bak_0")
+    backend.copy("s3ql_metadata", "s3ql_metadata_bak_0")
 
 def dump_metadata(db, fh):
     '''Dump metadata into fh

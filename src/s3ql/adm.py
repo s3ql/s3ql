@@ -8,8 +8,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from . import CURRENT_FS_REV, REV_VER_MAP
-from .backends.common import BetterBucket, get_bucket, NoSuchBucket
-from .common import (QuietError, setup_logging, get_bucket_cachedir, get_seq_no, 
+from .backends.common import BetterBackend, get_backend, DanglingStorageURL
+from .common import (QuietError, setup_logging, get_backend_cachedir, get_seq_no, 
     stream_write_bz2, stream_read_bz2, CTRL_INODE)
 from .database import Connection
 from .metadata import restore_metadata, cycle_metadata, dump_metadata
@@ -32,7 +32,7 @@ def parse_args(args):
     '''Parse command line'''
 
     parser = ArgumentParser(
-        description="Manage S3QL Buckets.",
+        description="Manage S3QL File Systems.",
         epilog=textwrap.dedent('''\
                Hint: run `%(prog)s <action> --help` to get help on the additional
                arguments that the different actions take.'''))
@@ -44,11 +44,11 @@ def parse_args(args):
 
     subparsers = parser.add_subparsers(metavar='<action>', dest='action',
                                        help='may be either of')
-    subparsers.add_parser("passphrase", help="change bucket passphrase",
+    subparsers.add_parser("passphrase", help="change file system passphrase",
                           parents=[pparser])
     subparsers.add_parser("upgrade", help="upgrade file system to newest revision",
                           parents=[pparser])
-    subparsers.add_parser("clear", help="delete all S3QL data from the bucket",
+    subparsers.add_parser("clear", help="delete file system and all data",
                           parents=[pparser])
     subparsers.add_parser("download-metadata",
                           help="Interactively download metadata backups. "
@@ -86,32 +86,32 @@ def main(args=None):
 
     if options.action == 'clear':
         try:
-            bucket = get_bucket(options, plain=True)
-        except NoSuchBucket as exc:
+            backend = get_backend(options, plain=True)
+        except DanglingStorageURL as exc:
             raise QuietError(str(exc))
-        return clear(bucket,
-                     get_bucket_cachedir(options.storage_url, options.cachedir))
+        return clear(backend,
+                     get_backend_cachedir(options.storage_url, options.cachedir))
 
     try:
-        bucket = get_bucket(options)
-    except NoSuchBucket as exc:
+        backend = get_backend(options)
+    except DanglingStorageURL as exc:
         raise QuietError(str(exc))
 
     if options.action == 'upgrade':
-        return upgrade(bucket, get_bucket_cachedir(options.storage_url,
+        return upgrade(backend, get_backend_cachedir(options.storage_url,
                                                    options.cachedir))
 
     if options.action == 'passphrase':
-        return change_passphrase(bucket)
+        return change_passphrase(backend)
 
     if options.action == 'download-metadata':
-        return download_metadata(bucket, options.storage_url)
+        return download_metadata(backend, options.storage_url)
 
 
-def download_metadata(bucket, storage_url):
+def download_metadata(backend, storage_url):
     '''Download old metadata backups'''
 
-    backups = sorted(bucket.list('s3ql_metadata_bak_'))
+    backups = sorted(backend.list('s3ql_metadata_bak_'))
 
     if not backups:
         raise QuietError('No metadata backups found.')
@@ -119,7 +119,7 @@ def download_metadata(bucket, storage_url):
     log.info('The following backups are available:')
     log.info('%3s  %-23s %-15s', 'No', 'Name', 'Date')
     for (i, name) in enumerate(backups):
-        params = bucket.lookup(name)
+        params = backend.lookup(name)
         if 'last-modified' in params:
             date = Datetime.fromtimestamp(params['last-modified']).strftime('%Y-%m-%d %H:%M:%S')
         else:
@@ -136,19 +136,19 @@ def download_metadata(bucket, storage_url):
         except:
             log.warn('Invalid input')
 
-    cachepath = get_bucket_cachedir(storage_url, '.')
+    cachepath = get_backend_cachedir(storage_url, '.')
     for i in ('.db', '.params'):
         if os.path.exists(cachepath + i):
             raise QuietError('%s already exists, aborting.' % cachepath + i)
 
-    param = bucket.lookup(name)
+    param = backend.lookup(name)
     try:
         log.info('Downloading and decompressing %s...', name)
         def do_read(fh):
             tmpfh = tempfile.TemporaryFile()
             stream_read_bz2(fh, tmpfh)
             return tmpfh
-        tmpfh = bucket.perform_read(do_read, name)
+        tmpfh = backend.perform_read(do_read, name)
         os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                          stat.S_IRUSR | stat.S_IWUSR))
         db = Connection(cachepath + '.db.tmp', fast_mode=True)
@@ -165,17 +165,17 @@ def download_metadata(bucket, storage_url):
 
     # Raise sequence number so that fsck.s3ql actually uses the
     # downloaded backup
-    seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in bucket.list('s3ql_seq_no_') ]
+    seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in backend.list('s3ql_seq_no_') ]
     param['seq_no'] = max(seq_nos) + 1
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
 
-def change_passphrase(bucket):
-    '''Change bucket passphrase'''
+def change_passphrase(backend):
+    '''Change file system passphrase'''
 
-    if not isinstance(bucket, BetterBucket) and bucket.passphrase:
-        raise QuietError('Bucket is not encrypted.')
+    if not isinstance(backend, BetterBackend) and backend.passphrase:
+        raise QuietError('File system is not encrypted.')
 
-    data_pw = bucket.passphrase
+    data_pw = backend.passphrase
 
     if sys.stdin.isatty():
         wrap_pw = getpass("Enter new encryption password: ")
@@ -184,12 +184,12 @@ def change_passphrase(bucket):
     else:
         wrap_pw = sys.stdin.readline().rstrip()
 
-    bucket.passphrase = wrap_pw
-    bucket['s3ql_passphrase'] = data_pw
-    bucket.passphrase = data_pw
+    backend.passphrase = wrap_pw
+    backend['s3ql_passphrase'] = data_pw
+    backend.passphrase = data_pw
 
-def clear(bucket, cachepath):
-    print('I am about to delete the S3QL file system in %s.' % bucket,
+def clear(backend, cachepath):
+    print('I am about to delete the S3QL file system in %s.' % backend,
           'Please enter "yes" to continue.', '> ', sep='\n', end='')
 
     if sys.stdin.readline().strip().lower() != 'yes':
@@ -206,7 +206,7 @@ def clear(bucket, cachepath):
     if os.path.exists(name):
         shutil.rmtree(name)
 
-    bucket.clear()
+    backend.clear()
 
     log.info('File system deleted.')
     log.info('Note: it may take a while for the removals to propagate through the backend.')
@@ -222,12 +222,12 @@ def get_old_rev_msg(rev, prog):
         ''' % { 'version': REV_VER_MAP[rev],
                 'prog': prog })
 
-def upgrade(bucket, cachepath):
+def upgrade(backend, cachepath):
     '''Upgrade file system to newest revision'''
 
     log.info('Getting file system parameters..')
 
-    seq_nos = list(bucket.list('s3ql_seq_no_'))
+    seq_nos = list(backend.list('s3ql_seq_no_'))
     if (seq_nos[0].endswith('.meta')
         or seq_nos[0].endswith('.dat')):
         print(textwrap.dedent(''' 
@@ -239,7 +239,7 @@ def upgrade(bucket, cachepath):
             '''))
         print(get_old_rev_msg(11 + 1, 's3qladm'))
         raise QuietError()
-    seq_no = get_seq_no(bucket)
+    seq_no = get_seq_no(backend)
 
     # Check for cached metadata
     db = None
@@ -247,12 +247,12 @@ def upgrade(bucket, cachepath):
         param = pickle.load(open(cachepath + '.params', 'rb'))
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
-            param = bucket.lookup('s3ql_metadata')
+            param = backend.lookup('s3ql_metadata')
         else:
             log.info('Using cached metadata.')
             db = Connection(cachepath + '.db')
     else:
-        param = bucket.lookup('s3ql_metadata')
+        param = backend.lookup('s3ql_metadata')
 
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:
@@ -310,7 +310,7 @@ def upgrade(bucket, cachepath):
             tmpfh = tempfile.TemporaryFile()
             stream_read_bz2(fh, tmpfh)
             return tmpfh
-        tmpfh = bucket.perform_read(do_read, "s3ql_metadata")
+        tmpfh = backend.perform_read(do_read, "s3ql_metadata")
         os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                          stat.S_IRUSR | stat.S_IWUSR))
         db = Connection(cachepath + '.db.tmp', fast_mode=True)
@@ -330,7 +330,7 @@ def upgrade(bucket, cachepath):
     param['revision'] = CURRENT_FS_REV
     param['last-modified'] = time.time()
 
-    cycle_metadata(bucket)
+    cycle_metadata(backend)
     log.info('Dumping metadata...')
     fh = tempfile.TemporaryFile()
     dump_metadata(db, fh)
@@ -340,8 +340,8 @@ def upgrade(bucket, cachepath):
         return obj_fh
 
     log.info("Compressing and uploading metadata...")
-    bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
-    obj_fh = bucket.perform_write(do_write, "s3ql_metadata", metadata=param,
+    backend.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
+    obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
                                   is_compressed=True)
     log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)

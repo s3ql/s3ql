@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-from .common import CTRL_NAME, QuietError, setup_logging
+from .common import CTRL_NAME, setup_logging
 from .parse_args import ArgumentParser
 import llfuse
 import logging

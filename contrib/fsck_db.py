@@ -9,7 +9,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from argparse import ArgumentTypeError
-import cPickle as pickle
 import logging
 import os
 import sys
@@ -21,12 +20,9 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql import CURRENT_FS_REV
 from s3ql.common import setup_logging
 from s3ql.fsck import ROFsck
 from s3ql.parse_args import ArgumentParser
-from s3ql.adm import _add_name
-from s3ql.database import Connection
 
 log = logging.getLogger("fsck")
 

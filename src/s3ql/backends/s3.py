@@ -17,18 +17,18 @@ log = logging.getLogger("backend.s3")
 # Pylint goes berserk with false positives
 #pylint: disable=E1002,E1101
               
-class Bucket(s3c.Bucket):
-    """A bucket stored in Amazon S3
+class Backend(s3c.Backend):
+    """A backend to store data in Amazon S3
     
     This class uses standard HTTP connections to connect to S3.
     
-    The bucket guarantees get after create consistency, i.e. a newly created
+    The backend guarantees get after create consistency, i.e. a newly created
     object will be immediately retrievable. Additional consistency guarantees
     may or may not be available and can be queried for with instance methods.    
     """
     
     def __init__(self, storage_url, login, password, use_ssl):
-        super(Bucket, self).__init__(storage_url, login, password, use_ssl)
+        super(Backend, self).__init__(storage_url, login, password, use_ssl)
 
 
     @staticmethod

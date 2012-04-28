@@ -92,11 +92,11 @@ def add_stdout_logging(quiet=False):
     root_logger.addHandler(handler)
     return handler
 
-def get_seq_no(bucket):
+def get_seq_no(backend):
     '''Get current metadata sequence number'''
     from .backends.common import NoSuchObject
 
-    seq_nos = list(bucket.list('s3ql_seq_no_'))
+    seq_nos = list(backend.list('s3ql_seq_no_'))
     if not seq_nos:
         # Maybe list result is outdated
         seq_nos = [ 's3ql_seq_no_1' ]
@@ -109,18 +109,18 @@ def get_seq_no(bucket):
     seq_no = max(seq_nos)
 
     # Make sure that object really exists
-    while ('s3ql_seq_no_%d' % seq_no) not in bucket:
+    while ('s3ql_seq_no_%d' % seq_no) not in backend:
         seq_no -= 1
         if seq_no == 0:
-            raise QuietError('No S3QL file system found in bucket.')
-    while ('s3ql_seq_no_%d' % seq_no) in bucket:
+            raise QuietError('No S3QL file system found at given storage URL.')
+    while ('s3ql_seq_no_%d' % seq_no) in backend:
         seq_no += 1
     seq_no -= 1
 
     # Delete old seq nos
     for i in [ x for x in seq_nos if x < seq_no - 10 ]:
         try:
-            del bucket['s3ql_seq_no_%d' % i]
+            del backend['s3ql_seq_no_%d' % i]
         except NoSuchObject:
             pass # Key list may not be up to date
 
@@ -338,7 +338,7 @@ def _escape(s):
 
     return s
 
-def get_bucket_cachedir(storage_url, cachedir):
+def get_backend_cachedir(storage_url, cachedir):
     if not os.path.exists(cachedir):
         os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
     return os.path.join(cachedir, _escape(storage_url))

@@ -8,8 +8,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from . import CURRENT_FS_REV
-from .backends.common import get_bucket, BetterBucket, NoSuchBucket
-from .common import get_bucket_cachedir, setup_logging, QuietError, CTRL_INODE, stream_write_bz2
+from .backends.common import get_backend, BetterBackend, DanglingStorageURL
+from .common import get_backend_cachedir, setup_logging, QuietError, CTRL_INODE, stream_write_bz2
 from .database import Connection
 from .metadata import dump_metadata, create_tables
 from .parse_args import ArgumentParser
@@ -92,19 +92,19 @@ def main(args=None):
                  'performance.')
 
     try:
-        plain_bucket = get_bucket(options, plain=True)
-    except NoSuchBucket as exc:
+        plain_backend = get_backend(options, plain=True)
+    except DanglingStorageURL as exc:
         raise QuietError(str(exc))
 
     log.info("Before using S3QL, make sure to read the user's guide, especially\n"
              "the 'Important Rules to Avoid Loosing Data' section.")
     
-    if 's3ql_metadata' in plain_bucket:
+    if 's3ql_metadata' in plain_backend:
         if not options.force:
             raise QuietError("Found existing file system! Use --force to overwrite")
 
         log.info('Purging existing file system data..')
-        plain_bucket.clear()
+        plain_backend.clear()
         log.info('Please note that the new file system may appear inconsistent\n'
                  'for a while until the removals have propagated through the backend.')
 
@@ -122,17 +122,17 @@ def main(args=None):
         data_pw = fh.read(32)
         fh.close()
 
-        bucket = BetterBucket(wrap_pw, 'bzip2', plain_bucket)
-        bucket['s3ql_passphrase'] = data_pw
+        backend = BetterBackend(wrap_pw, 'bzip2', plain_backend)
+        backend['s3ql_passphrase'] = data_pw
     else:
         data_pw = None
 
-    bucket = BetterBucket(data_pw, 'bzip2', plain_bucket)
+    backend = BetterBackend(data_pw, 'bzip2', plain_backend)
 
     # Setup database
-    cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
+    cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
 
-    # There can't be a corresponding bucket, so we can safely delete
+    # There can't be a corresponding backend, so we can safely delete
     # these files.
     if os.path.exists(cachepath + '.db'):
         os.unlink(cachepath + '.db')
@@ -156,8 +156,8 @@ def main(args=None):
     param['last-modified'] = time.time()
 
     # This indicates that the convert_legacy_metadata() stuff
-    # in BetterBucket is not required for this file system.
-    param['bucket_revision'] = 1
+    # in BetterBackend is not required for this file system.
+    param['backend_revision'] = 1
 
     log.info('Dumping metadata...')
     fh = tempfile.TemporaryFile()
@@ -168,8 +168,8 @@ def main(args=None):
         return obj_fh
 
     log.info("Compressing and uploading metadata...")
-    bucket.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
-    obj_fh = bucket.perform_write(do_write, "s3ql_metadata", metadata=param,
+    backend.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
+    obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
                                   is_compressed=True)
     log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)

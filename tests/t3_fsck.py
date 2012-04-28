@@ -25,8 +25,8 @@ import unittest2 as unittest
 class fsck_tests(TestCase):
 
     def setUp(self):
-        self.bucket_dir = tempfile.mkdtemp()
-        self.bucket = local.Bucket('local://' + self.bucket_dir, None, None)
+        self.backend_dir = tempfile.mkdtemp()
+        self.backend = local.Backend('local://' + self.backend_dir, None, None)
         self.cachedir = tempfile.mkdtemp()
         self.max_obj_size = 1024
 
@@ -35,13 +35,13 @@ class fsck_tests(TestCase):
         create_tables(self.db)
         init_tables(self.db)
 
-        self.fsck = Fsck(self.cachedir, self.bucket,
+        self.fsck = Fsck(self.cachedir, self.backend,
                   { 'max_obj_size': self.max_obj_size }, self.db)
         self.fsck.expect_errors = True
 
     def tearDown(self):
         shutil.rmtree(self.cachedir)
-        shutil.rmtree(self.bucket_dir)
+        shutil.rmtree(self.backend_dir)
 
     def assert_fsck(self, fn):
         '''Check that fn detects and corrects an error'''
@@ -67,7 +67,7 @@ class fsck_tests(TestCase):
         fh.write('somedata')
         fh.close()
         self.assert_fsck(self.fsck.check_cache)
-        self.assertEquals(self.bucket['s3ql_data_1'], 'somedata')
+        self.assertEquals(self.backend['s3ql_data_1'], 'somedata')
 
         # Existing block
         self.db.execute('UPDATE inodes SET size=? WHERE id=?',
@@ -211,7 +211,7 @@ class fsck_tests(TestCase):
         obj_id = self.db.rowid('INSERT INTO objects (refcount,size) VALUES(?,?)', (1, 36))
         block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
                                  (1, obj_id, 512))
-        self.bucket['s3ql_data_%d' % obj_id] = 'foo'
+        self.backend['s3ql_data_%d' % obj_id] = 'foo'
 
         # Case 1
         self.db.execute('UPDATE inodes SET size=? WHERE id=?', (self.max_obj_size + 120, id_))
@@ -237,11 +237,11 @@ class fsck_tests(TestCase):
 
 
     def test_objects_id(self):
-        # Create an object that only exists in the bucket
-        self.bucket['s3ql_data_4364'] = 'Testdata'
+        # Create an object that only exists in the backend
+        self.backend['s3ql_data_4364'] = 'Testdata'
         self.assert_fsck(self.fsck.check_objects_id)
 
-        # Create an object that does not exist in the bucket
+        # Create an object that does not exist in the backend
         self.db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)', (34, 1, 27))
         self.assert_fsck(self.fsck.check_objects_id)
 
@@ -280,7 +280,7 @@ class fsck_tests(TestCase):
     def test_inode_blocks_inode(self):
 
         obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 42)')
-        self.bucket['s3ql_data_%d' % obj_id] = 'foo'
+        self.backend['s3ql_data_%d' % obj_id] = 'foo'
 
         block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
                                  (1, obj_id, 34))
@@ -359,7 +359,7 @@ class fsck_tests(TestCase):
                                  (1, obj_id, 0))
         block_id_2 = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
                                    (1, obj_id, 0))
-        self.bucket['s3ql_data_%d' % obj_id] = 'foo'
+        self.backend['s3ql_data_%d' % obj_id] = 'foo'
 
         inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
                               "VALUES (?,?,?,?,?,?,?,?)",
@@ -382,7 +382,7 @@ class fsck_tests(TestCase):
     def test_wrong_block_refcount(self):
 
         obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 23)')
-        self.bucket['s3ql_data_%d' % obj_id] = 'foo'
+        self.backend['s3ql_data_%d' % obj_id] = 'foo'
         block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
                                  (1, obj_id, 0))
 
@@ -402,7 +402,7 @@ class fsck_tests(TestCase):
     def test_orphaned_block(self):
 
         obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 24)')
-        self.bucket['s3ql_data_%d' % obj_id] = 'foo'
+        self.backend['s3ql_data_%d' % obj_id] = 'foo'
         self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
                       (1, obj_id, 3))
         self.assert_fsck(self.fsck.check_blocks_refcount)

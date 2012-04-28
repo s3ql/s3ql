@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function
 from _common import TestCase
 from s3ql.backends import local
-from s3ql.backends.common import BetterBucket
+from s3ql.backends.common import BetterBackend
 import shutil
 import sys
 import tempfile
@@ -27,20 +27,20 @@ class AdmTests(TestCase):
 
     def setUp(self):
         self.cache_dir = tempfile.mkdtemp()
-        self.bucket_dir = tempfile.mkdtemp()
+        self.backend_dir = tempfile.mkdtemp()
 
-        self.bucketname = 'local://' + self.bucket_dir
+        self.storage_url = 'local://' + self.backend_dir
         self.passphrase = 'oeut3d'
 
     def tearDown(self):
         shutil.rmtree(self.cache_dir)
-        shutil.rmtree(self.bucket_dir)
+        shutil.rmtree(self.backend_dir)
 
     def mkfs(self):
         proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
                                  '-L', 'test fs', '--max-obj-size', '500',
                                  '--cachedir', self.cache_dir, '--quiet',
-                                 self.bucketname ], stdin=subprocess.PIPE)
+                                 self.storage_url ], stdin=subprocess.PIPE)
 
         print(self.passphrase, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
@@ -55,7 +55,7 @@ class AdmTests(TestCase):
 
         proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 's3qladm'),
                                  '--quiet', 'passphrase',
-                                 self.bucketname ], stdin=subprocess.PIPE)
+                                 self.storage_url ], stdin=subprocess.PIPE)
 
         print(self.passphrase, file=proc.stdin)
         print(passphrase_new, file=proc.stdin)
@@ -64,9 +64,9 @@ class AdmTests(TestCase):
 
         self.assertEqual(proc.wait(), 0)
 
-        plain_bucket = local.Bucket(self.bucketname, None, None)
-        bucket = BetterBucket(passphrase_new, 'bzip2', plain_bucket)
-        self.assertTrue(isinstance(bucket['s3ql_passphrase'], str))
+        plain_backend = local.Backend(self.storage_url, None, None)
+        backend = BetterBackend(passphrase_new, 'bzip2', plain_backend)
+        self.assertTrue(isinstance(backend['s3ql_passphrase'], str))
 
 
 # Somehow important according to pyunit documentation

@@ -8,8 +8,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from . import CURRENT_FS_REV
-from .backends.common import NoSuchObject, get_bucket, NoSuchBucket
-from .common import (ROOT_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE, get_bucket_cachedir, 
+from .backends.common import NoSuchObject, get_backend, DanglingStorageURL
+from .common import (ROOT_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE, get_backend_cachedir, 
     setup_logging, QuietError, get_seq_no, stream_write_bz2, stream_read_bz2, CTRL_INODE)
 from .database import NoSuchRowError, Connection
 from .metadata import restore_metadata, cycle_metadata, dump_metadata, create_tables
@@ -35,10 +35,10 @@ S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK |
 
 class Fsck(object):
 
-    def __init__(self, cachedir_, bucket_, param, conn):
+    def __init__(self, cachedir_, backend_, param, conn):
 
         self.cachedir = cachedir_
-        self.bucket = bucket_
+        self.backend = backend_
         self.expect_errors = False
         self.found_errors = False
         self.uncorrectable_errors = False
@@ -182,7 +182,7 @@ class Fsck(object):
                     shutil.copyfileobj(fh, obj_fh, BUFSIZE)
                     return obj_fh
 
-                obj_size = self.bucket.perform_write(do_write, 's3ql_data_%d' % obj_id).get_obj_size()
+                obj_size = self.backend.perform_write(do_write, 's3ql_data_%d' % obj_id).get_obj_size()
 
                 self.conn.execute('UPDATE objects SET size=? WHERE id=?', (obj_size, obj_id))
 
@@ -799,7 +799,7 @@ class Fsck(object):
 
         # Delete objects which (correctly had) refcount=0
         for obj_id in self.conn.query('SELECT id FROM objects WHERE refcount = 0'):
-            del self.bucket['s3ql_data_%d' % obj_id]
+            del self.backend['s3ql_data_%d' % obj_id]
         self.conn.execute("DELETE FROM objects WHERE refcount = 0")
 
 
@@ -814,7 +814,7 @@ class Fsck(object):
         # We use this table to keep track of the objects that we have seen
         self.conn.execute("CREATE TEMP TABLE obj_ids (id INTEGER PRIMARY KEY)")
         try:
-            for (i, obj_name) in enumerate(self.bucket.list('s3ql_data_')):
+            for (i, obj_name) in enumerate(self.backend.list('s3ql_data_')):
 
                 if i != 0 and i % 5000 == 0:
                     log.info('..processed %d objects so far..', i)
@@ -832,10 +832,10 @@ class Fsck(object):
                                              'EXCEPT SELECT id FROM objects'):
                 try:
                     if obj_id in self.unlinked_objects:
-                        del self.bucket['s3ql_data_%d' % obj_id]
+                        del self.backend['s3ql_data_%d' % obj_id]
                     else:
                         # TODO: Save the data in lost+found instead
-                        del self.bucket['s3ql_data_%d' % obj_id]
+                        del self.backend['s3ql_data_%d' % obj_id]
                         self.found_errors = True
                         self.log_error("Deleted spurious object %d", obj_id)
                 except NoSuchObject:
@@ -844,12 +844,12 @@ class Fsck(object):
             self.conn.execute('CREATE TEMPORARY TABLE missing AS '
                               'SELECT id FROM objects EXCEPT SELECT id FROM obj_ids')
             for (obj_id,) in self.conn.query('SELECT * FROM missing'):
-                if ('s3ql_data_%d' % obj_id) in self.bucket:
+                if ('s3ql_data_%d' % obj_id) in self.backend:
                     # Object was just not in list yet
                     continue
 
                 self.found_errors = True
-                self.log_error("object %s only exists in table but not in bucket, deleting", obj_id)
+                self.log_error("object %s only exists in table but not in backend, deleting", obj_id)
 
                 for (id_,) in self.conn.query('SELECT inode FROM inode_blocks JOIN blocks ON block_id = id '
                                               'WHERE obj_id=? ', (obj_id,)):
@@ -893,7 +893,7 @@ class Fsck(object):
             self.log_error("Object %d has no size information, retrieving from backend...", obj_id)
 
             self.conn.execute('UPDATE objects SET size=? WHERE id=?',
-                              (self.bucket.get_size('s3ql_data_%d' % obj_id), obj_id))
+                              (self.backend.get_size('s3ql_data_%d' % obj_id), obj_id))
 
 
     def resolve_free(self, path, name):
@@ -1059,13 +1059,13 @@ def main(args=None):
                 raise QuietError('Can not check mounted file system.')
 
     try:
-        bucket = get_bucket(options)
-    except NoSuchBucket as exc:
+        backend = get_backend(options)
+    except DanglingStorageURL as exc:
         raise QuietError(str(exc))
 
-    cachepath = get_bucket_cachedir(options.storage_url, options.cachedir)
-    seq_no = get_seq_no(bucket)
-    param_remote = bucket.lookup('s3ql_metadata')
+    cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
+    seq_no = get_seq_no(backend)
+    param_remote = backend.lookup('s3ql_metadata')
     db = None
 
     if os.path.exists(cachepath + '.params'):
@@ -1073,7 +1073,7 @@ def main(args=None):
         param = pickle.load(open(cachepath + '.params', 'rb'))
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
-            param = bucket.lookup('s3ql_metadata')
+            param = backend.lookup('s3ql_metadata')
         else:
             log.info('Using cached metadata.')
             db = Connection(cachepath + '.db')
@@ -1145,7 +1145,7 @@ def main(args=None):
             stream_read_bz2(fh, tmpfh)
             return tmpfh
         log.info('Downloading and decompressing metadata...')
-        tmpfh = bucket.perform_read(do_read, "s3ql_metadata")
+        tmpfh = backend.perform_read(do_read, "s3ql_metadata")
         os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                          stat.S_IRUSR | stat.S_IWUSR))
         db = Connection(cachepath + '.db.tmp', fast_mode=True)
@@ -1159,10 +1159,10 @@ def main(args=None):
     # Increase metadata sequence no 
     param['seq_no'] += 1
     param['needs_fsck'] = True
-    bucket['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
+    backend['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
 
-    fsck = Fsck(cachepath + '-cache', bucket, param, db)
+    fsck = Fsck(cachepath + '-cache', backend, param, db)
     fsck.check()
     param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
 
@@ -1181,7 +1181,7 @@ def main(args=None):
         log.warn('File system was marked as clean, yet fsck found problems.')
         log.warn('Please report this to the S3QL mailing list, http://groups.google.com/group/s3ql')
 
-    cycle_metadata(bucket)
+    cycle_metadata(backend)
     param['needs_fsck'] = False
     param['last_fsck'] = time.time()
     param['last-modified'] = time.time()
@@ -1195,7 +1195,7 @@ def main(args=None):
         return obj_fh
 
     log.info("Compressing and uploading metadata...")
-    obj_fh = bucket.perform_write(do_write, "s3ql_metadata", metadata=param,
+    obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
                                   is_compressed=True)
     log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)

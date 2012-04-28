@@ -210,12 +210,12 @@ class BlockCache(object):
       uploaded)
     """
 
-    def __init__(self, bucket_pool, db, cachedir, max_size, max_entries=768):
+    def __init__(self, backend_pool, db, cachedir, max_size, max_entries=768):
         log.debug('Initializing')
 
         self.path = cachedir
         self.db = db
-        self.bucket_pool = bucket_pool
+        self.backend_pool = backend_pool
         self.entries = OrderedDict()
         self.max_entries = max_entries
         self.size = 0
@@ -301,8 +301,8 @@ class BlockCache(object):
             if log.isEnabledFor(logging.DEBUG):
                 time_ = time.time()
 
-            with self.bucket_pool() as bucket:
-                obj_size = bucket.perform_write(do_write, 's3ql_data_%d' % obj_id).get_obj_size()
+            with self.backend_pool() as backend:
+                obj_size = backend.perform_write(do_write, 's3ql_data_%d' % obj_id).get_obj_size()
 
             if log.isEnabledFor(logging.DEBUG):
                 time_ = time.time() - time_
@@ -468,8 +468,8 @@ class BlockCache(object):
     def _do_removal(self, obj_id):
         '''Remove object'''
 
-        with self.bucket_pool() as bucket:
-            bucket.delete('s3ql_data_%d' % obj_id)
+        with self.backend_pool() as backend:
+            backend.delete('s3ql_data_%d' % obj_id)
 
     @contextmanager
     def get(self, inode, blockno):
@@ -534,8 +534,8 @@ class BlockCache(object):
                         return el
                     try:
                         with lock_released:
-                            with self.bucket_pool() as bucket:
-                                el = bucket.perform_read(do_read, 's3ql_data_%d' % obj_id)
+                            with self.backend_pool() as backend:
+                                el = backend.perform_read(do_read, 's3ql_data_%d' % obj_id)
 
                         # Note: We need to do this *before* releasing the global
                         # lock to notify other threads

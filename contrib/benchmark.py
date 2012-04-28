@@ -29,8 +29,8 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.backends.common import get_bucket, BetterBucket, NoSuchBucket
-from s3ql.backends.local import Bucket
+from s3ql.backends.common import get_backend, BetterBackend, DanglingStorageURL
+from s3ql.backends.local import Backend
 from s3ql.common import setup_logging, BUFSIZE, QuietError
 from s3ql.parse_args import ArgumentParser
 
@@ -78,21 +78,21 @@ def main(args=None):
             copied += len(buf)
             
     log.info('Measuring throughput to cache...')
-    bucket_dir = tempfile.mkdtemp()
+    backend_dir = tempfile.mkdtemp()
     mnt_dir = tempfile.mkdtemp()
-    atexit.register(shutil.rmtree, bucket_dir)
+    atexit.register(shutil.rmtree, backend_dir)
     atexit.register(shutil.rmtree, mnt_dir)
     
     write_time = 0
     size = 50 * 1024 * 1024
     while write_time < 3:        
         log.debug('Write took %.3g seconds, retrying', write_time) 
-        subprocess.check_call(['mkfs.s3ql', '--plain', 'local://%s' % bucket_dir,
+        subprocess.check_call(['mkfs.s3ql', '--plain', 'local://%s' % backend_dir,
                                '--quiet', '--force', '--cachedir', options.cachedir])
         subprocess.check_call(['mount.s3ql', '--threads', '1', '--quiet',
                                '--cachesize', '%d' % (2 * size / 1024), '--log',
-                               '%s/mount.log' % bucket_dir, '--cachedir', options.cachedir,
-                               'local://%s' % bucket_dir, mnt_dir])
+                               '%s/mount.log' % backend_dir, '--cachedir', options.cachedir,
+                               'local://%s' % backend_dir, mnt_dir])
         try:    
             size *= 2    
             with open('%s/bigfile' % mnt_dir, 'wb', 0) as dst:
@@ -119,8 +119,8 @@ def main(args=None):
     # on the network layer
     log.info('Measuring raw backend throughput..')
     try:
-        bucket = get_bucket(options, plain=True)
-    except NoSuchBucket as exc:
+        backend = get_backend(options, plain=True)
+    except DanglingStorageURL as exc:
         raise QuietError(str(exc))
     
     upload_time = 0
@@ -139,11 +139,11 @@ def main(args=None):
                 dst.write(buf)
                 copied += len(buf)
             return (copied, stamp)
-        (upload_size, upload_time) = bucket.perform_write(do_write, 's3ql_testdata')
+        (upload_size, upload_time) = backend.perform_write(do_write, 's3ql_testdata')
         upload_time = time.time() - upload_time
     backend_speed = upload_size / upload_time
     log.info('Backend throughput: %d KB/sec', backend_speed / 1024)
-    bucket.delete('s3ql_testdata')
+    backend.delete('s3ql_testdata')
 
     src = options.file
     size = os.fstat(options.file.fileno()).st_size
@@ -153,7 +153,7 @@ def main(args=None):
     out_speed = dict()
     for alg in ALGS:
         log.info('compressing with %s...', alg)
-        bucket = BetterBucket('pass', alg, Bucket('local://' + bucket_dir, None, None))
+        backend = BetterBackend('pass', alg, Backend('local://' + backend_dir, None, None))
         def do_write(dst): #pylint: disable=E0102
             src.seek(0)
             stamp = time.time()
@@ -163,7 +163,7 @@ def main(args=None):
                     break
                 dst.write(buf)
             return (dst, stamp)            
-        (dst_fh, stamp) = bucket.perform_write(do_write, 's3ql_testdata')
+        (dst_fh, stamp) = backend.perform_write(do_write, 's3ql_testdata')
         dt = time.time() - stamp
         in_speed[alg] = size / dt
         out_speed[alg] = dst_fh.get_obj_size() / dt

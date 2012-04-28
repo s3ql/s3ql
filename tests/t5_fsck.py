@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-from s3ql.common import get_bucket_cachedir
+from s3ql.common import get_backend_cachedir
 from s3ql.database import Connection
 import errno
 import os.path
@@ -37,7 +37,7 @@ class FsckTests(t4_fuse.fuse_tests):
 
             # Make file system and fake high inode number
             self.mkfs()
-            db = Connection(get_bucket_cachedir(self.bucketname, self.cache_dir) + '.db')
+            db = Connection(get_backend_cachedir(self.storage_url, self.cache_dir) + '.db')
             db.execute('UPDATE sqlite_sequence SET seq=? WHERE name=?',
                        (2 ** 31 + 10, u'inodes'))
             db.close()
@@ -49,7 +49,7 @@ class FsckTests(t4_fuse.fuse_tests):
             self.umount()
 
             # Check that inode watermark is high
-            db = Connection(get_bucket_cachedir(self.bucketname, self.cache_dir) + '.db')
+            db = Connection(get_backend_cachedir(self.storage_url, self.cache_dir) + '.db')
             self.assertGreater(db.get_val('SELECT seq FROM sqlite_sequence WHERE name=?', (u'inodes',)), 2 ** 31 + 10)
             self.assertGreater(db.get_val('SELECT MAX(id) FROM inodes'), 2 ** 31 + 10)
             db.close()
@@ -58,7 +58,7 @@ class FsckTests(t4_fuse.fuse_tests):
             self.fsck()
 
             # Check if renumbering was done
-            db = Connection(get_bucket_cachedir(self.bucketname, self.cache_dir) + '.db')
+            db = Connection(get_backend_cachedir(self.storage_url, self.cache_dir) + '.db')
             self.assertLess(db.get_val('SELECT seq FROM sqlite_sequence WHERE name=?', (u'inodes',)), 2 ** 31)
             self.assertLess(db.get_val('SELECT MAX(id) FROM inodes'), 2 ** 31)
             db.close()

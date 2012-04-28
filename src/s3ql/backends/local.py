@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from .common import AbstractBucket, NoSuchBucket, NoSuchObject, ChecksumError
+from .common import AbstractBackend, DanglingStorageURL, NoSuchObject, ChecksumError
 from ..common import BUFSIZE
 import shutil
 import logging
@@ -19,27 +19,27 @@ import thread
 
 log = logging.getLogger("backend.local")
 
-class Bucket(AbstractBucket):
+class Backend(AbstractBackend):
     '''
-    A bucket that is stored on the local hard disk
+    A backend that stores data on the local hard disk
     '''
 
     needs_login = False
 
     def __init__(self, storage_url, backend_login, backend_pw, use_ssl=False):
-        '''Initialize local bucket
+        '''Initialize local backend
         
         Login and password are ignored.
         '''
         # Unused argument
         #pylint: disable=W0613
 
-        super(Bucket, self).__init__()
+        super(Backend, self).__init__()
         name = storage_url[len('local://'):]
         self.name = name
 
         if not os.path.exists(name):
-            raise NoSuchBucket(name)
+            raise DanglingStorageURL(name)
 
     def __str__(self):
         return 'local://%s' % self.name
@@ -78,9 +78,9 @@ class Bucket(AbstractBucket):
     def open_read(self, key):
         """Open object for reading
 
-        Return a tuple of a file-like object. Bucket contents can be read from
-        the file-like object, metadata is stored in its *metadata* attribute and
-        can be modified by the caller at will.
+        Return a file-like object. Data can be read using the `read` method. metadata is stored in
+        its *metadata* attribute and can be modified by the caller at will. The object must be
+        closed explicitly.
         """
 
         path = self._key_to_path(key)
@@ -104,15 +104,13 @@ class Bucket(AbstractBucket):
     def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
-        `metadata` can be a dict of additional attributes to store with the
-        object. Returns a file-like object. The object must be closed
-        explicitly. After closing, the *get_obj_size* may be used to retrieve
-        the size of the stored object (which may differ from the size of the
+        `metadata` can be a dict of additional attributes to store with the object. Returns a file-
+        like object. The object must be closed explicitly. After closing, the *get_obj_size* may be
+        used to retrieve the size of the stored object (which may differ from the size of the
         written data).
         
-        The *is_compressed* parameter indicates that the caller is going
-        to write compressed data, and may be used to avoid recompression
-        by the bucket.           
+        The *is_compressed* parameter indicates that the caller is going to write compressed data,
+        and may be used to avoid recompression by the backend.
         """
 
         if metadata is None:
@@ -145,7 +143,7 @@ class Bucket(AbstractBucket):
         return dest
 
     def clear(self):
-        """Delete all objects in bucket"""
+        """Delete all objects in backend"""
 
         for name in os.listdir(self.name):
             path = os.path.join(self.name, name)
@@ -155,7 +153,7 @@ class Bucket(AbstractBucket):
                 os.unlink(path)
 
     def contains(self, key):
-        '''Check if `key` is in bucket'''
+        '''Check if `key` is in backend'''
 
         path = self._key_to_path(key)
         try:
@@ -169,7 +167,7 @@ class Bucket(AbstractBucket):
     def delete(self, key, force=False):
         """Delete object stored under `key`
 
-        ``bucket.delete(key)`` can also be written as ``del bucket[key]``.
+        ``backend.delete(key)`` can also be written as ``del backend[key]``.
         If `force` is true, do not return an error if the key does not exist.
         """
         path = self._key_to_path(key)
@@ -185,9 +183,9 @@ class Bucket(AbstractBucket):
                 raise
 
     def list(self, prefix=''):
-        '''List keys in bucket
+        '''List keys in backend
 
-        Returns an iterator over all keys in the bucket.
+        Returns an iterator over all keys in the backend.
         '''
         if prefix:
             base = os.path.dirname(self._key_to_path(prefix))
