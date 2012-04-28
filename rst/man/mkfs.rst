@@ -24,7 +24,7 @@ description of the available backends.
 Unless you have specified the `--plain` option, `mkfs.s3ql` will ask
 you to enter an encryption password. This password will *not* be read
 from an authentication file specified with the :cmdopt:`--authfile`
-option to prevent accidental creation of an encrypted bucket.
+option to prevent accidental creation of an encrypted file system.
 
 
 Options

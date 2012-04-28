@@ -19,9 +19,9 @@ Description
 
 .. include:: ../include/about.rst
 
-The |command| command performs various operations on S3QL buckets.
-The file system contained in the bucket *must not be mounted* when
-using |command| or things will go wrong badly.
+The |command| command performs various operations on *unmounted* S3QL
+file systems. The file system *must not be mounted* when using
+|command| or things will go wrong badly.
 
 The storage url depends on the backend that is used. The S3QL User's
 Guide should be consulted for a description of the available backends.
@@ -40,13 +40,13 @@ Actions
 The following actions may be specified:
 
 passphrase
-  Changes the encryption passphrase of the bucket.
+  Changes the encryption passphrase of the file system.
 
 upgrade
-  Upgrade the file system contained in the bucket to the newest revision.
+  Upgrade the file system to the newest revision.
 
 delete
-  Delete the bucket and all its contents.
+  Delete the file system with all the stored data.
 
 download-metadata
   Interactively download backups of the file system metadata.

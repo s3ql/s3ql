@@ -6,16 +6,9 @@
  Storage Backends
 ==================
 
-S3QL can store data at different service providers and using different
-protocols. The term *backend* refers to both the part of S3QL that
-implements communication with a specific storage service and the
-storage service itself. Most backends can hold more than one S3QL file
-system and thus require some additional information that specifies the
-file system location within the backend. This location is called a
-*bucket* (for historical reasons).
-
-Many S3QL commands expect a *storage url* as a parameter. A storage
-url specifies both the backend and the bucket and thus uniquely
+S3QL has different *backends* to store data at different service
+providers and using different protocols. A *storage url* specifies a
+backend together with some backend-specific information and uniquely
 identifies an S3QL file system. The form of the storage url depends on
 the backend and is described for every backend below.
 
@@ -26,22 +19,17 @@ Google Storage
 ==============
 
 `Google Storage <http://code.google.com/apis/storage/>`_ is an online
-storage service offered by Google. It is the most feature-rich service
-supported by S3QL and S3QL offers the best performance when used with
-the Google Storage backend.
-
-To use the Google Storage backend, you need to have (or sign up for) a
-Google account, and then `activate Google Storage
-<http://code.google.com/apis/storage/docs/signup.html>`_ for your
-account. The account is free, you will pay only for the amount of
-storage and traffic that you actually use. Once you have created the
-account, make sure to `activate legacy access
+storage service offered by Google. To use the Google Storage backend,
+you need to have (or sign up for) a Google account, and then `activate
+Google Storage <http://code.google.com/apis/storage/docs/signup.html>`_
+for your account. The account is free, you will pay only for the
+amount of storage and traffic that you actually use. Once you have
+created the account, make sure to `activate legacy access
 <http://code.google.com/apis/storage/docs/reference/v1/apiversion1.html#enabling>`_.
 
 To create a Google Storage bucket, you can use e.g. the `Google
-Storage Manager
-<https://sandbox.google.com/storage/>`_. The
-storage URL for accessing the bucket in S3QL is then ::
+Storage Manager <https://sandbox.google.com/storage/>`_. The storage
+URL for accessing the bucket in S3QL is then ::
 
    gs://<bucketname>/<prefix>
 
@@ -54,8 +42,7 @@ Note that the backend login and password for accessing your Google
 Storage bucket are not your Google account name and password, but the
 *Google Storage developer access key* and *Google Storage developer
 secret* that you can manage with the `Google Storage key management
-tool
-<https://code.google.com/apis/console/#:storage:legacy>`_.
+tool <https://code.google.com/apis/console/#:storage:legacy>`_.
 
 
 Amazon S3
@@ -69,15 +56,15 @@ traffic that you actually use. After that, you need to create a bucket
 that will hold the S3QL file system, e.g. using the `AWS Management
 Console <https://console.aws.amazon.com/s3/home>`_. For best
 performance, it is recommend to create the bucket in the
-geographically closest storage region, but not the US Standard
-region (see below).
+geographically closest storage region, but not the US Standard region
+(see below).
 
 The storage URL for accessing S3 buckets in S3QL has the form ::
 
     s3://<bucketname>/<prefix>
 
-Here *bucketname* is the name of the bucket, and *prefix* can be
-an arbitrary prefix that will be prepended to all object names used by
+Here *bucketname* is the name of the bucket, and *prefix* can be an
+arbitrary prefix that will be prepended to all object names used by
 S3QL. This allows you to store several S3QL file systems in the same
 S3 bucket.
 
@@ -186,7 +173,7 @@ that uses the same protocol as Amazon S3. The storage URL has the form ::
 Here *bucketname* is the name of an (existing) bucket, and *prefix*
 can be an arbitrary prefix that will be prepended to all object names
 used by S3QL. This allows you to store several S3QL file systems in
-the same S3 bucket.
+the same bucket.
 
 
 Local
@@ -207,9 +194,9 @@ Note that you have to write three consecutive slashes to specify an
 absolute path, e.g. `local:///var/archive`. Also, relative paths will
 automatically be converted to absolute paths before the authentication
 file (see :ref:`authinfo`) is read, i.e. if you are in the
-`/home/john` directory and try to mount `local://bucket`, the
+`/home/john` directory and try to mount `local://s3ql`, the
 corresponding section in the authentication file must match the
-storage url `local:///home/john/bucket`.
+storage url `local:///home/john/s3ql`.
 
 SSH/SFTP
 ========

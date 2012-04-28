@@ -1,13 +1,12 @@
 .. -*- mode: rst -*-
 
 
-Managing Buckets
+Managing File Systems
 =====================
 
-
-The `s3qladm` command performs various operations on S3QL buckets.
-The file system contained in the bucket *must not be mounted* when
-using `s3qladm` or things will go wrong badly.
+The `s3qladm` command performs various operations on *unmounted* S3QL
+file systems. The file system *must not be mounted* when using
+`s3qladm` or things will go wrong badly.
 
 The syntax is ::
 
@@ -26,11 +25,11 @@ matter what specific action is being invoked:
 Changing the Passphrase
 -----------------------
 
-To change the passphrase a bucket, use the `s3qladm` command::
+To change the passphrase of a file system, use the `passphrase`
+subcommand::
 
   s3qladm passphrase  <storage url>
 
-The passphrase can only be changed when the bucket is not mounted.
 
 Upgrading the file system
 -------------------------

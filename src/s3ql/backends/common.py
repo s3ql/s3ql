@@ -1153,7 +1153,11 @@ def get_bucket_factory(options, plain=False, ssl=False):
 
         backend_login = backend_login or getopt('backend-login')
         backend_pw = backend_pw or getopt('backend-password')
-        bucket_passphrase = bucket_passphrase or getopt('bucket-passphrase')
+        bucket_passphrase = bucket_passphrase or getopt('fs-passphrase')
+        if bucket_passphrase is None and getopt('bucket-passphrase') is not None:
+            bucket_passphrase = getopt('bucket-passphrase')
+            log.warn("Warning: the 'bucket-passphrase' configuration option has been "
+                     "renamed to 'fs-passphrase'! Please update your authinfo file.")
 
     if not backend_login and bucket_class.needs_login:
         if sys.stdin.isatty():

@@ -225,7 +225,7 @@ man_pages = [
      None, 1),
     ('man/ctrl', 's3qlctrl', u'Control a mounted S3QL file system',
      None, 1),
-    ('man/adm', 's3qladm', u'Manage S3QL buckets',
+    ('man/adm', 's3qladm', u'Manage S3QL file systems',
      None, 1),
     ('man/cp', 's3qlcp', u'Copy-on-write replication on S3QL file systems',
      None, 1),

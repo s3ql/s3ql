@@ -7,9 +7,9 @@
 ====================================
 
 Normally, S3QL reads username and password for the backend as well as
-an encryption passphrase for the bucket from the terminal. Most
+an encryption passphrase for the file system from the terminal. Most
 commands also accept an :cmdopt:`--authfile` parameter that can be
-used to read this information from a file instead. 
+used to read this information from a file instead.
 
 The authentication file consists of sections, led by a ``[section]``
 header and followed by ``name: value`` entries. The section headers
@@ -28,9 +28,9 @@ In each section, the following entries can be defined:
 :backend-password:
   Specifies the password to use for authentication with the backend.
 
-:bucket-passphrase:
-  Specifies the passphrase to use to decrypt the bucket (if it is
-  encrypted).
+:fs-passphrase:
+  Specifies the passphrase to use to decrypt the file system (if
+  it is encrypted).
   
 
 When reading the authentication file, S3QL considers every applicable
@@ -42,25 +42,25 @@ For example, consider the following authentication file::
   backend-login: joe
   backend-password: notquitesecret
 
-  [bucket1]
+  [fs1]
   storage-url: s3://joes-first-bucket
-  bucket-passphrase: neitheristhis
+  fs-passphrase: neitheristhis
 
-  [bucket2]
+  [fs2]
   storage-url: s3://joes-second-bucket
-  bucket-passphrase: swordfish
+  fs-passphrase: swordfish
 
-  [bucket3]
+  [fs3]
   storage-url: s3://joes-second-bucket/with-prefix
   backend-login: bill
   backend-password: bi23ll
-  bucket-passphrase: ll23bi 
+  fs-passphrase: ll23bi 
   
 With this authentication file, S3QL would try to log in as "joe" 
 whenever the s3 backend is used, except when accessing a storage url
 that begins with "s3://joes-second-bucket/with-prefix". In that case,
 the last section becomes active and S3QL would use the "bill"
-credentials. Furthermore, bucket encryption passphrases will be used
+credentials. Furthermore, file system encryption passphrases will be used
 for storage urls that start with "s3://joes-first-bucket" or
 "s3://joes-second-bucket".
 

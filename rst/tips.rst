@@ -18,7 +18,7 @@ target directory into the local filesystem, ::
 
 and then give the mountpoint to S3QL as a local destination::
 
-  mount.s3ql local:///mnt/sshfs/mybucket /mnt/s3ql
+  mount.s3ql local:///mnt/sshfs/myfsdata /mnt/s3ql
 
 
 Permanently mounted backup file system
