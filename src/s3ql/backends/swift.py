@@ -47,10 +47,11 @@ class Bucket(AbstractBucket):
         self.login = login
         self.auth_token = None
         self.auth_prefix = None
-        self.conn = self._get_conn()
+        self.conn = None
         
         self._bucket_exists()
     
+    @retry
     def _bucket_exists(self):
         '''Make sure that the bucket exists'''
         
@@ -111,10 +112,15 @@ class Bucket(AbstractBucket):
               exc.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT,
                             errno.EINTR)):
             return True
+        
+        elif isinstance(exc, HTTPError) and exc.status >= 500 and exc.status <= 599:
+            return True
 
+        elif isinstance(exc, AuthenticationExpired):
+            return True
+                
         return False
         
-    @retry
     def _get_conn(self):
         '''Obtain connection to server and authentication token'''
 
@@ -134,14 +140,11 @@ class Bucket(AbstractBucket):
                 resp.read()
                 continue
             
-            if resp.status == 401:
+            elif resp.status == 401:
                 raise AuthorizationError(resp.read())
             
             elif resp.status > 299 or resp.status < 200:
-                log.error('_refresh_auth(): unexpected response: %d %s\n%s',
-                          resp.status, resp.msg, resp.read())
-                raise RuntimeError('Unexpected response: %d %s' % (resp.status,
-                                                                   resp.msg))
+                raise HTTPError(resp.status, resp.reason, resp.getheaders(), resp.read())
                 
             # Pylint can't infer SplitResult Types
             #pylint: disable=E1103                
@@ -167,10 +170,13 @@ class Bucket(AbstractBucket):
         if headers is None:
             headers = dict()
 
-
         if not body:
             headers['content-length'] = '0'
-            
+
+        if self.conn is None:
+            log.info('_do_request(): no active connection, calling _get_conn()')
+            self.conn =  self._get_conn()
+                        
         # Construct full path
         path = urllib.quote('%s/%s%s' % (self.auth_prefix, self.bucket_name, path))
         if query_string:
@@ -183,43 +189,40 @@ class Bucket(AbstractBucket):
             path += '?%s' % subres
 
         headers['connection'] = 'keep-alive'
+        headers['X-Auth-Token'] = self.auth_token
+    
+        try:
+            log.debug('_do_request(): %s %s', method, path)
+            self.conn.request(method, path, body, headers)
+
+            log.debug('_do_request(): Reading response..')
+            resp = self.conn.getresponse()
+        except:
+            # We probably can't use the connection anymore
+            self.conn.close()
+            raise
+    
+        # We need to call read() at least once for httplib to consider this
+        # request finished, even if there is no response body.
+        if resp.length == 0:
+            resp.read()
+
+        # Success 
+        if resp.status >= 200 and resp.status <= 299:
+            return resp
+
+        # Expired auth token
+        if resp.status == 401:
+            log.info('OpenStack auth token seems to have expired, requesting new one.')
+            self.conn = None
+            raise AuthenticationExpired(resp.reason)
         
-        while True:
-            headers['X-Auth-Token'] = self.auth_token
-    
-            try:
-                log.debug('_do_request(): %s %s', method, path)
-                self.conn.request(method, path, body, headers)
-    
-                log.debug('_do_request(): Reading response..')
-                resp = self.conn.getresponse()
-            except:
-                # We probably can't use the connection anymore
-                self.conn.close()
-                raise
-        
-            # We need to call read() at least once for httplib to consider this
-            # request finished, even if there is no response body.
-            if resp.length == 0:
-                resp.read()
-    
-            # Success 
-            if resp.status >= 200 and resp.status <= 299:
-                return resp
-    
-            # Expired auth token
-            if resp.status == 401:
-                log.info('OpenStack auth token seems to have expired, requesting new one.')
-                resp.read()
-                self.conn = self._get_conn()
-                continue
-            
-            # If method == HEAD, server must not return response body
-            # even in case of errors
-            if method.upper() == 'HEAD':
-                raise HTTPError(resp.status, resp.reason)
-            else:
-                raise HTTPError(resp.status, resp.reason, resp.getheaders(), resp.read())
+        # If method == HEAD, server must not return response body
+        # even in case of errors
+        if method.upper() == 'HEAD':
+            raise HTTPError(resp.status, resp.reason)
+        else:
+            raise HTTPError(resp.status, resp.reason, resp.getheaders(), resp.read())
      
     @retry 
     def lookup(self, key):
@@ -573,4 +576,17 @@ def extractmeta(resp):
             continue
         meta[hit.group(1)] = val
 
-    return meta    
+    return meta
+
+
+class AuthenticationExpired(Exception):
+    '''Raised if the provided Authentication Token has expired'''
+
+    def __init__(self, msg):
+        super(AuthenticationExpired, self).__init__()
+        self.msg = msg
+
+    def __str__(self):
+        return 'Auth token expired. Server said: %s' % self.msg
+    
+        

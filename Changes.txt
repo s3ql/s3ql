@@ -6,6 +6,11 @@ UNRELEASED, S3QL TIP
 
     Thanks to Stuart Wallace <stuart@wapbot.co.uk> for reporting this
     issue.
+
+  * The SWIFT backend now retries if it receives 5xx error codes from
+    the remote server, and no longer fails when attempting to upload
+    data with an expired auth token. Thanks to Ken
+    <forken.liu@delta.com.tw> for the report and initial patch!
   
 2012-02-24, S3QL 1.10
 
