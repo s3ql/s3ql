@@ -8,8 +8,7 @@ To unmount an S3QL file system, use the command::
 
  umount.s3ql [options] <mountpoint>
 
-This will block until all data has been committed to the storage
-backend.
+This will block until all data has been written to the backend.
 
 Only the user who mounted the file system with :command:`mount.s3ql`
 is able to unmount it again. If you are root and want to unmount an

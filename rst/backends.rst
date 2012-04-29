@@ -6,7 +6,7 @@
  Storage Backends
 ==================
 
-S3QL has different *backends* to store data at different service
+S3QL supports different *backends* to store data at different service
 providers and using different protocols. A *storage url* specifies a
 backend together with some backend-specific information and uniquely
 identifies an S3QL file system. The form of the storage url depends on
@@ -148,10 +148,10 @@ using the `Control Panel <https://manage.rackspacecloud.com/>`_ (go to
    is not known.
    
 You should note that opinions about RackSpace differ widely among S3QL
-users and developers. On the one hand, people praise RackSpace for
-their backing of the (open source) OpenStack project. On the other
-hand, their heavily advertised "fanatical support" is in practice
-often not only `less than helpful
+users and developers. On one hand, people praise RackSpace for their
+backing of the (open source) OpenStack project. On the other hand,
+their heavily advertised "fanatical support" is in practice often not
+only `less than helpful
 <http://code.google.com/p/s3ql/issues/detail?id=243#c5>`_, but their
 support agents also seem to be `downright incompetent
 <http://code.google.com/p/s3ql/issues/detail?id=243#c11>`_. However,
@@ -182,8 +182,8 @@ Local
 S3QL is also able to store its data on the local file system. This can
 be used to backup data on external media, or to access external
 services that S3QL can not talk to directly (e.g., it is possible to
-store data over SSH by first mounting the remote system using
-`sshfs`_, then using the local backend to store the data in the sshfs
+store data over SSH by first mounting the remote system using `sshfs`_
+and then using the local backend to store the data in the sshfs
 mountpoint).
 
 The storage URL for local storage is ::
@@ -197,11 +197,4 @@ file (see :ref:`authinfo`) is read, i.e. if you are in the
 `/home/john` directory and try to mount `local://s3ql`, the
 corresponding section in the authentication file must match the
 storage url `local:///home/john/s3ql`.
-
-SSH/SFTP
-========
-
-Previous versions of S3QL included an SSH/SFTP backend. With newer
-S3QL versions, it is recommended to instead combine the local backend
-with `sshfs <http://fuse.sourceforge.net/sshfs.html>`_ (cf. :ref:`ssh_tipp`).
 

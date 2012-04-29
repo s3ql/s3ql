@@ -57,11 +57,10 @@ performance is rather bad.
 
 The reason for this is intrinsic to the way S3QL works. Whenever you
 read a file, S3QL first has to retrieve this file over the network
-from the storage backend. This takes a minimum amount of time (the
-network latency), no matter how big or small the file is. So when you
-copy lots of small files, 99% of the time is actually spend waiting
-for network data.
-
+from the backend. This takes a minimum amount of time (the network
+latency), no matter how big or small the file is. So when you copy
+lots of small files, 99% of the time is actually spend waiting for
+network data.
 
 Theoretically, this problem is easy to solve: you just have to copy
 several files at the same time. In practice, however, almost all unix

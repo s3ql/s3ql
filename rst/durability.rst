@@ -17,15 +17,15 @@ Rules in a Nutshell
 To avoid losing your data, obey the following rules:
 
 #. Know what durability you can expect from your chosen storage
-   service. The durability describes how likely it is that a stored
+   provider. The durability describes how likely it is that a stored
    object becomes damaged over time. Such data corruption can never be
    prevented completely, techniques like geographic replication and
    RAID storage just reduce the likelihood of it to happen (i.e.,
    increase the durability).
 
-#. When choosing a storage service, keep in mind that when using S3QL,
-   the effective durability of the file system data will be reduced
-   because of S3QL's data de-duplication feature.
+#. When choosing a backend and storage provider, keep in mind that
+   when using S3QL, the effective durability of the file system data
+   will be reduced because of S3QL's data de-duplication feature.
 
 #. Determine your storage service's consistency window. The
    consistency window that is important for S3QL is the smaller of the
@@ -42,7 +42,7 @@ To avoid losing your data, obey the following rules:
 
    If your storage provider claims that *neither* of the above can
    ever happen, while at the same time promising high durability, you
-   should choose a respectable service instead.
+   should choose a respectable provider instead.
 
 #. When mounting the same file system on different computers (or on
    the same computer but with different ``--cachedir`` directories),
@@ -66,12 +66,12 @@ Consistency Window List
 
 The following is a list of the consistency windows (as far as S3QL is
 concerned) for a number of storage providers. This list doesn't come
-with any guarantees and may be outdated. If your storage service is
+with any guarantees and may be outdated. If your storage provider is
 not included, or if you need more reliable information, check with
 your storage provider.
 
 =======================================   ===================
-Storage Service                           Consistency
+Storage Provider                          Consistency
 =======================================   ===================
 Amazon S3 in the US standard region       Eventual
 Amazon S3 in other regions                Immediate
@@ -80,10 +80,10 @@ RackSpace CloudFiles                      Eventual
 =======================================   ===================
 
 
-Storage Service Consistency
-===========================
+Data Consistency
+================
 
-In contrast to the typical hard disk, most storage services do not
+In contrast to the typical hard disk, most storage providers do not
 guarantee *immediate consistency* of written data. This means that:
 
 * after an object has been stored, requests to read this object may
@@ -165,8 +165,8 @@ rise up to hours (`source
 
 .. _backend_reliability:
 
-Storage Service Durability
-==========================
+Data Durability
+===============
 
 The durability of a storage service a measure of the average
 probability of a storage object to become corrupted over time. The
