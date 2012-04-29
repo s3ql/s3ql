@@ -1,9 +1,9 @@
-UNRELEASED, S3QL TIP
+2012-04-29, S3QL 1.11
 
   * S3QL no longer uses the confusing "bucket" term (which is S3
     specific). The "bucket-passphrase" option in the authentication
     file has been renamed to "fs-passphrase".
-  
+
   * Metadata about stored objects is now split into multiple fields,
     so that no field is longer than 256 bytes. This makes S3QL
     compatible with a wider range of storage providers.
