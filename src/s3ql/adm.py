@@ -218,6 +218,7 @@ def get_old_rev_msg(rev, prog):
         
           $ wget http://s3ql.googlecode.com/files/s3ql-%(version)s.tar.bz2
           $ tar xjf s3ql-%(version)s.tar.bz2
+          $ (cd s3ql-%(version)s; ./setup.py build_ext)
           $ s3ql-%(version)s/bin/%(prog)s <options>
         ''' % { 'version': REV_VER_MAP[rev],
                 'prog': prog })
