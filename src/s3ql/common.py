@@ -18,6 +18,7 @@ import os
 import pydoc
 import stat
 import sys
+import warnings
 import types
 
 # Buffer size when writing objects
@@ -243,11 +244,18 @@ def format_tb(einfo):
 
     exception = ['Exception: %s: %s' % (etype.__name__, evalue)]
     if isinstance(evalue, BaseException):
-        for name in dir(evalue):
-            if name.startswith('__'):
-                continue
-            value = pydoc.text.repr(getattr(evalue, name))
-            exception.append('  %s = %s' % (name, value))
+
+        # We may list deprecated attributes when iteracting, but obviously
+        # we do not need any warnings about that.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+                        
+            for name in dir(evalue):
+                if name.startswith('__'):
+                    continue
+    
+                value = pydoc.text.repr(getattr(evalue, name))
+                exception.append('  %s = %s' % (name, value))
 
     return '%s\n%s' % ('\n'.join(frames), '\n'.join(exception))
 
