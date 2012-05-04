@@ -254,6 +254,8 @@ def upgrade(backend, cachepath):
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
             param = backend.lookup('s3ql_metadata')
+        elif param['seq_no'] > seq_no:
+            raise QuietError("File system not unmounted cleanly, run fsck!")                  
         else:
             log.info('Using cached metadata.')
             db = Connection(cachepath + '.db')
