@@ -1065,7 +1065,6 @@ def main(args=None):
 
     cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
     seq_no = get_seq_no(backend)
-    param_remote = backend.lookup('s3ql_metadata')
     db = None
 
     if os.path.exists(cachepath + '.params'):
@@ -1079,12 +1078,16 @@ def main(args=None):
             db = Connection(cachepath + '.db')
             assert not os.path.exists(cachepath + '-cache') or param['needs_fsck']
 
-        if param_remote['seq_no'] != param['seq_no']:
+        if param['seq_no'] > seq_no:
+            log.warn('File system has not been unmounted cleanly.')
+            param['needs_fsck'] = True
+            
+        elif backend.lookup('s3ql_metadata')['seq_no'] != param['seq_no']:
             log.warn('Remote metadata is outdated.')
             param['needs_fsck'] = True
 
     else:
-        param = param_remote
+        param = backend.lookup('s3ql_metadata')
         assert not os.path.exists(cachepath + '-cache')
         # .db might exist if mount.s3ql is killed at exactly the right instant
         # and should just be ignored.
