@@ -1,4 +1,4 @@
-xxxx, S3QL TIP
+2012-05-04, S3QL 1.11.1
 
   * Fixed crash when using S3 backend.
     (Regression introduced in release 1.11).
