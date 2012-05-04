@@ -816,23 +816,28 @@ class Operations(llfuse.Operations):
         if size is None:
             size = 0
 
-        # file system block size,
-        # It would be more appropriate to switch f_bsize and f_frsize,
-        # but since df and stat ignore f_frsize, this way we can
-        # export more information  
-        stat_.f_bsize = int(size // blocks) if blocks != 0 else self.max_obj_size
-        stat_.f_frsize = self.max_obj_size
+        # file system block size
+        
+        # It would be nice if we could use different values for f_bsize and
+        # f_frsize here to also export the maximum block size. However, `df`
+        # incorrectly interprets f_blocks, f_bfree and f_bavail in terms of
+        # f_bsize rather than f_frsize as it should (according to statvfs(3)),
+        # so the only way to return correct values *and* have df print something
+        # sensible is to set f_bsize and f_frsize to the same value.
+        # (cf. http://bugs.debian.org/671490)
+        stat_.f_bsize = size // blocks if blocks != 0 else self.max_obj_size
+        stat_.f_frsize = stat_.f_bsize
 
         # size of fs in f_frsize units 
         # (since backend is supposed to be unlimited, always return a half-full filesystem,
-        # but at least 50 GB)
-        total_blocks = int(max(2 * blocks, 50 * 1024 ** 3 // stat_.f_frsize))
+        # but at least 1 TB)
+        total_blocks = max(2 * blocks, 1024 ** 4 // stat_.f_frsize)
 
         stat_.f_blocks = total_blocks
         stat_.f_bfree = total_blocks - blocks
         stat_.f_bavail = total_blocks - blocks # free for non-root
 
-        total_inodes = max(2 * inodes, 50000)
+        total_inodes = max(2 * inodes, 1000000)
         stat_.f_files = total_inodes
         stat_.f_ffree = total_inodes - inodes
         stat_.f_favail = total_inodes - inodes # free for non-root

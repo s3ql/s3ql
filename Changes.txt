@@ -3,6 +3,9 @@ xxxx, S3QL TIP
   * Fixed crash when using S3 backend.
     (Regression introduced in release 1.11).
 
+  * Increase minimum reported file system size to 1 TB, and work
+    around df bug so that size is reported properly.
+    
 2012-04-29, S3QL 1.11
 
   * S3QL no longer uses the confusing "bucket" term (which is S3
