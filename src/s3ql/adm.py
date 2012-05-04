@@ -119,7 +119,12 @@ def download_metadata(backend, storage_url):
     log.info('The following backups are available:')
     log.info('%3s  %-23s %-15s', 'No', 'Name', 'Date')
     for (i, name) in enumerate(backups):
-        params = backend.lookup(name)
+        try:
+            params = backend.lookup(name)
+        except:
+            log.error('Error retrieving information about %s, skipping', name)
+            continue
+        
         if 'last-modified' in params:
             date = Datetime.fromtimestamp(params['last-modified']).strftime('%Y-%m-%d %H:%M:%S')
         else:
