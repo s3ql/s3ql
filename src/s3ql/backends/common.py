@@ -531,7 +531,7 @@ class BetterBackend(AbstractBackend):
         # so we split the data into several fields if necessary
         chunksize = 255
         for i in range(int(math.ceil(len(meta_buf) / chunksize))):
-            meta_raw['meta-%2d' % i] = meta_buf[i*chunksize:(i+1)*chunksize]
+            meta_raw['meta-%02d' % i] = meta_buf[i*chunksize:(i+1)*chunksize]
              
         if is_compressed or not self.compression:
             compr = None

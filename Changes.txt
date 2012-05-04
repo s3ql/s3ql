@@ -1,3 +1,8 @@
+xxxx, S3QL TIP
+
+  * Fixed crash when using S3 backend.
+    (Regression introduced in release 1.11).
+
 2012-04-29, S3QL 1.11
 
   * S3QL no longer uses the confusing "bucket" term (which is S3
