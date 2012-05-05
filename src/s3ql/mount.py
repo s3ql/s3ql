@@ -18,6 +18,7 @@ from .inode_cache import InodeCache
 from .metadata import cycle_metadata, dump_metadata, restore_metadata
 from .parse_args import ArgumentParser
 from threading import Thread
+import argparse
 import cPickle as pickle
 import llfuse
 import logging
@@ -428,9 +429,10 @@ def parse_args(args):
                       'limit (as set with `ulimit -n`) is high enough (at least the number '
                       'of cache entries + 100).')
     parser.add_argument("--min-obj-size", type=int, default=512, metavar='<size>',
-                      help="Minimum size of storage objects in KB. Files smaller than this "
-                           "may be combined into groups that are stored as single objects "
-                           "in the storage backend. Default: %(default)d KB.")
+                        help=argparse.SUPPRESS)
+#                      help="Minimum size of storage objects in KB. Files smaller than this "
+#                           "may be combined into groups that are stored as single objects "
+#                           "in the storage backend. Default: %(default)d KB.")
     parser.add_argument("--allow-other", action="store_true", default=False, help=
                       'Normally, only the user who called `mount.s3ql` can access the mount '
                       'point. This user then also has full access to it, independent of '
