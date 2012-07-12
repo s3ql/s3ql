@@ -113,7 +113,7 @@ def main(args=None):
             subprocess.check_call(['umount.s3ql', mnt_dir])
             
     fuse_speed = copied / write_time
-    log.info('Cache throughput: %d KB/sec', fuse_speed / 1024)
+    log.info('Cache throughput: %d KiB/sec', fuse_speed / 1024)
 
     # Upload random data to prevent effects of compression
     # on the network layer
@@ -142,12 +142,12 @@ def main(args=None):
         (upload_size, upload_time) = backend.perform_write(do_write, 's3ql_testdata')
         upload_time = time.time() - upload_time
     backend_speed = upload_size / upload_time
-    log.info('Backend throughput: %d KB/sec', backend_speed / 1024)
+    log.info('Backend throughput: %d KiB/sec', backend_speed / 1024)
     backend.delete('s3ql_testdata')
 
     src = options.file
     size = os.fstat(options.file.fileno()).st_size
-    log.info('Test file size: %.2f MB', (size / 1024 ** 2))
+    log.info('Test file size: %.2f MiB', (size / 1024 ** 2))
 
     in_speed = dict()
     out_speed = dict()
@@ -167,8 +167,8 @@ def main(args=None):
         dt = time.time() - stamp
         in_speed[alg] = size / dt
         out_speed[alg] = dst_fh.get_obj_size() / dt
-        log.info('%s compression speed: %d KB/sec per thread (in)', alg, in_speed[alg] / 1024)
-        log.info('%s compression speed: %d KB/sec per thread (out)', alg, out_speed[alg] / 1024)
+        log.info('%s compression speed: %d KiB/sec per thread (in)', alg, in_speed[alg] / 1024)
+        log.info('%s compression speed: %d KiB/sec per thread (out)', alg, out_speed[alg] / 1024)
 
     print('')
 
@@ -201,7 +201,7 @@ def main(args=None):
             speeds.append(speed / 1024)    
 
         print('%-26s' % ('Max FS throughput (%s):' % alg),
-              ('%7d KB/s' * len(threads)) % tuple(speeds))
+              ('%7d KiB/s' * len(threads)) % tuple(speeds))
         print('%-26s' % '..limited by:',
               ('%12s' * len(threads)) % tuple(limits))
                 

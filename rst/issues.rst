@@ -10,9 +10,9 @@ Known Issues
   details.
 
 * S3QL is rather slow when an application tries to write data in
-  unreasonably small chunks. If a 1 MB file is copied in chunks of 1
+  unreasonably small chunks. If a 1 MiB file is copied in chunks of 1
   KB, this will take more than 10 times as long as when it's copied
-  with the (recommended) chunk size of 128 KB.
+  with the (recommended) chunk size of 128 KiB.
 
   This is a limitation of the FUSE library (which does not yet support
   write caching) which will hopefully be addressed in some future FUSE

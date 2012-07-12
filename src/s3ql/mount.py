@@ -228,7 +228,7 @@ def main(args=None):
             log.info("Compressing and uploading metadata...")
             obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
                                           is_compressed=True)
-            log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
+            log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
             pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
         else:
             log.error('Remote metadata is newer than local (%d vs %d), '
@@ -280,7 +280,7 @@ def determine_threads(options):
         if threads > 0:
             log.info('Using %d upload threads (memory limited).', threads)
         else:
-            log.warn('Warning: compression will require %d MB memory '
+            log.warn('Warning: compression will require %d MiB memory '
                      '(%d%% of total system memory', mem_per_thread / 1024 ** 2,
                      mem_per_thread * 100 / memory)
             threads = 1
@@ -419,7 +419,7 @@ def parse_args(args):
     parser.add_argument("mountpoint", metavar='<mountpoint>', type=os.path.abspath,
                         help='Where to mount the file system')
     parser.add_argument("--cachesize", type=int, default=102400, metavar='<size>',
-                      help="Cache size in kb (default: 102400 (100 MB)). Should be at least 10 times "
+                      help="Cache size in KiB (default: 102400 (100 MiB)). Should be at least 10 times "
                       "the maximum object size of the filesystem, otherwise an object may be retrieved "
                       "and written several times during a single write() or read() operation.")
     parser.add_argument("--max-cache-entries", type=int, default=768, metavar='<num>',
@@ -430,7 +430,7 @@ def parse_args(args):
                       'of cache entries + 100).')
     parser.add_argument("--min-obj-size", type=int, default=512, metavar='<size>',
                         help=argparse.SUPPRESS)
-#                      help="Minimum size of storage objects in KB. Files smaller than this "
+#                      help="Minimum size of storage objects in KiB. Files smaller than this "
 #                           "may be combined into groups that are stored as single objects "
 #                           "in the storage backend. Default: %(default)d KB.")
     parser.add_argument("--allow-other", action="store_true", default=False, help=
@@ -556,7 +556,7 @@ class MetadataUploadThread(Thread):
                 log.info("Compressing and uploading metadata...")
                 obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=self.param,
                                               is_compressed=True)
-                log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
+                log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
                 self.param['seq_no'] += 1
 
                 fh.close()

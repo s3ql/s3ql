@@ -42,9 +42,9 @@ def parse_args(args):
     parser.add_argument("-L", default='', help="Filesystem label",
                       dest="label", metavar='<name>',)
     parser.add_argument("--max-obj-size", type=int, default=10240, metavar='<size>',
-                      help="Maximum size of storage objects in KB. Files bigger than this "
+                      help="Maximum size of storage objects in KiB. Files bigger than this "
                            "will be spread over multiple objects in the storage backend. "
-                           "Default: %(default)d KB.")
+                           "Default: %(default)d KiB.")
     parser.add_argument("--plain", action="store_true", default=False,
                       help="Create unencrypted file system.")
     parser.add_argument("--force", action="store_true", default=False,
@@ -88,7 +88,7 @@ def main(args=None):
     setup_logging(options)
 
     if options.max_obj_size < 1024:
-        log.warn('Warning: maximum object sizes less than 1 MB will seriously degrade '
+        log.warn('Warning: maximum object sizes less than 1 MiB will seriously degrade '
                  'performance.')
 
     try:
@@ -171,7 +171,7 @@ def main(args=None):
     backend.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
     obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
                                   is_compressed=True)
-    log.info('Wrote %.2f MB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
+    log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
 
 

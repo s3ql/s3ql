@@ -307,7 +307,7 @@ class BlockCache(object):
             if log.isEnabledFor(logging.DEBUG):
                 time_ = time.time() - time_
                 rate = el.size / (1024 ** 2 * time_) if time_ != 0 else 0
-                log.debug('_do_upload(%s): uploaded %d bytes in %.3f seconds, %.2f MB/s',
+                log.debug('_do_upload(%s): uploaded %d bytes in %.3f seconds, %.2f MiB/s',
                           obj_id, el.size, time_, rate)
 
             with lock:

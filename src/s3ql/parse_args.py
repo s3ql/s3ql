@@ -192,7 +192,7 @@ class ArgumentParser(argparse.ArgumentParser):
 
         self.add_argument("--log", type=log_handler, metavar='<target>', default=default,
                       help='Write logging info into this file. File will be rotated when '
-                           'it reaches 1 MB, and at most 5 old log files will be kept. '
+                           'it reaches 1 MiB, and at most 5 old log files will be kept. '
                            'Specify ``none`` to disable logging. Default: ``%(default)s``')
 
     def add_storage_url(self):

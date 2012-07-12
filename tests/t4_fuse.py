@@ -160,7 +160,7 @@ class fuse_tests(TestCase):
         # We need this to test multi block operations
         self.src = __file__
         if os.path.getsize(self.src) < 1048:
-            raise RuntimeError("test file %s should be bigger than 1 kb" % self.src)
+            raise RuntimeError("test file %s should be bigger than 1 KiB" % self.src)
 
         self.mnt_dir = tempfile.mkdtemp()
         self.cache_dir = tempfile.mkdtemp()

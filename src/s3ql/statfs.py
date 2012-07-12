@@ -71,12 +71,12 @@ def main(args=None):
     print ('Directory entries:    %d' % entries,
            'Inodes:               %d' % inodes,
            'Data blocks:          %d' % blocks,
-           'Total data size:      %.2f MB' % (fs_size / mb),
-           'After de-duplication: %.2f MB (%.2f%% of total)'
+           'Total data size:      %.2f MiB' % (fs_size / mb),
+           'After de-duplication: %.2f MiB (%.2f%% of total)'
              % (dedup_size / mb, p_dedup),
-           'After compression:    %.2f MB (%.2f%% of total, %.2f%% of de-duplicated)'
+           'After compression:    %.2f MiB (%.2f%% of total, %.2f%% of de-duplicated)'
              % (compr_size / mb, p_compr_1, p_compr_2),
-           'Database size:        %.2f MB (uncompressed)' % (db_size / mb),
+           'Database size:        %.2f MiB (uncompressed)' % (db_size / mb),
            '(some values do not take into account not-yet-uploaded dirty blocks in cache)',
            sep='\n')
 

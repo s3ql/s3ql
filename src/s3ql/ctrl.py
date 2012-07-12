@@ -48,7 +48,7 @@ def parse_args(args):
     sparser = subparsers.add_parser('cachesize', help='Change cache size',
                                     parents=[pparser])
     sparser.add_argument('cachesize', metavar='<size>', type=int,
-                         help='New cache size in KB')
+                         help='New cache size in KiB')
 
     sparser = subparsers.add_parser('log', help='Change log level',
                                     parents=[pparser])

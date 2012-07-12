@@ -41,7 +41,7 @@ upload-meta
 
 cachesize
   Changes the cache size of the file system. This action requires an
-  additional argument that specifies the new cache size in kB, so the
+  additional argument that specifies the new cache size in KiB, so the
   complete command line is::
   
    s3qlctrl [options] cachesize <mountpoint> <new-cache-size>
