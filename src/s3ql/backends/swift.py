@@ -172,7 +172,7 @@ class Backend(AbstractBackend):
             headers['content-length'] = '0'
 
         if self.conn is None:
-            log.info('_do_request(): no active connection, calling _get_conn()')
+            log.debug('_do_request(): no active connection, calling _get_conn()')
             self.conn =  self._get_conn()
                         
         # Construct full path
