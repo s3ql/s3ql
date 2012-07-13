@@ -271,14 +271,19 @@ def setup_excepthook():
         if isinstance(val, QuietError):
             root_logger.error(val.msg)
         else:
-            try:
-                msg = format_tb((type_, val, tb))
-            except:
-                root_logger.error('Uncaught top-level exception -- and tb handler failed!',
-                                  exc_info=(type_, val, tb))
-            else:
-                root_logger.error('Uncaught top-level exception. %s', msg)
-
+            # Customized exception handler has shown to just blow up the size
+            # of error messages and potentially include confidential data
+            # without providing any significant benefits
+#            try:
+#                msg = format_tb((type_, val, tb))
+#            except:
+#                root_logger.error('Uncaught top-level exception -- and tb handler failed!',
+#                                  exc_info=(type_, val, tb))
+#            else:
+#                root_logger.error('Uncaught top-level exception. %s', msg)
+            root_logger.error('Uncaught top-level exception:',
+                              exc_info=(type_, val, tb))
+            
     sys.excepthook = excepthook
 
 def inode_for_path(path, conn):
