@@ -152,7 +152,7 @@ class S3Tests(BackendTestsMixin, TestCase):
         # be much longer for larger objects, but for tests this is usually enough.
         self.delay = 15
 
-        self.backend = s3.Backend(*self.get_credentials('s3-test'))
+        self.backend = s3.Backend(*self.get_credentials('s3-test'), use_ssl=False)
 
     def tearDown(self):
         self.backend.clear()
@@ -171,14 +171,20 @@ class S3Tests(BackendTestsMixin, TestCase):
         config.read(authfile)
 
         try:
-            bucket_name = config.get(name, 'test-fs')
+            fs_name = config.get(name, 'test-fs')
             backend_login = config.get(name, 'backend-login')
             backend_password = config.get(name, 'backend-password')
         except (ConfigParser.NoOptionError, ConfigParser.NoSectionError):
             self.skipTest("Authentication file does not have test section")
 
-        return (bucket_name, backend_login, backend_password)
+        return (fs_name, backend_login, backend_password)
 
+class S3SSLTests(S3Tests):
+    def setUp(self):
+        self.name_cnt = 0
+        self.delay = 15
+        self.backend = s3.Backend(*self.get_credentials('s3-test'), use_ssl=True)
+        
 class SwiftTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
@@ -189,13 +195,13 @@ class GSTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
         self.delay = 15
-        self.backend = gs.Backend(*self.get_credentials('gs-test'))
-
+        self.backend = gs.Backend(*self.get_credentials('gs-test'), use_ssl=False)
+        
 class S3CTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
         self.delay = 0
-        self.backend = s3c.Backend(*self.get_credentials('s3c-test'))   
+        self.backend = s3c.Backend(*self.get_credentials('s3c-test'), use_ssl=False)   
 
 class URLTests(TestCase):
     
