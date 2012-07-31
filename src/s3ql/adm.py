@@ -255,7 +255,9 @@ def upgrade(backend, cachepath):
             log.info('Ignoring locally cached metadata (outdated).')
             param = backend.lookup('s3ql_metadata')
         elif param['seq_no'] > seq_no:
-            raise QuietError("File system not unmounted cleanly, run fsck!")                  
+            print('File system not unmounted cleanly, need to run fsck before upgrade.')
+            print(get_old_rev_msg(param['revision'], 'fsck.s3ql'))
+            raise QuietError()                  
         else:
             log.info('Using cached metadata.')
             db = Connection(cachepath + '.db')
@@ -277,7 +279,9 @@ def upgrade(backend, cachepath):
 
     # Check that the fs itself is clean
     if param['needs_fsck']:
-        raise QuietError("File system damaged, run fsck first!")
+        print('File system is damaged, need to run fsck before upgrade.')
+        print(get_old_rev_msg(param['revision'], 'fsck.s3ql'))
+        raise QuietError()
 
     # Check revision
     if param['revision'] < CURRENT_FS_REV - 1:

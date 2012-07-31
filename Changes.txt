@@ -1,3 +1,8 @@
+UNRELEASED, S3QL TIP
+
+  * Be more verbose about how to remedy the situation when attempting
+    to upgrade file system needing fsck.
+
 2012-05-04, S3QL 1.11.1
 
   * Fixed crash when using S3 backend.
@@ -5,7 +10,7 @@
 
   * Increase minimum reported file system size to 1 TB, and work
     around df bug so that size is reported properly.
-    
+
 2012-04-29, S3QL 1.11
 
   * S3QL no longer uses the confusing "bucket" term (which is S3
