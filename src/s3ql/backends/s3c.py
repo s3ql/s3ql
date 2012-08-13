@@ -543,7 +543,7 @@ class ObjectR(object):
                 log.error('Method: %s, chunked: %s, read length: %s '
                           'response length: %s, chunk_left: %s, status: %d '
                           'reason "%s", version: %s, will_close: %s',
-                          self.resp.method, self.resp.chunked, size, self.resp.length,
+                          self.resp._method, self.resp.chunked, size, self.resp.length,
                           self.resp.chunk_left, self.resp.status, self.resp.reason,
                           self.resp.version, self.resp.will_close)                
                 self.resp.close() 
