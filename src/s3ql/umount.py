@@ -58,28 +58,19 @@ class MountError(Exception):
         self.mountpoint = mountpoint
 
     def __str__(self):
-        return self.message.format(self.mountpoint)
-
+        return self.message % self.mountpoint
 
 class NotMountPointError(MountError):
-
-    message = '"{}" is not a mountpoint.'
-
+    message = '%r is not a mountpoint.'
 
 class NotS3qlFsError(MountError):
-
-    message = '"{}" is not an S3QL file system.'
-
+    message = '%r is not an S3QL file system.'
 
 class UmountError(MountError):
-
-    message = 'Error while unmounting "{}".'
-
+    message = 'Unmount subprocess failed.'
 
 class MountInUseError(MountError):
-
-    message = '"{}" is being used.'
-
+    message = '%r is being used.'
 
 def check_mount(mountpoint):
     '''Check that "mountpoint" is a mountpoint and a valid s3ql fs'''
