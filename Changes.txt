@@ -3,6 +3,9 @@ UNRELEASED, S3QL TIP
   * Be more verbose about how to remedy the situation when attempting
     to upgrade file system needing fsck.
 
+  * Fsck now detects and fixes directory entries which do not have an
+    entry type stored in their mode field.
+
 2012-05-04, S3QL 1.11.1
 
   * Fixed crash when using S3 backend.

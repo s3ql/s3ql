@@ -692,6 +692,7 @@ class Fsck(object):
         - Only devices should have a device number
         - symlink size is length of target
         - names are not longer than 255 bytes
+        - All directory entries have a valid mode
         
         Note that none of this is enforced by S3QL. However, as long as S3QL
         only communicates with the UNIX FUSE module, none of the above should
@@ -705,6 +706,22 @@ class Fsck(object):
             in self.conn.query("SELECT id, mode, size, target, rdev "
                                "FROM inodes LEFT JOIN symlink_targets ON id = inode"):
 
+            has_children = self.conn.has_val('SELECT 1 FROM contents WHERE parent_inode=? LIMIT 1',
+                                             (inode,))
+            
+            if stat.S_IFMT(mode) == 0:
+                if has_children:
+                    mode = mode | stat.S_IFDIR
+                    made_to = 'directory'
+                else:
+                    mode = mode | stat.S_IFREG
+                    made_to = 'regular file'
+
+                self.found_errors = True
+                self.log_error('Inode %d (%s): directory entry has no type, changed '
+                               'to %s.', inode, get_path(inode, self.conn), made_to)                    
+                self.conn.execute('UPDATE inodes SET mode=? WHERE id=?', (mode, inode))
+                            
             if stat.S_ISLNK(mode) and target is None:
                 self.found_errors = True
                 self.log_error('Inode %d (%s): symlink does not have target. '
@@ -737,8 +754,7 @@ class Fsck(object):
                                'This is probably going to confuse your system!',
                                inode, get_path(inode, self.conn))
 
-            has_children = self.conn.has_val('SELECT 1 FROM contents WHERE parent_inode=? LIMIT 1',
-                                             (inode,))
+
             if has_children and not stat.S_ISDIR(mode):
                 self.found_errors = True
                 self.log_error('Inode %d (%s) is not a directory but has child entries. '
@@ -751,6 +767,10 @@ class Fsck(object):
                 self.log_error('Inode %d (%s) is not a regular file but has data blocks. '
                                'This is probably going to confuse your system!',
                                inode, get_path(inode, self.conn))
+                
+
+                
+                                
 
         for (name, id_p) in self.conn.query('SELECT name, parent_inode FROM contents_v '
                                             'WHERE LENGTH(name) > 255'):

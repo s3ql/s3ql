@@ -194,11 +194,11 @@ class fsck_tests(TestCase):
             self.db.execute('UPDATE names SET refcount=refcount+1 WHERE id=?', (name_id,))
         return name_id
 
-    def _link(self, name, inode):
+    def _link(self, name, inode, parent_inode=ROOT_INODE):
         '''Link /*name* to *inode*'''
 
         self.db.execute('INSERT INTO contents (name_id, inode, parent_inode) VALUES(?,?,?)',
-                        (self._add_name(name), inode, ROOT_INODE))
+                        (self._add_name(name), inode, parent_inode))
 
     def test_inodes_size(self):
 
@@ -462,7 +462,44 @@ class fsck_tests(TestCase):
         self.fsck.check_unix()
         self.assertTrue(self.fsck.found_errors)
 
-    def test_symlink_no_target(self):
+    def test_unix_nomode_reg(self):
+
+        perms = stat.S_IRUSR | stat.S_IWUSR | stat.S_IROTH | stat.S_IRGRP
+        stamp = time.time()
+        inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                              "VALUES (?,?,?,?,?,?,?)",
+                              (perms, os.getuid(), os.getgid(), stamp, stamp, stamp, 1))
+        self._link('test-entry', inode)
+
+        self.assert_fsck(self.fsck.check_unix)
+        
+        newmode = self.db.get_val('SELECT mode FROM inodes WHERE id=?', (inode,))
+        self.assertEqual(stat.S_IMODE(newmode), perms)
+        self.assertEqual(stat.S_IFMT(newmode), stat.S_IFREG)
+
+    def test_unix_nomode_dir(self):
+
+        perms = stat.S_IRUSR | stat.S_IWUSR | stat.S_IROTH | stat.S_IRGRP
+        stamp = time.time()
+        inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                              "VALUES (?,?,?,?,?,?,?)",
+                              (perms, os.getuid(), os.getgid(), stamp, stamp, stamp, 1))
+        inode2 = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+                              "VALUES (?,?,?,?,?,?,?)",
+                              (perms | stat.S_IFREG, os.getuid(), os.getgid(), stamp, 
+                               stamp, stamp, 1))
+
+        self._link('test-entry', inode)
+        self._link('subentry', inode2, inode)
+
+        self.assert_fsck(self.fsck.check_unix)
+        
+        newmode = self.db.get_val('SELECT mode FROM inodes WHERE id=?', (inode,))
+        self.assertEqual(stat.S_IMODE(newmode), perms)
+        self.assertEqual(stat.S_IFMT(newmode), stat.S_IFDIR)
+        
+        
+    def test_unix_symlink_no_target(self):
 
         inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                               "VALUES (?,?,?,?,?,?,?)",
