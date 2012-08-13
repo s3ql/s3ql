@@ -15,6 +15,7 @@ import os
 import posixpath
 import subprocess
 import sys
+import errno
 import textwrap
 import time
 
@@ -46,35 +47,51 @@ def parse_args(args):
 
     return parser.parse_args(args)
 
-class MountError(Exception):
+class UmountError(Exception):
     """
-    Base class for mountpoint errors.
+    Base class for unmount errors.
     """
 
-    message = ''
+    message = 'internal error'
+    exitcode = 3
     
     def __init__(self, mountpoint):
-        super(MountError, self).__init__()
+        super(UmountError, self).__init__()
         self.mountpoint = mountpoint
-
+        
     def __str__(self):
-        return self.message % self.mountpoint
+        return self.message
 
-class NotMountPointError(MountError):
-    message = '%r is not a mountpoint.'
+class NotMountPointError(UmountError):
+    message = 'Not a mountpoint.'
+    exitcode = 1
 
-class NotS3qlFsError(MountError):
-    message = '%r is not an S3QL file system.'
-
-class UmountError(MountError):
+class NotS3qlFsError(UmountError):
+    message = 'Not an S3QL file system.'
+    exitcode = 2
+    
+class UmountSubError(UmountError):
     message = 'Unmount subprocess failed.'
-
-class MountInUseError(MountError):
-    message = '%r is being used.'
-
+    exitcode = 3
+    
+class MountInUseError(UmountError):
+    message = 'In use.'
+    exitcode = 4
+    
+class FSCrashedError(UmountError):
+    message = 'File system seems to have crashed.'
+    exitcode = 5
+    
 def check_mount(mountpoint):
     '''Check that "mountpoint" is a mountpoint and a valid s3ql fs'''
     
+    try:
+        os.stat(mountpoint)
+    except OSError as exc:
+        if exc.errno is errno.ENOTCONN:
+            raise FSCrashedError(mountpoint)
+        raise
+        
     if not posixpath.ismount(mountpoint):
         raise NotMountPointError(mountpoint)
 
@@ -93,7 +110,7 @@ def lazy_umount(mountpoint):
     else:
         umount_cmd = ('fusermount', '-u', '-z', mountpoint)
 
-    if subprocess.call(umount_cmd)!=0:
+    if subprocess.call(umount_cmd) != 0:
         raise UmountError(mountpoint)
 
 def blocking_umount(mountpoint):
@@ -184,23 +201,24 @@ def main(args=None):
 
     try:
         umount(options.mountpoint, options.lazy)
-    except NotMountPointError as err:
-        print(err, file=sys.stderr)
-        sys.exit(1)
-    except NotS3qlFsError as err:
-        print(err, file=sys.stderr)
-        sys.exit(2)
-    except UmountError as err:
-        print(err, file=sys.stderr)
-        sys.exit(3)
-    except MountInUseError:
+    except MountInUseError as err:
         print('Cannot unmount, the following processes still access the mountpoint:',
               file=sys.stderr)
         subprocess.call(['fuser', '-v', '-m', options.mountpoint],
                         stdout=sys.stderr, stderr=sys.stderr)
-        sys.exit(4)
-    else:
-        sys.exit(0)
+        sys.exit(err.exitcode)
+
+    except FSCrashedError as err:
+        print('%s: %s' % (options.mountpoint, err), file=sys.stderr)
+        print("Unmounting with the 'umount' or 'fusermount -u' command may help "
+              "in this situation.")
+        sys.exit(err.exitcode)
+
+    except UmountError as err:
+        print('%s: %s' % (options.mountpoint, err), file=sys.stderr)
+        sys.exit(err.exitcode)
+    
+    sys.exit(0)
 
 if __name__ == '__main__':
     main(sys.argv[1:])

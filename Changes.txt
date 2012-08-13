@@ -14,6 +14,9 @@ UNRELEASED, S3QL TIP
   * Increase minimum reported file system size to 1 TB, and work
     around df bug so that size is reported properly.
 
+  * umount.s3ql now produces a more helpful error message if the
+    file system has crashed.
+
 2012-04-29, S3QL 1.11
 
   * S3QL no longer uses the confusing "bucket" term (which is S3
