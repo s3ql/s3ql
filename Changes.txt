@@ -1,4 +1,4 @@
-UNRELEASED, S3QL TIP
+2012-09-03, S3QL 1.12
 
   * Be more verbose about how to remedy the situation when attempting
     to upgrade file system needing fsck.
