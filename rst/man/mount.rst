@@ -29,7 +29,7 @@ Options
 
 The |command| command accepts the following options.
 
-.. pipeinclude:: ../../bin/mount.s3ql --help
+.. pipeinclude:: ../../bin/mount.s3ql --help --log none
    :start-after: show this help message and exit
 
 
