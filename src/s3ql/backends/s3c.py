@@ -29,7 +29,7 @@ import xml.etree.cElementTree as ElementTree
 C_DAY_NAMES = [ 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ]
 C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ]
 
-XML_CONTENT_RE = re.compile('^application/xml(?:;\s+|$)', re.IGNORECASE)
+XML_CONTENT_RE = re.compile(r'^(?:application|text)/xml(?:;|$)', re.IGNORECASE)
 
 log = logging.getLogger("backends.s3c")
 
