@@ -851,7 +851,10 @@ class DecryptFilter(AbstractInputFilter):
                 self.hmac.update(inbuf)
                 outbuf += inbuf
                 break
-
+            elif len(inbuf) <= self.remaining + self.off_size:
+                inbuf += self.fh.read(self.off_size)
+                continue
+                
             outbuf += inbuf[:self.remaining]
             self.hmac.update(inbuf[:self.remaining + self.off_size])
             paket_size = struct.unpack(b'<I', inbuf[self.remaining
