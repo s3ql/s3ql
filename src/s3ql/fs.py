@@ -292,18 +292,20 @@ class Operations(llfuse.Operations):
             raise FUSEError(errno.EPERM)
 
         id0 = self.lookup(id_p0, name0).id
-        queue = [ id0 ]
+        queue = [ id0 ] # Directories that we still need to delete
         processed = 0 # Number of steps since last GIL release
         stamp = time.time() # Time of last GIL release
         gil_step = 250 # Approx. number of steps between GIL releases
-        while True:
-            found_subdirs = False
+        while queue: # For every directory
+            found_subdirs = False # Does current directory have subdirectories?
             id_p = queue.pop()
             for (name_id, id_) in self.db.query('SELECT name_id, inode FROM contents WHERE '
                                                 'parent_inode=?', (id_p,)):
 
                 if self.db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
                     if not found_subdirs:
+                        # When current directory has subdirectories, we must reinsert
+                        # it into queue
                         found_subdirs = True
                         queue.append(id_p)
                     queue.append(id_)
@@ -316,16 +318,9 @@ class Operations(llfuse.Operations):
 
                 processed += 1
                 if processed > gil_step:
-                    if not found_subdirs:
-                        found_subdirs = True
-                        queue.append(id_p)
+                    # Also reinsert current directory if we need to yield to other threads 
+                    queue.append(id_p)
                     break
-
-            if not queue:
-                if id_p0 in self.open_inodes:
-                    llfuse.invalidate_entry(id_p0, name0)
-                self._remove(id_p0, name0, id0, force=True)
-                break
 
             if processed > gil_step:
                 dt = time.time() - stamp
@@ -336,6 +331,13 @@ class Operations(llfuse.Operations):
                 llfuse.lock.yield_(100)
                 log.debug('remove_tree(%d, %s): re-acquired lock', id_p0, name0)
                 stamp = time.time()
+
+        
+        if id_p0 in self.open_inodes:
+            log.debug('remove_tree(%d, %s): invalidate_entry(%d, %r)',
+                      id_p0, name0, id_p0, name0)                    
+            llfuse.invalidate_entry(id_p0, name0)
+        self._remove(id_p0, name0, id0, force=True)
 
         self.forget([(id0, 1)])
         log.debug('remove_tree(%d, %s): end', id_p0, name0)
