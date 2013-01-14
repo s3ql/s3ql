@@ -1,3 +1,11 @@
+UNRELEASED, S3QL TIP
+
+  * Fixed issues when trying to access a directory at the root
+    of the file system that has recently been removed with s3qlrm.
+    (In that case the directory was no longer included in the
+    readdir() output, but it was still posssible to stat() it because
+    was still present in the kernel's dentry cache).
+
 2012-09-03, S3QL 1.12
 
   * Be more verbose about how to remedy the situation when attempting

@@ -79,6 +79,9 @@ class Operations(llfuse.Operations):
         self.open_inodes = collections.defaultdict(lambda: 0)
         self.max_obj_size = max_obj_size
         self.cache = block_cache
+        
+        # Root inode is always open
+        self.open_inodes[llfuse.ROOT_INODE] += 1
 
     def destroy(self):
         self.forget(self.open_inodes.items())

@@ -15,6 +15,7 @@ import os.path
 import shutil
 import stat
 import subprocess
+import cPickle as pickle
 import sys
 import tempfile
 import threading
@@ -22,6 +23,7 @@ import time
 import traceback
 import unittest2 as unittest
 import logging
+from s3ql.common import CTRL_NAME
 
 log = logging.getLogger()
 
@@ -249,6 +251,7 @@ class fuse_tests(TestCase):
         self.tst_truncate()
         self.tst_truncate_nocache()
         self.tst_write()
+        self.tst_bug382()
         self.umount()
         self.fsck()
 
@@ -415,6 +418,19 @@ class fuse_tests(TestCase):
         os.close(fd)
         os.unlink(filename)
 
+    def tst_bug382(self):
+        dirname = self.newname()
+        fullname = self.mnt_dir + "/" + dirname
+        os.mkdir(fullname)
+        self.assertTrue(stat.S_ISDIR(os.stat(fullname).st_mode))
+        self.assertTrue(dirname in llfuse.listdir(self.mnt_dir))
+        llfuse.setxattr('%s/%s' % (self.mnt_dir, CTRL_NAME), 
+                        'rmtree', pickle.dumps((llfuse.ROOT_INODE, dirname),
+                                               pickle.HIGHEST_PROTOCOL))                
+        self.assertRaises(OSError, os.stat, fullname)
+        self.assertTrue(dirname not in llfuse.listdir(self.mnt_dir))
+
+        
 # Somehow important according to pyunit documentation
 def suite():
     return unittest.makeSuite(fuse_tests)
