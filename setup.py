@@ -103,18 +103,24 @@ def main():
     with open(os.path.join(basedir, 'rst', 'about.rst'), 'r') as fh:
         long_desc = fh.read()
 
-    compile_args = ['-Wall', '-Wextra', '-Wno-unused-parameter' ]
+    compile_args = ['-Wall' ]
+    
+    # Enable fatal warnings only when compiling from Mercurial tip.
+    # Otherwise, this breaks both forward and backward compatibility
+    # (because compilation with newer compiler may fail if additional
+    # warnings are added, and compilation with older compiler may fail
+    # if it doesn't know about a newer -Wno-* option).
+    if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
+        print('MANIFEST.in exists, compiling with developer options')
+        compile_args += [ '-Werror', '-Wextra' ]
 
-    # http://trac.cython.org/cython_trac/ticket/704
-    compile_args.append('-Wno-unused-but-set-variable')
+        # http://bugs.python.org/issue969718
+        if sys.version_info[0] == 2:
+            compile_args.append('-fno-strict-aliasing')
 
-    # http://bugs.python.org/issue969718
-    if sys.version_info[0] == 2:
-        compile_args.append('-fno-strict-aliasing')
-
-    # http://bugs.python.org/issue7576
-    if sys.version_info[0] == 3 and sys.version_info[1] < 2:
-        compile_args.append('-Wno-missing-field-initializers')
+        # http://bugs.python.org/issue7576
+        if sys.version_info[0] == 3 and sys.version_info[1] < 2:
+            compile_args.append('-Wno-missing-field-initializers')
 
     required_pkgs = ['apsw >= 3.7.0',
                      'pycryptopp',
