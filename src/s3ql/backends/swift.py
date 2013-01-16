@@ -8,16 +8,18 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from ..common import QuietError, BUFSIZE
-from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection,
-                     DanglingStorageURL)
+from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, 
+    DanglingStorageURL)
 from .s3c import HTTPError, BadDigest
+from s3ql.backends.common import is_temp_network_error
 from urlparse import urlsplit
-import json
 import errno
 import hashlib
 import httplib
+import json
 import logging
 import re
+import socket
 import tempfile
 import time
 import urllib
@@ -98,23 +100,13 @@ class Backend(AbstractBackend):
         problems and so that the request can be manually restarted if applicable.
         '''
 
-        if isinstance(exc, (httplib.IncompleteRead,)):
+        if isinstance(exc, (AuthenticationExpired,)):
             return True
 
-        # Server closed connection
-        elif (isinstance(exc, httplib.BadStatusLine)
-              and (not exc.line or exc.line == "''")):
-            return True
-
-        elif (isinstance(exc, IOError) and
-              exc.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT,
-                            errno.EINTR)):
-            return True
-        
         elif isinstance(exc, HTTPError) and exc.status >= 500 and exc.status <= 599:
             return True
 
-        elif isinstance(exc, AuthenticationExpired):
+        elif is_temp_network_error(exc):
             return True
                 
         return False

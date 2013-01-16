@@ -19,17 +19,19 @@ from s3ql.common import ChecksumError
 import ConfigParser
 import bz2
 import cPickle as pickle
+import errno
 import hashlib
 import hmac
 import httplib
 import logging
 import lzma
+import math
 import os
 import re
+import socket
 import stat
 import struct
 import sys
-import math
 import threading
 import time
 import zlib
@@ -89,6 +91,31 @@ True.
 '''
     return wrapped
 
+def is_temp_network_error(exc):
+    '''Return true if *exc* represents a potentially temporary network problem'''
+
+    if isinstance(exc, (httplib.IncompleteRead, socket.timeout)):
+        return True
+     
+    # Server closed connection
+    elif (isinstance(exc, httplib.BadStatusLine)
+          and (not exc.line or exc.line == "''")):
+        return True
+
+    elif (isinstance(exc, IOError) and
+          exc.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT,
+                        errno.EINTR)):
+        return True
+
+    # Formally this is a permanent error. However, it may also indicate
+    # that there is currently no network connection to the DNS server
+    elif (isinstance(exc, socket.gaierror) 
+          and exc.errno in (socket.EAI_AGAIN, socket.EAI_NONAME)):
+        return True 
+              
+    return False
+    
+    
 def http_connection(hostname, port, ssl=False):
     '''Return http connection to *hostname*:*port*
     

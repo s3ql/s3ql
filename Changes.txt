@@ -6,6 +6,12 @@ UNRELEASED, S3QL TIP
     readdir() output, but it was still posssible to stat() it because
     was still present in the kernel's dentry cache).
 
+  * When trying to connect to the backend, S3QL now also retries at
+    increasing intervals if DNS appears to be unavailable (i.e., if
+    there's currently no network at all). This means that mount.s3ql
+    will no longer bail out when called without a network connection
+    but simply retry (printing warning messages in the process).
+
 2012-09-03, S3QL 1.12
 
   * Be more verbose about how to remedy the situation when attempting

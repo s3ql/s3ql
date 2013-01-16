@@ -14,7 +14,6 @@ from .common import DanglingStorageURL as DanglingStorageURL_common
 from base64 import b64encode
 from email.utils import parsedate_tz, mktime_tz
 from urlparse import urlsplit
-import errno
 import hashlib
 import hmac
 import httplib
@@ -24,6 +23,7 @@ import tempfile
 import time
 import urllib
 import xml.etree.cElementTree as ElementTree
+from s3ql.backends.common import is_temp_network_error
 
 
 C_DAY_NAMES = [ 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ]
@@ -103,18 +103,10 @@ class Backend(AbstractBackend):
         '''
 
         if isinstance(exc, (InternalError, BadDigest, IncompleteBody, RequestTimeout,
-                            OperationAborted, SlowDown, RequestTimeTooSkewed,
-                            httplib.IncompleteRead)):
+                            OperationAborted, SlowDown, RequestTimeTooSkewed)):
             return True
 
-        # Server closed connection
-        elif (isinstance(exc, httplib.BadStatusLine)
-              and (not exc.line or exc.line == "''")):
-            return True
-
-        elif (isinstance(exc, IOError) and
-              exc.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT,
-                            errno.EINTR)):
+        elif is_temp_network_error(exc):
             return True
         
         elif isinstance(exc, HTTPError) and exc.status >= 500 and exc.status <= 599:
