@@ -1,12 +1,11 @@
 #!/usr/bin/env python
-#
-# argparse.py - this file is part of S3QL (http://s3ql.googlecode.com)
-#
-# Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
-#
-# This program can be distributed under the terms of the GNU GPLv3.
-#
 '''
+argparse.py - this file is part of S3QL (http://s3ql.googlecode.com)
+
+Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
+
+This program can be distributed under the terms of the GNU GPLv3.
+
 This module provides a customized ArgumentParser class. Differences
 are:
 
@@ -44,7 +43,6 @@ import logging.handlers
 import os
 import re
 import sys
-
 
 DEFAULT_USAGE = object()
 
@@ -207,6 +205,7 @@ class ArgumentParser(argparse.ArgumentParser):
 
 def storage_url_type(s):
     '''Validate and canonicalize storage url'''
+    
     if not re.match(r'^([a-zA-Z0-9]+)://(.+)$', s):
         raise ArgumentTypeError('%s is not a valid storage url.' % s)
 
