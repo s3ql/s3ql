@@ -8,7 +8,7 @@
 
 Most S3QL backends store data in distributed storage systems. These
 systems differ from a traditional, local hard disk in several
-important ways. In order to avoid loosing data, this section should be
+important ways. In order to avoid losing data, this section should be
 read very carefully.
 
 Rules in a Nutshell
@@ -195,7 +195,7 @@ time *x* may cause data that is written *after* time *x* to be lost as
 well. Consider the following scenario:
 
 #. You store an important file in the S3QL file system.
-#. The storage service looses the data blocks of this file. As long as you
+#. The storage service loses the data blocks of this file. As long as you
    do not access the file or run :program:`fsck.s3ql`, S3QL is not
    aware that the data has been lost by the storage service.
 #. You save an additional copy of the important file in a different
