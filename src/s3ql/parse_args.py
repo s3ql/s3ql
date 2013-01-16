@@ -37,6 +37,7 @@ are:
 
 from __future__ import division, print_function, absolute_import
 from . import VERSION
+from argparse import ArgumentTypeError, ArgumentError
 import argparse
 import logging.handlers
 import os
@@ -217,11 +218,17 @@ class ArgumentParser(argparse.ArgumentParser):
 
         return super(ArgumentParser, self).add_subparsers(**kw)
 
+    def parse_args(self, *args, **kwargs):
+        
+        try:
+            return super(ArgumentParser, self).parse_args(*args, **kwargs)
+        except ArgumentError as exc:
+            self.exit(str(exc))
 
 def storage_url_type(s):
     '''Validate and canonicalize storage url'''
     if not re.match(r'^([a-zA-Z0-9]+)://(.+)$', s):
-        raise argparse.ArgumentTypeError('%s is not a valid storage url.' % s)
+        raise ArgumentTypeError('%s is not a valid storage url.' % s)
 
     if s.startswith('local://'):
         return 'local://%s' % os.path.abspath(s[len('local://'):])
