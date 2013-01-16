@@ -1083,6 +1083,8 @@ def main(args=None):
     except DanglingStorageURL as exc:
         raise QuietError(str(exc))
 
+    log.info('Starting fsck of %s', options.storage_url)
+    
     cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
     seq_no = get_seq_no(backend)
     db = None
@@ -1227,6 +1229,8 @@ def main(args=None):
     db.execute('VACUUM')
     db.close()
 
+    log.info('Completed fsck of %s', options.storage_url)
+    
 def renumber_inodes(db):
     '''Renumber inodes'''
 
