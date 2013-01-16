@@ -20,6 +20,7 @@ import stat
 import sys
 import warnings
 import types
+import errno
 
 # Buffer size when writing objects
 BUFSIZE = 256 * 1024
@@ -353,7 +354,16 @@ def _escape(s):
 
 def get_backend_cachedir(storage_url, cachedir):
     if not os.path.exists(cachedir):
-        os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+        try:
+            os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+        except OSError as exc:
+            if exc.errno == errno.EACCES:
+                raise QuietError('No permission to create cache directory (%s)' % cachedir)
+            raise
+        
+    if not os.access(cachedir, os.R_OK | os.W_OK | os.X_OK):
+        raise QuietError('No permission to access cache directory (%s)' % cachedir)
+    
     return os.path.join(cachedir, _escape(storage_url))
 
 # Name and inode of the special s3ql control file
