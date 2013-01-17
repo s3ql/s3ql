@@ -714,8 +714,9 @@ class Operations(llfuse.Operations):
         """Handles FUSE setattr() requests"""
         if log.isEnabledFor(logging.DEBUG):
             log.debug('setattr(%d, %s): start', id_,
-                      [ getattr(attr, x) for x in attr.__slots__
-                       if getattr(attr, x) is not None ])
+                      ', '.join('%s=%r' % (x, getattr(attr, x)) 
+                                for x in attr.__slots__
+                                if getattr(attr, x) is not None ))
 
         inode = self.inodes[id_]
         timestamp = time.time()
