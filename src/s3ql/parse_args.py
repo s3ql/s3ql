@@ -39,6 +39,7 @@ from __future__ import division, print_function, absolute_import
 from . import VERSION
 from argparse import ArgumentTypeError, ArgumentError
 import argparse
+import errno
 import logging.handlers
 import os
 import re
@@ -170,28 +171,7 @@ class ArgumentParser(argparse.ArgumentParser):
                            '(default: `~/.s3ql)`')
 
     def add_log(self, default='none'):
-        def log_handler(s):
-            if s.lower() == 'none':
-                return None
-            elif s.lower() == 'syslog':
-                handler = logging.handlers.SysLogHandler('/dev/log')
-                formatter = logging.Formatter(os.path.basename(sys.argv[0])
-                                               + '[%(process)s] %(threadName)s: '
-                                               + '[%(name)s] %(message)s')
-            else:
-                fullpath = os.path.expanduser(s)
-                dirname = os.path.dirname(fullpath)
-                if dirname and not os.path.exists(dirname):
-                    os.makedirs(dirname)
-                handler = logging.handlers.RotatingFileHandler(fullpath,
-                                                            maxBytes=1024 ** 2, backupCount=5)
-                formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
-                                              '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
-
-            handler.setFormatter(formatter)
-            return handler
-
-        self.add_argument("--log", type=log_handler, metavar='<target>', default=default,
+        self.add_argument("--log", type=log_handler_type, metavar='<target>', default=default,
                       help='Write logging info into this file. File will be rotated when '
                            'it reaches 1 MiB, and at most 5 old log files will be kept. '
                            'Specify ``none`` to disable logging. Default: ``%(default)s``')
@@ -235,3 +215,39 @@ def storage_url_type(s):
 
     return s
 
+def log_handler_type(s):
+    '''Return logging handler for given destination'''
+    
+    if s.lower() == 'none':
+        return None
+    
+    elif s.lower() == 'syslog':
+        handler = logging.handlers.SysLogHandler('/dev/log')
+        formatter = logging.Formatter(os.path.basename(sys.argv[0])
+                                       + '[%(process)s] %(threadName)s: '
+                                       + '[%(name)s] %(message)s')
+        
+    else:
+        fullpath = os.path.expanduser(s)
+        dirname = os.path.dirname(fullpath)
+        if dirname and not os.path.exists(dirname):
+            try:
+                os.makedirs(dirname)
+            except OSError as exc:
+                if exc.errno == errno.EACCES:
+                    raise ArgumentTypeError('No permission to create log file %s' % fullpath)
+                raise
+                    
+        try:
+            handler = logging.handlers.RotatingFileHandler(fullpath,
+                                                           maxBytes=1024 ** 2, backupCount=5)
+        except IOError as exc:
+            if exc.errno == errno.EACCES:
+                raise ArgumentTypeError('No permission to write log file %s' % fullpath)
+            raise
+        
+        formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
+                                      '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
+
+    handler.setFormatter(formatter)
+    return handler
