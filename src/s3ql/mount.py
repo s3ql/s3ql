@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from . import fs, CURRENT_FS_REV
-from .backends.common import get_backend_factory, BackendPool, DanglingStorageURL
+from .backends.common import get_backend_factory, BackendPool, DanglingStorageURLError
 from .block_cache import BlockCache
 from .common import (setup_logging, get_backend_cachedir, get_seq_no, QuietError, stream_write_bz2, 
     stream_read_bz2)
@@ -91,7 +91,7 @@ def main(args=None):
     try:
         with backend_pool() as backend:
             (param, db) = get_metadata(backend, cachepath)
-    except DanglingStorageURL as exc:
+    except DanglingStorageURLError as exc:
         raise QuietError(str(exc))
 
     if param['max_obj_size'] < options.min_obj_size:

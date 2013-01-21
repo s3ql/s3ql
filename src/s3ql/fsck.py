@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from . import CURRENT_FS_REV
-from .backends.common import NoSuchObject, get_backend, DanglingStorageURL
+from .backends.common import NoSuchObject, get_backend, DanglingStorageURLError
 from .common import (ROOT_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE, get_backend_cachedir, 
     setup_logging, QuietError, get_seq_no, stream_write_bz2, stream_read_bz2, CTRL_INODE)
 from .database import NoSuchRowError, Connection
@@ -1080,7 +1080,7 @@ def main(args=None):
 
     try:
         backend = get_backend(options)
-    except DanglingStorageURL as exc:
+    except DanglingStorageURLError as exc:
         raise QuietError(str(exc))
 
     log.info('Starting fsck of %s', options.storage_url)

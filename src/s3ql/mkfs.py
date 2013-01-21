@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from . import CURRENT_FS_REV
-from .backends.common import get_backend, BetterBackend, DanglingStorageURL
+from .backends.common import get_backend, BetterBackend, DanglingStorageURLError
 from .common import get_backend_cachedir, setup_logging, QuietError, CTRL_INODE, stream_write_bz2
 from .database import Connection
 from .metadata import dump_metadata, create_tables
@@ -93,7 +93,7 @@ def main(args=None):
 
     try:
         plain_backend = get_backend(options, plain=True)
-    except DanglingStorageURL as exc:
+    except DanglingStorageURLError as exc:
         raise QuietError(str(exc))
 
     log.info("Before using S3QL, make sure to read the user's guide, especially\n"

@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 from . import CURRENT_FS_REV, REV_VER_MAP
-from .backends.common import BetterBackend, get_backend, DanglingStorageURL
+from .backends.common import BetterBackend, get_backend, DanglingStorageURLError
 from .common import (QuietError, setup_logging, get_backend_cachedir, get_seq_no, 
     stream_write_bz2, stream_read_bz2, CTRL_INODE)
 from .database import Connection
@@ -87,14 +87,14 @@ def main(args=None):
     if options.action == 'clear':
         try:
             backend = get_backend(options, plain=True)
-        except DanglingStorageURL as exc:
+        except DanglingStorageURLError as exc:
             raise QuietError(str(exc))
         return clear(backend,
                      get_backend_cachedir(options.storage_url, options.cachedir))
 
     try:
         backend = get_backend(options)
-    except DanglingStorageURL as exc:
+    except DanglingStorageURLError as exc:
         raise QuietError(str(exc))
 
     if options.action == 'upgrade':

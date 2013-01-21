@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from .common import AbstractBackend, DanglingStorageURL, NoSuchObject, ChecksumError
+from .common import AbstractBackend, DanglingStorageURLError, NoSuchObject, ChecksumError
 from ..common import BUFSIZE
 import shutil
 import logging
@@ -39,7 +39,7 @@ class Backend(AbstractBackend):
         self.name = name
 
         if not os.path.exists(name):
-            raise DanglingStorageURL(name)
+            raise DanglingStorageURLError(name)
 
     def __str__(self):
         return 'local://%s' % self.name

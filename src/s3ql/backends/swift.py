@@ -9,8 +9,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 from ..common import QuietError, BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, 
-    DanglingStorageURL)
-from .s3c import HTTPError, BadDigest
+    DanglingStorageURLError)
+from .s3c import HTTPError, BadDigestError
 from s3ql.backends.common import is_temp_network_error
 from urlparse import urlsplit
 import errno
@@ -61,7 +61,7 @@ class Backend(AbstractBackend):
             resp = self._do_request('GET', '/', query_string={'limit': 1 })
         except HTTPError as exc:
             if exc.status == 404:
-                raise DanglingStorageURL(self.container_name)
+                raise DanglingStorageURLError(self.container_name)
             raise
         resp.read()   
                     
@@ -407,7 +407,7 @@ class Backend(AbstractBackend):
                                                                   'limit': batch_size })
             except HTTPError as exc:
                 if exc.status == 404:
-                    raise DanglingStorageURL(self.container_name)
+                    raise DanglingStorageURLError(self.container_name)
                 raise
             
             if resp.status == 204:
@@ -490,7 +490,7 @@ class ObjectW(object):
             except:
                 log.exception('Objectw(%s).close(): unable to delete corrupted object!',
                               self.key)            
-            raise BadDigest('BadDigest', 'Received ETag does not agree with our calculations.')
+            raise BadDigestError('BadDigest', 'Received ETag does not agree with our calculations.')
 
     def __enter__(self):
         return self
@@ -554,7 +554,7 @@ class ObjectR(object):
             if etag != self.md5.hexdigest():
                 log.warn('ObjectR(%s).close(): MD5 mismatch: %s vs %s', self.key, etag,
                          self.md5.hexdigest())
-                raise BadDigest('BadDigest', 'ETag header does not agree with calculated MD5')
+                raise BadDigestError('BadDigest', 'ETag header does not agree with calculated MD5')
             return buf
 
         self.md5.update(buf)

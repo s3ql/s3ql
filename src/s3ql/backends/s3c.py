@@ -10,7 +10,7 @@ from __future__ import division, print_function, absolute_import
 from ..common import BUFSIZE, QuietError
 from .common import AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, \
     AuthenticationError
-from .common import DanglingStorageURL as DanglingStorageURL_common
+from .common import DanglingStorageURLError as DanglingStorageURLError_common
 from base64 import b64encode
 from email.utils import parsedate_tz, mktime_tz
 from urlparse import urlsplit
@@ -102,8 +102,9 @@ class Backend(AbstractBackend):
         problems and so that the request can be manually restarted if applicable.
         '''
 
-        if isinstance(exc, (InternalError, BadDigest, IncompleteBody, RequestTimeout,
-                            OperationAborted, SlowDown, RequestTimeTooSkewed)):
+        if isinstance(exc, (InternalError, BadDigestError, IncompleteBodyError, 
+                            RequestTimeoutError, OperationAbortedError, SlowDownError, 
+                            RequestTimeTooSkewedError)):
             return True
 
         elif is_temp_network_error(exc):
@@ -122,7 +123,7 @@ class Backend(AbstractBackend):
         try:
             resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
             assert resp.length == 0
-        except NoSuchKey:
+        except NoSuchKeyError:
             if force:
                 pass
             else:
@@ -271,7 +272,7 @@ class Backend(AbstractBackend):
 
         try:
             resp = self._do_request('GET', '/%s%s' % (self.prefix, key))
-        except NoSuchKey:
+        except NoSuchKeyError:
             raise NoSuchObject(key)
 
         return ObjectR(key, resp, self, extractmeta(resp))
@@ -317,7 +318,7 @@ class Backend(AbstractBackend):
                                                                                 self.prefix, src)})
             # Discard response body
             resp.read()
-        except NoSuchKey:
+        except NoSuchKeyError:
             raise NoSuchObject(src)
 
     def _do_request(self, method, path, subres=None, query_string=None,
@@ -543,7 +544,7 @@ class ObjectR(object):
             if etag != self.md5.hexdigest():
                 log.warn('ObjectR(%s).close(): MD5 mismatch: %s vs %s', self.key, etag,
                          self.md5.hexdigest())
-                raise BadDigest('BadDigest', 'ETag header does not agree with calculated MD5')
+                raise BadDigestError('BadDigest', 'ETag header does not agree with calculated MD5')
             
             return buf
 
@@ -616,7 +617,7 @@ class ObjectW(object):
             except:
                 log.exception('Objectw(%s).close(): unable to delete corrupted object!',
                               self.key)
-            raise BadDigest('BadDigest', 'Received ETag does not agree with our calculations.')
+            raise BadDigestError('BadDigest', 'Received ETag does not agree with our calculations.')
 
     def __enter__(self):
         return self
@@ -634,7 +635,7 @@ class ObjectW(object):
 def get_S3Error(code, msg):
     '''Instantiate most specific S3Error subclass'''
 
-    class_ = globals().get(code, S3Error)
+    class_ = globals().get(code + 'Error', S3Error)
 
     if not issubclass(class_, S3Error):
         return S3Error(code, msg)
@@ -708,16 +709,16 @@ class S3Error(Exception):
     def __str__(self):
         return '%s: %s' % (self.code, self.msg)
 
-class NoSuchKey(S3Error): pass
-class AccessDenied(S3Error, AuthorizationError): pass
-class BadDigest(S3Error): pass
-class IncompleteBody(S3Error): pass
+class NoSuchKeyError(S3Error): pass
+class AccessDeniedError(S3Error, AuthorizationError): pass
+class BadDigestError(S3Error): pass
+class IncompleteBodyError(S3Error): pass
 class InternalError(S3Error): pass
-class InvalidAccessKeyId(S3Error, AuthenticationError): pass
-class InvalidSecurity(S3Error, AuthenticationError): pass
-class SignatureDoesNotMatch(S3Error, AuthenticationError): pass
-class OperationAborted(S3Error): pass
-class RequestTimeout(S3Error): pass
-class SlowDown(S3Error): pass
-class RequestTimeTooSkewed(S3Error): pass
-class DanglingStorageURL(S3Error, DanglingStorageURL_common): pass
+class InvalidAccessKeyIdError(S3Error, AuthenticationError): pass
+class InvalidSecurityError(S3Error, AuthenticationError): pass
+class SignatureDoesNotMatchError(S3Error, AuthenticationError): pass
+class OperationAbortedError(S3Error): pass
+class RequestTimeoutError(S3Error): pass
+class SlowDownError(S3Error): pass
+class RequestTimeTooSkewedError(S3Error): pass
+class DanglingStorageURLError(S3Error, DanglingStorageURLError_common): pass

@@ -1055,11 +1055,11 @@ class NoSuchObject(Exception):
     def __str__(self):
         return 'Backend does not have anything stored under key %r' % self.key
 
-class DanglingStorageURL(Exception):
+class DanglingStorageURLError(Exception):
     '''Raised if the backend can't store data at the given location'''
 
     def __init__(self, loc):
-        super(DanglingStorageURL, self).__init__()
+        super(DanglingStorageURLError, self).__init__()
         self.loc = loc
 
     def __str__(self):
@@ -1203,7 +1203,7 @@ def get_backend_factory(options, plain=False):
         # (e.g. wrong credentials)
         _ = backend['s3ql_passphrase']
         
-    except DanglingStorageURL as exc:
+    except DanglingStorageURLError as exc:
         raise QuietError(str(exc))   
     
     except AuthorizationError:

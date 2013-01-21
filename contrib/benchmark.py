@@ -29,7 +29,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.backends.common import get_backend, BetterBackend, DanglingStorageURL
+from s3ql.backends.common import get_backend, BetterBackend, DanglingStorageURLError
 from s3ql.backends.local import Backend
 from s3ql.common import setup_logging, BUFSIZE, QuietError
 from s3ql.parse_args import ArgumentParser
@@ -120,7 +120,7 @@ def main(args=None):
     log.info('Measuring raw backend throughput..')
     try:
         backend = get_backend(options, plain=True)
-    except DanglingStorageURL as exc:
+    except DanglingStorageURLError as exc:
         raise QuietError(str(exc))
     
     upload_time = 0
