@@ -10,7 +10,7 @@ from __future__ import division, print_function, absolute_import
 from ..common import BUFSIZE, QuietError
 from .common import AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, \
     AuthenticationError
-from .common import DanglingStorageURLError as DanglingStorageURLError_common
+from .common import DanglingStorageURLError
 from base64 import b64encode
 from email.utils import parsedate_tz, mktime_tz
 from urlparse import urlsplit
@@ -722,4 +722,4 @@ class RequestTimeoutError(S3Error): pass
 class TimeoutError(RequestTimeoutError): pass
 class SlowDownError(S3Error): pass
 class RequestTimeTooSkewedError(S3Error): pass
-class DanglingStorageURLError(S3Error, DanglingStorageURLError_common): pass
+class NoSuchBucketError(S3Error, DanglingStorageURLError): pass
