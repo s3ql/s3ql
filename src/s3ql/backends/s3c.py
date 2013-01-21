@@ -634,7 +634,12 @@ class ObjectW(object):
 def get_S3Error(code, msg):
     '''Instantiate most specific S3Error subclass'''
 
-    return globals().get(code, S3Error)(code, msg)
+    class_ = globals().get(code, S3Error)
+
+    if not issubclass(class_, S3Error):
+        return S3Error(code, msg)
+    
+    return class_(code, msg)
 
 def extractmeta(resp):
     '''Extract metadata from HTTP response object'''
