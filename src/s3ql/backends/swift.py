@@ -13,13 +13,10 @@ from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, h
 from .s3c import HTTPError, BadDigestError
 from s3ql.backends.common import is_temp_network_error
 from urlparse import urlsplit
-import errno
 import hashlib
-import httplib
 import json
 import logging
 import re
-import socket
 import tempfile
 import time
 import urllib
