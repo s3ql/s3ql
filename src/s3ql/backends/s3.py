@@ -38,6 +38,11 @@ class Backend(s3c.Backend):
             raise QuietError('Invalid storage URL')
 
         bucket_name = hit.group(1)
+        
+        # http://docs.amazonwebservices.com/AmazonS3/2006-03-01/dev/BucketRestrictions.html
+        if not re.match('^[a-z][a-z0-9.-]{1,60}[a-z0-9]$', bucket_name):
+            raise QuietError('Invalid bucket name.')
+        
         hostname = '%s.s3.amazonaws.com' % bucket_name
         prefix = hit.group(2) or ''
         port = 443 if use_ssl else 80

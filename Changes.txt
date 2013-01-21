@@ -15,6 +15,13 @@ UNRELEASED, S3QL TIP
   * Work around undocumented "Timeout" reply from Google Storage and
     retry instead of crashing.
 
+  * Instead of failing with a bogus "Invalid credentials or skewed system
+    clock" error when trying to access a bucket with an invalid DNS
+    name, S3QL now prints a proper error message.
+
+    (Such bucket names are still allowed when using the US Standard
+    regions, but generally not a good idea).
+
 2012-09-03, S3QL 1.12
 
   * Be more verbose about how to remedy the situation when attempting
