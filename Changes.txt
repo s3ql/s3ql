@@ -12,6 +12,9 @@ UNRELEASED, S3QL TIP
     will no longer bail out when called without a network connection
     but simply retry (printing warning messages in the process).
 
+  * Work around undocumented "Timeout" reply from Google Storage and
+    retry instead of crashing.
+
 2012-09-03, S3QL 1.12
 
   * Be more verbose about how to remedy the situation when attempting

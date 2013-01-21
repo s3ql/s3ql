@@ -719,6 +719,7 @@ class InvalidSecurityError(S3Error, AuthenticationError): pass
 class SignatureDoesNotMatchError(S3Error, AuthenticationError): pass
 class OperationAbortedError(S3Error): pass
 class RequestTimeoutError(S3Error): pass
+class TimeoutError(RequestTimeoutError): pass
 class SlowDownError(S3Error): pass
 class RequestTimeTooSkewedError(S3Error): pass
 class DanglingStorageURLError(S3Error, DanglingStorageURLError_common): pass
