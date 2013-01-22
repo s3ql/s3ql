@@ -4,3 +4,5 @@ version may not work with any other version of S3QL (including the forthcoming
 release). s3qladm may not be able to upgrade file systems either to or from
 this version. You have been warned.
 
+Please refer to rst/installation.rst for compilation and installation
+instructions.

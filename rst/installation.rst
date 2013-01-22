@@ -91,3 +91,22 @@ Now you have three options:
 * You can install S3QL into `~/.local` by executing `python
   setup.py install --user`. In this case you should make sure that
   `~/.local/bin` is in your `$PATH` environment variable.
+
+
+Development Version
+===================
+
+If you have checked out the unstable development version from the
+Mercurial repository, a bit more effort is required. You need to also
+have Cython_ (0.16 or newer) and Sphinx_ (1.1 or newer) installed, and
+the necessary commands are::
+
+  python setup.py build_cython
+  python setup.py build_ext --inplace
+  python setup.py build_sphinx
+  python setup.py test
+  python setup.py install
+  
+
+.. _Cython: http://www.cython.org/
+.. _Sphinx: http://sphinx.pocoo.org/
