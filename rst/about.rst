@@ -30,7 +30,7 @@ Features
 
 * **Transparency.** Conceptually, S3QL is indistinguishable from a
   local file system. For example, it supports hardlinks, symlinks,
-  and standard unix permissions, extended attributes and file
+  standard unix permissions, extended attributes and file
   sizes up to 2 TB.
 
 * **Dynamic Size.** The size of an S3QL file system grows and shrinks
