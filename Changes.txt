@@ -22,6 +22,13 @@ UNRELEASED, S3QL TIP
     (Such bucket names are still allowed when using the US Standard
     regions, but generally not a good idea).
 
+  * Removed ostensible ACL support. It was found that S3QL never kept
+    ACLs and file permission bits synchronized as mandated by POSIX.
+    This is due to a bug in the FUSE library and cannot easily be
+    fixed in S3QL. Consequently, S3QL no longer reports ACL support
+    unless a FUSE version with the necessary bugfix version is
+    installed.
+
 2012-09-03, S3QL 1.12
 
   * Be more verbose about how to remedy the situation when attempting

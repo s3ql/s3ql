@@ -180,6 +180,11 @@ class Operations(llfuse.Operations):
                 return self.extstat()
 
             raise llfuse.FUSEError(errno.EINVAL)
+        
+        # http://code.google.com/p/s3ql/issues/detail?id=385
+        elif name in (b'system.posix_acl_access',
+                      b'system.posix_acl_default'):
+            raise FUSEError(errno.ENOTSUP)
 
         else:
             try:
@@ -220,6 +225,12 @@ class Operations(llfuse.Operations):
                 self.cache.max_size = pickle.loads(value)
             else:
                 raise llfuse.FUSEError(errno.EINVAL)
+            
+        # http://code.google.com/p/s3ql/issues/detail?id=385
+        elif name in (b'system.posix_acl_access',
+                      b'system.posix_acl_default'):
+            raise FUSEError(errno.ENOTSUP)
+            
         else:
             if self.inodes[id_].locked:
                 raise FUSEError(errno.EPERM)
