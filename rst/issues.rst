@@ -9,8 +9,8 @@ Known Issues
   at some point. See `issue 385 <http://code.google.com/p/s3ql/issues/detail?id=385>`_
   for more details.
 
-* S3QL does not verify TLS/SSL server certificates, so a
-  man-in-the-middle attack is principally possible. See `issue 267
+* S3QL does not verify TLS/SSL server certificates and is thus
+  vulnerable to man-in-the-middle attacks. See `issue 267
   <http://code.google.com/p/s3ql/issues/detail?id=267>`_ for more
   details.
 
