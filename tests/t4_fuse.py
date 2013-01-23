@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import absolute_import, division, print_function
-from _common import TestCase
+
 from os.path import basename
 import filecmp
 import llfuse
@@ -154,7 +154,7 @@ else:
     mypath = __file__
 BASEDIR = os.path.abspath(os.path.join(os.path.dirname(mypath), '..'))
 
-class fuse_tests(TestCase):
+class fuse_tests(unittest.TestCase):
 
     def setUp(self):
         skip_if_no_fusermount()
@@ -235,6 +235,10 @@ class fuse_tests(TestCase):
         shutil.rmtree(self.backend_dir)
 
 
+    def test_all(self):
+        # Workaround py.test not calling runTest   
+        return self.runTest()
+        
     def runTest(self):
         # Run all tests in same environment, mounting and umounting
         # just takes too long otherwise

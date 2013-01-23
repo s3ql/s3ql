@@ -6,8 +6,8 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function
-from _common import TestCase
+from __future__ import division, print_function, absolute_import
+
 from s3ql.backends import local
 from s3ql.backends.common import BetterBackend
 import shutil
@@ -23,7 +23,7 @@ else:
     mypath = __file__
 BASEDIR = os.path.abspath(os.path.join(os.path.dirname(mypath), '..'))
 
-class AdmTests(TestCase):
+class AdmTests(unittest.TestCase):
 
     def setUp(self):
         self.cache_dir = tempfile.mkdtemp()

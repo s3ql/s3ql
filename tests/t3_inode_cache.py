@@ -6,19 +6,17 @@ Copyright (C) 2008-2010 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function
-
+from __future__ import division, print_function, absolute_import
 
 from s3ql import inode_cache
 from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
-from _common import TestCase
 import unittest2 as unittest
 import time
 import tempfile
 
-class cache_tests(TestCase):
+class cache_tests(unittest.TestCase):
 
     def setUp(self):
         self.dbfile = tempfile.NamedTemporaryFile()

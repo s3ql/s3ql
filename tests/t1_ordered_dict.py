@@ -6,13 +6,12 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function
+from __future__ import division, print_function, absolute_import
 
 import unittest2 as unittest
 from s3ql.ordered_dict import OrderedDict
-from _common import TestCase
 
-class OrderedDictTests(TestCase):
+class OrderedDictTests(unittest.TestCase):
 
     def test_1_add_del(self):
         od = OrderedDict()

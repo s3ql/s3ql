@@ -172,7 +172,7 @@ def main():
                          ]
                           },
           install_requires=required_pkgs,
-          tests_require=required_pkgs + [ 'unittest2' ],
+          tests_require=required_pkgs + [ 'unittest2', 'pytest' ],
           test_suite='tests',
           cmdclass={'test': test,
                     'upload_docs': upload_docs,
@@ -236,23 +236,19 @@ class test(setuptools_test.test):
 
     def finalize_options(self):
         setuptools_test.test.finalize_options(self)
-        self.test_loader = "ScanningLoader"
+        self.test_args = []
+        self.test_suite = True
         if self.debug:
             self.debug = [ x.strip() for x  in self.debug.split(',') ]
 
     def run_tests(self):
 
-        # Add test modules
-        sys.path.insert(0, os.path.join(basedir, 'tests'))
-        import unittest2 as unittest
-        import _common
-        from s3ql.common import (setup_excepthook, add_stdout_logging, LoggerFilter)
-
         # Initialize logging if not yet initialized
+        from s3ql.common import (setup_excepthook, add_stdout_logging, LoggerFilter)
         root_logger = logging.getLogger()
         if not root_logger.handlers:
             add_stdout_logging(quiet=True)
-            handler = logging.handlers.RotatingFileHandler("setup.log",
+            handler = logging.handlers.RotatingFileHandler("test.log",
                                                            maxBytes=10 * 1024 ** 2, backupCount=0)
             formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
                                           '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
@@ -268,38 +264,9 @@ class test(setuptools_test.test):
         else:
             root_logger.debug("Logging already initialized.")
 
-        # Define our own test loader to order modules alphabetically
-        from pkg_resources import resource_listdir, resource_exists
-        class ScanningLoader(unittest.TestLoader):
-            # Yes, this is a nasty hack
-            # pylint: disable=W0232,W0221,W0622
-            def loadTestsFromModule(self, module):
-                """Return a suite of all tests cases contained in the given module"""
-                tests = []
-                if module.__name__ != 'setuptools.tests.doctest':  # ugh
-                    tests.append(unittest.TestLoader.loadTestsFromModule(self, module))
-                if hasattr(module, "additional_tests"):
-                    tests.append(module.additional_tests())
-                if hasattr(module, '__path__'):
-                    for file in sorted(resource_listdir(module.__name__, '')):
-                        if file.endswith('.py') and file != '__init__.py':
-                            submodule = module.__name__ + '.' + file[:-3]
-                        else:
-                            if resource_exists(
-                                module.__name__, file + '/__init__.py'
-                            ):
-                                submodule = module.__name__ + '.' + file
-                            else:
-                                continue
-                        tests.append(self.loadTestsFromName(submodule))
-                if len(tests) != 1:
-                    return self.suiteClass(tests)
-                else:
-                    return tests[0] # don't create a nested suite for only one return
-
-        unittest.main(
-            None, None, [unittest.__file__] + self.test_args,
-            testLoader=ScanningLoader())
+        # Run tests with pytest
+        import pytest
+        pytest.main(['--exitfirst', 'tests' ])
 
 
 class upload_docs(setuptools.Command):

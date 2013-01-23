@@ -6,8 +6,8 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function
-from _common import TestCase
+from __future__ import division, print_function, absolute_import 
+
 from llfuse import FUSEError
 from random import randint
 from s3ql import fs
@@ -47,7 +47,7 @@ CLOCK_GRANULARITY = 2 * (stamp2 - stamp1)
 del stamp1
 del stamp2
 
-class fs_api_tests(TestCase):
+class fs_api_tests(unittest.TestCase):
 
     def setUp(self):
         self.backend_dir = tempfile.mkdtemp()

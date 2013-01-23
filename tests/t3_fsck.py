@@ -6,8 +6,8 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function
-from _common import TestCase
+from __future__ import division, print_function, absolute_import
+
 from s3ql.backends import local
 from s3ql.common import ROOT_INODE
 from s3ql.mkfs import init_tables
@@ -22,7 +22,7 @@ import time
 import unittest2 as unittest
 
 
-class fsck_tests(TestCase):
+class fsck_tests(unittest.TestCase):
 
     def setUp(self):
         self.backend_dir = tempfile.mkdtemp()

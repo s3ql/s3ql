@@ -6,8 +6,8 @@ Copyright (C) 2008-2010 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function
-from _common import TestCase
+from __future__ import division, print_function, absolute_import
+
 from contextlib import contextmanager
 from s3ql.backends import local
 from s3ql.backends.common import BackendPool, AbstractBackend
@@ -24,8 +24,7 @@ import threading
 import time
 import unittest2 as unittest
 
-
-class cache_tests(TestCase):
+class cache_tests(unittest.TestCase):
 
     def setUp(self):
 

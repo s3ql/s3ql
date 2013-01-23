@@ -8,7 +8,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function, absolute_import
 
-from _common import TestCase
 import unittest2 as unittest
 from s3ql import deltadump
 import tempfile
@@ -16,7 +15,7 @@ from s3ql.database import Connection
 import random
 import time
 
-class DumpTests(TestCase):
+class DumpTests(unittest.TestCase):
     def setUp(self):
         self.src = Connection(":memory:")
         self.dst = Connection(":memory:")

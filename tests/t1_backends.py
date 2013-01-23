@@ -6,8 +6,8 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function
-from _common import TestCase
+from __future__ import division, print_function, absolute_import
+
 from s3ql.backends import local, s3, gs, s3c, swift
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBackend)
@@ -145,7 +145,7 @@ class BackendTestsMixin(object):
 # This test just takes too long (because we have to wait really long so that we don't
 # get false errors due to propagation delays)
 #@unittest.skip('takes too long')
-class S3Tests(BackendTestsMixin, TestCase):
+class S3Tests(BackendTestsMixin, unittest.TestCase):
     def setUp(self):
         self.name_cnt = 0
         # This is the time in which we expect S3 changes to propagate. It may
@@ -203,7 +203,7 @@ class S3CTests(S3Tests):
         self.delay = 0
         self.backend = s3c.Backend(*self.get_credentials('s3c-test'), use_ssl=False)   
 
-class URLTests(TestCase):
+class URLTests(unittest.TestCase):
     
     # access to protected members
     #pylint: disable=W0212
@@ -240,7 +240,7 @@ class URLTests(TestCase):
         self.assertEquals(s3c.Backend._parse_storage_url('s3c://host.org:17/name/pref/', use_ssl=False),
                           ('host.org', 17, 'name', 'pref/'))
                                 
-class LocalTests(BackendTestsMixin, TestCase):
+class LocalTests(BackendTestsMixin, unittest.TestCase):
 
     def setUp(self):
         self.name_cnt = 0
@@ -252,7 +252,7 @@ class LocalTests(BackendTestsMixin, TestCase):
         self.backend.clear()
         os.rmdir(self.backend_dir)
 
-class CompressionTests(BackendTestsMixin, TestCase):
+class CompressionTests(BackendTestsMixin, unittest.TestCase):
 
     def setUp(self):
         self.name_cnt = 0

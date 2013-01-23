@@ -7,6 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
+
 from s3ql.common import get_backend_cachedir
 from s3ql.database import Connection
 import errno
