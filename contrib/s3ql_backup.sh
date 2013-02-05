@@ -15,7 +15,9 @@ mkdir "$mountpoint"
 mount.s3ql "$storage_url" "$mountpoint"
 
 # Make sure the file system is unmounted when we are done
-trap "cd /; umount.s3ql '$mountpoint'; rmdir '$mountpoint'" EXIT
+# Note that this overwrites the earlier trap, so we
+# also delete the lock file here.
+trap "cd /; umount.s3ql '$mountpoint'; rmdir '$mountpoint'; rm '$lock'" EXIT
 
 # Figure out the most recent backup
 cd "$mountpoint"
