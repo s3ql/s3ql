@@ -184,7 +184,6 @@ class DumpTests(unittest.TestCase):
         vals += [ -v for v  in vals ]
         vals.append(-(2 ** 63))
 
-        vals = range(5)
         for val in vals:
             db.execute('INSERT INTO test (id) VALUES(?)', (val,))
 
