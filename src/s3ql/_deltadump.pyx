@@ -28,6 +28,7 @@ cdef extern from 'stdint.h' nogil:
 
 cdef extern from 'stdio.h' nogil:
     FILE * fdopen(int fd, const_char * mode)
+    int fflush(FILE * stream)
     int fileno(FILE * stream)
 
 cdef extern from 'endian.h' nogil:
@@ -123,6 +124,12 @@ cdef int fclose(FILE * fp) except -1:
 
     cdef ssize_t off
 
+    # Explicitly flush data that needs to be written. This is
+    # important, so that we can safely reposition the fd position
+    # below (which is necessary in case there is cached input data)
+    if fflush(fp) != 0:
+        raise OSError(errno, strerror(errno))
+    
     # Reposition FD to position of FILE*, otherwise next read from FD will miss
     # data currently in stream buffer. It seems that call to fflush() achieves
     # the same thing, but this does not seem to be documented so we don't rely

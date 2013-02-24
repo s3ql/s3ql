@@ -29,6 +29,11 @@ UNRELEASED, S3QL TIP
     unless a FUSE version with the necessary bugfix version is
     installed.
 
+  * Fixed a bug that caused malformed metadata to be written out when
+    using recent eglibc versions (the relevant change in eglibc
+    was introduced between eglibc versions 2.13 and 2.17).
+    
+  
 2012-09-03, S3QL 1.12
 
   * Be more verbose about how to remedy the situation when attempting
