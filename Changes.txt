@@ -1,4 +1,4 @@
-UNRELEASED, S3QL TIP
+2013-02-23, S3QL 1.13
 
   * Fixed issues when trying to access a directory at the root
     of the file system that has recently been removed with s3qlrm.
