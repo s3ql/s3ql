@@ -1,3 +1,10 @@
+UNRELEASED, S3QL TIP
+
+  * Change error code returned to applications trying to set ACL
+    extended attributes. The previous error code of ENOSYS had the
+    unintended side effect that some FUSE versions gave up trying to
+    get/set any extended attributes at all.
+  
 2013-02-23, S3QL 1.13
 
   * Fixed issues when trying to access a directory at the root
