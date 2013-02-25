@@ -1,4 +1,4 @@
-UNRELEASED, S3QL TIP
+2013-02-24, S3QL 1.13.1
 
   * Change error code returned to applications trying to set ACL
     extended attributes. The previous error code of ENOSYS had the
