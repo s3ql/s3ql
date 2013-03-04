@@ -184,7 +184,7 @@ class Operations(llfuse.Operations):
         # http://code.google.com/p/s3ql/issues/detail?id=385
         elif name in (b'system.posix_acl_access',
                       b'system.posix_acl_default'):
-            raise FUSEError(errno.EINVAL)
+            raise FUSEError(errno.ENOTSUP)
 
         else:
             try:
@@ -229,7 +229,7 @@ class Operations(llfuse.Operations):
         # http://code.google.com/p/s3ql/issues/detail?id=385
         elif name in (b'system.posix_acl_access',
                       b'system.posix_acl_default'):
-            raise FUSEError(errno.EINVAL)
+            raise FUSEError(errno.ENOTSUP)
             
         else:
             if self.inodes[id_].locked:
