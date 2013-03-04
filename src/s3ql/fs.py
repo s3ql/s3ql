@@ -31,6 +31,31 @@ log = logging.getLogger("fs")
 # For long requests, we force a GIL release in the following interval
 GIL_RELEASE_INTERVAL = 0.05
 
+# ACL_ERRNO is the error code returned for requests that try
+# to modify or access extendeda attributes associated with ACL.
+# Since we currently don't know how to keep these in sync
+# with permission bits, we cannot support ACLs despite having
+# full support for extended attributes.
+#
+# What errno to use for ACL_ERRNO is a bit tricky. acl_set_fd(3)
+# returns ENOTSUP if the file system does not support ACLs. However,
+# this function uses the setxattr() syscall internally, and
+# setxattr(3) states that ENOTSUP means that the file system does not
+# support extended attributes at all. A test with btrfs mounted with
+# -o noacl shows that the actual errno returned by setxattr() is
+# EOPNOTSUPP. Also, some Python versions do not know about
+# errno.ENOTSUPP and errno(3) says that on Linux, EOPNOTSUPP and ENOTSUP
+# have the same value (despite this violating POSIX).
+#
+# All in all, the situation seems complicated, so we try to use
+# EOPNOTSUPP with a fallback on ENOTSUP just in case.
+
+if not hasattr(errno, 'EOPNOTSUPP'):
+    ACL_ERRNO = errno.ENOTSUP
+else:
+    ACL_ERRNO = errno.EOPNOTSUPP
+
+
 class Operations(llfuse.Operations):
     """A full-featured file system for online data storage
 
@@ -184,7 +209,7 @@ class Operations(llfuse.Operations):
         # http://code.google.com/p/s3ql/issues/detail?id=385
         elif name in (b'system.posix_acl_access',
                       b'system.posix_acl_default'):
-            raise FUSEError(errno.ENOTSUP)
+            raise FUSEError(ACL_ERRNO)
 
         else:
             try:
@@ -229,7 +254,7 @@ class Operations(llfuse.Operations):
         # http://code.google.com/p/s3ql/issues/detail?id=385
         elif name in (b'system.posix_acl_access',
                       b'system.posix_acl_default'):
-            raise FUSEError(errno.ENOTSUP)
+            raise FUSEError(ACL_ERRNO)
             
         else:
             if self.inodes[id_].locked:

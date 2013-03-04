@@ -2,7 +2,7 @@ UNRELEASED, S3QL TIP
 
   * Allow S3 bucket names starting with a number.
 
-  * Return ENOTSUP error on ACL operations. The previous value of
+  * Return EOPNOTSUP error on ACL operations. The previous value of
     EINVAL works with FUSE, but confuses several applications.
 
 2013-02-24, S3QL 1.13.1
