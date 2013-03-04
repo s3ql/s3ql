@@ -40,7 +40,7 @@ class Backend(s3c.Backend):
         bucket_name = hit.group(1)
         
         # http://docs.amazonwebservices.com/AmazonS3/2006-03-01/dev/BucketRestrictions.html
-        if not re.match('^[a-z][a-z0-9.-]{1,60}[a-z0-9]$', bucket_name):
+        if not re.match('^[a-z0-9][a-z0-9.-]{1,60}[a-z0-9]$', bucket_name):
             raise QuietError('Invalid bucket name.')
         
         hostname = '%s.s3.amazonaws.com' % bucket_name
