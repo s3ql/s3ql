@@ -1,3 +1,7 @@
+UNRELEASED, S3QL TIP
+
+  * Reduced CPU consumption when S3QL is idle.
+
 2013-03-03, S3QL 1.13.2
 
   * Allow S3 bucket names starting with a number.
