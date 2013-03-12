@@ -18,6 +18,7 @@ import hashlib
 import hmac
 import httplib
 import logging
+import sys
 import re
 import tempfile
 import time
@@ -524,21 +525,22 @@ class ObjectR(object):
             etag = self.resp.getheader('ETag').strip('"')
             self.md5_checked = True
             
-            # Apparently sometimes the response is not closed even when all data has been read. In
-            # that case, the next request can still be send, but an attempt to retrieve the next
-            # response will result in an ResponseNotReady() exception:
-            # http://code.google.com/p/s3ql/issues/detail?id=358
-            # This code attempts to produce additional debug information when that happens,
-            # so that we can figure out what exactly is going wrong.
             if not self.resp.isclosed():
-                log.error('ObjectR.read(): response not closed after end of data, '
-                          'please report on http://code.google.com/p/s3ql/issues/')
-                log.error('Method: %s, chunked: %s, read length: %s '
-                          'response length: %s, chunk_left: %s, status: %d '
-                          'reason "%s", version: %s, will_close: %s',
-                          self.resp._method, self.resp.chunked, size, self.resp.length,
-                          self.resp.chunk_left, self.resp.status, self.resp.reason,
-                          self.resp.version, self.resp.will_close)                
+                # http://bugs.python.org/issue15633
+                ver = sys.version_info
+                if ((ver > (2,7,3) and ver < (3,0,0))
+                    or (ver > (3,2,3) and ver < (3,3,0))
+                    or (ver > (3,3,0))):
+                    # Should be fixed in these version
+                    log.error('ObjectR.read(): response not closed after end of data, '
+                              'please report on http://code.google.com/p/s3ql/issues/')
+                    log.error('Method: %s, chunked: %s, read length: %s '
+                              'response length: %s, chunk_left: %s, status: %d '
+                              'reason "%s", version: %s, will_close: %s',
+                              self.resp._method, self.resp.chunked, size, self.resp.length,
+                              self.resp.chunk_left, self.resp.status, self.resp.reason,
+                              self.resp.version, self.resp.will_close)
+                                    
                 self.resp.close() 
             
             if etag != self.md5.hexdigest():
