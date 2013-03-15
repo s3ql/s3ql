@@ -224,7 +224,10 @@ def _dump_or_load(table, order, columns, db, fh):
         fd = dup(fh.fileno())
         if fd == -1:
             raise OSError(errno, strerror(errno))
-        fp = fdopen(fd, 'r+b')
+        if order is None:
+            fp = fdopen(fd, 'rb')
+        else:
+            fp = fdopen(fd, 'wb')
         if fp == NULL:
             raise OSError(errno, strerror(errno))
         cleanup.register(lambda: fclose(fp))
