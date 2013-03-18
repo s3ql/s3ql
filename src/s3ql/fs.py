@@ -354,8 +354,9 @@ class Operations(llfuse.Operations):
 
                 processed += 1
                 if processed > gil_step:
-                    # Also reinsert current directory if we need to yield to other threads 
-                    queue.append(id_p)
+                    # Also reinsert current directory if we need to yield to other threads
+                    if not found_subdirs: 
+                        queue.append(id_p)
                     break
 
             if processed > gil_step:

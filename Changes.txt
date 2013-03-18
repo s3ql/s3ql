@@ -6,6 +6,9 @@ UNRELEASED, S3QL TIP
     "internal error" (this functionaly got accidentally broken
     in S3QL 1.13).
 
+  * Fixed a hang when using s3qlrm to delete a directory with
+    a very large number of sub-directories.
+
 2013-03-03, S3QL 1.13.2
 
   * Allow S3 bucket names starting with a number.
