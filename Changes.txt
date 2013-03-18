@@ -2,6 +2,10 @@ UNRELEASED, S3QL TIP
 
   * Reduced CPU consumption when S3QL is idle.
 
+  * S3QL now automatically retries requests when S3 reports an
+    "internal error" (this functionaly got accidentally broken
+    in S3QL 1.13).
+
 2013-03-03, S3QL 1.13.2
 
   * Allow S3 bucket names starting with a number.

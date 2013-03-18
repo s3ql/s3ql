@@ -637,7 +637,11 @@ class ObjectW(object):
 def get_S3Error(code, msg):
     '''Instantiate most specific S3Error subclass'''
 
-    class_ = globals().get(code + 'Error', S3Error)
+    if code.endswith('Error'):
+        name = code
+    else:
+        name = code + 'Error'
+    class_ = globals().get(name, S3Error)
 
     if not issubclass(class_, S3Error):
         return S3Error(code, msg)
