@@ -15,11 +15,16 @@ from s3ql.database import Connection
 import unittest2 as unittest
 import time
 import tempfile
+import os
 
 class cache_tests(unittest.TestCase):
 
     def setUp(self):
-        self.dbfile = tempfile.NamedTemporaryFile()
+        # Destructors are not guaranteed to run, and we can't unlink
+        # the file immediately because apsw refers to it by name. 
+        # Therefore, we unlink the file manually in tearDown() 
+        self.dbfile = tempfile.NamedTemporaryFile(delete=False)
+        
         self.db = Connection(self.dbfile.name)
         create_tables(self.db)
         init_tables(self.db)
@@ -27,6 +32,7 @@ class cache_tests(unittest.TestCase):
 
     def tearDown(self):
         self.cache.destroy()
+        os.unlink(self.dbfile.name)
 
     def test_create(self):
         attrs = {'mode': 784,

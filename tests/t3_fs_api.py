@@ -57,7 +57,11 @@ class fs_api_tests(unittest.TestCase):
         self.cachedir = tempfile.mkdtemp()
         self.max_obj_size = 1024
 
-        self.dbfile = tempfile.NamedTemporaryFile()
+        # Destructors are not guaranteed to run, and we can't unlink
+        # the file immediately because apsw refers to it by name. 
+        # Therefore, we unlink the file manually in tearDown() 
+        self.dbfile = tempfile.NamedTemporaryFile(delete=False)
+        
         self.db = Connection(self.dbfile.name)
         create_tables(self.db)
         init_tables(self.db)
@@ -81,6 +85,7 @@ class fs_api_tests(unittest.TestCase):
         self.block_cache.destroy()
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.backend_dir)
+        os.unlink(self.dbfile.name)
         llfuse.lock.release()
 
     @staticmethod

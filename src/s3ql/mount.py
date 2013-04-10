@@ -246,17 +246,15 @@ def main(args=None):
     db.close()
 
     if options.profile:
-        tmp = tempfile.NamedTemporaryFile()
-        prof.dump_stats(tmp.name)
-        fh = open('s3ql_profile.txt', 'w')
-        p = pstats.Stats(tmp.name, stream=fh)
-        tmp.close()
-        p.strip_dirs()
-        p.sort_stats('cumulative')
-        p.print_stats(50)
-        p.sort_stats('time')
-        p.print_stats(50)
-        fh.close()
+        with tempfile.NamedTemporaryFile() as tmp, \
+            open('s3ql_profile.txt', 'w') as fh:
+            prof.dump_stats(tmp.name)
+            p = pstats.Stats(tmp.name, stream=fh)
+            p.strip_dirs()
+            p.sort_stats('cumulative')
+            p.print_stats(50)
+            p.sort_stats('time')
+            p.print_stats(50)
 
 def determine_threads(options):
     '''Return optimum number of upload threads'''
