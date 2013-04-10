@@ -12,7 +12,7 @@ import errno
 import os.path
 import subprocess
 import t4_fuse
-import tarfile
+from t4_fuse import populate_dir
 import tempfile
 import unittest2 as unittest
 import shutil
@@ -37,11 +37,9 @@ class cpTests(t4_fuse.fuse_tests):
 
     def tst_cp(self):
 
-        # Extract tar
-        data_file = os.path.join(os.path.dirname(__file__), 'data.tar.bz2')
         tempdir = tempfile.mkdtemp()
         try:
-            tarfile.open(data_file).extractall(tempdir)
+            populate_dir(tempdir)
 
             # Rsync
             subprocess.check_call(['rsync', '-aHAX', tempdir + '/',

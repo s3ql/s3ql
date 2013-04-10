@@ -7,23 +7,24 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import absolute_import, division, print_function
-
 from os.path import basename
+from s3ql.common import CTRL_NAME
+import cPickle as pickle
 import filecmp
 import llfuse
+import logging
 import os.path
+import random
 import shutil
 import stat
 import subprocess
-import cPickle as pickle
 import sys
 import tempfile
 import threading
 import time
 import traceback
 import unittest2 as unittest
-import logging
-from s3ql.common import CTRL_NAME
+
 
 log = logging.getLogger()
 
@@ -439,6 +440,148 @@ class fuse_tests(unittest.TestCase):
 def suite():
     return unittest.makeSuite(fuse_tests)
 
+def populate_dir(path, entries=4096, max_size=10*1024*1024,
+                 pooldir='/usr/bin', seed=None):
+    '''Populate directory with random data
+    
+    *entires* specifies the total number of directory entries that
+    are created in the tree. *max_size* specifies the maximum size
+    occupied by all files. The files in *pooldir* are used as a 
+    source of directory names and file contents.
+    
+    *seed* is used to initalize the random number generator and
+    can be used to make the created structure reproducible
+    (provided that the contents of *pooldir* don't change).
+    '''
+
+    poolnames = os.listdir(pooldir)
+    if seed is None:
+        seed = len(poolnames)
+    random.seed(seed)
+     
+    # Special characters for use in filenames
+    special_chars = [ chr(x) for x in range(256) 
+                      if x not in (0, ord('/')) ]
+
+    def random_name(path):
+        '''Get random, non-existing file name underneath *path*
+        
+        Returns a fully qualified path with a filename chosen
+        from *poolnames*.
+        '''
+        while True:
+            name = poolnames[random.randrange(len(poolnames))]
+            
+            # Special characters
+            len_ = random.randrange(4)
+            if len_ > 0:
+                pos = random.choice((-1,0,1)) # Prefix, Middle, Suffix
+                s = ''.join(special_chars[random.randrange(len(special_chars))]
+                            for _ in xrange(len_))
+                if pos == -1:
+                    name = s + name
+                elif pos == 1:
+                    name += s
+                else:
+                    name += s + poolnames[random.randrange(len(poolnames))]
+                
+            fullname = os.path.join(path, name)
+            if not os.path.lexists(fullname):
+                break
+        return fullname
+    
+    
+    # 
+    # Step 1: create directory tree
+    #
+    subdir_cnt = random.randint(0, int(0.1 * entries))
+    entries -= subdir_cnt
+    dirs = [ path ]
+    for _ in xrange(subdir_cnt):
+        idx = random.randrange(len(dirs))
+        name = random_name(dirs[idx])
+        os.mkdir(name)
+        dirs.append(name)
+    
+    
+    #
+    # Step 2: populate the tree with files
+    #
+    file_cnt = random.randint(int(entries/3), int(3*entries/4))
+    entries -= file_cnt
+    files = []
+    for _ in xrange(file_cnt):
+        idx = random.randrange(len(dirs))
+        name = random_name(dirs[idx])
+        size = random.randint(0, int(0.01 * max_size))
+        max_size -= size
+        with open(name, 'wb') as dst:
+            while size > 0:
+                idx = random.randrange(len(poolnames))
+                srcname = os.path.join(pooldir, poolnames[idx])
+                if not os.path.isfile(srcname):
+                    continue
+                with open(srcname, 'rb') as src:
+                    buf = src.read(size)
+                    dst.write(buf)
+                size -= len(buf)
+        files.append(name)
+     
+    #
+    # Step 3: Special files
+    #
+    fifo_cnt = random.randint(int(entries/3), int(2*entries/3))
+    entries -= fifo_cnt
+    for _ in xrange(fifo_cnt):
+        name = random_name(dirs[random.randrange(len(dirs))])
+        os.mkfifo(name)
+        files.append(name)
+             
+    #   
+    # Step 4: populate tree with symlinks 
+    #
+    symlink_cnt = random.randint(int(entries/3), int(2*entries/3))
+    entries -= symlink_cnt
+    for _ in xrange(symlink_cnt):
+        relative = random.choice((True, False))
+        existing = random.choice((True, False))
+        idx = random.randrange(len(dirs))
+        dir_ = dirs[idx]
+        name = random_name(dir_)
+    
+        if existing:
+            directory = random.choice((True, False))
+            if directory:
+                target = dirs[random.randrange(len(dirs))]
+            else:
+                target = files[random.randrange(len(files))]
+        else:
+            target = random_name(dirs[random.randrange(len(dirs))])
+    
+        if relative:
+            target = os.path.relpath(target, dir_)
+        else:
+            target = os.path.abspath(target) 
+            
+        os.symlink(target, name)
+        
+    #
+    # Step 5: Create some hardlinks
+    #
+    hardlink_cnt = random.randint(int(entries/3), int(2*entries/3))
+    entries -= hardlink_cnt
+    for _ in xrange(hardlink_cnt):
+        samedir = random.choice((True, False))
+        
+        target = files[random.randrange(len(files))]
+        if samedir:
+            dir_ = os.path.dirname(target)
+        else:
+            dir_ = dirs[random.randrange(len(dirs))]
+        name = random_name(dir_)
+        os.link(target, name)
+        files.append(name)
+        
 
 # Allow calling from command line
 if __name__ == "__main__":

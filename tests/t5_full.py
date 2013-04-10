@@ -9,10 +9,9 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 
 import errno
-import os.path
 import subprocess
 import t4_fuse
-import tarfile
+from t4_fuse import populate_dir
 import tempfile
 import unittest2 as unittest
 import shutil
@@ -29,11 +28,10 @@ class FullTests(t4_fuse.fuse_tests):
                 raise unittest.SkipTest('rsync not installed')
             raise
 
-        data_file = os.path.join(os.path.dirname(__file__), 'data.tar.bz2')
         ref_dir = tempfile.mkdtemp()
         try:
-            tarfile.open(data_file).extractall(ref_dir)
-
+            populate_dir(ref_dir)
+            
             # Copy source data
             self.mkfs()
             self.mount()
@@ -48,6 +46,7 @@ class FullTests(t4_fuse.fuse_tests):
             self.fsck()
             self.mount()
             rsync = subprocess.Popen(['rsync', '-anciHAX', '--delete',
+                                      '--exclude', '/lost+found',
                                       ref_dir + '/', self.mnt_dir + '/'],
                                      stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT)

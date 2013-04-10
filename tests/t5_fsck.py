@@ -15,7 +15,7 @@ import os.path
 import shutil
 import subprocess
 import t4_fuse
-import tarfile
+from t4_fuse import populate_dir
 import tempfile
 import unittest2 as unittest
 
@@ -31,10 +31,9 @@ class FsckTests(t4_fuse.fuse_tests):
                 raise unittest.SkipTest('rsync not installed')
             raise
 
-        data_file = os.path.join(os.path.dirname(__file__), 'data.tar.bz2')
         ref_dir = tempfile.mkdtemp()
         try:
-            tarfile.open(data_file).extractall(ref_dir)
+            populate_dir(ref_dir)
 
             # Make file system and fake high inode number
             self.mkfs()
@@ -67,6 +66,7 @@ class FsckTests(t4_fuse.fuse_tests):
             # Compare
             self.mount()
             rsync = subprocess.Popen(['rsync', '-anciHAX', '--delete',
+                                      '--exclude', '/lost+found',
                                       ref_dir + '/', self.mnt_dir + '/'],
                                      stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT)
