@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 '''
 sphinx_pipe.py - this file is part of S3QL (http://s3ql.googlecode.com)
 

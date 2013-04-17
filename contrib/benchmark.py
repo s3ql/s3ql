@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 '''
 benchmark.py - this file is part of S3QL (http://s3ql.googlecode.com)
 

@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 '''
 cmdline_lexer.py - this file is part of S3QL (http://s3ql.googlecode.com)
 

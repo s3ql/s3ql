@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 '''
 argparse.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
