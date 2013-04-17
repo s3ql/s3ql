@@ -14,7 +14,7 @@ Module Attributes:
                  
 '''
 
-from __future__ import division, print_function
+
 
 import logging
 import apsw
@@ -161,7 +161,7 @@ class Connection(object):
 
         res = self._execute(*a, **kw)
         try:
-            res.next()
+            next(res)
         except StopIteration:
             return False
         else:
@@ -192,11 +192,11 @@ class Connection(object):
 
         res = ResultSet(self._execute(*a, **kw))
         try:
-            row = res.next()
+            row = next(res)
         except StopIteration:
             raise NoSuchRowError()
         try:
-            res.next()
+            next(res)
         except StopIteration:
             # Fine, we only wanted one row
             pass
@@ -245,9 +245,9 @@ class ResultSet(object):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         return [ (col if not isinstance(col, buffer) else bytes(col))
-                  for col in self.cur.next() ]
+                  for col in next(self.cur) ]
 
     def close(self):
         '''Finish query transaction'''

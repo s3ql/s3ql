@@ -6,15 +6,15 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 from .backends.common import NoSuchObject, ChecksumError
 from .common import (get_path, CTRL_NAME, CTRL_INODE, LoggerFilter)
 from .database import NoSuchRowError
 from .inode_cache import OutOfInodesError
 from . import deltadump
-from cStringIO import StringIO
+from io import StringIO
 from llfuse import FUSEError
-import cPickle as pickle
+import pickle as pickle
 import collections
 import errno
 import llfuse
@@ -109,7 +109,7 @@ class Operations(llfuse.Operations):
         self.open_inodes[llfuse.ROOT_INODE] += 1
 
     def destroy(self):
-        self.forget(self.open_inodes.items())
+        self.forget(list(self.open_inodes.items()))
         self.inodes.destroy()
 
     def lookup(self, id_p, name):
@@ -136,7 +136,7 @@ class Operations(llfuse.Operations):
                 id_ = self.db.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
                                       (name, id_p))
             except NoSuchRowError:
-                raise(llfuse.FUSEError(errno.ENOENT))
+                raise llfuse
             inode = self.inodes[id_]
 
         self.open_inodes[inode.id] += 1

@@ -6,7 +6,7 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 from . import CURRENT_FS_REV
 from .backends.common import NoSuchObject, get_backend, DanglingStorageURLError
 from .common import (ROOT_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE, get_backend_cachedir, 
@@ -16,7 +16,7 @@ from .metadata import restore_metadata, cycle_metadata, dump_metadata, create_ta
 from .parse_args import ArgumentParser
 from os.path import basename
 import apsw
-import cPickle as pickle
+import pickle as pickle
 import logging
 import os
 import re
@@ -1156,7 +1156,7 @@ def main(args=None):
         try:
             # get_list may raise CorruptError itself
             res = db.get_list('PRAGMA integrity_check(20)')
-            if res[0][0] != u'ok':
+            if res[0][0] != 'ok':
                 log.error('\n'.join(x[0] for x in res))
                 raise apsw.CorruptError()
         except apsw.CorruptError:

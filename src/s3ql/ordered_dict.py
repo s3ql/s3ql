@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function
+
 
 import collections
 
@@ -85,14 +85,14 @@ class OrderedDict(collections.MutableMapping):
         if key in self.data:
             self.data[key].value = value
         else:
-            el = OrderedDictElement(key, value, next_=self.head.next, prev=self.head)
+            el = OrderedDictElement(key, value, next_=self.head.__next__, prev=self.head)
             self.head.next.prev = el
             self.head.next = el
             self.data[key] = el
 
     def __delitem__(self, key):
         el = self.data.pop(key)  # exception can be passed on
-        el.prev.next = el.next
+        el.prev.next = el.__next__
         el.next.prev = el.prev
 
     def __getitem__(self, key):
@@ -102,10 +102,10 @@ class OrderedDict(collections.MutableMapping):
         return len(self.data)
 
     def __iter__(self):
-        cur = self.head.next
+        cur = self.head.__next__
         while cur is not self.tail:
             yield cur.key
-            cur = cur.next
+            cur = cur.__next__
 
     def __reversed__(self):
         cur = self.tail.prev
@@ -128,11 +128,11 @@ class OrderedDict(collections.MutableMapping):
         """
         el = self.data[key]
         # Splice out
-        el.prev.next = el.next
+        el.prev.next = el.__next__
         el.next.prev = el.prev
 
         # Insert back at front
-        el.next = self.head.next
+        el.next = self.head.__next__
         el.prev = self.head
 
         self.head.next.prev = el
@@ -143,7 +143,7 @@ class OrderedDict(collections.MutableMapping):
         """
         el = self.data[key]
         # Splice out
-        el.prev.next = el.next
+        el.prev.next = el.__next__
         el.next.prev = el.prev
 
         # Insert back at end
@@ -178,11 +178,11 @@ class OrderedDict(collections.MutableMapping):
     def pop_first(self):
         """Fetch and remove first element"""
 
-        el = self.head.next
+        el = self.head.__next__
         if el is self.tail:
             raise IndexError
         del self.data[el.key]
-        self.head.next = el.next
+        self.head.next = el.__next__
         el.next.prev = self.head
 
         return el.value
@@ -190,7 +190,7 @@ class OrderedDict(collections.MutableMapping):
     def get_first(self):
         """Fetch first element"""
 
-        if self.head.next is self.tail:
+        if self.head.__next__ is self.tail:
             raise IndexError()
 
         return self.head.next.value

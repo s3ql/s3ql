@@ -6,10 +6,10 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import absolute_import, division, print_function
+
 from os.path import basename
 from s3ql.common import CTRL_NAME
-import cPickle as pickle
+import pickle as pickle
 import filecmp
 import llfuse
 import logging
@@ -477,7 +477,7 @@ def populate_dir(path, entries=4096, max_size=10*1024*1024,
             if len_ > 0:
                 pos = random.choice((-1,0,1)) # Prefix, Middle, Suffix
                 s = ''.join(special_chars[random.randrange(len(special_chars))]
-                            for _ in xrange(len_))
+                            for _ in range(len_))
                 if pos == -1:
                     name = s + name
                 elif pos == 1:
@@ -497,7 +497,7 @@ def populate_dir(path, entries=4096, max_size=10*1024*1024,
     subdir_cnt = random.randint(0, int(0.1 * entries))
     entries -= subdir_cnt
     dirs = [ path ]
-    for _ in xrange(subdir_cnt):
+    for _ in range(subdir_cnt):
         idx = random.randrange(len(dirs))
         name = random_name(dirs[idx])
         os.mkdir(name)
@@ -510,7 +510,7 @@ def populate_dir(path, entries=4096, max_size=10*1024*1024,
     file_cnt = random.randint(int(entries/3), int(3*entries/4))
     entries -= file_cnt
     files = []
-    for _ in xrange(file_cnt):
+    for _ in range(file_cnt):
         idx = random.randrange(len(dirs))
         name = random_name(dirs[idx])
         size = random.randint(0, int(0.01 * max_size))
@@ -532,7 +532,7 @@ def populate_dir(path, entries=4096, max_size=10*1024*1024,
     #
     fifo_cnt = random.randint(int(entries/3), int(2*entries/3))
     entries -= fifo_cnt
-    for _ in xrange(fifo_cnt):
+    for _ in range(fifo_cnt):
         name = random_name(dirs[random.randrange(len(dirs))])
         os.mkfifo(name)
         files.append(name)
@@ -542,7 +542,7 @@ def populate_dir(path, entries=4096, max_size=10*1024*1024,
     #
     symlink_cnt = random.randint(int(entries/3), int(2*entries/3))
     entries -= symlink_cnt
-    for _ in xrange(symlink_cnt):
+    for _ in range(symlink_cnt):
         relative = random.choice((True, False))
         existing = random.choice((True, False))
         idx = random.randrange(len(dirs))
@@ -570,7 +570,7 @@ def populate_dir(path, entries=4096, max_size=10*1024*1024,
     #
     hardlink_cnt = random.randint(int(entries/3), int(2*entries/3))
     entries -= hardlink_cnt
-    for _ in xrange(hardlink_cnt):
+    for _ in range(hardlink_cnt):
         samedir = random.choice((True, False))
         
         target = files[random.randrange(len(files))]

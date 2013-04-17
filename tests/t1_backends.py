@@ -6,12 +6,12 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 
 from s3ql.backends import local, s3, gs, s3c, swift
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBackend)
-import ConfigParser
+import configparser
 import os
 import stat
 import tempfile
@@ -167,14 +167,14 @@ class S3Tests(BackendTestsMixin, unittest.TestCase):
         if mode & (stat.S_IRGRP | stat.S_IROTH):
             self.skipTest("Authentication file has insecure permissions")
 
-        config = ConfigParser.SafeConfigParser()
+        config = configparser.SafeConfigParser()
         config.read(authfile)
 
         try:
             fs_name = config.get(name, 'test-fs')
             backend_login = config.get(name, 'backend-login')
             backend_password = config.get(name, 'backend-password')
-        except (ConfigParser.NoOptionError, ConfigParser.NoSectionError):
+        except (configparser.NoOptionError, configparser.NoSectionError):
             self.skipTest("Authentication file does not have test section")
 
         return (fs_name, backend_login, backend_password)

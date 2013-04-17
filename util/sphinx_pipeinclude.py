@@ -41,7 +41,7 @@ class PipeInclude(Include):
                 error_handler=(self.state.document.settings.\
                                input_encoding_error_handler),
                 handle_io_errors=None)
-        except IOError, error:
+        except IOError as error:
             raise self.severe('Problems with "%s" directive path:\n%s: %s.' %
                         (self.name, error.__class__.__name__, str(error)))
             # Hack: Since Python 2.6, the string interpolation returns a
@@ -58,7 +58,7 @@ class PipeInclude(Include):
                 include_text = ''.join(include_lines[startline:endline])
             else:
                 include_text = include_file.read()
-        except UnicodeError, error:
+        except UnicodeError as error:
             raise self.severe(
                 'Problem with "%s" directive:\n%s: %s'
                 % (self.name, error.__class__.__name__, error))

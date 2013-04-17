@@ -6,7 +6,7 @@ Copyright (c) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 
 import unittest2 as unittest
 from s3ql import deltadump
@@ -151,7 +151,7 @@ class DumpTests(unittest.TestCase):
         i2 = db2.query('SELECT id, buf FROM test ORDER BY id')
 
         for (id1, buf1) in i1:
-            (id2, buf2) = i2.next()
+            (id2, buf2) = next(i2)
 
             self.assertEqual(id1, id2)
             if isinstance(buf1, float):
@@ -159,7 +159,7 @@ class DumpTests(unittest.TestCase):
             else:
                 self.assertEqual(buf1, buf2)
 
-        self.assertRaises(StopIteration, i2.next)
+        self.assertRaises(StopIteration, i2.__next__)
 
     def fill_buf(self, db, len_=None):
         rfh = open('/dev/urandom', 'rb')
@@ -179,8 +179,8 @@ class DumpTests(unittest.TestCase):
     def fill_vals(self, db):
         vals = []
         for exp in [7, 8, 9, 15, 16, 17, 31, 32, 33, 62]:
-            vals += range(2 ** exp - 5, 2 ** exp + 6)
-        vals += range(2 ** 63 - 5, 2 ** 63)
+            vals += list(range(2 ** exp - 5, 2 ** exp + 6))
+        vals += list(range(2 ** 63 - 5, 2 ** 63))
         vals += [ -v for v  in vals ]
         vals.append(-(2 ** 63))
 
@@ -190,7 +190,7 @@ class DumpTests(unittest.TestCase):
     def fill_deltas(self, db):
         deltas = []
         for exp in [7, 8, 9, 15, 16, 17, 31, 32, 33]:
-            deltas += range(2 ** exp - 5, 2 ** exp + 6)
+            deltas += list(range(2 ** exp - 5, 2 ** exp + 6))
         deltas += [ -v for v  in deltas ]
 
         last = 0

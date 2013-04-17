@@ -11,7 +11,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 #@PydevCodeAnalysisIgnore
 
-from __future__ import division, print_function, absolute_import
+
 
 import apsw
 from . import _deltadump

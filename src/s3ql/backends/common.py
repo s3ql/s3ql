@@ -6,23 +6,23 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 from ..common import QuietError, BUFSIZE
 from abc import ABCMeta, abstractmethod
 from base64 import b64decode, b64encode
-from cStringIO import StringIO
+from io import StringIO
 from contextlib import contextmanager
 from functools import wraps
 from getpass import getpass
 from pycryptopp.cipher import aes
 from s3ql.common import ChecksumError
-import ConfigParser
+import configparser
 import bz2
-import cPickle as pickle
+import pickle as pickle
 import errno
 import hashlib
 import hmac
-import httplib
+import http.client
 import logging
 import lzma
 import math
@@ -94,11 +94,11 @@ True.
 def is_temp_network_error(exc):
     '''Return true if *exc* represents a potentially temporary network problem'''
 
-    if isinstance(exc, (httplib.IncompleteRead, socket.timeout)):
+    if isinstance(exc, (http.client.IncompleteRead, socket.timeout)):
         return True
      
     # Server closed connection
-    elif (isinstance(exc, httplib.BadStatusLine)
+    elif (isinstance(exc, http.client.BadStatusLine)
           and (not exc.line or exc.line == "''")):
         return True
 
@@ -144,16 +144,16 @@ def http_connection(hostname, port, ssl=False):
         log.info('Using proxy %s:%d', proxy_host, proxy_port)
         
         if ssl:
-            conn = httplib.HTTPSConnection(proxy_host, proxy_port)
+            conn = http.client.HTTPSConnection(proxy_host, proxy_port)
         else:
-            conn = httplib.HTTPConnection(proxy_host, proxy_port)
+            conn = http.client.HTTPConnection(proxy_host, proxy_port)
         conn.set_tunnel(hostname, port)
         return conn
     
     elif ssl:
-        return httplib.HTTPSConnection(hostname, port)
+        return http.client.HTTPSConnection(hostname, port)
     else:
-        return httplib.HTTPConnection(hostname, port)
+        return http.client.HTTPConnection(hostname, port)
     
 def sha256(s):
     return hashlib.sha256(s).digest()
@@ -203,7 +203,7 @@ class BackendPool(object):
             self.push_conn(conn)
 
 
-class AbstractBackend(object):
+class AbstractBackend(object, metaclass=ABCMeta):
     '''Functionality shared between all backends.
     
     Instances behave similarly to dicts. They can be iterated over and
@@ -213,7 +213,6 @@ class AbstractBackend(object):
     object will be immediately retrievable. Additional consistency guarantees
     may or may not be available and can be queried for with instance methods.
     '''
-    __metaclass__ = ABCMeta
 
     needs_login = True
 
@@ -622,10 +621,8 @@ class BetterBackend(AbstractBackend):
         return self.backend.rename(src, dest)
 
 
-class AbstractInputFilter(object):
+class AbstractInputFilter(object, metaclass=ABCMeta):
     '''Process data while reading'''
-
-    __metaclass__ = ABCMeta
 
     def __init__(self):
         super(AbstractInputFilter, self).__init__()
@@ -776,7 +773,7 @@ class EncryptFilter(object):
         self.obj_size = 0
         self.closed = False
 
-        if isinstance(nonce, unicode):
+        if isinstance(nonce, str):
             nonce = nonce.encode('utf-8')
 
         self.key = sha256(passphrase + nonce)
@@ -992,7 +989,7 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
 def encrypt(buf, passphrase, nonce):
     '''Encrypt *buf*'''
 
-    if isinstance(nonce, unicode):
+    if isinstance(nonce, str):
         nonce = nonce.encode('utf-8')
 
     key = sha256(passphrase + nonce)
@@ -1152,7 +1149,7 @@ def get_backend_factory(options, plain=False):
     backend_class = getattr(sys.modules[backend_name], 'Backend')
 
     # Read authfile
-    config = ConfigParser.SafeConfigParser()
+    config = configparser.SafeConfigParser()
     if os.path.isfile(options.authfile):
         mode = os.stat(options.authfile).st_mode
         if mode & (stat.S_IRGRP | stat.S_IROTH):
@@ -1166,7 +1163,7 @@ def get_backend_factory(options, plain=False):
         def getopt(name):
             try:
                 return config.get(section, name)
-            except ConfigParser.NoOptionError:
+            except configparser.NoOptionError:
                 return None
 
         pattern = getopt('storage-url')

@@ -6,7 +6,7 @@ Copyright (C) 2008-2010 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 
 from contextlib import contextmanager
 from s3ql.backends import local
@@ -366,7 +366,7 @@ def commit(cache, inode, block=None):
     uploads have been completed.
     """
 
-    for el in cache.entries.itervalues():
+    for el in cache.entries.values():
         if el.inode != inode:
             continue
         if not el.dirty:

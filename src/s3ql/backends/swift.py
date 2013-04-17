@@ -6,20 +6,20 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 from ..common import QuietError, BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, 
     DanglingStorageURLError)
 from .s3c import HTTPError, BadDigestError
 from s3ql.backends.common import is_temp_network_error
-from urlparse import urlsplit
+from urllib.parse import urlsplit
 import hashlib
 import json
 import logging
 import re
 import tempfile
 import time
-import urllib
+import urllib.request, urllib.parse, urllib.error
 
 log = logging.getLogger("backend.swift")
 
@@ -97,7 +97,7 @@ class Backend(AbstractBackend):
         problems and so that the request can be manually restarted if applicable.
         '''
 
-        if isinstance(exc, (AuthenticationExpired,)):
+        if isinstance(exc, AuthenticationExpired):
             return True
 
         elif isinstance(exc, HTTPError) and exc.status >= 500 and exc.status <= 599:
@@ -137,7 +137,7 @@ class Backend(AbstractBackend):
             #pylint: disable=E1103                
             self.auth_token = resp.getheader('X-Auth-Token')
             o = urlsplit(resp.getheader('X-Storage-Url'))
-            self.auth_prefix = urllib.unquote(o.path)
+            self.auth_prefix = urllib.parse.unquote(o.path)
             conn.close()
 
             return http_connection(o.hostname, o.port, ssl=True)
@@ -165,9 +165,9 @@ class Backend(AbstractBackend):
             self.conn =  self._get_conn()
                         
         # Construct full path
-        path = urllib.quote('%s/%s%s' % (self.auth_prefix, self.container_name, path))
+        path = urllib.parse.quote('%s/%s%s' % (self.auth_prefix, self.container_name, path))
         if query_string:
-            s = urllib.urlencode(query_string, doseq=True)
+            s = urllib.parse.urlencode(query_string, doseq=True)
             if subres:
                 path += '?%s&%s' % (subres, s)
             else:
@@ -284,7 +284,7 @@ class Backend(AbstractBackend):
 
         headers = dict()
         if metadata:
-            for (hdr, val) in metadata.iteritems():
+            for (hdr, val) in metadata.items():
                 headers['X-Object-Meta-%s' % hdr] = val
 
         return ObjectW(key, self, headers)
@@ -357,7 +357,7 @@ class Backend(AbstractBackend):
         iterator = self._list(prefix, marker)
         while True:
             try:
-                marker = iterator.next()
+                marker = next(iterator)
                 waited = 0
             except StopIteration:
                 break

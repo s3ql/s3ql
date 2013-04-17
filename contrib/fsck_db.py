@@ -7,7 +7,7 @@ Copyright (C)  Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 from argparse import ArgumentTypeError
 import logging
 import os

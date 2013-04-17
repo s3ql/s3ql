@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 from cgitb import scanvars, __UNDEF__
 from llfuse import ROOT_INODE
 import bz2
@@ -192,7 +192,7 @@ def format_tb(einfo):
     """Return a plain text document describing a given traceback."""
 
     etype, evalue, etb = einfo
-    if type(etype) is types.ClassType:
+    if type(etype) is type:
         etype = etype.__name__
 
     frames = [ 'Traceback (most recent call last):' ]

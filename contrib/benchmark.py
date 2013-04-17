@@ -11,7 +11,7 @@ Copyright (C) 2010 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 import argparse
 import atexit
 import logging

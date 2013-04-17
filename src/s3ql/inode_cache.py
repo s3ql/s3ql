@@ -6,7 +6,7 @@ Copyright (C) 2008-2010 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 
 import logging
 from .database import NoSuchRowError
@@ -128,7 +128,7 @@ class InodeCache(object):
 
         # Fill the cache with dummy data, so that we don't have to
         # check if the cache is full or not (it will always be full)        
-        for _ in xrange(CACHE_SIZE):
+        for _ in range(CACHE_SIZE):
             self.cached_rows.append(None)
 
         self.pos = 0
@@ -208,7 +208,7 @@ class InodeCache(object):
     def destroy(self):
         '''Finalize cache'''
 
-        for i in xrange(len(self.cached_rows)):
+        for i in range(len(self.cached_rows)):
             id_ = self.cached_rows[i]
             self.cached_rows[i] = None
             if id_ is not None:
@@ -229,7 +229,7 @@ class InodeCache(object):
 
         # We don't want to use dict.itervalues() since
         # the dict may change while we iterate
-        for i in xrange(len(self.cached_rows)):
+        for i in range(len(self.cached_rows)):
             id_ = self.cached_rows[i]
             if id_ is not None:
                 try:

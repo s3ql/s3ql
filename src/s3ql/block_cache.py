@@ -6,11 +6,11 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 from .common import sha256_fh, BUFSIZE, QuietError
 from .database import NoSuchRowError
 from .ordered_dict import OrderedDict
-from Queue import Queue
+from queue import Queue
 from contextlib import contextmanager
 from llfuse import lock, lock_released
 import logging
@@ -746,7 +746,7 @@ class BlockCache(object):
         This method releases the global lock.
         """
 
-        for el in self.entries.itervalues():
+        for el in self.entries.values():
             if not (el.dirty and (el.inode, el.blockno) not in self.in_transit):
                 continue
 

@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import 
+ 
 
 from llfuse import FUSEError
 from random import randint
@@ -158,11 +158,11 @@ class fs_api_tests(unittest.TestCase):
 
     @staticmethod
     def dir_mode():
-        return (randint(0, 07777) & ~stat.S_IFDIR) | stat.S_IFDIR
+        return (randint(0, 0o7777) & ~stat.S_IFDIR) | stat.S_IFDIR
 
     @staticmethod
     def file_mode():
-        return (randint(0, 07777) & ~stat.S_IFREG) | stat.S_IFREG
+        return (randint(0, 0o7777) & ~stat.S_IFREG) | stat.S_IFREG
 
     def test_getxattr(self):
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
@@ -421,7 +421,7 @@ class fs_api_tests(unittest.TestCase):
         self.fsck()
 
     def test_setattr(self):
-        (fh, inode) = self.server.create(ROOT_INODE, self.newname(), 0641,
+        (fh, inode) = self.server.create(ROOT_INODE, self.newname(), 0o641,
                                          os.O_RDWR, Ctx())
         self.server.release(fh)
         inode_old = self.server.getattr(inode.id).copy()
@@ -749,7 +749,7 @@ class fs_api_tests(unittest.TestCase):
         # Check subdir1
         self.assertNotEqual(d1_inode.id, d1_inode_c.id)
         self.assertNotEqual(d2_inode.id, d2_inode_c.id)
-        self.server.forget(self.server.open_inodes.items())
+        self.server.forget(list(self.server.open_inodes.items()))
         self.fsck()
 
     def test_copy_tree_2(self):
@@ -843,7 +843,7 @@ class fs_api_tests(unittest.TestCase):
         with self.assertRaises(FUSEError) as cm:
             self.server.removexattr(inode2.id, 'name')
         self.assertEqual(cm.exception.errno, errno.EPERM)
-        self.server.forget(self.server.open_inodes.items())
+        self.server.forget(list(self.server.open_inodes.items()))
         self.fsck()
 
     def test_remove_tree(self):
@@ -864,7 +864,7 @@ class fs_api_tests(unittest.TestCase):
         self.server.release(fh)
 
         # Remove
-        self.server.forget(self.server.open_inodes.items())
+        self.server.forget(list(self.server.open_inodes.items()))
         self.server.remove_tree(ROOT_INODE, 'source')
 
         for (id_p, name) in ((ROOT_INODE, 'source'),

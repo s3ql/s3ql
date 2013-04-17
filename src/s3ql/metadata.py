@@ -6,7 +6,7 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 
 from .deltadump import (INTEGER, BLOB, TIME, dump_table, load_table)
 import logging
@@ -78,7 +78,7 @@ def cycle_metadata(backend):
     from .backends.common import NoSuchObject
 
     log.info('Backing up old metadata...')
-    for i in reversed(range(10)):
+    for i in reversed(list(range(10))):
         try:
             backend.copy("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
         except NoSuchObject:

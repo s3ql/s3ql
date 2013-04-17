@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 
 import unittest2 as unittest
 from s3ql.ordered_dict import OrderedDict
@@ -117,21 +117,21 @@ class OrderedDictTests(unittest.TestCase):
         keys_i = iter(keys)
         while True:
             try:
-                key = keys_i.next()
+                key = next(keys_i)
             except StopIteration:
                 break
-            self.assertEquals(od_i.next(), key)
-        self.assertRaises(StopIteration, od_i.next)
+            self.assertEquals(next(od_i), key)
+        self.assertRaises(StopIteration, od_i.__next__)
 
         od_i = reversed(od)
         keys_i = reversed(keys)
         while True:
             try:
-                key = keys_i.next()
+                key = next(keys_i)
             except StopIteration:
                 break
-            self.assertEquals(od_i.next(), key)
-        self.assertRaises(StopIteration, od_i.next)
+            self.assertEquals(next(od_i), key)
+        self.assertRaises(StopIteration, od_i.__next__)
 
 
 def suite():

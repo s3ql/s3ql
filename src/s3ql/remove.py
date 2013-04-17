@@ -6,10 +6,10 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 from .common import setup_logging, CTRL_NAME, QuietError
 from .parse_args import ArgumentParser
-import cPickle as pickle
+import pickle as pickle
 import llfuse
 import logging
 import os

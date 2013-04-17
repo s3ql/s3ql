@@ -15,8 +15,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 #                 Connection('data.sqlite'))
 
 
-from __future__ import division, print_function, absolute_import
-import cPickle as pickle
+
+import pickle as pickle
 import logging
 import os
 import shutil

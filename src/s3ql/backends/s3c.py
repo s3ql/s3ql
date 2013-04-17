@@ -6,23 +6,23 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 from ..common import BUFSIZE, QuietError
 from .common import AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, \
     AuthenticationError
 from .common import DanglingStorageURLError
 from base64 import b64encode
 from email.utils import parsedate_tz, mktime_tz
-from urlparse import urlsplit
+from urllib.parse import urlsplit
 import hashlib
 import hmac
-import httplib
+import http.client
 import logging
 import sys
 import re
 import tempfile
 import time
-import urllib
+import urllib.request, urllib.parse, urllib.error
 import xml.etree.cElementTree as ElementTree
 from s3ql.backends.common import is_temp_network_error
 
@@ -145,7 +145,7 @@ class Backend(AbstractBackend):
         iterator = self._list(prefix, marker)
         while True:
             try:
-                marker = iterator.next()
+                marker = next(iterator)
                 waited = 0
             except StopIteration:
                 break
@@ -194,7 +194,7 @@ class Backend(AbstractBackend):
                 raise RuntimeError('unexpected content type: %s' % resp.getheader('Content-Type'))
 
             itree = iter(ElementTree.iterparse(resp, events=("start", "end")))
-            (event, root) = itree.next()
+            (event, root) = next(itree)
 
             namespace = re.sub(r'^\{(.+)\}.+$', r'\1', root.tag)
             if namespace != self.namespace:
@@ -297,7 +297,7 @@ class Backend(AbstractBackend):
 
         headers = dict()
         if metadata:
-            for (hdr, val) in metadata.iteritems():
+            for (hdr, val) in metadata.items():
                 headers['x-amz-meta-%s' % hdr] = val
 
         return ObjectW(key, self, headers)
@@ -360,9 +360,9 @@ class Backend(AbstractBackend):
             #pylint: disable=E1103
             o = urlsplit(new_url)
             if o.scheme:
-                if isinstance(self.conn, httplib.HTTPConnection) and o.scheme != 'http':
+                if isinstance(self.conn, http.client.HTTPConnection) and o.scheme != 'http':
                     raise RuntimeError('Redirect to non-http URL')
-                elif isinstance(self.conn, httplib.HTTPSConnection) and o.scheme != 'https':
+                elif isinstance(self.conn, http.client.HTTPSConnection) and o.scheme != 'https':
                     raise RuntimeError('Redirect to non-https URL')
             if o.hostname != self.hostname or o.port != self.port:
                 self.hostname = o.hostname
@@ -430,7 +430,7 @@ class Backend(AbstractBackend):
         # See http://docs.amazonwebservices.com/AmazonS3/latest/dev/RESTAuthentication.html
 
         # Lowercase headers
-        keys = list(headers.iterkeys())
+        keys = list(headers.keys())
         for key in keys:
             key_l = key.lower()
             if key_l == key:
@@ -460,7 +460,7 @@ class Backend(AbstractBackend):
 
 
         # Always include bucket name in path for signing
-        sign_path = urllib.quote('/%s%s' % (self.bucket_name, path))
+        sign_path = urllib.parse.quote('/%s%s' % (self.bucket_name, path))
         auth_strs.append(sign_path)
         if subres:
             auth_strs.append('?%s' % subres)
@@ -474,9 +474,9 @@ class Backend(AbstractBackend):
         # Construct full path
         if not self.hostname.startswith(self.bucket_name):
             path = '/%s%s' % (self.bucket_name, path)
-        path = urllib.quote(path)
+        path = urllib.parse.quote(path)
         if query_string:
-            s = urllib.urlencode(query_string, doseq=True)
+            s = urllib.parse.urlencode(query_string, doseq=True)
             if subres:
                 path += '?%s&%s' % (subres, s)
             else:

@@ -6,16 +6,16 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 
 from .common import AbstractBackend, DanglingStorageURLError, NoSuchObject, ChecksumError
 from ..common import BUFSIZE
 import shutil
 import logging
-import cPickle as pickle
+import pickle as pickle
 import os
 import errno
-import thread
+import _thread
 
 log = logging.getLogger("backend.local")
 
@@ -121,7 +121,7 @@ class Backend(AbstractBackend):
 
         # By renaming, we make sure that there are no
         # conflicts between parallel reads, the last one wins
-        tmpname = '%s#%d-%d' % (path, os.getpid(), thread.get_ident())
+        tmpname = '%s#%d-%d' % (path, os.getpid(), _thread.get_ident())
 
         try:
             dest = ObjectW(tmpname)

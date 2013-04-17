@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 from . import fs, CURRENT_FS_REV
 from .backends.common import get_backend_factory, BackendPool, DanglingStorageURLError
 from .block_cache import BlockCache
@@ -19,7 +19,7 @@ from .metadata import cycle_metadata, dump_metadata, restore_metadata
 from .parse_args import ArgumentParser
 from threading import Thread
 import argparse
-import cPickle as pickle
+import pickle as pickle
 import llfuse
 import logging
 import os
@@ -27,7 +27,7 @@ import signal
 import stat
 import sys
 import tempfile
-import thread
+import _thread
 import threading
 import time
 
@@ -144,7 +144,7 @@ def main(args=None):
         if exc_info:
             (tmp0, tmp1, tmp2) = exc_info
             exc_info[:] = []
-            raise tmp0, tmp1, tmp2
+            raise tmp0(tmp1).with_traceback(tmp2)
 
         log.info("FUSE main loop terminated.")
 
@@ -199,7 +199,7 @@ def main(args=None):
     # Re-raise if there's been an exception during cleanup
     # (either in main thread or other thread)
     if exc_info:
-        raise exc_info[0], exc_info[1], exc_info[2]
+        raise exc_info[0](exc_info[1]).with_traceback(exc_info[2])
 
     # At this point, there should be no other threads left
 
@@ -236,7 +236,7 @@ def main(args=None):
             log.error('The locally cached metadata will be *lost* the next time the file system '
                       'is mounted or checked and has therefore been backed up.')
             for name in (cachepath + '.params', cachepath + '.db'):
-                for i in reversed(range(4)):
+                for i in reversed(list(range(4))):
                     if os.path.exists(name + '.%d' % i):
                         os.rename(name + '.%d' % i, name + '.%d' % (i + 1))
                 os.rename(name, name + '.0')
@@ -575,12 +575,12 @@ def setup_exchook():
     by this function.
     '''
 
-    this_thread = thread.get_ident()
+    this_thread = _thread.get_ident()
     old_exchook = sys.excepthook
     exc_info = []
 
     def exchook(type_, val, tb):
-        if (thread.get_ident() != this_thread
+        if (_thread.get_ident() != this_thread
             and not exc_info):
             os.kill(os.getpid(), signal.SIGTERM)
             exc_info.append(type_)
@@ -591,7 +591,7 @@ def setup_exchook():
 
         # If the main thread re-raised exception, there is no need to call
         # excepthook again
-        elif not (thread.get_ident() == this_thread
+        elif not (_thread.get_ident() == this_thread
                   and exc_info == [type_, val, tb]):
             old_exchook(type_, val, tb)
 

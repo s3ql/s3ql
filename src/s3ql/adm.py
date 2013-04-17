@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from __future__ import division, print_function, absolute_import
+
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.common import BetterBackend, get_backend, DanglingStorageURLError
 from .common import (QuietError, setup_logging, get_backend_cachedir, get_seq_no, 
@@ -16,7 +16,7 @@ from .metadata import restore_metadata, cycle_metadata, dump_metadata
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
 from getpass import getpass
-import cPickle as pickle
+import pickle as pickle
 import logging
 import os
 import shutil
@@ -135,7 +135,7 @@ def download_metadata(backend, storage_url):
 
     name = None
     while name is None:
-        buf = raw_input('Enter no to download: ')
+        buf = input('Enter no to download: ')
         try:
             name = backups[int(buf.strip())]
         except:
