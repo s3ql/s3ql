@@ -6,8 +6,6 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-
 from s3ql.common import get_backend_cachedir
 from s3ql.database import Connection
 import errno
@@ -17,7 +15,7 @@ import subprocess
 import t4_fuse
 from t4_fuse import populate_dir
 import tempfile
-import unittest2 as unittest
+import unittest
 
 class FsckTests(t4_fuse.fuse_tests):
 

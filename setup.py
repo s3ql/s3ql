@@ -167,7 +167,7 @@ def main():
                          ]
                           },
           install_requires=required_pkgs,
-          tests_require=required_pkgs + [ 'unittest2', 'pytest' ],
+          tests_require=required_pkgs + [ 'pytest' ],
           test_suite='tests',
           cmdclass={'test': test,
                     'upload_docs': upload_docs,

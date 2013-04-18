@@ -6,15 +6,13 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-
 import errno
 import os.path
 import subprocess
 import t4_fuse
 from t4_fuse import populate_dir
 import tempfile
-import unittest2 as unittest
+import unittest
 import shutil
 
 class cpTests(t4_fuse.fuse_tests):

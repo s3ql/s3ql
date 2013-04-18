@@ -6,8 +6,6 @@ Copyright (C) 2008-2010 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-
 from contextlib import contextmanager
 from s3ql.backends import local
 from s3ql.backends.common import BackendPool, AbstractBackend
@@ -22,7 +20,7 @@ import stat
 import tempfile
 import threading
 import time
-import unittest2 as unittest
+import unittest
 
 class cache_tests(unittest.TestCase):
 

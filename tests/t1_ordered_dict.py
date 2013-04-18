@@ -6,9 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-
-import unittest2 as unittest
+import unittest
 from s3ql.ordered_dict import OrderedDict
 
 class OrderedDictTests(unittest.TestCase):

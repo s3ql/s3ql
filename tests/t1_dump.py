@@ -6,9 +6,7 @@ Copyright (c) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-
-import unittest2 as unittest
+import unittest
 from s3ql import deltadump
 import tempfile
 from s3ql.database import Connection

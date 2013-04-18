@@ -6,13 +6,11 @@ Copyright (C) 2008-2010 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-
 from s3ql import inode_cache
 from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
-import unittest2 as unittest
+import unittest
 import time
 import tempfile
 import os

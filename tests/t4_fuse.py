@@ -6,7 +6,6 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
 from os.path import basename
 from s3ql.common import CTRL_NAME
 import pickle as pickle
@@ -23,7 +22,7 @@ import tempfile
 import threading
 import time
 import traceback
-import unittest2 as unittest
+import unittest
 
 
 log = logging.getLogger()

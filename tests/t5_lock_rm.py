@@ -6,8 +6,6 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-
 import errno
 import llfuse
 import os.path
@@ -15,7 +13,7 @@ import s3ql.lock
 import s3ql.remove
 import sys
 import t4_fuse
-import unittest2 as unittest
+import unittest
 
 class LockRemoveTests(t4_fuse.fuse_tests):
 

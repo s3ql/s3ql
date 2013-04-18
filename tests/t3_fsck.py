@@ -6,8 +6,6 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-
 from s3ql.backends import local
 from s3ql.common import ROOT_INODE
 from s3ql.mkfs import init_tables
@@ -19,7 +17,7 @@ import shutil
 import stat
 import tempfile
 import time
-import unittest2 as unittest
+import unittest
 
 
 class fsck_tests(unittest.TestCase):

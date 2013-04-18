@@ -6,14 +6,12 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-
 from s3ql.backends import local
 from s3ql.backends.common import BetterBackend
 import shutil
 import sys
 import tempfile
-import unittest2 as unittest
+import unittest
 import subprocess
 import os.path
 
