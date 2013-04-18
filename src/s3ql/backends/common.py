@@ -569,7 +569,7 @@ class BetterBackend(AbstractBackend):
             compr = bz2.BZ2Compressor(9)
             meta_raw['compression'] = 'BZIP2'
         elif self.compression == 'lzma':
-            compr = lzma.LZMACompressor(options={ 'level': 7 })
+            compr = lzma.LZMACompressor(preset=7)
             meta_raw['compression'] = 'LZMA'
 
         fh = self.backend.open_write(key, meta_raw)
@@ -736,8 +736,8 @@ class DecompressFilter(AbstractInputFilter):
                 if exc.args == ('invalid data stream',):
                     raise ChecksumError('Invalid compressed stream')
                 raise
-            except lzma.error as exc:
-                if exc.args == ('unknown file format',):
+            except lzma.LZMAError as exc:
+                if exc.args == ('Corrupt input data',):
                     raise ChecksumError('Invalid compressed stream')
                 raise
             except zlib.error as exc:
@@ -962,8 +962,8 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
                 if exc.args == ('invalid data stream',):
                     raise ChecksumError('Invalid compressed stream')
                 raise
-            except lzma.error as exc:
-                if exc.args == ('unknown file format',):
+            except lzma.LZMAError as exc:
+                if exc.args == ('Corrupt input data',):
                     raise ChecksumError('Invalid compressed stream')
                 raise
             except zlib.error as exc:

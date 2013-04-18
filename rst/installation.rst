@@ -54,12 +54,6 @@ that is not the case.
   https://launchpad.net/~ubuntu-rogerbinns/+archive/apsw (these
   packages are statically linked).
 
-* The `PyLibLZMA Python module
-  <http://pypi.python.org/pypi/pyliblzma>`_. To check if this module
-  is installed, execute `python -c 'import lzma; print
-  lzma.__version__'`. This should print a version number. You need at
-  least version 0.5.3.
-
 * The `Python LLFUSE module
   <http://code.google.com/p/python-llfuse/>`_. To check if this module
   is installed, execute `python -c 'import llfuse; print

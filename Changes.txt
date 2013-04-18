@@ -5,6 +5,8 @@ UNRELEASED, S3QL tip
   * S3QL no longer requires the unittest2 third-party Python
     module.
 
+  * S3QL no longer requires the lzma third-party Python module.
+
 2013-04-09, S3QL 1.14
 
   * Reduced CPU consumption when S3QL is idle.
