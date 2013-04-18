@@ -1,3 +1,4 @@
+#!python
 """Bootstrap distribute installation
 
 If you want to use setuptools in your package's setup.py, just include this
@@ -17,11 +18,14 @@ This file can also be run as a script to install or upgrade setuptools.
 #@PydevCodeAnalysisIgnore
 
 import os
+import shutil
 import sys
 import time
 import fnmatch
 import tempfile
 import tarfile
+import optparse
+
 from distutils import log
 
 try:
@@ -49,7 +53,7 @@ except ImportError:
             args = [quote(arg) for arg in args]
         return os.spawnl(os.P_WAIT, sys.executable, *args) == 0
 
-DEFAULT_VERSION = "0.6.12"
+DEFAULT_VERSION = "0.6.36"
 DEFAULT_URL = "http://pypi.python.org/packages/source/d/distribute/"
 SETUPTOOLS_FAKED_VERSION = "0.6c11"
 
@@ -66,7 +70,7 @@ Description: xxx
 """ % SETUPTOOLS_FAKED_VERSION
 
 
-def _install(tarball):
+def _install(tarball, install_args=()):
     # extracting the tarball
     tmpdir = tempfile.mkdtemp()
     log.warn('Extracting in %s', tmpdir)
@@ -84,11 +88,14 @@ def _install(tarball):
 
         # installing
         log.warn('Installing Distribute')
-        if not _python_cmd('setup.py', 'install'):
+        if not _python_cmd('setup.py', 'install', *install_args):
             log.warn('Something went wrong during the installation.')
             log.warn('See the error message above.')
+            # exitcode will be 2
+            return 2
     finally:
         os.chdir(old_wd)
+        shutil.rmtree(tmpdir)
 
 
 def _build_egg(egg, tarball, to_dir):
@@ -113,6 +120,7 @@ def _build_egg(egg, tarball, to_dir):
 
     finally:
         os.chdir(old_wd)
+        shutil.rmtree(tmpdir)
     # returning the result
     log.warn(egg)
     if not os.path.exists(egg):
@@ -170,6 +178,7 @@ def use_setuptools(version=DEFAULT_VERSION, download_base=DEFAULT_URL,
         if not no_fake:
             _create_fake_setuptools_pkg_info(to_dir)
 
+
 def download_setuptools(version=DEFAULT_VERSION, download_base=DEFAULT_URL,
                         to_dir=os.curdir, delay=15):
     """Download distribute from a specified location and return its filename
@@ -185,7 +194,7 @@ def download_setuptools(version=DEFAULT_VERSION, download_base=DEFAULT_URL,
     try:
         from urllib.request import urlopen
     except ImportError:
-        from urllib.request import urlopen
+        from urllib2 import urlopen
     tgz_name = "distribute-%s.tar.gz" % version
     url = download_base + tgz_name
     saveto = os.path.join(to_dir, tgz_name)
@@ -205,6 +214,7 @@ def download_setuptools(version=DEFAULT_VERSION, download_base=DEFAULT_URL,
             if dst:
                 dst.close()
     return os.path.realpath(saveto)
+
 
 def _no_sandbox(function):
     def __no_sandbox(*args, **kw):
@@ -230,10 +240,12 @@ def _no_sandbox(function):
 
     return __no_sandbox
 
-@_no_sandbox
+
 def _patch_file(path, content):
     """Will backup the file then patch it"""
-    existing_content = open(path).read()
+    f = open(path)
+    existing_content = f.read()
+    f.close()
     if existing_content == content:
         # already patched
         log.warn('Already patched.')
@@ -247,17 +259,23 @@ def _patch_file(path, content):
         f.close()
     return True
 
+_patch_file = _no_sandbox(_patch_file)
+
 
 def _same_content(path, content):
-    return open(path).read() == content
+    f = open(path)
+    existing_content = f.read()
+    f.close()
+    return existing_content == content
+
 
 def _rename_path(path):
     new_name = path + '.OLD.%s' % time.time()
-    log.warn('Renaming %s into %s', path, new_name)
+    log.warn('Renaming %s to %s', path, new_name)
     os.rename(path, new_name)
     return new_name
 
-@_no_sandbox
+
 def _remove_flat_installation(placeholder):
     if not os.path.isdir(placeholder):
         log.warn('Unkown installation at %s', placeholder)
@@ -271,7 +289,7 @@ def _remove_flat_installation(placeholder):
         log.warn('Could not locate setuptools*.egg-info')
         return
 
-    log.warn('Removing elements out of the way...')
+    log.warn('Moving elements out of the way...')
     pkg_info = os.path.join(placeholder, file)
     if os.path.isdir(pkg_info):
         patched = _patch_egg_dir(pkg_info)
@@ -291,13 +309,15 @@ def _remove_flat_installation(placeholder):
                      'Setuptools distribution', element)
     return True
 
+_remove_flat_installation = _no_sandbox(_remove_flat_installation)
+
 
 def _after_install(dist):
     log.warn('After install bootstrap.')
     placeholder = dist.get_command_obj('install').install_purelib
     _create_fake_setuptools_pkg_info(placeholder)
 
-@_no_sandbox
+
 def _create_fake_setuptools_pkg_info(placeholder):
     if not placeholder or not os.path.exists(placeholder):
         log.warn('Could not find the install location')
@@ -311,7 +331,11 @@ def _create_fake_setuptools_pkg_info(placeholder):
         return
 
     log.warn('Creating %s', pkg_info)
-    f = open(pkg_info, 'w')
+    try:
+        f = open(pkg_info, 'w')
+    except EnvironmentError:
+        log.warn("Don't have permissions to write %s, skipping", pkg_info)
+        return
     try:
         f.write(SETUPTOOLS_PKG_INFO)
     finally:
@@ -325,7 +349,11 @@ def _create_fake_setuptools_pkg_info(placeholder):
     finally:
         f.close()
 
-@_no_sandbox
+_create_fake_setuptools_pkg_info = _no_sandbox(
+    _create_fake_setuptools_pkg_info
+)
+
+
 def _patch_egg_dir(path):
     # let's check if it's already patched
     pkg_info = os.path.join(path, 'EGG-INFO', 'PKG-INFO')
@@ -343,6 +371,8 @@ def _patch_egg_dir(path):
     finally:
         f.close()
     return True
+
+_patch_egg_dir = _no_sandbox(_patch_egg_dir)
 
 
 def _before_install():
@@ -363,8 +393,8 @@ def _under_prefix(location):
                 if len(args) > index:
                     top_dir = args[index + 1]
                     return location.startswith(top_dir)
-            elif option == '--user' and USER_SITE is not None:
-                return location.startswith(USER_SITE)
+        if arg == '--user' and USER_SITE is not None:
+            return location.startswith(USER_SITE)
     return True
 
 
@@ -378,11 +408,14 @@ def _fake_setuptools():
         return
     ws = pkg_resources.working_set
     try:
-        setuptools_dist = ws.find(pkg_resources.Requirement.parse('setuptools',
-                                  replacement=False))
+        setuptools_dist = ws.find(
+            pkg_resources.Requirement.parse('setuptools', replacement=False)
+            )
     except TypeError:
         # old distribute API
-        setuptools_dist = ws.find(pkg_resources.Requirement.parse('setuptools'))
+        setuptools_dist = ws.find(
+            pkg_resources.Requirement.parse('setuptools')
+        )
 
     if setuptools_dist is None:
         log.warn('No setuptools distribution found')
@@ -416,13 +449,18 @@ def _fake_setuptools():
         res = _patch_egg_dir(setuptools_location)
         if not res:
             return
-    log.warn('Patched done.')
+    log.warn('Patching complete.')
     _relaunch()
 
 
 def _relaunch():
     log.warn('Relaunching...')
     # we have to relaunch the process
+    # pip marker to avoid a relaunch bug
+    _cmd1 = ['-c', 'install', '--single-version-externally-managed']
+    _cmd2 = ['-c', 'install', '--record']
+    if sys.argv[:3] == _cmd1 or sys.argv[:3] == _cmd2:
+        sys.argv[0] = 'setup.py'
     args = [sys.executable] + sys.argv
     sys.exit(subprocess.call(args))
 
@@ -447,7 +485,7 @@ def _extractall(self, path=".", members=None):
             # Extract directories with a safe mode.
             directories.append(tarinfo)
             tarinfo = copy.copy(tarinfo)
-            tarinfo.mode = 448 # decimal for oct 0700
+            tarinfo.mode = 448  # decimal for oct 0700
         self.extract(tarinfo, path)
 
     # Reverse sort directories.
@@ -474,11 +512,39 @@ def _extractall(self, path=".", members=None):
                 self._dbg(1, "tarfile: %s" % e)
 
 
-def main(argv, version=DEFAULT_VERSION):
-    """Install or upgrade setuptools and EasyInstall"""
-    tarball = download_setuptools()
-    _install(tarball)
+def _build_install_args(options):
+    """
+    Build the arguments to 'python setup.py install' on the distribute package
+    """
+    install_args = []
+    if options.user_install:
+        if sys.version_info < (2, 6):
+            log.warn("--user requires Python 2.6 or later")
+            raise SystemExit(1)
+        install_args.append('--user')
+    return install_args
 
+def _parse_args():
+    """
+    Parse the command line for options
+    """
+    parser = optparse.OptionParser()
+    parser.add_option(
+        '--user', dest='user_install', action='store_true', default=False,
+        help='install in user site package (requires Python 2.6 or later)')
+    parser.add_option(
+        '--download-base', dest='download_base', metavar="URL",
+        default=DEFAULT_URL,
+        help='alternative URL from where to download the distribute package')
+    options, args = parser.parse_args()
+    # positional arguments are ignored
+    return options
+
+def main(version=DEFAULT_VERSION):
+    """Install or upgrade setuptools and EasyInstall"""
+    options = _parse_args()
+    tarball = download_setuptools(download_base=options.download_base)
+    return _install(tarball, _build_install_args(options))
 
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    sys.exit(main())

@@ -2,12 +2,10 @@
 '''
 setup.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
-Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
+Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 
 This program can be distributed under the terms of the GNU GPLv3.
 '''
-
-
 
 import sys
 import os
@@ -28,7 +26,7 @@ import s3ql
 # Import distribute
 sys.path.insert(0, os.path.join(basedir, 'util'))
 from distribute_setup import use_setuptools
-use_setuptools(version='0.6.14', download_delay=5)
+use_setuptools(download_delay=5)
 import setuptools
 import setuptools.command.test as setuptools_test
 from setuptools import Extension
