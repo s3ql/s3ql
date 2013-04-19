@@ -118,7 +118,7 @@ def main():
         compile_args += [ '-Werror', '-Wextra' ]
 
     required_pkgs = ['apsw >= 3.7.0',
-                     'pycryptopp',
+                     'pycrypto',
                      'llfuse >= 0.37' ]
 
     setuptools.setup(

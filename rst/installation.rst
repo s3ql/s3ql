@@ -36,9 +36,9 @@ that is not the case.
 * `Python <http://www.python.org/>`_ 3.3.0 or newer. Make sure to also
   install the development headers.
 
-* The `PyCrypto++ Python Module
-  <http://pypi.python.org/pypi/pycryptopp>`_. To check if this module
-  is installed, try to execute `python -c 'import pycryptopp'`. 
+* The `PyCrypto Python Module
+  <https://www.dlitz.net/software/pycrypto/>`_. To check if this
+  module is installed, try to execute `python -c 'import Crypto'`.
   
 * `SQLite <http://www.sqlite.org/>`_ version 3.7.0 or newer. SQLite
   has to be installed as a *shared library* with development headers.

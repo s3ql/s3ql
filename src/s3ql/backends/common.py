@@ -8,13 +8,14 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 
 from ..common import QuietError, BUFSIZE
-from abc import ABCMeta, abstractmethod
+from abc import abstractmethod, ABCMeta
 from base64 import b64decode, b64encode
 from io import StringIO
 from contextlib import contextmanager
 from functools import wraps
 from getpass import getpass
-from pycryptopp.cipher import aes
+from Crypto.Cipher import AES
+from Crypto.Util import Counter
 from s3ql.common import ChecksumError
 import configparser
 import bz2
@@ -35,10 +36,6 @@ import sys
 import threading
 import time
 import zlib
-
-# Not available in every pycryptopp version
-if hasattr(aes, 'start_up_self_test'):
-    aes.start_up_self_test()
 
 log = logging.getLogger("backend")
 
@@ -777,7 +774,7 @@ class EncryptFilter(object):
             nonce = nonce.encode('utf-8')
 
         self.key = sha256(passphrase + nonce)
-        self.cipher = aes.AES(self.key) #IGNORE:E1102
+        self.cipher = aes_cipher(self.key)
         self.hmac = hmac.new(self.key, digestmod=hashlib.sha256)
 
         self.fh.write(struct.pack(b'<B', len(nonce)))
@@ -801,7 +798,7 @@ class EncryptFilter(object):
 
         buf = struct.pack(b'<I', len(data)) + data
         self.hmac.update(buf)
-        buf = self.cipher.process(buf)
+        buf = self.cipher.encrypt(buf)
         if buf:
             self.fh.write(buf)
             self.obj_size += len(buf)
@@ -810,7 +807,7 @@ class EncryptFilter(object):
         # Packet length of 0 indicates end of stream, only HMAC follows
         buf = struct.pack(b'<I', 0)
         self.hmac.update(buf)
-        buf = self.cipher.process(buf + self.hmac.digest())
+        buf = self.cipher.encrypt(buf + self.hmac.digest())
         self.fh.write(buf)
         self.obj_size += len(buf)
         self.fh.close()
@@ -854,7 +851,7 @@ class DecryptFilter(AbstractInputFilter):
         nonce = fh.read(len_)
 
         key = sha256(passphrase + nonce)
-        self.cipher = aes.AES(key) #IGNORE:E1102
+        self.cipher = aes_cipher(key)
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
 
     def _read(self, size):
@@ -866,7 +863,7 @@ class DecryptFilter(AbstractInputFilter):
                 raise ChecksumError('HMAC mismatch')
             return ''
 
-        inbuf = self.cipher.process(buf)
+        inbuf = self.cipher.decrypt(buf)
         outbuf = ''
         while True:
 
@@ -889,7 +886,7 @@ class DecryptFilter(AbstractInputFilter):
             # End of file, read and check HMAC
             if paket_size == 0:
                 if len(inbuf) != HMAC_SIZE:
-                    inbuf += self.cipher.process(self.fh.read(HMAC_SIZE - len(inbuf)))
+                    inbuf += self.cipher.decrypt(self.fh.read(HMAC_SIZE - len(inbuf)))
                 if inbuf != self.hmac.digest():
                     raise ChecksumError('HMAC mismatch')
                 self.hmac_checked = True
@@ -932,7 +929,7 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
         self.hash = fh.read(HMAC_SIZE)
 
         key = sha256(passphrase + nonce)
-        self.cipher = aes.AES(key) #IGNORE:E1102
+        self.cipher = aes_cipher(key)
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
 
     def _read(self, size):
@@ -942,7 +939,7 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
         while not buf:
             buf = self.fh.read(size)
             if not buf and not self.hmac_checked:
-                if self.cipher.process(self.hash) != self.hmac.digest():
+                if self.cipher.decrypt(self.hash) != self.hmac.digest():
                     raise ChecksumError('HMAC mismatch')
                 elif self.decomp and self.decomp.unused_data:
                     raise ChecksumError('Data after end of compressed stream')
@@ -952,7 +949,7 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
             elif not buf:
                 return ''
 
-            buf = self.cipher.process(buf)
+            buf = self.cipher.decrypt(buf)
             if not self.decomp:
                 break
 
@@ -985,7 +982,7 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
     def __exit__(self, *a):
         self.close()
         return False
-
+    
 def encrypt(buf, passphrase, nonce):
     '''Encrypt *buf*'''
 
@@ -993,12 +990,12 @@ def encrypt(buf, passphrase, nonce):
         nonce = nonce.encode('utf-8')
 
     key = sha256(passphrase + nonce)
-    cipher = aes.AES(key) #IGNORE:E1102
+    cipher = aes_cipher(key) 
     hmac_ = hmac.new(key, digestmod=hashlib.sha256)
 
     hmac_.update(buf)
-    buf = cipher.process(buf)
-    hash_ = cipher.process(hmac_.digest())
+    buf = cipher.encrypt(buf)
+    hash_ = cipher.encrypt(hmac_.digest())
 
     return b''.join(
                     (struct.pack(b'<B', len(nonce)),
@@ -1013,17 +1010,17 @@ def decrypt(buf, passphrase):
     nonce = fh.read(len_)
 
     key = sha256(passphrase + nonce)
-    cipher = aes.AES(key) #IGNORE:E1102
+    cipher = aes_cipher(key) 
     hmac_ = hmac.new(key, digestmod=hashlib.sha256)
 
     # Read (encrypted) hmac
     hash_ = fh.read(HMAC_SIZE)
 
     buf = fh.read()
-    buf = cipher.process(buf)
+    buf = cipher.decrypt(buf)
     hmac_.update(buf)
 
-    hash_ = cipher.process(hash_)
+    hash_ = cipher.decrypt(hash_)
 
     if hash_ != hmac_.digest():
         raise ChecksumError('HMAC mismatch')
@@ -1082,7 +1079,13 @@ class AuthenticationError(Exception):
 
     def __str__(self):
         return 'Access denied. Server said: %s' % self.msg
+   
+def aes_cipher(key):
+    '''Return AES cipher in CTR mode for *key*'''
     
+    return AES.new(key, AES.MODE_CTR, 
+                   counter=Counter.new(128, initial_value=0)) 
+        
 def convert_legacy_metadata(meta):
     if ('encryption' in meta and
         'compression' in meta):
