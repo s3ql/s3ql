@@ -9,7 +9,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 from s3ql.common import get_backend_cachedir
 from s3ql.database import Connection
 import errno
-import os.path
 import shutil
 import subprocess
 import t4_fuse
