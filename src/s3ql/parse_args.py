@@ -46,7 +46,7 @@ import sys
 
 DEFAULT_USAGE = object()
 
-class HelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
+class HelpFormatter(argparse.HelpFormatter):
 
     def _format_usage(self, usage, actions, groups, prefix):
         '''Special handling for usage lists
