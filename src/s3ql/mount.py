@@ -362,7 +362,7 @@ def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
 
     fuse_opts = [ b"nonempty", b'fsname=%s' % options.storage_url,
-                  'subtype=s3ql' ]
+                  b'subtype=s3ql' ]
 
     if options.allow_other:
         fuse_opts.append(b'allow_other')
