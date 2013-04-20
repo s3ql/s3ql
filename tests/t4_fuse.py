@@ -148,11 +148,21 @@ def skip_if_no_fusermount():
     except subprocess.CalledProcessError:
         raise unittest.SkipTest('Unable to execute fusermount')
 
+def skip_without_rsync():
+    try:
+        subprocess.call(['rsync', '--version'],
+                        stderr=subprocess.STDOUT,
+                        stdout=open('/dev/null', 'wb'))
+    except FileNotFoundError:
+        raise unittest.SkipTest('rsync not installed')
+
+    
 if __name__ == '__main__':
     mypath = sys.argv[0]
 else:
     mypath = __file__
 BASEDIR = os.path.abspath(os.path.join(os.path.dirname(mypath), '..'))
+
 
 class fuse_tests(unittest.TestCase):
 
