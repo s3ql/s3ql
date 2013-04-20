@@ -18,11 +18,10 @@ import hashlib
 import hmac
 import http.client
 import logging
-import sys
 import re
 import tempfile
 import time
-import urllib.request, urllib.parse, urllib.error
+import urllib.parse
 import xml.etree.cElementTree as ElementTree
 from s3ql.backends.common import is_temp_network_error
 
