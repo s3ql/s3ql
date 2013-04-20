@@ -20,7 +20,6 @@ from s3ql.common import ChecksumError
 import configparser
 import bz2
 import pickle as pickle
-import errno
 import hashlib
 import hmac
 import http.client
@@ -91,17 +90,13 @@ True.
 def is_temp_network_error(exc):
     '''Return true if *exc* represents a potentially temporary network problem'''
 
-    if isinstance(exc, (http.client.IncompleteRead, socket.timeout)):
+    if isinstance(exc, (http.client.IncompleteRead, socket.timeout,
+                        ConnectionError, TimeoutError, InterruptedError)):
         return True
      
     # Server closed connection
     elif (isinstance(exc, http.client.BadStatusLine)
           and (not exc.line or exc.line == "''")):
-        return True
-
-    elif (isinstance(exc, IOError) and
-          exc.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT,
-                        errno.EINTR)):
         return True
 
     # Formally this is a permanent error. However, it may also indicate

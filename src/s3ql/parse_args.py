@@ -37,7 +37,6 @@ are:
 from . import VERSION
 from argparse import ArgumentTypeError, ArgumentError
 import argparse
-import errno
 import logging.handlers
 import os
 import re
@@ -231,18 +230,14 @@ def log_handler_type(s):
         if dirname and not os.path.exists(dirname):
             try:
                 os.makedirs(dirname)
-            except OSError as exc:
-                if exc.errno == errno.EACCES:
-                    raise ArgumentTypeError('No permission to create log file %s' % fullpath)
-                raise
+            except PermissionError:
+                raise ArgumentTypeError('No permission to create log file %s' % fullpath)
                     
         try:
             handler = logging.handlers.RotatingFileHandler(fullpath,
                                                            maxBytes=1024 ** 2, backupCount=5)
-        except IOError as exc:
-            if exc.errno == errno.EACCES:
-                raise ArgumentTypeError('No permission to write log file %s' % fullpath)
-            raise
+        except PermissionError:
+            raise ArgumentTypeError('No permission to write log file %s' % fullpath)
         
         formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
                                       '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")

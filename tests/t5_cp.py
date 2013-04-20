@@ -6,7 +6,6 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-import errno
 import os.path
 import subprocess
 import t4_fuse
@@ -22,10 +21,8 @@ class cpTests(t4_fuse.fuse_tests):
             subprocess.call(['rsync', '--version'],
                             stderr=subprocess.STDOUT,
                             stdout=open('/dev/null', 'wb'))
-        except OSError as exc:
-            if exc.errno == errno.ENOENT:
-                raise unittest.SkipTest('rsync not installed')
-            raise
+        except FileNotFoundError:
+            raise unittest.SkipTest('rsync not installed')
 
         self.mkfs()
         self.mount()

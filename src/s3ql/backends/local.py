@@ -15,7 +15,6 @@ import logging
 import io
 import pickle as pickle
 import os
-import errno
 import _thread
 
 log = logging.getLogger("backend.local")
@@ -60,11 +59,8 @@ class Backend(AbstractBackend):
         try:
             with open(path, 'rb') as src:
                 return pickle.load(src)
-        except IOError as exc:
-            if exc.errno == errno.ENOENT:
-                raise NoSuchObject(key)
-            else:
-                raise
+        except FileNotFoundError:
+            raise NoSuchObject(key)
         except pickle.UnpicklingError as exc:
             if (isinstance(exc.args[0], str)
                 and exc.args[0].startswith('invalid load key')):
@@ -87,12 +83,9 @@ class Backend(AbstractBackend):
         path = self._key_to_path(key)
         try:
             fh = ObjectR(path)
-        except IOError as exc:
-            if exc.errno == errno.ENOENT:
-                raise NoSuchObject(key)
-            else:
-                raise
-
+        except FileNotFoundError:
+            raise NoSuchObject(key)
+        
         try:
             fh.metadata = pickle.load(fh)
         except pickle.UnpicklingError as exc:
@@ -126,17 +119,12 @@ class Backend(AbstractBackend):
 
         try:
             dest = ObjectW(tmpname)
-        except IOError as exc:
-            if exc.errno != errno.ENOENT:
-                raise
+        except FileNotFoundError:
             try:
                 os.makedirs(os.path.dirname(path))
-            except OSError as exc:
-                if exc.errno != errno.EEXIST:
-                    raise
-                else:
-                    # Another thread may have created the directory already
-                    pass
+            except FileExistsError:
+                # Another thread may have created the directory already
+                pass
             dest = ObjectW(tmpname)
 
         os.rename(tmpname, path)
@@ -159,10 +147,8 @@ class Backend(AbstractBackend):
         path = self._key_to_path(key)
         try:
             os.lstat(path)
-        except OSError as exc:
-            if exc.errno == errno.ENOENT:
-                return False
-            raise
+        except FileNotFoundError:
+            return False
         return True
 
     def delete(self, key, force=False):
@@ -174,14 +160,11 @@ class Backend(AbstractBackend):
         path = self._key_to_path(key)
         try:
             os.unlink(path)
-        except OSError as exc:
-            if exc.errno == errno.ENOENT:
-                if force:
-                    pass
-                else:
-                    raise NoSuchObject(key)
+        except FileNotFoundError:
+            if force:
+                pass
             else:
-                raise
+                raise NoSuchObject(key)
 
     def list(self, prefix=''):
         '''List keys in backend
@@ -226,27 +209,19 @@ class Backend(AbstractBackend):
         # sure destination path exists
         try:
             dest = open(path_dest, 'wb')
-        except IOError as exc:
-            if exc.errno != errno.ENOENT:
-                raise
+        except FileNotFoundError:
             try:
                 os.makedirs(os.path.dirname(path_dest))
-            except OSError as exc:
-                if exc.errno != errno.EEXIST:
-                    raise
-                else:
-                    # Another thread may have created the directory already
-                    pass
+            except FileExistsError:
+                # Another thread may have created the directory already
+                pass
             dest = open(path_dest, 'wb')
 
         try:
             with open(path_src, 'rb') as src:
                 shutil.copyfileobj(src, dest, BUFSIZE)
-        except IOError as exc:
-            if exc.errno == errno.ENOENT:
-                raise NoSuchObject(src)
-            else:
-                raise
+        except FileNotFoundError:
+            raise NoSuchObject(src)
         finally:
             dest.close()
 
@@ -262,17 +237,12 @@ class Backend(AbstractBackend):
 
         try:
             os.rename(src_path, dest_path)
-        except OSError as exc:
-            if exc.errno != errno.ENOENT:
-                raise
+        except FileNotFoundError:
             try:
                 os.makedirs(os.path.dirname(dest_path))
-            except OSError as exc:
-                if exc.errno != errno.EEXIST:
-                    raise
-                else:
-                    # Another thread may have created the directory already
-                    pass
+            except FileExistsError:
+                # Another thread may have created the directory already
+                pass
             os.rename(src_path, dest_path)
 
     def _key_to_path(self, key):

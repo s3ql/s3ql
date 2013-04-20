@@ -6,7 +6,6 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-import errno
 import subprocess
 import t4_fuse
 from t4_fuse import populate_dir
@@ -21,10 +20,8 @@ class FullTests(t4_fuse.fuse_tests):
             subprocess.call(['rsync', '--version'],
                             stderr=subprocess.STDOUT,
                             stdout=open('/dev/null', 'wb'))
-        except OSError as exc:
-            if exc.errno == errno.ENOENT:
-                raise unittest.SkipTest('rsync not installed')
-            raise
+        except FileNotFoundError:
+            raise unittest.SkipTest('rsync not installed')
 
         ref_dir = tempfile.mkdtemp()
         try:

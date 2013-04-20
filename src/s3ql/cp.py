@@ -10,7 +10,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 from .common import setup_logging, CTRL_NAME, QuietError
 from .parse_args import ArgumentParser
 import pickle as pickle
-import errno
 import llfuse
 import logging
 import os
@@ -87,11 +86,8 @@ def main(args=None):
 
     try:
         os.mkdir(options.target)
-    except OSError as exc:
-        if exc.errno == errno.EACCES:
-            raise QuietError('No permission to create target directory')
-        else:
-            raise
+    except PermissionError:
+        raise QuietError('No permission to create target directory')
 
     fstat_t = os.stat(options.target)
     llfuse.setxattr(ctrlfile, 'copy', pickle.dumps((fstat_s.st_ino, fstat_t.st_ino),

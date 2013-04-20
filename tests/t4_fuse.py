@@ -273,7 +273,7 @@ class fuse_tests(unittest.TestCase):
         self.assertEquals(fstat.st_nlink, 1)
         self.assertTrue(dirname in llfuse.listdir(self.mnt_dir))
         os.rmdir(fullname)
-        self.assertRaises(OSError, os.stat, fullname)
+        self.assertRaises(FileNotFoundError, os.stat, fullname)
         self.assertTrue(dirname not in llfuse.listdir(self.mnt_dir))
 
     def tst_symlink(self):
@@ -286,7 +286,7 @@ class fuse_tests(unittest.TestCase):
         self.assertEquals(fstat.st_nlink, 1)
         self.assertTrue(linkname in llfuse.listdir(self.mnt_dir))
         os.unlink(fullname)
-        self.assertRaises(OSError, os.lstat, fullname)
+        self.assertRaises(FileNotFoundError, os.lstat, fullname)
         self.assertTrue(linkname not in llfuse.listdir(self.mnt_dir))
 
     def tst_mknod(self):
@@ -299,7 +299,7 @@ class fuse_tests(unittest.TestCase):
         self.assertTrue(basename(filename) in llfuse.listdir(self.mnt_dir))
         self.assertTrue(filecmp.cmp(src, filename, False))
         os.unlink(filename)
-        self.assertRaises(OSError, os.stat, filename)
+        self.assertRaises(FileNotFoundError, os.stat, filename)
         self.assertTrue(basename(filename) not in llfuse.listdir(self.mnt_dir))
 
     def tst_chown(self):
@@ -322,7 +322,7 @@ class fuse_tests(unittest.TestCase):
         self.assertEquals(fstat.st_gid, gid_new)
 
         os.rmdir(filename)
-        self.assertRaises(OSError, os.stat, filename)
+        self.assertRaises(FileNotFoundError, os.stat, filename)
         self.assertTrue(basename(filename) not in llfuse.listdir(self.mnt_dir))
 
 
@@ -431,7 +431,7 @@ class fuse_tests(unittest.TestCase):
         llfuse.setxattr('%s/%s' % (self.mnt_dir, CTRL_NAME), 
                         'rmtree', pickle.dumps((llfuse.ROOT_INODE, dirname),
                                                pickle.HIGHEST_PROTOCOL))                
-        self.assertRaises(OSError, os.stat, fullname)
+        self.assertRaises(FileNotFoundError, os.stat, fullname)
         self.assertTrue(dirname not in llfuse.listdir(self.mnt_dir))
 
         

@@ -6,7 +6,6 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-import errno
 import llfuse
 import os.path
 import s3ql.lock
@@ -41,14 +40,11 @@ class LockRemoveTests(t4_fuse.fuse_tests):
             self.fail("s3qllock raised exception")
 
         # Try to delete
-        with self.assertRaises(OSError) as cm:
-            os.unlink(filename)
-        self.assertEqual(cm.exception[0], errno.EPERM)
+        self.assertRaises(PermissionError, os.unlink, filename)
 
         # Try to write
-        with self.assertRaises(IOError) as cm:
+        with self.assertRaises(PermissionError):
             open(filename, 'w+').write('Hello')
-        self.assertEqual(cm.exception[0], errno.EPERM)
 
         # delete properly
         try:
