@@ -101,7 +101,7 @@ def retry(timeout, fn, *a, **kw):
     
     If the return value of fn() returns something True, this value
     is returned. Otherwise, the function is called repeatedly for
-    `timeout` seconds. If the timeout is reached, `TimeoutError` is
+    `timeout` seconds. If the timeout is reached, `RetryTimeoutError` is
     raised.
     """
 
@@ -116,9 +116,9 @@ def retry(timeout, fn, *a, **kw):
         if step < waited / 30:
             step *= 2
 
-    raise TimeoutError()
+    raise RetryTimeoutError()
 
-class TimeoutError(Exception):
+class RetryTimeoutError(Exception):
     '''Raised by `retry()` when a timeout is reached.'''
 
     pass

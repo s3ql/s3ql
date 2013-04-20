@@ -631,12 +631,17 @@ class ObjectW(object):
 def get_S3Error(code, msg):
     '''Instantiate most specific S3Error subclass'''
 
+    # Special case
+    # http://code.google.com/p/s3ql/issues/detail?id=369
+    if code == 'Timeout':
+        code = 'RequestTimeout'  
+
     if code.endswith('Error'):
         name = code
     else:
         name = code + 'Error'
-    class_ = globals().get(name, S3Error)
-
+    class_ = globals().get(name, S3Error)    
+    
     if not issubclass(class_, S3Error):
         return S3Error(code, msg)
     
@@ -719,7 +724,6 @@ class InvalidSecurityError(S3Error, AuthenticationError): pass
 class SignatureDoesNotMatchError(S3Error, AuthenticationError): pass
 class OperationAbortedError(S3Error): pass
 class RequestTimeoutError(S3Error): pass
-class TimeoutError(RequestTimeoutError): pass
 class SlowDownError(S3Error): pass
 class RequestTimeTooSkewedError(S3Error): pass
 class NoSuchBucketError(S3Error, DanglingStorageURLError): pass

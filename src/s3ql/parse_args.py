@@ -79,11 +79,11 @@ class HelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
             return super(HelpFormatter, self)._format_usage(usage, actions, groups, prefix)
 
     def format_help(self):
-        help = super(HelpFormatter, self).format_help()
-        if help.count('\n') > 2:
-            return help + '\n'
+        help_ = super(HelpFormatter, self).format_help()
+        if help_.count('\n') > 2:
+            return help_ + '\n'
         else:
-            return help
+            return help_
 
 
 class SubParsersAction(argparse._SubParsersAction):
