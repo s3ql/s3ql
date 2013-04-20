@@ -1081,7 +1081,7 @@ def main(args=None):
     try:
         backend = get_backend(options)
     except DanglingStorageURLError as exc:
-        raise QuietError(str(exc))
+        raise QuietError(str(exc)) from None
 
     log.info('Starting fsck of %s', options.storage_url)
     
@@ -1163,7 +1163,7 @@ def main(args=None):
             raise QuietError('Local metadata is corrupted. Remove or repair the following '
                              'files manually and re-run fsck:\n'
                              + cachepath + '.db (corrupted)\n'
-                             + cachepath + '.param (intact)')
+                             + cachepath + '.param (intact)') from None
     else:
         def do_read(fh):
             tmpfh = tempfile.TemporaryFile()

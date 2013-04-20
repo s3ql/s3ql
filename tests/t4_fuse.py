@@ -146,7 +146,7 @@ def skip_if_no_fusermount():
         subprocess.check_call([fusermount_path, '-V'],
                               stdout=open('/dev/null', 'wb'))
     except subprocess.CalledProcessError:
-        raise unittest.SkipTest('Unable to execute fusermount')
+        raise unittest.SkipTest('Unable to execute fusermount') from None
 
 def skip_without_rsync():
     try:
@@ -154,7 +154,7 @@ def skip_without_rsync():
                         stderr=subprocess.STDOUT,
                         stdout=open('/dev/null', 'wb'))
     except FileNotFoundError:
-        raise unittest.SkipTest('rsync not installed')
+        raise unittest.SkipTest('rsync not installed') from None
 
     
 if __name__ == '__main__':

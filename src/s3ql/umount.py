@@ -89,17 +89,15 @@ def check_mount(mountpoint):
         os.stat(mountpoint)
     except OSError as exc:
         if exc.errno is errno.ENOTCONN:
-            raise FSCrashedError(mountpoint)
+            raise FSCrashedError(mountpoint) from None
         raise
         
     if not posixpath.ismount(mountpoint):
         raise NotMountPointError(mountpoint)
 
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
-    if not (
-        CTRL_NAME not in llfuse.listdir(mountpoint) and
-        os.path.exists(ctrlfile)
-    ):
+    if not (CTRL_NAME not in llfuse.listdir(mountpoint) and
+            os.path.exists(ctrlfile)):
         raise NotS3qlFsError(mountpoint)
 
 def lazy_umount(mountpoint):

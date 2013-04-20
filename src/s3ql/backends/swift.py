@@ -58,7 +58,7 @@ class Backend(AbstractBackend):
             resp = self._do_request('GET', '/', query_string={'limit': 1 })
         except HTTPError as exc:
             if exc.status == 404:
-                raise DanglingStorageURLError(self.container_name)
+                raise DanglingStorageURLError(self.container_name) from None
             raise
         resp.read()   
                     
@@ -224,7 +224,7 @@ class Backend(AbstractBackend):
             assert resp.length == 0
         except HTTPError as exc:
             if exc.status == 404:
-                raise NoSuchObject(key)
+                raise NoSuchObject(key) from None
             else:
                 raise
 
@@ -241,7 +241,7 @@ class Backend(AbstractBackend):
             assert resp.length == 0
         except HTTPError as exc:
             if exc.status == 404:
-                raise NoSuchObject(key)
+                raise NoSuchObject(key) from None
             else:
                 raise
 
@@ -263,7 +263,7 @@ class Backend(AbstractBackend):
             resp = self._do_request('GET', '/%s%s' % (self.prefix, key))
         except HTTPError as exc:
             if exc.status == 404:
-                raise NoSuchObject(key)
+                raise NoSuchObject(key) from None
             raise
 
         return ObjectR(key, resp, self, extractmeta(resp))
@@ -317,7 +317,7 @@ class Backend(AbstractBackend):
             assert resp.length == 0
         except HTTPError as exc:
             if exc.status == 404 and not force:
-                raise NoSuchObject(key)
+                raise NoSuchObject(key) from None
             elif exc.status != 404:
                 raise
 
@@ -339,7 +339,7 @@ class Backend(AbstractBackend):
             resp.read()
         except HTTPError as exc:
             if exc.status == 404:
-                raise NoSuchObject(src)
+                raise NoSuchObject(src) from None
             raise
 
     def list(self, prefix=''):
@@ -404,7 +404,7 @@ class Backend(AbstractBackend):
                                                                   'limit': batch_size })
             except HTTPError as exc:
                 if exc.status == 404:
-                    raise DanglingStorageURLError(self.container_name)
+                    raise DanglingStorageURLError(self.container_name) from None
                 raise
             
             if resp.status == 204:

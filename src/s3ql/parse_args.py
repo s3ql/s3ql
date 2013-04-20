@@ -237,7 +237,7 @@ def log_handler_type(s):
             handler = logging.handlers.RotatingFileHandler(fullpath,
                                                            maxBytes=1024 ** 2, backupCount=5)
         except PermissionError:
-            raise ArgumentTypeError('No permission to write log file %s' % fullpath)
+            raise ArgumentTypeError('No permission to write log file %s' % fullpath) from None
         
         formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
                                       '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")

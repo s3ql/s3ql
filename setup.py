@@ -57,7 +57,7 @@ class build_docs(setuptools.Command):
             from sphinx.application import Sphinx
             from docutils.utils import SystemMessage
         except ImportError:
-            raise QuietError('This command requires Sphinx to be installed.')
+            raise QuietError('This command requires Sphinx to be installed.')  from None
 
         dest_dir = os.path.join(basedir, 'doc')
         src_dir = os.path.join(basedir, 'rst')
@@ -194,7 +194,7 @@ class build_cython(setuptools.Command):
             from Cython.Compiler.Main import compile as cython_compile
             from Cython.Compiler.Options import extra_warnings
         except ImportError:
-            raise SystemExit('Cython needs to be installed for this command')
+            raise SystemExit('Cython needs to be installed for this command') from None
 
         directives = dict(extra_warnings)
         directives['embedsignature'] = True

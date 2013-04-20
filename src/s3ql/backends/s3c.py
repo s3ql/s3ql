@@ -127,7 +127,7 @@ class Backend(AbstractBackend):
             if force:
                 pass
             else:
-                raise NoSuchObject(key)
+                raise NoSuchObject(key) from None
 
     def list(self, prefix=''):
         '''List keys in backend
@@ -234,7 +234,7 @@ class Backend(AbstractBackend):
             assert resp.length == 0
         except HTTPError as exc:
             if exc.status == 404:
-                raise NoSuchObject(key)
+                raise NoSuchObject(key) from None
             else:
                 raise
 
@@ -251,7 +251,7 @@ class Backend(AbstractBackend):
             assert resp.length == 0
         except HTTPError as exc:
             if exc.status == 404:
-                raise NoSuchObject(key)
+                raise NoSuchObject(key) from None
             else:
                 raise
 
@@ -273,7 +273,7 @@ class Backend(AbstractBackend):
         try:
             resp = self._do_request('GET', '/%s%s' % (self.prefix, key))
         except NoSuchKeyError:
-            raise NoSuchObject(key)
+            raise NoSuchObject(key) from None
 
         return ObjectR(key, resp, self, extractmeta(resp))
 
@@ -319,7 +319,7 @@ class Backend(AbstractBackend):
             # Discard response body
             resp.read()
         except NoSuchKeyError:
-            raise NoSuchObject(src)
+            raise NoSuchObject(src) from None
 
     def _do_request(self, method, path, subres=None, query_string=None,
                     headers=None, body=None):

@@ -121,7 +121,7 @@ def main(args=None):
     try:
         backend = get_backend(options, plain=True)
     except DanglingStorageURLError as exc:
-        raise QuietError(str(exc))
+        raise QuietError(str(exc)) from None
     
     upload_time = 0
     size = 512 * 1024

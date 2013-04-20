@@ -305,7 +305,7 @@ def inode_for_path(path, conn):
             inode = conn.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
                                  (el, inode))
         except NoSuchRowError:
-            raise KeyError('Path %s does not exist' % path)
+            raise KeyError('Path %s does not exist' % path) from None
 
     return inode
 
@@ -355,7 +355,7 @@ def get_backend_cachedir(storage_url, cachedir):
         try:
             os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
         except PermissionError:
-            raise QuietError('No permission to create cache directory (%s)' % cachedir)
+            raise QuietError('No permission to create cache directory (%s)' % cachedir) from None
         
     if not os.access(cachedir, os.R_OK | os.W_OK | os.X_OK):
         raise QuietError('No permission to access cache directory (%s)' % cachedir)

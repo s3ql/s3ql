@@ -60,11 +60,11 @@ class Backend(AbstractBackend):
             with open(path, 'rb') as src:
                 return pickle.load(src)
         except FileNotFoundError:
-            raise NoSuchObject(key)
+            raise NoSuchObject(key) from None
         except pickle.UnpicklingError as exc:
             if (isinstance(exc.args[0], str)
                 and exc.args[0].startswith('invalid load key')):
-                raise ChecksumError('Invalid metadata')
+                raise ChecksumError('Invalid metadata') from None
             raise
 
     def get_size(self, key):
@@ -84,14 +84,14 @@ class Backend(AbstractBackend):
         try:
             fh = ObjectR(path)
         except FileNotFoundError:
-            raise NoSuchObject(key)
+            raise NoSuchObject(key) from None
         
         try:
             fh.metadata = pickle.load(fh)
         except pickle.UnpicklingError as exc:
             if (isinstance(exc.args[0], str)
                 and exc.args[0].startswith('invalid load key')):
-                raise ChecksumError('Invalid metadata')
+                raise ChecksumError('Invalid metadata') from None
             raise
         return fh
 
@@ -164,7 +164,7 @@ class Backend(AbstractBackend):
             if force:
                 pass
             else:
-                raise NoSuchObject(key)
+                raise NoSuchObject(key) from None
 
     def list(self, prefix=''):
         '''List keys in backend
@@ -221,7 +221,7 @@ class Backend(AbstractBackend):
             with open(path_src, 'rb') as src:
                 shutil.copyfileobj(src, dest, BUFSIZE)
         except FileNotFoundError:
-            raise NoSuchObject(src)
+            raise NoSuchObject(src) from None
         finally:
             dest.close()
 

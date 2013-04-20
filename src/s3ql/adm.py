@@ -88,14 +88,14 @@ def main(args=None):
         try:
             backend = get_backend(options, plain=True)
         except DanglingStorageURLError as exc:
-            raise QuietError(str(exc))
+            raise QuietError(str(exc)) from None
         return clear(backend,
                      get_backend_cachedir(options.storage_url, options.cachedir))
 
     try:
         backend = get_backend(options)
     except DanglingStorageURLError as exc:
-        raise QuietError(str(exc))
+        raise QuietError(str(exc)) from None
 
     if options.action == 'upgrade':
         return upgrade(backend, get_backend_cachedir(options.storage_url,

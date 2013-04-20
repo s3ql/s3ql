@@ -463,7 +463,7 @@ class BetterBackend(AbstractBackend):
         except pickle.UnpicklingError as exc:
             if (isinstance(exc.args[0], str)
                 and exc.args[0].startswith('invalid load key')):
-                raise ChecksumError('Invalid metadata')
+                raise ChecksumError('Invalid metadata') from None
             raise
 
         if metadata is None:
@@ -726,17 +726,17 @@ class DecompressFilter(AbstractInputFilter):
                 buf = self.decomp.decompress(buf)
             except IOError as exc:
                 if exc.args == ('invalid data stream',):
-                    raise ChecksumError('Invalid compressed stream')
+                    raise ChecksumError('Invalid compressed stream') from None
                 raise
             except lzma.LZMAError as exc:
                 if exc.args == ('Corrupt input data',):
-                    raise ChecksumError('Invalid compressed stream')
+                    raise ChecksumError('Invalid compressed stream') from None
                 raise
             except zlib.error as exc:
                 if exc.args[0].startswith('Error -3 while decompressing:'):
                     log.warn('LegacyDecryptDecompressFilter._read(): %s',
                              exc.args[0])
-                    raise ChecksumError('Invalid compressed stream')
+                    raise ChecksumError('Invalid compressed stream') from None
                 raise
 
         return buf
@@ -952,17 +952,17 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
                 buf = self.decomp.decompress(buf)
             except IOError as exc:
                 if exc.args == ('invalid data stream',):
-                    raise ChecksumError('Invalid compressed stream')
+                    raise ChecksumError('Invalid compressed stream') from None
                 raise
             except lzma.LZMAError as exc:
                 if exc.args == ('Corrupt input data',):
-                    raise ChecksumError('Invalid compressed stream')
+                    raise ChecksumError('Invalid compressed stream') from None
                 raise
             except zlib.error as exc:
                 if exc.args[0].startswith('Error -3 while decompressing:'):
                     log.warn('LegacyDecryptDecompressFilter._read(): %s',
                              exc.args[0])
-                    raise ChecksumError('Invalid compressed stream')
+                    raise ChecksumError('Invalid compressed stream') from None
                 raise
 
         self.hmac.update(buf)
@@ -1142,7 +1142,7 @@ def get_backend_factory(options, plain=False):
     try:
         __import__(backend_name)
     except ImportError:
-        raise QuietError('No such backend: %s' % hit.group(1))
+        raise QuietError('No such backend: %s' % hit.group(1)) from None
 
     backend_class = getattr(sys.modules[backend_name], 'Backend')
 
@@ -1199,13 +1199,13 @@ def get_backend_factory(options, plain=False):
         _ = backend['s3ql_passphrase']
         
     except DanglingStorageURLError as exc:
-        raise QuietError(str(exc))   
+        raise QuietError(str(exc)) from None
     
     except AuthorizationError:
-        raise QuietError('No permission to access backend.')
+        raise QuietError('No permission to access backend.') from None
 
     except AuthenticationError:
-        raise QuietError('Invalid credentials or skewed system clock.')
+        raise QuietError('Invalid credentials or skewed system clock.') from None
         
     except NoSuchObject:
         encrypted = False
@@ -1240,7 +1240,7 @@ def get_backend_factory(options, plain=False):
     try:
         data_pw = tmp_backend['s3ql_passphrase']
     except ChecksumError:
-        raise QuietError('Wrong backend passphrase')
+        raise QuietError('Wrong backend passphrase') from None
 
     return lambda: BetterBackend(data_pw, compress,
                                 backend_class(options.storage_url, backend_login, backend_pw,
