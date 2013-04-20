@@ -19,7 +19,6 @@ import pydoc
 import stat
 import sys
 import warnings
-import types
 import errno
 
 # Buffer size when writing objects

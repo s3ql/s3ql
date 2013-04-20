@@ -19,7 +19,7 @@ import logging
 import re
 import tempfile
 import time
-import urllib.request, urllib.parse, urllib.error
+import urllib.parse
 
 log = logging.getLogger("backend.swift")
 
