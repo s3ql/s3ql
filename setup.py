@@ -7,16 +7,17 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
+# Python version check
 import sys
+if sys.version_info < (3,3):
+    raise SystemExit('Python version is %d.%d.%d, but S3QL requires Python 3.3 or newer'
+                     % sys.version_info[:3])
 import os
 import subprocess
 import logging.handlers
 from glob import glob
-
-# Python version check
-if sys.version_info < (3,3):
-    raise SystemExit('Python version is %d.%d.%d, but S3QL requires Python 3.3 or newer'
-                     % sys.version_info[:3])
+import faulthandler
+faulthandler.enable()
 
 # Work around setuptools bug
 # http://bitbucket.org/tarek/distribute/issue/152/

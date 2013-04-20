@@ -24,6 +24,7 @@ import llfuse
 import logging
 import os
 import signal
+import faulthandler
 import stat
 import sys
 import tempfile
@@ -117,9 +118,14 @@ def main(args=None):
     log.info('Mounting filesystem...')
     llfuse.init(operations, options.mountpoint, get_fuse_opts(options))
 
-    if not options.fg:
+    if options.fg:
+        faulthandler.enable()
+    else:
         if stdout_log_handler:
             logging.getLogger().removeHandler(stdout_log_handler)
+        global crit_log_fh
+        crit_log_fh = open(os.path.join(options.cachedir, 'mount.s3ql_crit.log'), 'a')
+        faulthandler.enable(crit_log_fh)
         daemonize(options.cachedir)
 
     exc_info = setup_exchook()
