@@ -136,7 +136,7 @@ class Operations(llfuse.Operations):
                 id_ = self.db.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
                                       (name, id_p))
             except NoSuchRowError:
-                raise llfuse
+                raise llfuse.FUSEError(errno.ENOENT)
             inode = self.inodes[id_]
 
         self.open_inodes[inode.id] += 1
