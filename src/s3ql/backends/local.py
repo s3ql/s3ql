@@ -12,6 +12,7 @@ from .common import AbstractBackend, DanglingStorageURLError, NoSuchObject, Chec
 from ..common import BUFSIZE
 import shutil
 import logging
+import io
 import pickle as pickle
 import os
 import errno
@@ -311,11 +312,11 @@ def unescape(s):
 
     return s
 
-class ObjectR(file):
+class ObjectR(io.BufferedReader):
     '''A local storage object opened for reading'''
 
     def __init__(self, name, metadata=None):
-        super(ObjectR, self).__init__(name, 'rb', buffering=0)
+        super(ObjectR, self).__init__(io.FileIO(name))
         self.metadata = metadata
 
 class ObjectW(object):
@@ -323,7 +324,7 @@ class ObjectW(object):
 
     def __init__(self, name):
         super(ObjectW, self).__init__()
-        self.fh = open(name, 'wb', 0)
+        self.fh = open(name, 'wb')
         self.obj_size = 0
         self.closed = False
 
