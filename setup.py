@@ -13,6 +13,11 @@ import subprocess
 import logging.handlers
 from glob import glob
 
+# Python version check
+if sys.version_info < (3,3):
+    raise SystemExit('Python version is %d.%d.%d, but S3QL requires Python 3.3 or newer'
+                     % sys.version_info[:3])
+
 # Work around setuptools bug
 # http://bitbucket.org/tarek/distribute/issue/152/
 #pylint: disable=W0611
@@ -111,14 +116,6 @@ def main():
     if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
         print('MANIFEST.in exists, compiling with developer options')
         compile_args += [ '-Werror', '-Wextra' ]
-
-        # http://bugs.python.org/issue969718
-        if sys.version_info[0] == 2:
-            compile_args.append('-fno-strict-aliasing')
-
-        # http://bugs.python.org/issue7576
-        if sys.version_info[0] == 3 and sys.version_info[1] < 2:
-            compile_args.append('-Wno-missing-field-initializers')
 
     required_pkgs = ['apsw >= 3.7.0',
                      'pycryptopp',

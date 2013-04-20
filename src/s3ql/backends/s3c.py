@@ -526,21 +526,16 @@ class ObjectR(object):
             self.md5_checked = True
             
             if not self.resp.isclosed():
-                # http://bugs.python.org/issue15633
-                ver = sys.version_info
-                if ((ver > (2,7,3) and ver < (3,0,0))
-                    or (ver > (3,2,3) and ver < (3,3,0))
-                    or (ver > (3,3,0))):
-                    # Should be fixed in these version
-                    log.error('ObjectR.read(): response not closed after end of data, '
-                              'please report on http://code.google.com/p/s3ql/issues/')
-                    log.error('Method: %s, chunked: %s, read length: %s '
-                              'response length: %s, chunk_left: %s, status: %d '
-                              'reason "%s", version: %s, will_close: %s',
-                              self.resp._method, self.resp.chunked, size, self.resp.length,
-                              self.resp.chunk_left, self.resp.status, self.resp.reason,
-                              self.resp.version, self.resp.will_close)
-                                    
+                # http://bugs.python.org/issue15633, but should be fixed in 
+                # Python 3.3 and newer
+                log.error('ObjectR.read(): response not closed after end of data, '
+                          'please report on http://code.google.com/p/s3ql/issues/')
+                log.error('Method: %s, chunked: %s, read length: %s '
+                          'response length: %s, chunk_left: %s, status: %d '
+                          'reason "%s", version: %s, will_close: %s',
+                          self.resp._method, self.resp.chunked, size, self.resp.length,
+                          self.resp.chunk_left, self.resp.status, self.resp.reason,
+                          self.resp.version, self.resp.will_close)             
                 self.resp.close() 
             
             if etag != self.md5.hexdigest():

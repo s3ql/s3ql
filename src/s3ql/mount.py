@@ -514,7 +514,7 @@ class MetadataUploadThread(Thread):
         log.debug('MetadataUploadThread: start')
 
         while not self.quit:
-            timed_wait(self.event, self.interval, 2)
+            self.event.wait(self.interval)
             self.event.clear()
 
             if self.quit:
@@ -642,7 +642,7 @@ class CommitThread(Thread):
                     break
 
             if not did_sth:
-                timed_wait(self.stop_event, 6, 2)
+                self.stop_event.wait(5)
 
         log.debug('CommitThread: end')
 
@@ -650,30 +650,6 @@ class CommitThread(Thread):
         '''Signal thread to terminate'''
 
         self.stop_event.set()
-
-
-def timed_wait(event, timeout, interval=1):
-    '''Wait for *event* to occur
-    
-    In Python 3, this is just a wrapper around event.wait() which works well. 
-    
-    In Python 2, however, event.wait() polls the event at small intervals
-    which causes noticeable CPU consumption. Therefore, for Python 2 we we 
-    implement our own poll loop that runs at a rate of our own choosing.
-    '''
-    if sys.version_info[0] > 2:
-        return event.wait(timeout)
-
-    endtime = time.time() + timeout
-    while True:
-        if event.is_set():
-            return
-        
-        now = time.time()
-        if now > endtime:
-            return
-        
-        time.sleep(min(interval, endtime - now))            
 
 if __name__ == '__main__':
     main(sys.argv[1:])
