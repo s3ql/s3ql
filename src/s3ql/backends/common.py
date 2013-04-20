@@ -1152,7 +1152,7 @@ def get_backend_factory(options, plain=False):
     backend_class = getattr(sys.modules[backend_name], 'Backend')
 
     # Read authfile
-    config = configparser.SafeConfigParser()
+    config = configparser.ConfigParser()
     if os.path.isfile(options.authfile):
         mode = os.stat(options.authfile).st_mode
         if mode & (stat.S_IRGRP | stat.S_IROTH):
