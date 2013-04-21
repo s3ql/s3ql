@@ -497,6 +497,10 @@ class Backend(AbstractBackend):
 class ObjectR(object):
     '''An S3 object open for reading'''
 
+    # NOTE: This class is used as a base class for the swift backend,
+    # so changes here should be checked for their effects on other
+    # backends.
+    
     def __init__(self, key, resp, backend, metadata=None):
         self.key = key
         self.resp = resp
@@ -564,14 +568,22 @@ class ObjectW(object):
     All data is first cached in memory, upload only starts when
     the close() method is called.
     '''
-
+    
+    # NOTE: This class is used as a base class for the swift backend,
+    # so changes here should be checked for their effects on other
+    # backends.
+    
     def __init__(self, key, backend, headers):
         self.key = key
         self.backend = backend
         self.headers = headers
         self.closed = False
         self.obj_size = 0
-        self.fh = tempfile.TemporaryFile(bufsize=0) # no Python buffering
+        
+        # According to http://docs.python.org/3/library/functions.html#open
+        # the buffer size is typically ~8 kB. We process data in much 
+        # larger chunks, so buffering would only hurt performance.
+        self.fh = tempfile.TemporaryFile(bufsize=0) 
 
         # False positive, hashlib *does* have md5 member
         #pylint: disable=E1101        

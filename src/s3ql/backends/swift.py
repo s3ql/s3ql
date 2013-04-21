@@ -9,15 +9,13 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from ..common import QuietError, BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, 
-    DanglingStorageURLError)
+    DanglingStorageURLError, is_temp_network_error)
 from .s3c import HTTPError, BadDigestError
-from s3ql.backends.common import is_temp_network_error
+from . import s3c
 from urllib.parse import urlsplit
-import hashlib
 import json
 import logging
 import re
-import tempfile
 import time
 import urllib.parse
 
@@ -431,34 +429,12 @@ class Backend(AbstractBackend):
             keys_remaining = count == batch_size 
 
             
-class ObjectW(object):
+class ObjectW(s3c.ObjectW):
     '''A SWIFT object open for writing
     
     All data is first cached in memory, upload only starts when
     the close() method is called.
     '''
-
-    def __init__(self, key, backend, headers):
-        self.key = key
-        self.backend = backend
-        self.headers = headers
-        self.closed = False
-        self.obj_size = 0
-        self.fh = tempfile.TemporaryFile(bufsize=0) # no Python buffering
-
-        # False positive, hashlib *does* have md5 member
-        #pylint: disable=E1101        
-        self.md5 = hashlib.md5()
-
-    def write(self, buf):
-        '''Write object data'''
-
-        self.fh.write(buf)
-        self.md5.update(buf)
-        self.obj_size += len(buf)
-
-    def is_temp_failure(self, exc):
-        return self.backend.is_temp_failure(exc)
 
     @retry
     def close(self):
@@ -489,81 +465,12 @@ class ObjectW(object):
                               self.key)            
             raise BadDigestError('BadDigest', 'Received ETag does not agree with our calculations.')
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        self.close()
-        return False
-
-    def get_obj_size(self):
-        if not self.closed:
-            raise RuntimeError('Object must be closed first.')
-        return self.obj_size   
     
-class ObjectR(object):
+class ObjectR(s3c.ObjectR):
     '''A SWIFT object opened for reading'''
 
-    def __init__(self, key, resp, backend, metadata=None):
-        self.key = key
-        self.resp = resp
-        self.md5_checked = False
-        self.backend = backend
-        self.metadata = metadata
+    pass
 
-        # False positive, hashlib *does* have md5 member
-        #pylint: disable=E1101        
-        self.md5 = hashlib.md5()
-
-    def read(self, size=None):
-        '''Read object data
-        
-        For integrity checking to work, this method has to be called until
-        it returns an empty string, indicating that all data has been read
-        (and verified).
-        '''
-
-        # chunked encoding handled by httplib
-        buf = self.resp.read(size)
-
-        # Check MD5 on EOF
-        if not buf and not self.md5_checked:
-            etag = self.resp.getheader('ETag').strip('"')
-            self.md5_checked = True
-            
-            if not self.resp.isclosed():
-                # http://bugs.python.org/issue15633, but should be fixed in 
-                # Python 3.3 and newer
-                log.error('ObjectR.read(): response not closed after end of data, '
-                          'please report on http://code.google.com/p/s3ql/issues/')
-                log.error('Method: %s, chunked: %s, read length: %s '
-                          'response length: %s, chunk_left: %s, status: %d '
-                          'reason "%s", version: %s, will_close: %s',
-                          self.resp._method, self.resp.chunked, size, self.resp.length,
-                          self.resp.chunk_left, self.resp.status, self.resp.reason,
-                          self.resp.version, self.resp.will_close)             
-                self.resp.close() 
-                            
-            if etag != self.md5.hexdigest():
-                log.warn('ObjectR(%s).close(): MD5 mismatch: %s vs %s', self.key, etag,
-                         self.md5.hexdigest())
-                raise BadDigestError('BadDigest', 'ETag header does not agree with calculated MD5')
-            return buf
-
-        self.md5.update(buf)
-        return buf
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
-
-    def close(self):
-        '''Close object'''
-
-        pass    
-    
     
 def extractmeta(resp):
     '''Extract metadata from HTTP response object'''
