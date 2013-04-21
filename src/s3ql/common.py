@@ -26,6 +26,9 @@ import warnings
 # Buffer size when writing objects
 BUFSIZE = 256 * 1024
 
+# Pickle protocol version to use.
+PICKLE_PROTOCOL = 2
+
 log = logging.getLogger('common')
 
 def setup_logging(options):

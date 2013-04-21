@@ -27,7 +27,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.common import setup_logging, QuietError
+from s3ql.common import setup_logging, QuietError, PICKLE_PROTOCOL
 from s3ql.parse_args import ArgumentParser
 from s3ql.remove import main as s3qlrm
 
@@ -102,7 +102,7 @@ def main(args=None):
         state = upgrade_to_state(backup_list)
         if not options.n:
             log.info('Saving reconstructed state..')
-            pickle.dump(state, open(options.state, 'wb'), pickle.HIGHEST_PROTOCOL)
+            pickle.dump(state, open(options.state, 'wb'), PICKLE_PROTOCOL)
     elif not os.path.exists(options.state):
         log.warn('Creating state file..')
         state = dict()
@@ -124,7 +124,7 @@ def main(args=None):
         log.info('Dry run, not saving state.')
     else:
         log.info('Saving state..')
-        pickle.dump(state, open(options.state, 'wb'), pickle.HIGHEST_PROTOCOL)
+        pickle.dump(state, open(options.state, 'wb'), PICKLE_PROTOCOL)
 
 def upgrade_to_state(backup_list):
     log.info('Several existing backups detected, trying to convert absolute ages to cycles')

@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 
-from ..common import QuietError, BUFSIZE
+from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL
 from abc import abstractmethod, ABCMeta
 from base64 import b64decode, b64encode
 from io import StringIO
@@ -19,7 +19,7 @@ from Crypto.Util import Counter
 from s3ql.common import ChecksumError
 import configparser
 import bz2
-import pickle as pickle
+import pickle
 import hashlib
 import hmac
 import http.client
@@ -532,7 +532,7 @@ class BetterBackend(AbstractBackend):
 
         # We always store metadata (even if it's just None), so that we can
         # verify that the object has been created by us when we call lookup().
-        meta_buf = pickle.dumps(metadata, 2)
+        meta_buf = pickle.dumps(metadata, PICKLE_PROTOCOL)
 
         meta_raw = dict()
 

@@ -7,9 +7,9 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 
-from .common import setup_logging, assert_fs_owner
+from .common import setup_logging, assert_fs_owner, PICKLE_PROTOCOL
 from .parse_args import ArgumentParser
-import pickle as pickle
+import pickle
 import llfuse
 import logging
 import sys
@@ -98,10 +98,11 @@ def main(args=None):
     elif options.action == 'log':
         llfuse.setxattr(ctrlfile, 'logging',
                       pickle.dumps((options.level, options.modules),
-                                   pickle.HIGHEST_PROTOCOL))
+                                   PICKLE_PROTOCOL))
 
     elif options.action == 'cachesize':
-        llfuse.setxattr(ctrlfile, 'cachesize', pickle.dumps(options.cachesize * 1024))
+        llfuse.setxattr(ctrlfile, 'cachesize', 
+                        pickle.dumps(options.cachesize * 1024, PICKLE_PROTOCOL))
 
 
 

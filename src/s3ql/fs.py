@@ -14,7 +14,7 @@ from .inode_cache import OutOfInodesError
 from . import deltadump
 from io import StringIO
 from llfuse import FUSEError
-import pickle as pickle
+import pickle
 import collections
 import errno
 import llfuse

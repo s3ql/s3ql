@@ -10,13 +10,13 @@ This program can be distributed under the terms of the GNU GPLv3.
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.common import BetterBackend, get_backend, DanglingStorageURLError
 from .common import (QuietError, setup_logging, get_backend_cachedir, get_seq_no, 
-    stream_write_bz2, stream_read_bz2, CTRL_INODE)
+    stream_write_bz2, stream_read_bz2, CTRL_INODE, PICKLE_PROTOCOL)
 from .database import Connection
 from .metadata import restore_metadata, cycle_metadata, dump_metadata
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
 from getpass import getpass
-import pickle as pickle
+import pickle
 import logging
 import os
 import shutil
@@ -172,7 +172,7 @@ def download_metadata(backend, storage_url):
     # downloaded backup
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in backend.list('s3ql_seq_no_') ]
     param['seq_no'] = max(seq_nos) + 1
-    pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+    pickle.dump(param, open(cachepath + '.params', 'wb'), PICKLE_PROTOCOL)
 
 def change_passphrase(backend):
     '''Change file system passphrase'''
@@ -356,7 +356,7 @@ def upgrade(backend, cachepath):
     obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
                                   is_compressed=True)
     log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
-    pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+    pickle.dump(param, open(cachepath + '.params', 'wb'), PICKLE_PROTOCOL)
 
     db.execute('ANALYZE')
     db.execute('VACUUM')

@@ -10,13 +10,14 @@ This program can be distributed under the terms of the GNU GPLv3.
 from . import CURRENT_FS_REV
 from .backends.common import NoSuchObject, get_backend, DanglingStorageURLError
 from .common import (ROOT_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE, get_backend_cachedir, 
-    setup_logging, QuietError, get_seq_no, stream_write_bz2, stream_read_bz2, CTRL_INODE)
+    setup_logging, QuietError, get_seq_no, stream_write_bz2, stream_read_bz2, CTRL_INODE,
+    PICKLE_PROTOCOL)
 from .database import NoSuchRowError, Connection
 from .metadata import restore_metadata, cycle_metadata, dump_metadata, create_tables
 from .parse_args import ArgumentParser
 from os.path import basename
 import apsw
-import pickle as pickle
+import pickle
 import logging
 import os
 import re
@@ -1185,7 +1186,7 @@ def main(args=None):
     param['seq_no'] += 1
     param['needs_fsck'] = True
     backend['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
-    pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+    pickle.dump(param, open(cachepath + '.params', 'wb'), PICKLE_PROTOCOL)
 
     fsck = Fsck(cachepath + '-cache', backend, param, db)
     fsck.check()
@@ -1223,7 +1224,7 @@ def main(args=None):
     obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
                                   is_compressed=True)
     log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
-    pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+    pickle.dump(param, open(cachepath + '.params', 'wb'), PICKLE_PROTOCOL)
 
     db.execute('ANALYZE')
     db.execute('VACUUM')

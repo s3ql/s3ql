@@ -9,11 +9,11 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 
 from .common import AbstractBackend, DanglingStorageURLError, NoSuchObject, ChecksumError
-from ..common import BUFSIZE
+from ..common import BUFSIZE, PICKLE_PROTOCOL
 import shutil
 import logging
 import io
-import pickle as pickle
+import pickle
 import os
 import _thread
 
@@ -128,7 +128,7 @@ class Backend(AbstractBackend):
             dest = ObjectW(tmpname)
 
         os.rename(tmpname, path)
-        pickle.dump(metadata, dest, 2)
+        pickle.dump(metadata, dest, PICKLE_PROTOCOL)
         return dest
 
     def clear(self):

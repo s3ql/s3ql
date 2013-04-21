@@ -7,8 +7,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from os.path import basename
-from s3ql.common import CTRL_NAME
-import pickle as pickle
+from s3ql.common import CTRL_NAME, PICKLE_PROTOCOL
+import pickle
 import filecmp
 import llfuse
 import logging
@@ -440,7 +440,7 @@ class fuse_tests(unittest.TestCase):
         self.assertTrue(dirname in llfuse.listdir(self.mnt_dir))
         llfuse.setxattr('%s/%s' % (self.mnt_dir, CTRL_NAME), 
                         'rmtree', pickle.dumps((llfuse.ROOT_INODE, dirname),
-                                               pickle.HIGHEST_PROTOCOL))                
+                                               PICKLE_PROTOCOL))                
         self.assertRaises(FileNotFoundError, os.stat, fullname)
         self.assertTrue(dirname not in llfuse.listdir(self.mnt_dir))
 

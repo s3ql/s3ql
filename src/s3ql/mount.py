@@ -11,7 +11,7 @@ from . import fs, CURRENT_FS_REV
 from .backends.common import get_backend_factory, BackendPool, DanglingStorageURLError
 from .block_cache import BlockCache
 from .common import (setup_logging, get_backend_cachedir, get_seq_no, QuietError, stream_write_bz2, 
-    stream_read_bz2)
+    stream_read_bz2, PICKLE_PROTOCOL)
 from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
@@ -19,7 +19,7 @@ from .metadata import cycle_metadata, dump_metadata, restore_metadata
 from .parse_args import ArgumentParser
 from threading import Thread
 import argparse
-import pickle as pickle
+import pickle
 import llfuse
 import logging
 import os
@@ -218,7 +218,7 @@ def main(args=None):
             log.info('File system unchanged, not uploading metadata.')
             del backend['s3ql_seq_no_%d' % param['seq_no']]
             param['seq_no'] -= 1
-            pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+            pickle.dump(param, open(cachepath + '.params', 'wb'), PICKLE_PROTOCOL)
         elif seq_no == param['seq_no']:
             cycle_metadata(backend)
             param['last-modified'] = time.time()
@@ -235,7 +235,7 @@ def main(args=None):
             obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
                                           is_compressed=True)
             log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
-            pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+            pickle.dump(param, open(cachepath + '.params', 'wb'), PICKLE_PROTOCOL)
         else:
             log.error('Remote metadata is newer than local (%d vs %d), '
                       'refusing to overwrite!', seq_no, param['seq_no'])
@@ -359,7 +359,7 @@ def get_metadata(backend, cachepath):
     param['seq_no'] += 1
     param['needs_fsck'] = True
     backend['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
-    pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+    pickle.dump(param, open(cachepath + '.params', 'wb'), PICKLE_PROTOCOL)
     param['needs_fsck'] = False
 
     return (param, db)
