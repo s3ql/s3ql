@@ -282,11 +282,17 @@ def unescape(s):
 
     return s
 
-class ObjectR(io.BufferedReader):
+
+# Inherit from io.FileIO rather than io.BufferedReader to disable buffering. Default buffer size is
+# ~8 kB (http://docs.python.org/3/library/functions.html#open), but backends are almost always only
+# accessed by block_cache and stream_read_bz2/stream_write_bz2, which all use the much larger
+# s3ql.common.BUFSIZE
+class ObjectR(io.FileIO):
     '''A local storage object opened for reading'''
 
+
     def __init__(self, name, metadata=None):
-        super(ObjectR, self).__init__(io.FileIO(name))
+        super(ObjectR, self).__init__(name)
         self.metadata = metadata
 
 class ObjectW(object):
@@ -294,7 +300,13 @@ class ObjectW(object):
 
     def __init__(self, name):
         super(ObjectW, self).__init__()
-        self.fh = open(name, 'wb')
+
+        # Inherit from io.FileIO rather than io.BufferedReader to disable buffering. Default buffer
+        # size is ~8 kB (http://docs.python.org/3/library/functions.html#open), but backends are
+        # almost always only accessed by block_cache and stream_read_bz2/stream_write_bz2, which all
+        # use the much larger s3ql.common.BUFSIZE
+        self.fh = open(name, 'wb', buffering=0)
+        
         self.obj_size = 0
         self.closed = False
 
