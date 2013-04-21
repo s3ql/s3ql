@@ -7,15 +7,13 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 
-from .common import CTRL_NAME, setup_logging
+from .common import CTRL_NAME, setup_logging, assert_s3ql_mountpoint
 from .parse_args import ArgumentParser
 import llfuse
 import logging
 import os
-import posixpath
 import subprocess
 import sys
-import errno
 import textwrap
 import time
 
@@ -53,7 +51,6 @@ class UmountError(Exception):
     """
 
     message = 'internal error'
-    exitcode = 3
     
     def __init__(self, mountpoint):
         super(UmountError, self).__init__()
@@ -62,43 +59,11 @@ class UmountError(Exception):
     def __str__(self):
         return self.message
 
-class NotMountPointError(UmountError):
-    message = 'Not a mountpoint.'
-    exitcode = 1
-
-class NotS3qlFsError(UmountError):
-    message = 'Not an S3QL file system.'
-    exitcode = 2
-    
 class UmountSubError(UmountError):
     message = 'Unmount subprocess failed.'
-    exitcode = 3
     
 class MountInUseError(UmountError):
     message = 'In use.'
-    exitcode = 4
-    
-class FSCrashedError(UmountError):
-    message = 'File system seems to have crashed.'
-    exitcode = 5
-    
-def check_mount(mountpoint):
-    '''Check that "mountpoint" is a mountpoint and a valid s3ql fs'''
-    
-    try:
-        os.stat(mountpoint)
-    except OSError as exc:
-        if exc.errno is errno.ENOTCONN:
-            raise FSCrashedError(mountpoint) from None
-        raise
-        
-    if not posixpath.ismount(mountpoint):
-        raise NotMountPointError(mountpoint)
-
-    ctrlfile = os.path.join(mountpoint, CTRL_NAME)
-    if not (CTRL_NAME not in llfuse.listdir(mountpoint) and
-            os.path.exists(ctrlfile)):
-        raise NotS3qlFsError(mountpoint)
 
 def lazy_umount(mountpoint):
     '''Invoke fusermount -u -z for mountpoint'''
@@ -109,7 +74,7 @@ def lazy_umount(mountpoint):
         umount_cmd = ('fusermount', '-u', '-z', mountpoint)
 
     if subprocess.call(umount_cmd) != 0:
-        raise UmountError(mountpoint)
+        raise UmountSubError(mountpoint)
 
 def blocking_umount(mountpoint):
     '''Invoke fusermount and wait for daemon to terminate.'''
@@ -146,7 +111,7 @@ def blocking_umount(mountpoint):
         umount_cmd = ['fusermount', '-u', mountpoint]
 
     if subprocess.call(umount_cmd) != 0:
-        raise UmountError(mountpoint)
+        raise UmountSubError(mountpoint)
 
     # Wait for daemon
     log.debug('Uploading metadata...')
@@ -179,15 +144,6 @@ def blocking_umount(mountpoint):
         if step < 10:
             step *= 2
 
-def umount(mountpoint, lazy=False):
-    '''Umount "mountpoint", blocks if not "lazy".'''
-
-    check_mount(mountpoint)
-    if lazy:
-        lazy_umount(mountpoint)
-    else:
-        blocking_umount(mountpoint)
-
 def main(args=None):
     '''Umount S3QL file system'''
 
@@ -197,19 +153,19 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
+    assert_s3ql_mountpoint(options.mountpoint)
+    
     try:
-        umount(options.mountpoint, options.lazy)
+        if options.lazy:
+            lazy_umount(options.mountpoint)
+        else:
+            blocking_umount(options.mountpoint)
+
     except MountInUseError as err:
         print('Cannot unmount, the following processes still access the mountpoint:',
               file=sys.stderr)
         subprocess.call(['fuser', '-v', '-m', options.mountpoint],
                         stdout=sys.stderr, stderr=sys.stderr)
-        sys.exit(err.exitcode)
-
-    except FSCrashedError as err:
-        print('%s: %s' % (options.mountpoint, err), file=sys.stderr)
-        print("Unmounting with the 'umount' or 'fusermount -u' command may help "
-              "in this situation.")
         sys.exit(err.exitcode)
 
     except UmountError as err:

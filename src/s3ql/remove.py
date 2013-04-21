@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 
-from .common import setup_logging, CTRL_NAME, QuietError
+from .common import setup_logging, QuietError, assert_fs_owner
 from .parse_args import ArgumentParser
 import pickle as pickle
 import llfuse
@@ -48,23 +48,11 @@ def main(args=None):
     setup_logging(options)
 
     for name in options.path:
-        if not os.path.exists(name):
-            raise QuietError('%r does not exist' % name)
+        if os.path.ismount(name):
+            raise QuietError('%s is a mount point.' % name)
 
-        parent = os.path.dirname(os.path.abspath(name))
-        fstat_p = os.stat(parent)
-        fstat = os.stat(name)
-
-        if fstat_p.st_dev != fstat.st_dev:
-            raise QuietError('%s is a mount point itself.' % name)
-
-        ctrlfile = os.path.join(parent, CTRL_NAME)
-        if not (CTRL_NAME not in llfuse.listdir(parent) and os.path.exists(ctrlfile)):
-            raise QuietError('%s is not on an S3QL file system' % name)
-
-        if os.stat(ctrlfile).st_uid != os.geteuid():
-            raise QuietError('Only root and the mounting user may run s3qlrm.')
-
+        ctrlfile = assert_fs_owner(name)
+        fstat_p = os.stat(os.path.dirname(os.path.abspath(name)))
         llfuse.setxattr(ctrlfile, 'rmtree', pickle.dumps((fstat_p.st_ino,
                                                           os.path.basename(name)),
                                                           pickle.HIGHEST_PROTOCOL))

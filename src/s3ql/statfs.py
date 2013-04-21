@@ -7,15 +7,12 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 
-from .common import CTRL_NAME, QuietError, setup_logging
+from .common import assert_fs_owner, setup_logging
 from .parse_args import ArgumentParser
 import llfuse
 import logging
-import os
-import posixpath
 import struct
 import sys
-
 
 log = logging.getLogger("stat")
 
@@ -42,20 +39,8 @@ def main(args=None):
 
     options = parse_args(args)
     setup_logging(options)
-    mountpoint = options.mountpoint
 
-    # Check if it's a mount point
-    if not posixpath.ismount(mountpoint):
-        raise QuietError('%s is not a mount point' % mountpoint)
-
-    # Check if it's an S3QL mountpoint
-    ctrlfile = os.path.join(mountpoint, CTRL_NAME)
-    if not (CTRL_NAME not in llfuse.listdir(mountpoint)
-            and os.path.exists(ctrlfile)):
-        raise QuietError('%s is not a mount point' % mountpoint)
-
-    if os.stat(ctrlfile).st_uid != os.geteuid() and os.geteuid() != 0:
-        raise QuietError('Only root and the mounting user may run s3qlstat.')
+    ctrlfile = assert_fs_owner(options.mountpoint, mountpoint=True)
 
     # Use a decent sized buffer, otherwise the statistics have to be
     # calculated thee(!) times because we need to invoce getxattr
