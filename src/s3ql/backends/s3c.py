@@ -22,7 +22,7 @@ import re
 import tempfile
 import time
 import urllib.parse
-import xml.etree.cElementTree as ElementTree
+from xml.etree import ElementTree
 from s3ql.backends.common import is_temp_network_error
 
 
