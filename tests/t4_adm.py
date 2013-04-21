@@ -38,7 +38,8 @@ class AdmTests(unittest.TestCase):
         proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
                                  '-L', 'test fs', '--max-obj-size', '500',
                                  '--cachedir', self.cache_dir, '--quiet',
-                                 self.storage_url ], stdin=subprocess.PIPE)
+                                 self.storage_url ], stdin=subprocess.PIPE,
+                                universal_newlines=True)
 
         print(self.passphrase, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
@@ -53,7 +54,8 @@ class AdmTests(unittest.TestCase):
 
         proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 's3qladm'),
                                  '--quiet', 'passphrase',
-                                 self.storage_url ], stdin=subprocess.PIPE)
+                                 self.storage_url ], stdin=subprocess.PIPE,
+                                universal_newlines=True)
 
         print(self.passphrase, file=proc.stdin)
         print(passphrase_new, file=proc.stdin)

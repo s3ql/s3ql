@@ -34,7 +34,7 @@ class PipeInclude(Include):
 
         try:
             child = subprocess.Popen(shlex.split(command), stdout=subprocess.PIPE,
-                                     cwd=source_dir)
+                                     cwd=source_dir, universal_newlines=True)
             include_file = io.FileInput(
                 source=child.stdout, encoding=encoding,
                 error_handler=(self.state.document.settings.\

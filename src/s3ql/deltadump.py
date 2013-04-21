@@ -11,8 +11,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 #@PydevCodeAnalysisIgnore
 
-
-
 import apsw
 from . import _deltadump
 from ._deltadump import *
@@ -23,7 +21,8 @@ def get_libraries(pathname):
     '''Return shared libraries required for *pathname*'''
 
     libs = dict()
-    ldd = subprocess.Popen(['ldd', pathname], stdout=subprocess.PIPE)
+    ldd = subprocess.Popen(['ldd', pathname], stdout=subprocess.PIPE,
+                           universal_newlines=True)
     for line in ldd.stdout:
         if '=>' in line:
             (soname, path) = line.split('=>')

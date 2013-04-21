@@ -56,7 +56,7 @@ class FsckTests(t4_fuse.fuse_tests):
             rsync = subprocess.Popen(['rsync', '-anciHAX', '--delete',
                                       '--exclude', '/lost+found',
                                       ref_dir + '/', self.mnt_dir + '/'],
-                                     stdout=subprocess.PIPE,
+                                     stdout=subprocess.PIPE, universal_newlines=True,
                                      stderr=subprocess.STDOUT)
             out = rsync.communicate()[0]
             if out:

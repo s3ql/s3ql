@@ -126,7 +126,8 @@ class RetryTimeoutError(Exception):
 def skip_if_no_fusermount():
     '''Raise SkipTest if fusermount is not available'''
 
-    which = subprocess.Popen(['which', 'fusermount'], stdout=subprocess.PIPE)
+    which = subprocess.Popen(['which', 'fusermount'], stdout=subprocess.PIPE,
+                             universal_newlines=True)
     fusermount_path = which.communicate()[0].strip()
 
     if not fusermount_path or which.wait() != 0:
@@ -188,7 +189,8 @@ class fuse_tests(unittest.TestCase):
         proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
                                  '-L', 'test fs', '--max-obj-size', '500',
                                  '--cachedir', self.cache_dir, '--quiet',
-                                 self.storage_url ], stdin=subprocess.PIPE)
+                                 self.storage_url ], stdin=subprocess.PIPE,
+                                universal_newlines=True)
 
         print(self.passphrase, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
@@ -201,7 +203,7 @@ class fuse_tests(unittest.TestCase):
                                                 "--fg", '--cachedir', self.cache_dir,
                                                 '--log', 'none', '--quiet',
                                                   self.storage_url, self.mnt_dir],
-                                                  stdin=subprocess.PIPE)
+                                                  stdin=subprocess.PIPE, universal_newlines=True)
         print(self.passphrase, file=self.mount_process.stdin)
         self.mount_process.stdin.close()
         def poll():
@@ -227,7 +229,8 @@ class fuse_tests(unittest.TestCase):
         proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'fsck.s3ql'),
                                  '--force', '--quiet', '--log', 'none',
                                  '--cachedir', self.cache_dir,
-                                 self.storage_url ], stdin=subprocess.PIPE)
+                                 self.storage_url ], stdin=subprocess.PIPE, 
+                                universal_newlines=True)
         print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
         self.assertEqual(proc.wait(), 0)

@@ -44,7 +44,7 @@ class cpTests(t4_fuse.fuse_tests):
             rsync = subprocess.Popen(['rsync', '-anciHAX', '--delete',
                                       tempdir + '/',
                                       os.path.join(self.mnt_dir, 'copy') + '/'],
-                                      stdout=subprocess.PIPE,
+                                      stdout=subprocess.PIPE, universal_newlines=True,
                                       stderr=subprocess.STDOUT)
             out = rsync.communicate()[0]
             if out:
