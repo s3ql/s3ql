@@ -882,7 +882,7 @@ class DecryptFilter(AbstractInputFilter):
             if paket_size == 0:
                 if len(inbuf) != HMAC_SIZE:
                     inbuf += self.cipher.decrypt(self.fh.read(HMAC_SIZE - len(inbuf)))
-                if inbuf != self.hmac.digest():
+                if not hmac.compare_digest(inbuf, self.hmac.digest()):
                     raise ChecksumError('HMAC mismatch')
                 self.hmac_checked = True
                 break
@@ -934,7 +934,8 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
         while not buf:
             buf = self.fh.read(size)
             if not buf and not self.hmac_checked:
-                if self.cipher.decrypt(self.hash) != self.hmac.digest():
+                if not hmac.compare_digest(self.cipher.decrypt(self.hash), 
+                                           self.hmac.digest()):
                     raise ChecksumError('HMAC mismatch')
                 elif self.decomp and self.decomp.unused_data:
                     raise ChecksumError('Data after end of compressed stream')
@@ -1017,7 +1018,7 @@ def decrypt(buf, passphrase):
 
     hash_ = cipher.decrypt(hash_)
 
-    if hash_ != hmac_.digest():
+    if not hmac.compare_digest(hash_, hmac_.digest()):
         raise ChecksumError('HMAC mismatch')
 
     return buf
