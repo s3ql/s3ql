@@ -767,9 +767,6 @@ class EncryptFilter(object):
         self.obj_size = 0
         self.closed = False
 
-        if isinstance(nonce, str):
-            nonce = nonce.encode('utf-8')
-
         self.key = sha256(passphrase + nonce)
         self.cipher = aes_cipher(self.key)
         self.hmac = hmac.new(self.key, digestmod=hashlib.sha256)
