@@ -396,6 +396,8 @@ class BetterBackend(AbstractBackend):
     def __init__(self, passphrase, compression, backend):
         super(BetterBackend, self).__init__()
 
+        assert passphrase is None or isinstance(passphrase, (bytes, bytearray, memoryview))
+        
         self.passphrase = passphrase
         self.compression = compression
         self.backend = backend
@@ -538,7 +540,7 @@ class BetterBackend(AbstractBackend):
 
         if self.passphrase:
             meta_raw['encryption'] = 'AES_v2'
-            nonce = struct.pack(b'<f', time.time()) + bytes(key)
+            nonce = struct.pack('<f', time.time()) + key.encode('utf-8')
             meta_buf = b64encode(encrypt(meta_buf, self.passphrase, nonce))
         else:
             meta_raw['encryption'] = 'None'
@@ -982,9 +984,6 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
 def encrypt(buf, passphrase, nonce):
     '''Encrypt *buf*'''
 
-    if isinstance(nonce, str):
-        nonce = nonce.encode('utf-8')
-
     key = sha256(passphrase + nonce)
     cipher = aes_cipher(key) 
     hmac_ = hmac.new(key, digestmod=hashlib.sha256)
@@ -1223,6 +1222,7 @@ def get_backend_factory(options, plain=False):
             backend_passphrase = getpass("Enter file system encryption passphrase: ")
         else:
             backend_passphrase = sys.stdin.readline().rstrip()
+        backend_passphrase = backend_passphrase.encode('utf-8')
     elif not encrypted:
         backend_passphrase = None
 

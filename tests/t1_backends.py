@@ -272,12 +272,12 @@ class CompressionTests(BackendTestsMixin, unittest.TestCase):
 class EncryptionTests(CompressionTests):
 
     def _wrap_backend(self):
-        return BetterBackend('schlurz', None, self.plain_backend)
+        return BetterBackend(b'schluz', None, self.plain_backend)
 
     def test_encryption(self):
 
         self.plain_backend['plain'] = b'foobar452'
-        self.backend.store('encrypted', 'testdata', { 'tag': True })
+        self.backend.store('encrypted', b'testdata', { 'tag': True })
         time.sleep(self.delay)
         self.assertEquals(self.backend['encrypted'], b'testdata')
         self.assertNotEquals(self.plain_backend['encrypted'], b'testdata')
@@ -288,7 +288,7 @@ class EncryptionTests(CompressionTests):
         self.assertRaises(ChecksumError, self.backend.fetch, 'encrypted')
         self.assertRaises(ChecksumError, self.backend.lookup, 'encrypted')
 
-        self.backend.passphrase = 'jobzrul'
+        self.backend.passphrase = b'jobzrul'
         self.assertRaises(ChecksumError, self.backend.fetch, 'encrypted')
         self.assertRaises(ChecksumError, self.backend.lookup, 'encrypted')
 
@@ -296,7 +296,7 @@ class EncryptionTests(CompressionTests):
 class EncryptionCompressionTests(EncryptionTests):
 
     def _wrap_backend(self):
-        return BetterBackend('schlurz', 'zlib', self.plain_backend)
+        return BetterBackend(b'schlurz', 'zlib', self.plain_backend)
 
 
 # Somehow important according to pyunit documentation
