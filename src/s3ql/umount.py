@@ -11,6 +11,7 @@ from .common import CTRL_NAME, setup_logging, assert_s3ql_mountpoint
 from .parse_args import ArgumentParser
 import llfuse
 import logging
+import pickle
 import os
 import subprocess
 import sys
@@ -92,7 +93,7 @@ def blocking_umount(mountpoint):
 
     # Get pid
     log.debug('Trying to get pid')
-    pid = int(llfuse.getxattr(ctrlfile, b's3ql_pid?'))
+    pid = pickle.loads(llfuse.getxattr(ctrlfile, b's3ql_pid?'))
     log.debug('PID is %d', pid)
 
     # Get command line to make race conditions less-likely

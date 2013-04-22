@@ -24,6 +24,7 @@ import os
 import stat
 import struct
 import time
+from s3ql.common import PICKLE_PROTOCOL
 
 # standard logger for this module
 log = logging.getLogger("fs")
@@ -198,7 +199,7 @@ class Operations(llfuse.Operations):
         # Handle S3QL commands
         if id_ == CTRL_INODE:
             if name == b's3ql_pid?':
-                return bytes(os.getpid())
+                return pickle.dumps(os.getpid(), PICKLE_PROTOCOL)
 
             elif name == b's3qlstat':
                 return self.extstat()
