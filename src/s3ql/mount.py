@@ -242,7 +242,7 @@ def main(args=None):
             log.error('The locally cached metadata will be *lost* the next time the file system '
                       'is mounted or checked and has therefore been backed up.')
             for name in (cachepath + '.params', cachepath + '.db'):
-                for i in reversed(list(range(4))):
+                for i in range(4)[::-1]:
                     if os.path.exists(name + '.%d' % i):
                         os.rename(name + '.%d' % i, name + '.%d' % (i + 1))
                 os.rename(name, name + '.0')

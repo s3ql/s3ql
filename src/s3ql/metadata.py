@@ -78,7 +78,7 @@ def cycle_metadata(backend):
     from .backends.common import NoSuchObject
 
     log.info('Backing up old metadata...')
-    for i in reversed(list(range(10))):
+    for i in range(10)[::-1]:
         try:
             backend.copy("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
         except NoSuchObject:
