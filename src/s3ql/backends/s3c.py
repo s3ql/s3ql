@@ -370,7 +370,7 @@ class Backend(AbstractBackend):
             else:
                 raise RuntimeError('Redirect to different path on same host')
             
-            if body and not isinstance(body, bytes):
+            if body and not isinstance(body, (bytes, bytearray, memoryview)):
                 body.seek(0)
 
             # Read and discard body
