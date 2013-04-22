@@ -12,7 +12,7 @@ from .common import (get_path, CTRL_NAME, CTRL_INODE, LoggerFilter)
 from .database import NoSuchRowError
 from .inode_cache import OutOfInodesError
 from . import deltadump
-from io import StringIO
+from io import BytesIO
 from llfuse import FUSEError
 import pickle
 import collections
@@ -965,7 +965,7 @@ class Operations(llfuse.Operations):
         This method releases the global lock while it is running.
         '''
         log.debug('read(%d, %d, %d): start', fh, offset, length)
-        buf = StringIO()
+        buf = BytesIO()
         inode = self.inodes[fh]
 
         # Make sure that we don't read beyond the file size. This

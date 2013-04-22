@@ -10,7 +10,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL
 from abc import abstractmethod, ABCMeta
 from base64 import b64decode, b64encode
-from io import StringIO
+from io import BytesIO
 from contextlib import contextmanager
 from functools import wraps
 from getpass import getpass
@@ -999,7 +999,7 @@ def encrypt(buf, passphrase, nonce):
 def decrypt(buf, passphrase):
     '''Decrypt *buf'''
 
-    fh = StringIO(buf)
+    fh = BytesIO(buf)
 
     len_ = struct.unpack(b'<B', fh.read(struct.calcsize(b'<B')))[0]
     nonce = fh.read(len_)
