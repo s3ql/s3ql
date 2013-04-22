@@ -942,7 +942,7 @@ class Fsck(object):
                 self.conn.get_val("SELECT inode FROM contents_v "
                                   "WHERE name=? AND parent_inode=?", (newname, inode_p))
                 i += 1
-                newname = name + bytes(i)
+                newname = name + str(i).encode()
 
         except NoSuchRowError:
             pass

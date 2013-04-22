@@ -350,7 +350,7 @@ class fsck_tests(unittest.TestCase):
         last = inodes[0]
         for inode in inodes[1:]:
             self.db.execute('INSERT INTO contents (name_id, inode, parent_inode) VALUES(?, ?, ?)',
-                            (self._add_name(bytes(inode)), inode, last))
+                            (self._add_name(int(inode).encode()), inode, last))
             last = inode
 
         self.assert_fsck(self.fsck.check_loops)
