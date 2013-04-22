@@ -36,6 +36,10 @@ that is not the case.
 * `Python <http://www.python.org/>`_ 3.3.0 or newer. Make sure to also
   install the development headers.
 
+* The `setuptools/distribute Python Module
+  <https://pypi.python.org/pypi/distribute>`_. To check if this
+  module is installed, try to execute `python -c 'import setuptools'`.
+
 * The `PyCrypto Python Module
   <https://www.dlitz.net/software/pycrypto/>`_. To check if this
   module is installed, try to execute `python -c 'import Crypto'`.

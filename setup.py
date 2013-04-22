@@ -12,6 +12,15 @@ import sys
 if sys.version_info < (3,3):
     raise SystemExit('Python version is %d.%d.%d, but S3QL requires Python 3.3 or newer'
                      % sys.version_info[:3])
+    
+try:
+    import setuptools
+except ImportError:
+    raise SystemExit('Setuptools/distribute package not found. Please install from '
+                     'https://pypi.python.org/pypi/distribute')
+import setuptools.command.test as setuptools_test
+from setuptools import Extension
+    
 import os
 import subprocess
 import logging.handlers
@@ -27,15 +36,8 @@ import multiprocessing
 # Add S3QL sources
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
 sys.path.insert(0, os.path.join(basedir, 'src'))
-import s3ql
-
-# Import distribute
 sys.path.insert(0, os.path.join(basedir, 'util'))
-from distribute_setup import use_setuptools
-use_setuptools(download_delay=5)
-import setuptools
-import setuptools.command.test as setuptools_test
-from setuptools import Extension
+import s3ql
 
 class build_docs(setuptools.Command):
     description = 'Build Sphinx documentation'
