@@ -23,9 +23,12 @@ class BackendTestsMixin(object):
         # Include special characters
         return "s3ql_=/_%d" % self.name_cnt
 
+    def newvalue(self):
+        return self.newname().encode()
+    
     def test_write(self):
         key = self.newname()
-        value = self.newname()
+        value = self.newvalue()
         metadata = { 'jimmy': 'jups@42' }
 
         self.assertRaises(NoSuchObject, self.backend.lookup, key)
@@ -46,14 +49,14 @@ class BackendTestsMixin(object):
 
     def test_setitem(self):
         key = self.newname()
-        value = self.newname()
+        value = self.newvalue()
         metadata = { 'jimmy': 'jups@42' }
 
         self.assertRaises(NoSuchObject, self.backend.lookup, key)
         self.assertRaises(NoSuchObject, self.backend.__getitem__, key)
 
         with self.backend.open_write(key, metadata) as fh:
-            fh.write(self.newname())
+            fh.write(self.newvalue())
         time.sleep(self.delay)
         self.backend[key] = value
         time.sleep(self.delay)
@@ -67,7 +70,7 @@ class BackendTestsMixin(object):
 
     def test_contains(self):
         key = self.newname()
-        value = self.newname()
+        value = self.newvalue()
 
         self.assertFalse(key in self.backend)
         self.backend[key] = value
@@ -76,7 +79,7 @@ class BackendTestsMixin(object):
 
     def test_delete(self):
         key = self.newname()
-        value = self.newname()
+        value = self.newvalue()
         self.backend[key] = value
         time.sleep(self.delay)
 
@@ -88,8 +91,8 @@ class BackendTestsMixin(object):
     def test_clear(self):
         key1 = self.newname()
         key2 = self.newname()
-        self.backend[key1] = self.newname()
-        self.backend[key2] = self.newname()
+        self.backend[key1] = self.newvalue()
+        self.backend[key2] = self.newvalue()
 
         time.sleep(self.delay)
         self.assertEquals(len(list(self.backend)), 2)
@@ -102,7 +105,7 @@ class BackendTestsMixin(object):
     def test_list(self):
 
         keys = [ self.newname() for dummy in range(12) ]
-        values = [ self.newname() for dummy in range(12) ]
+        values = [ self.newvalue() for dummy in range(12) ]
         for i in range(12):
             self.backend[keys[i]] = values[i]
 
@@ -113,7 +116,7 @@ class BackendTestsMixin(object):
 
         key1 = self.newname()
         key2 = self.newname()
-        value = self.newname()
+        value = self.newvalue()
         self.assertRaises(NoSuchObject, self.backend.lookup, key1)
         self.assertRaises(NoSuchObject, self.backend.lookup, key2)
 
@@ -128,7 +131,7 @@ class BackendTestsMixin(object):
 
         key1 = self.newname()
         key2 = self.newname()
-        value = self.newname()
+        value = self.newvalue()
         self.assertRaises(NoSuchObject, self.backend.lookup, key1)
         self.assertRaises(NoSuchObject, self.backend.lookup, key2)
 

@@ -216,7 +216,7 @@ class Backend(AbstractBackend):
                 # Need to read rest of response
                 while True:
                     buf = resp.read(BUFSIZE)
-                    if buf == '':
+                    if buf == b'':
                         break
                 break
 
@@ -466,7 +466,9 @@ class Backend(AbstractBackend):
 
         # False positive, hashlib *does* have sha1 member
         #pylint: disable=E1101
-        signature = b64encode(hmac.new(self.password, ''.join(auth_strs), hashlib.sha1).digest())
+        auth_str = ''.join(auth_strs).encode()
+        signature = b64encode(hmac.new(self.password.encode(), auth_str,
+                                       hashlib.sha1).digest())
 
         headers['authorization'] = 'AWS %s:%s' % (self.login, signature)
 

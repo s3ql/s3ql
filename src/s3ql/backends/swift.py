@@ -422,7 +422,7 @@ class Backend(AbstractBackend):
                 # Need to read rest of response
                 while True:
                     buf = resp.read(BUFSIZE)
-                    if buf == '':
+                    if buf == b'':
                         break
                 break
             

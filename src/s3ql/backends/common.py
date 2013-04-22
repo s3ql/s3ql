@@ -452,9 +452,9 @@ class BetterBackend(AbstractBackend):
         elif not encrypted and self.passphrase:
             raise ObjectNotEncrypted()
 
-        buf = b64decode(''.join(metadata[k] 
-                                for k in sorted(metadata.keys()) 
-                                if k.startswith('meta')))
+        buf = b64decode(b''.join(metadata[k] 
+                                 for k in sorted(metadata.keys()) 
+                                 if k.startswith('meta')))
         if encrypted:
             buf = decrypt(buf, self.passphrase)
 
@@ -618,7 +618,7 @@ class AbstractInputFilter(object, metaclass=ABCMeta):
 
     def __init__(self):
         super(AbstractInputFilter, self).__init__()
-        self.buffer = ''
+        self.buffer = b''
 
     def read(self, size=None):
         '''Try to read *size* bytes
@@ -640,7 +640,7 @@ class AbstractInputFilter(object, metaclass=ABCMeta):
 
         if size is None:
             buf = self.buffer
-            self.buffer = ''
+            self.buffer = b''
         else:
             buf = self.buffer[:size]
             self.buffer = self.buffer[size:]
@@ -714,13 +714,13 @@ class DecompressFilter(AbstractInputFilter):
     def _read(self, size):
         '''Read roughly *size* bytes'''
 
-        buf = ''
+        buf = b''
         while not buf:
             buf = self.fh.read(size)
             if not buf:
                 if self.decomp.unused_data:
                     raise ChecksumError('Data after end of compressed stream')
-                return ''
+                return b''
 
             try:
                 buf = self.decomp.decompress(buf)
@@ -856,10 +856,10 @@ class DecryptFilter(AbstractInputFilter):
         if not buf:
             if not self.hmac_checked:
                 raise ChecksumError('HMAC mismatch')
-            return ''
+            return b''
 
         inbuf = self.cipher.decrypt(buf)
-        outbuf = ''
+        outbuf = b''
         while True:
 
             if len(inbuf) <= self.remaining:
@@ -941,9 +941,9 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
                     raise ChecksumError('Data after end of compressed stream')
                 else:
                     self.hmac_checked = True
-                    return ''
+                    return b''
             elif not buf:
-                return ''
+                return b''
 
             buf = self.cipher.decrypt(buf)
             if not self.decomp:

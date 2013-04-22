@@ -159,7 +159,7 @@ def stream_read_bz2(ifh, ofh):
         if buf:
             ofh.write(buf)
 
-    if decompressor.unused_data or ifh.read(1) != '':
+    if decompressor.unused_data or ifh.read(1) != b'':
         raise ChecksumError('Data after end of bz2 stream')
 
 class ChecksumError(Exception):

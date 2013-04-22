@@ -165,7 +165,7 @@ class DumpTests(unittest.TestCase):
         first = True
         for (id_,) in db.query('SELECT id FROM test'):
             if len_ is None and first:
-                val = '' # We always want to check this case
+                val = b'' # We always want to check this case
                 first = False
             elif len_ is None:
                 val = rfh.read(random.randint(0, 140))
