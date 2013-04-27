@@ -597,7 +597,7 @@ class BlockCache(object):
             need_entries = len(self.entries) - self.max_entries
 
             # Try to expire entries that are not dirty
-            for el in self.entries():
+            for el in self.entries.values():
                 if el.dirty:
                     if (el.inode, el.blockno) in self.in_transit:
                         log.debug('expire: %s is dirty, but already being uploaded', el)
@@ -621,7 +621,7 @@ class BlockCache(object):
                 break
 
             # Try to upload just enough
-            for el in self.entries:
+            for el in self.entries.values():
                 if el.dirty and (el.inode, el.blockno) not in self.in_transit:
                     log.debug('expire: uploading %s..', el)
                     freed = self.upload(el) # Releases global lock
