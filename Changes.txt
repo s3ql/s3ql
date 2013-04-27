@@ -2,6 +2,9 @@ UNRELEASED, S3QL tip
 
   * S3QL now requires Python 3.3 or newer.
 
+  * Cycling of metadata backups when using the local backend now
+    takes much less time.
+
   * S3QL no longer requires the unittest2 third-party Python
     module.
 

@@ -24,6 +24,7 @@ from setuptools import Extension
 import os
 import subprocess
 import logging.handlers
+import warnings
 from glob import glob
 import faulthandler
 faulthandler.enable()
@@ -33,8 +34,12 @@ faulthandler.enable()
 #pylint: disable=W0611
 import multiprocessing
 
-# Add S3QL sources
+# When running from HG repo, enable all warnings    
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
+if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
+    warnings.simplefilter('default')
+    
+# Add S3QL sources    
 sys.path.insert(0, os.path.join(basedir, 'src'))
 sys.path.insert(0, os.path.join(basedir, 'util'))
 import s3ql

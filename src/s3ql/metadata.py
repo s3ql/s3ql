@@ -80,11 +80,11 @@ def cycle_metadata(backend):
     log.info('Backing up old metadata...')
     for i in range(10)[::-1]:
         try:
-            backend.copy("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
+            backend.rename("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
         except NoSuchObject:
             pass
 
-    backend.copy("s3ql_metadata", "s3ql_metadata_bak_0")
+    backend.rename("s3ql_metadata", "s3ql_metadata_bak_0")
 
 def dump_metadata(db, fh):
     '''Dump metadata into fh
