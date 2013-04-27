@@ -547,7 +547,7 @@ class BlockCache(object):
 
                     except NoSuchObject:
                         raise QuietError('Backend claims that object %d does not exist, data '
-                                         'may be corrupted or inconsisten. fsck required.'
+                                         'may be corrupted or inconsistent. fsck required.'
                                          % obj_id) from None
                         
                     except:
