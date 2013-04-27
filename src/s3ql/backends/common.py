@@ -485,37 +485,41 @@ class BetterBackend(AbstractBackend):
         """
 
         fh = self.backend.open_read(key)
-        convert_legacy_metadata(fh.metadata)
-
-        compr_alg = fh.metadata['compression']
-        encr_alg = fh.metadata['encryption']
-
-        metadata = self._unwrap_meta(fh.metadata)
-
-        if compr_alg == 'BZIP2':
-            decompressor = bz2.BZ2Decompressor()
-        elif compr_alg == 'LZMA':
-            decompressor = lzma.LZMADecompressor()
-        elif compr_alg == 'ZLIB':
-            decompressor = zlib.decompressobj()
-        elif compr_alg == 'None':
-            decompressor = None
-        else:
-            raise RuntimeError('Unsupported compression: %s' % compr_alg)
-
-        if encr_alg == 'AES':
-            fh = LegacyDecryptDecompressFilter(fh, self.passphrase, decompressor)
-        else:
-            if encr_alg == 'AES_v2':
-                fh = DecryptFilter(fh, self.passphrase)
-            elif encr_alg != 'None':
-                raise RuntimeError('Unsupported encryption: %s' % encr_alg)
-
-            if decompressor:
-                fh = DecompressFilter(fh, decompressor)
-
-        fh.metadata = metadata
-
+        try:
+            convert_legacy_metadata(fh.metadata)
+    
+            compr_alg = fh.metadata['compression']
+            encr_alg = fh.metadata['encryption']
+    
+            metadata = self._unwrap_meta(fh.metadata)
+    
+            if compr_alg == 'BZIP2':
+                decompressor = bz2.BZ2Decompressor()
+            elif compr_alg == 'LZMA':
+                decompressor = lzma.LZMADecompressor()
+            elif compr_alg == 'ZLIB':
+                decompressor = zlib.decompressobj()
+            elif compr_alg == 'None':
+                decompressor = None
+            else:
+                raise RuntimeError('Unsupported compression: %s' % compr_alg)
+    
+            if encr_alg == 'AES':
+                fh = LegacyDecryptDecompressFilter(fh, self.passphrase, decompressor)
+            else:
+                if encr_alg == 'AES_v2':
+                    fh = DecryptFilter(fh, self.passphrase)
+                elif encr_alg != 'None':
+                    raise RuntimeError('Unsupported encryption: %s' % encr_alg)
+    
+                if decompressor:
+                    fh = DecompressFilter(fh, decompressor)
+    
+            fh.metadata = metadata
+        except:
+            fh.close()
+            raise
+        
         return fh
 
     def open_write(self, key, metadata=None, is_compressed=False):
