@@ -264,7 +264,8 @@ def _dump_or_load(table, order, columns, db, fh):
         else:
             query = ("SELECT %s FROM %s ORDER BY %s " %
                      (', '.join(col_names), table, order))
-        rc = sqlite3_prepare_v2(sqlite3_db, query, -1, & stmt, NULL)
+        query_bytes = query.encode('utf-8')
+        rc = sqlite3_prepare_v2(sqlite3_db, query_bytes, -1, & stmt, NULL)
         if rc != SQLITE_OK:
             raise apsw.exceptionfor(rc)
         cleanup.register(lambda: sqlite3_finalize_p(stmt))
