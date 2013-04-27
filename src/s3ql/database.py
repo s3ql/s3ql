@@ -203,7 +203,7 @@ class ResultSet(object):
         self.cur = cur
         
     def __next__(self):
-        return next(self)
+        return next(self.cur)
     
     def __iter__(self):
         return self
