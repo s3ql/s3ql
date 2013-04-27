@@ -1,3 +1,8 @@
+UNRELEASED, S3QL tip
+
+  * Cycling of metadata backups when using the local backend now
+    takes much less time.
+
 2013-04-09, S3QL 1.14
 
   * Reduced CPU consumption when S3QL is idle.
