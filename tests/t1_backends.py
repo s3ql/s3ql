@@ -168,7 +168,7 @@ class S3Tests(BackendTestsMixin, unittest.TestCase):
         if mode & (stat.S_IRGRP | stat.S_IROTH):
             self.skipTest("Authentication file has insecure permissions")
 
-        config = configparser.SafeConfigParser()
+        config = configparser.ConfigParser()
         config.read(authfile)
 
         try:
