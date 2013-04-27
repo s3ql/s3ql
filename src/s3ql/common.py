@@ -52,6 +52,8 @@ def setup_logging(options):
         root_logger.setLevel(logging.INFO)
         logging.disable(logging.DEBUG)
 
+    logging.captureWarnings(capture=True)
+    
     return stdout_handler
 
 
