@@ -220,7 +220,7 @@ class fuse_tests(unittest.TestCase):
         proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'umount.s3ql'),
                                  '--quiet', self.mnt_dir])
         retry(90, lambda : proc.poll() is not None)
-        self.assertEquals(proc.wait(), 0)
+        self.assertEqual(proc.wait(), 0)
 
         self.assertEqual(self.mount_process.wait(), 0)
         self.assertFalse(os.path.ismount(self.mnt_dir))
@@ -282,8 +282,8 @@ class fuse_tests(unittest.TestCase):
         os.mkdir(fullname)
         fstat = os.stat(fullname)
         self.assertTrue(stat.S_ISDIR(fstat.st_mode))
-        self.assertEquals(llfuse.listdir(fullname), [])
-        self.assertEquals(fstat.st_nlink, 1)
+        self.assertEqual(llfuse.listdir(fullname), [])
+        self.assertEqual(fstat.st_nlink, 1)
         self.assertTrue(dirname in llfuse.listdir(self.mnt_dir))
         os.rmdir(fullname)
         self.assertRaises(FileNotFoundError, os.stat, fullname)
@@ -295,8 +295,8 @@ class fuse_tests(unittest.TestCase):
         os.symlink("/imaginary/dest", fullname)
         fstat = os.lstat(fullname)
         self.assertTrue(stat.S_ISLNK(fstat.st_mode))
-        self.assertEquals(os.readlink(fullname), "/imaginary/dest")
-        self.assertEquals(fstat.st_nlink, 1)
+        self.assertEqual(os.readlink(fullname), "/imaginary/dest")
+        self.assertEqual(fstat.st_nlink, 1)
         self.assertTrue(linkname in llfuse.listdir(self.mnt_dir))
         os.unlink(fullname)
         self.assertRaises(FileNotFoundError, os.lstat, fullname)
@@ -308,7 +308,7 @@ class fuse_tests(unittest.TestCase):
         shutil.copyfile(src, filename)
         fstat = os.lstat(filename)
         self.assertTrue(stat.S_ISREG(fstat.st_mode))
-        self.assertEquals(fstat.st_nlink, 1)
+        self.assertEqual(fstat.st_nlink, 1)
         self.assertTrue(basename(filename) in llfuse.listdir(self.mnt_dir))
         self.assertTrue(filecmp.cmp(src, filename, False))
         os.unlink(filename)
@@ -325,14 +325,14 @@ class fuse_tests(unittest.TestCase):
         uid_new = uid + 1
         os.chown(filename, uid_new, -1)
         fstat = os.lstat(filename)
-        self.assertEquals(fstat.st_uid, uid_new)
-        self.assertEquals(fstat.st_gid, gid)
+        self.assertEqual(fstat.st_uid, uid_new)
+        self.assertEqual(fstat.st_gid, gid)
 
         gid_new = gid + 1
         os.chown(filename, -1, gid_new)
         fstat = os.lstat(filename)
-        self.assertEquals(fstat.st_uid, uid_new)
-        self.assertEquals(fstat.st_gid, gid_new)
+        self.assertEqual(fstat.st_uid, uid_new)
+        self.assertEqual(fstat.st_gid, gid_new)
 
         os.rmdir(filename)
         self.assertRaises(FileNotFoundError, os.stat, filename)
@@ -362,14 +362,14 @@ class fuse_tests(unittest.TestCase):
         fstat1 = os.lstat(name1)
         fstat2 = os.lstat(name2)
 
-        self.assertEquals(fstat1, fstat2)
-        self.assertEquals(fstat1.st_nlink, 2)
+        self.assertEqual(fstat1, fstat2)
+        self.assertEqual(fstat1.st_nlink, 2)
 
         self.assertTrue(basename(name2) in llfuse.listdir(self.mnt_dir))
         self.assertTrue(filecmp.cmp(name1, name2, False))
         os.unlink(name2)
         fstat1 = os.lstat(name1)
-        self.assertEquals(fstat1.st_nlink, 1)
+        self.assertEqual(fstat1.st_nlink, 1)
         os.unlink(name1)
 
     def tst_readdir(self):
@@ -388,7 +388,7 @@ class fuse_tests(unittest.TestCase):
         listdir_is.sort()
         listdir_should = [ basename(file_), basename(subdir) ]
         listdir_should.sort()
-        self.assertEquals(listdir_is, listdir_should)
+        self.assertEqual(listdir_is, listdir_should)
 
         os.unlink(file_)
         os.unlink(subfile)
@@ -405,10 +405,10 @@ class fuse_tests(unittest.TestCase):
         fd = os.open(filename, os.O_RDWR)
 
         os.ftruncate(fd, size + 1024) # add > 1 block
-        self.assertEquals(os.stat(filename).st_size, size + 1024)
+        self.assertEqual(os.stat(filename).st_size, size + 1024)
 
         os.ftruncate(fd, size - 1024) # Truncate > 1 block
-        self.assertEquals(os.stat(filename).st_size, size - 1024)
+        self.assertEqual(os.stat(filename).st_size, size - 1024)
 
         os.close(fd)
         os.unlink(filename)
@@ -427,10 +427,10 @@ class fuse_tests(unittest.TestCase):
         fd = os.open(filename, os.O_RDWR)
 
         os.ftruncate(fd, size + 1024) # add > 1 block
-        self.assertEquals(os.stat(filename).st_size, size + 1024)
+        self.assertEqual(os.stat(filename).st_size, size + 1024)
 
         os.ftruncate(fd, size - 1024) # Truncate > 1 block
-        self.assertEquals(os.stat(filename).st_size, size - 1024)
+        self.assertEqual(os.stat(filename).st_size, size - 1024)
 
         os.close(fd)
         os.unlink(filename)

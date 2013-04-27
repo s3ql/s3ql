@@ -438,7 +438,7 @@ class fs_api_tests(unittest.TestCase):
 
         for key in attr.__slots__:
             if getattr(attr, key) is not None:
-                self.assertEquals(getattr(attr, key),
+                self.assertEqual(getattr(attr, key),
                                   getattr(inode_new, key))
 
         self.server.forget([(inode.id, 1)])

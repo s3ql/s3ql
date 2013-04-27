@@ -42,10 +42,10 @@ class BackendTestsMixin(object):
         with self.backend.open_read(key) as fh:
             value2 = fh.read()
 
-        self.assertEquals(value, value2)
-        self.assertEquals(metadata, fh.metadata)
-        self.assertEquals(self.backend[key], value)
-        self.assertEquals(self.backend.lookup(key), metadata)
+        self.assertEqual(value, value2)
+        self.assertEqual(metadata, fh.metadata)
+        self.assertEqual(self.backend[key], value)
+        self.assertEqual(self.backend.lookup(key), metadata)
 
     def test_setitem(self):
         key = self.newname()
@@ -64,9 +64,9 @@ class BackendTestsMixin(object):
         with self.backend.open_read(key) as fh:
             value2 = fh.read()
 
-        self.assertEquals(value, value2)
-        self.assertEquals(fh.metadata, dict())
-        self.assertEquals(self.backend.lookup(key), dict())
+        self.assertEqual(value, value2)
+        self.assertEqual(fh.metadata, dict())
+        self.assertEqual(self.backend.lookup(key), dict())
 
     def test_contains(self):
         key = self.newname()
@@ -95,12 +95,12 @@ class BackendTestsMixin(object):
         self.backend[key2] = self.newvalue()
 
         time.sleep(self.delay)
-        self.assertEquals(len(list(self.backend)), 2)
+        self.assertEqual(len(list(self.backend)), 2)
         self.backend.clear()
         time.sleep(5*self.delay)
         self.assertTrue(key1 not in self.backend)
         self.assertTrue(key2 not in self.backend)
-        self.assertEquals(len(list(self.backend)), 0)
+        self.assertEqual(len(list(self.backend)), 0)
 
     def test_list(self):
 
@@ -110,7 +110,7 @@ class BackendTestsMixin(object):
             self.backend[keys[i]] = values[i]
 
         time.sleep(self.delay)
-        self.assertEquals(sorted(self.backend.list()), sorted(keys))
+        self.assertEqual(sorted(self.backend.list()), sorted(keys))
 
     def test_copy(self):
 
@@ -125,7 +125,7 @@ class BackendTestsMixin(object):
         self.backend.copy(key1, key2)
 
         time.sleep(self.delay)
-        self.assertEquals(self.backend[key2], value)
+        self.assertEqual(self.backend[key2], value)
 
     def test_rename(self):
 
@@ -140,7 +140,7 @@ class BackendTestsMixin(object):
         self.backend.rename(key1, key2)
 
         time.sleep(self.delay)
-        self.assertEquals(self.backend[key2], value)
+        self.assertEqual(self.backend[key2], value)
         self.assertRaises(NoSuchObject, self.backend.lookup, key1)
 
 # This test just takes too long (because we have to wait really long so that we don't
@@ -210,35 +210,35 @@ class URLTests(unittest.TestCase):
     #pylint: disable=W0212
      
     def test_s3(self):
-        self.assertEquals(s3.Backend._parse_storage_url('s3://name', use_ssl=False)[2:],
+        self.assertEqual(s3.Backend._parse_storage_url('s3://name', use_ssl=False)[2:],
                           ('name', ''))
-        self.assertEquals(s3.Backend._parse_storage_url('s3://name/', use_ssl=False)[2:],
+        self.assertEqual(s3.Backend._parse_storage_url('s3://name/', use_ssl=False)[2:],
                           ('name', ''))
-        self.assertEquals(s3.Backend._parse_storage_url('s3://name/pref/', use_ssl=False)[2:],
+        self.assertEqual(s3.Backend._parse_storage_url('s3://name/pref/', use_ssl=False)[2:],
                           ('name', 'pref/'))
-        self.assertEquals(s3.Backend._parse_storage_url('s3://name//pref/', use_ssl=False)[2:],
+        self.assertEqual(s3.Backend._parse_storage_url('s3://name//pref/', use_ssl=False)[2:],
                           ('name', '/pref/'))
 
     def test_gs(self):
-        self.assertEquals(gs.Backend._parse_storage_url('gs://name', use_ssl=False)[2:],
+        self.assertEqual(gs.Backend._parse_storage_url('gs://name', use_ssl=False)[2:],
                           ('name', ''))
-        self.assertEquals(gs.Backend._parse_storage_url('gs://name/', use_ssl=False)[2:],
+        self.assertEqual(gs.Backend._parse_storage_url('gs://name/', use_ssl=False)[2:],
                           ('name', ''))
-        self.assertEquals(gs.Backend._parse_storage_url('gs://name/pref/', use_ssl=False)[2:],
+        self.assertEqual(gs.Backend._parse_storage_url('gs://name/pref/', use_ssl=False)[2:],
                           ('name', 'pref/'))
-        self.assertEquals(gs.Backend._parse_storage_url('gs://name//pref/', use_ssl=False)[2:],
+        self.assertEqual(gs.Backend._parse_storage_url('gs://name//pref/', use_ssl=False)[2:],
                           ('name', '/pref/'))
                         
     def test_s3c(self):
-        self.assertEquals(s3c.Backend._parse_storage_url('s3c://host.org/name', use_ssl=False),
+        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org/name', use_ssl=False),
                           ('host.org', 80, 'name', ''))
-        self.assertEquals(s3c.Backend._parse_storage_url('s3c://host.org:23/name', use_ssl=False),
+        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org:23/name', use_ssl=False),
                           ('host.org', 23, 'name', ''))
-        self.assertEquals(s3c.Backend._parse_storage_url('s3c://host.org/name/', use_ssl=False),
+        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org/name/', use_ssl=False),
                           ('host.org', 80, 'name', ''))
-        self.assertEquals(s3c.Backend._parse_storage_url('s3c://host.org/name/pref', use_ssl=False),
+        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org/name/pref', use_ssl=False),
                           ('host.org', 80, 'name', 'pref'))
-        self.assertEquals(s3c.Backend._parse_storage_url('s3c://host.org:17/name/pref/', use_ssl=False),
+        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org:17/name/pref/', use_ssl=False),
                           ('host.org', 17, 'name', 'pref/'))
                                 
 class LocalTests(BackendTestsMixin, unittest.TestCase):
@@ -279,8 +279,8 @@ class EncryptionTests(CompressionTests):
         self.plain_backend['plain'] = b'foobar452'
         self.backend.store('encrypted', b'testdata', { 'tag': True })
         time.sleep(self.delay)
-        self.assertEquals(self.backend['encrypted'], b'testdata')
-        self.assertNotEquals(self.plain_backend['encrypted'], b'testdata')
+        self.assertEqual(self.backend['encrypted'], b'testdata')
+        self.assertNotEqual(self.plain_backend['encrypted'], b'testdata')
         self.assertRaises(ObjectNotEncrypted, self.backend.fetch, 'plain')
         self.assertRaises(ObjectNotEncrypted, self.backend.lookup, 'plain')
 

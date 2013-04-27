@@ -228,7 +228,7 @@ class cache_tests(unittest.TestCase):
         self.cache.remove(inode, 1)
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
-            self.assertEqualss(fh.read(42), b'')
+            self.assertEqual(fh.read(42), b'')
 
     def test_remove_cache_db(self):
         inode = self.inode
@@ -247,7 +247,7 @@ class cache_tests(unittest.TestCase):
 
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
-            self.assertEquals(fh.read(42), b'')
+            self.assertEqual(fh.read(42), b'')
 
 
     def test_remove_db(self):
@@ -266,7 +266,7 @@ class cache_tests(unittest.TestCase):
         self.cache.backend_pool.verify()
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
-            self.assertEquals(fh.read(42), b'')
+            self.assertEqual(fh.read(42), b'')
 
 class TestBackendPool(AbstractBackend):
     def __init__(self, backend_pool, no_read=0, no_write=0, no_del=0):

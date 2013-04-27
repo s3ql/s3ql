@@ -70,7 +70,7 @@ class fsck_tests(unittest.TestCase):
         fh.write('somedata')
         fh.close()
         self.assert_fsck(self.fsck.check_cache)
-        self.assertEquals(self.backend['s3ql_data_1'], 'somedata')
+        self.assertEqual(self.backend['s3ql_data_1'], 'somedata')
 
         # Existing block
         self.db.execute('UPDATE inodes SET size=? WHERE id=?',
