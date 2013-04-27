@@ -679,6 +679,7 @@ class BlockCache(object):
 
                 self.size -= el.size
                 el.unlink()
+                el.close()
 
             try:
                 block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
