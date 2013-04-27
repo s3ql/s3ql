@@ -99,14 +99,14 @@ class cache_tests(unittest.TestCase):
         for i in most_recent:
             time.sleep(0.2)
             with self.cache.get(inode, i) as fh:
-                fh.write('%d' % i)
+                fh.write(('%d' % i).encode())
 
         # And some others
         for i in range(20):
             if i in most_recent:
                 continue
             with self.cache.get(inode, i) as fh:
-                fh.write('%d' % i)
+                fh.write(('%d' % i).encode())
 
         # Flush the 2 most recently accessed ones
         commit(self.cache, inode, most_recent[-2])
