@@ -169,10 +169,8 @@ def main():
                          ]
                           },
           install_requires=required_pkgs,
-          tests_require=required_pkgs + [ 'pytest' ],
-          test_suite='tests',
-          cmdclass={'test': test,
-                    'upload_docs': upload_docs,
+          cmdclass={'upload_docs': upload_docs,
+                    'make_testscript': make_testscript,
                     'build_cython': build_cython,
                     'build_sphinx': build_docs },
           command_options={ 'sdist': { 'formats': ('setup.py', 'bztar') } },
@@ -218,54 +216,6 @@ class build_cython(setuptools.Command):
                 else:
                     print('%s is up to date' % (file_ + ext,))
 
-class test(setuptools_test.test):
-    # Attributes defined outside init, required by setuptools.
-    # pylint: disable=W0201
-    description = "Run self-tests"
-    user_options = (setuptools_test.test.user_options +
-                    [('debug=', None, 'Activate debugging for specified modules '
-                                      '(separated by commas, specify "all" for all modules)')])
-
-
-    def initialize_options(self):
-        setuptools_test.test.initialize_options(self)
-        self.debug = None
-
-    def finalize_options(self):
-        setuptools_test.test.finalize_options(self)
-        self.test_args = []
-        self.test_suite = True
-        if self.debug:
-            self.debug = [ x.strip() for x  in self.debug.split(',') ]
-
-    def run_tests(self):
-
-        # Initialize logging if not yet initialized
-        from s3ql.common import (setup_excepthook, add_stdout_logging, LoggerFilter)
-        root_logger = logging.getLogger()
-        if not root_logger.handlers:
-            add_stdout_logging(quiet=True)
-            handler = logging.handlers.RotatingFileHandler("test.log",
-                                                           maxBytes=10 * 1024 ** 2, backupCount=0)
-            formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
-                                          '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
-            handler.setFormatter(formatter)
-            root_logger.addHandler(handler)
-            setup_excepthook()
-            if self.debug:
-                root_logger.setLevel(logging.DEBUG)
-                if 'all' not in self.debug:
-                    root_logger.addFilter(LoggerFilter(self.debug, logging.INFO))
-            else:
-                root_logger.setLevel(logging.INFO)
-        else:
-            root_logger.debug("Logging already initialized.")
-
-        # Run tests with pytest
-        import pytest
-        pytest.main(['--exitfirst', 'tests' ])
-
-
 class upload_docs(setuptools.Command):
     user_options = []
     boolean_options = []
@@ -282,6 +232,22 @@ class upload_docs(setuptools.Command):
                                'ebox.rath.org:/var/www/s3ql-docs/'])
         subprocess.check_call(['rsync', '-aHv', '--del', os.path.join(basedir, 'doc', 'manual.pdf'),
                                'ebox.rath.org:/var/www/s3ql-docs/'])
+
+class make_testscript(setuptools.Command):
+    user_options = []
+    boolean_options = []
+    description = "Generate standalone py.test script"
+
+    def initialize_options(self):
+        pass
+
+    def finalize_options(self):
+        pass
+
+    def run(self):
+        import pytest
+        pytest.main(['--genscript', 'runtests.py'])
+        os.chmod('runtests.py', 0o755)
 
 if __name__ == '__main__':
     main()

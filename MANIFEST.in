@@ -10,6 +10,7 @@ include INSTALL.txt
 include README.txt
 include CREDITS.txt
 include LICENSE
+include runtests.py
 exclude MANIFEST.in
 prune doc/doctrees
 prune doc/man/.doctrees

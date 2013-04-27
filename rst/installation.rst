@@ -73,8 +73,8 @@ To install S3QL itself, proceed as follows:
 
 1. Download S3QL from http://code.google.com/p/s3ql/downloads/list
 2. Unpack it into a folder of your choice
-3. Run `python setup.py build` to build S3QL.
-4. Run `python setup.py test` to run a self-test. If this fails, ask
+3. Run `python setup.py build --inplace` to build S3QL.
+4. Run `python runtests.py tests` to run a self-test. If this fails, ask
    for help on the `mailing list
    <http://groups.google.com/group/s3ql>`_ or report a bug in the
    `issue tracker <http://code.google.com/p/s3ql/issues/list>`_.
@@ -96,8 +96,8 @@ Development Version
 
 If you have checked out the unstable development version from the
 Mercurial repository, a bit more effort is required. You need to also
-have Cython_ (0.16 or newer) and Sphinx_ (1.1 or newer) installed, and
-the necessary commands are::
+have Cython_ (0.16 or newer), Sphinx_ (1.1 or newer) and `py.test`_
+installed, and the necessary commands are::
 
   python setup.py build_cython
   python setup.py build_ext --inplace
@@ -108,3 +108,4 @@ the necessary commands are::
 
 .. _Cython: http://www.cython.org/
 .. _Sphinx: http://sphinx.pocoo.org/
+.. _py.test: http://pytest.org/
