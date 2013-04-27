@@ -22,6 +22,11 @@ class DumpTests(unittest.TestCase):
         self.create_table(self.src)
         self.create_table(self.dst)
 
+    def tearDown(self):
+        self.src.close()
+        self.dst.close()
+        self.fh.close()
+        
     def test_1_vals_1(self):
         self.fill_vals(self.src)
         dumpspec = (('id', deltadump.INTEGER, 0),)
@@ -160,19 +165,18 @@ class DumpTests(unittest.TestCase):
         self.assertRaises(StopIteration, i2.__next__)
 
     def fill_buf(self, db, len_=None):
-        rfh = open('/dev/urandom', 'rb')
-
-        first = True
-        for (id_,) in db.query('SELECT id FROM test'):
-            if len_ is None and first:
-                val = b'' # We always want to check this case
-                first = False
-            elif len_ is None:
-                val = rfh.read(random.randint(0, 140))
-            else:
-                val = rfh.read(len_)
-
-            db.execute('UPDATE test SET buf=? WHERE id=?', (val, id_))
+        with open('/dev/urandom', 'rb') as rfh:
+            first = True
+            for (id_,) in db.query('SELECT id FROM test'):
+                if len_ is None and first:
+                    val = b'' # We always want to check this case
+                    first = False
+                elif len_ is None:
+                    val = rfh.read(random.randint(0, 140))
+                else:
+                    val = rfh.read(len_)
+    
+                db.execute('UPDATE test SET buf=? WHERE id=?', (val, id_))
 
     def fill_vals(self, db):
         vals = []
