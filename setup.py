@@ -203,6 +203,7 @@ class build_cython(setuptools.Command):
 
         directives = dict(extra_warnings)
         directives['embedsignature'] = True
+        directives['language_level'] = 3
         options = { 'recursive': False, 'verbose': True, 'timestamps': False,
                    'compiler_directives': directives, 'warning_errors': True }
 
