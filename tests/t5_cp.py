@@ -41,12 +41,11 @@ class cpTests(t4_fuse.fuse_tests):
                                    os.path.join(self.mnt_dir, 'copy')])
 
             # compare
-            rsync = subprocess.Popen(['rsync', '-anciHAX', '--delete',
-                                      tempdir + '/',
-                                      os.path.join(self.mnt_dir, 'copy') + '/'],
-                                      stdout=subprocess.PIPE, universal_newlines=True,
-                                      stderr=subprocess.STDOUT)
-            out = rsync.communicate()[0]
+            with subprocess.Popen(['rsync', '-anciHAX', '--delete',
+                                   tempdir + '/', os.path.join(self.mnt_dir, 'copy') + '/'],
+                                  stdout=subprocess.PIPE, universal_newlines=True,
+                                  stderr=subprocess.STDOUT) as rsync:
+                out = rsync.communicate()[0]
             if out:
                 self.fail('Copy not equal to original, rsync says:\n' + out)
             elif rsync.returncode != 0:
