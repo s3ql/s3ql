@@ -59,16 +59,14 @@ class _Inode(object):
             return getattr(self, key[3:])
 
     def __eq__(self, other):
-        if not isinstance(other, _Inode):
-            return NotImplemented
+        # Ill defined - should we compare the inode id or all the attributes?
+        # What does it even mean to have the same id but different attributes?
+        # Maybe we should we raise an Exception in that case?
+        return NotImplemented
 
-        for attr in ATTRIBUTES:
-            if getattr(self, attr) != getattr(other, attr):
-                return False
-
-        return True
-
-
+    def __hash__(self):
+        return self.id
+        
     def copy(self):
         copy = _Inode(self.generation)
 
