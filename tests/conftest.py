@@ -40,7 +40,13 @@ def pytest_configure(config):
     # When running from HG repo, enable all warnings    
     if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
         import warnings
-        warnings.simplefilter('default')
+        warnings.resetwarnings()
+        warnings.simplefilter('error')
+        
+        # Resource warnings can be emitted from __del__, so turning them into
+        # exceptions doesn't help (they'll get printed to stdout and captured 
+        # by py.test)
+        warnings.simplefilter('default', ResourceWarning)
 
     # Enable logging
     from s3ql.common import LoggerFilter 
