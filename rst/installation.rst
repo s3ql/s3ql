@@ -73,7 +73,7 @@ To install S3QL itself, proceed as follows:
 
 1. Download S3QL from http://code.google.com/p/s3ql/downloads/list
 2. Unpack it into a folder of your choice
-3. Run `python setup.py build --inplace` to build S3QL.
+3. Run `python setup.py build_ext --inplace` to build S3QL.
 4. Run `python runtests.py tests` to run a self-test. If this fails, ask
    for help on the `mailing list
    <http://groups.google.com/group/s3ql>`_ or report a bug in the
