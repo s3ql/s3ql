@@ -98,13 +98,13 @@ def main(args=None):
         if not options.reconstruct_state:
             raise QuietError('Found more than one backup but no state file! Aborting.')
 
-        log.warn('Trying to reconstruct state file..')
+        log.warning('Trying to reconstruct state file..')
         state = upgrade_to_state(backup_list)
         if not options.n:
             log.info('Saving reconstructed state..')
             pickle.dump(state, open(options.state, 'wb'), PICKLE_PROTOCOL)
     elif not os.path.exists(options.state):
-        log.warn('Creating state file..')
+        log.warning('Creating state file..')
         state = dict()
     else:
         log.info('Reading state...')
@@ -184,7 +184,7 @@ def process_backups(backup_list, state, cycles):
     # Missing backups
     missing_backups = set(state) - backup_list
     for x in missing_backups:
-        log.warn('Warning: backup %s is missing. Did you delete it manually?', x)
+        log.warning('Warning: backup %s is missing. Did you delete it manually?', x)
         del state[x]
 
     # Ranges

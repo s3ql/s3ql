@@ -456,7 +456,7 @@ class ObjectW(s3c.ObjectW):
         resp.read()
 
         if etag != self.md5.hexdigest():
-            log.warn('ObjectW(%s).close(): MD5 mismatch (%s vs %s)', self.key, etag,
+            log.warning('ObjectW(%s).close(): MD5 mismatch (%s vs %s)', self.key, etag,
                      self.md5.hexdigest)
             try:
                 self.backend.delete(self.key)

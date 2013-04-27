@@ -139,7 +139,7 @@ def download_metadata(backend, storage_url):
         try:
             name = backups[int(buf.strip())]
         except:
-            log.warn('Invalid input')
+            log.warning('Invalid input')
 
     cachepath = get_backend_cachedir(storage_url, '.')
     for i in ('.db', '.params'):

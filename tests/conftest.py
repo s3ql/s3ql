@@ -46,7 +46,7 @@ def pytest_configure(config):
     from s3ql.common import LoggerFilter 
     root_logger = logging.getLogger()
     if root_logger.handlers:
-        log.warn("Logging already initialized.")
+        log.warning("Logging already initialized.")
     else:
         handler = logging.handlers.RotatingFileHandler(os.path.join(basedir, 'tests', 'test.log'),
                                                        maxBytes=10 * 1024 ** 2, backupCount=0)

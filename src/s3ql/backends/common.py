@@ -121,10 +121,10 @@ def http_connection(hostname, port, ssl=False):
         proxy = os.environ['https_proxy']
         hit = re.match(r'^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?/?$', proxy)
         if not hit:
-            log.warn('Unable to parse proxy setting %s', proxy)
+            log.warning('Unable to parse proxy setting %s', proxy)
         
         if hit.group(1) == 'https://':
-            log.warn('HTTPS connection to proxy is probably pointless and not supported, '
+            log.warning('HTTPS connection to proxy is probably pointless and not supported, '
                      'will use standard HTTP')
         
         if hit.group(3):
@@ -736,7 +736,7 @@ class DecompressFilter(AbstractInputFilter):
                 raise
             except zlib.error as exc:
                 if exc.args[0].startswith('Error -3 while decompressing:'):
-                    log.warn('LegacyDecryptDecompressFilter._read(): %s',
+                    log.warning('LegacyDecryptDecompressFilter._read(): %s',
                              exc.args[0])
                     raise ChecksumError('Invalid compressed stream') from None
                 raise
@@ -960,7 +960,7 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
                 raise
             except zlib.error as exc:
                 if exc.args[0].startswith('Error -3 while decompressing:'):
-                    log.warn('LegacyDecryptDecompressFilter._read(): %s',
+                    log.warning('LegacyDecryptDecompressFilter._read(): %s',
                              exc.args[0])
                     raise ChecksumError('Invalid compressed stream') from None
                 raise
@@ -1171,7 +1171,7 @@ def get_backend_factory(options, plain=False):
         backend_passphrase = backend_passphrase or getopt('fs-passphrase')
         if backend_passphrase is None and getopt('bucket-passphrase') is not None:
             backend_passphrase = getopt('bucket-passphrase')
-            log.warn("Warning: the 'bucket-passphrase' configuration option has been "
+            log.warning("Warning: the 'bucket-passphrase' configuration option has been "
                      "renamed to 'fs-passphrase'! Please update your authinfo file.")
 
     if not backend_login and backend_class.needs_login:

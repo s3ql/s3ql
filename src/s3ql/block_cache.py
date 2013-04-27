@@ -385,7 +385,7 @@ class BlockCache(object):
                 self.in_transit.add(obj_id)
                 with lock_released:
                     if not self.upload_threads:
-                        log.warn("upload(%s): no upload threads, uploading synchronously", el)
+                        log.warning("upload(%s): no upload threads, uploading synchronously", el)
                         self._do_upload(el, obj_id)
                     else:
                         self.to_upload.put((el, obj_id))
@@ -440,7 +440,7 @@ class BlockCache(object):
 
         with lock_released:
             if not self.removal_threads:
-                log.warn("upload(%s): no removal threads, removing synchronously", el)
+                log.warning("upload(%s): no removal threads, removing synchronously", el)
                 self._do_removal(old_obj_id)
             else:
                 log.debug('upload(%s): adding %d to removal queue', el, old_obj_id)
@@ -723,7 +723,7 @@ class BlockCache(object):
                 self.db.execute('DELETE FROM objects WHERE id=?', (obj_id,))
                 with lock_released:
                     if not self.removal_threads:
-                        log.warn("remove(): no removal threads, removing synchronously")
+                        log.warning("remove(): no removal threads, removing synchronously")
                         self._do_removal(obj_id)
                     else:
                         self.to_remove.put(obj_id)

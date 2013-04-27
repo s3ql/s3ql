@@ -158,7 +158,7 @@ def main(args=None):
         # Tell finally block not to raise any additional exceptions
         exc_info[:] = sys.exc_info()
 
-        log.warn('Encountered exception, trying to clean up...')
+        log.warning('Encountered exception, trying to clean up...')
 
         # We do *not* free the mountpoint on exception. Why? E.g. if someone is
         # mirroring the mountpoint, and it suddenly becomes empty, all the
@@ -277,14 +277,14 @@ def determine_threads(options):
         mem_per_thread = 0
 
     if cores == -1 or memory == -1:
-        log.warn("Can't determine number of cores, using 2 upload threads.")
+        log.warning("Can't determine number of cores, using 2 upload threads.")
         return 1
     elif 2 * cores * mem_per_thread > (memory / 2):
         threads = min(int((memory / 2) // mem_per_thread), 10)
         if threads > 0:
             log.info('Using %d upload threads (memory limited).', threads)
         else:
-            log.warn('Warning: compression will require %d MiB memory '
+            log.warning('Warning: compression will require %d MiB memory '
                      '(%d%% of total system memory', mem_per_thread / 1024 ** 2,
                      mem_per_thread * 100 / memory)
             threads = 1
@@ -329,13 +329,13 @@ def get_metadata(backend, cachepath):
     if param['needs_fsck']:
         raise QuietError("File system damaged or not unmounted cleanly, run fsck!")
     if time.time() - param['last_fsck'] > 60 * 60 * 24 * 31:
-        log.warn('Last file system check was more than 1 month ago, '
+        log.warning('Last file system check was more than 1 month ago, '
                  'running fsck.s3ql is recommended.')
 
     if  param['max_inode'] > 2 ** 32 - 50000:
         raise QuietError('Insufficient free inodes, fsck run required.')
     elif param['max_inode'] > 2 ** 31:
-        log.warn('Few free inodes remaining, running fsck is recommended')
+        log.warning('Few free inodes remaining, running fsck is recommended')
 
     # Download metadata
     if not db:

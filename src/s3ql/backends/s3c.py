@@ -544,7 +544,7 @@ class ObjectR(object):
                 self.resp.close() 
             
             if etag != self.md5.hexdigest():
-                log.warn('ObjectR(%s).close(): MD5 mismatch: %s vs %s', self.key, etag,
+                log.warning('ObjectR(%s).close(): MD5 mismatch: %s vs %s', self.key, etag,
                          self.md5.hexdigest())
                 raise BadDigestError('BadDigest', 'ETag header does not agree with calculated MD5')
             
@@ -620,7 +620,7 @@ class ObjectW(object):
         assert resp.length == 0
 
         if etag != self.md5.hexdigest():
-            log.warn('ObjectW(%s).close(): MD5 mismatch (%s vs %s)', self.key, etag,
+            log.warning('ObjectW(%s).close(): MD5 mismatch (%s vs %s)', self.key, etag,
                      self.md5.hexdigest)
             try:
                 self.backend.delete(self.key)
@@ -701,13 +701,13 @@ class HTTPError(Exception):
                 else:
                     date = parsedate_tz(v)
                     if date is None:
-                        log.warn('Unable to parse header: %s: %s', k, v)
+                        log.warning('Unable to parse header: %s: %s', k, v)
                         continue
                     val = mktime_tz(*date) - time.time()
                     
         if val is not None:
             if val > 300 or val < 0:
-                log.warn('Ignoring invalid retry-after value of %.3f', val)
+                log.warning('Ignoring invalid retry-after value of %.3f', val)
             else:
                 self.retry_after = val
             

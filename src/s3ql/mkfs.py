@@ -89,7 +89,7 @@ def main(args=None):
     setup_logging(options)
 
     if options.max_obj_size < 1024:
-        log.warn('Warning: maximum object sizes less than 1 MiB will seriously degrade '
+        log.warning('Warning: maximum object sizes less than 1 MiB will seriously degrade '
                  'performance.')
 
     try:

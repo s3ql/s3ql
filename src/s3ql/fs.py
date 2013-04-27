@@ -164,7 +164,7 @@ class Operations(llfuse.Operations):
         try:
             return self.db.get_val("SELECT target FROM symlink_targets WHERE inode=?", (id_,))
         except NoSuchRowError:
-            log.warn('Inode does not have symlink target: %d', id_)
+            log.warning('Inode does not have symlink target: %d', id_)
             raise FUSEError(errno.EINVAL) from None
 
     def opendir(self, id_):
@@ -435,7 +435,7 @@ class Operations(llfuse.Operations):
                                                    mtime=inode.mtime, atime=inode.atime,
                                                    ctime=inode.ctime, rdev=inode.rdev)
                         except OutOfInodesError:
-                            log.warn('Could not find a free inode')
+                            log.warning('Could not find a free inode')
                             raise FUSEError(errno.ENOSPC) from None
     
                         id_new = inode_new.id
@@ -596,7 +596,7 @@ class Operations(llfuse.Operations):
     def rename(self, id_p_old, name_old, id_p_new, name_new):
         log.debug('rename(%d, %r, %d, %r): start', id_p_old, name_old, id_p_new, name_new)
         if name_new == CTRL_NAME or name_old == CTRL_NAME:
-            log.warn('Attempted to rename s3ql control file (%s -> %s)',
+            log.warning('Attempted to rename s3ql control file (%s -> %s)',
                       get_path(id_p_old, self.db, name_old),
                       get_path(id_p_new, self.db, name_new))
             raise llfuse.FUSEError(errno.EACCES)
@@ -723,7 +723,7 @@ class Operations(llfuse.Operations):
         log.debug('link(%d, %d, %r): start', id_, new_id_p, new_name)
 
         if new_name == CTRL_NAME or id_ == CTRL_INODE:
-            log.warn('Attempted to create s3ql control file at %s',
+            log.warning('Attempted to create s3ql control file at %s',
                       get_path(new_id_p, self.db, new_name))
             raise llfuse.FUSEError(errno.EACCES)
 
@@ -731,7 +731,7 @@ class Operations(llfuse.Operations):
         inode_p = self.inodes[new_id_p]
 
         if inode_p.refcount == 0:
-            log.warn('Attempted to create entry %s with unlinked parent %d',
+            log.warning('Attempted to create entry %s with unlinked parent %d',
                      new_name, new_id_p)
             raise FUSEError(errno.EINVAL)
 
@@ -784,12 +784,12 @@ class Operations(llfuse.Operations):
                     with self.cache.get(id_, last_block) as fh:
                         fh.truncate(cutoff)
                 except NoSuchObject as exc:
-                    log.warn('Backend lost block %d of inode %d (id %s)!',
+                    log.warning('Backend lost block %d of inode %d (id %s)!',
                              last_block, id_, exc.key)
                     raise
 
                 except ChecksumError as exc:
-                    log.warn('Backend returned malformed data for block %d of inode %d (%s)',
+                    log.warning('Backend returned malformed data for block %d of inode %d (%s)',
                              last_block, id_, exc)
                     raise
 
@@ -926,7 +926,7 @@ class Operations(llfuse.Operations):
 
     def _create(self, id_p, name, mode, ctx, rdev=0, size=0):
         if name == CTRL_NAME:
-            log.warn('Attempted to create s3ql control file at %s',
+            log.warning('Attempted to create s3ql control file at %s',
                      get_path(id_p, self.db, name))
             raise FUSEError(errno.EACCES)
 
@@ -937,7 +937,7 @@ class Operations(llfuse.Operations):
             raise FUSEError(errno.EPERM)
 
         if inode_p.refcount == 0:
-            log.warn('Attempted to create entry %s with unlinked parent %d',
+            log.warning('Attempted to create entry %s with unlinked parent %d',
                      name, id_p)
             raise FUSEError(errno.EINVAL)
         inode_p.mtime = timestamp
@@ -948,7 +948,7 @@ class Operations(llfuse.Operations):
                                              uid=ctx.uid, gid=ctx.gid, mode=mode, refcount=1,
                                              rdev=rdev, size=size)
         except OutOfInodesError:
-            log.warn('Could not find a free inode')
+            log.warning('Could not find a free inode')
             raise FUSEError(errno.ENOSPC) from None
 
         self.db.execute("INSERT INTO contents(name_id, inode, parent_inode) VALUES(?,?,?)",
@@ -1012,12 +1012,12 @@ class Operations(llfuse.Operations):
                 buf = fh.read(length)
 
         except NoSuchObject as exc:
-            log.warn('Backend lost block %d of inode %d (id %s)!',
+            log.warning('Backend lost block %d of inode %d (id %s)!',
                      blockno, id_, exc.key)
             raise
 
         except ChecksumError as exc:
-            log.warn('Backend returned malformed data for block %d of inode %d (%s)',
+            log.warning('Backend returned malformed data for block %d of inode %d (%s)',
                      blockno, id_, exc)
             raise
 
@@ -1080,12 +1080,12 @@ class Operations(llfuse.Operations):
                 fh.write(buf)
 
         except NoSuchObject as exc:
-            log.warn('Backend lost block %d of inode %d (id %s)!',
+            log.warning('Backend lost block %d of inode %d (id %s)!',
                      blockno, id_, exc.key)
             raise
 
         except ChecksumError as exc:
-            log.warn('Backend returned malformed data for block %d of inode %d (%s)',
+            log.warning('Backend returned malformed data for block %d of inode %d (%s)',
                      blockno, id_, exc)
             raise
 

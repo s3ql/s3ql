@@ -112,7 +112,7 @@ class Fsck(object):
         '''Log file system error if not expected'''
 
         if not self.expect_errors:
-            return log.warn(*a, **kw)
+            return log.warning(*a, **kw)
 
     def check_foreign_keys(self):
         '''Check for referential integrity
@@ -844,7 +844,7 @@ class Fsck(object):
                 try:
                     obj_id = int(obj_name[10:])
                 except ValueError:
-                    log.warn("Ignoring unexpected object %r", obj_name)
+                    log.warning("Ignoring unexpected object %r", obj_name)
                     continue
 
                 self.conn.execute('INSERT INTO obj_ids VALUES(?)', (obj_id,))
@@ -1102,11 +1102,11 @@ def main(args=None):
             assert not os.path.exists(cachepath + '-cache') or param['needs_fsck']
 
         if param['seq_no'] > seq_no:
-            log.warn('File system has not been unmounted cleanly.')
+            log.warning('File system has not been unmounted cleanly.')
             param['needs_fsck'] = True
             
         elif backend.lookup('s3ql_metadata')['seq_no'] != param['seq_no']:
-            log.warn('Remote metadata is outdated.')
+            log.warning('Remote metadata is outdated.')
             param['needs_fsck'] = True
 
     else:
@@ -1204,8 +1204,8 @@ def main(args=None):
         param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
 
     if fsck.found_errors and not param['needs_fsck']:
-        log.warn('File system was marked as clean, yet fsck found problems.')
-        log.warn('Please report this to the S3QL mailing list, http://groups.google.com/group/s3ql')
+        log.warning('File system was marked as clean, yet fsck found problems.')
+        log.warning('Please report this to the S3QL mailing list, http://groups.google.com/group/s3ql')
 
     cycle_metadata(backend)
     param['needs_fsck'] = False
