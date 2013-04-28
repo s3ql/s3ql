@@ -26,7 +26,7 @@ class PipeInclude(Include):
             self.lineno - self.state_machine.input_offset - 1)
         source_dir = os.path.dirname(os.path.abspath(source))
 
-        command = self.arguments[0].encode('UTF-8')
+        command = self.arguments[0]
         encoding = self.options.get(
             'encoding', self.state.document.settings.input_encoding)
         tab_width = self.options.get(
