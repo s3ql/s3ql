@@ -35,7 +35,7 @@ class AdmTests(unittest.TestCase):
         shutil.rmtree(self.backend_dir)
 
     def mkfs(self):
-        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
+        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
                                  '-L', 'test fs', '--max-obj-size', '500',
                                  '--cachedir', self.cache_dir, '--quiet',
                                  self.storage_url ], stdin=subprocess.PIPE,
@@ -52,7 +52,7 @@ class AdmTests(unittest.TestCase):
 
         passphrase_new = 'sd982jhd'
 
-        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 's3qladm'),
+        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 's3qladm'),
                                  '--quiet', 'passphrase',
                                  self.storage_url ], stdin=subprocess.PIPE,
                                 universal_newlines=True)

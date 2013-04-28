@@ -11,6 +11,7 @@ import os.path
 import shutil
 import subprocess
 import t4_fuse
+import sys
 import tempfile
 import unittest
 
@@ -35,9 +36,8 @@ class cpTests(t4_fuse.fuse_tests):
                                    os.path.join(self.mnt_dir, 'orig') + '/'])
 
             # copy
-            subprocess.check_call([os.path.join(t4_fuse.BASEDIR, 'bin', 's3qlcp'),
-                                   '--quiet',
-                                   os.path.join(self.mnt_dir, 'orig'),
+            subprocess.check_call([sys.executable, os.path.join(t4_fuse.BASEDIR, 'bin', 's3qlcp'),
+                                   '--quiet', os.path.join(self.mnt_dir, 'orig'),
                                    os.path.join(self.mnt_dir, 'copy')])
 
             # compare

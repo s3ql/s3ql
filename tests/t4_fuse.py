@@ -186,7 +186,7 @@ class fuse_tests(unittest.TestCase):
         self.name_cnt = 0
 
     def mkfs(self):
-        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
+        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
                                  '-L', 'test fs', '--max-obj-size', '500',
                                  '--cachedir', self.cache_dir, '--quiet',
                                  self.storage_url ], stdin=subprocess.PIPE,
@@ -199,7 +199,8 @@ class fuse_tests(unittest.TestCase):
         self.assertEqual(proc.wait(), 0)
 
     def mount(self):
-        self.mount_process = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'mount.s3ql'),
+        self.mount_process = subprocess.Popen([sys.executable, 
+                                               os.path.join(BASEDIR, 'bin', 'mount.s3ql'),
                                                 "--fg", '--cachedir', self.cache_dir,
                                                 '--log', 'none', '--quiet',
                                                   self.storage_url, self.mnt_dir],
@@ -226,7 +227,7 @@ class fuse_tests(unittest.TestCase):
         self.assertFalse(os.path.ismount(self.mnt_dir))
 
     def fsck(self):
-        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'fsck.s3ql'),
+        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'fsck.s3ql'),
                                  '--force', '--quiet', '--log', 'none',
                                  '--cachedir', self.cache_dir,
                                  self.storage_url ], stdin=subprocess.PIPE, 
@@ -421,7 +422,7 @@ class fuse_tests(unittest.TestCase):
         fstat = os.stat(filename)
         size = fstat.st_size
 
-        subprocess.check_call([os.path.join(BASEDIR, 'bin', 's3qlctrl'),
+        subprocess.check_call([sys.executable, os.path.join(BASEDIR, 'bin', 's3qlctrl'),
                                '--quiet', 'flushcache', self.mnt_dir ])
 
         fd = os.open(filename, os.O_RDWR)
