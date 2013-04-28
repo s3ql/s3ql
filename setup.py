@@ -101,10 +101,9 @@ class build_docs(setuptools.Command):
 
         print('Running pdflatex...')
         for _ in range(3):
-            subprocess.check_call(['pdflatex', '-interaction',
-                                   'batchmode', 'manual.tex'],
-                                  cwd=os.path.join(dest_dir, 'latex'),
-                                  stdout=open('/dev/null', 'wb'))
+            with open('/dev/null', 'wb') as null:
+                subprocess.check_call(['pdflatex', '-interaction', 'batchmode', 'manual.tex'],
+                                      cwd=os.path.join(dest_dir, 'latex'), stdout=null)
         os.rename(os.path.join(dest_dir, 'latex', 'manual.pdf'),
                   os.path.join(dest_dir, 'manual.pdf'))
 
