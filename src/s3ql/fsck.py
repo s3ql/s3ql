@@ -255,9 +255,9 @@ class Fsck(object):
             try:
                 path = get_path(inode_p, self.conn)[1:]
             except NoSuchRowError:
-                newname = '-%d' % inode
+                newname = ('-%d' % inode).encode()
             else:
-                newname = path.replace('_', '__').replace('/', '_') + '-%d' % inode
+                newname = escape(path) + ('-%d' % inode).encode()
             (id_p_new, newname) = self.resolve_free(b"/lost+found", newname)
 
             self.log_error('Content entry for inode %d refers to non-existing name with id %d, '
@@ -278,7 +278,8 @@ class Fsck(object):
                                          'ON parent_inode = inodes.id WHERE inodes.id IS NULL'):
             self.found_errors = True
             name = self.conn.get_val('SELECT name FROM names WHERE id = ?', (name_id,))
-            (id_p_new, newname) = self.resolve_free(b"/lost+found", '[%d]-%s' % (inode_p, name))
+            (id_p_new, newname) = self.resolve_free(b"/lost+found", 
+                                                    ('[%d]-%s' % (inode_p, name)).encode())
 
             self.log_error('Parent inode %d for "%s" vanished, moving to /lost+found', inode_p, name)
             self._del_name(name_id)
@@ -498,8 +499,7 @@ class Fsck(object):
                                                              'FROM contents_v WHERE inode=?', (inode,)):
                     path = get_path(id_p, self.conn, name)
                     self.log_error("File may lack data, moved to /lost+found: %s", path)
-                    (lof_id, newname) = self.resolve_free(b"/lost+found",
-                                                        path[1:].replace('_', '__').replace('/', '_'))
+                    (lof_id, newname) = self.resolve_free(b"/lost+found", escape(path))
 
                     self.conn.execute('UPDATE contents SET name_id=?, parent_inode=? '
                                       'WHERE name_id=? AND parent_inode=?',
@@ -550,8 +550,7 @@ class Fsck(object):
                                                          'FROM contents_v WHERE inode=?', (inode,)):
                 path = get_path(id_p, self.conn, name)
                 self.log_error("File may lack data, moved to /lost+found: %s", path)
-                (lof_id, newname) = self.resolve_free(b"/lost+found",
-                                                    path[1:].replace('_', '__').replace('/', '_'))
+                (lof_id, newname) = self.resolve_free(b"/lost+found", escape(path))
 
                 self.conn.execute('UPDATE contents SET name_id=?, parent_inode=? '
                                   'WHERE name_id=? AND parent_inode=?',
@@ -885,8 +884,7 @@ class Fsck(object):
                                                                  'FROM contents_v WHERE inode=?', (id_,)):
                         path = get_path(id_p, self.conn, name)
                         self.log_error("File may lack data, moved to /lost+found: %s", path)
-                        (_, newname) = self.resolve_free(b"/lost+found",
-                                                            path[1:].replace('_', '__').replace('/', '_'))
+                        (_, newname) = self.resolve_free(b"/lost+found", escape(path))
 
                         self.conn.execute('UPDATE contents SET name_id=?, parent_inode=? '
                                           'WHERE name_id=? AND parent_inode=?',
@@ -1287,6 +1285,11 @@ def renumber_inodes(db):
 
     db.execute('DROP TABLE inode_map')
 
+
+def escape(path):
+    '''Escape slashes in path so that is usable as a file name'''
+    
+    return path[1:].replace(b'_', b'__').replace(b'/', b'_')
 
 if __name__ == '__main__':
     main(sys.argv[1:])
