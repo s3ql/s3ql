@@ -188,6 +188,7 @@ def change_passphrase(backend):
             raise QuietError("Passwords don't match")
     else:
         wrap_pw = sys.stdin.readline().rstrip()
+    wrap_pw = wrap_pw.encode('utf-8')
 
     backend.passphrase = wrap_pw
     backend['s3ql_passphrase'] = data_pw

@@ -65,8 +65,9 @@ class AdmTests(unittest.TestCase):
         self.assertEqual(proc.wait(), 0)
 
         plain_backend = local.Backend(self.storage_url, None, None)
-        backend = BetterBackend(passphrase_new, 'bzip2', plain_backend)
-        self.assertTrue(isinstance(backend['s3ql_passphrase'], str))
+        backend = BetterBackend(passphrase_new.encode(), 'bzip2', plain_backend)
+        
+        backend.fetch('s3ql_passphrase') # will fail with wrong pw 
 
 
 # Somehow important according to pyunit documentation

@@ -116,6 +116,7 @@ def main(args=None):
                 raise QuietError("Passwords don't match.")
         else:
             wrap_pw = sys.stdin.readline().rstrip()
+        wrap_pw = wrap_pw.encode('utf-8')
 
         # Generate data encryption passphrase
         log.info('Generating random encryption key...')
