@@ -635,7 +635,7 @@ class CommitThread(Thread):
         while not self.stop_event.is_set():
             did_sth = False
             stamp = time.time()
-            for el in self.block_cache.entries.values_rev():
+            for el in self.block_cache.entries.values():
                 if stamp - el.last_access < 10:
                     break
                 if not (el.dirty and (el.inode, el.blockno) not in self.block_cache.in_transit):
