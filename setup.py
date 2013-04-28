@@ -66,6 +66,8 @@ class build_docs(setuptools.Command):
         except ImportError:
             raise QuietError('This command requires Sphinx to be installed.')  from None
 
+        fix_docutils()
+        
         dest_dir = os.path.join(basedir, 'doc')
         src_dir = os.path.join(basedir, 'rst')
 
@@ -254,5 +256,31 @@ class make_testscript(setuptools.Command):
         pytest.main(['--genscript', 'runtests.py'])
         os.chmod('runtests.py', 0o755)
 
+def fix_docutils():
+    '''Work around https://bitbucket.org/birkenfeld/sphinx/issue/1154/'''
+    
+    import docutils.parsers 
+    from docutils.parsers import rst
+    old_getclass = docutils.parsers.get_parser_class
+    
+    # Check if bug is there
+    try:
+        old_getclass('rst')
+    except AttributeError:
+        pass
+    else:
+        return
+     
+    def get_parser_class(parser_name):
+        """Return the Parser class from the `parser_name` module."""
+        if parser_name in ('rst', 'restructuredtext'):
+            return rst.Parser
+        else:
+            return old_getclass(parser_name)
+    docutils.parsers.get_parser_class = get_parser_class
+    
+    assert docutils.parsers.get_parser_class('rst') is rst.Parser
+
+    
 if __name__ == '__main__':
     main()
