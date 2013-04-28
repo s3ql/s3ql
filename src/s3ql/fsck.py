@@ -466,7 +466,7 @@ class Fsck(object):
 
                 self.found_errors = True
                 if cnt is None:
-                    (id_p, name) = self.resolve_free(b"/lost+found", b"inode-%d" % id_)
+                    (id_p, name) = self.resolve_free(b"/lost+found", ("inode-%d" % id_).encode())
                     self.log_error("Inode %d not referenced, adding as /lost+found/%s", id_, name)
                     self.conn.execute("INSERT INTO contents (name_id, inode, parent_inode) "
                                       "VALUES (?,?,?)", (self._add_name(basename(name)), id_, id_p))
@@ -612,7 +612,7 @@ class Fsck(object):
 
                 elif cnt is None:
                     self.found_errors = True
-                    (id_p, name) = self.resolve_free(b"/lost+found", b"block-%d" % id_)
+                    (id_p, name) = self.resolve_free(b"/lost+found", ("block-%d" % id_).encode())
                     self.log_error("Block %d not referenced, adding as /lost+found/%s", id_, name)
                     timestamp = time.time()
                     size = self.conn.get_val('SELECT size FROM blocks WHERE id=?', (id_,))
