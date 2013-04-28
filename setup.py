@@ -127,7 +127,7 @@ def main():
 
     required_pkgs = ['apsw >= 3.7.0',
                      'pycrypto',
-                     'llfuse >= 0.37' ]
+                     'llfuse >= 0.39' ]
 
     setuptools.setup(
           name='s3ql',

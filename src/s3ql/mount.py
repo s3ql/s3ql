@@ -374,15 +374,15 @@ def get_metadata(backend, cachepath):
 def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
 
-    fuse_opts = [ b"nonempty", b'fsname=%s' % options.storage_url,
-                  b'subtype=s3ql' ]
+    fuse_opts = [ "nonempty", 'fsname=%s' % options.storage_url,
+                  'subtype=s3ql' ]
 
     if options.allow_other:
-        fuse_opts.append(b'allow_other')
+        fuse_opts.append('allow_other')
     if options.allow_root:
-        fuse_opts.append(b'allow_root')
+        fuse_opts.append('allow_root')
     if options.allow_other or options.allow_root:
-        fuse_opts.append(b'default_permissions')
+        fuse_opts.append('default_permissions')
 
     return fuse_opts
 

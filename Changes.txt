@@ -5,13 +5,13 @@ UNRELEASED, S3QL tip
   * Cycling of metadata backups when using the local backend now
     takes much less time.
 
-  * S3QL no longer requires the unittest2 third-party Python
-    module.
-
-  * S3QL no longer requires the pycryptopp and lzma third-party
-    Python modules.
+  * S3QL no longer requires the unittest2, pycryptopp and lzma
+    third-party Python modules.
 
   * S3QL now requires the pycrypto third-party Python module.
+
+  * S3QL now requires at least version 0.39 of the llfuse Python
+    module.
 
 2013-04-09, S3QL 1.14
 

@@ -62,7 +62,7 @@ that is not the case.
   <http://code.google.com/p/python-llfuse/>`_. To check if this module
   is installed, execute `python -c 'import llfuse; print
   llfuse.__version__'`. This should print a version number. You need at
-  least version 0.37.
+  least version 0.39.
 
 .. _inst-s3ql:
 
