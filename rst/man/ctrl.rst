@@ -64,7 +64,7 @@ Options
 The |command| command also accepts the following options, no matter
 what specific action is being invoked:
 
-.. pipeinclude:: ../../bin/s3qlctrl --help
+.. pipeinclude:: python ../../bin/s3qlctrl --help
    :start-after: show this help message and exit
 
 

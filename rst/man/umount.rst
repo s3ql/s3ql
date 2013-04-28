@@ -36,7 +36,7 @@ Options
 
 The |command| command accepts the following options.
 
-.. pipeinclude:: ../../bin/umount.s3ql --help
+.. pipeinclude:: python ../../bin/umount.s3ql --help
    :start-after: show this help message and exit
 
 .. include:: ../include/postman.rst

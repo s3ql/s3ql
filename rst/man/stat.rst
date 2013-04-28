@@ -32,7 +32,7 @@ Options
 
 The |command| command accepts the following options:
 
-.. pipeinclude:: ../../bin/s3qlstat --help
+.. pipeinclude:: python ../../bin/s3qlstat --help
    :start-after: show this help message and exit
 
 .. include:: ../include/postman.rst

@@ -27,7 +27,7 @@ Options
 
 The |command| command accepts the following options.
 
-.. pipeinclude:: ../../bin/fsck.s3ql --help --log none
+.. pipeinclude:: python ../../bin/fsck.s3ql --help --log none
    :start-after: show this help message and exit
 
 .. include:: ../include/postman.rst

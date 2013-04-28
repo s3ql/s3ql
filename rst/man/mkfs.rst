@@ -32,7 +32,7 @@ Options
 
 The |command| command accepts the following options.
 
-.. pipeinclude:: ../../bin/mkfs.s3ql --help
+.. pipeinclude:: python ../../bin/mkfs.s3ql --help
    :start-after: show this help message and exit
 
 

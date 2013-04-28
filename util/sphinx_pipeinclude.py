@@ -15,6 +15,7 @@ import subprocess
 import shlex
 from docutils import io, nodes, statemachine
 import os.path
+import sys
 
 class PipeInclude(Include):
     """
@@ -27,13 +28,18 @@ class PipeInclude(Include):
         source_dir = os.path.dirname(os.path.abspath(source))
 
         command = self.arguments[0]
+        command_list = shlex.split(command)
+        
+        if command_list[0] == 'python':
+            command_list[0] = sys.executable
+            
         encoding = self.options.get(
             'encoding', self.state.document.settings.input_encoding)
         tab_width = self.options.get(
             'tab-width', self.state.document.settings.tab_width)
 
         try:
-            child = subprocess.Popen(shlex.split(command), stdout=subprocess.PIPE,
+            child = subprocess.Popen(command_list, stdout=subprocess.PIPE,
                                      cwd=source_dir, universal_newlines=True)
             include_file = io.FileInput(
                 source=child.stdout, encoding=encoding,

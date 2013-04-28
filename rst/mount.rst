@@ -19,7 +19,7 @@ the following syntax::
 
 This command accepts the following options:
 
-.. pipeinclude:: ../bin/mount.s3ql --help
+.. pipeinclude:: python ../bin/mount.s3ql --help
    :start-after: show this help message and exit
 
 
