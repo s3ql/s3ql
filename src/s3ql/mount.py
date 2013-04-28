@@ -218,24 +218,26 @@ def main(args=None):
             log.info('File system unchanged, not uploading metadata.')
             del backend['s3ql_seq_no_%d' % param['seq_no']]
             param['seq_no'] -= 1
-            pickle.dump(param, open(cachepath + '.params', 'wb'), PICKLE_PROTOCOL)
+            with open(cachepath + '.params', 'wb') as fh:
+                pickle.dump(param, fh, PICKLE_PROTOCOL)
         elif seq_no == param['seq_no']:
             cycle_metadata(backend)
             param['last-modified'] = time.time()
 
             log.info('Dumping metadata...')
-            fh = tempfile.TemporaryFile()
-            dump_metadata(db, fh)
-            def do_write(obj_fh):
-                fh.seek(0)
-                stream_write_bz2(fh, obj_fh)
-                return obj_fh
+            with tempfile.TemporaryFile() as fh:
+                dump_metadata(db, fh)
+                def do_write(obj_fh):
+                    fh.seek(0)
+                    stream_write_bz2(fh, obj_fh)
+                    return obj_fh
 
-            log.info("Compressing and uploading metadata...")
-            obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
-                                          is_compressed=True)
+                log.info("Compressing and uploading metadata...")
+                obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
+                                              is_compressed=True)
             log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
-            pickle.dump(param, open(cachepath + '.params', 'wb'), PICKLE_PROTOCOL)
+            with open(cachepath + '.params', 'wb') as fh:
+                pickle.dump(param, fh, PICKLE_PROTOCOL)
         else:
             log.error('Remote metadata is newer than local (%d vs %d), '
                       'refusing to overwrite!', seq_no, param['seq_no'])
@@ -302,7 +304,8 @@ def get_metadata(backend, cachepath):
     # Check for cached metadata
     db = None
     if os.path.exists(cachepath + '.params'):
-        param = pickle.load(open(cachepath + '.params', 'rb'))
+        with open(cachepath + '.params', 'rb') as fh:
+            param = pickle.load(fh)
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
             param = backend.lookup('s3ql_metadata')
@@ -339,27 +342,31 @@ def get_metadata(backend, cachepath):
 
     # Download metadata
     if not db:
-        def do_read(fh):
-            tmpfh = tempfile.TemporaryFile()
-            stream_read_bz2(fh, tmpfh)
-            return tmpfh
-        log.info('Downloading and decompressing metadata...')
-        tmpfh = backend.perform_read(do_read, "s3ql_metadata")
-        os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                         stat.S_IRUSR | stat.S_IWUSR))
-        db = Connection(cachepath + '.db.tmp', fast_mode=True)
-        log.info("Reading metadata...")
-        tmpfh.seek(0)
-        restore_metadata(tmpfh, db)
-        db.close()
-        os.rename(cachepath + '.db.tmp', cachepath + '.db')
-        db = Connection(cachepath + '.db')
+        with tempfile.TemporaryFile() as tmpfh:
+            def do_read(fh):
+                tmpfh.seek(0)
+                tmpfh.truncate()
+                stream_read_bz2(fh, tmpfh)
+
+            log.info('Downloading and decompressing metadata...')
+            backend.perform_read(do_read, "s3ql_metadata")
+            
+            os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                             stat.S_IRUSR | stat.S_IWUSR))
+            db = Connection(cachepath + '.db.tmp', fast_mode=True)
+            log.info("Reading metadata...")
+            tmpfh.seek(0)
+            restore_metadata(tmpfh, db)
+            db.close()
+            os.rename(cachepath + '.db.tmp', cachepath + '.db')
+            db = Connection(cachepath + '.db')
 
     # Increase metadata sequence no 
     param['seq_no'] += 1
     param['needs_fsck'] = True
-    backend['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
-    pickle.dump(param, open(cachepath + '.params', 'wb'), PICKLE_PROTOCOL)
+    backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
+    with open(cachepath + '.params', 'wb') as fh:
+        pickle.dump(param, fh, PICKLE_PROTOCOL)
     param['needs_fsck'] = False
 
     return (param, db)

@@ -162,19 +162,21 @@ def main(args=None):
     param['backend_revision'] = 1
 
     log.info('Dumping metadata...')
-    fh = tempfile.TemporaryFile()
-    dump_metadata(db, fh)
-    def do_write(obj_fh):
-        fh.seek(0)
-        stream_write_bz2(fh, obj_fh)
-        return obj_fh
+    with tempfile.TemporaryFile() as fh:
+        dump_metadata(db, fh)
+        def do_write(obj_fh):
+            fh.seek(0)
+            stream_write_bz2(fh, obj_fh)
+            return obj_fh
 
-    log.info("Compressing and uploading metadata...")
-    backend.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
-    obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
-                                  is_compressed=True)
+        log.info("Compressing and uploading metadata...")
+        backend.store('s3ql_seq_no_%d' % param['seq_no'], b'Empty')
+        obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
+                                      is_compressed=True)
+        
     log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
-    pickle.dump(param, open(cachepath + '.params', 'wb'), PICKLE_PROTOCOL)
+    with open(cachepath + '.params', 'wb') as fh:
+        pickle.dump(param, fh, PICKLE_PROTOCOL)
 
 
 if __name__ == '__main__':

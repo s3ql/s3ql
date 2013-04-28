@@ -979,7 +979,8 @@ class ROFsck(Fsck):
         db = Connection(path + '.db')
         db.execute('PRAGMA journal_mode = WAL')
 
-        param = pickle.load(open(path + '.params', 'rb'))
+        with open(path + '.params', 'rb') as fh:
+            param = pickle.load(fh)
         super(ROFsck, self).__init__(None, None, param, db)
 
     def check(self):
@@ -1090,7 +1091,8 @@ def main(args=None):
 
     if os.path.exists(cachepath + '.params'):
         assert os.path.exists(cachepath + '.db')
-        param = pickle.load(open(cachepath + '.params', 'rb'))
+        with open(cachepath + '.params', 'rb') as fh:
+            param = pickle.load(fh)
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
             param = backend.lookup('s3ql_metadata')
@@ -1164,18 +1166,20 @@ def main(args=None):
                              + cachepath + '.db (corrupted)\n'
                              + cachepath + '.param (intact)') from None
     else:
-        def do_read(fh):
-            tmpfh = tempfile.TemporaryFile()
-            stream_read_bz2(fh, tmpfh)
-            return tmpfh
-        log.info('Downloading and decompressing metadata...')
-        tmpfh = backend.perform_read(do_read, "s3ql_metadata")
-        os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                         stat.S_IRUSR | stat.S_IWUSR))
-        db = Connection(cachepath + '.db.tmp', fast_mode=True)
-        log.info("Reading metadata...")
-        tmpfh.seek(0)
-        restore_metadata(tmpfh, db)
+        with tempfile.TemporaryFile() as tmpfh:
+            def do_read(fh):
+                tmpfh.seek(0)
+                tmpfh.truncate() 
+                stream_read_bz2(fh, tmpfh)
+            log.info('Downloading and decompressing metadata...')
+            backend.perform_read(do_read, "s3ql_metadata")
+            
+            os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                             stat.S_IRUSR | stat.S_IWUSR))
+            db = Connection(cachepath + '.db.tmp', fast_mode=True)
+            log.info("Reading metadata...")
+            tmpfh.seek(0)
+            restore_metadata(tmpfh, db)
         db.close()
         os.rename(cachepath + '.db.tmp', cachepath + '.db')
         db = Connection(cachepath + '.db')
@@ -1183,8 +1187,9 @@ def main(args=None):
     # Increase metadata sequence no 
     param['seq_no'] += 1
     param['needs_fsck'] = True
-    backend['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
-    pickle.dump(param, open(cachepath + '.params', 'wb'), PICKLE_PROTOCOL)
+    backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
+    with open(cachepath + '.params', 'wb') as fh:
+        pickle.dump(param, fh, PICKLE_PROTOCOL)
 
     fsck = Fsck(cachepath + '-cache', backend, param, db)
     fsck.check()
@@ -1211,18 +1216,19 @@ def main(args=None):
     param['last-modified'] = time.time()
 
     log.info('Dumping metadata...')
-    fh = tempfile.TemporaryFile()
-    dump_metadata(db, fh)
-    def do_write(obj_fh):
-        fh.seek(0)
-        stream_write_bz2(fh, obj_fh)
-        return obj_fh
-
-    log.info("Compressing and uploading metadata...")
-    obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
-                                  is_compressed=True)
+    with tempfile.TemporaryFile() as fh:
+        dump_metadata(db, fh)
+        def do_write(obj_fh):
+            fh.seek(0)
+            stream_write_bz2(fh, obj_fh)
+            return obj_fh
+    
+        log.info("Compressing and uploading metadata...")
+        obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
+                                      is_compressed=True)
     log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
-    pickle.dump(param, open(cachepath + '.params', 'wb'), PICKLE_PROTOCOL)
+    with open(cachepath + '.params', 'wb') as fh:
+        pickle.dump(param, fh, PICKLE_PROTOCOL)
 
     db.execute('ANALYZE')
     db.execute('VACUUM')
