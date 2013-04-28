@@ -182,7 +182,7 @@ Local
 S3QL is also able to store its data on the local file system. This can
 be used to backup data on external media, or to access external
 services that S3QL can not talk to directly (e.g., it is possible to
-store data over SSH by first mounting the remote system using `sshfs`_
+store data over SSH by first mounting the remote system using sshfs_
 and then using the local backend to store the data in the sshfs
 mountpoint).
 
@@ -198,3 +198,5 @@ file (see :ref:`authinfo`) is read, i.e. if you are in the
 corresponding section in the authentication file must match the
 storage url `local:///home/john/s3ql`.
 
+
+.. _sshfs: http://fuse.sourceforge.net/sshfs.html
