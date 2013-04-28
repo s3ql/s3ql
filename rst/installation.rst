@@ -73,8 +73,8 @@ To install S3QL itself, proceed as follows:
 
 1. Download S3QL from http://code.google.com/p/s3ql/downloads/list
 2. Unpack it into a folder of your choice
-3. Run `python setup.py build_ext --inplace` to build S3QL.
-4. Run `python runtests.py tests` to run a self-test. If this fails, ask
+3. Run `python3 setup.py build_ext --inplace` to build S3QL.
+4. Run `python3 runtests.py tests` to run a self-test. If this fails, ask
    for help on the `mailing list
    <http://groups.google.com/group/s3ql>`_ or report a bug in the
    `issue tracker <http://code.google.com/p/s3ql/issues/list>`_.
@@ -84,9 +84,9 @@ Now you have three options:
 * You can run the S3QL commands from the `bin/` directory.
 
 * You can install S3QL system-wide for all users. To do that, you
-  have to run `sudo python setup.py install`.
+  have to run `sudo python3 setup.py install`.
 
-* You can install S3QL into `~/.local` by executing `python
+* You can install S3QL into `~/.local` by executing `python3
   setup.py install --user`. In this case you should make sure that
   `~/.local/bin` is in your `$PATH` environment variable.
 
@@ -95,15 +95,38 @@ Development Version
 ===================
 
 If you have checked out the unstable development version from the
-Mercurial repository, a bit more effort is required. You need to also
-have Cython_ (0.16 or newer), Sphinx_ (1.1 or newer) and `py.test`_
-installed, and the necessary commands are::
+Mercurial repository, a bit more effort is required. You'll also need:
 
-  python setup.py build_cython
-  python setup.py build_ext --inplace
-  python setup.py build_sphinx
-  python setup.py test
-  python setup.py install
+* Version 0.16 or newer of the Cython_ compiler.
+
+* Version 1.1 or newer of the Sphinx_ document processor.
+
+* The `py.test`_ testing tool.
+
+With these additional dependencies installed, S3QL can be build and
+tested with ::
+
+  python3 setup.py build_cython
+  python3 setup.py build_ext --inplace
+  py.test tests/
+
+Note that when building from the Mercurial repository, building and
+testing is done with several additional checks. This may cause
+compilation and/or tests to fail even though there are no problems
+with functionality. For example, when building from the Mercurial
+repository, any use of functions that are scheduled for deprecation in
+future Python version will cause tests to fail. If you would rather
+just check for functionality, you can delete the :file:`MANIFEST.in`
+file. In that case, the build system will behave as it does for a
+regular release.
+
+The HTML and PDF documentation can be generated with ::
+  
+  python3 setup.py build_sphinx
+
+and S3QL can be installed as usual with ::
+
+  python3 setup.py install [--user]
   
 
 .. _Cython: http://www.cython.org/
