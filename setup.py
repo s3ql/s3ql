@@ -208,6 +208,9 @@ class build_cython(setuptools.Command):
         options = { 'recursive': False, 'verbose': True, 'timestamps': False,
                    'compiler_directives': directives, 'warning_errors': True }
 
+        # http://trac.cython.org/cython_trac/ticket/714
+        options['compiler_directives']['warn.maybe_uninitialized'] = False
+        
         for extension in self.extensions:
             for file_ in extension.sources:
                 (file_, ext) = os.path.splitext(file_)
