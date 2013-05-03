@@ -9,8 +9,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 # Analysis of Cython code not really working yet
 #@PydevCodeAnalysisIgnore
 
-from __future__ import print_function, division
-
 from cpython.long cimport PyLong_AsVoidPtr
 from cpython.exc cimport PyErr_NoMemory
 from libc.stdio cimport (FILE, const_char, const_void, fclose as fclose_c,
@@ -20,6 +18,10 @@ from libc.errno cimport errno
 from libc.stdlib cimport calloc as calloc_c, free as free_c
 from libc.stdint cimport (int64_t, uint8_t, uint16_t, uint32_t, uint64_t)
 from posix.unistd cimport dup, lseek, SEEK_SET
+
+# These import are not (yet?) in the Cython provided cpython module
+cdef extern from *:
+    object PyUnicode_FromString(const_char *u)
 
 cdef extern from 'stdint.h' nogil:
     enum: UINT8_MAX
@@ -56,7 +58,9 @@ cdef extern from 'sqlite3.h' nogil:
     int sqlite3_column_type(sqlite3_stmt * , int iCol)
     double sqlite3_column_double(sqlite3_stmt * , int iCol)
     int sqlite3_bind_double(sqlite3_stmt * , int, double)
-
+    const_char *sqlite3_compileoption_get(int N)
+    const_char *sqlite3_libversion()
+    
     void SQLITE_TRANSIENT(void *)
 
     enum:
@@ -69,8 +73,45 @@ from .cleanup_manager import CleanupManager
 import apsw
 import os
 import logging
+import itertools
 
 log = logging.getLogger('deltadump')
+
+# Check that we're using the same SQLite version compiled with
+# the same options.
+cdef check_sqlite():
+    cdef const_char *buf
+
+    apsw_sqlite_version = apsw.sqlitelibversion()
+    s3ql_sqlite_version = PyUnicode_FromString(sqlite3_libversion())
+    log.debug('apsw sqlite version: %s, '
+              's3ql sqlite version: %s',
+              apsw_sqlite_version,
+              s3ql_sqlite_version)
+    if apsw_sqlite_version != s3ql_sqlite_version:
+        raise RuntimeError('SQLite version mismatch between APSW and S3QL '
+                           '(%s vs %s)' % (apsw_sqlite_version, s3ql_sqlite_version))
+    
+    apsw_sqlite_options = set(apsw.compile_options)
+    s3ql_sqlite_options = set()
+    for idx in itertools.count(0):
+        buf = sqlite3_compileoption_get(idx)
+        if buf is NULL:
+            break
+        s3ql_sqlite_options.add(PyUnicode_FromString(buf))
+
+    log.debug('apsw sqlite compile options: %s, '
+              's3ql sqlite compile options: %s',
+              apsw_sqlite_options,
+              s3ql_sqlite_options)
+    if apsw_sqlite_options != s3ql_sqlite_options:
+        raise RuntimeError('SQLite code used by APSW was compiled with different '
+                           'options than SQLite code available to S3QL! '
+                           'Differing settings: + %s, - %s' %
+                           (apsw_sqlite_options - s3ql_sqlite_options,
+                           s3ql_sqlite_options - apsw_sqlite_options))
+check_sqlite()        
+
 
 # Column types
 cdef int _INTEGER = 1
