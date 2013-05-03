@@ -9,8 +9,8 @@ syntax: regexp
 \.pyc$
 ^setup.log$
 ^dist$
-^src/s3ql/_deltadump.c$
-^src/s3ql/_deltadump.so$
+^src/s3ql/deltadump.c$
+^src/s3ql/deltadump.so$
 ^contrib/expire_backups.1$
 ^contrib/pcp.1$
 ^test.py$
