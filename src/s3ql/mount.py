@@ -661,7 +661,7 @@ def timed_wait(event, timeout, interval=1):
     which causes noticeable CPU consumption. Therefore, for Python 2 we we 
     implement our own poll loop that runs at a rate of our own choosing.
     '''
-    if sys.version_info[0] > 2:
+    if sys.version_info[0] > 2 or timeout is None:
         return event.wait(timeout)
 
     endtime = time.time() + timeout
