@@ -9,6 +9,11 @@ UNRELEASED, S3QL tip
 
   * mount.s3ql: fixed crash when using --metadata-upload-interval 0.
 
+  * Instead of completely unmounting the file system (and leaving the
+    mount point inaccessible) when backend data is missing or
+    corrupted, S3QL now returns an error and switches to read-only
+    operation.
+
 2013-04-09, S3QL 1.14
 
   * Reduced CPU consumption when S3QL is idle.
