@@ -1173,7 +1173,7 @@ def main(args=None):
         tmpfh = backend.perform_read(do_read, "s3ql_metadata")
         os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
                          stat.S_IRUSR | stat.S_IWUSR))
-        db = Connection(cachepath + '.db.tmp', fast_mode=True)
+        db = Connection(cachepath + '.db.tmp')
         log.info("Reading metadata...")
         tmpfh.seek(0)
         restore_metadata(tmpfh, db)
