@@ -76,9 +76,18 @@ import itertools
 
 log = logging.getLogger('deltadump')
 
-# Check that we're using the same SQLite version compiled with
-# the same options.
-cdef check_sqlite():
+def check_sqlite():
+    '''Check if deltadump and apsw module use compatible SQLite code.
+
+    This functions look at versions and compile options of the SQLite
+    code used by the *apsw* module and the *deltadump* module. If they
+    do not match exactly, a `RuntimeError` is raised.
+
+    Only if both modules use the same SQLite version compiled with the
+    same options can the database object be shared between *apsw* and
+    *deltadump*.
+    '''
+    
     cdef const_char *buf
 
     apsw_sqlite_version = apsw.sqlitelibversion()
