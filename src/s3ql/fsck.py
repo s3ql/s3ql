@@ -1171,15 +1171,10 @@ def main(args=None):
             return tmpfh
         log.info('Downloading and decompressing metadata...')
         tmpfh = backend.perform_read(do_read, "s3ql_metadata")
-        os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                         stat.S_IRUSR | stat.S_IWUSR))
-        db = Connection(cachepath + '.db.tmp')
+        
         log.info("Reading metadata...")
         tmpfh.seek(0)
-        restore_metadata(tmpfh, db)
-        db.close()
-        os.rename(cachepath + '.db.tmp', cachepath + '.db')
-        db = Connection(cachepath + '.db')
+        db = restore_metadata(tmpfh, cachepath + '.db')
 
     # Increase metadata sequence no 
     param['seq_no'] += 1

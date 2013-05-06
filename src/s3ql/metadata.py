@@ -7,9 +7,11 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-
-from .deltadump import (INTEGER, BLOB, TIME, dump_table, load_table)
+from .deltadump import INTEGER, BLOB, TIME, dump_table, load_table
+from .database import Connection
 import logging
+import os
+import stat
 
 log = logging.getLogger('metadata')
 
@@ -61,18 +63,47 @@ DUMP_SPEC = [
 
 
 
-def restore_metadata(fh, db):
-    '''Read metadata from *fh* and write into *db*
+def restore_metadata(fh, dbfile):
+    '''Read metadata from *fh* and write into *dbfile*
+    
+    Return database connection to *dbfile*.
     
     *fh* must be able to return an actual file descriptor from
     its `fileno` method.
+    
+    *dbfile* will be created with 0600 permissions. Data is
+    first written into a temporary file *dbfile* + '.tmp', and
+    the file is renamed once all data has been loaded.
+    
+    
     '''
 
-    create_tables(db)
-    for (table, _, columns) in DUMP_SPEC:
-        log.info('..%s..', table)
-        load_table(table, columns, db=db, fh=fh)
-    db.execute('ANALYZE')
+    tmpfile = dbfile + '.tmp'
+    fd = os.open(tmpfile, os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+                 stat.S_IRUSR | stat.S_IWUSR)
+    try:
+        os.close(fd)
+    
+        db = Connection(tmpfile)
+        db.execute('PRAGMA locking_mode = NORMAL')
+        db.execute('PRAGMA synchronous = OFF')
+        db.execute('PRAGMA journal_mode = OFF')
+        create_tables(db)
+        
+        for (table, _, columns) in DUMP_SPEC:
+            log.info('..%s..', table)
+            load_table(table, columns, db=db, fh=fh)
+        db.execute('ANALYZE')
+        
+        # We must close the database to rename it
+        db.close()
+    except:
+        os.unlink(tmpfile)
+        raise
+    
+    os.rename(tmpfile, dbfile)
+    
+    return Connection(dbfile)
 
 def cycle_metadata(backend):
     from .backends.common import NoSuchObject
