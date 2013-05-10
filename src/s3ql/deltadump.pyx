@@ -41,6 +41,7 @@ cdef extern from 'sqlite3.h' nogil:
     ctypedef int sqlite3_stmt
     ctypedef int64_t sqlite3_int64
 
+    const_char *sqlite3_errmsg(sqlite3*)
     int sqlite3_prepare_v2(sqlite3 * db,
                            char * zSql,
                            int nByte,
@@ -168,14 +169,6 @@ cdef free(void * ptr):
     free_c(ptr)
     return None
 
-cdef int sqlite3_finalize_p(sqlite3_stmt * stmt) except -1:
-    '''Call sqlite3_finalize and raise exception on failure'''
-
-    rc = sqlite3_finalize(stmt)
-    if rc != SQLITE_OK:
-        raise apsw.exceptionfor(rc)
-    return 0
-
 cdef int fclose(FILE * fp) except -1:
     '''Call libc.fclose() and raise exception on failure'''
 
@@ -214,6 +207,16 @@ cdef void * calloc(size_t cnt, size_t size) except NULL:
         PyErr_NoMemory()
 
     return ptr
+
+
+cdef int SQLITE_CHECK_RC(int rc, int success, sqlite3* db) except -1:
+    '''Raise correct exception if *rc* != *success*'''
+    
+    if rc != success:
+        exc = apsw.exceptionfor(rc)
+        raise type(exc)(sqlite3_errmsg(db))
+
+    return 0
 
 def dump_table(table, order, columns, db, fh):
     '''Dump *columns* of *table* into *fh*
@@ -323,10 +326,10 @@ def _dump_or_load(table, order, columns, db, fh):
         else:
             query = ("SELECT %s FROM %s ORDER BY %s " %
                      (', '.join(col_names), table, order))
-        rc = sqlite3_prepare_v2(sqlite3_db, query, -1, & stmt, NULL)
-        if rc != SQLITE_OK:
-            raise apsw.exceptionfor(rc)
-        cleanup.register(lambda: sqlite3_finalize_p(stmt))
+        SQLITE_CHECK_RC(sqlite3_prepare_v2(sqlite3_db, query, -1, &stmt, NULL),
+                        SQLITE_OK, sqlite3_db)
+        cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_finalize(stmt),
+                                                 SQLITE_OK, sqlite3_db))
 
         # Dump or load data as requested
         if order is None:
@@ -335,16 +338,17 @@ def _dump_or_load(table, order, columns, db, fh):
             read_integer(& row_count, fp)
             log.debug('_dump_or_load(%s): reading %d rows', table, row_count)
             _load_table(col_types, col_args, int64_prev, col_count,
-                        row_count, stmt, fp, buf)
+                        row_count, stmt, fp, buf, sqlite3_db)
         else:
             row_count = db.get_val("SELECT COUNT(rowid) FROM %s" % table)
             log.debug('_dump_or_load(%s): writing %d rows', table, row_count)
             write_integer(row_count, fp)
-            _dump_table(col_types, col_args, int64_prev, col_count, stmt, fp)
+            _dump_table(col_types, col_args, int64_prev, col_count, stmt, fp,
+                        sqlite3_db)
 
 
 cdef _dump_table(int * col_types, int * col_args, int64_t * int64_prev,
-                 int col_count, sqlite3_stmt * stmt, FILE * fp):
+                 int col_count, sqlite3_stmt * stmt, FILE * fp, sqlite3 *db):
 
     cdef const_void * buf
     cdef int rc, i, len_
@@ -355,8 +359,7 @@ cdef _dump_table(int * col_types, int * col_args, int64_t * int64_prev,
         rc = sqlite3_step(stmt)
         if rc == SQLITE_DONE:
             break
-        elif rc != SQLITE_ROW:
-            raise apsw.exceptionfor(rc)
+        SQLITE_CHECK_RC(rc, SQLITE_ROW, db)
 
         for i in range(col_count):
             if sqlite3_column_type(stmt, i) is SQLITE_NULL:
@@ -393,7 +396,7 @@ cdef _dump_table(int * col_types, int * col_args, int64_t * int64_prev,
 
 cdef _load_table(int * col_types, int * col_args, int64_t * int64_prev,
                  int col_count, int row_count, sqlite3_stmt * stmt,
-                 FILE * fp, void * buf):
+                 FILE * fp, void * buf, sqlite3 *db):
 
     cdef int64_t int64
     cdef int rc, len_, i, j
@@ -405,17 +408,15 @@ cdef _load_table(int * col_types, int * col_args, int64_t * int64_prev,
                 read_integer(& int64, fp)
                 int64 += col_args[j] + int64_prev[j]
                 int64_prev[j] = int64
-                rc = sqlite3_bind_int64(stmt, j + 1, int64)
-                if rc != SQLITE_OK:
-                    raise apsw.exceptionfor(rc)
+                SQLITE_CHECK_RC(sqlite3_bind_int64(stmt, j + 1, int64),
+                                SQLITE_OK, db)
 
             if col_types[j] == _TIME:
                 read_integer(& int64, fp)
                 int64 += col_args[j] + int64_prev[j]
                 int64_prev[j] = int64
-                rc = sqlite3_bind_double(stmt, j + 1, int64 / time_scale)
-                if rc != SQLITE_OK:
-                    raise apsw.exceptionfor(rc)
+                SQLITE_CHECK_RC(sqlite3_bind_double(stmt, j + 1, int64 / time_scale),
+                                SQLITE_OK, db)
 
             elif col_types[j] == _BLOB:
                 if col_args[j] == 0:
@@ -431,17 +432,11 @@ cdef _load_table(int * col_types, int * col_args, int64_t * int64_prev,
                 if len_ != 0:
                     fread(buf, len_, fp)
 
-                rc = sqlite3_bind_blob(stmt, j + 1, buf, len_, SQLITE_TRANSIENT)
-                if rc != SQLITE_OK:
-                    raise apsw.exceptionfor(rc)
+                SQLITE_CHECK_RC(sqlite3_bind_blob(stmt, j + 1, buf, len_, SQLITE_TRANSIENT),
+                                SQLITE_OK, db)
 
-        rc = sqlite3_step(stmt)
-        if rc != SQLITE_DONE:
-            raise apsw.exceptionfor(rc)
-
-        rc = sqlite3_reset(stmt)
-        if rc != SQLITE_OK:
-            raise apsw.exceptionfor(rc)
+        SQLITE_CHECK_RC(sqlite3_step(stmt), SQLITE_DONE, db)
+        SQLITE_CHECK_RC(sqlite3_reset(stmt), SQLITE_OK, db)
 
 cdef inline int write_integer(int64_t int64, FILE * fp) except -1:
     '''Write *int64* into *fp*, using as little space as possible
