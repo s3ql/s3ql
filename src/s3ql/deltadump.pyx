@@ -149,17 +149,24 @@ cdef inline int fwrite(const_void * buf, size_t len_, FILE * fp) except -1:
 
     if fwrite_c(buf, len_, 1, fp) != 1:
         raise IOError(errno, strerror(errno))
+    return len_
 
 cdef inline int fread(void * buf, size_t len_, FILE * fp) except -1:
     '''Call libc's fread() and raise exception on failure'''
 
     if fread_c(buf, len_, 1, fp) != 1:
         raise IOError(errno, strerror(errno))
+    return len_
 
-cdef int free(void * ptr) except -1:
-    '''Call libc.free() and return None'''
+cdef free(void * ptr):
+    '''Call libc.free()
+
+    This is a Python wrapper, so that we can call free in e.g.
+    a lambda expression.
+    '''
 
     free_c(ptr)
+    return None
 
 cdef int sqlite3_finalize_p(sqlite3_stmt * stmt) except -1:
     '''Call sqlite3_finalize and raise exception on failure'''
@@ -167,6 +174,7 @@ cdef int sqlite3_finalize_p(sqlite3_stmt * stmt) except -1:
     rc = sqlite3_finalize(stmt)
     if rc != SQLITE_OK:
         raise apsw.exceptionfor(rc)
+    return 0
 
 cdef int fclose(FILE * fp) except -1:
     '''Call libc.fclose() and raise exception on failure'''
@@ -192,6 +200,8 @@ cdef int fclose(FILE * fp) except -1:
 
     if fclose_c(fp) != 0:
         raise OSError(errno, strerror(errno))
+
+    return 0
 
 cdef void * calloc(size_t cnt, size_t size) except NULL:
     '''Call libc.calloc and raise exception on failure'''
@@ -434,7 +444,10 @@ cdef _load_table(int * col_types, int * col_args, int64_t * int64_prev,
             raise apsw.exceptionfor(rc)
 
 cdef inline int write_integer(int64_t int64, FILE * fp) except -1:
-    '''Write *int64* into *fp*, using as little space as possible'''
+    '''Write *int64* into *fp*, using as little space as possible
+
+    Return the number of bytes written, or -1 on error.
+    '''
 
     cdef uint8_t int8
     cdef size_t len_
@@ -468,8 +481,13 @@ cdef inline int write_integer(int64_t int64, FILE * fp) except -1:
         uint64 = htole64(uint64)
         fwrite(& uint64, len_, fp)
 
+    return len_ + 1
+
 cdef inline int read_integer(int64_t * out, FILE * fp) except -1:
-    '''Read integer written using `write_integer` from *fp*'''
+    '''Read integer written using `write_integer` from *fp*
+
+    Return the number of bytes read, or -1 on error.
+    '''
 
     cdef uint8_t int8
     cdef size_t len_
@@ -505,3 +523,6 @@ cdef inline int read_integer(int64_t * out, FILE * fp) except -1:
         out[0] = - < int64_t > uint64
     else:
         out[0] = < int64_t > uint64
+
+    return len_ + 1
+
