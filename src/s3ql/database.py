@@ -29,23 +29,24 @@ if sqlite_ver < (3, 7, 0):
     raise QuietError('SQLite version too old, must be 3.7.0 or newer!\n')
 
             
-initsql = ('PRAGMA foreign_keys = OFF',
+initsql = (
+           # WAL mode causes trouble with e.g. copy_tree, so we don't use it at the moment
+           # (cf. http://article.gmane.org/gmane.comp.db.sqlite.general/65243). 
+           # However, if we start using it we must initiaze it *before* setting 
+           # locking_mode to EXCLUSIVE, otherwise we can't switch the locking
+           # mode without first disabling WAL.
+           'PRAGMA synchronous = OFF',
+           'PRAGMA journal_mode = OFF',
+           #'PRAGMA synchronous = NORMAL',
+           #'PRAGMA journal_mode = WAL',
+           
+           'PRAGMA foreign_keys = OFF',
            'PRAGMA locking_mode = EXCLUSIVE',
            'PRAGMA recursize_triggers = on',
            'PRAGMA page_size = 4096',
            'PRAGMA wal_autocheckpoint = 25000',
            'PRAGMA temp_store = FILE',
            'PRAGMA legacy_file_format = off',
-
-            # WAL mode causes trouble with e.g. copy_tree, so we don't use it at the moment
-            # (cf. http://article.gmane.org/gmane.comp.db.sqlite.general/65243). 
-            # However, if we start using it we must initiaze it *before* setting 
-            # locking_mode to EXCLUSIVE, otherwise we can't switch the locking
-            # mode without first disabling WAL.
-           'PRAGMA synchronous = OFF',
-           'PRAGMA journal_mode = OFF',
-            #'PRAGMA synchronous = NORMAL',
-            #'PRAGMA journal_mode = WAL',
            )
 
 class Connection(object):
