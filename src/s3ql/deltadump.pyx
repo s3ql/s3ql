@@ -335,7 +335,7 @@ def _dump_or_load(table, order, columns, db, fh):
         if order is None:
             buf = calloc(MAX_BLOB_SIZE, 1)
             cleanup.register(lambda: free(buf))
-            read_integer(& row_count, fp)
+            read_integer(&row_count, fp)
             log.debug('_dump_or_load(%s): reading %d rows', table, row_count)
             _load_table(col_types, col_args, int64_prev, col_count,
                         row_count, stmt, fp, buf, sqlite3_db)
@@ -405,14 +405,14 @@ cdef _load_table(int * col_types, int * col_args, int64_t * int64_prev,
     for i in range(row_count):
         for j in range(col_count):
             if col_types[j] == _INTEGER:
-                read_integer(& int64, fp)
+                read_integer(&int64, fp)
                 int64 += col_args[j] + int64_prev[j]
                 int64_prev[j] = int64
                 SQLITE_CHECK_RC(sqlite3_bind_int64(stmt, j + 1, int64),
                                 SQLITE_OK, db)
 
             if col_types[j] == _TIME:
-                read_integer(& int64, fp)
+                read_integer(&int64, fp)
                 int64 += col_args[j] + int64_prev[j]
                 int64_prev[j] = int64
                 SQLITE_CHECK_RC(sqlite3_bind_double(stmt, j + 1, int64 / time_scale),
@@ -420,7 +420,7 @@ cdef _load_table(int * col_types, int * col_args, int64_t * int64_prev,
 
             elif col_types[j] == _BLOB:
                 if col_args[j] == 0:
-                    read_integer(& int64, fp)
+                    read_integer(&int64, fp)
                     len_ = int64_prev[j] + int64
                     int64_prev[j] = len_
                 else:
@@ -471,10 +471,10 @@ cdef inline int write_integer(int64_t int64, FILE * fp) except -1:
         len_ = 8
         int8 += INT64
 
-    fwrite(& int8, 1, fp)
+    fwrite(&int8, 1, fp)
     if len_ != 0:
         uint64 = htole64(uint64)
-        fwrite(& uint64, len_, fp)
+        fwrite(&uint64, len_, fp)
 
     return len_ + 1
 
@@ -489,7 +489,7 @@ cdef inline int read_integer(int64_t * out, FILE * fp) except -1:
     cdef uint64_t uint64
     cdef char negative
 
-    fread(& int8, 1, fp)
+    fread(&int8, 1, fp)
 
     if int8 & 0x80 != 0:
         negative = 1
@@ -511,7 +511,7 @@ cdef inline int read_integer(int64_t * out, FILE * fp) except -1:
 
     if len_ != 0:
         uint64 = 0
-        fread(& uint64, len_, fp)
+        fread(&uint64, len_, fp)
         uint64 = le64toh(uint64)
 
     if negative == 1:
