@@ -218,6 +218,49 @@ cdef int SQLITE_CHECK_RC(int rc, int success, sqlite3* db) except -1:
 
     return 0
 
+
+cdef int prep_columns(columns, int** col_types_p, int** col_args_p) except -1:
+    '''Allocate col_types and col_args, return number of columns
+
+    Both arrays are allocated dynamically, caller has to ensure
+    that they're freed again.
+    '''
+    cdef int col_count, *col_types, *col_args
+    
+    col_count = len(columns)
+    col_types = < int *> calloc(col_count, sizeof(int))
+    col_args = < int *> calloc(col_count, sizeof(int))
+
+    # Initialize col_args and col_types   
+    for i in range(col_count):
+        if columns[i][1] not in (BLOB, INTEGER, TIME):
+            raise ValueError("Invalid type for column %d" % i)
+        col_types[i] = columns[i][1]
+
+        if len(columns[i]) == 3:
+            col_args[i] = columns[i][2]
+        else:
+            col_args[i] = 0
+
+    col_types_p[0] = col_types
+    col_args_p[0] = col_args
+    return col_count
+
+cdef FILE* dup_to_fp(fh, mode) except NULL:
+    '''Duplicate fd from *fh* and open as FILE*'''
+
+    cdef int fd
+
+    fd = dup(fh.fileno())
+    if fd == -1:
+        raise OSError(errno, strerror(errno))
+    fp = fdopen(fd, mode)
+    if fp == NULL:
+        raise OSError(errno, strerror(errno))
+
+    return fp
+
+
 def dump_table(table, order, columns, db, fh):
     '''Dump *columns* of *table* into *fh*
 
@@ -238,7 +281,82 @@ def dump_table(table, order, columns, db, fh):
     the column values in bytes.
     '''
 
-    return _dump_or_load(table, order, columns, db, fh)
+    cdef sqlite3 *sqlite3_db
+    cdef sqlite3_stmt *stmt
+    cdef int *col_types, *col_args, col_count, rc, i, len_
+    cdef int64_t *int64_prev, int64, tmp
+    cdef FILE *fp
+    cdef const_void *buf
+    cdef int64_t row_count
+
+    sqlite3_db = <sqlite3*> PyLong_AsVoidPtr(db.conn.sqlite3pointer())
+
+    with CleanupManager(log) as cleanup:
+        fp = dup_to_fp(fh, 'wb')
+        cleanup.register(lambda: fclose(fp))
+
+        # Allocate col_args and col_types 
+        col_count = prep_columns(columns, &col_types, &col_args)
+        cleanup.register(lambda: free(col_args))
+        cleanup.register(lambda: free(col_types))
+        
+        # Allocate int64_prev
+        int64_prev = < int64_t *> calloc(len(columns), sizeof(int64_t))
+        cleanup.register(lambda: free(int64_prev))
+
+        # Prepare statement
+        col_names = [ x[0] for x in columns ]
+        query = ("SELECT %s FROM %s ORDER BY %s " %
+                 (', '.join(col_names), table, order))
+        SQLITE_CHECK_RC(sqlite3_prepare_v2(sqlite3_db, query, -1, &stmt, NULL),
+                        SQLITE_OK, sqlite3_db)
+        cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_finalize(stmt),
+                                                 SQLITE_OK, sqlite3_db))
+
+        # Dump or load data as requested
+        row_count = db.get_val("SELECT COUNT(rowid) FROM %s" % table)
+        log.debug('dump_table(%s): writing %d rows', table, row_count)
+        write_integer(row_count, fp)
+
+        # Iterate through rows
+        while True:
+            rc = sqlite3_step(stmt)
+            if rc == SQLITE_DONE:
+                break
+            SQLITE_CHECK_RC(rc, SQLITE_ROW, sqlite3_db)
+
+            for i in range(col_count):
+                if sqlite3_column_type(stmt, i) is SQLITE_NULL:
+                    raise ValueError("Can't dump NULL values")
+
+                if col_types[i] == _INTEGER:
+                    int64 = sqlite3_column_int64(stmt, i)
+                    tmp = int64
+                    int64 -= int64_prev[i] + col_args[i]
+                    int64_prev[i] = tmp
+                    write_integer(int64, fp)
+
+                elif col_types[i] == _TIME:
+                    int64 = < int64_t > (sqlite3_column_double(stmt, i) * time_scale)
+                    tmp = int64
+                    int64 -= int64_prev[i] + col_args[i]
+                    int64_prev[i] = tmp
+                    write_integer(int64, fp)
+
+                elif col_types[i] == _BLOB:
+                    buf = sqlite3_column_blob(stmt, i)
+                    len_ = sqlite3_column_bytes(stmt, i)
+                    if len_ > MAX_BLOB_SIZE:
+                            raise ValueError('Can not dump BLOB of size %d (max: %d)',
+                                             len_, MAX_BLOB_SIZE)
+                    if col_args[i] == 0:
+                        write_integer(len_ - int64_prev[i], fp)
+                        int64_prev[i] = len_
+                    elif len_ != col_args[i]:
+                        raise ValueError("Length %d != %d in column %d" % (len_, col_args[i], i))
+
+                    if len_ != 0:
+                        fwrite(buf, len_, fp)
 
 def load_table(table, columns, db, fh):
     '''Load *columns* of *table* from *fh*
@@ -246,71 +364,24 @@ def load_table(table, columns, db, fh):
     Parameters are described in the docstring of the `dump_table` function.
     '''
 
-    return _dump_or_load(table, None, columns, db, fh)
+    cdef sqlite3 *sqlite3_db
+    cdef sqlite3_stmt *stmt
+    cdef int *col_types, *col_args, col_count, rc, len_, i, j
+    cdef int64_t *int64_prev
+    cdef FILE *fp
+    cdef void *buf
+    cdef int64_t row_count, int64
 
-
-def _dump_or_load(table, order, columns, db, fh):
-    '''Dump or load *columns* of *table*
-    
-    If *order* is None, load data from *fh* into *db*.
-    
-    If *order* is not None, data will be read from *db* and written
-    into *fh*. In this case, *order* specifies the order in which
-    the rows are written and must be a string that can be inserted
-    after the "ORDER BY" clause in an SQL SELECT statement.
-    
-    *db* is an `s3ql.Connection` instance for the database.
-    
-    *columns* must a list of 3-tuples, one for each column that should be stored
-    or retrieved. The first element of the tuple must contain the column name
-    and the second element the type of data stored in the column (`INTEGER`,
-    `TIME` or `BLOB`). Times will be converted to nanosecond integers.
-    
-    For integers and times, the third tuple element specifies the expected
-    change of the values between rows. For blobs it can be either zero
-    (indicating variable length columns) or an integer specifying the length of
-    the column values in bytes.    
-    '''
-
-    cdef sqlite3 * sqlite3_db
-    cdef sqlite3_stmt * stmt
-    cdef int * col_types, *col_args, col_count, rc, fd
-    cdef int64_t * int64_prev
-    cdef FILE * fp
-    cdef void * buf
-    cdef int64_t row_count
-
-    sqlite3_db = < sqlite3 *> PyLong_AsVoidPtr(db.conn.sqlite3pointer())
+    sqlite3_db = <sqlite3*> PyLong_AsVoidPtr(db.conn.sqlite3pointer())
 
     with CleanupManager(log) as cleanup:
-        fd = dup(fh.fileno())
-        if fd == -1:
-            raise OSError(errno, strerror(errno))
-        if order is None:
-            fp = fdopen(fd, 'rb')
-        else:
-            fp = fdopen(fd, 'wb')
-        if fp == NULL:
-            raise OSError(errno, strerror(errno))
+        fp = dup_to_fp(fh, 'rb')
         cleanup.register(lambda: fclose(fp))
 
         # Allocate col_args and col_types 
-        col_count = len(columns)
-        col_types = < int *> calloc(col_count, sizeof(int))
-        cleanup.register(lambda: free(col_types))
-        col_args = < int *> calloc(col_count, sizeof(int))
+        col_count = prep_columns(columns, &col_types, &col_args)
         cleanup.register(lambda: free(col_args))
-
-        # Initialize col_args and col_types   
-        for i in range(col_count):
-            if columns[i][1] not in (BLOB, INTEGER, TIME):
-                raise ValueError("Invalid type for column %d" % i)
-            col_types[i] = columns[i][1]
-
-            if len(columns[i]) == 3:
-                col_args[i] = columns[i][2]
-            else:
-                col_args[i] = 0
+        cleanup.register(lambda: free(col_types))
 
         # Allocate int64_prev
         int64_prev = < int64_t *> calloc(len(columns), sizeof(int64_t))
@@ -318,125 +389,56 @@ def _dump_or_load(table, order, columns, db, fh):
 
         # Prepare statement
         col_names = [ x[0] for x in columns ]
-        if order is None:
-            query = ("INSERT INTO %s (%s) VALUES(%s)"
-                 % (table,
-                    ', '.join(col_names),
-                    ', '.join('?' * col_count)))
-        else:
-            query = ("SELECT %s FROM %s ORDER BY %s " %
-                     (', '.join(col_names), table, order))
+        query = ("INSERT INTO %s (%s) VALUES(%s)"
+                 % (table, ', '.join(col_names), ', '.join('?' * col_count)))
         SQLITE_CHECK_RC(sqlite3_prepare_v2(sqlite3_db, query, -1, &stmt, NULL),
                         SQLITE_OK, sqlite3_db)
         cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_finalize(stmt),
                                                  SQLITE_OK, sqlite3_db))
 
         # Dump or load data as requested
-        if order is None:
-            buf = calloc(MAX_BLOB_SIZE, 1)
-            cleanup.register(lambda: free(buf))
-            read_integer(&row_count, fp)
-            log.debug('_dump_or_load(%s): reading %d rows', table, row_count)
-            _load_table(col_types, col_args, int64_prev, col_count,
-                        row_count, stmt, fp, buf, sqlite3_db)
-        else:
-            row_count = db.get_val("SELECT COUNT(rowid) FROM %s" % table)
-            log.debug('_dump_or_load(%s): writing %d rows', table, row_count)
-            write_integer(row_count, fp)
-            _dump_table(col_types, col_args, int64_prev, col_count, stmt, fp,
-                        sqlite3_db)
+        buf = calloc(MAX_BLOB_SIZE, 1)
+        cleanup.register(lambda: free(buf))
+        read_integer(&row_count, fp)
+        log.debug('load_table(%s): reading %d rows', table, row_count)
 
-
-cdef _dump_table(int * col_types, int * col_args, int64_t * int64_prev,
-                 int col_count, sqlite3_stmt * stmt, FILE * fp, sqlite3 *db):
-
-    cdef const_void * buf
-    cdef int rc, i, len_
-    cdef int64_t int64, tmp
-
-    # Iterate through rows
-    while True:
-        rc = sqlite3_step(stmt)
-        if rc == SQLITE_DONE:
-            break
-        SQLITE_CHECK_RC(rc, SQLITE_ROW, db)
-
-        for i in range(col_count):
-            if sqlite3_column_type(stmt, i) is SQLITE_NULL:
-                raise ValueError("Can't dump NULL values")
-
-            if col_types[i] == _INTEGER:
-                int64 = sqlite3_column_int64(stmt, i)
-                tmp = int64
-                int64 -= int64_prev[i] + col_args[i]
-                int64_prev[i] = tmp
-                write_integer(int64, fp)
-
-            elif col_types[i] == _TIME:
-                int64 = < int64_t > (sqlite3_column_double(stmt, i) * time_scale)
-                tmp = int64
-                int64 -= int64_prev[i] + col_args[i]
-                int64_prev[i] = tmp
-                write_integer(int64, fp)
-
-            elif col_types[i] == _BLOB:
-                buf = sqlite3_column_blob(stmt, i)
-                len_ = sqlite3_column_bytes(stmt, i)
-                if len_ > MAX_BLOB_SIZE:
-                        raise ValueError('Can not dump BLOB of size %d (max: %d)',
-                                         len_, MAX_BLOB_SIZE)
-                if col_args[i] == 0:
-                    write_integer(len_ - int64_prev[i], fp)
-                    int64_prev[i] = len_
-                elif len_ != col_args[i]:
-                    raise ValueError("Length %d != %d in column %d" % (len_, col_args[i], i))
-
-                if len_ != 0:
-                    fwrite(buf, len_, fp)
-
-cdef _load_table(int * col_types, int * col_args, int64_t * int64_prev,
-                 int col_count, int row_count, sqlite3_stmt * stmt,
-                 FILE * fp, void * buf, sqlite3 *db):
-
-    cdef int64_t int64
-    cdef int rc, len_, i, j
-
-    # Iterate through rows
-    for i in range(row_count):
-        for j in range(col_count):
-            if col_types[j] == _INTEGER:
-                read_integer(&int64, fp)
-                int64 += col_args[j] + int64_prev[j]
-                int64_prev[j] = int64
-                SQLITE_CHECK_RC(sqlite3_bind_int64(stmt, j + 1, int64),
-                                SQLITE_OK, db)
-
-            if col_types[j] == _TIME:
-                read_integer(&int64, fp)
-                int64 += col_args[j] + int64_prev[j]
-                int64_prev[j] = int64
-                SQLITE_CHECK_RC(sqlite3_bind_double(stmt, j + 1, int64 / time_scale),
-                                SQLITE_OK, db)
-
-            elif col_types[j] == _BLOB:
-                if col_args[j] == 0:
+        # Iterate through rows
+        for i in range(row_count):
+            for j in range(col_count):
+                if col_types[j] == _INTEGER:
                     read_integer(&int64, fp)
-                    len_ = int64_prev[j] + int64
-                    int64_prev[j] = len_
-                else:
-                    len_ = col_args[j]
+                    int64 += col_args[j] + int64_prev[j]
+                    int64_prev[j] = int64
+                    SQLITE_CHECK_RC(sqlite3_bind_int64(stmt, j + 1, int64),
+                                    SQLITE_OK, sqlite3_db)
 
-                if len_ > MAX_BLOB_SIZE:
-                    raise RuntimeError('BLOB too large to read (%d vs %d)', len_, MAX_BLOB_SIZE)
+                if col_types[j] == _TIME:
+                    read_integer(&int64, fp)
+                    int64 += col_args[j] + int64_prev[j]
+                    int64_prev[j] = int64
+                    SQLITE_CHECK_RC(sqlite3_bind_double(stmt, j + 1, int64 / time_scale),
+                                    SQLITE_OK, sqlite3_db)
 
-                if len_ != 0:
-                    fread(buf, len_, fp)
+                elif col_types[j] == _BLOB:
+                    if col_args[j] == 0:
+                        read_integer(&int64, fp)
+                        len_ = int64_prev[j] + int64
+                        int64_prev[j] = len_
+                    else:
+                        len_ = col_args[j]
 
-                SQLITE_CHECK_RC(sqlite3_bind_blob(stmt, j + 1, buf, len_, SQLITE_TRANSIENT),
-                                SQLITE_OK, db)
+                    if len_ > MAX_BLOB_SIZE:
+                        raise RuntimeError('BLOB too large to read (%d vs %d)', len_, MAX_BLOB_SIZE)
 
-        SQLITE_CHECK_RC(sqlite3_step(stmt), SQLITE_DONE, db)
-        SQLITE_CHECK_RC(sqlite3_reset(stmt), SQLITE_OK, db)
+                    if len_ != 0:
+                        fread(buf, len_, fp)
+
+                    SQLITE_CHECK_RC(sqlite3_bind_blob(stmt, j + 1, buf, len_, SQLITE_TRANSIENT),
+                                    SQLITE_OK, sqlite3_db)
+
+            SQLITE_CHECK_RC(sqlite3_step(stmt), SQLITE_DONE, sqlite3_db)
+            SQLITE_CHECK_RC(sqlite3_reset(stmt), SQLITE_OK, sqlite3_db)
+
 
 cdef inline int write_integer(int64_t int64, FILE * fp) except -1:
     '''Write *int64* into *fp*, using as little space as possible
