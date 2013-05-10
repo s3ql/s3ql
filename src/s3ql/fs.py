@@ -186,7 +186,6 @@ class Operations(llfuse.Operations):
         args.append('no_remote_lock')
 
     def readdir(self, id_, off):
-        # FIXME: Do the returned entries acquire a lookup count?
         log.debug('readdir(%d, %d): start', id_, off)
         if off == 0:
             off = -1
