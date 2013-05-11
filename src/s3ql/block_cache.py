@@ -526,14 +526,17 @@ class BlockCache(object):
                     self.in_transit.add(obj_id)
                     log.debug('get(inode=%d, block=%d): downloading object %d..',
                               inode, blockno, obj_id)
-                    def do_read(fh):
-                        el = CacheEntry(inode, blockno, filename)
-                        shutil.copyfileobj(fh, el, BUFSIZE)
-                        return el
+                        
+                    el = CacheEntry(inode, blockno, filename)    
                     try:
+                        def do_read(fh):
+                            el.seek(0)
+                            el.truncate()
+                            shutil.copyfileobj(fh, el, BUFSIZE)
+
                         with lock_released:
                             with self.backend_pool() as backend:
-                                el = backend.perform_read(do_read, 's3ql_data_%d' % obj_id)
+                                backend.perform_read(do_read, 's3ql_data_%d' % obj_id)
 
                         # Note: We need to do this *before* releasing the global
                         # lock to notify other threads
@@ -544,8 +547,8 @@ class BlockCache(object):
                         self.size += el.size
 
                     except:
-                        if el is not None:
-                            el.unlink()
+                        el.unlink()
+                        el.close()
                         raise
                     finally:
                         self.in_transit.remove(obj_id)
