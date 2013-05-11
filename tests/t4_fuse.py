@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from os.path import basename
-from s3ql.common import CTRL_NAME, PICKLE_PROTOCOL
+from s3ql.common import CTRL_NAME, PICKLE_PROTOCOL, path2bytes
 import pickle
 import filecmp
 import llfuse
@@ -202,7 +202,7 @@ class fuse_tests(unittest.TestCase):
         self.mount_process = subprocess.Popen([sys.executable, 
                                                os.path.join(BASEDIR, 'bin', 'mount.s3ql'),
                                                 "--fg", '--cachedir', self.cache_dir,
-                                                '--log', 'none', '--quiet',
+                                                '--log', 'none', '--quiet', 
                                                   self.storage_url, self.mnt_dir],
                                                   stdin=subprocess.PIPE, universal_newlines=True)
         print(self.passphrase, file=self.mount_process.stdin)
@@ -444,8 +444,8 @@ class fuse_tests(unittest.TestCase):
         self.assertTrue(stat.S_ISDIR(os.stat(fullname).st_mode))
         self.assertTrue(dirname in llfuse.listdir(self.mnt_dir))
         llfuse.setxattr('%s/%s' % (self.mnt_dir, CTRL_NAME), 
-                        'rmtree', pickle.dumps((llfuse.ROOT_INODE, dirname),
-                                               PICKLE_PROTOCOL))                
+                        'rmtree', pickle.dumps((llfuse.ROOT_INODE, path2bytes(dirname)),
+                                               PICKLE_PROTOCOL))
         self.assertRaises(FileNotFoundError, os.stat, fullname)
         self.assertTrue(dirname not in llfuse.listdir(self.mnt_dir))
 

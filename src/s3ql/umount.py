@@ -89,11 +89,11 @@ def blocking_umount(mountpoint):
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
 
     log.debug('Flushing cache...')
-    llfuse.setxattr(ctrlfile, b's3ql_flushcache!', b'dummy')
+    llfuse.setxattr(ctrlfile, 's3ql_flushcache!', b'dummy')
 
     # Get pid
     log.debug('Trying to get pid')
-    pid = pickle.loads(llfuse.getxattr(ctrlfile, b's3ql_pid?'))
+    pid = pickle.loads(llfuse.getxattr(ctrlfile, 's3ql_pid?'))
     log.debug('PID is %d', pid)
 
     # Get command line to make race conditions less-likely

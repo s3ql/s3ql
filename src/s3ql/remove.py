@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 
-from .common import setup_logging, QuietError, assert_fs_owner, PICKLE_PROTOCOL
+from .common import setup_logging, QuietError, assert_fs_owner, PICKLE_PROTOCOL, path2bytes
 from .parse_args import ArgumentParser
 import pickle
 import llfuse
@@ -54,7 +54,7 @@ def main(args=None):
         ctrlfile = assert_fs_owner(name)
         fstat_p = os.stat(os.path.dirname(os.path.abspath(name)))
         llfuse.setxattr(ctrlfile, 'rmtree', pickle.dumps((fstat_p.st_ino,
-                                                          os.path.basename(name)),
+                                                          path2bytes(os.path.basename(name))),
                                                           PICKLE_PROTOCOL))
 
 

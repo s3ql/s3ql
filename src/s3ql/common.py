@@ -35,6 +35,12 @@ CTRL_INODE = 2
 
 log = logging.getLogger('common')
 
+file_system_encoding = sys.getfilesystemencoding()
+def path2bytes(s):
+    return s.encode(file_system_encoding, 'surrogateescape')
+def bytes2path(s):
+    return s.decode(file_system_encoding, 'surrogateescape')
+
 def setup_logging(options):
     root_logger = logging.getLogger()
     if root_logger.handlers:
