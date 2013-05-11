@@ -77,7 +77,7 @@ def main(args=None):
     if fstat_p.st_dev != fstat_s.st_dev:
         raise QuietError('Source and target are not on the same file system.')
 
-    if os.path.ismount(options.ource):
+    if os.path.ismount(options.source):
         raise QuietError('%s is a mount point.' % options.source)
         
     ctrlfile = assert_fs_owner(options.source)
