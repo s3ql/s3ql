@@ -83,49 +83,6 @@ import itertools
 
 log = logging.getLogger('deltadump')
 
-def check_sqlite():
-    '''Check if deltadump and apsw module use compatible SQLite code.
-
-    This functions look at versions and compile options of the SQLite
-    code used by the *apsw* module and the *deltadump* module. If they
-    do not match exactly, a `RuntimeError` is raised.
-
-    Only if both modules use the same SQLite version compiled with the
-    same options can the database object be shared between *apsw* and
-    *deltadump*.
-    '''
-    
-    cdef const_char *buf
-
-    apsw_sqlite_version = apsw.sqlitelibversion()
-    s3ql_sqlite_version = PyUnicode_FromString(sqlite3_libversion())
-    log.debug('apsw sqlite version: %s, '
-              's3ql sqlite version: %s',
-              apsw_sqlite_version,
-              s3ql_sqlite_version)
-    if apsw_sqlite_version != s3ql_sqlite_version:
-        raise RuntimeError('SQLite version mismatch between APSW and S3QL '
-                           '(%s vs %s)' % (apsw_sqlite_version, s3ql_sqlite_version))
-    
-    apsw_sqlite_options = set(apsw.compile_options)
-    s3ql_sqlite_options = set()
-    for idx in itertools.count(0):
-        buf = sqlite3_compileoption_get(idx)
-        if buf is NULL:
-            break
-        s3ql_sqlite_options.add(PyUnicode_FromString(buf))
-
-    log.debug('apsw sqlite compile options: %s, '
-              's3ql sqlite compile options: %s',
-              apsw_sqlite_options,
-              s3ql_sqlite_options)
-    if apsw_sqlite_options != s3ql_sqlite_options:
-        raise RuntimeError('SQLite code used by APSW was compiled with different '
-                           'options than SQLite code available to S3QL! '
-                           'Differing settings: + %s, - %s' %
-                           (apsw_sqlite_options - s3ql_sqlite_options,
-                           s3ql_sqlite_options - apsw_sqlite_options))
-
 # Column types
 cdef int _INTEGER = 1
 cdef int _BLOB = 2
@@ -264,6 +221,48 @@ cdef FILE* dup_to_fp(fh, mode) except NULL:
 
     return fp
 
+def check_sqlite():
+    '''Check if deltadump and apsw module use compatible SQLite code.
+
+    This functions look at versions and compile options of the SQLite
+    code used by the *apsw* module and the *deltadump* module. If they
+    do not match exactly, a `RuntimeError` is raised.
+
+    Only if both modules use the same SQLite version compiled with the
+    same options can the database object be shared between *apsw* and
+    *deltadump*.
+    '''
+    
+    cdef const_char *buf
+
+    apsw_sqlite_version = apsw.sqlitelibversion()
+    s3ql_sqlite_version = PyUnicode_FromString(sqlite3_libversion())
+    log.debug('apsw sqlite version: %s, '
+              's3ql sqlite version: %s',
+              apsw_sqlite_version,
+              s3ql_sqlite_version)
+    if apsw_sqlite_version != s3ql_sqlite_version:
+        raise RuntimeError('SQLite version mismatch between APSW and S3QL '
+                           '(%s vs %s)' % (apsw_sqlite_version, s3ql_sqlite_version))
+    
+    apsw_sqlite_options = set(apsw.compile_options)
+    s3ql_sqlite_options = set()
+    for idx in itertools.count(0):
+        buf = sqlite3_compileoption_get(idx)
+        if buf is NULL:
+            break
+        s3ql_sqlite_options.add(PyUnicode_FromString(buf))
+
+    log.debug('apsw sqlite compile options: %s, '
+              's3ql sqlite compile options: %s',
+              apsw_sqlite_options,
+              s3ql_sqlite_options)
+    if apsw_sqlite_options != s3ql_sqlite_options:
+        raise RuntimeError('SQLite code used by APSW was compiled with different '
+                           'options than SQLite code available to S3QL! '
+                           'Differing settings: + %s, - %s' %
+                           (apsw_sqlite_options - s3ql_sqlite_options,
+                           s3ql_sqlite_options - apsw_sqlite_options))
 
 def dump_table(table, order, columns, db, fh):
     '''Dump *columns* of *table* into *fh*
