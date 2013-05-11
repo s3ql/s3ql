@@ -80,11 +80,10 @@ def lazy_umount(mountpoint):
 def blocking_umount(mountpoint):
     '''Invoke fusermount and wait for daemon to terminate.'''
 
-    devnull = open('/dev/null', 'wb')
-    if subprocess.call(
-        ['fuser', '-m', mountpoint], stdout=devnull, stderr=devnull
-    ) == 0:
-        raise MountInUseError(mountpoint)
+    with open('/dev/null', 'wb') as devnull:
+        if subprocess.call(['fuser', '-m', mountpoint], stdout=devnull, 
+                           stderr=devnull) == 0:
+            raise MountInUseError(mountpoint)
 
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
 
