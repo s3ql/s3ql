@@ -144,16 +144,16 @@ def skip_if_no_fusermount():
         raise unittest.SkipTest('fusermount executable not setuid, and we are not root.')
 
     try:
-        subprocess.check_call([fusermount_path, '-V'],
-                              stdout=open('/dev/null', 'wb'))
+        with open('/dev/null', 'wb') as null:
+            subprocess.check_call([fusermount_path, '-V'], stdout=null)
     except subprocess.CalledProcessError:
         raise unittest.SkipTest('Unable to execute fusermount') from None
 
 def skip_without_rsync():
     try:
-        subprocess.call(['rsync', '--version'],
-                        stderr=subprocess.STDOUT,
-                        stdout=open('/dev/null', 'wb'))
+        with open('/dev/null', 'wb') as null:        
+            subprocess.call(['rsync', '--version'], stdout=null,
+                            stderr=subprocess.STDOUT,)
     except FileNotFoundError:
         raise unittest.SkipTest('rsync not installed') from None
 
@@ -214,9 +214,9 @@ class fuse_tests(unittest.TestCase):
         retry(30, poll)
 
     def umount(self):
-        devnull = open('/dev/null', 'wb')
-        retry(5, lambda: subprocess.call(['fuser', '-m', self.mnt_dir],
-                                         stdout=devnull, stderr=devnull) == 1)
+        with open('/dev/null', 'wb') as devnull:
+            retry(5, lambda: subprocess.call(['fuser', '-m', self.mnt_dir],
+                                             stdout=devnull, stderr=devnull) == 1)
 
         proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'umount.s3ql'),
                                  '--quiet', self.mnt_dir])
@@ -237,8 +237,9 @@ class fuse_tests(unittest.TestCase):
         self.assertEqual(proc.wait(), 0)
 
     def tearDown(self):
-        subprocess.call(['fusermount', '-z', '-u', self.mnt_dir],
-                        stderr=open('/dev/null', 'wb'))
+        with open('/dev/null', 'wb') as devnull:
+            subprocess.call(['fusermount', '-z', '-u', self.mnt_dir],
+                            stderr=devnull)
         os.rmdir(self.mnt_dir)
 
         # Give mount process a little while to terminate
