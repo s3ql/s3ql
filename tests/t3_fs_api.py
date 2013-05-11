@@ -656,7 +656,7 @@ class fs_api_tests(unittest.TestCase):
         shutil.copy(datafile, datafile + '.bak')
         
         # Modify contents
-        with open(datafile, 'r+') as rfh:
+        with open(datafile, 'rb+') as rfh:
             rfh.seek(560)
             rfh.write(b'blrub!')
         with self.assertRaises(FUSEError) as cm:
