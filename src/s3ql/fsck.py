@@ -167,9 +167,9 @@ class Fsck(object):
 
             self.log_error("Committing block %d of inode %d to backend", blockno, inode)
 
-            fh = open(os.path.join(self.cachedir, filename), "rb")
-            size = os.fstat(fh.fileno()).st_size
-            hash_ = sha256_fh(fh)
+            with open(os.path.join(self.cachedir, filename), "rb") as fh:
+                size = os.fstat(fh.fileno()).st_size
+                hash_ = sha256_fh(fh)
 
             try:
                 (block_id, obj_id) = self.conn.get_row('SELECT id, obj_id FROM blocks WHERE hash=?', (hash_,))
@@ -179,8 +179,8 @@ class Fsck(object):
                 block_id = self.conn.rowid('INSERT INTO blocks (refcount, hash, obj_id, size) '
                                            'VALUES(?, ?, ?, ?)', (1, hash_, obj_id, size))
                 def do_write(obj_fh):
-                    fh.seek(0)
-                    shutil.copyfileobj(fh, obj_fh, BUFSIZE)
+                    with open(os.path.join(self.cachedir, filename), "rb") as fh:
+                        shutil.copyfileobj(fh, obj_fh, BUFSIZE)
                     return obj_fh
 
                 obj_size = self.backend.perform_write(do_write, 's3ql_data_%d' % obj_id).get_obj_size()
@@ -205,7 +205,6 @@ class Fsck(object):
                 self.conn.execute('UPDATE blocks SET refcount=refcount-1 WHERE id=?', (old_block_id,))
                 self.unlinked_blocks.add(old_block_id)
 
-                fh.close()
             os.unlink(os.path.join(self.cachedir, filename))
 
 
