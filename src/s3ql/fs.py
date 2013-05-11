@@ -1039,8 +1039,8 @@ class Operations(llfuse.Operations):
         # Update file size if changed
         # Fuse does not ensure that we do not get concurrent write requests,
         # so we have to be careful not to undo a size extension made by
-        # a concurrent write.
-        # FIXME: This is *NOT* threadsafe yet
+        # a concurrent write (because _readwrite() releases the global
+        # lock).
         timestamp = time.time()
         inode = self.inodes[fh]
         inode.size = max(inode.size, minsize)
