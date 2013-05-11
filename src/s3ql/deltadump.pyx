@@ -110,14 +110,15 @@ cdef inline int fwrite(const_void * buf, size_t len_, FILE * fp) except -1:
     '''Call libc's fwrite() and raise exception on failure'''
 
     if fwrite_c(buf, len_, 1, fp) != 1:
-        raise IOError(errno, strerror(errno))
+        raise_from_errno(IOError)
+
     return len_
 
 cdef inline int fread(void * buf, size_t len_, FILE * fp) except -1:
     '''Call libc's fread() and raise exception on failure'''
 
     if fread_c(buf, len_, 1, fp) != 1:
-        raise IOError(errno, strerror(errno))
+        raise_from_errno(IOError)
     return len_
 
 cdef free(void * ptr):
@@ -130,6 +131,11 @@ cdef free(void * ptr):
     free_c(ptr)
     return None
 
+cdef int raise_from_errno(err_class=OSError) except -1:
+    '''Raise OSError for current errno value'''
+
+    raise err_class(errno, PyUnicode_FromString(strerror(errno)))
+    
 cdef int fclose(FILE * fp) except -1:
     '''Call libc.fclose() and raise exception on failure'''
 
@@ -139,7 +145,7 @@ cdef int fclose(FILE * fp) except -1:
     # important, so that we can safely reposition the fd position
     # below (which is necessary in case there is cached input data)
     if fflush(fp) != 0:
-        raise OSError(errno, strerror(errno))
+        raise_from_errno()
     
     # Reposition FD to position of FILE*, otherwise next read from FD will miss
     # data currently in stream buffer. It seems that call to fflush() achieves
@@ -147,13 +153,13 @@ cdef int fclose(FILE * fp) except -1:
     # on it.
     off = ftell(fp)
     if off == -1:
-        raise OSError(errno, strerror(errno))
+        raise_from_errno()
 
     if lseek(fileno(fp), off, SEEK_SET) != off:
-        raise OSError(errno, strerror(errno))
+        raise_from_errno()
 
     if fclose_c(fp) != 0:
-        raise OSError(errno, strerror(errno))
+        raise_from_errno()
 
     return 0
 
@@ -214,10 +220,11 @@ cdef FILE* dup_to_fp(fh, mode) except NULL:
 
     fd = dup(fh.fileno())
     if fd == -1:
-        raise OSError(errno, strerror(errno))
+        raise_from_errno()
+
     fp = fdopen(fd, mode)
     if fp == NULL:
-        raise OSError(errno, strerror(errno))
+        raise_from_errno()
 
     return fp
 
