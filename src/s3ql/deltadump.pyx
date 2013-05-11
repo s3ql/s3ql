@@ -80,6 +80,7 @@ import apsw
 import os
 import logging
 import itertools
+import sys
 
 log = logging.getLogger('deltadump')
 
@@ -213,7 +214,7 @@ cdef int prep_columns(columns, int** col_types_p, int** col_args_p) except -1:
     col_args_p[0] = col_args
     return col_count
 
-cdef FILE* dup_to_fp(fh, mode) except NULL:
+cdef FILE* dup_to_fp(fh, const_char* mode) except NULL:
     '''Duplicate fd from *fh* and open as FILE*'''
 
     cdef int fd
@@ -311,7 +312,8 @@ def dump_table(table, order, columns, db, fh):
     with CleanupManager(log) as cleanup:
         # Get SQLite connection
         log.debug('Opening connection to %s', db.file)
-        SQLITE_CHECK_RC(sqlite3_open_v2(db.file, &sqlite3_db,
+        dbfile_b = db.file.encode(sys.getfilesystemencoding(), 'surrogateescape')
+        SQLITE_CHECK_RC(sqlite3_open_v2(dbfile_b, &sqlite3_db,
                                         SQLITE_OPEN_READONLY, NULL),
                         SQLITE_OK, sqlite3_db)
         cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_close(sqlite3_db),
@@ -320,7 +322,7 @@ def dump_table(table, order, columns, db, fh):
                         SQLITE_OK, sqlite3_db)
 
         # Get FILE* for buffered reading from *fh*
-        fp = dup_to_fp(fh, 'wb')
+        fp = dup_to_fp(fh, b'wb')
         cleanup.register(lambda: fclose(fp))
 
         # Allocate col_args and col_types 
@@ -417,7 +419,8 @@ def load_table(table, columns, db, fh, trx_rows=5000):
     with CleanupManager(log) as cleanup:
         # Get SQLite connection
         log.debug('Opening connection to %s', db.file)
-        SQLITE_CHECK_RC(sqlite3_open_v2(db.file, &sqlite3_db,
+        dbfile_b = db.file.encode(sys.getfilesystemencoding(), 'surrogateescape')
+        SQLITE_CHECK_RC(sqlite3_open_v2(dbfile_b, &sqlite3_db,
                                         SQLITE_OPEN_READWRITE, NULL),
                         SQLITE_OK, sqlite3_db)
         cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_close(sqlite3_db),
@@ -440,7 +443,7 @@ def load_table(table, columns, db, fh, trx_rows=5000):
                 SQLITE_CHECK_RC(sqlite3_finalize(stmt), SQLITE_OK, sqlite3_db)
 
         # Get FILE* for buffered reading from *fh*
-        fp = dup_to_fp(fh, 'rb')
+        fp = dup_to_fp(fh, b'rb')
         cleanup.register(lambda: fclose(fp))
 
         # Allocate col_args and col_types 
