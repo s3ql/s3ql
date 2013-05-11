@@ -6,8 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-from .common import sha256_fh, BUFSIZE, QuietError
+from .common import sha256_fh, BUFSIZE
 from .database import NoSuchRowError
 from collections import OrderedDict
 from queue import Queue
@@ -18,7 +17,6 @@ import os
 import shutil
 import threading
 import time
-from .backends.common import NoSuchObject
 
 # standard logger for this module
 log = logging.getLogger("BlockCache")
@@ -545,11 +543,6 @@ class BlockCache(object):
                         el.dirty = False
                         self.size += el.size
 
-                    except NoSuchObject:
-                        raise QuietError('Backend claims that object %d does not exist, data '
-                                         'may be corrupted or inconsistent. fsck required.'
-                                         % obj_id) from None
-                        
                     except:
                         if el is not None:
                             el.unlink()

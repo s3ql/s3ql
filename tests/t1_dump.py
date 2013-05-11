@@ -15,18 +15,38 @@ import time
 
 class DumpTests(unittest.TestCase):
     def setUp(self):
-        self.src = Connection(":memory:")
-        self.dst = Connection(":memory:")
+        self.tmpfh1 = tempfile.NamedTemporaryFile()
+        self.tmpfh2 = tempfile.NamedTemporaryFile()
+        self.src = Connection(self.tmpfh1.name)
+        self.dst = Connection(self.tmpfh2.name)
         self.fh = tempfile.TemporaryFile()
 
+        # Disable exclusive locking for all tests
+        self.src.execute('PRAGMA locking_mode = NORMAL')
+        self.dst.execute('PRAGMA locking_mode = NORMAL')
+        
         self.create_table(self.src)
         self.create_table(self.dst)
 
     def tearDown(self):
         self.src.close()
         self.dst.close()
+        self.tmpfh1.close()
+        self.tmpfh2.close()
         self.fh.close()
-        
+
+    def test_transactions(self):
+        self.fill_vals(self.src)
+        dumpspec = (('id', deltadump.INTEGER, 0),)        
+        deltadump.dump_table(table='test', order='id', columns=dumpspec,
+                             db=self.src, fh=self.fh)
+        self.fh.seek(0)
+        self.dst.execute('PRAGMA journal_mode = WAL')
+
+        deltadump.load_table(table='test', columns=dumpspec, db=self.dst,
+                             fh=self.fh, trx_rows=10)
+        self.compare_tables(self.src, self.dst)
+                
     def test_1_vals_1(self):
         self.fill_vals(self.src)
         dumpspec = (('id', deltadump.INTEGER, 0),)

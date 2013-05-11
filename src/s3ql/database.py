@@ -24,7 +24,19 @@ sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
 if sqlite_ver < (3, 7, 0):
     raise QuietError('SQLite version too old, must be 3.7.0 or newer!\n')
 
-initsql = ('PRAGMA foreign_keys = OFF',
+            
+initsql = (
+           # WAL mode causes trouble with e.g. copy_tree, so we don't use it at the moment
+           # (cf. http://article.gmane.org/gmane.comp.db.sqlite.general/65243). 
+           # However, if we start using it we must initiaze it *before* setting 
+           # locking_mode to EXCLUSIVE, otherwise we can't switch the locking
+           # mode without first disabling WAL.
+           'PRAGMA synchronous = OFF',
+           'PRAGMA journal_mode = OFF',
+           #'PRAGMA synchronous = NORMAL',
+           #'PRAGMA journal_mode = WAL',
+           
+           'PRAGMA foreign_keys = OFF',
            'PRAGMA locking_mode = EXCLUSIVE',
            'PRAGMA recursize_triggers = on',
            'PRAGMA page_size = 4096',
@@ -50,35 +62,14 @@ class Connection(object):
     :conn:     apsw connection object
     '''
 
-    def __init__(self, file_, fast_mode=False):
+    def __init__(self, file_):
         self.conn = apsw.Connection(file_)
         self.file = file_
 
         cur = self.conn.cursor()
+
         for s in initsql:
             cur.execute(s)
-
-        self.fast_mode(fast_mode)
-
-    def fast_mode(self, on):
-        '''Switch to fast, but insecure mode
-        
-        In fast mode, SQLite operates as quickly as possible, but
-        application and system crashes may lead to data corruption.
-        '''
-
-        # WAL mode causes trouble with e.g. copy_tree, so we
-        # always disable WAL for now. See 
-        # http://article.gmane.org/gmane.comp.db.sqlite.general/65243
-        on = True
-        cur = self.conn.cursor()
-        if on:
-            cur.execute('PRAGMA synchronous = OFF')
-            cur.execute('PRAGMA journal_mode = OFF')
-        else:
-            cur.execute('PRAGMA synchronous = NORMAL')
-            cur.execute('PRAGMA journal_mode = WAL')
-
 
     def close(self):
         self.conn.close()

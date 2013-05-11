@@ -77,6 +77,12 @@ class Operations(llfuse.Operations):
     :open_inodes: dict of currently opened inodes. This is used to not remove
                   the blocks of unlinked inodes that are still open.
     :upload_event: If set, triggers a metadata upload
+    :failsafe: Set when backend problems are encountered. In that case, fs only
+               allows read access.
+    :broken_blocks: Caches information about corrupted blocks to avoid repeated (pointless)
+                    attempts to retrieve them. This attribute is a dict (indexed by inodes)
+                    of sets of block indices. Broken blocks are removed from the cache
+                    when an inode is forgotten.
  
     Multithreading
     --------------
@@ -105,6 +111,8 @@ class Operations(llfuse.Operations):
         self.open_inodes = collections.defaultdict(lambda: 0)
         self.max_obj_size = max_obj_size
         self.cache = block_cache
+        self.failsafe = False
+        self.broken_blocks = collections.defaultdict(set)
         
         # Root inode is always open
         self.open_inodes[llfuse.ROOT_INODE] += 1
@@ -179,7 +187,6 @@ class Operations(llfuse.Operations):
         args.append('no_remote_lock')
 
     def readdir(self, id_, off):
-        # FIXME: Do the returned entries acquire a lookup count?
         log.debug('readdir(%d, %d): start', id_, off)
         if off == 0:
             off = -1
@@ -258,7 +265,7 @@ class Operations(llfuse.Operations):
             raise FUSEError(ACL_ERRNO)
             
         else:
-            if self.inodes[id_].locked:
+            if self.failsafe or self.inodes[id_].locked:
                 raise FUSEError(errno.EPERM)
 
             if len(value) > deltadump.MAX_BLOB_SIZE:
@@ -271,7 +278,7 @@ class Operations(llfuse.Operations):
     def removexattr(self, id_, name):
         log.debug('removexattr(%d, %r): start', id_, name)
 
-        if self.inodes[id_].locked:
+        if self.failsafe or self.inodes[id_].locked:
             raise FUSEError(errno.EPERM)
 
         try:
@@ -289,6 +296,9 @@ class Operations(llfuse.Operations):
     def lock_tree(self, id0):
         '''Lock directory tree'''
 
+        if self.failsafe:
+            raise FUSEError(errno.EPERM)
+        
         log.debug('lock_tree(%d): start', id0)
         queue = [ id0 ]
         self.inodes[id0].locked = True
@@ -323,6 +333,9 @@ class Operations(llfuse.Operations):
 
     def remove_tree(self, id_p0, name0):
         '''Remove directory tree'''
+
+        if self.failsafe:
+            raise FUSEError(errno.EPERM)
 
         log.debug('remove_tree(%d, %s): start', id_p0, name0)
 
@@ -385,6 +398,9 @@ class Operations(llfuse.Operations):
 
     def copy_tree(self, src_id, target_id):
         '''Efficiently copy directory tree'''
+
+        if self.failsafe:
+            raise FUSEError(errno.EPERM)
 
         log.debug('copy_tree(%d, %d): start', src_id, target_id)
 
@@ -500,7 +516,10 @@ class Operations(llfuse.Operations):
         log.debug('copy_tree(%d, %d): end', src_inode.id, target_inode.id)
 
     def unlink(self, id_p, name):
-        log.debug('rmdir(%d, %r): start', id_p, name)
+        log.debug('unlink(%d, %r): start', id_p, name)
+        if self.failsafe:
+            raise FUSEError(errno.EPERM)
+        
         inode = self.lookup(id_p, name)
 
         if stat.S_ISDIR(inode.mode):
@@ -512,6 +531,9 @@ class Operations(llfuse.Operations):
 
     def rmdir(self, id_p, name):
         log.debug('rmdir(%d, %r): start', id_p, name)
+        if self.failsafe:
+            raise FUSEError(errno.EPERM)
+        
         inode = self.lookup(id_p, name)
 
         if self.inodes[id_p].locked:
@@ -578,6 +600,9 @@ class Operations(llfuse.Operations):
     def symlink(self, id_p, name, target, ctx):
         log.debug('symlink(%d, %r, %r): start', id_p, name, target)
 
+        if self.failsafe:
+            raise FUSEError(errno.EPERM)
+
         mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
                 stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP |
                 stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
@@ -594,14 +619,15 @@ class Operations(llfuse.Operations):
         return inode
 
     def rename(self, id_p_old, name_old, id_p_new, name_new):
-        log.debug('rename(%d, %r, %d, %r): start', id_p_old, name_old, id_p_new, name_new)
+        log.debug('rename(%d, %r, %d, %r): start', id_p_old, name_old, id_p_new, name_new)        
         if name_new == CTRL_NAME or name_old == CTRL_NAME:
             log.warning('Attempted to rename s3ql control file (%s -> %s)',
                       get_path(id_p_old, self.db, name_old),
                       get_path(id_p_new, self.db, name_new))
             raise llfuse.FUSEError(errno.EACCES)
 
-        if (self.inodes[id_p_old].locked
+
+        if (self.failsafe or self.inodes[id_p_old].locked
             or self.inodes[id_p_new].locked):
             raise FUSEError(errno.EPERM)
 
@@ -735,7 +761,7 @@ class Operations(llfuse.Operations):
                      new_name, new_id_p)
             raise FUSEError(errno.EINVAL)
 
-        if inode_p.locked:
+        if self.failsafe or inode_p.locked:
             raise FUSEError(errno.EPERM)
 
         inode_p.ctime = timestamp
@@ -761,7 +787,7 @@ class Operations(llfuse.Operations):
         inode = self.inodes[id_]
         timestamp = time.time()
 
-        if inode.locked:
+        if self.failsafe or inode.locked:
             raise FUSEError(errno.EPERM)
 
         if attr.st_size is not None:
@@ -820,12 +846,16 @@ class Operations(llfuse.Operations):
 
     def mknod(self, id_p, name, mode, rdev, ctx):
         log.debug('mknod(%d, %r): start', id_p, name)
+        if self.failsafe:
+            raise FUSEError(errno.EPERM)
         inode = self._create(id_p, name, mode, ctx, rdev=rdev)
         self.open_inodes[inode.id] += 1
         return inode
 
     def mkdir(self, id_p, name, mode, ctx):
         log.debug('mkdir(%d, %r): start', id_p, name)
+        if self.failsafe:
+            raise FUSEError(errno.EPERM)
         inode = self._create(id_p, name, mode, ctx)
         self.open_inodes[inode.id] += 1
         return inode
@@ -892,7 +922,7 @@ class Operations(llfuse.Operations):
     def open(self, id_, flags):
         log.debug('open(%d): start', id_)
         if ((flags & os.O_RDWR or flags & os.O_WRONLY)
-            and self.inodes[id_].locked):
+            and (self.failsafe or self.inodes[id_].locked)):
             raise FUSEError(errno.EPERM)
 
         return id_
@@ -912,6 +942,9 @@ class Operations(llfuse.Operations):
 
     def create(self, id_p, name, mode, flags, ctx):
         log.debug('create(id_p=%d, %s): started', id_p, name)
+        if self.failsafe:
+            raise FUSEError(errno.EPERM)
+        
         try:
             id_ = self.db.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
                                   (name, id_p))
@@ -975,7 +1008,7 @@ class Operations(llfuse.Operations):
         length = min(size - offset, length)
 
         while length > 0:
-            tmp = self._read(fh, offset, length)
+            tmp = self._readwrite(fh, offset, length=length)
             buf.write(tmp)
             length -= len(tmp)
             offset += len(tmp)
@@ -988,45 +1021,7 @@ class Operations(llfuse.Operations):
 
         return buf.getvalue()
 
-    def _read(self, id_, offset, length):
-        """Reads at the specified position until the end of the block
-
-        This method may return less than `length` bytes if a max_obj_size
-        boundary is encountered. It may also read beyond the end of
-        the file, filling the buffer with additional null bytes.
-        
-        This method releases the global lock while it is running.
-        """
-
-        # Calculate required block
-        blockno = offset // self.max_obj_size
-        offset_rel = offset - blockno * self.max_obj_size
-
-        # Don't try to read into the next block
-        if offset_rel + length > self.max_obj_size:
-            length = self.max_obj_size - offset_rel
-
-        try:
-            with self.cache.get(id_, blockno) as fh:
-                fh.seek(offset_rel)
-                buf = fh.read(length)
-
-        except NoSuchObject as exc:
-            log.warning('Backend lost block %d of inode %d (id %s)!',
-                     blockno, id_, exc.key)
-            raise
-
-        except ChecksumError as exc:
-            log.warning('Backend returned malformed data for block %d of inode %d (%s)',
-                     blockno, id_, exc)
-            raise
-
-        if len(buf) == length:
-            return buf
-        else:
-            # If we can't read enough, add null bytes
-            return buf + b"\0" * (length - len(buf))
-
+ 
     def write(self, fh, offset, buf):
         '''Handle FUSE write requests.
         
@@ -1034,13 +1029,13 @@ class Operations(llfuse.Operations):
         '''
         log.debug('write(%d, %d, datalen=%d): start', fh, offset, len(buf))
 
-        if self.inodes[fh].locked:
+        if self.failsafe or self.inodes[fh].locked:
             raise FUSEError(errno.EPERM)
 
         total = len(buf)
         minsize = offset + total
         while buf:
-            written = self._write(fh, offset, buf)
+            written = self._readwrite(fh, offset, buf=buf)
             offset += written
             buf = buf[written:]
 
@@ -1048,6 +1043,7 @@ class Operations(llfuse.Operations):
         # Fuse does not ensure that we do not get concurrent write requests,
         # so we have to be careful not to undo a size extension made by
         # a concurrent write.
+        # FIXME: This is *NOT* threadsafe yet
         timestamp = time.time()
         inode = self.inodes[fh]
         inode.size = max(inode.size, minsize)
@@ -1056,12 +1052,15 @@ class Operations(llfuse.Operations):
 
         return total
 
+    def _readwrite(self, id_, offset, *, buf=None, length=None):
+        """Read or write as much as we can.
 
-    def _write(self, id_, offset, buf):
-        """Write as much as we can.
-
-        May write less bytes than given in `buf`, returns
-        the number of bytes written.
+        If *buf* is None, read and return up to *length* bytes.
+        
+        If *length* is None, write from *buf* and return the number of
+        bytes written.
+        
+        This is one method to reduce code duplication.
         
         This method releases the global lock while it is running.
         """
@@ -1070,27 +1069,51 @@ class Operations(llfuse.Operations):
         blockno = offset // self.max_obj_size
         offset_rel = offset - blockno * self.max_obj_size
 
-        # Don't try to write into the next block
-        if offset_rel + len(buf) > self.max_obj_size:
-            buf = buf[:self.max_obj_size - offset_rel]
-
+        if id_ in self.broken_blocks and blockno in self.broken_blocks[id_]:
+            raise FUSEError(errno.EIO)
+        
+        if length is None:
+            write = True
+            length = len(buf)
+        elif buf is None:
+            write = False
+        else:
+            raise TypeError("Don't know what to do!")
+        
+        # Don't try to write/read into the next block
+        if offset_rel + length > self.max_obj_size:
+            length = self.max_obj_size - offset_rel
+            
         try:
             with self.cache.get(id_, blockno) as fh:
                 fh.seek(offset_rel)
-                fh.write(buf)
-
+                if write:
+                    fh.write(buf[:length])
+                else:
+                    buf = fh.read(length)
+                        
         except NoSuchObject as exc:
-            log.warning('Backend lost block %d of inode %d (id %s)!',
-                     blockno, id_, exc.key)
-            raise
+            log.error('Backend lost block %d of inode %d (id %s)!',
+                      blockno, id_, exc.key)
+            self.failsafe = True
+            self.broken_blocks[id_].add(blockno)
+            raise FUSEError(errno.EIO)
 
         except ChecksumError as exc:
-            log.warning('Backend returned malformed data for block %d of inode %d (%s)',
-                     blockno, id_, exc)
-            raise
+            log.error('Backend returned malformed data for block %d of inode %d (%s)',
+                      blockno, id_, exc)
+            self.failsafe = True
+            self.broken_blocks[id_].add(blockno)
+            raise FUSEError(errno.EIO)
 
-        return len(buf)
-
+        if write:
+            return length
+        elif len(buf) == length:
+            return buf
+        else:
+            # If we can't read enough, add null bytes
+            return buf + b"\0" * (length - len(buf))
+        
     def fsync(self, fh, datasync):
         log.debug('fsync(%d, %s): start', fh, datasync)
         if not datasync:
@@ -1106,6 +1129,8 @@ class Operations(llfuse.Operations):
 
             if self.open_inodes[id_] == 0:
                 del self.open_inodes[id_]
+                if id_ in self.broken_blocks:
+                    del self.broken_blocks[id_]
 
                 inode = self.inodes[id_]
                 if inode.refcount == 0:
@@ -1138,6 +1163,7 @@ class Operations(llfuse.Operations):
     def flush(self, fh):
         log.debug('flush(%d): start', fh)
 
+        
 def update_logging(level, modules):
     root_logger = logging.getLogger()
     if level == logging.DEBUG:

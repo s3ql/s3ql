@@ -2,10 +2,6 @@ UNRELEASED, S3QL tip
 
   * S3QL now requires Python 3.3 or newer.
 
-  * It is no longer required that S3QL and Python APSW be linked to
-    the same SQLite shared library. However, they still have to use
-    identical SQLite versions compiled with identical settings.
-
   * S3QL now requires the pycrypto third-party Python module.
 
   * S3QL now requires at least version 0.39 of the llfuse Python
@@ -16,6 +12,16 @@ UNRELEASED, S3QL tip
 
   * S3QL no longer requires the unittest2, pycryptopp and lzma
     third-party Python modules.
+
+  * It is no longer required that S3QL and Python APSW be linked to
+    the same SQLite shared library.
+
+  * mount.s3ql: fixed crash when using --metadata-upload-interval 0.
+
+  * Instead of completely unmounting the file system (and leaving the
+    mount point inaccessible) when backend data is missing or
+    corrupted, S3QL now returns an error and switches to read-only
+    operation.
 
 2013-04-09, S3QL 1.14
 

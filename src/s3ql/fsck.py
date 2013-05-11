@@ -1169,20 +1169,15 @@ def main(args=None):
         with tempfile.TemporaryFile() as tmpfh:
             def do_read(fh):
                 tmpfh.seek(0)
-                tmpfh.truncate() 
+                tmpfh.truncate()
                 stream_read_bz2(fh, tmpfh)
+
             log.info('Downloading and decompressing metadata...')
             backend.perform_read(do_read, "s3ql_metadata")
             
-            os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                             stat.S_IRUSR | stat.S_IWUSR))
-            db = Connection(cachepath + '.db.tmp', fast_mode=True)
             log.info("Reading metadata...")
             tmpfh.seek(0)
-            restore_metadata(tmpfh, db)
-        db.close()
-        os.rename(cachepath + '.db.tmp', cachepath + '.db')
-        db = Connection(cachepath + '.db')
+            db = restore_metadata(tmpfh, cachepath + '.db')
 
     # Increase metadata sequence no 
     param['seq_no'] += 1

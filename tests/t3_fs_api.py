@@ -10,7 +10,7 @@ from llfuse import FUSEError
 from random import randint
 from s3ql import fs
 from s3ql.backends import local
-from s3ql.backends.common import BackendPool
+from s3ql.backends.common import BackendPool, BetterBackend
 from s3ql.block_cache import BlockCache
 from s3ql.common import ROOT_INODE
 from s3ql.mkfs import init_tables
@@ -26,7 +26,6 @@ import stat
 import tempfile
 import time
 import unittest
-
 
 # We need to access to protected members
 #pylint: disable=W0212
@@ -49,8 +48,8 @@ class fs_api_tests(unittest.TestCase):
 
     def setUp(self):
         self.backend_dir = tempfile.mkdtemp()
-        self.backend_pool = BackendPool(lambda: local.Backend('local://' + self.backend_dir, 
-                                                           None, None))
+        plain_backend = local.Backend('local://' + self.backend_dir, None, None)
+        self.backend_pool = BackendPool(lambda: BetterBackend(b'schwubl', 'lzma', plain_backend))
         self.backend = self.backend_pool.pop_conn()
         self.cachedir = tempfile.mkdtemp()
         self.max_obj_size = 1024
@@ -644,6 +643,57 @@ class fs_api_tests(unittest.TestCase):
         self.server.forget([(inode.id, 1)])
         self.fsck()
 
+    def test_failsafe(self):
+        len_ = self.max_obj_size
+        data = self.random_data(len_)
+        (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
+                                     self.file_mode(), os.O_RDWR, Ctx())
+        self.server.write(fh, 0, data)
+        self.server.cache.clear()
+        self.assertTrue(self.server.failsafe is False)
+        
+        datafile = os.path.join(self.backend_dir, 's3ql_data_', 's3ql_data_1')
+        shutil.copy(datafile, datafile + '.bak')
+        
+        # Modify contents
+        with open(datafile, 'r+') as rfh:
+            rfh.seek(560)
+            rfh.write(b'blrub!')
+        with self.assertRaises(FUSEError) as cm:
+            self.server.read(fh, 0, len_)
+        self.assertEqual(cm.exception.errno, errno.EIO)
+        self.assertTrue(self.server.failsafe)
+
+        # Restore contents, but should be marked as damaged now
+        os.rename(datafile + '.bak', datafile)
+        with self.assertRaises(FUSEError) as cm:
+            self.server.read(fh, 0, len_)
+        self.assertEqual(cm.exception.errno, errno.EIO)
+        
+        # Release and re-open, now we should be able to access again
+        self.server.release(fh)
+        self.server.forget([(inode.id, 1)])
+        
+        # ..but not write access since we are in failsafe mode
+        with self.assertRaises(FUSEError) as cm:
+            self.server.open(inode.id, os.O_RDWR)
+        self.assertEqual(cm.exception.errno, errno.EPERM)
+        
+        # ..ready only is fine.
+        fh = self.server.open(inode.id, os.O_RDONLY)
+        self.server.read(fh, 0, len_)
+        
+        # Remove completely, should give error after cache flush
+        os.unlink(datafile)
+        self.server.read(fh, 3, len_//2)
+        self.server.cache.clear()
+        with self.assertRaises(FUSEError) as cm:
+            self.server.read(fh, 5, len_//2)
+        self.assertEqual(cm.exception.errno, errno.EIO)
+        
+        
+        # Don't call fsck, we're missing a block
+        
     def test_create_open(self):
         name = self.newname()
         # Create a new file

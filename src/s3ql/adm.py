@@ -147,26 +147,18 @@ def download_metadata(backend, storage_url):
             raise QuietError('%s already exists, aborting.' % cachepath + i)
 
     param = backend.lookup(name)
-    try:
-        log.info('Downloading and decompressing %s...', name)
+    with tempfile.TemporaryFile() as tmpfh:
         def do_read(fh):
-            tmpfh = tempfile.TemporaryFile()
+            tmpfh.seek(0)
+            tmpfh.truncate()
             stream_read_bz2(fh, tmpfh)
-            return tmpfh
-        tmpfh = backend.perform_read(do_read, name)
-        os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                         stat.S_IRUSR | stat.S_IWUSR))
-        db = Connection(cachepath + '.db.tmp', fast_mode=True)
+            
+        log.info('Downloading and decompressing %s...', name)
+        backend.perform_read(do_read, name)
+
         log.info("Reading metadata...")
         tmpfh.seek(0)
-        restore_metadata(tmpfh, db)
-        db.close()
-        os.rename(cachepath + '.db.tmp', cachepath + '.db')
-
-    except:
-        # Don't keep file if it doesn't contain anything sensible
-        os.unlink(cachepath + '.db.tmp')
-        raise
+        restore_metadata(tmpfh, cachepath + '.db')
 
     # Raise sequence number so that fsck.s3ql actually uses the
     # downloaded backup
@@ -324,16 +316,10 @@ def upgrade(backend, cachepath):
             stream_read_bz2(fh, tmpfh)
             return tmpfh
         tmpfh = backend.perform_read(do_read, "s3ql_metadata")
-        os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                         stat.S_IRUSR | stat.S_IWUSR))
-        db = Connection(cachepath + '.db.tmp', fast_mode=True)
+
         log.info("Reading metadata...")
         tmpfh.seek(0)
-        restore_metadata(tmpfh, db)
-        db.close()
-        os.rename(cachepath + '.db.tmp', cachepath + '.db')
-        db = Connection(cachepath + '.db')
-
+        db = restore_metadata(tmpfh, cachepath + '.db')
 
     log.info('Upgrading from revision %d to %d...', param['revision'], CURRENT_FS_REV)
 

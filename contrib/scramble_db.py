@@ -11,8 +11,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 # Data can be restored with:
 #from s3ql.metadata import restore_metadata
 #from s3ql.database import Connection
-#restore_metadata(open('s3ql_metadata.dat', 'rb+'),
-#                 Connection('data.sqlite'))
+#restore_metadata(open('s3ql_metadata.dat', 'rb+'), 'data.sqlite')
 
 import pickle
 import logging

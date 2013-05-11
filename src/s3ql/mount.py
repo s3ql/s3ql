@@ -25,7 +25,6 @@ import logging
 import os
 import signal
 import faulthandler
-import stat
 import sys
 import tempfile
 import _thread
@@ -212,6 +211,9 @@ def main(args=None):
     # Do not update .params yet, dump_metadata() may fail if the database is
     # corrupted, in which case we want to force an fsck.
     param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
+    if operations.failsafe:
+        log.warn('File system errors encountered, marking for fsck.')
+        param['needs_fsck'] = True
     with backend_pool() as backend:
         seq_no = get_seq_no(backend)
         if metadata_upload_thread.db_mtime == os.stat(cachepath + '.db').st_mtime:
@@ -351,15 +353,9 @@ def get_metadata(backend, cachepath):
             log.info('Downloading and decompressing metadata...')
             backend.perform_read(do_read, "s3ql_metadata")
             
-            os.close(os.open(cachepath + '.db.tmp', os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                             stat.S_IRUSR | stat.S_IWUSR))
-            db = Connection(cachepath + '.db.tmp', fast_mode=True)
             log.info("Reading metadata...")
             tmpfh.seek(0)
-            restore_metadata(tmpfh, db)
-            db.close()
-            os.rename(cachepath + '.db.tmp', cachepath + '.db')
-            db = Connection(cachepath + '.db')
+            db = restore_metadata(tmpfh, cachepath + '.db')
 
     # Increase metadata sequence no 
     param['seq_no'] += 1
