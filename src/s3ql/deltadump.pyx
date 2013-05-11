@@ -60,7 +60,10 @@ cdef extern from 'sqlite3.h' nogil:
     int sqlite3_bind_double(sqlite3_stmt * , int, double)
     const_char *sqlite3_compileoption_get(int N)
     const_char *sqlite3_libversion()
-    
+    int sqlite3_close(sqlite3*)
+    int sqlite3_open_v2(const_char *filename, sqlite3 **ppDb,
+                        int flags, const_char *zVfs)
+    int sqlite3_extended_result_codes(sqlite3*, int onoff)
     void SQLITE_TRANSIENT(void *)
 
     enum:
@@ -68,6 +71,8 @@ cdef extern from 'sqlite3.h' nogil:
         SQLITE_DONE
         SQLITE_ROW
         SQLITE_NULL
+        SQLITE_OPEN_READWRITE
+        SQLITE_OPEN_READONLY
 
 from .cleanup_manager import CleanupManager
 import apsw
@@ -119,8 +124,6 @@ def check_sqlite():
                            'Differing settings: + %s, - %s' %
                            (apsw_sqlite_options - s3ql_sqlite_options,
                            s3ql_sqlite_options - apsw_sqlite_options))
-check_sqlite()        
-
 
 # Column types
 cdef int _INTEGER = 1
@@ -279,6 +282,12 @@ def dump_table(table, order, columns, db, fh):
     change of the values between rows. For blobs it can be either zero
     (indicating variable length columns) or an integer specifying the length of
     the column values in bytes.
+
+    This function will open a separate connection to the database, so
+    the *db* connection should not be in EXCLUSIVE locking mode.
+    (Using a separate connection avoids the requirement on the *apsw*
+    and *deltadump* modules be linked against against binary
+    compatible SQLite libraries).
     '''
 
     cdef sqlite3 *sqlite3_db
@@ -289,9 +298,21 @@ def dump_table(table, order, columns, db, fh):
     cdef const_void *buf
     cdef int64_t row_count
 
-    sqlite3_db = <sqlite3*> PyLong_AsVoidPtr(db.conn.sqlite3pointer())
+    if db.file == ':memory:':
+        raise ValueError("Can't access in-memory databases")
 
     with CleanupManager(log) as cleanup:
+        # Get SQLite connection
+        log.debug('Opening connection to %s', db.file)
+        SQLITE_CHECK_RC(sqlite3_open_v2(db.file, &sqlite3_db,
+                                        SQLITE_OPEN_READONLY, NULL),
+                        SQLITE_OK, sqlite3_db)
+        cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_close(sqlite3_db),
+                                                 SQLITE_OK, sqlite3_db))
+        SQLITE_CHECK_RC(sqlite3_extended_result_codes(sqlite3_db, 1),
+                        SQLITE_OK, sqlite3_db)
+
+        # Get FILE* for buffered reading from *fh*
         fp = dup_to_fp(fh, 'wb')
         cleanup.register(lambda: fclose(fp))
 
@@ -358,23 +379,61 @@ def dump_table(table, order, columns, db, fh):
                     if len_ != 0:
                         fwrite(buf, len_, fp)
 
-def load_table(table, columns, db, fh):
+def load_table(table, columns, db, fh, trx_rows=5000):
     '''Load *columns* of *table* from *fh*
 
-    Parameters are described in the docstring of the `dump_table` function.
+    *db* is an `s3ql.Connection` instance for the database.
+    
+    *columns* must be the same list of 3-tuples that was passed to
+    `dump_table` when creating the dump stored in *fh*.
+
+    This function will open a separate connection to the database, so
+    the *db* connection should not be in EXCLUSIVE locking mode.
+    (Using a separate connection avoids the requirement on the *apsw*
+    and *deltadump* modules be linked against against binary
+    compatible SQLite libraries).
+
+    When writing into the table, a new transaction will be started
+    every *trx_rows* rows.
     '''
 
     cdef sqlite3 *sqlite3_db
-    cdef sqlite3_stmt *stmt
+    cdef sqlite3_stmt *stmt, *begin_stmt, *commit_stmt
     cdef int *col_types, *col_args, col_count, rc, len_, i, j
     cdef int64_t *int64_prev
     cdef FILE *fp
     cdef void *buf
     cdef int64_t row_count, int64
 
-    sqlite3_db = <sqlite3*> PyLong_AsVoidPtr(db.conn.sqlite3pointer())
+    if db.file == ':memory:':
+        raise ValueError("Can't access in-memory databases")
 
     with CleanupManager(log) as cleanup:
+        # Get SQLite connection
+        log.debug('Opening connection to %s', db.file)
+        SQLITE_CHECK_RC(sqlite3_open_v2(db.file, &sqlite3_db,
+                                        SQLITE_OPEN_READWRITE, NULL),
+                        SQLITE_OK, sqlite3_db)
+        cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_close(sqlite3_db),
+                                                 SQLITE_OK, sqlite3_db))
+        SQLITE_CHECK_RC(sqlite3_extended_result_codes(sqlite3_db, 1),
+                        SQLITE_OK, sqlite3_db)
+
+        # Copy settings
+        for pragma in ('synchronous', 'foreign_keys'):
+            val = db.get_val('PRAGMA %s' % pragma)
+            cmd = 'PRAGMA %s = %s' % (pragma, val)
+            SQLITE_CHECK_RC(sqlite3_prepare_v2(sqlite3_db, cmd, -1, &stmt, NULL),
+                            SQLITE_OK, sqlite3_db)
+            try:
+                rc = sqlite3_step(stmt)
+                if rc == SQLITE_ROW:
+                    rc = sqlite3_step(stmt)
+                SQLITE_CHECK_RC(rc, SQLITE_DONE, sqlite3_db)
+            finally:
+                SQLITE_CHECK_RC(sqlite3_finalize(stmt), SQLITE_OK, sqlite3_db)
+
+        # Get FILE* for buffered reading from *fh*
         fp = dup_to_fp(fh, 'rb')
         cleanup.register(lambda: fclose(fp))
 
@@ -387,7 +446,7 @@ def load_table(table, columns, db, fh):
         int64_prev = < int64_t *> calloc(len(columns), sizeof(int64_t))
         cleanup.register(lambda: free(int64_prev))
 
-        # Prepare statement
+        # Prepare INSERT statement
         col_names = [ x[0] for x in columns ]
         query = ("INSERT INTO %s (%s) VALUES(%s)"
                  % (table, ', '.join(col_names), ', '.join('?' * col_count)))
@@ -396,11 +455,31 @@ def load_table(table, columns, db, fh):
         cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_finalize(stmt),
                                                  SQLITE_OK, sqlite3_db))
 
+        # Prepare BEGIN statement
+        query = 'BEGIN TRANSACTION'
+        SQLITE_CHECK_RC(sqlite3_prepare_v2(sqlite3_db, query, -1, &begin_stmt, NULL),
+                        SQLITE_OK, sqlite3_db)
+        cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_finalize(begin_stmt),
+                                                 SQLITE_OK, sqlite3_db))
+
+        # Prepare COMMIT statement
+        query = 'COMMIT TRANSACTION'
+        SQLITE_CHECK_RC(sqlite3_prepare_v2(sqlite3_db, query, -1, &commit_stmt, NULL),
+                        SQLITE_OK, sqlite3_db)
+        cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_finalize(commit_stmt),
+                                                 SQLITE_OK, sqlite3_db))
+
         # Dump or load data as requested
         buf = calloc(MAX_BLOB_SIZE, 1)
         cleanup.register(lambda: free(buf))
         read_integer(&row_count, fp)
         log.debug('load_table(%s): reading %d rows', table, row_count)
+
+        # Start transaction
+        SQLITE_CHECK_RC(sqlite3_step(begin_stmt), SQLITE_DONE, sqlite3_db)
+        cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_step(commit_stmt),
+                                                 SQLITE_DONE, sqlite3_db))
+        SQLITE_CHECK_RC(sqlite3_reset(begin_stmt), SQLITE_OK, sqlite3_db)
 
         # Iterate through rows
         for i in range(row_count):
@@ -432,13 +511,23 @@ def load_table(table, columns, db, fh):
 
                     if len_ != 0:
                         fread(buf, len_, fp)
-
+                        
                     SQLITE_CHECK_RC(sqlite3_bind_blob(stmt, j + 1, buf, len_, SQLITE_TRANSIENT),
                                     SQLITE_OK, sqlite3_db)
-
+                
             SQLITE_CHECK_RC(sqlite3_step(stmt), SQLITE_DONE, sqlite3_db)
             SQLITE_CHECK_RC(sqlite3_reset(stmt), SQLITE_OK, sqlite3_db)
 
+            # Commit every once in a while
+            if i % trx_rows == 0:
+                # This isn't 100% ok -- if we have an exception in step(begin_stmt),
+                # we the cleanup handler will execute the commit statement again
+                # without an active transaction.
+                SQLITE_CHECK_RC(sqlite3_step(commit_stmt), SQLITE_DONE, sqlite3_db)
+                SQLITE_CHECK_RC(sqlite3_step(begin_stmt), SQLITE_DONE, sqlite3_db)
+                SQLITE_CHECK_RC(sqlite3_reset(commit_stmt), SQLITE_OK, sqlite3_db)
+                SQLITE_CHECK_RC(sqlite3_reset(begin_stmt), SQLITE_OK, sqlite3_db)
+                
 
 cdef inline int write_integer(int64_t int64, FILE * fp) except -1:
     '''Write *int64* into *fp*, using as little space as possible

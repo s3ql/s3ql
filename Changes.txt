@@ -4,8 +4,7 @@ UNRELEASED, S3QL tip
     takes much less time.
 
   * It is no longer required that S3QL and Python APSW be linked to
-    the same SQLite shared library. However, they still have to use
-    identical SQLite versions compiled with identical settings.
+    the same SQLite shared library.
 
   * mount.s3ql: fixed crash when using --metadata-upload-interval 0.
 

@@ -48,16 +48,7 @@ that is not the case.
 
     python -c 'import apsw; print apsw.apswversion()'
 
-  The printed version number should be at least 3.7.0. Note that APSW
-  must be using the same SQLite version, compiled with the same
-  options, as the one that's available to S3QL. The easiest way to
-  achieve this is to link APSW *dynamically* against SQLite (S3QL uses
-  dynamic linking by default).
-
-  Note that the APSW packages in the Ubuntu PPA at
-  https://launchpad.net/~ubuntu-rogerbinns/+archive/apsw are
-  statically linked, so if you use those you will need to update both
-  SQLite and S3QL every time that the APSW package is updated.
+  The printed version number should be at least 3.7.0. 
 
 * The `PyLibLZMA Python module
   <http://pypi.python.org/pypi/pyliblzma>`_. To check if this module
