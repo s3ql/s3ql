@@ -29,6 +29,10 @@ BUFSIZE = 256 * 1024
 # Pickle protocol version to use.
 PICKLE_PROTOCOL = 2
 
+# Name and inode of the special s3ql control file
+CTRL_NAME = '.__s3ql__ctrl__'
+CTRL_INODE = 2
+
 log = logging.getLogger('common')
 
 def setup_logging(options):
@@ -370,9 +374,6 @@ def get_backend_cachedir(storage_url, cachedir):
     
     return os.path.join(cachedir, _escape(storage_url))
 
-# Name and inode of the special s3ql control file
-CTRL_NAME = b'.__s3ql__ctrl__'
-CTRL_INODE = 2
 
 def sha256_fh(fh):
     fh.seek(0)

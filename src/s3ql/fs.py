@@ -26,6 +26,9 @@ import struct
 import time
 from s3ql.common import PICKLE_PROTOCOL
 
+# We work in bytes
+CTRL_NAME = CTRL_NAME.encode('us-ascii')
+
 # standard logger for this module
 log = logging.getLogger("fs")
 
@@ -241,20 +244,20 @@ class Operations(llfuse.Operations):
         if id_ == CTRL_INODE:
             if name == b's3ql_flushcache!':
                 self.cache.clear()
-            elif name == 'copy':
+            elif name == b'copy':
                 self.copy_tree(*pickle.loads(value))
-            elif name == 'upload-meta':
+            elif name == b'upload-meta':
                 if self.upload_event is not None:
                     self.upload_event.set()
                 else:
                     raise llfuse.FUSEError(errno.ENOTTY)
-            elif name == 'lock':
+            elif name == b'lock':
                 self.lock_tree(*pickle.loads(value))
-            elif name == 'rmtree':
+            elif name == b'rmtree':
                 self.remove_tree(*pickle.loads(value))
-            elif name == 'logging':
+            elif name == b'logging':
                 update_logging(*pickle.loads(value))
-            elif name == 'cachesize':
+            elif name == b'cachesize':
                 self.cache.max_size = pickle.loads(value)
             else:
                 raise llfuse.FUSEError(errno.EINVAL)

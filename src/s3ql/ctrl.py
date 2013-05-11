@@ -90,10 +90,10 @@ def main(args=None):
     ctrlfile = assert_fs_owner(path, mountpoint=True)
 
     if options.action == 'flushcache':
-        llfuse.setxattr(ctrlfile, 's3ql_flushcache!', 'dummy')
+        llfuse.setxattr(ctrlfile, 's3ql_flushcache!', b'dummy')
 
     if options.action == 'upload-meta':
-        llfuse.setxattr(ctrlfile, 'upload-meta', 'dummy')
+        llfuse.setxattr(ctrlfile, 'upload-meta', b'dummy')
 
     elif options.action == 'log':
         llfuse.setxattr(ctrlfile, 'logging',
