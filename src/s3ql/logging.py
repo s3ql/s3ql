@@ -43,5 +43,9 @@ class Logger(logging.getLoggerClass()):
         return super().handle(record)
     
     
+# Ensure that no handlers have been created yet
+if len(logging.Logger.manager.loggerDict) != 0:
+    raise ImportError('%s must be imported before logging!' % __name__)
+    
 logging.setLoggerClass(Logger)
     
