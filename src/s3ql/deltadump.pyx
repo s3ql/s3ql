@@ -75,7 +75,7 @@ cdef extern from 'sqlite3.h' nogil:
         SQLITE_OPEN_READWRITE
         SQLITE_OPEN_READONLY
 
-from .cleanup_manager import CleanupManager
+from contextlib import ExitStack
 import apsw
 import os
 from .logging import logging # Ensure use of custom logger class
@@ -309,30 +309,30 @@ def dump_table(table, order, columns, db, fh):
     if db.file == ':memory:':
         raise ValueError("Can't access in-memory databases")
 
-    with CleanupManager(log) as cleanup:
+    with ExitStack() as cm:
         # Get SQLite connection
         log.debug('Opening connection to %s', db.file)
         dbfile_b = db.file.encode(sys.getfilesystemencoding(), 'surrogateescape')
         SQLITE_CHECK_RC(sqlite3_open_v2(dbfile_b, &sqlite3_db,
                                         SQLITE_OPEN_READONLY, NULL),
                         SQLITE_OK, sqlite3_db)
-        cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_close(sqlite3_db),
-                                                 SQLITE_OK, sqlite3_db))
+        cm.callback(lambda: SQLITE_CHECK_RC(sqlite3_close(sqlite3_db),
+                                            SQLITE_OK, sqlite3_db))
         SQLITE_CHECK_RC(sqlite3_extended_result_codes(sqlite3_db, 1),
                         SQLITE_OK, sqlite3_db)
 
         # Get FILE* for buffered reading from *fh*
         fp = dup_to_fp(fh, b'wb')
-        cleanup.register(lambda: fclose(fp))
+        cm.callback(lambda: fclose(fp))
 
         # Allocate col_args and col_types 
         col_count = prep_columns(columns, &col_types, &col_args)
-        cleanup.register(lambda: free(col_args))
-        cleanup.register(lambda: free(col_types))
+        cm.callback(lambda: free(col_args))
+        cm.callback(lambda: free(col_types))
         
         # Allocate int64_prev
         int64_prev = < int64_t *> calloc(len(columns), sizeof(int64_t))
-        cleanup.register(lambda: free(int64_prev))
+        cm.callback(lambda: free(int64_prev))
 
         # Prepare statement
         col_names = [ x[0] for x in columns ]
@@ -340,8 +340,8 @@ def dump_table(table, order, columns, db, fh):
                  (', '.join(col_names), table, order)).encode('utf-8')
         SQLITE_CHECK_RC(sqlite3_prepare_v2(sqlite3_db, query, -1, &stmt, NULL),
                         SQLITE_OK, sqlite3_db)
-        cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_finalize(stmt),
-                                                 SQLITE_OK, sqlite3_db))
+        cm.callback(lambda: SQLITE_CHECK_RC(sqlite3_finalize(stmt),
+                                            SQLITE_OK, sqlite3_db))
 
         row_count = db.get_val("SELECT COUNT(rowid) FROM %s" % table)
         log.debug('dump_table(%s): writing %d rows', table, row_count)
@@ -416,15 +416,15 @@ def load_table(table, columns, db, fh, trx_rows=5000):
     if db.file == ':memory:':
         raise ValueError("Can't access in-memory databases")
 
-    with CleanupManager(log) as cleanup:
+    with ExitStack() as cm:
         # Get SQLite connection
         log.debug('Opening connection to %s', db.file)
         dbfile_b = db.file.encode(sys.getfilesystemencoding(), 'surrogateescape')
         SQLITE_CHECK_RC(sqlite3_open_v2(dbfile_b, &sqlite3_db,
                                         SQLITE_OPEN_READWRITE, NULL),
                         SQLITE_OK, sqlite3_db)
-        cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_close(sqlite3_db),
-                                                 SQLITE_OK, sqlite3_db))
+        cm.callback(lambda: SQLITE_CHECK_RC(sqlite3_close(sqlite3_db),
+                                            SQLITE_OK, sqlite3_db))
         SQLITE_CHECK_RC(sqlite3_extended_result_codes(sqlite3_db, 1),
                         SQLITE_OK, sqlite3_db)
 
@@ -444,16 +444,16 @@ def load_table(table, columns, db, fh, trx_rows=5000):
 
         # Get FILE* for buffered reading from *fh*
         fp = dup_to_fp(fh, b'rb')
-        cleanup.register(lambda: fclose(fp))
+        cm.callback(lambda: fclose(fp))
 
         # Allocate col_args and col_types 
         col_count = prep_columns(columns, &col_types, &col_args)
-        cleanup.register(lambda: free(col_args))
-        cleanup.register(lambda: free(col_types))
+        cm.callback(lambda: free(col_args))
+        cm.callback(lambda: free(col_types))
 
         # Allocate int64_prev
         int64_prev = < int64_t *> calloc(len(columns), sizeof(int64_t))
-        cleanup.register(lambda: free(int64_prev))
+        cm.callback(lambda: free(int64_prev))
 
         # Prepare INSERT statement
         col_names = [ x[0] for x in columns ]
@@ -462,31 +462,31 @@ def load_table(table, columns, db, fh, trx_rows=5000):
                     ', '.join('?' * col_count))).encode('utf-8')
         SQLITE_CHECK_RC(sqlite3_prepare_v2(sqlite3_db, query, -1, &stmt, NULL),
                         SQLITE_OK, sqlite3_db)
-        cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_finalize(stmt),
+        cm.callback(lambda: SQLITE_CHECK_RC(sqlite3_finalize(stmt),
                                                  SQLITE_OK, sqlite3_db))
 
         # Prepare BEGIN statement
         query = b'BEGIN TRANSACTION'
         SQLITE_CHECK_RC(sqlite3_prepare_v2(sqlite3_db, query, -1, &begin_stmt, NULL),
                         SQLITE_OK, sqlite3_db)
-        cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_finalize(begin_stmt),
+        cm.callback(lambda: SQLITE_CHECK_RC(sqlite3_finalize(begin_stmt),
                                                  SQLITE_OK, sqlite3_db))
 
         # Prepare COMMIT statement
         query = b'COMMIT TRANSACTION'
         SQLITE_CHECK_RC(sqlite3_prepare_v2(sqlite3_db, query, -1, &commit_stmt, NULL),
                         SQLITE_OK, sqlite3_db)
-        cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_finalize(commit_stmt),
+        cm.callback(lambda: SQLITE_CHECK_RC(sqlite3_finalize(commit_stmt),
                                                  SQLITE_OK, sqlite3_db))
 
         buf = calloc(MAX_BLOB_SIZE, 1)
-        cleanup.register(lambda: free(buf))
+        cm.callback(lambda: free(buf))
         read_integer(&row_count, fp)
         log.debug('load_table(%s): reading %d rows', table, row_count)
 
         # Start transaction
         SQLITE_CHECK_RC(sqlite3_step(begin_stmt), SQLITE_DONE, sqlite3_db)
-        cleanup.register(lambda: SQLITE_CHECK_RC(sqlite3_step(commit_stmt),
+        cm.callback(lambda: SQLITE_CHECK_RC(sqlite3_step(commit_stmt),
                                                  SQLITE_DONE, sqlite3_db))
         SQLITE_CHECK_RC(sqlite3_reset(begin_stmt), SQLITE_OK, sqlite3_db)
 

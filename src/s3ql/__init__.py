@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 
 
-__all__ = [ 'adm', 'backends', 'block_cache', 'cleanup_manager', 'common',
+__all__ = [ 'adm', 'backends', 'block_cache', 'common',
             'cp', 'ctrl', 'daemonize', 'database', 'deltadump', 
             'fs', 'fsck', 'inode_cache', 'lock', 'logging', 'metadata',
             'mkfs', 'mount', 'parse_args', 'remove', 'statfs', 'umount', 
