@@ -37,6 +37,7 @@ are:
 from . import VERSION
 from argparse import ArgumentTypeError, ArgumentError
 import argparse
+from .logging import logging # Ensure use of custom logger class
 import logging.handlers
 import os
 import re

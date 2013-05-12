@@ -6,24 +6,21 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
+from ..logging import logging # Ensure use of custom logger class
 from ..common import BUFSIZE, QuietError
-from .common import AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, \
-    AuthenticationError
-from .common import DanglingStorageURLError
+from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, 
+    AuthenticationError, DanglingStorageURLError, is_temp_network_error)
 from base64 import b64encode
 from email.utils import parsedate_tz, mktime_tz
 from urllib.parse import urlsplit
+from xml.etree import ElementTree
 import hashlib
 import hmac
 import http.client
-import logging
 import re
 import tempfile
 import time
 import urllib.parse
-from xml.etree import ElementTree
-from s3ql.backends.common import is_temp_network_error
 
 
 C_DAY_NAMES = [ 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ]

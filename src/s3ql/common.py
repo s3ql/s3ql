@@ -7,15 +7,15 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 
+from .logging import logging # Ensure use of custom logger class
 from cgitb import scanvars, __UNDEF__
 from llfuse import ROOT_INODE
 import bz2
+import errno
 import hashlib
 import inspect
-import errno
 import linecache
 import llfuse
-import logging
 import os
 import posixpath
 import pydoc

@@ -49,7 +49,8 @@ def pytest_configure(config):
         warnings.simplefilter('default', ResourceWarning)
 
     # Enable logging
-    from s3ql.common import LoggerFilter 
+    from s3ql.common import LoggerFilter
+    import s3ql.logging # Ensure use of custom logger class
     root_logger = logging.getLogger()
     if root_logger.handlers:
         log.warning("Logging already initialized.")

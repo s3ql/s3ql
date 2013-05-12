@@ -7,12 +7,8 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-
-
 import sys
 import os
-import logging
 import re
 import textwrap
 import shutil
@@ -30,9 +26,9 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
 from s3ql.common import setup_logging, QuietError, PICKLE_PROTOCOL
 from s3ql.parse_args import ArgumentParser
 from s3ql.remove import main as s3qlrm
+from s3ql.logging import logging # Ensure use of custom logger class
 
 log = logging.getLogger('expire_backups')
-
 
 def parse_args(args):
     '''Parse command line'''

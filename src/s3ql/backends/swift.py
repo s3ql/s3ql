@@ -6,15 +6,14 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
+from ..logging import logging # Ensure use of custom logger class
+from . import s3c
 from ..common import QuietError, BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, 
     DanglingStorageURLError, is_temp_network_error)
 from .s3c import HTTPError, BadDigestError
-from . import s3c
 from urllib.parse import urlsplit
 import json
-import logging
 import re
 import time
 import urllib.parse

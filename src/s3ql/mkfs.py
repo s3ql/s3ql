@@ -6,19 +6,18 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
 from . import CURRENT_FS_REV
 from .backends.common import get_backend, BetterBackend, DanglingStorageURLError
-from .common import (get_backend_cachedir, setup_logging, QuietError, CTRL_INODE, 
-                     stream_write_bz2, PICKLE_PROTOCOL)
+from .common import (get_backend_cachedir, setup_logging, QuietError, CTRL_INODE, stream_write_bz2, 
+    PICKLE_PROTOCOL)
 from .database import Connection
+from .logging import logging # Ensure use of custom logger class
 from .metadata import dump_metadata, create_tables
 from .parse_args import ArgumentParser
 from getpass import getpass
 from llfuse import ROOT_INODE
-import pickle
-import logging
 import os
+import pickle
 import shutil
 import stat
 import sys

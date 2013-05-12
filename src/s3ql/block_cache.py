@@ -8,11 +8,11 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .common import sha256_fh, BUFSIZE
 from .database import NoSuchRowError
+from .logging import logging # Ensure use of custom logger class
 from collections import OrderedDict
-from queue import Queue
 from contextlib import contextmanager
 from llfuse import lock, lock_released
-import logging
+from queue import Queue
 import os
 import shutil
 import threading

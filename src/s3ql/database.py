@@ -13,10 +13,10 @@ Module Attributes:
                connection is created.
 '''
 
-import logging
+from .logging import logging # Ensure use of custom logger class
+from .common import QuietError
 import apsw
 import os
-from .common import QuietError
 
 log = logging.getLogger("database")
 

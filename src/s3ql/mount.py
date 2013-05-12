@@ -6,7 +6,6 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
 from . import fs, CURRENT_FS_REV
 from .backends.common import get_backend_factory, BackendPool, DanglingStorageURLError
 from .block_cache import BlockCache
@@ -15,19 +14,19 @@ from .common import (setup_logging, get_backend_cachedir, get_seq_no, QuietError
 from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
+from .logging import logging # Ensure use of custom logger class
 from .metadata import cycle_metadata, dump_metadata, restore_metadata
 from .parse_args import ArgumentParser
 from threading import Thread
+import _thread
 import argparse
-import pickle
-import llfuse
-import logging
-import os
-import signal
 import faulthandler
+import llfuse
+import os
+import pickle
+import signal
 import sys
 import tempfile
-import _thread
 import threading
 import time
 

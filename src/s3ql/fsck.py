@@ -6,20 +6,19 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
 from . import CURRENT_FS_REV
 from .backends.common import NoSuchObject, get_backend, DanglingStorageURLError
 from .common import (ROOT_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE, get_backend_cachedir, 
-    setup_logging, QuietError, get_seq_no, stream_write_bz2, stream_read_bz2, CTRL_INODE,
+    setup_logging, QuietError, get_seq_no, stream_write_bz2, stream_read_bz2, CTRL_INODE, 
     PICKLE_PROTOCOL)
 from .database import NoSuchRowError, Connection
+from .logging import logging # Ensure use of custom logger class
 from .metadata import restore_metadata, cycle_metadata, dump_metadata, create_tables
 from .parse_args import ArgumentParser
 from os.path import basename
 import apsw
-import pickle
-import logging
 import os
+import pickle
 import re
 import shutil
 import stat
@@ -27,7 +26,6 @@ import sys
 import tempfile
 import textwrap
 import time
-
 
 log = logging.getLogger("fsck")
 

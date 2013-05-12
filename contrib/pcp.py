@@ -10,11 +10,8 @@ Copyright (C) 2010 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-
 import sys
 import os
-import logging
 import subprocess
 
 # We are running from the S3QL source directory, make sure
@@ -26,6 +23,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
 
 from s3ql.common import (setup_logging)
 from s3ql.parse_args import ArgumentParser
+from s3ql.logging import logging # Ensure use of custom logger class
 
 log = logging.getLogger('pcp')
 

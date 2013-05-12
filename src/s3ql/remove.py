@@ -6,13 +6,12 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
+from .logging import logging # Ensure use of custom logger class
 from .common import setup_logging, QuietError, assert_fs_owner, PICKLE_PROTOCOL, path2bytes
 from .parse_args import ArgumentParser
-import pickle
 import llfuse
-import logging
 import os
+import pickle
 import sys
 import textwrap
 

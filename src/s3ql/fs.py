@@ -6,25 +6,24 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
+from . import deltadump
 from .backends.common import NoSuchObject, ChecksumError
-from .common import (get_path, CTRL_NAME, CTRL_INODE, LoggerFilter)
+from .common import get_path, CTRL_NAME, CTRL_INODE, LoggerFilter
 from .database import NoSuchRowError
 from .inode_cache import OutOfInodesError
-from . import deltadump
+from .logging import logging # Ensure use of custom logger class
 from io import BytesIO
 from llfuse import FUSEError
-import pickle
+from s3ql.common import PICKLE_PROTOCOL
 import collections
 import errno
 import llfuse
-import logging
 import math
 import os
+import pickle
 import stat
 import struct
 import time
-from s3ql.common import PICKLE_PROTOCOL
 
 # We work in bytes
 CTRL_NAME = CTRL_NAME.encode('us-ascii')

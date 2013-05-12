@@ -11,10 +11,8 @@ Copyright (C) 2010 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
 import argparse
 import atexit
-import logging
 import os
 import shutil
 import subprocess
@@ -33,6 +31,7 @@ from s3ql.backends.common import get_backend, BetterBackend, DanglingStorageURLE
 from s3ql.backends.local import Backend
 from s3ql.common import setup_logging, BUFSIZE, QuietError
 from s3ql.parse_args import ArgumentParser
+from s3ql.logging import logging # Ensure use of custom logger class
 
 ALGS = ('lzma', 'bzip2', 'zlib')
 

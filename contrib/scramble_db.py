@@ -7,14 +7,12 @@ Copyright (C)  Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
 # Data can be restored with:
 #from s3ql.metadata import restore_metadata
 #from s3ql.database import Connection
 #restore_metadata(open('s3ql_metadata.dat', 'rb+'), 'data.sqlite')
 
 import pickle
-import logging
 import os
 import shutil
 import sys
@@ -33,6 +31,7 @@ from s3ql.common import setup_logging, get_backend_cachedir, QuietError
 from s3ql.database import Connection
 from s3ql.metadata import dump_metadata
 from s3ql.parse_args import ArgumentParser
+from s3ql.logging import logging # Ensure use of custom logger class
 
 log = logging.getLogger("scramble_db")
 

@@ -6,9 +6,7 @@ Copyright (C) 2008-2010 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-
-import logging
+from .logging import logging # Ensure use of custom logger class
 from .database import NoSuchRowError
 
 log = logging.getLogger('inode_cache')

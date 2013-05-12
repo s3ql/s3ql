@@ -6,27 +6,26 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
+from ..logging import logging # Ensure use of custom logger class
 from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL
+from Crypto.Cipher import AES
+from Crypto.Util import Counter
 from abc import abstractmethod, ABCMeta
 from base64 import b64decode, b64encode
-from io import BytesIO
 from contextlib import contextmanager
 from functools import wraps
 from getpass import getpass
-from Crypto.Cipher import AES
-from Crypto.Util import Counter
+from io import BytesIO
 from s3ql.common import ChecksumError
-import configparser
 import bz2
-import pickle
+import configparser
 import hashlib
 import hmac
 import http.client
-import logging
 import lzma
 import math
 import os
+import pickle
 import re
 import socket
 import stat

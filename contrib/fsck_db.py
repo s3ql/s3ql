@@ -7,9 +7,7 @@ Copyright (C)  Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
 from argparse import ArgumentTypeError
-import logging
 import os
 import sys
 
@@ -23,6 +21,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
 from s3ql.common import setup_logging
 from s3ql.fsck import ROFsck
 from s3ql.parse_args import ArgumentParser
+from s3ql.logging import logging # Ensure use of custom logger class
 
 log = logging.getLogger("fsck")
 

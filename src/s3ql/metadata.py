@@ -6,10 +6,9 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-from .deltadump import INTEGER, BLOB, TIME, dump_table, load_table
+from .logging import logging # Ensure use of custom logger class
 from .database import Connection
-import logging
+from .deltadump import INTEGER, BLOB, TIME, dump_table, load_table
 import os
 import stat
 

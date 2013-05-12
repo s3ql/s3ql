@@ -6,12 +6,11 @@ Copyright (C) 2010 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
 from .common import setup_logging, assert_fs_owner, PICKLE_PROTOCOL
+from .logging import logging # Ensure use of custom logger class
 from .parse_args import ArgumentParser
-import pickle
 import llfuse
-import logging
+import pickle
 import sys
 import textwrap
 

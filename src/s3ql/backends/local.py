@@ -6,16 +6,14 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-
-from .common import AbstractBackend, DanglingStorageURLError, NoSuchObject, ChecksumError
+from ..logging import logging # Ensure use of custom logger class
 from ..common import BUFSIZE, PICKLE_PROTOCOL
-import shutil
-import logging
-import io
-import pickle
-import os
+from .common import AbstractBackend, DanglingStorageURLError, NoSuchObject, ChecksumError
 import _thread
+import io
+import os
+import pickle
+import shutil
 
 log = logging.getLogger("backend.local")
 

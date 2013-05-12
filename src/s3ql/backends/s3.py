@@ -6,10 +6,9 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
+from ..logging import logging # Ensure use of custom logger class
 from . import s3c
 from s3ql.common import QuietError
-import logging
 import re
 
 log = logging.getLogger("backend.s3")

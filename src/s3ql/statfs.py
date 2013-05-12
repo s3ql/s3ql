@@ -6,11 +6,10 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
+from .logging import logging # Ensure use of custom logger class
 from .common import assert_fs_owner, setup_logging
 from .parse_args import ArgumentParser
 import llfuse
-import logging
 import struct
 import sys
 
