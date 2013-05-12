@@ -78,7 +78,7 @@ cdef extern from 'sqlite3.h' nogil:
 from .cleanup_manager import CleanupManager
 import apsw
 import os
-import logging
+from .logging import logging # Ensure use of custom logger class
 import itertools
 import sys
 
