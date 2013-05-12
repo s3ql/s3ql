@@ -65,7 +65,7 @@ class HelpFormatter(argparse.HelpFormatter):
                 else:
                     res.append('  or:  ')
                 if s is DEFAULT_USAGE:
-                    res.append(super(HelpFormatter, self)._format_usage(None, actions, groups, '')[:-1])
+                    res.append(super()._format_usage(None, actions, groups, '')[:-1])
                 else:
                     res.append(s % dict(prog=self._prog))
                     res.append('\n')
@@ -73,12 +73,12 @@ class HelpFormatter(argparse.HelpFormatter):
             return '%s\n\n' % ''.join(res)
 
         elif usage is DEFAULT_USAGE:
-            return super(HelpFormatter, self)._format_usage(None, actions, groups, prefix)
+            return super()._format_usage(None, actions, groups, prefix)
         else:
-            return super(HelpFormatter, self)._format_usage(usage, actions, groups, prefix)
+            return super()._format_usage(usage, actions, groups, prefix)
 
     def format_help(self):
-        help_ = super(HelpFormatter, self).format_help()
+        help_ = super().format_help()
         if help_.count('\n') > 2:
             return help_ + '\n'
         else:
@@ -91,7 +91,7 @@ class SubParsersAction(argparse._SubParsersAction):
 
     def __init__(self, **kw):
         self.parent = kw.pop('parent')
-        super(SubParsersAction, self).__init__(**kw)
+        super().__init__(**kw)
 
     def add_parser(self, *a, **kwargs):
         '''Pass parent usage and add_help attributes to new parser'''
@@ -118,7 +118,7 @@ class SubParsersAction(argparse._SubParsersAction):
                 if p.epilog:
                     kwargs.setdefault('epilog', p.epilog % dict(prog=self.parent.prog))
 
-        return super(SubParsersAction, self).add_parser(*a, **kwargs)
+        return super().add_parser(*a, **kwargs)
 
 
 class ArgumentParser(argparse.ArgumentParser):
@@ -127,7 +127,7 @@ class ArgumentParser(argparse.ArgumentParser):
         if 'formatter_class' not in kw:
             kw['formatter_class'] = HelpFormatter
 
-        super(ArgumentParser, self).__init__(*a, **kw)
+        super().__init__(*a, **kw)
         self.register('action', 'parsers', SubParsersAction)
 
     def add_version(self):
@@ -192,12 +192,12 @@ class ArgumentParser(argparse.ArgumentParser):
             formatter.add_usage(None, positionals, groups, '')
             kw['prog'] = formatter.format_help().strip()
 
-        return super(ArgumentParser, self).add_subparsers(**kw)
+        return super().add_subparsers(**kw)
 
     def parse_args(self, *args, **kwargs):
         
         try:
-            return super(ArgumentParser, self).parse_args(*args, **kwargs)
+            return super().parse_args(*args, **kwargs)
         except ArgumentError as exc:
             self.exit(str(exc))
 

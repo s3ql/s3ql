@@ -508,7 +508,7 @@ class MetadataUploadThread(Thread):
     '''
 
     def __init__(self, backend_pool, param, db, interval):
-        super(MetadataUploadThread, self).__init__()
+        super().__init__()
         self.backend_pool = backend_pool
         self.param = param
         self.db = db
@@ -620,7 +620,7 @@ class CommitThread(Thread):
 
 
     def __init__(self, block_cache):
-        super(CommitThread, self).__init__()
+        super().__init__()
         self.block_cache = block_cache
         self.stop_event = threading.Event()
         self.name = 'CommitThread'

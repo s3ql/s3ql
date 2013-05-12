@@ -30,7 +30,7 @@ class Distributor(object):
     '''
 
     def __init__(self):
-        super(Distributor, self).__init__()
+        super().__init__()
 
         self.slot = None
         self.cv = threading.Condition()
@@ -74,7 +74,7 @@ class SimpleEvent(object):
     '''
 
     def __init__(self):
-        super(SimpleEvent, self).__init__()
+        super().__init__()
         self.__cond = threading.Condition(threading.Lock())
 
     def notify_all(self):
@@ -121,7 +121,7 @@ class CacheEntry(object):
                   'size', 'pos', 'fh' ]
 
     def __init__(self, inode, blockno, filename):
-        super(CacheEntry, self).__init__()
+        super().__init__()
         # Writing 100MB in 128k chunks takes 90ms unbuffered and
         # 116ms with 1 MB buffer. Reading time does not depend on
         # buffer size.

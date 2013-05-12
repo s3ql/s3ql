@@ -54,7 +54,7 @@ class UmountError(Exception):
     message = 'internal error'
     
     def __init__(self, mountpoint):
-        super(UmountError, self).__init__()
+        super().__init__()
         self.mountpoint = mountpoint
         
     def __str__(self):

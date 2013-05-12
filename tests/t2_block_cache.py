@@ -270,7 +270,7 @@ class cache_tests(unittest.TestCase):
 
 class TestBackendPool(AbstractBackend):
     def __init__(self, backend_pool, no_read=0, no_write=0, no_del=0):
-        super(TestBackendPool, self).__init__()
+        super().__init__()
         self.no_read = no_read
         self.no_write = no_write
         self.no_del = no_del

@@ -29,7 +29,7 @@ class _Inode(object):
     __slots__ = ATTRIBUTES + ('dirty', 'generation')
 
     def __init__(self, generation):
-        super(_Inode, self).__init__()
+        super().__init__()
         self.dirty = False
         self.generation = generation
 

@@ -180,7 +180,7 @@ class ChecksumError(Exception):
     """
 
     def __init__(self, str_):
-        super(ChecksumError, self).__init__()
+        super().__init__()
         self.str = str_
 
     def __str__(self):
@@ -197,7 +197,7 @@ class QuietError(Exception):
     '''
 
     def __init__(self, msg=''):
-        super(QuietError, self).__init__()
+        super().__init__()
         self.msg = msg
 
     def __str__(self):

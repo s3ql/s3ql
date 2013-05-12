@@ -106,7 +106,7 @@ class Operations(llfuse.Operations):
 
     def __init__(self, block_cache, db, max_obj_size, inode_cache,
                  upload_event=None):
-        super(Operations, self).__init__()
+        super().__init__()
 
         self.inodes = inode_cache
         self.db = db

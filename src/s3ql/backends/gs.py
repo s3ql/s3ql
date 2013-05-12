@@ -27,7 +27,7 @@ class Backend(s3c.Backend):
     """
 
     def __init__(self, storage_url, gs_key, gs_secret, use_ssl):
-        super(Backend, self).__init__(storage_url, gs_key, gs_secret, use_ssl)
+        super().__init__(storage_url, gs_key, gs_secret, use_ssl)
 
         self.namespace = 'http://doc.s3.amazonaws.com/2006-03-01'
 

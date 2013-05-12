@@ -42,7 +42,7 @@ class Backend(AbstractBackend):
     """
 
     def __init__(self, storage_url, login, password, use_ssl):
-        super(Backend, self).__init__()
+        super().__init__()
 
         (host, port, bucket_name, prefix) = self._parse_storage_url(storage_url, use_ssl)
 
@@ -679,7 +679,7 @@ class HTTPError(Exception):
     '''
 
     def __init__(self, status, msg, headers=None, body=None):
-        super(HTTPError, self).__init__()
+        super().__init__()
         self.status = status
         self.msg = msg
         self.headers = headers
@@ -721,7 +721,7 @@ class S3Error(Exception):
     '''
 
     def __init__(self, code, msg):
-        super(S3Error, self).__init__(msg)
+        super().__init__(msg)
         self.code = code
         self.msg = msg
 

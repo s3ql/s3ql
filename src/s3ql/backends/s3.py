@@ -28,7 +28,7 @@ class Backend(s3c.Backend):
     """
     
     def __init__(self, storage_url, login, password, use_ssl):
-        super(Backend, self).__init__(storage_url, login, password, use_ssl)
+        super().__init__(storage_url, login, password, use_ssl)
 
 
     @staticmethod

@@ -209,7 +209,7 @@ class AbstractBackend(object, metaclass=ABCMeta):
     needs_login = True
 
     def __init__(self):
-        super(AbstractBackend, self).__init__()
+        super().__init__()
 
     def __getitem__(self, key):
         return self.fetch(key)[0]
@@ -394,7 +394,7 @@ class BetterBackend(AbstractBackend):
     '''
 
     def __init__(self, passphrase, compression, backend):
-        super(BetterBackend, self).__init__()
+        super().__init__()
 
         assert passphrase is None or isinstance(passphrase, (bytes, bytearray, memoryview))
         
@@ -623,7 +623,7 @@ class AbstractInputFilter(object, metaclass=ABCMeta):
     '''Process data while reading'''
 
     def __init__(self):
-        super(AbstractInputFilter, self).__init__()
+        super().__init__()
         self.buffer = b''
 
     def read(self, size=None):
@@ -667,7 +667,7 @@ class CompressFilter(object):
         *fh* should be a file-like object. *decomp* should be a fresh compressor
         instance with a *compress* method.
         '''
-        super(CompressFilter, self).__init__()
+        super().__init__()
 
         self.fh = fh
         self.compr = compr
@@ -711,7 +711,7 @@ class DecompressFilter(AbstractInputFilter):
         *fh* should be a file-like object. *decomp* should be a
         fresh decompressor instance with a *decompress* method.
         '''
-        super(DecompressFilter, self).__init__()
+        super().__init__()
 
         self.fh = fh
         self.decomp = decomp
@@ -765,7 +765,7 @@ class EncryptFilter(object):
         
         *fh* should be a file-like object.
         '''
-        super(EncryptFilter, self).__init__()
+        super().__init__()
 
         self.fh = fh
         self.obj_size = 0
@@ -836,7 +836,7 @@ class DecryptFilter(AbstractInputFilter):
         
         *fh* should be a file-like object.
         '''
-        super(DecryptFilter, self).__init__()
+        super().__init__()
 
         self.fh = fh
         self.off_size = struct.calcsize(b'<I')
@@ -914,7 +914,7 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
         
         *fh* should be a file-like object.
         '''
-        super(LegacyDecryptDecompressFilter, self).__init__()
+        super().__init__()
 
         self.fh = fh
         self.metadata = metadata
@@ -1039,7 +1039,7 @@ class NoSuchObject(Exception):
     '''Raised if the requested object does not exist in the backend'''
 
     def __init__(self, key):
-        super(NoSuchObject, self).__init__()
+        super().__init__()
         self.key = key
 
     def __str__(self):
@@ -1049,7 +1049,7 @@ class DanglingStorageURLError(Exception):
     '''Raised if the backend can't store data at the given location'''
 
     def __init__(self, loc):
-        super(DanglingStorageURLError, self).__init__()
+        super().__init__()
         self.loc = loc
 
     def __str__(self):
@@ -1060,7 +1060,7 @@ class AuthorizationError(Exception):
     '''Raised if the credentials don't give access to the requested backend'''
 
     def __init__(self, msg):
-        super(AuthorizationError, self).__init__()
+        super().__init__()
         self.msg = msg
 
     def __str__(self):
@@ -1070,7 +1070,7 @@ class AuthenticationError(Exception):
     '''Raised if the credentials are invalid'''
 
     def __init__(self, msg):
-        super(AuthenticationError, self).__init__()
+        super().__init__()
         self.msg = msg
 
     def __str__(self):

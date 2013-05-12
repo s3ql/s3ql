@@ -34,7 +34,7 @@ class Backend(AbstractBackend):
         # Unused argument
         #pylint: disable=W0613
 
-        super(Backend, self).__init__()
+        super().__init__()
         name = storage_url[len('local://'):]
         self.name = name
 
@@ -292,14 +292,14 @@ class ObjectR(io.FileIO):
 
 
     def __init__(self, name, metadata=None):
-        super(ObjectR, self).__init__(name)
+        super().__init__(name)
         self.metadata = metadata
 
 class ObjectW(object):
     '''A local storage object opened for writing'''
 
     def __init__(self, name):
-        super(ObjectW, self).__init__()
+        super().__init__()
 
         # Inherit from io.FileIO rather than io.BufferedReader to disable buffering. Default buffer
         # size is ~8 kB (http://docs.python.org/3/library/functions.html#open), but backends are

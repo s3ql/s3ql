@@ -32,7 +32,7 @@ USE_VALGRIND = False
 
 class ExceptionStoringThread(threading.Thread):
     def __init__(self):
-        super(ExceptionStoringThread, self).__init__()
+        super().__init__()
         self._exc_info = None
         self._joined = False
 
@@ -74,7 +74,7 @@ class EmbeddedException(Exception):
     '''
 
     def __init__(self, exc_info, threadname):
-        super(EmbeddedException, self).__init__()
+        super().__init__()
         self.exc_info = exc_info
         self.threadname = threadname
 
@@ -88,7 +88,7 @@ class EmbeddedException(Exception):
 
 class AsyncFn(ExceptionStoringThread):
     def __init__(self, fn, *args, **kwargs):
-        super(AsyncFn, self).__init__()
+        super().__init__()
         self.target = fn
         self.args = args
         self.kwargs = kwargs

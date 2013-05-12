@@ -980,7 +980,7 @@ class ROFsck(Fsck):
 
         with open(path + '.params', 'rb') as fh:
             param = pickle.load(fh)
-        super(ROFsck, self).__init__(None, None, param, db)
+        super().__init__(None, None, param, db)
 
     def check(self):
 

@@ -32,7 +32,7 @@ class Backend(AbstractBackend):
         # Unused argument
         #pylint: disable=W0613
         
-        super(Backend, self).__init__()
+        super().__init__()
 
         (host, port, container_name, prefix) = self._parse_storage_url(storage_url)
             
@@ -489,7 +489,7 @@ class AuthenticationExpired(Exception):
     '''Raised if the provided Authentication Token has expired'''
 
     def __init__(self, msg):
-        super(AuthenticationExpired, self).__init__()
+        super().__init__()
         self.msg = msg
 
     def __str__(self):
