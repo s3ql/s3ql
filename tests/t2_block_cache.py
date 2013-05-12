@@ -49,9 +49,21 @@ class cache_tests(unittest.TestCase):
                          | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                          os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 32))
 
-        self.cache = BlockCache(self.backend_pool, self.db, self.cachedir + "/cache",
-                                self.max_obj_size * 100)
+        cache = BlockCache(self.backend_pool, self.db, self.cachedir + "/cache",
+                           self.max_obj_size * 100)
+        self.cache = cache
+        
+        # Monkeypatch around the need for removal and upload threads
+        class DummyQueue:
+            def put(self, obj):
+                cache._do_removal(obj)
+        cache.to_remove = DummyQueue()
 
+        class DummyDistributor:
+            def put(self, arg):
+                cache._do_upload(*arg)
+        cache.to_upload = DummyDistributor()
+        
         # Tested methods assume that they are called from
         # file system request handler
         llfuse.lock.acquire()

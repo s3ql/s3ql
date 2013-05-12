@@ -67,13 +67,25 @@ class fs_api_tests(unittest.TestCase):
         # file system request handler
         llfuse.lock.acquire()
 
-        self.block_cache = BlockCache(self.backend_pool, self.db, self.cachedir + "/cache",
-                                      self.max_obj_size * 5)
-        self.server = fs.Operations(self.block_cache, self.db, self.max_obj_size,
+        cache = BlockCache(self.backend_pool, self.db, self.cachedir + "/cache",
+                           self.max_obj_size * 5)
+        self.block_cache = cache
+        self.server = fs.Operations(cache, self.db, self.max_obj_size,
                                     InodeCache(self.db, 0))
-
         self.server.init()
 
+        # Monkeypatch around the need for removal and upload threads
+        
+        class DummyQueue:
+            def put(self, obj):
+                cache._do_removal(obj)
+        cache.to_remove = DummyQueue()
+
+        class DummyDistributor:
+            def put(self, arg):
+                cache._do_upload(*arg)
+        cache.to_upload = DummyDistributor()
+        
         # Keep track of unused filenames
         self.name_cnt = 0
 

@@ -220,12 +220,14 @@ class BlockCache(object):
         self.max_size = max_size
         self.in_transit = set()
         self.removed_in_transit = set()
-        self.to_upload = Distributor()
-        self.to_remove = Queue(250)
         self.upload_threads = []
         self.removal_threads = []
         self.transfer_completed = SimpleEvent()
 
+        # Will be initialized once threads are available
+        self.to_upload = None 
+        self.to_remove = None
+        
         os.mkdir(self.path)
 
     def __len__(self):
@@ -235,11 +237,13 @@ class BlockCache(object):
     def init(self, threads=1):
         '''Start worker threads'''
 
+        self.to_upload = Distributor()
         for _ in range(threads):
             t = threading.Thread(target=self._upload_loop)
             t.start()
             self.upload_threads.append(t)
 
+        self.to_remove = Queue(250)
         for _ in range(10):
             t = threading.Thread(target=self._removal_loop)
             t.daemon = True # interruption will do no permanent harm
@@ -382,11 +386,7 @@ class BlockCache(object):
 
                 self.in_transit.add(obj_id)
                 with lock_released:
-                    if not self.upload_threads:
-                        log.warning("upload(%s): no upload threads, uploading synchronously", el)
-                        self._do_upload(el, obj_id)
-                    else:
-                        self.to_upload.put((el, obj_id))
+                    self.to_upload.put((el, obj_id))
 
             # There is a block with the same hash                        
             else:
@@ -437,12 +437,8 @@ class BlockCache(object):
             self.wait()
 
         with lock_released:
-            if not self.removal_threads:
-                log.warning("upload(%s): no removal threads, removing synchronously", el)
-                self._do_removal(old_obj_id)
-            else:
-                log.debug('upload(%s): adding %d to removal queue', el, old_obj_id)
-                self.to_remove.put(old_obj_id)
+            log.debug('upload(%s): adding %d to removal queue', el, old_obj_id)
+            self.to_remove.put(old_obj_id)
 
         return el.size
 
@@ -719,11 +715,7 @@ class BlockCache(object):
                           inode, blockno, obj_id)
                 self.db.execute('DELETE FROM objects WHERE id=?', (obj_id,))
                 with lock_released:
-                    if not self.removal_threads:
-                        log.warning("remove(): no removal threads, removing synchronously")
-                        self._do_removal(obj_id)
-                    else:
-                        self.to_remove.put(obj_id)
+                    self.to_remove.put(obj_id)
 
         log.debug('remove(inode=%d, start=%d, end=%s): end', inode, start_no, end_no)
 
