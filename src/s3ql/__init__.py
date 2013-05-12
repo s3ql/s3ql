@@ -9,10 +9,10 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 
 __all__ = [ 'adm', 'backends', 'block_cache', 'cleanup_manager', 'common',
-            'cp', 'ctrl', 'daemonize', 'database', 'deltadump', '_deltadump',
-            'fs', 'fsck', 'inode_cache', 'lock', 'mkfs', 'mount', 'ordered_dict',
-            'parse_args', 'remove', 'statfs', 'umount', 'VERSION',
-            'CURRENT_FS_REV', 'REV_VER_MAP' ]
+            'cp', 'ctrl', 'daemonize', 'database', 'deltadump', 
+            'fs', 'fsck', 'inode_cache', 'lock', 'logging', 'metadata',
+            'mkfs', 'mount', 'parse_args', 'remove', 'statfs', 'umount', 
+            'VERSION', 'CURRENT_FS_REV', 'REV_VER_MAP' ]
 
 VERSION = '1.14'
 CURRENT_FS_REV = 16
