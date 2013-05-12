@@ -25,18 +25,23 @@ def pytest_addoption(parser):
                      help="Activate debugging output from <module> for tests. Use `all` "
                         "to get debug messages from all modules. This option can be "
                         "specified multiple times.")    
-    
+
+    group = parser.getgroup("general")
+    group._addoption("--installed", action="store_true", default=False,
+                     help="Test the installed package.") 
+        
 def pytest_configure(config):
 
     logdebug = config.getoption('logdebug')
     
     # If we are running from the S3QL source directory, make sure that we 
-    # load modules from here 
+    # load modules from here
     basedir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    if (os.path.exists(os.path.join(basedir, 'setup.py')) and
-        os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
-        sys.path = [os.path.join(basedir, 'src')] + sys.path
-    
+    if not config.getoption('installed'): 
+        if (os.path.exists(os.path.join(basedir, 'setup.py')) and
+            os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
+            sys.path = [os.path.join(basedir, 'src')] + sys.path
+        
     # When running from HG repo, enable all warnings    
     if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
         import warnings
