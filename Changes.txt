@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2013-05-12, S3QL 2.0-beta
 
   * S3QL now requires Python 3.3 or newer.
 
