@@ -18,6 +18,7 @@ from .logging import logging # Ensure use of custom logger class
 from .metadata import cycle_metadata, dump_metadata, restore_metadata
 from .parse_args import ArgumentParser
 from threading import Thread
+from contextlib import ExitStack
 import _thread
 import argparse
 import faulthandler
@@ -65,7 +66,7 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-
+    
     # Save handler so that we can remove it when daemonizing
     stdout_log_handler = setup_logging(options)
 
@@ -112,29 +113,43 @@ def main(args=None):
     operations = fs.Operations(block_cache, db, max_obj_size=param['max_obj_size'],
                                inode_cache=InodeCache(db, param['inode_gen']),
                                upload_event=metadata_upload_thread.event)
+
+            
+    with ExitStack() as cm:
+        log.info('Mounting filesystem...')
+        llfuse.init(operations, options.mountpoint, get_fuse_opts(options))
+        unmount_clean = False
+        def unmount():
+            log.info("Unmounting file system...")
+            # Acquire lock so that Operations.destroy() is called with the
+            # global lock like all other handlers
+            with llfuse.lock:
+                llfuse.close(unmount=unmount_clean)
+        cm.callback(unmount)
+        
+        if options.fg:
+            faulthandler.enable()
+        else:
+            if stdout_log_handler:
+                logging.getLogger().removeHandler(stdout_log_handler)
+            global crit_log_fh
+            crit_log_fh = open(os.path.join(options.cachedir, 'mount.s3ql_crit.log'), 'a')
+            faulthandler.enable(crit_log_fh)
+            daemonize(options.cachedir)
     
-    log.info('Mounting filesystem...')
-    llfuse.init(operations, options.mountpoint, get_fuse_opts(options))
-
-    if options.fg:
-        faulthandler.enable()
-    else:
-        if stdout_log_handler:
-            logging.getLogger().removeHandler(stdout_log_handler)
-        global crit_log_fh
-        crit_log_fh = open(os.path.join(options.cachedir, 'mount.s3ql_crit.log'), 'a')
-        faulthandler.enable(crit_log_fh)
-        daemonize(options.cachedir)
-
-    exc_info = setup_exchook()
-
-    # After we start threads, we must be sure to terminate them
-    # or the process will hang 
-    try:
+        exc_info = setup_exchook()
+              
         block_cache.init(options.threads)
+        cm.callback(block_cache.destroy)
+        
         metadata_upload_thread.start()
-        commit_thread.start()
+        cm.callback(metadata_upload_thread.join)
+        cm.callback(metadata_upload_thread.stop)
 
+        commit_thread.start()
+        cm.callback(commit_thread.join)
+        cm.callback(commit_thread.stop)
+        
         if options.upstart:
             os.kill(os.getpid(), signal.SIGSTOP)
         if options.profile:
@@ -152,58 +167,7 @@ def main(args=None):
 
         log.info("FUSE main loop terminated.")
 
-    except:
-        # Tell finally block not to raise any additional exceptions
-        exc_info[:] = sys.exc_info()
-
-        log.warning('Encountered exception, trying to clean up...')
-
-        # We do *not* free the mountpoint on exception. Why? E.g. if someone is
-        # mirroring the mountpoint, and it suddenly becomes empty, all the
-        # mirrored data will be deleted. However, it's crucial to still call
-        # llfuse.close, so that Operations.destroy() can flush the inode cache.
-        try:
-            log.info("Unmounting file system...")
-            with llfuse.lock:
-                llfuse.close(unmount=False)
-        except:
-            log.exception("Exception during cleanup:")
-
-        raise
-
-    else:
-        # llfuse.close() still needs block_cache.
-        log.info("Unmounting file system...")
-        with llfuse.lock:
-            llfuse.close()
-
-    # Terminate threads
-    finally:
-        log.debug("Waiting for background threads...")
-        for (op, with_lock) in ((metadata_upload_thread.stop, False),
-                                (commit_thread.stop, False),
-                                (block_cache.destroy, True),
-                                (metadata_upload_thread.join, False),
-                                (commit_thread.join, False)):
-            try:
-                if with_lock:
-                    with llfuse.lock:
-                        op()
-                else:
-                    op()
-            except:
-                # We just live with the race cond here
-                if not exc_info:
-                    exc_info = sys.exc_info()
-                else:
-                    log.exception("Exception during cleanup:")
-
-        log.debug("All background threads terminated.")
-
-    # Re-raise if there's been an exception during cleanup
-    # (either in main thread or other thread)
-    if exc_info:
-        raise exc_info[0](exc_info[1]).with_traceback(exc_info[2])
+        unmount_clean = True 
 
     # At this point, there should be no other threads left
 
@@ -573,6 +537,7 @@ class MetadataUploadThread(Thread):
     def stop(self):
         '''Signal thread to terminate'''
 
+        log.debug('MetadataUploadThread: stop() called')
         self.quit = True
         self.event.set()
 
@@ -657,6 +622,7 @@ class CommitThread(Thread):
     def stop(self):
         '''Signal thread to terminate'''
 
+        log.debug('CommitThread: stop() called')
         self.stop_event.set()
 
 if __name__ == '__main__':

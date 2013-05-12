@@ -251,28 +251,31 @@ class BlockCache(object):
             self.removal_threads.append(t)
 
     def destroy(self):
-        '''Clean up and stop worker threads'''
+        '''Clean up and stop worker threads
+        
+        This method should be called without the global lock held.
+        '''
 
         log.debug('destroy(): clearing cache...')
-        self.clear()
+        with lock:
+            self.clear()
 
-        with lock_released:
-            for t in self.upload_threads:
-                self.to_upload.put(QuitSentinel)
+        for t in self.upload_threads:
+            self.to_upload.put(QuitSentinel)
 
-            for t in self.removal_threads:
-                self.to_remove.put(QuitSentinel)
+        for t in self.removal_threads:
+            self.to_remove.put(QuitSentinel)
 
-            log.debug('destroy(): waiting for upload threads...')
-            for t in self.upload_threads:
-                t.join()
+        log.debug('destroy(): waiting for upload threads...')
+        for t in self.upload_threads:
+            t.join()
 
-            log.debug('destroy(): waiting for removal threads...')
-            for t in self.removal_threads:
-                t.join()
+        log.debug('destroy(): waiting for removal threads...')
+        for t in self.removal_threads:
+            t.join()
 
-        self.upload_threads = []
-        self.removal_threads = []
+        self.upload_threads = None
+        self.removal_threads = None
 
         os.rmdir(self.path)
 

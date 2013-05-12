@@ -91,11 +91,11 @@ class fs_api_tests(unittest.TestCase):
 
     def tearDown(self):
         self.server.inodes.flush()
+        llfuse.lock.release()
         self.block_cache.destroy()
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.backend_dir)
         os.unlink(self.dbfile.name)
-        llfuse.lock.release()
 
     @staticmethod
     def random_data(len_):

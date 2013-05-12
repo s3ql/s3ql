@@ -69,13 +69,13 @@ class cache_tests(unittest.TestCase):
         llfuse.lock.acquire()
 
     def tearDown(self):
+        llfuse.lock.release()
         self.cache.backend_pool = self.backend_pool
         self.cache.destroy()
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.backend_dir)
         os.unlink(self.dbfile.name)
-        llfuse.lock.release()
-
+        
     @staticmethod
     def random_data(len_):
         with open("/dev/urandom", "rb") as fh:
