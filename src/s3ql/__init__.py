@@ -6,8 +6,8 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-
-
+# False positives, pylint doesn't grok that these are module names
+#pylint: disable=E0603
 __all__ = [ 'adm', 'backends', 'block_cache', 'common',
             'cp', 'ctrl', 'daemonize', 'database', 'deltadump', 
             'fs', 'fsck', 'inode_cache', 'lock', 'logging', 'metadata',
