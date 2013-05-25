@@ -18,11 +18,13 @@ from s3ql.metadata import create_tables
 from s3ql.database import Connection
 from s3ql.fsck import Fsck
 from s3ql.inode_cache import InodeCache
+from common import catch_logmsg
 import errno
 import llfuse
 import os
 import shutil
 import stat
+import logging
 import tempfile
 import time
 import unittest
@@ -672,7 +674,9 @@ class fs_api_tests(unittest.TestCase):
             rfh.seek(560)
             rfh.write(b'blrub!')
         with self.assertRaises(FUSEError) as cm:
-            self.server.read(fh, 0, len_)
+            with catch_logmsg('^Backend returned malformed data for',
+                              count=1, level=logging.ERROR):
+                self.server.read(fh, 0, len_)
         self.assertEqual(cm.exception.errno, errno.EIO)
         self.assertTrue(self.server.failsafe)
 
@@ -700,7 +704,9 @@ class fs_api_tests(unittest.TestCase):
         self.server.read(fh, 3, len_//2)
         self.server.cache.clear()
         with self.assertRaises(FUSEError) as cm:
-            self.server.read(fh, 5, len_//2)
+            with catch_logmsg('^Backend lost block',
+                              count=1, level=logging.ERROR):
+                self.server.read(fh, 5, len_//2)
         self.assertEqual(cm.exception.errno, errno.EIO)
         
         

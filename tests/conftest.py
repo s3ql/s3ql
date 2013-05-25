@@ -11,8 +11,6 @@ initialize logging and adjust the load path before running
 any tests.
 '''
 
-from __future__ import division, print_function, absolute_import
-
 import logging.handlers
 import sys
 import os.path
@@ -73,4 +71,7 @@ def pytest_configure(config):
                 root_logger.addFilter(LoggerFilter(logdebug, logging.WARNING))
         else:
             root_logger.setLevel(logging.WARNING)
-        logging.captureWarnings(capture=True)    
+        logging.captureWarnings(capture=True)
+
+    # Make errors and warnings fatal
+    s3ql.logging.EXCEPTION_SEVERITY = logging.WARNING
