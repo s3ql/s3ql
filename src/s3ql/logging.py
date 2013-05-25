@@ -8,14 +8,18 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 import logging
 
+# Logging messages with severities larger or equal
+# than this value will raise exceptions.
+EXCEPTION_SEVERITY = logging.CRITICAL+1
+
 class LoggingError(Exception):
     '''
     Raised when a `Logger` instance is used to log a message with
     a severity larger than its `exception_severity`.
-    ''' 
+    '''
     
     formatter = logging.Formatter('%(message)s')
-                                  
+                                
     def __init__(self, record):
         super().__init__()
         self.record = record
@@ -34,14 +38,13 @@ class Logger(logging.getLoggerClass()):
     
     def __init__(self, name):
         super().__init__(name)
-        self.exception_severity = logging.CRITICAL+1
         
     def handle(self, record):
-        if record.levelno >= self.exception_severity:
+        if record.levelno >= EXCEPTION_SEVERITY:
             raise LoggingError(record)
         
         return super().handle(record)
-    
+
     
 # Ensure that no handlers have been created yet
 if len(logging.Logger.manager.loggerDict) != 0:
