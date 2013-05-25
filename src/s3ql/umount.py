@@ -6,8 +6,8 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging # Ensure use of custom logger class
-from .common import CTRL_NAME, setup_logging, assert_s3ql_mountpoint
+from .logging import logging, setup_logging
+from .common import CTRL_NAME, assert_s3ql_mountpoint
 from .parse_args import ArgumentParser
 import llfuse
 import os

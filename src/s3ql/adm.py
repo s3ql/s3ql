@@ -6,11 +6,11 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging # Ensure use of custom logger class
+from .logging import logging, QuietError, setup_logging
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.common import BetterBackend, get_backend, DanglingStorageURLError
-from .common import (QuietError, setup_logging, get_backend_cachedir, get_seq_no, stream_write_bz2, 
-    stream_read_bz2, CTRL_INODE, PICKLE_PROTOCOL)
+from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2,
+                     stream_read_bz2, CTRL_INODE, PICKLE_PROTOCOL)
 from .database import Connection
 from .metadata import restore_metadata, cycle_metadata, dump_metadata
 from .parse_args import ArgumentParser

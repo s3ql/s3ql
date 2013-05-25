@@ -6,8 +6,8 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging # Ensure use of custom logger class
-from .common import setup_logging, assert_fs_owner, QuietError, PICKLE_PROTOCOL
+from .logging import logging, setup_logging, QuietError
+from .common import assert_fs_owner, PICKLE_PROTOCOL
 from .parse_args import ArgumentParser
 import llfuse
 import os

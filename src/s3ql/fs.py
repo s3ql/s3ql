@@ -6,12 +6,12 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
+from .logging import logging, LoggerFilter
 from . import deltadump
 from .backends.common import NoSuchObject, ChecksumError
-from .common import get_path, CTRL_NAME, CTRL_INODE, LoggerFilter
+from .common import get_path, CTRL_NAME, CTRL_INODE
 from .database import NoSuchRowError
 from .inode_cache import OutOfInodesError
-from .logging import logging # Ensure use of custom logger class
 from io import BytesIO
 from llfuse import FUSEError
 from s3ql.common import PICKLE_PROTOCOL
