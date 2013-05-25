@@ -385,6 +385,7 @@ def parse_args(args):
     parser.add_ssl()
     parser.add_version()
     parser.add_storage_url()
+    parser.add_fatal_warnings()
 
     parser.add_argument("mountpoint", metavar='<mountpoint>', type=os.path.abspath,
                         help='Where to mount the file system')

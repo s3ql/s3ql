@@ -35,6 +35,7 @@ def parse_args(args):
     parser.add_debug()
     parser.add_quiet()
     parser.add_version()
+    parser.add_fatal_warnings()
 
     subparsers = parser.add_subparsers(metavar='<action>', dest='action',
                                        help='may be either of')
