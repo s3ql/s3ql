@@ -47,8 +47,19 @@ class Logger(logging.getLoggerClass()):
 
     
 # Ensure that no handlers have been created yet
-if len(logging.Logger.manager.loggerDict) != 0:
-    raise ImportError('%s must be imported before logging!' % __name__)
+loggers = logging.Logger.manager.loggerDict 
+if len(loggers) != 0:
+    raise ImportError('%s must be imported before loggers are created! '
+                      'Existing loggers: %s' % (__name__, loggers.keys()))
+    
+# Monkeypatch the root logger
+def handle(self, record): 
+    if record.levelno >= EXCEPTION_SEVERITY:
+        raise LoggingError(record)
+    self._handle_real(record)
+root_logger_class = type(logging.getLogger())
+root_logger_class._handle_real = root_logger_class.handle
+root_logger_class.handle = handle 
     
 logging.setLoggerClass(Logger)
     
