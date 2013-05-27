@@ -202,7 +202,7 @@ class InodeCache(object):
             self.setattr(self.attrs[id_])
 
     def destroy(self):
-        '''Finalize cache'''
+        '''Flush all entries and empty cache'''
 
         for i in range(len(self.cached_rows)):
             id_ = self.cached_rows[i]
@@ -217,8 +217,7 @@ class InodeCache(object):
                     del self.attrs[id_]
                     self.setattr(inode)
 
-        self.cached_rows = None
-        self.attrs = None
+        assert len(self.attrs) == 0
 
     def flush(self):
         '''Flush all entries to database'''
@@ -237,8 +236,8 @@ class InodeCache(object):
                     self.setattr(inode)
 
     def __del__(self):
-        if self.attrs:
-            raise RuntimeError('InodeCache instance was destroyed without calling close()')
+        if len(self.attrs) > 0:
+            raise RuntimeError('InodeCache instance was destroyed without calling destroy()')
 
 
 
