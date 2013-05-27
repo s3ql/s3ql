@@ -15,8 +15,6 @@ import logging.handlers
 import sys
 import os.path
 
-log = logging.getLogger('')
-
 def pytest_addoption(parser):
     group = parser.getgroup("terminal reporting")
     group._addoption("--logdebug", action="append", metavar='<module>',
@@ -55,7 +53,7 @@ def pytest_configure(config):
     import s3ql.logging
     root_logger = logging.getLogger()
     if root_logger.handlers:
-        log.warning("Logging already initialized.")
+        root_logger.warning("Logging already initialized.")
     else:
         handler = logging.handlers.RotatingFileHandler(os.path.join(basedir, 'tests', 'test.log'),
                                                        maxBytes=10 * 1024 ** 2, backupCount=0)
