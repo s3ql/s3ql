@@ -68,11 +68,13 @@ def setup_logging(options):
     setup_excepthook()
 
     if options.debug:
-        root_logger.setLevel(logging.DEBUG)
+        if 'all' in options.debug:
+            root_logger.setLevel(logging.DEBUG)
+        else:
+            for module in options.debug:
+                logging.getLogger(module).setLevel(logging.DEBUG)
+
         debug_handler.setLevel(logging.NOTSET)
-        if 'all' not in options.debug:
-            # Adding the filter to the root logger has no effect.
-            debug_handler.addFilter(LoggerFilter(options.debug, logging.INFO))
         logging.disable(logging.NOTSET)
     else:
         root_logger.setLevel(logging.INFO)
@@ -194,32 +196,6 @@ def setup_excepthook():
     sys.excepthook = excepthook
 
 
-class LoggerFilter(object):
-    """
-    For use with the logging module as a message filter.
-
-    This filter accepts all messages which have at least the specified
-    priority *or* come from a configured list of loggers.
-    """
-
-    def __init__(self, acceptnames, acceptlevel):
-        """Initializes a Filter object"""
-
-        self.acceptlevel = acceptlevel
-        self.acceptnames = [ x.lower() for x in acceptnames ]
-
-    def filter(self, record):
-        '''Determine if the log message should be printed'''
-
-        if record.levelno >= self.acceptlevel:
-            return True
-
-        if record.name.lower() in self.acceptnames:
-            return True
-
-        return False
-
-    
 def add_stdout_logging(quiet=False):
     '''Add stdout logging handler to root logger'''
 
@@ -245,7 +221,6 @@ class Logger(logging.getLoggerClass()):
     def __init__(self, name):
         super().__init__(name)
 
-        
     def handle(self, record):
         if (record.levelno >= EXCEPTION_SEVERITY
             and not hasattr(record, 'force_log')):

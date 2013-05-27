@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, LoggerFilter
+from .logging import logging
 from . import deltadump
 from .backends.common import NoSuchObject, ChecksumError
 from .common import get_path, CTRL_NAME, CTRL_INODE
@@ -1168,16 +1168,14 @@ class Operations(llfuse.Operations):
         
 def update_logging(level, modules):
     root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
     if level == logging.DEBUG:
         logging.disable(logging.NOTSET)
-        for handler in root_logger.handlers:
-            for filter_ in [ f for f in handler.filters if isinstance(f, LoggerFilter) ]:
-                handler.removeFilter(filter_)
-            handler.setLevel(level)
-        if 'all' not in modules:
-            for handler in root_logger.handlers:
-                handler.addFilter(LoggerFilter(modules, logging.INFO))
+        if 'all' in modules:
+            root_logger.setLevel(logging.DEBUG)
+        else:
+            for module in modules:
+                logging.getLogger(module).setLevel(logging.DEBUG)
 
     else:
         logging.disable(logging.DEBUG)
-    root_logger.setLevel(level)
