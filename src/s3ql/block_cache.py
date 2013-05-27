@@ -19,7 +19,7 @@ import threading
 import time
 
 # standard logger for this module
-log = logging.getLogger("BlockCache")
+log = logging.getLogger(__name__)
 
 # Special queue entry that signals threads to terminate
 QuitSentinel = object()

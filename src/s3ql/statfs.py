@@ -13,7 +13,7 @@ import llfuse
 import struct
 import sys
 
-log = logging.getLogger("stat")
+log = logging.getLogger(__name__)
 
 def parse_args(args):
     '''Parse command line'''

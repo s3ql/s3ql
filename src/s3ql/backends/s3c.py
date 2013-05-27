@@ -28,7 +28,7 @@ C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
 
 XML_CONTENT_RE = re.compile(r'^(?:application|text)/xml(?:;|$)', re.IGNORECASE)
 
-log = logging.getLogger("backends.s3c")
+log = logging.getLogger(__name__)
 
 class Backend(AbstractBackend):
     """A backend to stored data in some S3 compatible storage service.

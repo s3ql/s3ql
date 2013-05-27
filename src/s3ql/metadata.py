@@ -12,7 +12,7 @@ from .deltadump import INTEGER, BLOB, TIME, dump_table, load_table
 import os
 import stat
 
-log = logging.getLogger('metadata')
+log = logging.getLogger(__name__)
 
 # Has to be kept in sync with create_tables()!
 DUMP_SPEC = [

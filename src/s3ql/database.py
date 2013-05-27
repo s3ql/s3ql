@@ -18,7 +18,7 @@ from .common import QuietError
 import apsw
 import os
 
-log = logging.getLogger("database")
+log = logging.getLogger(__name__)
 
 sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
 if sqlite_ver < (3, 7, 0):

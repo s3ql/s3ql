@@ -23,7 +23,7 @@ import sys
 import tempfile
 import time
 
-log = logging.getLogger("mkfs")
+log = logging.getLogger(__name__)
 
 def parse_args(args):
 

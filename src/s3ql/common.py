@@ -28,7 +28,7 @@ PICKLE_PROTOCOL = 2
 CTRL_NAME = '.__s3ql__ctrl__'
 CTRL_INODE = 2
 
-log = logging.getLogger('common')
+log = logging.getLogger(__name__)
 
 file_system_encoding = sys.getfilesystemencoding()
 def path2bytes(s):

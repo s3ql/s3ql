@@ -31,7 +31,7 @@ import tempfile
 import threading
 import time
 
-log = logging.getLogger("mount")
+log = logging.getLogger(__name__)
 
 def install_thread_excepthook():
     """work around sys.excepthook thread bug

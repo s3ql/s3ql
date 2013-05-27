@@ -17,7 +17,7 @@ import sys
 import textwrap
 import time
 
-log = logging.getLogger("umount")
+log = logging.getLogger(__name__)
 
 def parse_args(args):
     '''Parse command line

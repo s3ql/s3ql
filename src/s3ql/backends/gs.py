@@ -14,7 +14,7 @@ import re
 # Pylint goes berserk with false positives
 #pylint: disable=E1002,E1101,W0201
 
-log = logging.getLogger("backends.gs")
+log = logging.getLogger(__name__)
 
 class Backend(s3c.Backend):
     """A backend to store data in Google Storage

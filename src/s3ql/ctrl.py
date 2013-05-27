@@ -14,7 +14,7 @@ import pickle
 import sys
 import textwrap
 
-log = logging.getLogger("ctrl")
+log = logging.getLogger(__name__)
 
 def parse_args(args):
     '''Parse command line'''

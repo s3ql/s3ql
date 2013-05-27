@@ -82,7 +82,7 @@ from .logging import logging # Ensure use of custom logger class
 import itertools
 import sys
 
-log = logging.getLogger('deltadump')
+log = logging.getLogger(__name__)
 
 # Column types
 cdef int _INTEGER = 1

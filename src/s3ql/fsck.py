@@ -27,7 +27,7 @@ import tempfile
 import textwrap
 import time
 
-log = logging.getLogger("fsck")
+log = logging.getLogger(__name__)
 
 S_IFMT = (stat.S_IFDIR | stat.S_IFREG | stat.S_IFSOCK | stat.S_IFBLK |
           stat.S_IFCHR | stat.S_IFIFO | stat.S_IFLNK)

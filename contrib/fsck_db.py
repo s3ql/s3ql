@@ -23,7 +23,7 @@ from s3ql.fsck import ROFsck
 from s3ql.parse_args import ArgumentParser
 from s3ql.logging import logging # Ensure use of custom logger class
 
-log = logging.getLogger("fsck")
+log = logging.getLogger(__name__)
 
 def parse_args(args):
 

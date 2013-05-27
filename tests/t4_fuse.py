@@ -25,7 +25,7 @@ import traceback
 import unittest
 
 
-log = logging.getLogger()
+log = logging.getLogger(__name__)
 
 # For debugging
 USE_VALGRIND = False

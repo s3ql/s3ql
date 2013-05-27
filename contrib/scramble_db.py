@@ -33,7 +33,7 @@ from s3ql.metadata import dump_metadata
 from s3ql.parse_args import ArgumentParser
 from s3ql.logging import logging # Ensure use of custom logger class
 
-log = logging.getLogger("scramble_db")
+log = logging.getLogger(__name__)
 
 DBNAME = 's3ql_metadata.dat'
 

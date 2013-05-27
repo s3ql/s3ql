@@ -35,7 +35,7 @@ import threading
 import time
 import zlib
 
-log = logging.getLogger("backend")
+log = logging.getLogger(__name__)
 
 HMAC_SIZE = 32
 

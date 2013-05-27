@@ -28,7 +28,7 @@ from .logging import logging # Ensure use of custom logger class
 import os
 import sys
 
-log = logging.getLogger('daemonize')
+log = logging.getLogger(__name__)
 
 def daemonize(workdir='/'):
     '''Daemonize the process'''

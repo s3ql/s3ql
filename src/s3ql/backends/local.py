@@ -15,7 +15,7 @@ import os
 import pickle
 import shutil
 
-log = logging.getLogger("backend.local")
+log = logging.getLogger(__name__)
 
 class Backend(AbstractBackend):
     '''

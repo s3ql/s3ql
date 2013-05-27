@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from .logging import logging # Ensure use of custom logger class
 from .database import NoSuchRowError
 
-log = logging.getLogger('inode_cache')
+log = logging.getLogger(__name__)
 
 CACHE_SIZE = 100
 ATTRIBUTES = ('mode', 'refcount', 'uid', 'gid', 'size', 'locked',

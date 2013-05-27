@@ -11,7 +11,7 @@ from . import s3c
 from s3ql.common import QuietError
 import re
 
-log = logging.getLogger("backend.s3")
+log = logging.getLogger(__name__)
 
 # Pylint goes berserk with false positives
 #pylint: disable=E1002,E1101

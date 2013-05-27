@@ -35,7 +35,7 @@ from s3ql.logging import logging # Ensure use of custom logger class
 
 ALGS = ('lzma', 'bzip2', 'zlib')
 
-log = logging.getLogger('benchmark')
+log = logging.getLogger(__name__)
 
 def parse_args(args):
     '''Parse command line'''

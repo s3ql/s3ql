@@ -18,7 +18,7 @@ import re
 import time
 import urllib.parse
 
-log = logging.getLogger("backend.swift")
+log = logging.getLogger(__name__)
 
 class Backend(AbstractBackend):
     """A backend to store data in OpenStack Swift

@@ -28,7 +28,7 @@ from s3ql.parse_args import ArgumentParser
 from s3ql.remove import main as s3qlrm
 from s3ql.logging import logging # Ensure use of custom logger class
 
-log = logging.getLogger('expire_backups')
+log = logging.getLogger(__name__)
 
 def parse_args(args):
     '''Parse command line'''

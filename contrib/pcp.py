@@ -25,7 +25,7 @@ from s3ql.common import (setup_logging)
 from s3ql.parse_args import ArgumentParser
 from s3ql.logging import logging # Ensure use of custom logger class
 
-log = logging.getLogger('pcp')
+log = logging.getLogger(__name__)
 
 def parse_args(args):
     '''Parse command line'''

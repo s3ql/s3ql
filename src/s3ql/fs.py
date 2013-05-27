@@ -29,7 +29,7 @@ import time
 CTRL_NAME = CTRL_NAME.encode('us-ascii')
 
 # standard logger for this module
-log = logging.getLogger("fs")
+log = logging.getLogger(__name__)
 
 # For long requests, we force a GIL release in the following interval
 GIL_RELEASE_INTERVAL = 0.05
