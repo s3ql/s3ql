@@ -88,8 +88,9 @@ def main(args=None):
     setup_logging(options)
 
     if options.max_obj_size < 1024:
+        # This warning should never be converrted to an exception
         log.warning('Warning: maximum object sizes less than 1 MiB will seriously degrade '
-                 'performance.')
+                 'performance.', extra={ 'force_log': True })
 
     try:
         plain_backend = get_backend(options, plain=True)
