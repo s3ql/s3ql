@@ -173,6 +173,13 @@ class ArgumentParser(argparse.ArgumentParser):
                            'it reaches 1 MiB, and at most 5 old log files will be kept. '
                            'Specify ``none`` to disable logging. Default: ``%(default)s``')
 
+    def add_fatal_warnings(self):
+        # Make all log messages of severity warning or higher raise
+        # exceptions. This option is not listed in the --help output and used by
+        # the unit tests.     
+        self.add_argument("--fatal-warnings", action='store_true', default=False,
+                          help=argparse.SUPPRESS)
+
     def add_storage_url(self):
         self.add_argument("storage_url", metavar='<storage-url>',
                           type=storage_url_type,

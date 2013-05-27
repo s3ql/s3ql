@@ -98,6 +98,10 @@ def setup_logging(options):
 
     logging.captureWarnings(capture=True)
 
+    if hasattr(options, 'fatal_warnings') and options.fatal_warnings:
+        global EXCEPTION_SEVERITY
+        EXCEPTION_SEVERITY = logging.WARNING
+        
     return stdout_handler
 
 
