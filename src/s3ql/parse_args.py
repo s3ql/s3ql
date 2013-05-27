@@ -247,8 +247,10 @@ def log_handler_type(s):
         except PermissionError:
             raise ArgumentTypeError('No permission to write log file %s' % fullpath) from None
         
-        formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
-                                      '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
+        formatter = logging.Formatter('%(asctime)s.%(msecs)03d [pid=%(process)r, '
+                                      'thread=%(threadName)r, module=%(name)r, '
+                                      'fn=%(funcName)r, line=%(lineno)r]: %(message)s',
+                                      datefmt="%Y-%m-%d %H:%M:%S")
 
     handler.setFormatter(formatter)
     return handler
