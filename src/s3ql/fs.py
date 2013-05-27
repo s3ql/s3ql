@@ -597,7 +597,7 @@ class Operations(llfuse.Operations):
             self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_,))
             del self.inodes[id_]
 
-        log.debug('_remove(%d, %s): start', id_p, name)
+        log.debug('_remove(%d, %s): end', id_p, name)
 
     def symlink(self, id_p, name, target, ctx):
         log.debug('symlink(%d, %r, %r): start', id_p, name, target)
