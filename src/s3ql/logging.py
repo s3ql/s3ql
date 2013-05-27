@@ -35,24 +35,6 @@ class LoggingError(Exception):
         return 'Unexpected log message: ' + self.formatter.format(self.record)
 
 
-class Logger(logging.getLoggerClass()):
-    '''
-    This class has the following features in addition to `logging.Logger`:
-
-    * Loggers can automatically raise exceptions when a log message exceeds
-      a specified severity. This is useful when running unit tests.
-    '''
-
-    def __init__(self, name):
-        super().__init__(name)
-
-    def handle(self, record):
-        if record.levelno >= EXCEPTION_SEVERITY:
-            raise LoggingError(record)
-
-        return super().handle(record)
-
-
 class QuietError(Exception):
     '''
     QuietError is the base class for exceptions that should not result
@@ -189,7 +171,9 @@ def setup_excepthook():
     def excepthook(type_, val, tb):
         root_logger = logging.getLogger()
         if isinstance(val, QuietError):
-            root_logger.error(val.msg)
+            # force_log attribute ensures that logging handler will
+            # not raise exception (if EXCEPTION_SEVERITY is set)
+            root_logger.error(val.msg, extra={ 'force_log': True })
         else:
             # Customized exception handler has shown to just blow up the size
             # of error messages and potentially include confidential data
@@ -201,8 +185,11 @@ def setup_excepthook():
 #                                  exc_info=(type_, val, tb))
 #            else:
 #                root_logger.error('Uncaught top-level exception. %s', msg)
+            # force_log attribute ensures that logging handler will
+            # not raise exception (if EXCEPTION_SEVERITY is set)
             root_logger.error('Uncaught top-level exception:',
-                              exc_info=(type_, val, tb))
+                              exc_info=(type_, val, tb),
+                              extra={ 'force_log': True})
 
     sys.excepthook = excepthook
 
@@ -247,6 +234,30 @@ def add_stdout_logging(quiet=False):
     root_logger.addHandler(handler)
     return handler
 
+class Logger(logging.getLoggerClass()):
+    '''
+    This class has the following features in addition to `logging.Logger`:
+
+    * Loggers can automatically raise exceptions when a log message exceeds
+      a specified severity. This is useful when running unit tests.
+    '''
+
+    def __init__(self, name):
+        super().__init__(name)
+
+        
+    def handle(self, record):
+        if (record.levelno >= EXCEPTION_SEVERITY
+            and not hasattr(record, 'force_log')):
+            raise LoggingError(record)
+
+        # Do not call superclass method directly so that we can
+        # re-use this method when monkeypatching the root logger.
+        return self._handle_real(record)
+
+    def _handle_real(self, record):
+        return super().handle(record)
+
 
 # Ensure that no handlers have been created yet
 loggers = logging.Logger.manager.loggerDict
@@ -256,12 +267,8 @@ if len(loggers) != 0:
 
 # Monkeypatch the root logger
 #pylint: disable=W0212
-def handle(self, record):
-    if record.levelno >= EXCEPTION_SEVERITY:
-        raise LoggingError(record)
-    self._handle_real(record)
 root_logger_class = type(logging.getLogger())
 root_logger_class._handle_real = root_logger_class.handle
-root_logger_class.handle = handle
+root_logger_class.handle = Logger.handle
 
 logging.setLoggerClass(Logger)
