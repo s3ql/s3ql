@@ -63,8 +63,14 @@ def setup_logging(options):
     if hasattr(options, 'log') and options.log:
         root_logger.addHandler(options.log)
         debug_handler = options.log
-    else:
-        debug_handler = stdout_handler
+    elif options.debug and not options.log:
+        # When we have debugging enabled but no separate log target,
+        # make stdout logging more detailed.
+        formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
+                                      '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
+        stdout_handler.setFormatter(formatter)
+        stdout_handler.setLevel(logging.NOTSET)
+
     setup_excepthook()
 
     if options.debug:
@@ -74,7 +80,6 @@ def setup_logging(options):
             for module in options.debug:
                 logging.getLogger(module).setLevel(logging.DEBUG)
 
-        debug_handler.setLevel(logging.NOTSET)
         logging.disable(logging.NOTSET)
     else:
         root_logger.setLevel(logging.INFO)
