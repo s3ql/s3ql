@@ -136,9 +136,7 @@ def main(args=None):
             crit_log_fh = open(os.path.join(options.cachedir, 'mount.s3ql_crit.log'), 'a')
             faulthandler.enable(crit_log_fh)
             daemonize(options.cachedir)
-    
-        exc_info = setup_exchook()
-              
+
         block_cache.init(options.threads)
         cm.callback(block_cache.destroy)
         
@@ -152,14 +150,20 @@ def main(args=None):
         
         if options.upstart:
             os.kill(os.getpid(), signal.SIGSTOP)
+
+        exc_info = setup_exchook()
         if options.profile:
             prof.runcall(llfuse.main, options.single)
         else:
             llfuse.main(options.single)
 
+        # Allow operations to terminate while block_cache is still available
+        # (destroy() will be called again when from llfuse.close(), but at that
+        # point the block cache is no longer available).
+        with llfuse.lock:
+            operations.destroy()
+
         # Re-raise if main loop terminated due to exception in other thread
-        # or during cleanup, but make sure we still unmount file system
-        # (so that Operations' destroy handler gets called)
         if exc_info:
             (tmp0, tmp1, tmp2) = exc_info
             exc_info[:] = []
@@ -167,7 +171,7 @@ def main(args=None):
 
         log.info("FUSE main loop terminated.")
 
-        unmount_clean = True 
+        unmount_clean = True
 
     # At this point, there should be no other threads left
 

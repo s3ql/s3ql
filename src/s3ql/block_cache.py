@@ -269,11 +269,13 @@ class BlockCache(object):
         log.debug('destroy(): waiting for upload threads...')
         for t in self.upload_threads:
             t.join()
-
+        self.to_upload = None
+        
         log.debug('destroy(): waiting for removal threads...')
         for t in self.removal_threads:
             t.join()
-
+        self.to_remove = None
+        
         self.upload_threads = None
         self.removal_threads = None
 
