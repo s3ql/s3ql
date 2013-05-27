@@ -36,7 +36,7 @@ class AdmTests(unittest.TestCase):
 
     def mkfs(self):
         proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
-                                 '-L', 'test fs', '--max-obj-size', '500',
+                                 '-L', 'test fs', '--max-obj-size', '500', '--fatal-warnings',
                                  '--cachedir', self.cache_dir, '--quiet',
                                  self.storage_url ], stdin=subprocess.PIPE,
                                 universal_newlines=True)
@@ -53,7 +53,7 @@ class AdmTests(unittest.TestCase):
         passphrase_new = 'sd982jhd'
 
         proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 's3qladm'),
-                                 '--quiet', 'passphrase',
+                                 '--quiet', 'passphrase', '--fatal-warnings',
                                  self.storage_url ], stdin=subprocess.PIPE,
                                 universal_newlines=True)
 

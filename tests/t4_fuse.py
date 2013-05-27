@@ -187,7 +187,7 @@ class fuse_tests(unittest.TestCase):
 
     def mkfs(self):
         proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
-                                 '-L', 'test fs', '--max-obj-size', '500',
+                                 '-L', 'test fs', '--max-obj-size', '500', '--fatal-warnings',
                                  '--cachedir', self.cache_dir, '--quiet',
                                  self.storage_url ], stdin=subprocess.PIPE,
                                 universal_newlines=True)
@@ -202,7 +202,7 @@ class fuse_tests(unittest.TestCase):
         self.mount_process = subprocess.Popen([sys.executable, 
                                                os.path.join(BASEDIR, 'bin', 'mount.s3ql'),
                                                 "--fg", '--cachedir', self.cache_dir,
-                                                '--log', 'none', '--quiet', 
+                                                '--log', 'none', '--quiet', '--fatal-warnings',
                                                   self.storage_url, self.mnt_dir],
                                                   stdin=subprocess.PIPE, universal_newlines=True)
         print(self.passphrase, file=self.mount_process.stdin)
@@ -229,7 +229,7 @@ class fuse_tests(unittest.TestCase):
     def fsck(self):
         proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'fsck.s3ql'),
                                  '--force', '--quiet', '--log', 'none',
-                                 '--cachedir', self.cache_dir,
+                                 '--cachedir', self.cache_dir, '--fatal-warnings',
                                  self.storage_url ], stdin=subprocess.PIPE, 
                                 universal_newlines=True)
         print(self.passphrase, file=proc.stdin)
