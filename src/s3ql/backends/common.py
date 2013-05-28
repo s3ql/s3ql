@@ -453,9 +453,15 @@ class BetterBackend(AbstractBackend):
         elif not encrypted and self.passphrase:
             raise ObjectNotEncrypted()
 
-        buf = b64decode(b''.join(metadata[k] 
-                                 for k in sorted(metadata.keys()) 
-                                 if k.startswith('meta')))
+        # Pre 2.x buckets store base64 encoded metadata as str rather
+        # than bytes.
+        parts = [ metadata[k] for k in sorted(metadata.keys())
+                  if k.startswith('meta') ]
+        if type(parts[0]) == str:
+            buf = b64decode(''.join(parts))
+        else:
+            buf = b64decode(b''.join(parts))
+
         if encrypted:
             buf = decrypt(buf, self.passphrase)
 
