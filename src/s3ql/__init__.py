@@ -15,12 +15,15 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'common',
             'VERSION', 'CURRENT_FS_REV', 'REV_VER_MAP' ]
 
 VERSION = '2.0-beta'
-CURRENT_FS_REV = 16
+CURRENT_FS_REV = 17
 
 # Maps file system revisions to the last S3QL version that
 # supported this revision.
-REV_VER_MAP = { 15: '1.10',
-                14: '1.8.1',
-                13: '1.6',
-                12: '1.3',
-                11: '1.0.1' }
+REV_VER_MAP = {
+    16: '1.15',
+    15: '1.10',
+    14: '1.8.1',
+    13: '1.6',
+    12: '1.3',
+    11: '1.0.1',
+    }

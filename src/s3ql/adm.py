@@ -164,7 +164,8 @@ def download_metadata(backend, storage_url):
     # downloaded backup
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in backend.list('s3ql_seq_no_') ]
     param['seq_no'] = max(seq_nos) + 1
-    pickle.dump(param, open(cachepath + '.params', 'wb'), PICKLE_PROTOCOL)
+    with open(cachepath + '.params', 'wb') as fh:
+        pickle.dump(param, fh, PICKLE_PROTOCOL)
 
 def change_passphrase(backend):
     '''Change file system passphrase'''
@@ -241,19 +242,22 @@ def upgrade(backend, cachepath):
     seq_no = get_seq_no(backend)
 
     # Check for cached metadata
-    db = None
     if os.path.exists(cachepath + '.params'):
-        param = pickle.load(open(cachepath + '.params', 'rb'))
+        with open(cachepath + '.params', 'rb') as fh:
+            param = pickle.load(fh)
         if param['seq_no'] < seq_no:
-            log.info('Ignoring locally cached metadata (outdated).')
             param = backend.lookup('s3ql_metadata')
         elif param['seq_no'] > seq_no:
             print('File system not unmounted cleanly, need to run fsck before upgrade.')
             print(get_old_rev_msg(param['revision'], 'fsck.s3ql'))
-            raise QuietError()                  
+            raise QuietError()
         else:
-            log.info('Using cached metadata.')
-            db = Connection(cachepath + '.db')
+            # Move local metadata out of the way before we overwrite it
+            # (you never know...)
+            if os.path.exists(cachepath + '.db.bak'):
+                raise QuietError('Metadata backup already exists, did something go wrong?')
+            os.rename(cachepath + '.db', cachepath + '.db.bak')
+            shutil.copyfile(cachepath + '.params', cachepath + '.params.bak')
     else:
         param = backend.lookup('s3ql_metadata')
 
@@ -304,18 +308,21 @@ def upgrade(backend, cachepath):
         '''))
 
     print('Please enter "yes" to continue.', '> ', sep='\n', end='')
-
+    sys.stdout.flush()
+    
     if sys.stdin.readline().strip().lower() != 'yes':
         raise QuietError()
 
-    # Download metadata
-    if not db:
-        log.info("Downloading & uncompressing metadata...")
+    # For this upgrade, we just need to ensure that we don't use the locally
+    # cached SQLite database (because some types have changed)
+    with tempfile.TemporaryFile() as tmpfh:
         def do_read(fh):
-            tmpfh = tempfile.TemporaryFile()
+            tmpfh.seek(0)
+            tmpfh.truncate()
             stream_read_bz2(fh, tmpfh)
-            return tmpfh
-        tmpfh = backend.perform_read(do_read, "s3ql_metadata")
+
+        log.info("Downloading & uncompressing metadata...")
+        backend.perform_read(do_read, "s3ql_metadata")
 
         log.info("Reading metadata...")
         tmpfh.seek(0)
@@ -323,27 +330,26 @@ def upgrade(backend, cachepath):
 
     log.info('Upgrading from revision %d to %d...', param['revision'], CURRENT_FS_REV)
 
-    db.execute('UPDATE inodes SET mode=? WHERE id=?',
-               (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR, CTRL_INODE))
-    
     param['revision'] = CURRENT_FS_REV
     param['last-modified'] = time.time()
 
     cycle_metadata(backend)
     log.info('Dumping metadata...')
-    fh = tempfile.TemporaryFile()
-    dump_metadata(db, fh)
-    def do_write(obj_fh):
-        fh.seek(0)
-        stream_write_bz2(fh, obj_fh)
-        return obj_fh
+    with tempfile.TemporaryFile() as fh:
+        dump_metadata(db, fh)
+        def do_write(obj_fh):
+            fh.seek(0)
+            stream_write_bz2(fh, obj_fh)
+            return obj_fh
 
-    log.info("Compressing and uploading metadata...")
-    backend.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
-    obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
-                                  is_compressed=True)
+        log.info("Compressing and uploading metadata...")
+        backend.store('s3ql_seq_no_%d' % param['seq_no'], b'Empty')
+        obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
+                                      is_compressed=True)
+        
     log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
-    pickle.dump(param, open(cachepath + '.params', 'wb'), PICKLE_PROTOCOL)
+    with open(cachepath + '.params', 'wb') as fh:
+        pickle.dump(param, fh, PICKLE_PROTOCOL)
 
     db.execute('ANALYZE')
     db.execute('VACUUM')
