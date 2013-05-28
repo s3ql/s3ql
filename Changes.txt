@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2013-05-27, S3QL 1.15
 
   * Cycling of metadata backups when using the local backend now
     takes much less time.
