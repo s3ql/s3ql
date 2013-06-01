@@ -468,10 +468,9 @@ class Backend(AbstractBackend):
 
         # False positive, hashlib *does* have sha1 member
         #pylint: disable=E1101
-        log.debug('auth str is: %s', '\n'.join(auth_strs))
         auth_str = ''.join(auth_strs).encode()
         signature = b64encode(hmac.new(self.password.encode(), auth_str,
-                                       hashlib.sha1).digest())
+                                       hashlib.sha1).digest()).decode()
 
         headers['authorization'] = 'AWS %s:%s' % (self.login, signature)
 
