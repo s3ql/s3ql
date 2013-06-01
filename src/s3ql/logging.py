@@ -63,7 +63,7 @@ def setup_logging(options):
     if hasattr(options, 'log') and options.log:
         root_logger.addHandler(options.log)
         debug_handler = options.log
-    elif options.debug and not options.log:
+    elif options.debug and (not hasattr(options, 'log') or not options.log):
         # When we have debugging enabled but no separate log target,
         # make stdout logging more detailed.
         formatter = logging.Formatter('%(asctime)s.%(msecs)03d [pid=%(process)r, '
