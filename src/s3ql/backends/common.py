@@ -18,6 +18,7 @@ from getpass import getpass
 from io import BytesIO
 from s3ql.common import ChecksumError
 import bz2
+import ssl
 import configparser
 import hashlib
 import hmac
@@ -107,7 +108,7 @@ def is_temp_network_error(exc):
     return False
     
     
-def http_connection(hostname, port, ssl=False):
+def http_connection(hostname, port, ssl_context=None):
     '''Return http connection to *hostname*:*port*
     
     This method honors the http_proxy and https_proxy environment
@@ -124,7 +125,7 @@ def http_connection(hostname, port, ssl=False):
         
         if hit.group(1) == 'https://':
             log.warning('HTTPS connection to proxy is probably pointless and not supported, '
-                     'will use standard HTTP')
+                        'will use standard HTTP')
         
         if hit.group(3):
             proxy_port = int(hit.group(3)[1:])
@@ -134,18 +135,48 @@ def http_connection(hostname, port, ssl=False):
         proxy_host = hit.group(2)
         log.info('Using proxy %s:%d', proxy_host, proxy_port)
         
-        if ssl:
-            conn = http.client.HTTPSConnection(proxy_host, proxy_port)
+        if ssl_context:
+            conn = http.client.HTTPSConnection(proxy_host, proxy_port,
+                                               context=ssl_context)
         else:
             conn = http.client.HTTPConnection(proxy_host, proxy_port)
         conn.set_tunnel(hostname, port)
         return conn
     
-    elif ssl:
-        return http.client.HTTPSConnection(hostname, port)
+    elif ssl_context:
+        return http.client.HTTPSConnection(hostname, port, context=ssl_context)
     else:
         return http.client.HTTPConnection(hostname, port)
+
     
+def get_ssl_context(options):
+    '''Construct SSLContext object from *options*
+
+    If SSL is disabled, return None.
+    '''
+
+    if options.no_ssl:
+        return None
+    
+    # Best practice according to http://docs.python.org/3/library/ssl.html#protocol-versions
+    context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+    context.options |= ssl.OP_NO_SSLv2
+    context.verify_mode = ssl.CERT_REQUIRED
+
+    path = options.ssl_ca_path
+    if path is None:
+        log.debug('Reading default CA certificates.')
+        context.set_default_verify_paths()
+    elif os.path.isfile(path):
+        log.debug('Reading CA certificates from file %s', path)
+        context.load_verify_locations(cafile=path)
+    else:
+        log.debug('Reading CA certificates from directory %s', path)
+        context.load_verify_locations(capath=path)
+
+    return context
+
+
 def sha256(s):
     return hashlib.sha256(s).digest()
 
@@ -1195,9 +1226,10 @@ def get_backend_factory(options, plain=False):
         else:
             backend_pw = sys.stdin.readline().rstrip()
 
+    ssl_context = get_ssl_context(options)
     try:
         backend = backend_class(options.storage_url, backend_login, backend_pw,
-                              options.ssl)
+                                ssl_context)
         
         # Do not use backend.lookup(), this would use a HEAD request and
         # not provide any useful error messages if something goes wrong
@@ -1218,10 +1250,10 @@ def get_backend_factory(options, plain=False):
         
     else:
         encrypted = True
-        
+
     if plain:
         return lambda: backend_class(options.storage_url, backend_login, backend_pw,
-                                    options.ssl)
+                                     ssl_context)
             
     if encrypted and not backend_passphrase:
         if sys.stdin.isatty():
@@ -1240,7 +1272,7 @@ def get_backend_factory(options, plain=False):
     if not encrypted:
         return lambda: BetterBackend(None, compress,
                                     backend_class(options.storage_url, backend_login, backend_pw,
-                                                 options.ssl))
+                                                  ssl_context))
 
     tmp_backend = BetterBackend(backend_passphrase, compress, backend)
 
@@ -1250,5 +1282,5 @@ def get_backend_factory(options, plain=False):
         raise QuietError('Wrong backend passphrase') from None
 
     return lambda: BetterBackend(data_pw, compress,
-                                backend_class(options.storage_url, backend_login, backend_pw,
-                                             options.ssl))
+                                 backend_class(options.storage_url, backend_login, backend_pw,
+                                               ssl_context))

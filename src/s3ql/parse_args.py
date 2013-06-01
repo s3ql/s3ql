@@ -141,10 +141,14 @@ class ArgumentParser(argparse.ArgumentParser):
                           help="be really quiet")
 
     def add_ssl(self):
-        self.add_argument("--ssl", action="store_true", default=False,
-                          help="Always use SSL connections when connecting to remote servers. "
-                          "For backends that allow only encrypted connections, "
-                          "S3QL uses SSL automatically, even if this option is not set.")
+        self.add_argument("--no-ssl", action="store_true", default=False,
+                          help="Do not use secure (ssl) connections when connecting "
+                               "to remote servers.")
+        
+        self.add_argument("--ssl-ca-path", metavar='path', default=None, type=str,
+                          help="File or directory or containing the trusted CA certificates. "
+                               "If not specified, the defaults compiled into the system's "
+                               "OpenSSL library are used.")
         
     def add_debug_modules(self):
         self.add_argument("--debug", action="append", metavar='<module>',

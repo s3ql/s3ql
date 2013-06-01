@@ -24,7 +24,7 @@ class Backend(AbstractBackend):
 
     needs_login = False
 
-    def __init__(self, storage_url, backend_login, backend_pw, use_ssl=False):
+    def __init__(self, storage_url, backend_login, backend_pw, ssl_context=None):
         '''Initialize local backend
         
         Login and password are ignored.

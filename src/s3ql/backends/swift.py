@@ -27,13 +27,13 @@ class Backend(AbstractBackend):
     object will be immediately retrievable. 
     """
 
-    def __init__(self, storage_url, login, password, use_ssl=True):
+    def __init__(self, storage_url, login, password, ssl_context):
         # Unused argument
         #pylint: disable=W0613
         
         super().__init__()
 
-        (host, port, container_name, prefix) = self._parse_storage_url(storage_url)
+        (host, port, container_name, prefix) = self._parse_storage_url(storage_url, ssl_context)
             
         self.hostname = host
         self.port = port
@@ -44,6 +44,7 @@ class Backend(AbstractBackend):
         self.auth_token = None
         self.auth_prefix = None
         self.conn = None
+        self.ssl_context = ssl_context
         
         self._container_exists()
     
@@ -60,7 +61,7 @@ class Backend(AbstractBackend):
         resp.read()   
                     
     @staticmethod
-    def _parse_storage_url(storage_url):
+    def _parse_storage_url(storage_url, ssl_context):
         '''Extract information from storage URL
         
         Return a tuple *(host, port, container_name, prefix)* .
@@ -76,7 +77,12 @@ class Backend(AbstractBackend):
             raise QuietError('Invalid storage URL')
 
         hostname = hit.group(1)
-        port = int(hit.group(2) or '443')
+        if hit.group(2):
+            port = int(hit.group(2))
+        elif ssl_context:
+            port = 443
+        else:
+            port = 80
         containername = hit.group(3)
         prefix = hit.group(4) or ''
         
@@ -110,7 +116,7 @@ class Backend(AbstractBackend):
 
         log.debug('_get_conn(): start')
         
-        conn = http_connection(self.hostname, self.port, ssl=True)
+        conn = http_connection(self.hostname, self.port, self.ssl_context)
         headers={ 'X-Auth-User': self.login,
                   'X-Auth-Key': self.password }
         
@@ -137,7 +143,7 @@ class Backend(AbstractBackend):
             self.auth_prefix = urllib.parse.unquote(o.path)
             conn.close()
 
-            return http_connection(o.hostname, o.port, ssl=True)
+            return http_connection(o.hostname, o.port, self.ssl_context)
         
         raise RuntimeError('No valid authentication path found')
     

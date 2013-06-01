@@ -26,12 +26,12 @@ class Backend(s3c.Backend):
     may or may not be available and can be queried for with instance methods.    
     """
     
-    def __init__(self, storage_url, login, password, use_ssl):
-        super().__init__(storage_url, login, password, use_ssl)
+    def __init__(self, storage_url, login, password, ssl_context):
+        super().__init__(storage_url, login, password, ssl_context)
 
 
     @staticmethod
-    def _parse_storage_url(storage_url, use_ssl):
+    def _parse_storage_url(storage_url, ssl_context):
         hit = re.match(r'^s3s?://([^/]+)(?:/(.*))?$', storage_url)
         if not hit:
             raise QuietError('Invalid storage URL')
@@ -44,7 +44,7 @@ class Backend(s3c.Backend):
         
         hostname = '%s.s3.amazonaws.com' % bucket_name
         prefix = hit.group(2) or ''
-        port = 443 if use_ssl else 80
+        port = 443 if ssl_context else 80
         return (hostname, port, bucket_name, prefix)
 
     def __str__(self):

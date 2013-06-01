@@ -38,16 +38,21 @@ class Backend(AbstractBackend):
     The backend guarantees only immediate get after create consistency.
     """
 
-    def __init__(self, storage_url, login, password, use_ssl):
+    def __init__(self, storage_url, login, password, ssl_context):
+        '''Initialize backend object
+
+        *ssl_context* may be a `ssl.SSLContext` instance or *None*.
+        '''
+        
         super().__init__()
 
-        (host, port, bucket_name, prefix) = self._parse_storage_url(storage_url, use_ssl)
+        (host, port, bucket_name, prefix) = self._parse_storage_url(storage_url, ssl_context)
 
         self.bucket_name = bucket_name
         self.prefix = prefix
         self.hostname = host
         self.port = port
-        self.use_ssl = use_ssl
+        self.ssl_context = ssl_context
         self.conn = self._get_conn()
 
         self.password = password
@@ -55,7 +60,7 @@ class Backend(AbstractBackend):
         self.namespace = 'http://s3.amazonaws.com/doc/2006-03-01/'
 
     @staticmethod
-    def _parse_storage_url(storage_url, use_ssl):
+    def _parse_storage_url(storage_url, ssl_context):
         '''Extract information from storage URL
         
         Return a tuple * (host, port, bucket_name, prefix) * .
@@ -73,7 +78,7 @@ class Backend(AbstractBackend):
         hostname = hit.group(1)
         if hit.group(2):
             port = int(hit.group(2))
-        elif use_ssl:
+        elif ssl_context:
             port = 443
         else:
             port = 80
@@ -85,7 +90,7 @@ class Backend(AbstractBackend):
     def _get_conn(self):
         '''Return connection to server'''
         
-        return http_connection(self.hostname, self.port, self.use_ssl)
+        return http_connection(self.hostname, self.port, self.ssl_context)
 
     def is_temp_failure(self, exc): #IGNORE:W0613
         '''Return true if exc indicates a temporary error
@@ -463,6 +468,7 @@ class Backend(AbstractBackend):
 
         # False positive, hashlib *does* have sha1 member
         #pylint: disable=E1101
+        log.debug('auth str is: %s', '\n'.join(auth_strs))
         auth_str = ''.join(auth_strs).encode()
         signature = b64encode(hmac.new(self.password.encode(), auth_str,
                                        hashlib.sha1).digest())

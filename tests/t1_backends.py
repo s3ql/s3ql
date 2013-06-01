@@ -8,7 +8,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from s3ql.backends import local, s3, gs, s3c, swift
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
-    BetterBackend)
+    BetterBackend, get_ssl_context)
+from argparse import Namespace
 import configparser
 import os
 import stat
@@ -153,7 +154,7 @@ class S3Tests(BackendTestsMixin, unittest.TestCase):
         # be much longer for larger objects, but for tests this is usually enough.
         self.delay = 15
 
-        self.backend = s3.Backend(*self.get_credentials('s3-test'), use_ssl=False)
+        self.backend = s3.Backend(*self.get_credentials('s3-test'), ssl_context=None)
 
     def tearDown(self):
         self.backend.clear()
@@ -184,7 +185,11 @@ class S3SSLTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
         self.delay = 15
-        self.backend = s3.Backend(*self.get_credentials('s3-test'), use_ssl=True)
+        options = Namespace()
+        options.no_ssl = False
+        options.ssl_ca_path = None
+        self.backend = s3.Backend(*self.get_credentials('s3-test'),
+                                   ssl_context=get_ssl_context(options))
         
 class SwiftTests(S3Tests):
     def setUp(self):
@@ -196,13 +201,13 @@ class GSTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
         self.delay = 15
-        self.backend = gs.Backend(*self.get_credentials('gs-test'), use_ssl=False)
+        self.backend = gs.Backend(*self.get_credentials('gs-test'), ssl_context=None)
         
 class S3CTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
         self.delay = 0
-        self.backend = s3c.Backend(*self.get_credentials('s3c-test'), use_ssl=False)   
+        self.backend = s3c.Backend(*self.get_credentials('s3c-test'), ssl_context=None)   
 
 class URLTests(unittest.TestCase):
     
@@ -210,37 +215,37 @@ class URLTests(unittest.TestCase):
     #pylint: disable=W0212
      
     def test_s3(self):
-        self.assertEqual(s3.Backend._parse_storage_url('s3://name', use_ssl=False)[2:],
+        self.assertEqual(s3.Backend._parse_storage_url('s3://name', ssl_context=None)[2:],
                           ('name', ''))
-        self.assertEqual(s3.Backend._parse_storage_url('s3://name/', use_ssl=False)[2:],
+        self.assertEqual(s3.Backend._parse_storage_url('s3://name/', ssl_context=None)[2:],
                           ('name', ''))
-        self.assertEqual(s3.Backend._parse_storage_url('s3://name/pref/', use_ssl=False)[2:],
+        self.assertEqual(s3.Backend._parse_storage_url('s3://name/pref/', ssl_context=None)[2:],
                           ('name', 'pref/'))
-        self.assertEqual(s3.Backend._parse_storage_url('s3://name//pref/', use_ssl=False)[2:],
+        self.assertEqual(s3.Backend._parse_storage_url('s3://name//pref/', ssl_context=None)[2:],
                           ('name', '/pref/'))
 
     def test_gs(self):
-        self.assertEqual(gs.Backend._parse_storage_url('gs://name', use_ssl=False)[2:],
+        self.assertEqual(gs.Backend._parse_storage_url('gs://name', ssl_context=None)[2:],
                           ('name', ''))
-        self.assertEqual(gs.Backend._parse_storage_url('gs://name/', use_ssl=False)[2:],
+        self.assertEqual(gs.Backend._parse_storage_url('gs://name/', ssl_context=None)[2:],
                           ('name', ''))
-        self.assertEqual(gs.Backend._parse_storage_url('gs://name/pref/', use_ssl=False)[2:],
+        self.assertEqual(gs.Backend._parse_storage_url('gs://name/pref/', ssl_context=None)[2:],
                           ('name', 'pref/'))
-        self.assertEqual(gs.Backend._parse_storage_url('gs://name//pref/', use_ssl=False)[2:],
+        self.assertEqual(gs.Backend._parse_storage_url('gs://name//pref/', ssl_context=None)[2:],
                           ('name', '/pref/'))
                         
     def test_s3c(self):
-        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org/name', use_ssl=False),
+        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org/name', ssl_context=None),
                           ('host.org', 80, 'name', ''))
-        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org:23/name', use_ssl=False),
+        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org:23/name', ssl_context=None),
                           ('host.org', 23, 'name', ''))
-        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org/name/', use_ssl=False),
+        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org/name/', ssl_context=None),
                           ('host.org', 80, 'name', ''))
-        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org/name/pref', use_ssl=False),
+        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org/name/pref', ssl_context=None),
                           ('host.org', 80, 'name', 'pref'))
-        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org:17/name/pref/', use_ssl=False),
+        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org:17/name/pref/', ssl_context=None),
                           ('host.org', 17, 'name', 'pref/'))
-                                
+
 class LocalTests(BackendTestsMixin, unittest.TestCase):
 
     def setUp(self):
