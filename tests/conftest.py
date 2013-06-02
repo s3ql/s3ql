@@ -63,11 +63,15 @@ def pytest_configure(config):
         root_logger.addHandler(handler)
 
         if logdebug is not None:
-            root_logger.setLevel(logging.DEBUG)
-            if 'all' not in logdebug:
-                root_logger.addFilter(s3ql.logging.LoggerFilter(logdebug, logging.WARNING))
+            if 'all' in logdebug:
+                root_logger.setLevel(logging.DEBUG)
+            else:
+                for module in logdebug:
+                    logging.getLogger(module).setLevel(logging.DEBUG)
+            logging.disable(logging.NOTSET)
         else:
-            root_logger.setLevel(logging.WARNING)
+            root_logger.setLevel(logging.INFO)
+
         logging.captureWarnings(capture=True)
 
     # Make errors and warnings fatal
