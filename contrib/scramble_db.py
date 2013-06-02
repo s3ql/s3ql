@@ -26,12 +26,12 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
+from s3ql.logging import logging, setup_logging, QuietError
 from s3ql import CURRENT_FS_REV
-from s3ql.common import setup_logging, get_backend_cachedir, QuietError
+from s3ql.common import get_backend_cachedir
 from s3ql.database import Connection
 from s3ql.metadata import dump_metadata
 from s3ql.parse_args import ArgumentParser
-from s3ql.logging import logging # Ensure use of custom logger class
 
 log = logging.getLogger(__name__)
 
