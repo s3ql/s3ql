@@ -70,8 +70,8 @@ def retry(fn):
                 log.info('Encountered %s exception (%s), retrying call to %s.%s...',
                           type(exc).__name__, exc, self.__class__.__name__, fn.__name__)
 
-            if hasattr(exc, 'retry_after') and exc.retry_after:
-                interval = exc.retry_after
+                if hasattr(exc, 'retry_after') and exc.retry_after:
+                    interval = exc.retry_after
                 
             time.sleep(interval)
             waited += interval
