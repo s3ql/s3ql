@@ -15,6 +15,7 @@ from .s3c import HTTPError, BadDigestError
 from urllib.parse import urlsplit
 import json
 import re
+import io
 import time
 import urllib.parse
 
@@ -418,9 +419,10 @@ class Backend(AbstractBackend):
             strip = len(self.prefix)
             count = 0
             try:
-                for dataset in json.load(resp):
+                text_resp = io.TextIOWrapper(resp, encoding='utf-8')
+                for dataset in json.load(text_resp):
                     count += 1
-                    marker = dataset['name'].encode('utf-8')
+                    marker = dataset['name']
                     yield marker[strip:]
                 
             except GeneratorExit:
