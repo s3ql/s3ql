@@ -8,7 +8,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from s3ql.backends import local, s3, gs, s3c, swift
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
-    BetterBackend, get_ssl_context)
+    BetterBackend, get_ssl_context, AuthenticationError, AuthorizationError,
+                                  DanglingStorageURLError)
 from argparse import Namespace
 import configparser
 import os
@@ -197,15 +198,18 @@ class BackendTestsMixin(object):
 
 
 class S3Tests(BackendTestsMixin, unittest.TestCase):
+        
     def setUp(self):
         self.name_cnt = 0
         self.retries = 45
-        self.backend = s3.Backend(*self.get_credentials('s3-test'), ssl_context=None)
 
-    def tearDown(self):
-        self.backend.clear()
+        self.setUp2(s3.Backend, 's3-test')
 
-    def get_credentials(self, name):
+    def setUp2(self, backend_class, backend_fs_name):
+        
+        options = Namespace()
+        options.no_ssl = False
+        options.ssl_ca_path = None
 
         authfile = os.path.expanduser('~/.s3ql/authinfo2')
         if not os.path.exists(authfile):
@@ -219,44 +223,59 @@ class S3Tests(BackendTestsMixin, unittest.TestCase):
         config.read(authfile)
 
         try:
-            fs_name = config.get(name, 'test-fs')
-            backend_login = config.get(name, 'backend-login')
-            backend_password = config.get(name, 'backend-password')
+            fs_name = config.get(backend_fs_name, 'test-fs')
+            backend_login = config.get(backend_fs_name, 'backend-login')
+            backend_password = config.get(backend_fs_name, 'backend-password')
         except (configparser.NoOptionError, configparser.NoSectionError):
             self.skipTest("Authentication file does not have test section")
 
         # Append prefix to make sure that we're starting with an empty bucket
         fs_name += '-s3ql_test_%d' % time.time()
-        
-        return (fs_name, backend_login, backend_password)
 
-class S3SSLTests(S3Tests):
-    def setUp(self):
-        self.name_cnt = 0
-        self.retries = 45
-        options = Namespace()
-        options.no_ssl = False
-        options.ssl_ca_path = None
-        self.backend = s3.Backend(*self.get_credentials('s3-test'),
-                                   ssl_context=get_ssl_context(options))
-        
+        self.backend = backend_class(fs_name, backend_login, backend_password,
+                                     ssl_context=get_ssl_context(options))
+
+        try:
+            self.backend.fetch('empty_object')
+        except DanglingStorageURLError:
+            raise unittest.SkipTest('Bucket %s does not exist' % fs_name) from None
+        except AuthorizationError:
+            raise unittest.SkipTest('No permission to access %s' % fs_name) from None
+        except AuthenticationError:
+            raise unittest.SkipTest('Unable to access %s, invalid credentials or skewed '
+                                    'system clock?' % fs_name) from None
+        except NoSuchObject:
+            pass
+        else:
+            raise unittest.SkipTest('Test bucket not empty') from None
+
+    def tearDown(self):
+        self.backend.clear()
+
+
 class SwiftTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
-        self.retries = 0
-        self.backend = swift.Backend(*self.get_credentials('swift-test'))
-        
+        self.retries = 45
+
+        self.setUp2(swift.Backend, 'swift-test')
+
+
 class GSTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
         self.retries = 45
-        self.backend = gs.Backend(*self.get_credentials('gs-test'), ssl_context=None)
-        
+
+        self.setUp2(gs.Backend, 'gs-test')
+
+
 class S3CTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
         self.retries = 45
-        self.backend = s3c.Backend(*self.get_credentials('s3c-test'), ssl_context=None)   
+
+        self.setUp2(s3c.Backend, 's3c-test')
+
 
 class URLTests(unittest.TestCase):
     

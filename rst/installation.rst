@@ -128,12 +128,12 @@ and S3QL can be installed as usual with ::
 Running tests requiring remote servers
 ======================================
 
-By default, the *runtest.py* (or *py.test*) script skips all tests
+By default, the `runtest.py` (or `py.test`) script skips all tests
 that require connection to a remote storage backend. If you would like
 to run these tests too (which is always a good idea), you have to
-create additional entries in your :file:`~/.s3ql/authinfo2` file that
-tell S3QL what server and credentials to use for these tests. These
-entries have the following form::
+create additional entries in your `~/.s3ql/authinfo2` file that tell
+S3QL what server and credentials to use for these tests. These entries
+have the following form::
 
   [<BACKEND>-test]
   backend-login: <user>
@@ -142,7 +142,7 @@ entries have the following form::
 
 Here *<BACKEND>* specifies the backend that you want to test
 (e.g. *s3*, *s3c*, *gs*, or *swift*), *<user>* and *<password>* are
-the backend authentication credentials and *<storage-url>* specifies
+the backend authentication credentials, and *<storage-url>* specifies
 the full storage URL that will be used for testing. **Any existing
 S3QL file system in this storage URL will be destroyed during
 testing**.
@@ -154,6 +154,13 @@ server, you would add something like ::
   backend-login: GOOGIGWLONT238MD7HZ4
   backend-password: rmEbstjscoeunt1249oes1298gauidbs3hl
   test-fs: gs://joes-gs-bucket/s3ql_tests/
+
+On the next run of `runtest.py` (or `py.test` when using the
+development version), the additional tests will be run. If the tests
+are still skipped, you can get more information about why tests are
+being skipped by passing the :cmdopt:`-rs` argument to
+`runtest.py`/`py.test`.
+
 
 .. _Cython: http://www.cython.org/
 .. _Sphinx: http://sphinx.pocoo.org/
