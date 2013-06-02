@@ -123,7 +123,37 @@ The HTML and PDF documentation can be generated with ::
 and S3QL can be installed as usual with ::
 
   python3 setup.py install [--user]
-  
+
+
+Running tests requiring remote servers
+======================================
+
+By default, the *runtest.py* (or *py.test*) script skips all tests
+that require connection to a remote storage backend. If you would like
+to run these tests too (which is always a good idea), you have to
+create additional entries in your :file:`~/.s3ql/authinfo2` file that
+tell S3QL what server and credentials to use for these tests. These
+entries have the following form::
+
+  [<BACKEND>-test]
+  backend-login: <user>
+  backend-password: <password>
+  test-fs: <storage-url>
+
+Here *<BACKEND>* specifies the backend that you want to test
+(e.g. *s3*, *s3c*, *gs*, or *swift*), *<user>* and *<password>* are
+the backend authentication credentials and *<storage-url>* specifies
+the full storage URL that will be used for testing. **Any existing
+S3QL file system in this storage URL will be destroyed during
+testing**.
+
+For example, to run tests that need connection to a Google Storage
+server, you would add something like ::
+
+  [gs-test]
+  backend-login: GOOGIGWLONT238MD7HZ4
+  backend-password: rmEbstjscoeunt1249oes1298gauidbs3hl
+  test-fs: gs://joes-gs-bucket/s3ql_tests/
 
 .. _Cython: http://www.cython.org/
 .. _Sphinx: http://sphinx.pocoo.org/
