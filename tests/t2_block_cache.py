@@ -26,11 +26,11 @@ class cache_tests(unittest.TestCase):
 
     def setUp(self):
 
-        self.backend_dir = tempfile.mkdtemp()
+        self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
         self.backend_pool = BackendPool(lambda: local.Backend('local://' + self.backend_dir, 
                                                            None, None))
 
-        self.cachedir = tempfile.mkdtemp()
+        self.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.max_obj_size = 1024
 
         # Destructors are not guaranteed to run, and we can't unlink

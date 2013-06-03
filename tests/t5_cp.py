@@ -27,7 +27,7 @@ class cpTests(t4_fuse.fuse_tests):
 
     def tst_cp(self):
 
-        tempdir = tempfile.mkdtemp()
+        tempdir = tempfile.mkdtemp(prefix='s3ql-cp-')
         try:
             populate_dir(tempdir)
 

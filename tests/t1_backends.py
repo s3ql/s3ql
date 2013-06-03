@@ -318,7 +318,7 @@ class LocalTests(BackendTestsMixin, unittest.TestCase):
 
     def setUp(self):
         self.name_cnt = 0
-        self.backend_dir = tempfile.mkdtemp()
+        self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
         self.backend = local.Backend('local://' + self.backend_dir, None, None)
         self.retries = 0
 
@@ -330,7 +330,7 @@ class CompressionTests(BackendTestsMixin, unittest.TestCase):
 
     def setUp(self):
         self.name_cnt = 0
-        self.backend_dir = tempfile.mkdtemp()
+        self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
         self.plain_backend = local.Backend('local://' + self.backend_dir, None, None)
         self.backend = self._wrap_backend()
         self.retries = 0

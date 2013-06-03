@@ -77,8 +77,8 @@ def main(args=None):
             copied += len(buf)
             
     log.info('Measuring throughput to cache...')
-    backend_dir = tempfile.mkdtemp()
-    mnt_dir = tempfile.mkdtemp()
+    backend_dir = tempfile.mkdtemp(prefix='s3ql-benchmark-')
+    mnt_dir = tempfile.mkdtemp(prefix='s3ql-mnt')
     atexit.register(shutil.rmtree, backend_dir)
     atexit.register(shutil.rmtree, mnt_dir)
     

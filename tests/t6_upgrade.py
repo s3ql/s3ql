@@ -24,8 +24,8 @@ class UpgradeTest(t4_fuse.fuse_tests):
             raise unittest.SkipTest('no previous S3QL version found')
 
         super().setUp()
-        self.ref_dir = tempfile.mkdtemp()
-        self.bak_dir = tempfile.mkdtemp()
+        self.ref_dir = tempfile.mkdtemp(prefix='s3ql-ref-')
+        self.bak_dir = tempfile.mkdtemp(prefix='s3ql-bak-')
         self.basedir_old = basedir_old
         
     def tearDown(self):
@@ -117,7 +117,7 @@ class UpgradeTest(t4_fuse.fuse_tests):
         # Upgrade and compare without cache
         shutil.rmtree(self.backend_dir)
         shutil.rmtree(self.cache_dir)
-        self.cache_dir = tempfile.mkdtemp()
+        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
         shutil.copytree(os.path.join(self.bak_dir, 'copy'),
                         self.backend_dir, symlinks=True)
         self.upgrade()

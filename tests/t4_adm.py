@@ -24,8 +24,8 @@ BASEDIR = os.path.abspath(os.path.join(os.path.dirname(mypath), '..'))
 class AdmTests(unittest.TestCase):
 
     def setUp(self):
-        self.cache_dir = tempfile.mkdtemp()
-        self.backend_dir = tempfile.mkdtemp()
+        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
+        self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
 
         self.storage_url = 'local://' + self.backend_dir
         self.passphrase = 'oeut3d'

@@ -175,9 +175,9 @@ class fuse_tests(unittest.TestCase):
         if os.path.getsize(self.src) < 1048:
             raise RuntimeError("test file %s should be bigger than 1 KiB" % self.src)
 
-        self.mnt_dir = tempfile.mkdtemp()
-        self.cache_dir = tempfile.mkdtemp()
-        self.backend_dir = tempfile.mkdtemp()
+        self.mnt_dir = tempfile.mkdtemp(prefix='s3ql-mnt-')
+        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
+        self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
 
         self.storage_url = 'local://' + self.backend_dir
         self.passphrase = 'oeut3d'

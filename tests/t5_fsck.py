@@ -19,7 +19,7 @@ class FsckTests(t4_fuse.fuse_tests):
 
     def runTest(self):
         skip_without_rsync()
-        ref_dir = tempfile.mkdtemp()
+        ref_dir = tempfile.mkdtemp(prefix='s3ql-ref-')
         try:
             populate_dir(ref_dir)
 

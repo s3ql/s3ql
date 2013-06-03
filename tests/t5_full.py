@@ -18,7 +18,7 @@ class FullTests(t4_fuse.fuse_tests):
     def runTest(self):
         skip_without_rsync()
 
-        ref_dir = tempfile.mkdtemp()
+        ref_dir = tempfile.mkdtemp(prefix='s3ql-ref-')
         try:
             populate_dir(ref_dir)
             
@@ -32,7 +32,7 @@ class FullTests(t4_fuse.fuse_tests):
 
             # Delete cache, run fsck and compare
             shutil.rmtree(self.cache_dir)
-            self.cache_dir = tempfile.mkdtemp()
+            self.cache_dir = tempfile.mkdtemp('s3ql-cache-')
             self.fsck()
             self.mount()
             with subprocess.Popen(['rsync', '-anciHAX', '--delete',
@@ -50,7 +50,7 @@ class FullTests(t4_fuse.fuse_tests):
 
             # Delete cache and mount
             shutil.rmtree(self.cache_dir)
-            self.cache_dir = tempfile.mkdtemp()
+            self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
             self.mount()
             self.umount()
 
