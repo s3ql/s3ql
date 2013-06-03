@@ -256,7 +256,7 @@ class S3Tests(BackendTestsMixin, unittest.TestCase):
 class SwiftTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
-        self.retries = 45
+        self.retries = 90
 
         self.setUp2(swift.Backend, 'swift-test')
 
@@ -264,7 +264,7 @@ class SwiftTests(S3Tests):
 class GSTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
-        self.retries = 45
+        self.retries = 90
 
         self.setUp2(gs.Backend, 'gs-test')
 
@@ -272,7 +272,7 @@ class GSTests(S3Tests):
 class S3CTests(S3Tests):
     def setUp(self):
         self.name_cnt = 0
-        self.retries = 45
+        self.retries = 90
 
         self.setUp2(s3c.Backend, 's3c-test')
 
