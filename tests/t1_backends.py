@@ -196,6 +196,30 @@ class BackendTestsMixin(object):
         self.retry(lambda: self.assertEqual(self.backend[key2], value),
                    NoSuchObject)
 
+def get_remote_test_info(name, skipTest):
+        authfile = os.path.expanduser('~/.s3ql/authinfo2')
+        if not os.path.exists(authfile):
+            skipTest('No authentication file found.')
+
+        mode = os.stat(authfile).st_mode
+        if mode & (stat.S_IRGRP | stat.S_IROTH):
+            skipTest("Authentication file has insecure permissions")
+
+        config = configparser.ConfigParser()
+        config.read(authfile)
+
+        try:
+            fs_name = config.get(name, 'test-fs')
+            backend_login = config.get(name, 'backend-login')
+            backend_password = config.get(name, 'backend-password')
+        except (configparser.NoOptionError, configparser.NoSectionError):
+            skipTest("Authentication file does not have test section")
+
+        # Append prefix to make sure that we're starting with an empty bucket
+        fs_name += '-s3ql_test_%d' % time.time()
+
+        return (backend_login, backend_password, fs_name)
+
 
 class S3Tests(BackendTestsMixin, unittest.TestCase):
         
@@ -211,27 +235,9 @@ class S3Tests(BackendTestsMixin, unittest.TestCase):
         options.no_ssl = False
         options.ssl_ca_path = None
 
-        authfile = os.path.expanduser('~/.s3ql/authinfo2')
-        if not os.path.exists(authfile):
-            self.skipTest('No authentication file found.')
-
-        mode = os.stat(authfile).st_mode
-        if mode & (stat.S_IRGRP | stat.S_IROTH):
-            self.skipTest("Authentication file has insecure permissions")
-
-        config = configparser.ConfigParser()
-        config.read(authfile)
-
-        try:
-            fs_name = config.get(backend_fs_name, 'test-fs')
-            backend_login = config.get(backend_fs_name, 'backend-login')
-            backend_password = config.get(backend_fs_name, 'backend-password')
-        except (configparser.NoOptionError, configparser.NoSectionError):
-            self.skipTest("Authentication file does not have test section")
-
-        # Append prefix to make sure that we're starting with an empty bucket
-        fs_name += '-s3ql_test_%d' % time.time()
-
+        (backend_login, backend_password,
+         fs_name) = get_remote_test_info(backend_fs_name, self.skipTest)
+        
         self.backend = backend_class(fs_name, backend_login, backend_password,
                                      ssl_context=get_ssl_context(options))
 
