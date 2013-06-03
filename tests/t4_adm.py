@@ -53,7 +53,7 @@ class AdmTests(unittest.TestCase):
         passphrase_new = 'sd982jhd'
 
         proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 's3qladm'),
-                                 '--quiet', 'passphrase', '--fatal-warnings',
+                                 '--quiet', '--fatal-warnings', 'passphrase',
                                  self.storage_url ], stdin=subprocess.PIPE,
                                 universal_newlines=True)
 

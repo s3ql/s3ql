@@ -40,7 +40,6 @@ def parse_args(args):
                Hint: run `%(prog)s --help` to get help on other available actions and
                optional arguments that can be used with all actions.'''))
     pparser.add_storage_url()
-    pparser.add_fatal_warnings()
 
     subparsers = parser.add_subparsers(metavar='<action>', dest='action',
                                        help='may be either of')
@@ -62,6 +61,7 @@ def parse_args(args):
     parser.add_ssl()
     parser.add_cachedir()
     parser.add_version()
+    parser.add_fatal_warnings()
 
     options = parser.parse_args(args)
 
