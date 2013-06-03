@@ -490,14 +490,17 @@ class BetterBackend(AbstractBackend):
         elif not encrypted and self.passphrase:
             raise ObjectNotEncrypted()
 
-        # Pre 2.x buckets store base64 encoded metadata as str rather
-        # than bytes.
-        parts = [ metadata[k] for k in sorted(metadata.keys())
-                  if k.startswith('meta') ]
-        if type(parts[0]) == str:
+        # Pre 2.x buckets
+        if any(k.startswith('meta') for k in metadata):
+            parts = [ metadata[k] for k in sorted(metadata.keys())
+                      if k.startswith('meta') ]
             buf = b64decode(''.join(parts))
         else:
-            buf = b64decode(b''.join(parts))
+            try:
+                buf = metadata['data']
+            except KeyError:
+                raise MalformedObjectError() from None
+            buf = b64decode(buf)
 
         if encrypted:
             buf = decrypt(buf, self.passphrase)
@@ -585,18 +588,12 @@ class BetterBackend(AbstractBackend):
         if self.passphrase:
             meta_raw['encryption'] = 'AES_v2'
             nonce = struct.pack('<f', time.time()) + key.encode('utf-8')
-            meta_buf = b64encode(encrypt(meta_buf, self.passphrase, nonce))
+            meta_raw['data'] = b64encode(encrypt(meta_buf, self.passphrase, nonce))
         else:
             meta_raw['encryption'] = 'None'
-            meta_buf = b64encode(meta_buf)
+            meta_raw['data'] = b64encode(meta_buf)
             nonce = None
 
-        # Some backends restrict individual metadata fields to 256 bytes,
-        # so we split the data into several fields if necessary
-        chunksize = 255
-        for i in range(int(math.ceil(len(meta_buf) / chunksize))):
-            meta_raw['meta-%02d' % i] = meta_buf[i*chunksize:(i+1)*chunksize]
-             
         if is_compressed or not self.compression:
             compr = None
             meta_raw['compression'] = 'None'
