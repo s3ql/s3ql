@@ -14,3 +14,4 @@ syntax: regexp
 ^contrib/pcp.1$
 ^tests/test.log$
 ^runtests.py$
+^s3ql.old$
