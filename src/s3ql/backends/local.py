@@ -105,10 +105,6 @@ class Backend(AbstractBackend):
         and may be used to avoid recompression by the backend.
         """
 
-        if metadata is None:
-            metadata = dict()
-
-
         path = self._key_to_path(key)
 
         # By renaming, we make sure that there are no

@@ -7,10 +7,10 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging # Ensure use of custom logger class
-from ..common import BUFSIZE, QuietError
+from ..common import BUFSIZE, QuietError, PICKLE_PROTOCOL
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, 
     AuthenticationError, DanglingStorageURLError, is_temp_network_error)
-from base64 import b64encode
+from base64 import b64encode, b64decode
 from email.utils import parsedate_tz, mktime_tz
 from urllib.parse import urlsplit
 from xml.etree import ElementTree
@@ -21,7 +21,7 @@ import re
 import tempfile
 import time
 import urllib.parse
-
+import pickle
 
 C_DAY_NAMES = [ 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ]
 C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ]
@@ -282,8 +282,8 @@ class Backend(AbstractBackend):
     def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
-        `metadata` can be a dict of additional attributes to store with the
-        object. Returns a file- like object. The object must be closed
+        `metadata` can an additional (pickle-able) python object to store
+        with the data. Returns a file- like object. The object must be closed
         explicitly. After closing, the *get_obj_size* may be used to retrieve
         the size of the stored object (which may differ from the size of the
         written data).
@@ -298,10 +298,18 @@ class Backend(AbstractBackend):
 
         log.debug('open_write(%s): start', key)
 
+        # We don't store the metadata keys directly, because HTTP headers
+        # are case insensitive (so the server may change capitalization)
+        # and we may run into length restrictions.
+        meta_buf = b64encode(pickle.dumps(metadata, PICKLE_PROTOCOL)).decode('us-ascii')
+
+        chunksize = 255
+        i = 0
         headers = dict()
-        if metadata:
-            for (hdr, val) in metadata.items():
-                headers['x-amz-meta-%s' % hdr] = val
+        headers['x-amz-meta-format'] = 'pickle'
+        while i*chunksize < len(meta_buf):
+            headers['x-amz-meta-data-%02d' % i] = meta_buf[i*chunksize:(i+1)*chunksize]
+            i += 1
 
         return ObjectW(key, self, headers)
 
@@ -669,13 +677,30 @@ def extractmeta(resp):
     '''Extract metadata from HTTP response object'''
 
     meta = dict()
+    format_ = 'raw'
     for (name, val) in resp.getheaders():
-        hit = re.match(r'^x-amz-meta-(.+)$', name)
+        hit = re.match(r'^x-amz-meta-(.+)$', name, re.IGNORECASE)
         if not hit:
             continue
-        meta[hit.group(1)] = val
 
-    return meta
+        if hit.group(1).lower() == 'format':
+            format_ = val
+        else:
+            meta[hit.group(1)] = val
+
+    if format_ == 'pickle':
+        buf = ''.join(meta[x] for x in sorted(meta)
+                      if x.startswith('data-'))
+        try:
+            return pickle.loads(b64decode(buf))
+        except pickle.UnpicklingError as exc:
+            if (isinstance(exc.args[0], str)
+                and exc.args[0].startswith('invalid load key')):
+                raise ChecksumError('Invalid metadata') from None
+            raise
+    else:
+        return meta
+
 
 class HTTPError(Exception):
     '''

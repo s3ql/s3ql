@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from s3ql.backends import local, s3, gs, s3c, swift
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBackend, get_ssl_context, AuthenticationError, AuthorizationError,
-                                  DanglingStorageURLError)
+    DanglingStorageURLError, MalformedObjectError)
 from argparse import Namespace
 import configparser
 import os
@@ -89,8 +89,8 @@ class BackendTestsMixin(object):
                 value2 = fh.read()
 
             self.assertEqual(value, value2)
-            self.assertEqual(fh.metadata, dict())
-            self.assertEqual(self.backend.lookup(key), dict())
+            self.assertEqual(fh.metadata, None)
+            self.assertEqual(self.backend.lookup(key), None)
         self.retry(reread, NoSuchObject, AssertionError)
 
     def test_contains(self):
@@ -355,11 +355,12 @@ class EncryptionTests(CompressionTests):
         def check1():
             self.assertEqual(self.backend['encrypted'], b'testdata')
             self.assertNotEqual(self.plain_backend['encrypted'], b'testdata')
-            self.assertRaises(ObjectNotEncrypted, self.backend.fetch, 'plain')
-            self.assertRaises(ObjectNotEncrypted, self.backend.lookup, 'plain')
+            self.assertRaises(MalformedObjectError, self.backend.fetch, 'plain')
+            self.assertRaises(MalformedObjectError, self.backend.lookup, 'plain')
         self.retry(check1, NoSuchObject)
 
         self.backend.passphrase = None
+        self.backend.store('not-encrypted', b'testdata2395', { 'tag': False })
         def check2():
             self.assertRaises(ChecksumError, self.backend.fetch, 'encrypted')
             self.assertRaises(ChecksumError, self.backend.lookup, 'encrypted')
@@ -370,6 +371,8 @@ class EncryptionTests(CompressionTests):
         def check3():
             self.assertRaises(ChecksumError, self.backend.fetch, 'encrypted')
             self.assertRaises(ChecksumError, self.backend.lookup, 'encrypted')
+            self.assertRaises(ObjectNotEncrypted, self.backend.fetch, 'not-encrypted')
+            self.assertRaises(ObjectNotEncrypted, self.backend.lookup, 'not-encrypted')
         self.retry(check3, NoSuchObject)
 
         

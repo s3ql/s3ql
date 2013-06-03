@@ -354,11 +354,12 @@ class AbstractBackend(object, metaclass=ABCMeta):
     def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
-        `metadata` can be a dict of additional attributes to store with the object. Returns a file-
-        like object. The object must be closed explicitly. After closing, the *get_obj_size* may be
-        used to retrieve the size of the stored object (which may differ from the size of the
+        `metadata` can an additional (pickle-able) python object to store with
+        the data. Returns a file- like object. The object must be closed closed
+        explicitly. After closing, the *get_obj_size* may be used to retrieve
+        the size of the stored object (which may differ from the size of the
         written data).
-        
+
         The *is_compressed* parameter indicates that the caller is going to write compressed data,
         and may be used to avoid recompression by the backend.
         """
@@ -475,6 +476,11 @@ class BetterBackend(AbstractBackend):
         `ObjectNotEncrypted` is raised.
         '''
 
+        if (not isinstance(metadata, dict)
+            or 'encryption' not in metadata
+            or 'compression' not in metadata):
+            raise MalformedObjectError()
+
         encr_alg = metadata['encryption']
         encrypted = (encr_alg != 'None')
 
@@ -504,10 +510,7 @@ class BetterBackend(AbstractBackend):
                 raise ChecksumError('Invalid metadata') from None
             raise
 
-        if metadata is None:
-            return dict()
-        else:
-            return metadata
+        return metadata
 
     def open_read(self, key):
         """Open object for reading
@@ -523,11 +526,12 @@ class BetterBackend(AbstractBackend):
         fh = self.backend.open_read(key)
         try:
             convert_legacy_metadata(fh.metadata)
-    
+
+            # Also checks if this is a BetterBucket storage object
+            metadata = self._unwrap_meta(fh.metadata)
+
             compr_alg = fh.metadata['compression']
             encr_alg = fh.metadata['encryption']
-    
-            metadata = self._unwrap_meta(fh.metadata)
     
             if compr_alg == 'BZIP2':
                 decompressor = bz2.BZ2Decompressor()
@@ -561,12 +565,12 @@ class BetterBackend(AbstractBackend):
     def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
-        `metadata` can be a dict of additional attributes to store with the
-        object. Returns a file-like object. The object must be closed
+        `metadata` can an additional (pickle-able) python object to store with
+        the data. Returns a file- like object. The object must be closed closed
         explicitly. After closing, the *get_obj_size* may be used to retrieve
         the size of the stored object (which may differ from the size of the
         written data).
-        
+
         The *is_compressed* parameter indicates that the caller is going
         to write compressed data, and may be used to avoid recompression
         by the backend.        
@@ -1071,6 +1075,28 @@ class ObjectNotEncrypted(Exception):
 
     pass
 
+
+class MalformedObjectError(Exception):
+    '''
+    Raised by BetterBackend when trying to access an object that
+    wasn't stored by BetterBackend, i.e. has no information about
+    encryption or compression.
+    '''
+
+    pass
+
+class ObjectNotEncrypted(Exception):
+    '''
+    Raised by the backend if an object was requested from an encrypted
+    backend, but the object was stored without encryption.
+    
+    We do not want to simply return the uncrypted object, because the
+    caller may rely on the objects integrity being cryptographically
+    verified.
+    '''
+
+    pass
+
 class NoSuchObject(Exception):
     '''Raised if the requested object does not exist in the backend'''
 
@@ -1119,6 +1145,11 @@ def aes_cipher(key):
                    counter=Counter.new(128, initial_value=0)) 
         
 def convert_legacy_metadata(meta):
+
+    # For legacy format, meta is always a dict
+    if not isinstance(meta, dict):
+        return
+    
     if ('encryption' in meta and
         'compression' in meta):
         return

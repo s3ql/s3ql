@@ -8,15 +8,17 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from ..logging import logging # Ensure use of custom logger class
 from . import s3c
-from ..common import QuietError, BUFSIZE
+from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, 
     DanglingStorageURLError, is_temp_network_error)
 from .s3c import HTTPError, BadDigestError
 from urllib.parse import urlsplit
+from base64 import b64encode, b64decode
 import json
 import re
 import io
 import time
+import pickle
 import urllib.parse
 
 log = logging.getLogger(__name__)
@@ -275,21 +277,31 @@ class Backend(AbstractBackend):
     def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
-        `metadata` can be a dict of additional attributes to store with the object. Returns a file-
-        like object. The object must be closed explicitly. After closing, the *get_obj_size* may be
-        used to retrieve the size of the stored object (which may differ from the size of the
+        `metadata` can an additional (pickle-able) python object to store with
+        the data. Returns a file- like object. The object must be closed closed
+        explicitly. After closing, the *get_obj_size* may be used to retrieve
+        the size of the stored object (which may differ from the size of the
         written data).
         
-        The *is_compressed* parameter indicates that the caller is going to write compressed data,
-        and may be used to avoid recompression by the backend.
+        The *is_compressed* parameter indicates that the caller is going to
+        write compressed data, and may be used to avoid recompression by the
+        backend.
         """
         
         log.debug('open_write(%s): start', key)
+        
+        # We don't store the metadata keys directly, because HTTP headers
+        # are case insensitive (so the server may change capitalization)
+        # and we may run into length restrictions.
+        meta_buf = b64encode(pickle.dumps(metadata, PICKLE_PROTOCOL)).decode('us-ascii')
 
+        chunksize = 255
+        i = 0
         headers = dict()
-        if metadata:
-            for (hdr, val) in metadata.items():
-                headers['X-Object-Meta-%s' % hdr] = val
+        headers['X-Object-Meta-Format'] = 'pickle'
+        while i*chunksize < len(meta_buf):
+            headers['X-Object-Meta-Data-%02d' % i] = meta_buf[i*chunksize:(i+1)*chunksize]
+            i += 1
 
         return ObjectW(key, self, headers)
 
@@ -483,13 +495,30 @@ def extractmeta(resp):
     '''Extract metadata from HTTP response object'''
 
     meta = dict()
+    format_ = 'raw'
     for (name, val) in resp.getheaders():
         hit = re.match(r'^X-Object-Meta-(.+)$', name, re.IGNORECASE)
         if not hit:
             continue
-        meta[hit.group(1)] = val
 
-    return meta
+        if hit.group(1).lower() == 'format':
+            format_ = val
+        else:
+            log.debug('read %s: %s', hit.group(1), val)
+            meta[hit.group(1)] = val
+
+    if format_ == 'pickle':
+        buf = ''.join(meta[x] for x in sorted(meta)
+                      if x.lower().startswith('data-'))
+        try:
+            return pickle.loads(b64decode(buf))
+        except pickle.UnpicklingError as exc:
+            if (isinstance(exc.args[0], str)
+                and exc.args[0].startswith('invalid load key')):
+                raise ChecksumError('Invalid metadata') from None
+            raise
+    else:
+        return meta
 
 
 class AuthenticationExpired(Exception):
