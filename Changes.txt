@@ -6,7 +6,8 @@ UNRELEASED, S3QL tip
 
   * There is a new --no-ssl option that now works for every backend.
 
-  * Amazon S3 authentification is now working again.
+  * The Amazon S3 and Swift backends are now working again (regression
+    was introduced in 2.0-beta).
 
 2013-05-12, S3QL 2.0-beta
 
