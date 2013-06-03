@@ -7,6 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from t4_fuse import populate_dir, skip_without_rsync, BASEDIR, retry
+from t1_backends import get_remote_test_info
 import shutil
 import subprocess
 import t4_fuse
@@ -14,6 +15,9 @@ import tempfile
 import os
 import unittest
 import sys
+import stat
+import time
+import configparser
 
 class UpgradeTest(t4_fuse.fuse_tests):
 
@@ -124,6 +128,45 @@ class UpgradeTest(t4_fuse.fuse_tests):
         self.compare()
 
 
+class S3UpgradeTest(UpgradeTest):
+    def setUp(self):
+        super().setUp()
+        self.storage_url = get_remote_test_info('s3-test', self.skipTest)[2]
+
+    def runTest(self):
+        populate_dir(self.ref_dir)
+
+        # Create and mount using previous S3QL version
+        self.mkfs_old()
+        self.mount_old()
+        subprocess.check_call(['rsync', '-aHAX', self.ref_dir + '/', self.mnt_dir + '/'])
+        self.umount_old()
+
+        # Upgrade and compare without cache
+        shutil.rmtree(self.cache_dir)
+        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
+        self.upgrade()
+        self.compare()
+
+        
+class GSUpgradeTest(S3UpgradeTest):
+    def setUp(self):
+        super().setUp()
+        self.storage_url = get_remote_test_info('gs-test', self.skipTest)[2]
+
+    
+class S3CUpgradeTest(S3UpgradeTest):
+    def setUp(self):
+        super().setUp()
+        self.storage_url = get_remote_test_info('s3c-test', self.skipTest)[2]
+
+
+class SwiftUpgradeTest(S3UpgradeTest):
+    def setUp(self):
+        super().setUp()
+        self.storage_url = get_remote_test_info('swift-test', self.skipTest)[2]
+
+        
 # Somehow important according to pyunit documentation
 def suite():
     return unittest.makeSuite(FullTests)
