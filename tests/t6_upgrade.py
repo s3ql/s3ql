@@ -133,13 +133,15 @@ class UpgradeTest(t4_fuse.fuse_tests):
         self.compare()
 
 
-class S3UpgradeTest(UpgradeTest):
-    def setUp(self):
+class RemoteUpgradeTest:
+    def setUp(self, name):
         super().setUp()
-        self.storage_url = get_remote_test_info('s3-test', self.skipTest)[2]
-
+        (backend_login, backend_pw,
+         self.storage_url) = get_remote_test_info(name, self.skipTest)
+        self.backend_login_str = '%s\n%s' % (backend_login, backend_pw)
+        
     def runTest(self):
-        populate_dir(self.ref_dir)
+        populate_dir(self.ref_dir, max_size=1024*1024)
 
         # Create and mount using previous S3QL version
         self.mkfs_old()
@@ -153,24 +155,21 @@ class S3UpgradeTest(UpgradeTest):
         self.upgrade()
         self.compare()
 
+class S3UpgradeTest(RemoteUpgradeTest, UpgradeTest):
+    def setUp(self):
+        super().setUp('s3-test')
+
+class GSUpgradeTest(RemoteUpgradeTest, UpgradeTest):
+    def setUp(self):
+        super().setUp('gs-test')
         
-class GSUpgradeTest(S3UpgradeTest):
+class S3CUpgradeTest(RemoteUpgradeTest, UpgradeTest):
     def setUp(self):
-        super().setUp()
-        self.storage_url = get_remote_test_info('gs-test', self.skipTest)[2]
+        super().setUp('s3c-test')
 
-    
-class S3CUpgradeTest(S3UpgradeTest):
+class SwiftUpgradeTest(RemoteUpgradeTest, UpgradeTest):
     def setUp(self):
-        super().setUp()
-        self.storage_url = get_remote_test_info('s3c-test', self.skipTest)[2]
-
-
-class SwiftUpgradeTest(S3UpgradeTest):
-    def setUp(self):
-        super().setUp()
-        self.storage_url = get_remote_test_info('swift-test', self.skipTest)[2]
-
+        super().setUp('swift-test')
         
 # Somehow important according to pyunit documentation
 def suite():
