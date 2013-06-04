@@ -651,6 +651,12 @@ def get_S3Error(code, msg):
 def extractmeta(resp):
     '''Extract metadata from HTTP response object'''
 
+    # Note: we implicitly rely on httplib to convert all headers to lower
+    # case. because HTTP headers are case sensitive (so meta data field names
+    # may have their capitalization changed). This only works, however, because
+    # the meta data field names that we use are lower case as well. This problem
+    # has only been solved cleanly in S3QL 2.0.
+    
     meta = dict()
     for (name, val) in resp.getheaders():
         hit = re.match(r'^x-amz-meta-(.+)$', name)
