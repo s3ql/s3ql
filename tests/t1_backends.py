@@ -213,7 +213,7 @@ def get_remote_test_info(name, skipTest):
             backend_login = config.get(name, 'backend-login')
             backend_password = config.get(name, 'backend-password')
         except (configparser.NoOptionError, configparser.NoSectionError):
-            skipTest("Authentication file does not have test section")
+            skipTest("Authentication file does not have %s section" % name)
 
         # Append prefix to make sure that we're starting with an empty bucket
         fs_name += '-s3ql_test_%d' % time.time()
