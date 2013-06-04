@@ -679,6 +679,11 @@ def extractmeta(resp):
     meta = dict()
     format_ = 'raw'
     for (name, val) in resp.getheaders():
+        # HTTP headers are case-insensitive and pre 2.x S3QL versions metadata
+        # names verbatim (and thus loose capitalization info), so we force lower
+        # case (since we know that this is the original capitalization).
+        name = name.lower()
+
         hit = re.match(r'^x-amz-meta-(.+)$', name, re.IGNORECASE)
         if not hit:
             continue
