@@ -188,7 +188,8 @@ def change_passphrase(backend):
     backend.passphrase = data_pw
 
 def clear(backend, cachepath):
-    print('I am about to delete the S3QL file system in %s.' % backend,
+    print('I am about to delete all data in %s.' % backend,
+          'This includes any S3QL file systems as well as any other stored objects.',
           'Please enter "yes" to continue.', '> ', sep='\n', end='')
 
     if sys.stdin.readline().strip().lower() != 'yes':
