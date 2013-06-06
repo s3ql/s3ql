@@ -39,11 +39,13 @@ class UpgradeTest(t4_fuse.fuse_tests):
 
     def mkfs_old(self):
         proc = subprocess.Popen([os.path.join(self.basedir_old, 'bin', 'mkfs.s3ql'),
-                                 '-L', 'test fs', '--max-obj-size', '500',
-                                 '--cachedir', self.cache_dir, '--quiet',
+                                 '-L', 'test fs', '--max-obj-size', '500', '--authfile',
+                                 '/dev/null', '--cachedir', self.cache_dir, '--quiet',
                                  self.storage_url ], stdin=subprocess.PIPE,
                                 universal_newlines=True)
 
+        if self.backend_login_str is not None:
+            print(self.backend_login_str, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
@@ -51,10 +53,12 @@ class UpgradeTest(t4_fuse.fuse_tests):
 
     def mount_old(self):
         self.mount_process = subprocess.Popen([os.path.join(self.basedir_old, 'bin', 'mount.s3ql'),
-                                               "--fg", '--cachedir', self.cache_dir,
-                                               '--log', 'none', '--quiet',
+                                               "--fg", '--cachedir', self.cache_dir, '--log',
+                                               'none', '--quiet', '--authfile', '/dev/null',
                                                self.storage_url, self.mnt_dir],
                                               stdin=subprocess.PIPE, universal_newlines=True)
+        if self.backend_login_str is not None:
+            print(self.backend_login_str, file=self.mount_process.stdin)
         print(self.passphrase, file=self.mount_process.stdin)
         self.mount_process.stdin.close()
         def poll():
@@ -72,12 +76,14 @@ class UpgradeTest(t4_fuse.fuse_tests):
         self.assertEqual(self.mount_process.wait(), 0)
         self.assertFalse(os.path.ismount(self.mnt_dir))
 
-    def upgrade(self, basedir=BASEDIR):
-        proc = subprocess.Popen([sys.executable, os.path.join(basedir, 'bin', 's3qladm'),
-                                 '--fatal-warnings', '--cachedir', self.cache_dir,
-                                 '--quiet', 'upgrade', self.storage_url ], stdin=subprocess.PIPE,
-                                universal_newlines=True)
-        
+    def upgrade(self):
+        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 's3qladm'),
+                                 '--fatal-warnings', '--cachedir', self.cache_dir, '--authfile',
+                                 '/dev/null', '--quiet', 'upgrade', self.storage_url ],
+                                stdin=subprocess.PIPE, universal_newlines=True)
+
+        if self.backend_login_str is not None:
+            print(self.backend_login_str, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
         print('yes', file=proc.stdin)
         proc.stdin.close()
@@ -89,8 +95,7 @@ class UpgradeTest(t4_fuse.fuse_tests):
         # Compare
         self.fsck()
         self.mount()
-        with subprocess.Popen(['rsync', '-anciHAX', '--delete',
-                               '--exclude', '/lost+found',
+        with subprocess.Popen(['rsync', '-anciHAX', '--delete', '--exclude', '/lost+found',
                                self.ref_dir + '/', self.mnt_dir + '/'],
                               stdout=subprocess.PIPE, universal_newlines=True,
                               stderr=subprocess.STDOUT) as rsync:

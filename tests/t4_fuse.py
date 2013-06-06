@@ -181,6 +181,7 @@ class fuse_tests(unittest.TestCase):
 
         self.storage_url = 'local://' + self.backend_dir
         self.passphrase = 'oeut3d'
+        self.backend_login_str = None
 
         self.mount_process = None
         self.name_cnt = 0
@@ -188,10 +189,12 @@ class fuse_tests(unittest.TestCase):
     def mkfs(self):
         proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
                                  '-L', 'test fs', '--max-obj-size', '500', '--fatal-warnings',
-                                 '--cachedir', self.cache_dir, '--quiet',
-                                 self.storage_url ], stdin=subprocess.PIPE,
+                                 '--cachedir', self.cache_dir, '--quiet', '--authfile',
+                                 '/dev/null', self.storage_url ], stdin=subprocess.PIPE,
                                 universal_newlines=True)
 
+        if self.backend_login_str:
+            print(self.backend_login_str, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
@@ -199,12 +202,14 @@ class fuse_tests(unittest.TestCase):
         self.assertEqual(proc.wait(), 0)
 
     def mount(self):
-        self.mount_process = subprocess.Popen([sys.executable, 
-                                               os.path.join(BASEDIR, 'bin', 'mount.s3ql'),
-                                                "--fg", '--cachedir', self.cache_dir,
-                                                '--log', 'none', '--quiet', '--fatal-warnings',
-                                                  self.storage_url, self.mnt_dir],
-                                                  stdin=subprocess.PIPE, universal_newlines=True)
+        self.mount_process = \
+            subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'mount.s3ql'),
+                              "--fg", '--cachedir', self.cache_dir, '--log', 'none',
+                              '--quiet', '--fatal-warnings', self.storage_url, self.mnt_dir,
+                              '--authfile', '/dev/null' ], stdin=subprocess.PIPE,
+                             universal_newlines=True)
+        if self.backend_login_str:
+            print(self.backend_login_str, file=self.mount_process.stdin)
         print(self.passphrase, file=self.mount_process.stdin)
         self.mount_process.stdin.close()
         def poll():
@@ -228,10 +233,12 @@ class fuse_tests(unittest.TestCase):
 
     def fsck(self):
         proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'fsck.s3ql'),
-                                 '--force', '--quiet', '--log', 'none',
-                                 '--cachedir', self.cache_dir, '--fatal-warnings',
-                                 self.storage_url ], stdin=subprocess.PIPE, 
+                                 '--force', '--quiet', '--log', 'none', '--cachedir',
+                                 self.cache_dir, '--fatal-warnings', '--authfile',
+                                 '/dev/null', self.storage_url ], stdin=subprocess.PIPE, 
                                 universal_newlines=True)
+        if self.backend_login_str:
+            print(self.backend_login_str, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
         self.assertEqual(proc.wait(), 0)
