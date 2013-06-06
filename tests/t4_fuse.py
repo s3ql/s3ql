@@ -602,8 +602,3 @@ def populate_dir(path, entries=4096, max_size=10*1024*1024,
         name = random_name(dir_)
         os.link(target, name)
         files.append(name)
-        
-
-# Allow calling from command line
-if __name__ == "__main__":
-    unittest.main()

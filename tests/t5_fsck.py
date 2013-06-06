@@ -13,7 +13,6 @@ import shutil
 import subprocess
 import t4_fuse
 import tempfile
-import unittest
 
 class FsckTests(t4_fuse.fuse_tests):
 
@@ -67,12 +66,3 @@ class FsckTests(t4_fuse.fuse_tests):
             self.umount()
         finally:
             shutil.rmtree(ref_dir)
-
-
-# Somehow important according to pyunit documentation
-def suite():
-    return unittest.makeSuite(FsckTests)
-
-# Allow calling from command line
-if __name__ == "__main__":
-    unittest.main()

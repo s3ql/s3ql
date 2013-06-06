@@ -13,7 +13,6 @@ import subprocess
 import t4_fuse
 import sys
 import tempfile
-import unittest
 
 class cpTests(t4_fuse.fuse_tests):
 
@@ -54,11 +53,3 @@ class cpTests(t4_fuse.fuse_tests):
         finally:
             shutil.rmtree(tempdir)
 
-# Somehow important according to pyunit documentation
-def suite():
-    return unittest.makeSuite(cpTests)
-
-
-# Allow calling from command line
-if __name__ == "__main__":
-    unittest.main()

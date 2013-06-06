@@ -12,7 +12,6 @@ import s3ql.lock
 import s3ql.remove
 import sys
 import t4_fuse
-import unittest
 
 class LockRemoveTests(t4_fuse.fuse_tests):
 
@@ -54,12 +53,3 @@ class LockRemoveTests(t4_fuse.fuse_tests):
             self.fail("s3qlrm raised exception")
 
         self.assertTrue('lock_dir' not in llfuse.listdir(self.mnt_dir))
-
-# Somehow important according to pyunit documentation
-def suite():
-    return unittest.makeSuite(LockRemoveTests)
-
-
-# Allow calling from command line
-if __name__ == "__main__":
-    unittest.main()

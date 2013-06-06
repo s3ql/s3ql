@@ -386,13 +386,3 @@ class EncryptionCompressionTests(EncryptionTests):
 
     def _wrap_backend(self):
         return BetterBackend(b'schlurz', 'zlib', self.plain_backend)
-
-
-# Somehow important according to pyunit documentation
-def suite():
-    return unittest.makeSuite(LocalTests)
-
-
-# Allow calling from command line
-if __name__ == "__main__":
-    unittest.main()

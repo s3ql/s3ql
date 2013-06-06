@@ -11,7 +11,6 @@ import shutil
 import subprocess
 import t4_fuse
 import tempfile
-import unittest
 
 class FullTests(t4_fuse.fuse_tests):
 
@@ -57,12 +56,3 @@ class FullTests(t4_fuse.fuse_tests):
 
         finally:
             shutil.rmtree(ref_dir)
-
-
-# Somehow important according to pyunit documentation
-def suite():
-    return unittest.makeSuite(FullTests)
-
-# Allow calling from command line
-if __name__ == "__main__":
-    unittest.main()

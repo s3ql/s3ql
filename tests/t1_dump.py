@@ -225,9 +225,3 @@ class DumpTests(unittest.TestCase):
         db.execute('''CREATE TABLE test (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             buf BLOB)''')
-
-
-
-# Somehow important according to pyunit documentation
-def suite():
-    return unittest.makeSuite(DumpTests)

@@ -944,10 +944,3 @@ class fs_api_tests(unittest.TestCase):
             self.assertFalse(self.db.has_val('SELECT id FROM inodes WHERE id=?', (id_,)))
 
         self.fsck()
-
-
-def suite():
-    return unittest.makeSuite(fs_api_tests)
-
-if __name__ == "__main__":
-    unittest.main()

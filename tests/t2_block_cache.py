@@ -386,10 +386,3 @@ def commit(cache, inode, block=None):
             continue
 
         cache.upload(el)
-
-
-def suite():
-    return unittest.makeSuite(cache_tests)
-
-if __name__ == "__main__":
-    unittest.main()

@@ -9,7 +9,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 import s3ql.ctrl
 import sys
 import t4_fuse
-import unittest
 
 class CtrlTests(t4_fuse.fuse_tests):
 
@@ -27,13 +26,3 @@ class CtrlTests(t4_fuse.fuse_tests):
         except:
             sys.excepthook(*sys.exc_info())
             self.fail("s3qlctrl raised exception")
-
-
-# Somehow important according to pyunit documentation
-def suite():
-    return unittest.makeSuite(CtrlTests)
-
-
-# Allow calling from command line
-if __name__ == "__main__":
-    unittest.main()

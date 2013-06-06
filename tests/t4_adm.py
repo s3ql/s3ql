@@ -68,13 +68,3 @@ class AdmTests(unittest.TestCase):
         backend = BetterBackend(passphrase_new.encode(), 'bzip2', plain_backend)
         
         backend.fetch('s3ql_passphrase') # will fail with wrong pw 
-
-
-# Somehow important according to pyunit documentation
-def suite():
-    return unittest.makeSuite(AdmTests)
-
-
-# Allow calling from command line
-if __name__ == "__main__":
-    unittest.main()

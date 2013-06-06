@@ -15,9 +15,6 @@ import tempfile
 import os
 import unittest
 import sys
-import stat
-import time
-import configparser
 
 class UpgradeTest(t4_fuse.fuse_tests):
 
@@ -171,10 +168,3 @@ class SwiftUpgradeTest(RemoteUpgradeTest, UpgradeTest):
     def setUp(self):
         super().setUp('swift-test')
         
-# Somehow important according to pyunit documentation
-def suite():
-    return unittest.makeSuite(FullTests)
-
-# Allow calling from command line
-if __name__ == "__main__":
-    unittest.main()

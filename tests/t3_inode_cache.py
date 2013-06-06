@@ -93,11 +93,3 @@ class cache_tests(unittest.TestCase):
             self.cache.create_inode(**attrs)
 
         self.assertRaises(KeyError, self.cache.__getitem__, inode.id)
-
-
-
-def suite():
-    return unittest.makeSuite(cache_tests)
-
-if __name__ == "__main__":
-    unittest.main()

@@ -562,12 +562,3 @@ class fsck_tests(unittest.TestCase):
 
         self.fsck.check_unix()
         self.assertTrue(self.fsck.found_errors)
-
-
-
-# Somehow important according to pyunit documentation
-def suite():
-    return unittest.makeSuite(fsck_tests)
-
-if __name__ == "__main__":
-    unittest.main()
