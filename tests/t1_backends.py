@@ -216,7 +216,9 @@ def get_remote_test_info(name, skipTest):
             skipTest("Authentication file does not have %s section" % name)
 
         # Append prefix to make sure that we're starting with an empty bucket
-        fs_name += '-s3ql_test_%d' % time.time()
+        if fs_name[-1] != '/':
+            fs_name += '/'
+        fs_name += 's3ql_test_%d/' % time.time()
 
         return (backend_login, backend_password, fs_name)
 
