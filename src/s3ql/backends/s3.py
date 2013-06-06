@@ -29,7 +29,6 @@ class Backend(s3c.Backend):
     def __init__(self, storage_url, login, password, ssl_context):
         super().__init__(storage_url, login, password, ssl_context)
 
-
     @staticmethod
     def _parse_storage_url(storage_url, ssl_context):
         hit = re.match(r'^s3s?://([^/]+)(?:/(.*))?$', storage_url)
@@ -48,4 +47,4 @@ class Backend(s3c.Backend):
         return (hostname, port, bucket_name, prefix)
 
     def __str__(self):
-        return 's3://%s/%s' % (self.bucket_name, self.prefix)
+        return 'Amazon S3 bucket %s, prefix %s' % (self.bucket_name, self.prefix)

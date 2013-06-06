@@ -43,5 +43,5 @@ class Backend(s3c.Backend):
         return (hostname, port, bucket_name, prefix)        
 
     def __str__(self):
-        return 'gs://%s/%s' % (self.bucket_name, self.prefix)
+        return 'Google Storage bucket %s, prefix %s' % (self.bucket_name, self.prefix)
 

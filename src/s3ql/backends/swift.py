@@ -50,7 +50,10 @@ class Backend(AbstractBackend):
         self.ssl_context = ssl_context
         
         self._container_exists()
-    
+
+    def __str__(self):
+        return 'swift container %s, prefix %s' % (self.container_name, self.prefix)
+        
     @retry
     def _container_exists(self):
         '''Make sure that the container exists'''
