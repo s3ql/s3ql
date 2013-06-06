@@ -14,6 +14,26 @@ any tests.
 import logging.handlers
 import sys
 import os.path
+import pytest
+
+@pytest.fixture(autouse=True)
+def save_capfd_fixture(request, capfd):
+    request.capfd = capfd
+
+def pytest_runtest_call(__multicall__, item):
+    cap = item._request.capfd
+    report = __multicall__.execute()
+
+    # Peek at captured output
+    (stdout, stderr) = cap.readouterr()
+    sys.stdout.write(stdout)
+    sys.stderr.write(stderr)
+
+    # Check for problems
+    if 'exception' in stderr.lower():
+        raise AssertionError('Suspicious output to stderr')
+
+    return report
 
 def pytest_addoption(parser):
     group = parser.getgroup("terminal reporting")
@@ -43,11 +63,6 @@ def pytest_configure(config):
         import warnings
         warnings.resetwarnings()
         warnings.simplefilter('error')
-
-        # Resource warnings can be emitted from __del__, so turning them into
-        # exceptions doesn't help (they'll get printed to stdout and captured
-        # by py.test)
-        warnings.simplefilter('default', ResourceWarning)
 
     # Enable logging
     import s3ql.logging
