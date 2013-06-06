@@ -152,6 +152,20 @@ class RemoteUpgradeTest:
         self.upgrade()
         self.compare()
 
+    def tearDown(self):
+        super().tearDown()
+        
+        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 's3qladm'),
+                                 '--quiet', '--authfile', '/dev/null', '--fatal-warnings',
+                                 'clear', self.storage_url ],
+                                stdin=subprocess.PIPE, universal_newlines=True)
+        if self.backend_login_str is not None:
+            print(self.backend_login_str, file=proc.stdin)
+        print('yes', file=proc.stdin)
+        proc.stdin.close()
+
+        self.assertEqual(proc.wait(), 0)
+
 class S3UpgradeTest(RemoteUpgradeTest, UpgradeTest):
     def setUp(self):
         super().setUp('s3-test')
