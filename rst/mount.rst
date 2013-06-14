@@ -74,7 +74,7 @@ number of file descriptors per process to about a thousand.
 
 If you specify a value for `--max-cache-entries`, you should therefore
 make sure to also configure your system to increase the maximum number
-of open file handles. This can be done temporarily with the `umask -n`
+of open file handles. This can be done temporarily with the `ulimit -n`
 command. The method to permanently change this limit system-wide
 depends on your distribution.
 
