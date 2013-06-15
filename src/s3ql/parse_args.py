@@ -34,7 +34,7 @@ are:
 #pylint: disable-all
 
 
-from . import VERSION
+from . import RELEASE
 from argparse import ArgumentTypeError, ArgumentError
 import argparse
 from .logging import logging # Ensure use of custom logger class
@@ -134,7 +134,7 @@ class ArgumentParser(argparse.ArgumentParser):
     def add_version(self):
         self.add_argument('--version', action='version',
                           help="just print program version and exit",
-                          version='S3QL %s' % VERSION)
+                          version='S3QL %s' % RELEASE)
 
     def add_quiet(self):
         self.add_argument("--quiet", action="store_true", default=False,

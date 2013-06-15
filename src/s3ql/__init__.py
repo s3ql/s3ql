@@ -12,9 +12,11 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'common',
             'cp', 'ctrl', 'daemonize', 'database', 'deltadump', 
             'fs', 'fsck', 'inode_cache', 'lock', 'logging', 'metadata',
             'mkfs', 'mount', 'parse_args', 'remove', 'statfs', 'umount', 
-            'VERSION', 'CURRENT_FS_REV', 'REV_VER_MAP' ]
+            'VERSION', 'CURRENT_FS_REV', 'REV_VER_MAP', 'RELEASE' ]
 
-VERSION = '2.1 (beta)'
+VERSION = '2.1'
+RELEASE = '%s (beta)' % VERSION
+
 CURRENT_FS_REV = 20
 
 # Maps file system revisions to the last S3QL version that

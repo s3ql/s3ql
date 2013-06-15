@@ -73,7 +73,7 @@ class build_docs(setuptools.Command):
 
         confoverrides = {}
         confoverrides['version'] = s3ql.VERSION
-        confoverrides['release'] = s3ql.VERSION
+        confoverrides['release'] = s3ql.RELEASE
 
         for builder in ('html', 'latex', 'man'):
             print('Running %s builder...' % builder)
