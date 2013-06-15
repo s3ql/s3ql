@@ -282,7 +282,7 @@ def upgrade(backend, cachepath):
         raise QuietError()
 
     # Check revision
-    if param['revision'] < CURRENT_FS_REV - 1:
+    if param['revision'] != 16:
         print(textwrap.dedent(''' 
             File system revision too old to upgrade!
             
