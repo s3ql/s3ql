@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2013-06-14, S3QL 2.1 (beta)
 
   * S3QL now uses SSL connections by default.
 
@@ -9,7 +9,7 @@ UNRELEASED, S3QL tip
   * The Amazon S3 and Swift backends are now working again (regression
     was introduced in 2.0-beta).
 
-2013-05-12, S3QL 2.0-beta
+2013-05-12, S3QL 2.0 (beta)
 
   * S3QL now requires Python 3.3 or newer.
 
