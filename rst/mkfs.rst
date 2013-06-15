@@ -9,6 +9,13 @@ following syntax::
 
   mkfs.s3ql [options] <storage url>
 
+.. NOTE::
+
+  When using the Amazon S3 backend and working with a newly created
+  bucket initial performance is often very bad (cf. `issue 363
+  <http://code.google.com/p/s3ql/issues/detail?id=363>`_). This
+  problem typically disappears after 1 -- 2 days.
+  
 This command accepts the following options:
 
 .. pipeinclude:: python ../bin/mkfs.s3ql --help
