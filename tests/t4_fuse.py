@@ -461,25 +461,48 @@ class fuse_tests(unittest.TestCase):
 def suite():
     return unittest.makeSuite(fuse_tests)
 
-def populate_dir(path, entries=4096, max_size=10*1024*1024,
+def populate_dir(path, entries=1000, size=20*1024*1024,
                  pooldir='/usr/bin', seed=None):
     '''Populate directory with random data
     
-    *entires* specifies the total number of directory entries that
-    are created in the tree. *max_size* specifies the maximum size
-    occupied by all files. The files in *pooldir* are used as a 
-    source of directory names and file contents.
+    *entries* specifies the total number of directory entries that are created
+    in the tree. *size* specifies the size occupied by all files together. The
+    files in *pooldir* are used as a source of directory names and file
+    contents.
     
-    *seed* is used to initalize the random number generator and
-    can be used to make the created structure reproducible
-    (provided that the contents of *pooldir* don't change).
+    *seed* is used to initalize the random number generator and can be used to
+    make the created structure reproducible (provided that the contents of
+    *pooldir* don't change).
     '''
 
     poolnames = os.listdir(pooldir)
     if seed is None:
+        # We want tests to be reproducible on a given system, so users
+        # can report meaningful bugs
         seed = len(poolnames)
     random.seed(seed)
-     
+
+    # Entries in percentages
+    subdir_cnt = random.randint(5, 10)
+    file_cnt = random.randint(60, 70)
+    fifo_cnt = random.randint(5, 10)
+    symlink_cnt = random.randint(10, 20)
+    hardlink_cnt = random.randint(5, 15)
+
+    # Normalize to desired entry count
+    scale = entries / sum((subdir_cnt, file_cnt, fifo_cnt, symlink_cnt, hardlink_cnt))
+    subdir_cnt = int(scale * subdir_cnt)
+    file_cnt = int(scale * file_cnt)
+    fifo_cnt = int(scale * fifo_cnt)
+    symlink_cnt = int(scale * symlink_cnt)
+    hardlink_cnt = int(scale * hardlink_cnt)
+
+    # Sizes, make sure there is at least one big file
+    file_sizes = [ random.randint(0, 100) for _ in range(file_cnt-1) ]
+    scale = 0.5 * size / sum(file_sizes)
+    file_sizes = [ int(scale * x) for x in file_sizes ]
+    file_sizes.append(int(0.5 * size))
+    
     # Special characters for use in filenames
     special_chars = [ chr(x) for x in range(256) 
                       if x not in (0, ord('/')) ]
@@ -487,8 +510,7 @@ def populate_dir(path, entries=4096, max_size=10*1024*1024,
     def random_name(path):
         '''Get random, non-existing file name underneath *path*
         
-        Returns a fully qualified path with a filename chosen
-        from *poolnames*.
+        Returns a fully qualified path with a filename chosen from *poolnames*.
         '''
         while True:
             name = poolnames[random.randrange(len(poolnames))]
@@ -515,8 +537,6 @@ def populate_dir(path, entries=4096, max_size=10*1024*1024,
     # 
     # Step 1: create directory tree
     #
-    subdir_cnt = random.randint(0, int(0.1 * entries))
-    entries -= subdir_cnt
     dirs = [ path ]
     for _ in range(subdir_cnt):
         idx = random.randrange(len(dirs))
@@ -528,14 +548,10 @@ def populate_dir(path, entries=4096, max_size=10*1024*1024,
     #
     # Step 2: populate the tree with files
     #
-    file_cnt = random.randint(int(entries/3), int(3*entries/4))
-    entries -= file_cnt
     files = []
-    for _ in range(file_cnt):
+    for size in file_sizes:
         idx = random.randrange(len(dirs))
         name = random_name(dirs[idx])
-        size = random.randint(0, int(0.01 * max_size))
-        max_size -= size
         with open(name, 'wb') as dst:
             while size > 0:
                 idx = random.randrange(len(poolnames))
@@ -551,18 +567,14 @@ def populate_dir(path, entries=4096, max_size=10*1024*1024,
     #
     # Step 3: Special files
     #
-    fifo_cnt = random.randint(int(entries/3), int(2*entries/3))
-    entries -= fifo_cnt
     for _ in range(fifo_cnt):
         name = random_name(dirs[random.randrange(len(dirs))])
         os.mkfifo(name)
         files.append(name)
-             
-    #   
+
+    #
     # Step 4: populate tree with symlinks 
     #
-    symlink_cnt = random.randint(int(entries/3), int(2*entries/3))
-    entries -= symlink_cnt
     for _ in range(symlink_cnt):
         relative = random.choice((True, False))
         existing = random.choice((True, False))
@@ -589,8 +601,6 @@ def populate_dir(path, entries=4096, max_size=10*1024*1024,
     #
     # Step 5: Create some hardlinks
     #
-    hardlink_cnt = random.randint(int(entries/3), int(2*entries/3))
-    entries -= hardlink_cnt
     for _ in range(hardlink_cnt):
         samedir = random.choice((True, False))
         
