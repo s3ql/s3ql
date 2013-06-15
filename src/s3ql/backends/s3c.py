@@ -624,6 +624,7 @@ class ObjectW(object):
 
         self.fh.seek(0)
         self.headers['Content-Length'] = self.obj_size
+        self.headers['Content-Type'] = 'application/octet-stream'
         try:
             resp = self.backend._do_request('PUT', '/%s%s' % (self.backend.prefix, self.key),
                                             headers=self.headers, body=self.fh)

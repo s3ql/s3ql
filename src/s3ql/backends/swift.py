@@ -7,11 +7,10 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging # Ensure use of custom logger class
-from . import s3c
 from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, 
-    DanglingStorageURLError, is_temp_network_error)
-from .s3c import HTTPError, BadDigestError
+    DanglingStorageURLError, is_temp_network_error, ChecksumError)
+from .s3c import HTTPError, ObjectR, ObjectW
 from urllib.parse import urlsplit
 from base64 import b64encode, b64decode
 import json
@@ -449,49 +448,6 @@ class Backend(AbstractBackend):
                 break
             
             keys_remaining = count == batch_size 
-
-            
-class ObjectW(s3c.ObjectW):
-    '''A SWIFT object open for writing
-    
-    All data is first cached in memory, upload only starts when
-    the close() method is called.
-    '''
-
-    @retry
-    def close(self):
-        '''Close object and upload data'''
-
-        # Access to protected member ok
-        #pylint: disable=W0212
-
-        log.debug('ObjectW(%s).close(): start', self.key)
-
-        self.closed = True
-        self.headers['Content-Length'] = self.obj_size
-        self.headers['Content-Type'] = 'application/octet-stream'
-
-        self.fh.seek(0)
-        resp = self.backend._do_request('PUT', '/%s%s' % (self.backend.prefix, self.key),
-                                       headers=self.headers, body=self.fh)
-        etag = resp.getheader('ETag').strip('"')
-        resp.read()
-
-        if etag != self.md5.hexdigest():
-            log.warning('ObjectW(%s).close(): MD5 mismatch (%s vs %s)', self.key, etag,
-                     self.md5.hexdigest)
-            try:
-                self.backend.delete(self.key)
-            except:
-                log.exception('Objectw(%s).close(): unable to delete corrupted object!',
-                              self.key)            
-            raise BadDigestError('BadDigest', 'Received ETag does not agree with our calculations.')
-
-    
-class ObjectR(s3c.ObjectR):
-    '''A SWIFT object opened for reading'''
-
-    pass
 
     
 def extractmeta(resp):
