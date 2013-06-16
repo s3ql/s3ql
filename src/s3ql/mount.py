@@ -114,18 +114,23 @@ def main(args=None):
                                upload_event=metadata_upload_thread.event)
     
     log.info('Mounting filesystem...')
-    llfuse.init(operations, options.mountpoint, get_fuse_opts(options))
-
-    if not options.fg:
-        if stdout_log_handler:
-            logging.getLogger().removeHandler(stdout_log_handler)
-        daemonize(options.cachedir)
-
-    exc_info = setup_exchook()
-
-    # After we start threads, we must be sure to terminate them
-    # or the process will hang 
     try:
+        llfuse.init(operations, options.mountpoint, get_fuse_opts(options))
+    except RuntimeError as exc:
+        raise QuietError(str(exc))
+
+    # From here on, we have to clean-up the mountpoint and
+    # terminate started threads.
+    try:
+        if not options.fg:
+            if stdout_log_handler:
+                logging.getLogger().removeHandler(stdout_log_handler)
+            daemonize(options.cachedir)
+
+        exc_info = setup_exchook()
+
+        mark_metadata_dirty(backend, cachepath, param)
+        
         block_cache.init(options.threads)
         metadata_upload_thread.start()
         commit_thread.start()
@@ -345,14 +350,20 @@ def get_metadata(backend, cachepath):
         tmpfh.seek(0)
         db = restore_metadata(tmpfh, cachepath + '.db')
 
-    # Increase metadata sequence no 
+    with open(cachepath + '.params', 'wb') as fh:
+        pickle.dump(param, fh, 2)
+            
+    return (param, db)
+
+def mark_metadata_dirty(backend, cachepath, param):
+    '''Mark metadata as dirty and increase sequence number'''
+    
     param['seq_no'] += 1
     param['needs_fsck'] = True
     backend['s3ql_seq_no_%d' % param['seq_no']] = 'Empty'
     pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
     param['needs_fsck'] = False
 
-    return (param, db)
 
 def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
