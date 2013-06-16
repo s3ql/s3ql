@@ -114,10 +114,13 @@ def main(args=None):
                                inode_cache=InodeCache(db, param['inode_gen']),
                                upload_event=metadata_upload_thread.event)
 
-            
     with ExitStack() as cm:
         log.info('Mounting filesystem...')
-        llfuse.init(operations, options.mountpoint, get_fuse_opts(options))
+        try:
+            llfuse.init(operations, options.mountpoint, get_fuse_opts(options))
+        except RuntimeError as exc:
+            raise QuietError(str(exc)) from None
+        
         unmount_clean = False
         def unmount():
             log.info("Unmounting file system...")
@@ -137,6 +140,8 @@ def main(args=None):
             faulthandler.enable(crit_log_fh)
             daemonize(options.cachedir)
 
+        mark_metadata_dirty(backend, cachepath, param)
+        
         block_cache.init(options.threads)
         cm.callback(block_cache.destroy)
         
@@ -324,7 +329,14 @@ def get_metadata(backend, cachepath):
             tmpfh.seek(0)
             db = restore_metadata(tmpfh, cachepath + '.db')
 
-    # Increase metadata sequence no 
+    with open(cachepath + '.params', 'wb') as fh:
+        pickle.dump(param, fh, PICKLE_PROTOCOL)
+            
+    return (param, db)
+
+def mark_metadata_dirty(backend, cachepath, param):
+    '''Mark metadata as dirty and increase sequence number'''
+    
     param['seq_no'] += 1
     param['needs_fsck'] = True
     backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
@@ -332,7 +344,6 @@ def get_metadata(backend, cachepath):
         pickle.dump(param, fh, PICKLE_PROTOCOL)
     param['needs_fsck'] = False
 
-    return (param, db)
 
 def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
