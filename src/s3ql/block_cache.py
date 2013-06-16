@@ -228,7 +228,8 @@ class BlockCache(object):
         self.to_upload = None 
         self.to_remove = None
         
-        os.mkdir(self.path)
+        if not os.path.exists(self.path):
+            os.mkdir(self.path)
 
     def __len__(self):
         '''Get number of objects in cache'''
