@@ -326,7 +326,6 @@ def upgrade(backend, cachepath):
     param['revision'] = CURRENT_FS_REV
     param['last-modified'] = time.time()
 
-    cycle_metadata(backend)
     log.info('Dumping metadata...')
     fh = tempfile.TemporaryFile()
     dump_metadata(db, fh)
@@ -337,11 +336,16 @@ def upgrade(backend, cachepath):
 
     log.info("Compressing and uploading metadata...")
     backend.store('s3ql_seq_no_%d' % param['seq_no'], 'Empty')
-    obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
+    obj_fh = backend.perform_write(do_write, "s3ql_metadata_new", metadata=param,
                                   is_compressed=True)
     log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
-    pickle.dump(param, open(cachepath + '.params', 'wb'), 2)
+    log.info('Cycling metadata backups...')
+    cycle_metadata(backend)
 
+    with open(cachepath + '.params', 'wb') as fh:
+        pickle.dump(param, fh, 2)
+
+    log.info('Cleaning up local metadata...')
     db.execute('ANALYZE')
     db.execute('VACUUM')
 
