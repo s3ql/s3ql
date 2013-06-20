@@ -1203,7 +1203,6 @@ def main(args=None):
         log.warning('File system was marked as clean, yet fsck found problems.')
         log.warning('Please report this to the S3QL mailing list, http://groups.google.com/group/s3ql')
 
-    cycle_metadata(backend)
     param['needs_fsck'] = False
     param['last_fsck'] = time.time()
     param['last-modified'] = time.time()
@@ -1217,12 +1216,15 @@ def main(args=None):
             return obj_fh
     
         log.info("Compressing and uploading metadata...")
-        obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
+        obj_fh = backend.perform_write(do_write, "s3ql_metadata_new", metadata=param,
                                       is_compressed=True)
     log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
+    log.info('Cycling metadata backups...')
+    cycle_metadata(backend)
     with open(cachepath + '.params', 'wb') as fh:
         pickle.dump(param, fh, PICKLE_PROTOCOL)
 
+    log.info('Cleaning up local metadata...')
     db.execute('ANALYZE')
     db.execute('VACUUM')
     db.close()

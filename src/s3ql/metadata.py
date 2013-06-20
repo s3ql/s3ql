@@ -115,6 +115,7 @@ def cycle_metadata(backend):
             pass
 
     backend.rename("s3ql_metadata", "s3ql_metadata_bak_0")
+    backend.rename("s3ql_metadata_new", "s3ql_metadata")
 
 def dump_metadata(db, fh):
     '''Dump metadata into fh

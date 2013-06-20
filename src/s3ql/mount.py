@@ -195,7 +195,6 @@ def main(args=None):
             with open(cachepath + '.params', 'wb') as fh:
                 pickle.dump(param, fh, PICKLE_PROTOCOL)
         elif seq_no == param['seq_no']:
-            cycle_metadata(backend)
             param['last-modified'] = time.time()
 
             log.info('Dumping metadata...')
@@ -207,9 +206,11 @@ def main(args=None):
                     return obj_fh
 
                 log.info("Compressing and uploading metadata...")
-                obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
-                                              is_compressed=True)
-            log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
+                obj_fh = backend.perform_write(do_write, "s3ql_metadata_new",
+                                               metadata=param, is_compressed=True)
+            log.info('Wrote %.2f MiB of compressed metadata', obj_fh.get_obj_size() / 1024 ** 2)
+            log.info('Cycling metadata backups...')
+            cycle_metadata(backend)
             with open(cachepath + '.params', 'wb') as fh:
                 pickle.dump(param, fh, PICKLE_PROTOCOL)
         else:
@@ -223,6 +224,7 @@ def main(args=None):
                         os.rename(name + '.%d' % i, name + '.%d' % (i + 1))
                 os.rename(name, name + '.0')
 
+    log.info('Cleaning up local metadata...')
     db.execute('ANALYZE')
     db.execute('VACUUM')
     db.close()
@@ -238,6 +240,8 @@ def main(args=None):
             p.sort_stats('time')
             p.print_stats(50)
 
+    log.info('All done.')
+    
 def determine_threads(options):
     '''Return optimum number of upload threads'''
 
@@ -529,7 +533,6 @@ class MetadataUploadThread(Thread):
                     fh.close()
                     continue
 
-                cycle_metadata(backend)
                 fh.seek(0)
                 self.param['last-modified'] = time.time()
 
@@ -540,9 +543,12 @@ class MetadataUploadThread(Thread):
                     stream_write_bz2(fh, obj_fh)
                     return obj_fh
                 log.info("Compressing and uploading metadata...")
-                obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=self.param,
-                                              is_compressed=True)
-                log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
+                obj_fh = backend.perform_write(do_write, "s3ql_metadata_new",
+                                               metadata=self.param, is_compressed=True)
+                log.info('Wrote %.2f MiB of compressed metadata.',
+                         obj_fh.get_obj_size() / 1024 ** 2)
+                log.info('Cycling metadata backups...')
+                cycle_metadata(backend)
                 self.param['seq_no'] += 1
 
                 fh.close()
