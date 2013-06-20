@@ -97,7 +97,7 @@ Mercurial repository, a bit more effort is required. You'll also need:
 
 * Version 1.1 or newer of the Sphinx_ document processor.
 
-* The `py.test`_ testing tool.
+* The `py.test`_ testing tool, version 2.3.3 or newer.
 
 With these additional dependencies installed, S3QL can be build and
 tested with ::
