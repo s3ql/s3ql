@@ -13,6 +13,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 import os
 import sys
 import tempfile
+from queue import Queue
+from threading import Thread
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
@@ -48,30 +50,24 @@ def parse_args(args):
                         type=storage_url_type,
                         help='Storage URL of the destination backend')
 
+    parser.add_argument("--threads", type=int, default=3,
+                        help='Number of threads to use')
+
     return parser.parse_args(args)
 
 
-def main(args=None):
-    if args is None:
-        args = sys.argv[1:]
+def copy_loop(queue, src_backend, dst_backend):
+    '''Copy keys arriving in *queue* from *src_backend* to *dst_backend*
 
-    options = parse_args(args)
-    setup_logging(options)
-
-    try:
-        options.storage_url = options.src_storage_url
-        src_backend = get_backend(options, plain=True)
-
-        options.storage_url = options.dst_storage_url
-        dst_backend = get_backend(options, plain=True)
-    except DanglingStorageURLError as exc:
-        raise QuietError(str(exc)) from None
-
+    Terminate when None is received.
+    '''
+    
     tmpfh = tempfile.TemporaryFile()
-    for (i, key) in enumerate(src_backend):
-        if sys.stdout.isatty():
-            sys.stdout.write('\rCopied %d objects so far...' % i)
-            sys.stdout.flush()
+    while True:
+        key = queue.get()
+        if key is None:
+            break
+        
         metadata = src_backend.lookup(key)
 
         log.debug('reading object %s', key)
@@ -94,7 +90,47 @@ def main(args=None):
                     break
                 fh.write(buf)
         dst_backend.perform_write(do_write, key, metadata)
+    
+def main(args=None):
+    if args is None:
+        args = sys.argv[1:]
 
+    options = parse_args(args)
+    setup_logging(options)
+
+    src_backends = []
+    dst_backends = []
+
+    try:
+        options.storage_url = options.src_storage_url
+        for _ in range(options.threads+1):
+            src_backends.append(get_backend(options, plain=True))
+
+        options.storage_url = options.dst_storage_url
+        for _ in range(options.threads):
+            dst_backends.append(get_backend(options, plain=True))
+    except DanglingStorageURLError as exc:
+        raise QuietError(str(exc)) from None
+
+    queue = Queue(maxsize=options.threads)
+    threads = []
+    for (src_backend, dst_backend) in zip(src_backends, dst_backends):
+        t = Thread(target=copy_loop, args=(queue, src_backend, dst_backend))
+        t.start()
+        threads.append(t)
+    
+    for (i, key) in enumerate(src_backends[-1]):
+        if sys.stdout.isatty():
+            sys.stdout.write('\rCopied %d objects so far...' % i)
+            sys.stdout.flush()
+        queue.put(key)
+
+    for t in threads:
+        queue.put(None)
+        
+    for t in threads:
+        t.join()   
+        
     if sys.stdout.isatty():
         sys.stdout.write('\n')
     
