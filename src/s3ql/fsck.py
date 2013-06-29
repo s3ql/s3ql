@@ -833,8 +833,9 @@ class Fsck(object):
         try:
             for (i, obj_name) in enumerate(self.backend.list('s3ql_data_')):
 
-                if i != 0 and i % 5000 == 0:
-                    log.info('..processed %d objects so far..', i)
+                if sys.stdout.isatty():
+                    sys.stdout.write('\r..processed %d objects so far..' % i)
+                    sys.stdout.flush()
 
                 # We only bother with data objects
                 try:
@@ -895,9 +896,12 @@ class Fsck(object):
                 self.conn.execute("DELETE FROM blocks WHERE obj_id=?", (obj_id,))
                 self.conn.execute("DELETE FROM objects WHERE id=?", (obj_id,))
         finally:
+            if sys.stdout.isatty():
+                sys.stdout.write('\n')
+                
             self.conn.execute('DROP TABLE obj_ids')
             self.conn.execute('DROP TABLE IF EXISTS missing')
-
+            
 
     def check_objects_size(self):
         """Check objects.size"""
