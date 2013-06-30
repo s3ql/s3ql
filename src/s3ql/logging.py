@@ -62,7 +62,6 @@ def setup_logging(options):
     stdout_handler = add_stdout_logging(options.quiet)
     if hasattr(options, 'log') and options.log:
         root_logger.addHandler(options.log)
-        debug_handler = options.log
     elif options.debug and (not hasattr(options, 'log') or not options.log):
         # When we have debugging enabled but no separate log target,
         # make stdout logging more detailed.
