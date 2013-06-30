@@ -30,7 +30,8 @@ def pytest_runtest_call(__multicall__, item):
     sys.stderr.write(stderr)
 
     # Check for problems
-    if 'exception' in stderr.lower():
+    if ('exception' in stderr.lower()
+        or 'exception' in stdout.lower()):
         raise AssertionError('Suspicious output to stderr')
 
     return report
