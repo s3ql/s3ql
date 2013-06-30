@@ -1121,18 +1121,6 @@ class MalformedObjectError(Exception):
 
     pass
 
-class ObjectNotEncrypted(Exception):
-    '''
-    Raised by the backend if an object was requested from an encrypted
-    backend, but the object was stored without encryption.
-    
-    We do not want to simply return the uncrypted object, because the
-    caller may rely on the objects integrity being cryptographically
-    verified.
-    '''
-
-    pass
-
 class NoSuchObject(Exception):
     '''Raised if the requested object does not exist in the backend'''
 
