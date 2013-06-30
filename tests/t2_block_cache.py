@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from contextlib import contextmanager
 from s3ql.backends import local
 from s3ql.backends.common import BackendPool, AbstractBackend
-from s3ql.block_cache import BlockCache
+from s3ql.block_cache import BlockCache, QuitSentinel
 from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
@@ -21,6 +21,29 @@ import tempfile
 import threading
 import time
 import unittest
+
+# A dummy removal queue to monkeypatch around the need for removal and upload
+# threads
+class DummyQueue:
+    def __init__(self, cache):
+        self.obj = None
+        self.cache = cache
+        
+        
+    def put(self, obj):
+        self.obj = obj
+        self.cache._removal_loop()
+
+    def get(self, block=True):
+        if self.obj is None:
+            raise RuntimeError("Don't know what to return")
+        elif self.obj is QuitSentinel:
+            self.obj = None
+            return QuitSentinel
+        else:
+            tmp = self.obj
+            self.obj = QuitSentinel
+            return tmp
 
 class cache_tests(unittest.TestCase):
 
@@ -54,10 +77,7 @@ class cache_tests(unittest.TestCase):
         self.cache = cache
         
         # Monkeypatch around the need for removal and upload threads
-        class DummyQueue:
-            def put(self, obj):
-                cache._do_removal(obj)
-        cache.to_remove = DummyQueue()
+        cache.to_remove = DummyQueue(cache)
 
         class DummyDistributor:
             def put(self, arg):

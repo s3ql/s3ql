@@ -12,7 +12,7 @@ from .logging import logging # Ensure use of custom logger class
 from collections import OrderedDict
 from contextlib import contextmanager
 from llfuse import lock, lock_released
-from queue import Queue
+from queue import Queue, Empty as QueueEmtpy
 import os
 import shutil
 import threading
@@ -23,6 +23,10 @@ log = logging.getLogger(__name__)
 
 # Special queue entry that signals threads to terminate
 QuitSentinel = object()
+
+# Special queue entry that signals that removal queue should
+# be flushed
+FlushSentinel = object()
 
 class Distributor(object):
     '''
@@ -457,19 +461,23 @@ class BlockCache(object):
     def _removal_loop(self):
         '''Process removal queue'''
 
+        ids = []
         while True:
-            tmp = self.to_remove.get()
+            try:
+                tmp = self.to_remove.get(block=len(ids)==0)
+            except QueueEmtpy:
+                tmp = FlushSentinel
+
+            if tmp is FlushSentinel or tmp is QuitSentinel:
+                with self.backend_pool() as backend:
+                    backend.delete_multi(['s3ql_data_%d' % i for i in ids])
+                ids = []
+            else:
+                ids.append(tmp)
 
             if tmp is QuitSentinel:
                 break
 
-            self._do_removal(tmp)
-
-    def _do_removal(self, obj_id):
-        '''Remove object'''
-
-        with self.backend_pool() as backend:
-            backend.delete('s3ql_data_%d' % obj_id)
 
     @contextmanager
     def get(self, inode, blockno):

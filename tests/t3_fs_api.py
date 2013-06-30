@@ -18,6 +18,7 @@ from s3ql.metadata import create_tables
 from s3ql.database import Connection
 from s3ql.fsck import Fsck
 from s3ql.inode_cache import InodeCache
+from t2_block_cache import DummyQueue
 from common import catch_logmsg
 import errno
 import llfuse
@@ -77,11 +78,7 @@ class fs_api_tests(unittest.TestCase):
         self.server.init()
 
         # Monkeypatch around the need for removal and upload threads
-        
-        class DummyQueue:
-            def put(self, obj):
-                cache._do_removal(obj)
-        cache.to_remove = DummyQueue()
+        cache.to_remove = DummyQueue(cache)
 
         class DummyDistributor:
             def put(self, arg):
