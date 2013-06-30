@@ -85,7 +85,7 @@ def pytest_configure(config):
                     logging.getLogger(module).setLevel(logging.DEBUG)
             logging.disable(logging.NOTSET)
         else:
-            root_logger.setLevel(logging.INFO)
+            root_logger.setLevel(logging.WARNING)
 
         logging.captureWarnings(capture=True)
 
