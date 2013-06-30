@@ -13,9 +13,10 @@ to inherit the docstring for a function from the superclass.
 
 
 from functools import partial
+from abc import ABCMeta
 
 __all__ = [ 'copy_ancestor_docstring', 'prepend_ancestor_docstring',
-            'InheritableDocstrings' ]
+            'InheritableDocstrings', 'ABCDocstMeta' ]
 
 # This definition is only used to assist static code analyzers
 def copy_ancestor_docstring(fn):
@@ -116,4 +117,8 @@ class InheritableDocstrings(type):
             del classdict[dec_name]
         
         return super().__new__(cls, name, bases, classdict)
-    
+
+# Derive new metaclass to add docstring inheritance
+class ABCDocstMeta(ABCMeta, InheritableDocstrings):
+    pass
+        

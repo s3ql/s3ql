@@ -8,6 +8,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from ..logging import logging # Ensure use of custom logger class
 from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL
+from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
+                                  ABCDocstMeta)
 from Crypto.Cipher import AES
 from Crypto.Util import Counter
 from abc import abstractmethod, ABCMeta
@@ -268,9 +270,9 @@ class AbstractBackend(object, metaclass=ABCMeta):
     def perform_read(self, fn, key):
         '''Read object data using *fn*, retry on temporary failure
         
-        Open object for reading, call `fn(fh)` and close object. If a temporary error (as defined by
-        `is_temp_failure`) occurs during opening, closing or execution of *fn*, the operation is
-        retried.
+        Open object for reading, call `fn(fh)` and close object. If a temporary
+        error (as defined by `is_temp_failure`) occurs during opening, closing
+        or execution of *fn*, the operation is retried.
         '''
         with self.open_read(key) as fh:
             return fn(fh)
@@ -279,9 +281,9 @@ class AbstractBackend(object, metaclass=ABCMeta):
     def perform_write(self, fn, key, metadata=None, is_compressed=False):
         '''Read object data using *fn*, retry on temporary failure
         
-        Open object for writing, call `fn(fh)` and close object. If a temporary error (as defined by
-        `is_temp_failure`) occurs during opening, closing or execution of *fn*, the operation is
-        retried.
+        Open object for writing, call `fn(fh)` and close object. If a temporary
+        error (as defined by `is_temp_failure`) occurs during opening, closing
+        or execution of *fn*, the operation is retried.
         '''
 
         with self.open_write(key, metadata, is_compressed) as fh:
@@ -318,13 +320,14 @@ class AbstractBackend(object, metaclass=ABCMeta):
     def is_temp_failure(self, exc):
         '''Return true if exc indicates a temporary error
     
-        Return true if the given exception indicates a temporary problem. Most instance methods
-        automatically retry the request in this case, so the caller does not need to worry about
-        temporary failures.
+        Return true if the given exception indicates a temporary problem. Most
+        instance methods automatically retry the request in this case, so the
+        caller does not need to worry about temporary failures.
         
-        However, in same cases (e.g. when reading or writing an object), the request cannot
-        automatically be retried. In these case this method can be used to check for temporary
-        problems and so that the request can be manually restarted if applicable.
+        However, in same cases (e.g. when reading or writing an object), the
+        request cannot automatically be retried. In these case this method can
+        be used to check for temporary problems and so that the request can be
+        manually restarted if applicable.
         '''
 
         pass
@@ -347,9 +350,9 @@ class AbstractBackend(object, metaclass=ABCMeta):
     def open_read(self, key):
         """Open object for reading
 
-        Return a file-like object. Data can be read using the `read` method. metadata is stored in
-        its *metadata* attribute and can be modified by the caller at will. The object must be
-        closed explicitly.
+        Return a file-like object. Data can be read using the `read`
+        method. metadata is stored in its *metadata* attribute and can be
+        modified by the caller at will. The object must be closed explicitly.
         """
 
         pass
@@ -364,8 +367,9 @@ class AbstractBackend(object, metaclass=ABCMeta):
         the size of the stored object (which may differ from the size of the
         written data).
 
-        The *is_compressed* parameter indicates that the caller is going to write compressed data,
-        and may be used to avoid recompression by the backend.
+        The *is_compressed* parameter indicates that the caller is going to
+        write compressed data, and may be used to avoid recompression by the
+        backend.
         """
 
         pass
@@ -445,7 +449,7 @@ class AbstractBackend(object, metaclass=ABCMeta):
         self.copy(src, dest)
         self.delete(src)
 
-class BetterBackend(AbstractBackend):
+class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
     '''
     This class adds encryption, compression and integrity protection to a plain
     backend.
@@ -463,37 +467,23 @@ class BetterBackend(AbstractBackend):
         if compression not in ('bzip2', 'lzma', 'zlib', None):
             raise ValueError('Unsupported compression: %s' % compression)
 
+    @copy_ancestor_docstring
     def lookup(self, key):
-        """Return metadata for given key.
-
-        If the key does not exist, `NoSuchObject` is raised.
-        """
-
         metadata = self.backend.lookup(key)
         convert_legacy_metadata(metadata)
         return self._unwrap_meta(metadata)
 
+    @prepend_ancestor_docstring
     def get_size(self, key):
-        '''Return size of object stored under *key*
-        
+        '''
         This method returns the compressed size, i.e. the storage space
         that's actually occupied by the object.
         '''
 
         return self.backend.get_size(key)
 
+    @copy_ancestor_docstring
     def is_temp_failure(self, exc):
-        '''Return true if exc indicates a temporary error
-    
-        Return true if the given exception indicates a temporary problem. Most instance methods
-        automatically retry the request in this case, so the caller does not need to worry about
-        temporary failures.
-        
-        However, in same cases (e.g. when reading or writing an object), the request cannot
-        automatically be retried. In these case this method can be used to check for temporary
-        problems and so that the request can be manually restarted if applicable.
-        '''
-
         return self.backend.is_temp_failure(exc)
 
     def _unwrap_meta(self, metadata):
@@ -542,15 +532,11 @@ class BetterBackend(AbstractBackend):
 
         return metadata
 
+    @prepend_ancestor_docstring
     def open_read(self, key):
-        """Open object for reading
-
-        Return a file-like object. Data can be read using the `read` method. metadata is stored in
-        its *metadata* attribute and can be modified by the caller at will. The object must be
-        closed explicitly.
-        
-        If the backend has a password set but the object is not encrypted, `ObjectNotEncrypted` is
-        raised.
+        """
+        If the backend has a password set but the object is not encrypted,
+        `ObjectNotEncrypted` is raised.
         """
 
         fh = self.backend.open_read(key)
@@ -592,19 +578,8 @@ class BetterBackend(AbstractBackend):
         
         return fh
 
+    @copy_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
-        """Open object for writing
-
-        `metadata` can an additional (pickle-able) python object to store with
-        the data. Returns a file- like object. The object must be closed closed
-        explicitly. After closing, the *get_obj_size* may be used to retrieve
-        the size of the stored object (which may differ from the size of the
-        written data).
-
-        The *is_compressed* parameter indicates that the caller is going
-        to write compressed data, and may be used to avoid recompression
-        by the backend.        
-        """
 
         # We always store metadata (even if it's just None), so that we can
         # verify that the object has been created by us when we call lookup().
@@ -643,55 +618,33 @@ class BetterBackend(AbstractBackend):
 
         return fh
 
+
+    @copy_ancestor_docstring
     def clear(self):
-        """Delete all objects in backend"""
         return self.backend.clear()
 
+    @copy_ancestor_docstring
     def contains(self, key):
-        '''Check if `key` is in backend'''
         return self.backend.contains(key)
 
+    @copy_ancestor_docstring
     def delete(self, key, force=False):
-        """Delete object stored under `key`
-
-        ``backend.delete(key)`` can also be written as ``del backend[key]``.
-        If `force` is true, do not return an error if the key does not exist.
-        """
         return self.backend.delete(key, force)
 
+    @copy_ancestor_docstring
     def delete_multi(self, keys, force=False):
-        """Delete objects stored under `keys`
-
-        Deleted objects are removed from the *keys* list, so that the caller can
-        determine which objects have not yet been processed if an exception is
-        occurs.
-        
-        If *force* is True, attempts to delete non-existing objects will
-        succeed.
-        """
         return self.backend.delete_multi(keys, force=force)
     
+    @copy_ancestor_docstring
     def list(self, prefix=''):
-        '''List keys in backend
-
-        Returns an iterator over all keys in the backend.
-        '''
         return self.backend.list(prefix)
 
+    @copy_ancestor_docstring
     def copy(self, src, dest):
-        """Copy data stored under key `src` to key `dest`
-        
-        If `dest` already exists, it will be overwritten. The copying
-        is done on the remote side. 
-        """
         return self.backend.copy(src, dest)
 
+    @copy_ancestor_docstring
     def rename(self, src, dest):
-        """Rename key `src` to `dest`
-        
-        If `dest` already exists, it will be overwritten. The rename
-        is done on the remote side.
-        """
         return self.backend.rename(src, dest)
 
 

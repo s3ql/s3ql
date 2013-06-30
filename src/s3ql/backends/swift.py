@@ -11,6 +11,8 @@ from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, 
     DanglingStorageURLError, is_temp_network_error, ChecksumError)
 from .s3c import HTTPError, ObjectR, ObjectW
+from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
+                                  ABCDocstMeta)
 from urllib.parse import urlsplit
 from base64 import b64encode, b64decode
 import json
@@ -22,7 +24,7 @@ import urllib.parse
 
 log = logging.getLogger(__name__)
 
-class Backend(AbstractBackend):
+class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """A backend to store data in OpenStack Swift
     
     The backend guarantees get after create consistency, i.e. a newly created
@@ -93,18 +95,8 @@ class Backend(AbstractBackend):
         
         return (hostname, port, containername, prefix)
 
+    @copy_ancestor_docstring
     def is_temp_failure(self, exc): #IGNORE:W0613
-        '''Return true if exc indicates a temporary error
-    
-        Return true if the given exception indicates a temporary problem. Most instance methods
-        automatically retry the request in this case, so the caller does not need to worry about
-        temporary failures.
-        
-        However, in same cases (e.g. when reading or writing an object), the request cannot
-        automatically be retried. In these case this method can be used to check for temporary
-        problems and so that the request can be manually restarted if applicable.
-        '''
-
         if isinstance(exc, AuthenticationExpired):
             return True
 
@@ -220,11 +212,8 @@ class Backend(AbstractBackend):
             raise HTTPError(resp.status, resp.reason, resp.getheaders(), resp.read())
      
     @retry 
+    @copy_ancestor_docstring
     def lookup(self, key):
-        """Return metadata for given key.
-
-        If the key does not exist, `NoSuchObject` is raised.
-        """
         log.debug('lookup(%s)', key)
 
         try:
@@ -239,9 +228,8 @@ class Backend(AbstractBackend):
         return extractmeta(resp)
 
     @retry
+    @copy_ancestor_docstring
     def get_size(self, key):
-        '''Return size of object stored under *key*'''
-
         log.debug('get_size(%s)', key)
 
         try:
@@ -259,14 +247,8 @@ class Backend(AbstractBackend):
         raise RuntimeError('HEAD request did not return Content-Length')
     
     @retry
+    @copy_ancestor_docstring
     def open_read(self, key):
-        ''''Open object for reading
-
-        Return a tuple of a file-like object. Backend contents can be read from
-        the file-like object, metadata is stored in its *metadata* attribute and
-        can be modified by the caller at will. The object must be closed explicitly.
-        '''
-
         try:
             resp = self._do_request('GET', '/%s%s' % (self.prefix, key))
         except HTTPError as exc:
@@ -276,20 +258,12 @@ class Backend(AbstractBackend):
 
         return ObjectR(key, resp, self, extractmeta(resp))
 
+    @prepend_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
-        """Open object for writing
-
-        `metadata` can an additional (pickle-able) python object to store with
-        the data. Returns a file- like object. The object must be closed closed
-        explicitly. After closing, the *get_obj_size* may be used to retrieve
-        the size of the stored object (which may differ from the size of the
-        written data).
-        
-        The *is_compressed* parameter indicates that the caller is going to
-        write compressed data, and may be used to avoid recompression by the
-        backend.
         """
-        
+        The returned object will buffer all data and only start the upload
+        when its `close` method is called.
+        """
         log.debug('open_write(%s): start', key)
         
         # We don't store the metadata keys directly, because HTTP headers
@@ -307,8 +281,8 @@ class Backend(AbstractBackend):
 
         return ObjectW(key, self, headers)
 
+    @copy_ancestor_docstring
     def clear(self):
-        """Delete all objects in backend"""
         
         # We have to cache keys, because otherwise we can't use the
         # http connection to delete keys.
@@ -322,13 +296,8 @@ class Backend(AbstractBackend):
             self.delete(s3key, True)
 
     @retry
+    @copy_ancestor_docstring
     def delete(self, key, force=False):
-        """Delete object stored under `key`
-
-        ``backend.delete(key)`` can also be written as ``del backend[key]``.
-        If `force` is true, do not return an error if the key does not exist.
-        """
-
         log.debug('delete(%s)', key)
         try:
             resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
@@ -340,13 +309,8 @@ class Backend(AbstractBackend):
                 raise
 
     @retry
+    @copy_ancestor_docstring
     def copy(self, src, dest):
-        """Copy data stored under key `src` to key `dest`
-        
-        If `dest` already exists, it will be overwritten. The copying
-        is done on the remote side. 
-        """
-
         log.debug('copy(%s, %s): start', src, dest)
 
         try:
@@ -360,12 +324,8 @@ class Backend(AbstractBackend):
                 raise NoSuchObject(src) from None
             raise
 
+    @copy_ancestor_docstring
     def list(self, prefix=''):
-        '''List keys in backend
-
-        Returns an iterator over all keys in the backend. This method
-        handles temporary errors.
-        '''
 
         log.debug('list(%s): start', prefix)
 
