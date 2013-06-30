@@ -24,7 +24,6 @@ import hashlib
 import hmac
 import http.client
 import lzma
-import math
 import os
 import pickle
 import re
