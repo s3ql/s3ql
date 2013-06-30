@@ -1289,7 +1289,7 @@ def get_backend_factory(options, plain=False):
         # Do not use backend.lookup(), this would use a HEAD request and
         # not provide any useful error messages if something goes wrong
         # (e.g. wrong credentials)
-        _ = backend['s3ql_passphrase']
+        backend.fetch('s3ql_passphrase')
         
     except DanglingStorageURLError as exc:
         raise QuietError(str(exc)) from None
