@@ -36,6 +36,7 @@ import sys
 import threading
 import time
 import zlib
+import textwrap
 
 log = logging.getLogger(__name__)
 
@@ -80,16 +81,24 @@ def retry(fn):
 
     # False positive
     #pylint: disable=E1101
-    s = '''
-This method has been decorated and will automatically recall itself in
-increasing intervals for up to s3ql.backends.common.RETRY_TIMEOUT seconds if it
-raises an exception for which the instance's `is_temp_failure` method returns
-True.
-'''
+    s = ('This method has been decorated and will automatically recall itself in '
+         'increasing intervals for up to s3ql.backends.common.RETRY_TIMEOUT '
+         'seconds if it raises an exception for which the instance\'s '
+         '`is_temp_failure` method returns True.')
     if wrapped.__doc__ is None:
-        wrapped.__doc__ = s
-    else:
-        wrapped.__doc__ += s
+        wrapped.__doc__ = ''
+        
+    # Figure out proper indentation
+    indent = 60
+    for line in wrapped.__doc__.splitlines()[1:]:
+        stripped = line.lstrip()
+        if stripped:
+            indent = min(indent, len(line) - len(stripped))
+
+    indent_s = '\n' + ' ' * indent
+    wrapped.__doc__ += ''.join(indent_s + line
+                               for line in textwrap.wrap(s, width=80 - indent))
+    wrapped.__doc__ += '\n'
 
     return wrapped
 
