@@ -79,12 +79,17 @@ def retry(fn):
 
     # False positive
     #pylint: disable=E1101
-    wrapped.__doc__ += '''
+    s = '''
 This method has been decorated and will automatically recall itself in
 increasing intervals for up to s3ql.backends.common.RETRY_TIMEOUT seconds if it
 raises an exception for which the instance's `is_temp_failure` method returns
 True.
 '''
+    if wrapped.__doc__ is None:
+        wrapped.__doc__ = s
+    else:
+        wrapped.__doc__ += s
+
     return wrapped
 
 def is_temp_network_error(exc):
