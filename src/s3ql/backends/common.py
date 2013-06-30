@@ -390,6 +390,29 @@ class AbstractBackend(object, metaclass=ABCMeta):
         """
         pass
 
+    def delete_multi(self, keys, force=False):
+        """Delete objects stored under `keys`
+
+        Deleted objects are removed from the *keys* list, so that the caller can
+        determine which objects have not yet been processed if an exception is
+        occurs.
+        
+        If *force* is True, attempts to delete non-existing objects will
+        succeed.
+        """
+
+        if not isinstance(keys, list):
+            raise TypeError('*keys* parameter must be a list')
+
+        for (i, key) in enumerate(keys):
+            try:
+                self.delete(key, force=force)
+            except:
+                del keys[:i]
+                raise
+
+        del keys[:]
+    
     @abstractmethod
     def list(self, prefix=''):
         '''List keys in backend
@@ -632,6 +655,18 @@ class BetterBackend(AbstractBackend):
         """
         return self.backend.delete(key, force)
 
+    def delete_multi(self, keys, force=False):
+        """Delete objects stored under `keys`
+
+        Deleted objects are removed from the *keys* list, so that the caller can
+        determine which objects have not yet been processed if an exception is
+        occurs.
+        
+        If *force* is True, attempts to delete non-existing objects will
+        succeed.
+        """
+        return self.backend.delete_multi(keys, force=force)
+    
     def list(self, prefix=''):
         '''List keys in backend
 
