@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging # Ensure use of custom logger class
-from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL
+from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL, ChecksumError
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from Crypto.Cipher import AES
@@ -18,7 +18,6 @@ from contextlib import contextmanager
 from functools import wraps
 from getpass import getpass
 from io import BytesIO
-from s3ql.common import ChecksumError
 import bz2
 import ssl
 import configparser
