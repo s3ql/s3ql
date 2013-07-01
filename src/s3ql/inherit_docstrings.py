@@ -14,6 +14,7 @@ to inherit the docstring for a function from the superclass.
 
 from functools import partial
 from abc import ABCMeta
+from .calc_mro import calc_mro
 
 __all__ = [ 'copy_ancestor_docstring', 'prepend_ancestor_docstring',
             'InheritableDocstrings', 'ABCDocstMeta' ]
@@ -87,11 +88,7 @@ class InheritableDocstrings(type):
     @classmethod
     def __prepare__(cls, name, bases, **kwds):
         classdict = super().__prepare__(name, bases, *kwds)
-
-        # Construct temporary dummy class to figure out MRO
-        mro = type('K', bases, {}).__mro__[1:]
-        assert mro[-1] == object
-        mro = mro[:-1]
+        mro = calc_mro(*bases)
 
         # Inject decorators into class namespace
         for (name, fn) in DECORATORS:
@@ -101,9 +98,9 @@ class InheritableDocstrings(type):
 
     def __new__(cls, name, bases, classdict):
         for (dec_name, fn) in DECORATORS:
-            # Constructors may not exist in class dict if the class (metaclass
-            # instance) was constructed with an explicit call to `type` (as we
-            # do in `__prepare__` to figure out the MRO)
+            # Decorators may not exist in class dict if the class (metaclass
+            # instance) was constructed with an explicit call to `type`
+            # (Pythonbug? reported as http://bugs.python.org/issue18334)
             if dec_name not in classdict:
                 continue
             
