@@ -401,8 +401,10 @@ class AbstractBackend(object, metaclass=ABCMeta):
     def delete(self, key, force=False):
         """Delete object stored under `key`
 
-        ``backend.delete(key)`` can also be written as ``del backend[key]``.
-        If `force` is true, do not return an error if the key does not exist.
+        ``backend.delete(key)`` can also be written as ``del backend[key]``.  If
+        `force` is true, do not return an error if the key does not exist. Note,
+        however, that even if *force* is False, it is not guaranteed that an
+        attempt to delete a non-existing object will raise an error.
         """
         pass
 
@@ -414,7 +416,9 @@ class AbstractBackend(object, metaclass=ABCMeta):
         occurs.
         
         If *force* is True, attempts to delete non-existing objects will
-        succeed.
+        succeed. Note, however, that even if *force* is False, it is not
+        guaranteed that an attempt to delete a non-existing object will raise an
+        error.
         """
 
         if not isinstance(keys, list):
