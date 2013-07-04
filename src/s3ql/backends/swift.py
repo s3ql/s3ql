@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging # Ensure use of custom logger class
-from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL
+from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL, md5sum
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, 
     DanglingStorageURLError, is_temp_network_error, ChecksumError)
 from .s3c import HTTPError, ObjectR, ObjectW
@@ -159,6 +159,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         if not body:
             headers['content-length'] = '0'
+        elif isinstance(body, (str, bytes, bytearray, memoryview)):
+            if isinstance(body, str):
+                body = body.encode('ascii')
+            headers['content-length'] = '%d' % (len(body))
+            headers['content-md5'] = b64encode(md5sum(body)).decode('ascii')
 
         if self.conn is None:
             log.debug('_do_request(): no active connection, calling _get_conn()')
