@@ -21,9 +21,6 @@ log = logging.getLogger(__name__)
 # Maximum number of keys that can be deleted at once
 MAX_KEYS = 1000
 
-# Namespace used in server responses
-S3NS = '{http://s3.amazonaws.com/doc/2006-03-01/}'
-
 # Pylint goes berserk with false positives
 #pylint: disable=E1002,E1101
               
@@ -88,8 +85,9 @@ class Backend(s3c.Backend):
                 raise RuntimeError('unexpected content type: %s' % resp.getheader('Content-Type'))
             
             root = ElementTree.parse(resp)
-
-            error_tags = root.findall(S3NS + 'Error')
+            ns_p = self.xml_ns_prefix
+            
+            error_tags = root.findall(ns_p + 'Error')
             if not error_tags:
                 # No errors occured, everything has been deleted
                 del keys[:]
@@ -98,8 +96,8 @@ class Backend(s3c.Backend):
             # Some errors occured, so we need to determine what has
             # been deleted and what hasn't
             offset = len(self.prefix)
-            for tag in root.findall(S3NS + 'Deleted'):
-                fullkey = tag.find(S3NS + 'Key').text
+            for tag in root.findall(ns_p + 'Deleted'):
+                fullkey = tag.find(ns_p + 'Key').text
                 assert fullkey.startswith(self.prefix)
                 keys.remove(fullkey[offset:])
 
@@ -109,9 +107,9 @@ class Backend(s3c.Backend):
                 return
 
             # Otherwise raise exception for the first error
-            errcode = error_tags[0].find(S3NS + 'Code')
-            errmsg = error_tags[0].find(S3NS + 'Message')
-            errkey = error_tags[0].find(S3NS + 'Key')[offset:]
+            errcode = error_tags[0].find(ns_p + 'Code')
+            errmsg = error_tags[0].find(ns_p + 'Message')
+            errkey = error_tags[0].find(ns_p + 'Key')[offset:]
 
             if errcode == 'NoSuchKeyError':
                 raise NoSuchObject(errkey)

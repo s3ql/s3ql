@@ -28,7 +28,7 @@ class Backend(s3c.Backend):
     def __init__(self, storage_url, gs_key, gs_secret, ssl_context):
         super().__init__(storage_url, gs_key, gs_secret, ssl_context)
 
-        self.namespace = 'http://doc.s3.amazonaws.com/2006-03-01'
+        self.xml_ns_prefix = '{http://doc.s3.amazonaws.com/2006-03-01}'
 
     @staticmethod
     def _parse_storage_url(storage_url, ssl_context):
@@ -40,7 +40,7 @@ class Backend(s3c.Backend):
         hostname = '%s.commondatastorage.googleapis.com' % bucket_name
         prefix = hit.group(2) or ''
         port = 443 if ssl_context else 80
-        return (hostname, port, bucket_name, prefix)        
+        return (hostname, port, bucket_name, prefix)
 
     def __str__(self):
         return 'Google Storage bucket %s, prefix %s' % (self.bucket_name, self.prefix)

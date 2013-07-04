@@ -59,7 +59,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         self.password = password
         self.login = login
-        self.namespace = 'http://s3.amazonaws.com/doc/2006-03-01/'
+        self.xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
 
     @staticmethod
     def _parse_storage_url(storage_url, ssl_context):
@@ -168,6 +168,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         keys_remaining = True
         marker = start
         prefix = self.prefix + prefix
+        ns_p = self.xml_ns_prefix
 
         while keys_remaining:
             log.debug('list(%s): requesting with marker=%s', prefix, marker)
@@ -183,20 +184,16 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             itree = iter(ElementTree.iterparse(resp, events=("start", "end")))
             (event, root) = next(itree)
 
-            namespace = re.sub(r'^\{(.+)\}.+$', r'\1', root.tag)
-            if namespace != self.namespace:
-                raise RuntimeError('Unsupported namespace: %s' % namespace)
-
             try:
                 for (event, el) in itree:
                     if event != 'end':
                         continue
 
-                    if el.tag == '{%s}IsTruncated' % self.namespace:
+                    if el.tag == ns_p + 'IsTruncated':
                         keys_remaining = (el.text == 'true')
 
-                    elif el.tag == '{%s}Contents' % self.namespace:
-                        marker = el.findtext('{%s}Key' % self.namespace)
+                    elif el.tag == ns_p + 'Contents':
+                        marker = el.findtext(ns_p + 'Key')
                         yield marker[len(self.prefix):]
                         root.clear()
 
