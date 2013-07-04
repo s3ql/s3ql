@@ -75,3 +75,9 @@ Known Issues
   S3QL first writes data into the cache, it can no longer return an
   error when it later turns out that the cache can not be committed to
   the backend.
+
+* A malicious backend server can easily execute denial of service
+  attacks against a client running S3QL. This is a result of S3QL
+  using Python's ElementTree XML parser, which is `vulnerable to
+  entity expansion attacks
+  <http://docs.python.org/3/library/xml.html#xml-vulnerabilities>`_.
