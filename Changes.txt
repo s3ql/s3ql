@@ -8,6 +8,10 @@ UNRELEASED, S3QL tip
   * Attempting to run mount.s3ql with --allow-user but without having
     the necessary permissions no longer results in the file system
     being marked as needing fsck.
+
+  * The S3 backend now deletes multiple storage objects using one
+    request if possible, reducing latency, traffic and number of
+    requests to S3.
   
 2013-06-14, S3QL 2.1 (beta)
 

@@ -117,7 +117,60 @@ class BackendTestsMixin(object):
         self.retry(lambda: self.assertFalse(key in self.backend),
                    AssertionError)
 
+        
+    def test_delete_multi(self):
+        keys = [ self.newname() for _ in range(5) ]
+        value = self.newvalue()
 
+        for key in keys:
+            self.backend[key] = value
+        for key in keys:
+            self.retry(lambda: self.assertTrue(key in self.backend), AssertionError)
+
+        tmp = keys[:2]
+        self.backend.delete_multi(tmp)
+        self.assertEqual(len(tmp), 0)
+
+        for key in keys[:2]:
+            self.retry(lambda: self.assertFalse(key in self.backend),
+                       AssertionError)
+
+        for key in keys[2:]:
+            self.retry(lambda: self.assertTrue(key in self.backend), AssertionError)
+
+            
+    def test_delete_multi2(self):
+        keys = [ self.newname() for _ in range(5) ]
+        non_existing = self.newname()
+        value = self.newvalue()
+
+        for key in keys:
+            self.backend[key] = value
+        for key in keys:
+            self.retry(lambda: self.assertTrue(key in self.backend), AssertionError)
+
+        tmp = keys[:2]
+        tmp.insert(1, non_existing)
+        try:
+            # We don't use force=True but catch the exemption to increase the
+            # chance that some existing objects are not deleted because of the
+            # error.
+            self.backend.delete_multi(tmp)
+        except NoSuchObject:
+            pass
+        
+        for key in keys[:2]:
+            if key in tmp:
+                self.retry(lambda: self.assertTrue(key in self.backend),
+                           AssertionError)
+            else:
+                self.retry(lambda: self.assertTrue(key not in self.backend),
+                           AssertionError)
+
+        for key in keys[2:]:
+            self.retry(lambda: self.assertTrue(key in self.backend), AssertionError)
+
+            
     def test_clear(self):
         key1 = self.newname()
         key2 = self.newname()
