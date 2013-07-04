@@ -75,3 +75,9 @@ Known Issues
   bucket initial performance is often very bad (cf. `issue 363
   <http://code.google.com/p/s3ql/issues/detail?id=363>`_). This
   problem typically disappears after 1 -- 2 days.
+
+* A malicious backend server can easily execute denial of service
+  attacks against a client running S3QL. This is a result of S3QL
+  using Python's ElementTree XML parser, which is `vulnerable to
+  entity expansion attacks
+  <http://docs.python.org/3/library/xml.html#xml-vulnerabilities>`_.
