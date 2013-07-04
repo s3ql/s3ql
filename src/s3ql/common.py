@@ -205,6 +205,15 @@ def sha256_fh(fh):
 
     return sha.digest()
 
+def md5sum(buf):
+    '''Return md5 sum for *buf*'''
+    
+    if not isinstance(buf, (bytes, bytearray, memoryview)):
+        raise TypeError("Expected binary data, got %s" % type(buf))
+
+    md5 = hashlib.md5()
+    md5.update(buf)
+    return md5.digest()
 
 def assert_s3ql_fs(path):
     '''Raise `QuietError` if *path* is not on an S3QL file system
