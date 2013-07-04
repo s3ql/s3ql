@@ -248,7 +248,7 @@ class BlockCache(object):
             t.start()
             self.upload_threads.append(t)
 
-        self.to_remove = Queue(250)
+        self.to_remove = Queue(1000)
         for _ in range(10):
             t = threading.Thread(target=self._removal_loop)
             t.daemon = True # interruption will do no permanent harm
