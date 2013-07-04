@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 # False positives, pylint doesn't grok that these are module names
 #pylint: disable=E0603
-__all__ = [ 'adm', 'backends', 'block_cache', 'common',
+__all__ = [ 'adm', 'backends', 'block_cache', 'common', 'inherit_docstrings',
             'cp', 'ctrl', 'daemonize', 'database', 'deltadump', 
             'fs', 'fsck', 'inode_cache', 'lock', 'logging', 'metadata',
             'mkfs', 'mount', 'parse_args', 'remove', 'statfs', 'umount', 
