@@ -25,7 +25,7 @@ class BackendTestsMixin(object):
     def newname(self):
         self.name_cnt += 1
         # Include special characters
-        return "s3ql_=/_%d" % self.name_cnt
+        return "s3ql/<tag=%d>/!sp ace_'quote\":_&end\\" % self.name_cnt
 
     def newvalue(self):
         return self.newname().encode()
