@@ -120,7 +120,7 @@ def main(args=None):
         threads.append(t)
     
     for (i, key) in enumerate(src_backends[-1]):
-        if sys.stdout.isatty():
+        if i % 500 == 0 and sys.stdout.isatty():
             sys.stdout.write('\rCopied %d objects so far...' % i)
             sys.stdout.flush()
         queue.put(key)

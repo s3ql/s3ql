@@ -833,7 +833,7 @@ class Fsck(object):
         try:
             for (i, obj_name) in enumerate(self.backend.list('s3ql_data_')):
 
-                if sys.stdout.isatty():
+                if i % 500 == 0 and sys.stdout.isatty():
                     sys.stdout.write('\r..processed %d objects so far..' % i)
                     sys.stdout.flush()
 
