@@ -26,6 +26,8 @@ class Backend(s3c.Backend):
     consistency.
     """
 
+    use_expect_100c = False
+    
     def __init__(self, storage_url, gs_key, gs_secret, use_ssl):
         super(Backend, self).__init__(storage_url, gs_key, gs_secret, use_ssl)
 

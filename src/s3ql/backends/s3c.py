@@ -14,6 +14,7 @@ from .common import DanglingStorageURLError
 from base64 import b64encode
 from email.utils import parsedate_tz, mktime_tz
 from urlparse import urlsplit
+from httplib import _MAXLINE, CONTINUE, LineTooLong
 import hashlib
 import hmac
 import httplib
@@ -40,7 +41,12 @@ class Backend(AbstractBackend):
     This class uses standard HTTP connections to connect to GS.
     
     The backend guarantees only immediate get after create consistency.
+
+    If the *expect_100c* class variable is True, the 'Expect: 100-continue'
+    header is used to check for error codes before uploading payload data.
     """
+
+    use_expect_100c = True
 
     def __init__(self, storage_url, login, password, use_ssl):
         super(Backend, self).__init__()
@@ -485,16 +491,112 @@ class Backend(AbstractBackend):
             path += '?%s' % subres
 
         try:
-            log.debug('_send_request(): sending request for %s', path)
-            self.conn.request(method, path, body, headers)
+            if body is None or not self.use_expect_100c or isinstance(body, bytes):
+                # Easy case, small or no payload
+                log.debug('_send_request(): processing request for %s', path)
+                self.conn.request(method, path, body, headers)
+                return self.conn.getresponse()
 
-            log.debug('_send_request(): Reading response..')
-            return self.conn.getresponse()
+            # Potentially big message body, so we use 100-continue
+            log.debug('_send_request(): sending request for %s', path)
+            self.conn.putrequest(method, path)
+            headers['expect'] = '100-continue'
+            for (hdr, value) in headers.items():
+                self.conn.putheader(hdr, value)
+            self.conn.endheaders(None)
+
+            log.debug('_send_request(): Waiting for 100-cont..')
+
+            # Sneak in our own response class as instance variable,
+            # so that it knows about the body that still needs to
+            # be sent...
+            resp = HTTPResponse(self.conn.sock, body)
+            native_response_class = self.conn.response_class
+            self.conn.response_class = resp
+            assert self.conn.getresponse() is resp
+            self.conn.response_class = native_response_class
+            return resp
+            
         except:
             # We probably can't use the connection anymore
             self.conn.close()
             raise
         
+class HTTPResponse(httplib.HTTPResponse):
+    '''
+    This class provides a HTTP Response object that supports waiting for
+    "100 Continue" and then sending the request body.
+
+    The http.client.HTTPConnection module is almost impossible to extend,
+    because the __response and __state variables are mangled. Implementing
+    support for "100-Continue" doesn't fit into the existing state
+    transitions.  Therefore, it has been implemented in a custom
+    HTTPResponse class instead.
+
+    Even though HTTPConnection allows to define a custom HTTPResponse class, it
+    doesn't provide any means to pass extra information to the response
+    constructor. Therefore, we instantiate the response manually and save the
+    instance in the `response_class` attribute of the connection instance. We
+    turn the class variable holding the response class into an instance variable
+    holding the response instance. Only after the response instance has been
+    created, we call the connection's `getresponse` method. Since this method
+    doesn't know about the changed semantics of `response_class`, HTTPResponse
+    instances have to fake an instantiation by just returning itself when called.
+    '''
+
+    def __init__(self, sock, body):
+        self.sock = sock
+        self.body = body
+        self.__cached_status = None
+        
+    def __call__(self, sock, *a, **kw):
+        '''Fake object instantiation'''
+
+        assert self.sock is sock
+
+        httplib.HTTPResponse.__init__(self, sock, *a, **kw)
+
+        return self
+
+    def _read_status(self):
+        if self.__cached_status is None:
+            self.__cached_status = httplib.HTTPResponse._read_status(self)
+
+        return self.__cached_status
+
+    def begin(self):
+        log.debug('Waiting for 100-continue...')
+
+        (version, status, reason) = self._read_status()
+        if status != CONTINUE:
+            # Oops, error. Let regular code take over
+            return httplib.HTTPResponse.begin(self)
+
+        # skip the header from the 100 response
+        while True:
+            skip = self.fp.readline(_MAXLINE + 1)
+            if len(skip) > _MAXLINE:
+                raise LineTooLong("header line")
+            skip = skip.strip()
+            if not skip:
+                break
+            log.debug('Got 100 continue header: %s', skip)
+
+        # Send body
+        if not hasattr(self.body, 'read'):
+            self.sock.sendall(self.body)
+        else:
+            while True:
+                buf = self.body.read(BUFSIZE)
+                if not buf:
+                    break
+                self.sock.sendall(buf)
+
+        # *Now* read the actual response
+        self.__cached_status = None
+        return httplib.HTTPResponse.begin(self)
+
+                
 class ObjectR(object):
     '''An S3 object open for reading'''
 

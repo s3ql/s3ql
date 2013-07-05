@@ -9,6 +9,11 @@ UNRELEASED, S3QL tip
     the necessary permissions no longer results in the file system
     being marked as needing fsck.
 
+  * S3QL is now able to detect server errors and redirections before
+    all data has been sent to the server. This avoids pointless data
+    transfers and should fix a problem with S3QL operating very slow
+    when operating on recently created storage buckets/containers.
+
 2013-05-27, S3QL 1.15
 
   * Cycling of metadata backups when using the local backend now
