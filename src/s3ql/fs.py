@@ -783,8 +783,8 @@ class Operations(llfuse.Operations):
         if log.isEnabledFor(logging.DEBUG):
             log.debug('setattr(%d, %s): start', id_,
                       ', '.join('%s=%r' % (x, getattr(attr, x)) 
-                                for x in attr.__slots__
-                                if getattr(attr, x) is not None ))
+                                for x in dir(attr)
+                                if x.startswith('st_') and getattr(attr, x) is not None ))
 
         inode = self.inodes[id_]
         timestamp = time.time()
