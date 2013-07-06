@@ -251,7 +251,11 @@ class fuse_tests(unittest.TestCase):
 
         # Give mount process a little while to terminate
         if self.mount_process is not None:
-            retry(10, lambda : self.mount_process.poll() is not None)
+            try:
+                retry(90, lambda : self.mount_process.poll() is not None)
+            except TimeoutError:
+                # Ignore errors  during teardown
+                pass
 
         shutil.rmtree(self.cache_dir)
         shutil.rmtree(self.backend_dir)
