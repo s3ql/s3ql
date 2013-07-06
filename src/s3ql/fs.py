@@ -352,6 +352,11 @@ class Operations(llfuse.Operations):
         while queue: # For every directory
             found_subdirs = False # Does current directory have subdirectories?
             id_p = queue.pop()
+            if id_p in self.open_inodes:
+                inval_entry = lambda x: llfuse.invalidate_entry(id_p, x)
+            else:
+                inval_entry = lambda x: None
+            
             with self.db.query('SELECT name_id, inode FROM contents WHERE '
                                'parent_inode=?', (id_p,)) as res:
                 for (name_id, id_) in res:
@@ -366,8 +371,7 @@ class Operations(llfuse.Operations):
     
                     else:
                         name = self.db.get_val("SELECT name FROM names WHERE id=?", (name_id,))
-                        if id_p in self.open_inodes:
-                            llfuse.invalidate_entry(id_p, name)
+                        inval_entry(name)
                         self._remove(id_p, name, id_, force=True)
     
                     processed += 1
