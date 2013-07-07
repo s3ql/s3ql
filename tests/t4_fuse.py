@@ -223,7 +223,7 @@ class fuse_tests(unittest.TestCase):
             retry(5, lambda: subprocess.call(['fuser', '-m', self.mnt_dir],
                                              stdout=devnull, stderr=devnull) == 1)
 
-        proc = subprocess.Popen([os.path.join(BASEDIR, 'bin', 'umount.s3ql'),
+        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'umount.s3ql'),
                                  '--quiet', self.mnt_dir])
         retry(90, lambda : proc.poll() is not None)
         self.assertEqual(proc.wait(), 0)
