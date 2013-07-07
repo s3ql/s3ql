@@ -111,6 +111,75 @@ def extend_docstring(fun, s):
     fun.__doc__ += '\n'
 
 
+class RetryIterator:
+    '''
+    A RetryIterator instance iterates over the elements produced by any
+    generator function passed to its constructor, i.e. it wraps the iterator
+    obtained by calling the generator function.  When retrieving elements from the
+    wrapped iterator, exceptions may occur. Most such exceptions are
+    propagated. However, exceptions for which the *is_temp_failure_fn* function
+    returns True are caught. If that happens, the wrapped iterator is replaced
+    by a new one obtained by calling the generator function again with the
+    *start_after* parameter set to the last element that was retrieved before
+    the exception occured.
+
+    If attempts to retrieve the next element fail repeatedly, the iterator is
+    replaced only after sleeping for increasing intervals. If no new element can
+    be obtained after `RETRY_TIMEOUT` seconds, the last exception is no longer
+    caught but propagated to the caller. This behavior is implemented by
+    wrapping the __next__ method with the `retry` decorator.
+    '''
+
+    def __init__(self, generator, is_temp_failure_fn, args=(), kwargs=None):
+        if not inspect.isgeneratorfunction(generator):
+            raise TypeError('*generator* must be generator function')
+        
+        self.generator = generator
+        self.iterator = None
+        self.is_temp_failure = is_temp_failure_fn
+        if kwargs is None:
+            kwargs = {}
+        self.kwargs = kwargs
+        self.args = args
+        
+    def __iter__(self):
+        return self
+
+    @retry
+    def __next__(self):
+        if self.iterator is None:
+            self.iterator = self.generator(*self.args, **self.kwargs)
+
+        try:
+            el = next(self.iterator)
+        except Exception as exc:
+            if self.is_temp_failure(exc):
+                self.iterator = None
+            raise
+            
+        self.kwargs['start_after'] = el
+        return el
+
+
+def retry_generator(method):
+    '''Wrap *method* in a `RetryIterator`
+
+    *method* must return a generator, and accept a keyword argument
+    *start_with*. The RetryIterator's `is_temp_failure` attribute
+    will be set to the `is_temp_failure` method of the instance
+    to which *method* is bound.
+    '''
+
+    @wraps(method)
+    def wrapped(*a, **kw):
+        return RetryIterator(method, a[0].is_temp_failure, args=a, kwargs=kw)
+
+    extend_docstring(wrapped,
+                     'This generator method has been wrapped and will return a '
+                     '`RetryIterator` instance.')
+
+    return wrapped
+
 
 def is_temp_network_error(exc):
     '''Return true if *exc* represents a potentially temporary network problem'''
