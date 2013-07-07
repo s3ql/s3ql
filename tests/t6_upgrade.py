@@ -182,3 +182,6 @@ class SwiftUpgradeTest(RemoteUpgradeTest, UpgradeTest):
     def setUp(self):
         super().setUp('swift-test')
         
+class RackspaceUpgradeTest(RemoteUpgradeTest, UpgradeTest):
+    def setUp(self):
+        super().setUp('rackspace-test')

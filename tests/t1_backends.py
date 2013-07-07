@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from s3ql.backends import local, s3, gs, s3c, swift
+from s3ql.backends import local, s3, gs, s3c, swift, rackspace
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBackend, get_ssl_context, AuthenticationError, AuthorizationError,
     DanglingStorageURLError, MalformedObjectError)
@@ -321,6 +321,12 @@ class SwiftTests(S3Tests):
 
         self.setUp2(swift.Backend, 'swift-test')
 
+class RackspaceTests(S3Tests):
+    def setUp(self):
+        self.name_cnt = 0
+        self.retries = 90
+
+        self.setUp2(rackspace.Backend, 'rackspace-test')
 
 class GSTests(S3Tests):
     def setUp(self):

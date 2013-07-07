@@ -122,13 +122,27 @@ S3QL file systems in the same container.
 Rackspace CloudFiles
 ====================
 
-Rackspace_ CloudFiles uses OpenStack_ internally, so you can use the
-OpenStack/Swift backend (see above). The hostname for CloudFiles
-containers is ``auth.api.rackspacecloud.com``. Use your normal
-Rackspace user name for the backend login, and your Rackspace API key
-as the backend passphrase. You can create a storage container for S3QL
-using the `Control Panel <https://manage.rackspacecloud.com/>`_ (go to
-*Cloud Files* under *Hosting*).
+Rackspace_ CloudFiles uses OpenStack_ internally, so it is possible to
+just use the OpenStack/Swift backend (see above) with
+``auth.api.rackspacecloud.com`` as the host name and your rackspace
+API key as the backend passphrase. However, in this case you are
+restricted to using containers in the default storage region.
+
+To access containers in other storage regions, there is a special
+``rackspace`` backend that uses a storage URL of the form ::
+
+The storage URL for the OpenStack backend has the form ::
+  
+   rackspace://<region>/<container>[/<prefix>]
+
+The storage container must already exist in the selected
+region. *prefix* can be an arbitrary prefix that will be prepended to
+all object names used by S3QL and can be used to store several S3QL
+file systems in the same container.
+
+You can create a storage container for S3QL using the `Cloud Control
+Panel <https://mycloud.rackspace.com/>`_ (click on *Files* in the
+topmost menu bar).
 
 
 .. NOTE::

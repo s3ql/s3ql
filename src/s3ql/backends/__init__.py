@@ -8,4 +8,4 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 
 
-__all__ = [ 'common', 'local', 's3', 'gs', 's3c', 'swift' ]
+__all__ = [ 'common', 'local', 's3', 'gs', 's3c', 'swift', 'rackspace' ]

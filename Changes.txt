@@ -18,6 +18,13 @@ UNRELEASED, S3QL tip
     transfers and should fix a problem with S3QL operating very slow
     when operating on recently created storage buckets/containers.
 
+  * There is a new 'rackspace' backend that allows specification of
+    the object storage region in the storage URL. The rackspace
+    backend also uses a different authentication API than the swift
+    backend (which can still be used for Rackspace as well). When
+    using the 'rackspace' backend, use your regular Rackspace password
+    instead of the API key as the backend password.
+  
 2013-06-14, S3QL 2.1 (beta)
 
   * S3QL now uses SSL connections by default.
