@@ -25,6 +25,8 @@ class Backend(s3c.Backend):
     consistency.
     """
 
+    use_expect_100c = False
+    
     def __init__(self, storage_url, gs_key, gs_secret, ssl_context):
         super().__init__(storage_url, gs_key, gs_secret, ssl_context)
 
@@ -45,3 +47,4 @@ class Backend(s3c.Backend):
     def __str__(self):
         return 'Google Storage bucket %s, prefix %s' % (self.bucket_name, self.prefix)
 
+    

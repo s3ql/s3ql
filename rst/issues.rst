@@ -71,11 +71,6 @@ Known Issues
   error when it later turns out that the cache can not be committed to
   the backend.
 
-* When using the Amazon S3 backend and working with a newly created
-  bucket initial performance is often very bad (cf. `issue 363
-  <http://code.google.com/p/s3ql/issues/detail?id=363>`_). This
-  problem typically disappears after 1 -- 2 days.
-
 * A malicious backend server can easily execute denial of service
   attacks against a client running S3QL. This is a result of S3QL
   using Python's ElementTree XML parser, which is `vulnerable to

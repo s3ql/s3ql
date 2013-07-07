@@ -12,7 +12,12 @@ UNRELEASED, S3QL tip
   * The S3 backend now deletes multiple storage objects using one
     request if possible, reducing latency, traffic and number of
     requests to S3.
-  
+
+  * S3QL is now able to detect server errors and redirections before
+    all data has been sent to the server. This avoids pointless data
+    transfers and should fix a problem with S3QL operating very slow
+    when operating on recently created storage buckets/containers.
+
 2013-06-14, S3QL 2.1 (beta)
 
   * S3QL now uses SSL connections by default.

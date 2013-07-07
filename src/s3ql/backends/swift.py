@@ -10,7 +10,7 @@ from ..logging import logging # Ensure use of custom logger class
 from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL, md5sum
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, 
     DanglingStorageURLError, is_temp_network_error, ChecksumError)
-from .s3c import HTTPError, ObjectR, ObjectW
+from .s3c import HTTPError, ObjectR, ObjectW, HTTPResponse
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from urllib.parse import urlsplit
@@ -184,11 +184,33 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         headers['X-Auth-Token'] = self.auth_token
     
         try:
-            log.debug('_do_request(): %s %s', method, path)
-            self.conn.request(method, path, body, headers)
+            if body is None or isinstance(body, bytes):
+                # Easy case, small or no payload
+                log.debug('_send_request(): processing request for %s', path)
+                self.conn.request(method, path, body, headers)
+                resp = self.conn.getresponse()
+            else:
+                # Potentially big message body, so we use 100-continue
+                log.debug('_send_request(): sending request for %s', path)
+                self.conn.putrequest(method, path)
+                headers['expect'] = '100-continue'
+                for (hdr, value) in headers.items():
+                    self.conn.putheader(hdr, value)
+                self.conn.endheaders(None)
 
-            log.debug('_do_request(): Reading response..')
-            resp = self.conn.getresponse()
+                log.debug('_send_request(): Waiting for 100-cont..')
+
+                # Sneak in our own response class as instance variable,
+                # so that it knows about the body that still needs to
+                # be sent...
+                resp = HTTPResponse(self.conn.sock, body)
+                native_response_class = self.conn.response_class
+                try:
+                    self.conn.response_class = resp
+                    assert self.conn.getresponse() is resp
+                finally:
+                    self.conn.response_class = native_response_class
+            
         except:
             # We probably can't use the connection anymore
             self.conn.close()
