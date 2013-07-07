@@ -286,6 +286,8 @@ class BlockCache(object):
 
         os.rmdir(self.path)
 
+        log.debug('cleanup done.')
+
     def _upload_loop(self):
         '''Process upload queue'''
 
@@ -464,11 +466,13 @@ class BlockCache(object):
         ids = []
         while True:
             try:
+                log.debug('reading from queue (blocking=%s)', len(ids)==0)
                 tmp = self.to_remove.get(block=len(ids)==0)
             except QueueEmtpy:
                 tmp = FlushSentinel
 
-            if tmp is FlushSentinel or tmp is QuitSentinel:
+            if (tmp is FlushSentinel or tmp is QuitSentinel) and ids:
+                log.debug('removing: %s', ids)
                 with self.backend_pool() as backend:
                     backend.delete_multi(['s3ql_data_%d' % i for i in ids])
                 ids = []
