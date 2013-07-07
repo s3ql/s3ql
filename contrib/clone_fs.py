@@ -68,8 +68,6 @@ def copy_loop(queue, src_backend, dst_backend):
         if key is None:
             break
         
-        metadata = src_backend.lookup(key)
-
         log.debug('reading object %s', key)
         def do_read(fh):
             tmpfh.seek(0)
@@ -79,7 +77,8 @@ def copy_loop(queue, src_backend, dst_backend):
                 if not buf:
                     break
                 tmpfh.write(buf)
-        src_backend.perform_read(do_read, key)
+            return fh.metadata
+        metadata = src_backend.perform_read(do_read, key)
         
         log.debug('writing object %s', key)
         def do_write(fh):
