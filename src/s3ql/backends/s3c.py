@@ -491,9 +491,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 self.conn.response_class = native_response_class
             return resp
             
-        except:
-            # We probably can't use the connection anymore
-            self.conn.close()
+        except Exception as exc:
+            if is_temp_network_error(exc):
+                # We probably can't use the connection anymore
+                self.conn.close()
             raise
 
         

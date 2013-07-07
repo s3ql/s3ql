@@ -211,9 +211,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 finally:
                     self.conn.response_class = native_response_class
             
-        except:
-            # We probably can't use the connection anymore
-            self.conn.close()
+        except Exception as exc:
+            if is_temp_network_error(exc):
+                # We probably can't use the connection anymore
+                self.conn.close()
             raise
     
         # We need to call read() at least once for httplib to consider this
