@@ -142,7 +142,7 @@ class RemoteUpgradeTest:
         self.backend_login_str = '%s\n%s' % (backend_login, backend_pw)
         
     def runTest(self):
-        populate_dir(self.ref_dir, entries=500, size=5*1024*1024)
+        populate_dir(self.ref_dir, entries=50, size=5*1024*1024)
 
         # Create and mount using previous S3QL version
         self.mkfs_old()
