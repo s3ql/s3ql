@@ -7,11 +7,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 import logging
-from cgitb import scanvars, __UNDEF__
-import inspect
-import linecache
-import pydoc
-import warnings
 import sys
 
 # Logging messages with severities larger or equal
@@ -94,81 +89,6 @@ def setup_logging(options):
         
     return stdout_handler
 
-
-# Adapted from cgitb.text, but less verbose
-def format_tb(einfo):
-    """Return a plain text document describing a given traceback."""
-
-    etype, evalue, etb = einfo
-    if type(etype) is type:
-        etype = etype.__name__
-
-    frames = [ 'Traceback (most recent call last):' ]
-    records = inspect.getinnerframes(etb, context=7)
-    for (frame, file_, lnum, func, lines, index) in records:
-        (args, varargs, varkw, locals_) = inspect.getargvalues(frame)
-        sig = inspect.formatargvalues(args, varargs, varkw, locals_,
-                                      formatvalue=lambda value: '=' + pydoc.text.repr(value))
-
-        rows = ['  File %r, line %d, in %s%s' % (file_, lnum, func, sig) ]
-
-        # To print just current line
-        if index is not None:
-            rows.append('    %s' % lines[index].strip())
-
-#        # To print with context:
-#        if index is not None:
-#            i = lnum - index
-#            for line in lines:
-#                num = '%5d ' % i
-#                rows.append(num+line.rstrip())
-#                i += 1
-
-        def reader(lnum=[lnum]): #pylint: disable=W0102
-            try:
-                return linecache.getline(file_, lnum[0])
-            finally:
-                lnum[0] += 1
-
-        printed = set()
-        rows.append('  Current bindings:')
-        for (name, where, value) in scanvars(reader, frame, locals_):
-            if name in printed:
-                continue
-            printed.add(name)
-            if value is not __UNDEF__:
-                if where == 'global':
-                    where = '(global)'
-                elif where != 'local':
-                    name = where + name.split('.')[-1]
-                    where = '(local)'
-                else:
-                    where = ''
-                rows.append('    %s = %s %s' % (name, pydoc.text.repr(value), where))
-            else:
-                rows.append(name + ' undefined')
-
-        rows.append('')
-        frames.extend(rows)
-
-    exception = ['Exception: %s: %s' % (etype.__name__, evalue)]
-    if isinstance(evalue, BaseException):
-
-        # We may list deprecated attributes when iteracting, but obviously
-        # we do not need any warnings about that.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-
-            for name in dir(evalue):
-                if name.startswith('__'):
-                    continue
-
-                value = pydoc.text.repr(getattr(evalue, name))
-                exception.append('  %s = %s' % (name, value))
-
-    return '%s\n%s' % ('\n'.join(frames), '\n'.join(exception))
-
-
 def setup_excepthook():
     '''Modify sys.excepthook to log exceptions
 
@@ -183,16 +103,6 @@ def setup_excepthook():
             # not raise exception (if EXCEPTION_SEVERITY is set)
             root_logger.error(val.msg, extra={ 'force_log': True })
         else:
-            # Customized exception handler has shown to just blow up the size
-            # of error messages and potentially include confidential data
-            # without providing any significant benefits
-#            try:
-#                msg = format_tb((type_, val, tb))
-#            except:
-#                root_logger.error('Uncaught top-level exception -- and tb handler failed!',
-#                                  exc_info=(type_, val, tb))
-#            else:
-#                root_logger.error('Uncaught top-level exception. %s', msg)
             # force_log attribute ensures that logging handler will
             # not raise exception (if EXCEPTION_SEVERITY is set)
             root_logger.error('Uncaught top-level exception:',
