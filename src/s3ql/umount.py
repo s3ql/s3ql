@@ -103,8 +103,6 @@ def blocking_umount(mountpoint):
 
     # Unmount
     log.debug('Unmounting...')
-    # This seems to be necessary to prevent weird busy errors
-    time.sleep(3)
 
     if os.getuid() == 0:
         umount_cmd = ['umount', mountpoint]
