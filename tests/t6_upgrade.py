@@ -52,7 +52,7 @@ class UpgradeTest(t4_fuse.fuse_tests):
         self.mount_process = subprocess.Popen([os.path.join(self.basedir_old, 'bin', 'mount.s3ql'),
                                                "--fg", '--cachedir', self.cache_dir, '--log',
                                                'none', '--quiet', '--authfile', '/dev/null',
-                                               self.storage_url, self.mnt_dir],
+                                               '--compress', 'zlib', self.storage_url, self.mnt_dir],
                                               stdin=subprocess.PIPE, universal_newlines=True)
         if self.backend_login_str is not None:
             print(self.backend_login_str, file=self.mount_process.stdin)

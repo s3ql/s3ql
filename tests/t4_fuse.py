@@ -205,9 +205,9 @@ class fuse_tests(unittest.TestCase):
         self.mount_process = \
             subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'mount.s3ql'),
                               "--fg", '--cachedir', self.cache_dir, '--log', 'none',
-                              '--quiet', '--fatal-warnings', self.storage_url, self.mnt_dir,
-                              '--authfile', '/dev/null' ], stdin=subprocess.PIPE,
-                             universal_newlines=True)
+                              '--compress', 'zlib', '--quiet', '--fatal-warnings',
+                              self.storage_url, self.mnt_dir, '--authfile', '/dev/null' ],
+                             stdin=subprocess.PIPE, universal_newlines=True)
         if self.backend_login_str:
             print(self.backend_login_str, file=self.mount_process.stdin)
         print(self.passphrase, file=self.mount_process.stdin)
