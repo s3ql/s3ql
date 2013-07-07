@@ -228,7 +228,7 @@ class fuse_tests(unittest.TestCase):
         retry(90, lambda : proc.poll() is not None)
         self.assertEqual(proc.wait(), 0)
 
-        self.assertEqual(self.mount_process.wait(), 0)
+        self.assertEqual(self.mount_process.poll(), 0)
         self.assertFalse(os.path.ismount(self.mnt_dir))
 
     def fsck(self):
