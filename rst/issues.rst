@@ -9,10 +9,9 @@ Known Issues
   at some point. See `issue 385 <http://code.google.com/p/s3ql/issues/detail?id=385>`_
   for more details.
 
-* S3QL does not verify TLS/SSL server certificates and is thus
-  vulnerable to man-in-the-middle attacks. See `issue 267
-  <http://code.google.com/p/s3ql/issues/detail?id=267>`_ for more
-  details.
+* S3QL 1.x does not verify TLS/SSL server certificates and is thus
+  vulnerable to man-in-the-middle attacks (S3QL versions after 2.0
+  do not have this problem but require Python 3.3 or newer).
 
 * S3QL is rather slow when an application tries to write data in
   unreasonably small chunks. If a 1 MiB file is copied in chunks of 1
