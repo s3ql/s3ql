@@ -66,11 +66,15 @@ class UpgradeTest(t4_fuse.fuse_tests):
 
     def umount_old(self):
         with open('/dev/null', 'wb') as devnull:
-            subprocess.call(['fusermount', '-z', '-u', self.mnt_dir],
-                            stderr=devnull)
+            retry(5, lambda: subprocess.call(['fuser', '-m', self.mnt_dir],
+                                             stdout=devnull, stderr=devnull) == 1)
 
-        retry(90, lambda : self.mount_process.poll() is not None)
-        self.assertEqual(self.mount_process.wait(), 0)
+        proc = subprocess.Popen([os.path.join(self.basedir_old, 'bin', 'umount.s3ql'),
+                                 '--quiet', self.mnt_dir])
+        retry(90, lambda : proc.poll() is not None)
+        self.assertEqual(proc.wait(), 0)
+
+        self.assertEqual(self.mount_process.poll(), 0)
         self.assertFalse(os.path.ismount(self.mnt_dir))
 
     def upgrade(self):
