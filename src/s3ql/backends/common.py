@@ -122,15 +122,21 @@ def is_temp_network_error(exc):
     return False
     
     
-def http_connection(hostname, port, ssl_context=None):
+def http_connection(hostname, port=None, ssl_context=None):
     '''Return http connection to *hostname*:*port*
     
-    This method honors the http_proxy and https_proxy environment
-    variables.
+    This method honors the http_proxy and https_proxy environment variables. If
+    *port* is None, it defaults to 80 or 443, depending on *ssl_context*.
     '''
     
     log.debug('Connecting to %s...', hostname)
-    
+
+    if port is None:
+        if ssl_context is None:
+            port = 80
+        else:
+            port = 443
+            
     if 'https_proxy' in os.environ:
         proxy = os.environ['https_proxy']
         hit = re.match(r'^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?/?$', proxy)
