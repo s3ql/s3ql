@@ -36,28 +36,33 @@ import threading
 import time
 import zlib
 import textwrap
+import inspect
 
 log = logging.getLogger(__name__)
 
 HMAC_SIZE = 32
 
 RETRY_TIMEOUT = 60 * 60 * 24
-def retry(fn):
-    '''Decorator for retrying a method on some exceptions
+def retry(method):
+    '''Wrap *method* for retrying on some exceptions
     
-    If the decorated method raises an exception for which the instance's
-    `is_temp_failure(exc)` method is true, the decorated method is called again
-    at increasing intervals. If this persists for more than *timeout* seconds,
-    the most-recently caught exception is re-raised.
+    If *method* raises an exception for which the instance's
+    `is_temp_failure(exc)` method is true, the *method* is called again
+    at increasing intervals. If this persists for more than `RETRY_TIMEOUT`
+    seconds, the most-recently caught exception is re-raised.
     '''
 
-    @wraps(fn)
-    def wrapped(self, *a, **kw):
+    if inspect.isgeneratorfunction(method):
+        raise TypeError('Wrapping a generator function is pointless')
+    
+    @wraps(method)
+    def wrapped(*a, **kw):
+        self = a[0]
         interval = 1 / 50
         waited = 0
         while True:
             try:
-                return fn(self, *a, **kw)
+                return method(*a, **kw)
             except Exception as exc:
                 # Access to protected member ok
                 #pylint: disable=W0212
@@ -65,11 +70,11 @@ def retry(fn):
                     raise
                 if waited > RETRY_TIMEOUT:
                     log.error('%s.%s(*): Timeout exceeded, re-raising %r exception',
-                            self.__class__.__name__, fn.__name__, exc)
+                            self.__class__.__name__, method.__name__, exc)
                     raise
 
                 log.info('Encountered %s exception (%s), retrying call to %s.%s...',
-                          type(exc).__name__, exc, self.__class__.__name__, fn.__name__)
+                          type(exc).__name__, exc, self.__class__.__name__, method.__name__)
 
                 if hasattr(exc, 'retry_after') and exc.retry_after:
                     interval = exc.retry_after
@@ -78,28 +83,34 @@ def retry(fn):
             waited += interval
             interval = min(5*60, 2*interval)
 
-    # False positive
-    #pylint: disable=E1101
-    s = ('This method has been decorated and will automatically recall itself in '
-         'increasing intervals for up to s3ql.backends.common.RETRY_TIMEOUT '
-         'seconds if it raises an exception for which the instance\'s '
-         '`is_temp_failure` method returns True.')
-    if wrapped.__doc__ is None:
-        wrapped.__doc__ = ''
+    extend_docstring(wrapped,
+                     'This method has been wrapped and will automatically re-execute in '
+                     'increasing intervals for up to `s3ql.backends.common.RETRY_TIMEOUT` '
+                     'seconds if it raises an exception for which the instance\'s '
+                     '`is_temp_failure` method returns True.')
+
+    return wrapped
+
+
+def extend_docstring(fun, s):
+    '''Append *s* to *fun*'s docstring with proper wrapping and indentation'''
+    
+    if fun.__doc__ is None:
+        fun.__doc__ = ''
         
     # Figure out proper indentation
     indent = 60
-    for line in wrapped.__doc__.splitlines()[1:]:
+    for line in fun.__doc__.splitlines()[1:]:
         stripped = line.lstrip()
         if stripped:
             indent = min(indent, len(line) - len(stripped))
 
     indent_s = '\n' + ' ' * indent
-    wrapped.__doc__ += ''.join(indent_s + line
+    fun.__doc__ += ''.join(indent_s + line
                                for line in textwrap.wrap(s, width=80 - indent))
-    wrapped.__doc__ += '\n'
+    fun.__doc__ += '\n'
 
-    return wrapped
+
 
 def is_temp_network_error(exc):
     '''Return true if *exc* represents a potentially temporary network problem'''
