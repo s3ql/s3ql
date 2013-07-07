@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from ..logging import logging # Ensure use of custom logger class
 from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL, md5sum
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, 
-    DanglingStorageURLError, is_temp_network_error, ChecksumError)
+    DanglingStorageURLError, is_temp_network_error, ChecksumError, retry_generator)
 from .s3c import HTTPError, ObjectR, ObjectW, HTTPResponse
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
@@ -18,7 +18,6 @@ from base64 import b64encode, b64decode
 import json
 import re
 import io
-import time
 import pickle
 import urllib.parse
 
@@ -352,52 +351,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 raise NoSuchObject(src) from None
             raise
 
+    @retry_generator
     @copy_ancestor_docstring
-    def list(self, prefix=''):
-
-        log.debug('list(%s): start', prefix)
-
-        marker = ''
-        waited = 0
-        interval = 1 / 50
-        iterator = self._list(prefix, marker)
-        while True:
-            try:
-                marker = next(iterator)
-                waited = 0
-            except StopIteration:
-                break
-            except Exception as exc:
-                if not self.is_temp_failure(exc):
-                    raise
-                if waited > 60 * 60:
-                    log.error('list(): Timeout exceeded, re-raising %s exception', 
-                              type(exc).__name__)
-                    raise
-
-                log.info('Encountered %s exception (%s), retrying call to swift.Backend.list()',
-                          type(exc).__name__, exc)
-                
-                if hasattr(exc, 'retry_after') and exc.retry_after:
-                    interval = exc.retry_after
-                                    
-                time.sleep(interval)
-                waited += interval
-                interval = min(5*60, 2*interval)
-                iterator = self._list(prefix, marker)
-
-            else:
-                yield marker
-
-    def _list(self, prefix='', start='', batch_size=5000):
-        '''List keys in backend, starting with *start*
-
-        Returns an iterator over all keys in the backend. This method
-        does not retry on errors.
-        '''
+    def list(self, prefix='', start_after='', batch_size=5000):
+        log.debug('list(%s, %s): start', prefix, start_after)
 
         keys_remaining = True
-        marker = start
+        marker = start_after
         prefix = self.prefix + prefix
         
         while keys_remaining:
