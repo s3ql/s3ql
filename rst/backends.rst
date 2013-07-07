@@ -115,10 +115,6 @@ containers. *prefix* can be an arbitrary prefix that will be prepended
 to all object names used by S3QL. This allows you to store several
 S3QL file systems in the same container.
 
-The OpenStack backend always uses HTTPS connections. Note, however,
-that at this point S3QL does not verify the server certificate (cf.
-`issue 267 <http://code.google.com/p/s3ql/issues/detail?id=267>`_).
-
 .. _OpenStack: http://www.openstack.org/
 .. _Swift: http://openstack.org/projects/storage/
 
