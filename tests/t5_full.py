@@ -6,20 +6,26 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from t4_fuse import populate_dir, skip_without_rsync
+from t4_fuse import populate_dir, skip_without_rsync, BASEDIR
+from t1_backends import get_remote_test_info
 import shutil
 import subprocess
 import t4_fuse
 import tempfile
+import sys
+import os
 
-class FullTests(t4_fuse.fuse_tests):
+class FullTest(t4_fuse.fuse_tests):
 
+    def populate_dir(self, path):
+        populate_dir(path)
+        
     def runTest(self):
         skip_without_rsync()
 
         ref_dir = tempfile.mkdtemp(prefix='s3ql-ref-')
         try:
-            populate_dir(ref_dir)
+            self.populate_dir(ref_dir)
             
             # Copy source data
             self.mkfs()
@@ -53,6 +59,52 @@ class FullTests(t4_fuse.fuse_tests):
             self.mount()
             self.umount()
 
-
         finally:
             shutil.rmtree(ref_dir)
+
+
+class RemoteTest:
+    def setUp(self, name):
+        super().setUp()
+        (backend_login, backend_pw,
+         self.storage_url) = get_remote_test_info(name, self.skipTest)
+        self.backend_login_str = '%s\n%s' % (backend_login, backend_pw)
+
+    def populate_dir(self, path):
+        populate_dir(path, entries=50, size=5*1024*1024)
+
+    def tearDown(self):
+        super().tearDown()
+    
+        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 's3qladm'),
+                                 '--quiet', '--authfile', '/dev/null', '--fatal-warnings',
+                                 'clear', self.storage_url ],
+                                stdin=subprocess.PIPE, universal_newlines=True)
+        if self.backend_login_str is not None:
+            print(self.backend_login_str, file=proc.stdin)
+        print('yes', file=proc.stdin)
+        proc.stdin.close()
+
+        self.assertEqual(proc.wait(), 0)
+
+        
+class S3FullTest(RemoteTest, FullTest):
+    def setUp(self):
+        super().setUp('s3-test')
+
+class GSFullTest(RemoteTest, FullTest):
+    def setUp(self):
+        super().setUp('gs-test')
+        
+class S3CFullTest(RemoteTest, FullTest):
+    def setUp(self):
+        super().setUp('s3c-test')
+
+class SwiftFullTest(RemoteTest, FullTest):
+    def setUp(self):
+        super().setUp('swift-test')
+        
+class RackspaceFullTest(RemoteTest, FullTest):
+    def setUp(self):
+        super().setUp('rackspace-test')
+            
