@@ -114,7 +114,7 @@ def blocking_umount(mountpoint):
 
     # Wait for daemon
     log.debug('Uploading metadata...')
-    step = 0.5
+    step = 0.1
     while True:
         try:
             os.kill(pid, 0)
@@ -140,8 +140,8 @@ def blocking_umount(mountpoint):
         # Process still exists, we wait
         log.debug('Daemon seems to be alive, waiting...')
         time.sleep(step)
-        if step < 10:
-            step *= 2
+        if step < 1:
+            step += 0.1
 
 def main(args=None):
     '''Umount S3QL file system'''
