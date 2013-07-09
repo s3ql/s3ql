@@ -24,6 +24,9 @@ UNRELEASED, S3QL tip
     backend (which can still be used for Rackspace as well). When
     using the 'rackspace' backend, use your regular Rackspace password
     instead of the API key as the backend password.
+
+  * The mount.s3ql --compress option now allows specification of the
+    compression level in addition to the compression algorithm.
   
 2013-06-14, S3QL 2.1 (beta)
 

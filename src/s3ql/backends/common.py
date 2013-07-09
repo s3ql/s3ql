@@ -591,7 +591,8 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
         self.compression = compression
         self.backend = backend
 
-        if compression not in ('bzip2', 'lzma', 'zlib', None):
+        if (compression[0] not in ('bzip2', 'lzma', 'zlib', None)
+            or compression[1] not in range(10)):
             raise ValueError('Unsupported compression: %s' % compression)
 
     @copy_ancestor_docstring
@@ -723,17 +724,17 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
             meta_raw['data'] = b64encode(meta_buf)
             nonce = None
 
-        if is_compressed or not self.compression:
+        if is_compressed or self.compression[0] is None:
             compr = None
             meta_raw['compression'] = 'None'
-        elif self.compression == 'zlib':
-            compr = zlib.compressobj(9)
+        elif self.compression[0] == 'zlib':
+            compr = zlib.compressobj(self.compression[1])
             meta_raw['compression'] = 'ZLIB'
-        elif self.compression == 'bzip2':
-            compr = bz2.BZ2Compressor(9)
+        elif self.compression[0] == 'bzip2':
+            compr = bz2.BZ2Compressor(self.compression[1])
             meta_raw['compression'] = 'BZIP2'
-        elif self.compression == 'lzma':
-            compr = lzma.LZMACompressor(preset=7)
+        elif self.compression[0] == 'lzma':
+            compr = lzma.LZMACompressor(preset=self.compression[1])
             meta_raw['compression'] = 'LZMA'
 
         fh = self.backend.open_write(key, meta_raw)
@@ -1409,7 +1410,7 @@ def get_backend_factory(options, plain=False):
     if hasattr(options, 'compress'):
         compress = options.compress
     else:
-        compress = None
+        compress = ('lzma', 2)
 
     if not encrypted:
         return lambda: BetterBackend(None, compress,

@@ -25,6 +25,7 @@ import faulthandler
 import llfuse
 import os
 import pickle
+import re
 import signal
 import sys
 import tempfile
@@ -243,17 +244,21 @@ def main(args=None):
             p.print_stats(50)
 
     log.info('All done.')
-    
+
+# Memory required for LZMA compression in MB (from xz(1))
+LZMA_MEMORY = { 0: 3, 1: 9, 2: 17, 3: 32, 4: 48,
+                5: 94, 6: 94, 7: 186, 8: 370, 9: 674 }
+
 def determine_threads(options):
     '''Return optimum number of upload threads'''
 
     cores = os.sysconf('SC_NPROCESSORS_ONLN')
     memory = os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGESIZE')
 
-    if options.compress == 'lzma':
+    if options.compress[0] == 'lzma':
         # Keep this in sync with compression level in backends/common.py
         # Memory usage according to man xz(1)
-        mem_per_thread = 186 * 1024 ** 2
+        mem_per_thread = LZMA_MEMORY[options.compress[1]] * 1024 ** 2
     else:
         # Only check LZMA memory usage
         mem_per_thread = 0
@@ -395,6 +400,22 @@ def parse_args(args):
                     raise QuietError('Read-only mounting not supported.')
                 args.insert(pos, '--' + opt)
 
+    def compression_type(s):
+        hit = re.match(r'^([a-z]+)(?:-([0-9]))?$', s)
+        if not hit:
+            raise argparse.ArgumentTypeError('%s is not a valid --compress value' % s)
+        alg = hit.group(1)
+        lvl = hit.group(2)
+        if alg not in ('none', 'zlib', 'bzip2', 'lzma'):
+            raise argparse.ArgumentTypeError('Invalid compression algorithm: %s' % alg)
+        if lvl is None:
+            lvl = 6
+        else:
+            lvl = int(lvl)
+        if alg == 'none':
+            alg =  None
+        return (alg, lvl)
+        
     parser = ArgumentParser(
         description="Mount an S3QL file system.")
 
@@ -445,10 +466,12 @@ def parse_args(args):
     parser.add_argument("--profile", action="store_true", default=False,
                       help="Create profiling information. If you don't understand this, "
                            "then you don't need it.")
-    parser.add_argument("--compress", action="store", default='lzma', metavar='<name>',
-                      choices=('lzma', 'bzip2', 'zlib', 'none'),
-                      help="Compression algorithm to use when storing new data. Allowed "
-                           "values: `lzma`, `bzip2`, `zlib`, none. (default: `%(default)s`)")
+    parser.add_argument("--compress", action="store", default='lzma-6',
+                        metavar='<algorithm>[-<lvl>]', type=compression_type,
+                        help="Compression algorithm and compression level to use when "
+                             "storing new data. *algorithm* may be any of `lzma`, `bzip2`, "
+                             "`zlib`, or none. *lvl* may be any integer from 0 (fastest) "
+                             "to 9 (slowest). Default: `%(default)s`")
     parser.add_argument("--metadata-upload-interval", action="store", type=int,
                       default=24 * 60 * 60, metavar='<seconds>',
                       help='Interval in seconds between complete metadata uploads. '
@@ -476,9 +499,6 @@ def parse_args(args):
 
     if options.metadata_upload_interval == 0:
         options.metadata_upload_interval = None
-
-    if options.compress == 'none':
-        options.compress = None
 
     return options
 

@@ -403,7 +403,7 @@ class CompressionTests(BackendTestsMixin, unittest.TestCase):
         self.retries = 0
 
     def _wrap_backend(self):
-        return BetterBackend(None, 'zlib', self.plain_backend)
+        return BetterBackend(None, ('zlib', 6), self.plain_backend)
 
     def tearDown(self):
         self.backend.clear()
@@ -412,7 +412,7 @@ class CompressionTests(BackendTestsMixin, unittest.TestCase):
 class EncryptionTests(CompressionTests):
 
     def _wrap_backend(self):
-        return BetterBackend(b'schluz', None, self.plain_backend)
+        return BetterBackend(b'schluz', (None, 0), self.plain_backend)
 
     def test_encryption(self):
 
@@ -446,4 +446,4 @@ class EncryptionTests(CompressionTests):
 class EncryptionCompressionTests(EncryptionTests):
 
     def _wrap_backend(self):
-        return BetterBackend(b'schlurz', 'zlib', self.plain_backend)
+        return BetterBackend(b'schlurz', ('zlib', 6), self.plain_backend)

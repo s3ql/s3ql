@@ -52,7 +52,8 @@ class fs_api_tests(unittest.TestCase):
     def setUp(self):
         self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
         plain_backend = local.Backend('local://' + self.backend_dir, None, None)
-        self.backend_pool = BackendPool(lambda: BetterBackend(b'schwubl', 'lzma', plain_backend))
+        self.backend_pool = BackendPool(lambda: BetterBackend(b'schwubl', ('zlib', 6),
+                                                              plain_backend))
         self.backend = self.backend_pool.pop_conn()
         self.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.max_obj_size = 1024

@@ -65,6 +65,6 @@ class AdmTests(unittest.TestCase):
         self.assertEqual(proc.wait(), 0)
 
         plain_backend = local.Backend(self.storage_url, None, None)
-        backend = BetterBackend(passphrase_new.encode(), 'bzip2', plain_backend)
+        backend = BetterBackend(passphrase_new.encode(), ('zlib', 6), plain_backend)
         
         backend.fetch('s3ql_passphrase') # will fail with wrong pw 

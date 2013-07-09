@@ -126,12 +126,12 @@ def main(args=None):
         data_pw = fh.read(32)
         fh.close()
 
-        backend = BetterBackend(wrap_pw, 'bzip2', plain_backend)
+        backend = BetterBackend(wrap_pw, ('lzma', 2), plain_backend)
         backend['s3ql_passphrase'] = data_pw
     else:
         data_pw = None
 
-    backend = BetterBackend(data_pw, 'bzip2', plain_backend)
+    backend = BetterBackend(data_pw, ('lzma', 2), plain_backend)
     atexit.unregister(plain_backend.close)
     atexit.register(backend.close)
     
