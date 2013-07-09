@@ -22,6 +22,7 @@ import stat
 import sys
 import tempfile
 import time
+import atexit
 
 log = logging.getLogger(__name__)
 
@@ -94,6 +95,7 @@ def main(args=None):
 
     try:
         plain_backend = get_backend(options, plain=True)
+        atexit.register(plain_backend.close)
     except DanglingStorageURLError as exc:
         raise QuietError(str(exc)) from None
 
@@ -130,7 +132,9 @@ def main(args=None):
         data_pw = None
 
     backend = BetterBackend(data_pw, 'bzip2', plain_backend)
-
+    atexit.unregister(plain_backend.close)
+    atexit.register(backend.close)
+    
     # Setup database
     cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
 

@@ -1390,6 +1390,9 @@ def get_backend_factory(options, plain=False):
     else:
         encrypted = True
 
+    finally:
+        backend.close()
+        
     if plain:
         return lambda: backend_class(options.storage_url, backend_login, backend_pw,
                                      ssl_context)
@@ -1419,7 +1422,9 @@ def get_backend_factory(options, plain=False):
         data_pw = tmp_backend['s3ql_passphrase']
     except ChecksumError:
         raise QuietError('Wrong backend passphrase') from None
-
+    finally:
+        tmp_backend.close()
+        
     return lambda: BetterBackend(data_pw, compress,
                                  backend_class(options.storage_url, backend_login, backend_pw,
                                                ssl_context))

@@ -30,6 +30,7 @@ import sys
 import tempfile
 import threading
 import time
+import atexit
 
 log = logging.getLogger(__name__)
 
@@ -83,7 +84,8 @@ def main(args=None):
 
     backend_factory = get_backend_factory(options)
     backend_pool = BackendPool(backend_factory)
-
+    atexit.register(backend_pool.flush)
+    
     # Get paths
     cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
 

@@ -22,6 +22,7 @@ import sys
 import tempfile
 import textwrap
 import time
+import atexit
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +86,7 @@ def main(args=None):
     if options.action == 'clear':
         try:
             backend = get_backend(options, plain=True)
+            atexit.register(backend.close)
         except DanglingStorageURLError as exc:
             raise QuietError(str(exc)) from None
         return clear(backend,
@@ -92,6 +94,7 @@ def main(args=None):
 
     try:
         backend = get_backend(options)
+        atexit.register(backend.close)
     except DanglingStorageURLError as exc:
         raise QuietError(str(exc)) from None
 

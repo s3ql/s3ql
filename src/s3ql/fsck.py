@@ -26,6 +26,7 @@ import sys
 import tempfile
 import textwrap
 import time
+import atexit
 
 log = logging.getLogger(__name__)
 
@@ -1084,7 +1085,8 @@ def main(args=None):
         backend = get_backend(options)
     except DanglingStorageURLError as exc:
         raise QuietError(str(exc)) from None
-
+    atexit.register(backend.close)
+    
     log.info('Starting fsck of %s', options.storage_url)
     
     cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
