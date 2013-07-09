@@ -192,7 +192,8 @@ def clear(backend, cachepath):
     print('I am about to delete all data in %s.' % backend,
           'This includes any S3QL file systems as well as any other stored objects.',
           'Please enter "yes" to continue.', '> ', sep='\n', end='')
-
+    sys.stdout.flush()
+    
     if sys.stdin.readline().strip().lower() != 'yes':
         raise QuietError()
 
