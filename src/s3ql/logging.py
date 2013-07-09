@@ -7,6 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 import logging
+import warnings
 import sys
 
 # Logging messages with severities larger or equal
@@ -81,11 +82,23 @@ def setup_logging(options):
         root_logger.setLevel(logging.INFO)
         logging.disable(logging.DEBUG)
 
-    logging.captureWarnings(capture=True)
 
     if hasattr(options, 'fatal_warnings') and options.fatal_warnings:
         global EXCEPTION_SEVERITY
         EXCEPTION_SEVERITY = logging.WARNING
+
+        # When ResourceWarnings are emitted, any exceptions thrown
+        # by warning.showwarning() are lost (not even printed to stdout)
+        # so we cannot rely on our logging mechanism to turn these
+        # warnings into (visible) exceptions. Instead, we assume that
+        # --fatal-warnings implies that ResourceWarnings should be
+        # enabled and tell the warnings module to raise exceptions
+        # immediately (so that they're at least printed to stderr).
+        warnings.simplefilter('error', ResourceWarning)
+
+    else:
+        logging.captureWarnings(capture=True)
+        
         
     return stdout_handler
 
