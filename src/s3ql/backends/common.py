@@ -314,6 +314,16 @@ class BackendPool(object):
         with self.lock:
             self.pool.append(conn)
 
+    def flush(self):
+        '''Close all backends in pool
+
+        This method calls the `close` method on all backends
+        currently in the pool.
+        '''
+        with self.lock:
+            while self.pool:
+                self.pool.pop().close()
+        
     @contextmanager
     def __call__(self):
         '''Provide connection from pool (context manager)'''
@@ -547,6 +557,18 @@ class AbstractBackend(object, metaclass=ABCMeta):
         self.copy(src, dest)
         self.delete(src)
 
+    def close(self):
+        '''Close any opened resources
+
+        This method closes any resources allocated by the backend (e.g. network
+        sockets). This method should be called explicitly before a backend
+        object is garbage collected. The backend object may be re-used after
+        `close` has been called, in this case the necessary resources are
+        transparently allocated again.
+        '''
+        
+        pass
+    
 class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
     '''
     This class adds encryption, compression and integrity protection to a plain
@@ -744,6 +766,10 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def rename(self, src, dest):
         return self.backend.rename(src, dest)
+
+    @copy_ancestor_docstring
+    def close(self):
+        self.backend.close()
 
 
 class AbstractInputFilter(object, metaclass=ABCMeta):

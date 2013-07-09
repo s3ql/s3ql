@@ -459,6 +459,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 self.conn.close()
             raise
 
+    @copy_ancestor_docstring
+    def close(self):
+        self.conn.close()
         
 class HTTPResponse(http.client.HTTPResponse):
     '''

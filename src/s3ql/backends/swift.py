@@ -397,6 +397,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             
             keys_remaining = count == batch_size 
 
+    @copy_ancestor_docstring
+    def close(self):
+        self.conn.close()
     
 def extractmeta(resp):
     '''Extract metadata from HTTP response object'''
