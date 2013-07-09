@@ -325,13 +325,20 @@ class BackendPool(object):
                 self.pool.pop().close()
         
     @contextmanager
-    def __call__(self):
-        '''Provide connection from pool (context manager)'''
+    def __call__(self, close=False):
+        '''Provide connection from pool (context manager)
+
+        If *close* is True, the backend's close method is automatically called
+        (which frees any allocated resources, but may slow down reuse of the
+        backend object).
+        '''
 
         conn = self.pop_conn()
         try:
             yield conn
         finally:
+            if close:
+                conn.close()
             self.push_conn(conn)
 
 
