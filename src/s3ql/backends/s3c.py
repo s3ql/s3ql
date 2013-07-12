@@ -511,10 +511,12 @@ class Backend(AbstractBackend):
             # so that it knows about the body that still needs to
             # be sent...
             resp = HTTPResponse(self.conn.sock, body)
-            native_response_class = self.conn.response_class
-            self.conn.response_class = resp
-            assert self.conn.getresponse() is resp
-            self.conn.response_class = native_response_class
+            try:
+                native_response_class = self.conn.response_class
+                self.conn.response_class = resp
+                assert self.conn.getresponse() is resp
+            finally:
+                self.conn.response_class = native_response_class
             return resp
             
         except:
