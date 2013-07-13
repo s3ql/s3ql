@@ -15,8 +15,8 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'common', 'calc_mro',
             'remove', 'statfs', 'umount', 'VERSION', 'CURRENT_FS_REV',
             'REV_VER_MAP', 'RELEASE' ]
 
-VERSION = '2.1'
-RELEASE = '%s (beta)' % VERSION
+VERSION = '2.2'
+RELEASE = '%s' % VERSION
 
 CURRENT_FS_REV = 20
 

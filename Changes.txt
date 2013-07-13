@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2013-07-12, S3QL 2.2
 
   * Eliminated a race condition that resulted in an apparent loss of
     remote metadata when the mount.s3ql process was interrupted after
