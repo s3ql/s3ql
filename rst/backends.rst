@@ -131,8 +131,6 @@ restricted to using containers in the default storage region.
 To access containers in other storage regions, there is a special
 ``rackspace`` backend that uses a storage URL of the form ::
 
-The storage URL for the OpenStack backend has the form ::
-  
    rackspace://<region>/<container>[/<prefix>]
 
 The storage container must already exist in the selected
