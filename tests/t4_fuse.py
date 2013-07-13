@@ -181,7 +181,8 @@ class fuse_tests(unittest.TestCase):
 
         self.storage_url = 'local://' + self.backend_dir
         self.passphrase = 'oeut3d'
-        self.backend_login_str = None
+        self.backend_login = None
+        self.backend_passphrase = None
 
         self.mount_process = None
         self.name_cnt = 0
@@ -193,8 +194,9 @@ class fuse_tests(unittest.TestCase):
                                  '/dev/null', self.storage_url ], stdin=subprocess.PIPE,
                                 universal_newlines=True)
 
-        if self.backend_login_str:
-            print(self.backend_login_str, file=proc.stdin)
+        if self.backend_login is not None:
+            print(self.backend_login, file=proc.stdin)
+            print(self.backend_passphrase, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
@@ -208,8 +210,9 @@ class fuse_tests(unittest.TestCase):
                               '--compress', 'zlib', '--quiet', '--fatal-warnings',
                               self.storage_url, self.mnt_dir, '--authfile', '/dev/null' ],
                              stdin=subprocess.PIPE, universal_newlines=True)
-        if self.backend_login_str:
-            print(self.backend_login_str, file=self.mount_process.stdin)
+        if self.backend_login is not None:
+            print(self.backend_login, file=self.mount_process.stdin)
+            print(self.backend_passphrase, file=self.mount_process.stdin)
         print(self.passphrase, file=self.mount_process.stdin)
         self.mount_process.stdin.close()
         def poll():
@@ -232,16 +235,29 @@ class fuse_tests(unittest.TestCase):
         self.assertFalse(os.path.ismount(self.mnt_dir))
 
     def fsck(self):
-        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'fsck.s3ql'),
-                                 '--force', '--quiet', '--log', 'none', '--cachedir',
-                                 self.cache_dir, '--fatal-warnings', '--authfile',
-                                 '/dev/null', self.storage_url ], stdin=subprocess.PIPE, 
-                                universal_newlines=True)
-        if self.backend_login_str:
-            print(self.backend_login_str, file=proc.stdin)
-        print(self.passphrase, file=proc.stdin)
-        proc.stdin.close()
-        self.assertEqual(proc.wait(), 0)
+        # Use fsck to test authinfo reading
+        with tempfile.NamedTemporaryFile('wt') as authinfo_fh:
+            print('[entry1]',
+                  'storage-url: %s' % self.storage_url[:6],
+                  'fs-passphrase: clearly wrong',
+                  'backend-login: bla',
+                  'backend-password: not much better',
+                  '',
+                  '[entry2]',
+                  'storage-url: %s' % self.storage_url,
+                  'fs-passphrase: %s' % self.passphrase,
+                  'backend-login: %s' % self.backend_login,
+                  'backend-password:%s' % self.backend_passphrase,
+                  file=authinfo_fh, sep='\n')
+            authinfo_fh.flush()
+
+            proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'fsck.s3ql'),
+                                     '--force', '--quiet', '--log', 'none', '--cachedir',
+                                     self.cache_dir, '--fatal-warnings', '--authfile',
+                                     authinfo_fh.name, self.storage_url ],
+                                    stdin=subprocess.PIPE, universal_newlines=True)
+            proc.stdin.close()
+            self.assertEqual(proc.wait(), 0)
 
     def tearDown(self):
         with open('/dev/null', 'wb') as devnull:

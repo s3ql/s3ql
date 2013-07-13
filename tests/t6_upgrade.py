@@ -41,8 +41,9 @@ class UpgradeTest(t4_fuse.fuse_tests):
                                  self.storage_url ], stdin=subprocess.PIPE,
                                 universal_newlines=True)
 
-        if self.backend_login_str is not None:
-            print(self.backend_login_str, file=proc.stdin)
+        if self.backend_login is not None:
+            print(self.backend_login, file=proc.stdin)
+            print(self.backend_passphrase, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
@@ -54,8 +55,9 @@ class UpgradeTest(t4_fuse.fuse_tests):
                                                'none', '--quiet', '--authfile', '/dev/null',
                                                '--compress', 'zlib', self.storage_url, self.mnt_dir],
                                               stdin=subprocess.PIPE, universal_newlines=True)
-        if self.backend_login_str is not None:
-            print(self.backend_login_str, file=self.mount_process.stdin)
+        if self.backend_login is not None:
+            print(self.backend_login, file=self.mount_process.stdin)
+            print(self.backend_passphrase, file=self.mount_process.stdin)
         print(self.passphrase, file=self.mount_process.stdin)
         self.mount_process.stdin.close()
         def poll():
@@ -83,8 +85,9 @@ class UpgradeTest(t4_fuse.fuse_tests):
                                  '/dev/null', '--quiet', 'upgrade', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
 
-        if self.backend_login_str is not None:
-            print(self.backend_login_str, file=proc.stdin)
+        if self.backend_login is not None:
+            print(self.backend_login, file=proc.stdin)
+            print(self.backend_passphrase, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
         print('yes', file=proc.stdin)
         proc.stdin.close()
@@ -139,7 +142,8 @@ class RemoteUpgradeTest:
         super().setUp()
         (backend_login, backend_pw,
          self.storage_url) = get_remote_test_info(name, self.skipTest)
-        self.backend_login_str = '%s\n%s' % (backend_login, backend_pw)
+        self.backend_login = backend_login
+        self.backend_passphrase = backend_pw
         
     def runTest(self):
         populate_dir(self.ref_dir, entries=50, size=5*1024*1024)
@@ -163,8 +167,9 @@ class RemoteUpgradeTest:
                                  '--quiet', '--authfile', '/dev/null', '--fatal-warnings',
                                  'clear', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
-        if self.backend_login_str is not None:
-            print(self.backend_login_str, file=proc.stdin)
+        if self.backend_login is not None:
+            print(self.backend_login, file=proc.stdin)
+            print(self.backend_passphrase, file=proc.stdin)
         print('yes', file=proc.stdin)
         proc.stdin.close()
 
