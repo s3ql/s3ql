@@ -37,9 +37,9 @@ class AdmTests(unittest.TestCase):
     def mkfs(self):
         proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
                                  '-L', 'test fs', '--max-obj-size', '500', '--fatal-warnings',
-                                 '--cachedir', self.cache_dir, '--quiet',
-                                 self.storage_url ], stdin=subprocess.PIPE,
-                                universal_newlines=True)
+                                 '--authfile', '/dev/null', '--cachedir', self.cache_dir,
+                                 '--quiet', self.storage_url ],
+                                stdin=subprocess.PIPE, universal_newlines=True)
 
         print(self.passphrase, file=proc.stdin)
         print(self.passphrase, file=proc.stdin)
@@ -53,9 +53,9 @@ class AdmTests(unittest.TestCase):
         passphrase_new = 'sd982jhd'
 
         proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 's3qladm'),
-                                 '--quiet', '--fatal-warnings', 'passphrase',
-                                 self.storage_url ], stdin=subprocess.PIPE,
-                                universal_newlines=True)
+                                 '--quiet', '--fatal-warnings', '--authfile',
+                                 '/dev/null', 'passphrase', self.storage_url ],
+                                stdin=subprocess.PIPE, universal_newlines=True)
 
         print(self.passphrase, file=proc.stdin)
         print(passphrase_new, file=proc.stdin)
@@ -68,3 +68,26 @@ class AdmTests(unittest.TestCase):
         backend = BetterBackend(passphrase_new.encode(), ('zlib', 6), plain_backend)
         
         backend.fetch('s3ql_passphrase') # will fail with wrong pw 
+
+
+    def test_authinfo(self):
+        self.mkfs()
+
+        with tempfile.NamedTemporaryFile('wt') as fh:
+            print('[entry1]',
+                  'storage-url: local://',
+                  'fs-passphrase: clearly wrong',
+                  '',
+                  '[entry2]',
+                  'storage-url: %s' % self.storage_url,
+                  'fs-passphrase: %s' % self.passphrase,
+                  file=fh, sep='\n')
+            fh.flush()
+
+            proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'fsck.s3ql'),
+                                     '--quiet', '--fatal-warnings', '--authfile', fh.name,
+                                     self.storage_url ], stdin=subprocess.PIPE,
+                                    universal_newlines=True)
+
+            proc.stdin.close()
+            self.assertEqual(proc.wait(), 0)

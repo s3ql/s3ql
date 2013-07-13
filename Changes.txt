@@ -1,3 +1,12 @@
+UNRELEASED, S3QL tip
+
+  * Reading the file system passphrase from the authinfo2 file
+    is now working again.
+
+  * The precedence of the authinfo2 sections has been fixed to agree
+    with the documentation: later entries override earlier entries
+    rather than the other way around.
+  
 2013-07-12, S3QL 2.2
 
   * Eliminated a race condition that resulted in an apparent loss of

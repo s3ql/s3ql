@@ -1332,8 +1332,8 @@ def get_backend_factory(options, plain=False):
         config.read(options.authfile)
 
     backend_login = None
-    backend_pw = None
     backend_passphrase = None
+    fs_passphrase = None
     for section in config.sections():
         def getopt(name):
             try:
@@ -1346,13 +1346,13 @@ def get_backend_factory(options, plain=False):
         if not pattern or not options.storage_url.startswith(pattern):
             continue
 
-        backend_login = backend_login or getopt('backend-login')
-        backend_pw = backend_pw or getopt('backend-password')
-        backend_passphrase = backend_passphrase or getopt('fs-passphrase')
-        if backend_passphrase is None and getopt('bucket-passphrase') is not None:
-            backend_passphrase = getopt('bucket-passphrase')
+        backend_login = getopt('backend-login') or backend_login
+        backend_passphrase = getopt('backend-password') or backend_passphrase
+        fs_passphrase = getopt('fs-passphrase') or fs_passphrase
+        if getopt('fs-passphrase') is None and getopt('bucket-passphrase') is not None:
+            fs_passphrase = getopt('bucket-passphrase')
             log.warning("Warning: the 'bucket-passphrase' configuration option has been "
-                     "renamed to 'fs-passphrase'! Please update your authinfo file.")
+                        "renamed to 'fs-passphrase'! Please update your authinfo file.")
 
     if not backend_login and backend_class.needs_login:
         if sys.stdin.isatty():
@@ -1360,15 +1360,15 @@ def get_backend_factory(options, plain=False):
         else:
             backend_login = sys.stdin.readline().rstrip()
 
-    if not backend_pw and backend_class.needs_login:
+    if not backend_passphrase and backend_class.needs_login:
         if sys.stdin.isatty():
-            backend_pw = getpass("Enter backend password: ")
+            backend_passphrase = getpass("Enter backend passphrase: ")
         else:
-            backend_pw = sys.stdin.readline().rstrip()
+            backend_passphrase = sys.stdin.readline().rstrip()
 
     ssl_context = get_ssl_context(options)
     try:
-        backend = backend_class(options.storage_url, backend_login, backend_pw,
+        backend = backend_class(options.storage_url, backend_login, backend_passphrase,
                                 ssl_context)
         
         # Do not use backend.lookup(), this would use a HEAD request and
@@ -1383,7 +1383,7 @@ def get_backend_factory(options, plain=False):
         raise QuietError('No permission to access backend.') from None
 
     except AuthenticationError:
-        raise QuietError('Invalid credentials or skewed system clock.') from None
+        raise QuietError('Invalid credentials (or skewed system clock?).') from None
         
     except NoSuchObject:
         encrypted = False
@@ -1395,18 +1395,20 @@ def get_backend_factory(options, plain=False):
         backend.close()
         
     if plain:
-        return lambda: backend_class(options.storage_url, backend_login, backend_pw,
+        return lambda: backend_class(options.storage_url, backend_login, backend_passphrase,
                                      ssl_context)
             
-    if encrypted and not backend_passphrase:
+    if encrypted and not fs_passphrase:
         if sys.stdin.isatty():
-            backend_passphrase = getpass("Enter file system encryption passphrase: ")
+            fs_passphrase = getpass("Enter file system encryption passphrase: ")
         else:
-            backend_passphrase = sys.stdin.readline().rstrip()
-        backend_passphrase = backend_passphrase.encode('utf-8')
+            fs_passphrase = sys.stdin.readline().rstrip()
     elif not encrypted:
-        backend_passphrase = None
-
+        fs_passphrase = None
+        
+    if fs_passphrase is not None:
+        fs_passphrase = fs_passphrase.encode('utf-8')
+        
     if hasattr(options, 'compress'):
         compress = options.compress
     else:
@@ -1414,18 +1416,18 @@ def get_backend_factory(options, plain=False):
 
     if not encrypted:
         return lambda: BetterBackend(None, compress,
-                                    backend_class(options.storage_url, backend_login, backend_pw,
-                                                  ssl_context))
+                                    backend_class(options.storage_url, backend_login,
+                                                  backend_passphrase, ssl_context))
 
-    tmp_backend = BetterBackend(backend_passphrase, compress, backend)
+    tmp_backend = BetterBackend(fs_passphrase, compress, backend)
 
     try:
         data_pw = tmp_backend['s3ql_passphrase']
     except ChecksumError:
-        raise QuietError('Wrong backend passphrase') from None
+        raise QuietError('Wrong file system passphrase') from None
     finally:
         tmp_backend.close()
         
     return lambda: BetterBackend(data_pw, compress,
-                                 backend_class(options.storage_url, backend_login, backend_pw,
-                                               ssl_context))
+                                 backend_class(options.storage_url, backend_login,
+                                               backend_passphrase, ssl_context))
