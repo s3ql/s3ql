@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 class Backend(swift.Backend):
 
-    def __init__(self, storage_url, login, password, ssl_context):
+    def __init__(self, storage_url, login, password, ssl_context=None, proxy=None):
         # Unused argument
         #pylint: disable=W0613
         
@@ -33,6 +33,7 @@ class Backend(swift.Backend):
         self.region = region
         self.container_name = container_name
         self.prefix = prefix
+        self.proxy = proxy
         self.password = password
         self.login = login
         self.auth_token = None
@@ -75,7 +76,7 @@ class Backend(swift.Backend):
 
         log.debug('_get_conn(): start')
         
-        conn = http_connection(self.hostname, port=self.port,
+        conn = http_connection(self.hostname, port=self.port, proxy=self.proxy,
                                ssl_context=self.ssl_context)
 
         headers={ 'Content-Type': 'application/json',
@@ -120,7 +121,8 @@ class Backend(swift.Backend):
                 self.auth_prefix = urllib.parse.unquote(o.path)
                 conn.close()
 
-                return http_connection(o.hostname, o.port, self.ssl_context)
+                return http_connection(o.hostname, o.port,  proxy=self.proxy,
+                                       ssl_context=self.ssl_context)
 
         if len(avail_regions) < 10:
             raise QuietError('No accessible object storage service found in region %s'

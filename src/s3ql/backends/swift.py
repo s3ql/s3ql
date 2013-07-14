@@ -30,7 +30,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     object will be immediately retrievable. 
     """
 
-    def __init__(self, storage_url, login, password, ssl_context):
+    def __init__(self, storage_url, login, password, ssl_context=None, proxy=None):
         # Unused argument
         #pylint: disable=W0613
         
@@ -47,6 +47,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.auth_token = None
         self.auth_prefix = None
         self.conn = None
+        self.proxy = proxy
         self.ssl_context = ssl_context
         
         self._container_exists()
@@ -113,7 +114,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         log.debug('_get_conn(): start')
         
-        conn = http_connection(self.hostname, self.port, self.ssl_context)
+        conn = http_connection(self.hostname, self.port, proxy=self.proxy,
+                               ssl_contetx=self.ssl_context)
         headers={ 'X-Auth-User': self.login,
                   'X-Auth-Key': self.password }
         
@@ -140,7 +142,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self.auth_prefix = urllib.parse.unquote(o.path)
             conn.close()
 
-            return http_connection(o.hostname, o.port, self.ssl_context)
+            return http_connection(o.hostname, o.port, proxy=self.proxy,
+                                  ssl_context=self.ssl_context)
         
         raise RuntimeError('No valid authentication path found')
     

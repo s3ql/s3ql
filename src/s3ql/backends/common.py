@@ -214,14 +214,9 @@ def is_temp_network_error(exc):
     return False
     
     
-def http_connection(hostname, port=None, ssl_context=None):
+def http_connection(hostname, port=None, ssl_context=None, proxy=None):
     '''Return http connection to *hostname*:*port*
     
-    This method honors the http_proxy and https_proxy environment
-    variables. However, it uses CONNECT-style proxying for both http and https
-    connections, so proxied http connections may not work with all proxy
-    servers.
-
     If *port* is None, it defaults to 80 or 443, depending on *ssl_context*.
     '''
     
@@ -232,32 +227,9 @@ def http_connection(hostname, port=None, ssl_context=None):
             port = 80
         else:
             port = 443
-            
-    if ssl_context is None:
-        proxy_env = 'http_proxy'
-    else:
-        proxy_env = 'https_proxy'
-            
-    if proxy_env in os.environ:
-        proxy = os.environ[proxy_env]
-        hit = re.match(r'^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?/?$', proxy)
-        if not hit:
-            raise QuietError('Unable to parse proxy setting %s=%r' %
-                             (proxy_env, proxy))
-        
-        if hit.group(1) == 'https://':
-            log.warning('HTTPS connection to proxy is probably pointless and not supported, '
-                        'will use standard HTTP', extra=LOG_ONCE)
-        
-        if hit.group(3):
-            proxy_port = int(hit.group(3)[1:])
-        else:
-            proxy_port = 80
-            
-        proxy_host = hit.group(2)
-        log.info('Using CONNECT proxy %s:%d', proxy_host, proxy_port,
-                 extra=LOG_ONCE)
-        
+
+    if proxy:
+        (proxy_host, proxy_port) = proxy
         if ssl_context:
             conn = http.client.HTTPSConnection(proxy_host, proxy_port,
                                                context=ssl_context)
@@ -265,7 +237,6 @@ def http_connection(hostname, port=None, ssl_context=None):
             conn = http.client.HTTPConnection(proxy_host, proxy_port)
         conn.set_tunnel(hostname, port)
         return conn
-    
     elif ssl_context:
         return http.client.HTTPSConnection(hostname, port, context=ssl_context)
     else:
@@ -1513,10 +1484,37 @@ def get_backend_factory(options, plain=False):
             backend_passphrase = sys.stdin.readline().rstrip()
 
     ssl_context = get_ssl_context(options)
-    backend = backend_class(options.storage_url, backend_login, backend_passphrase,
-                            ssl_context)
-    try:
+    if ssl_context is None:
+        proxy_env = 'http_proxy'
+    else:
+        proxy_env = 'https_proxy'
+            
+    if proxy_env in os.environ:
+        proxy = os.environ[proxy_env]
+        hit = re.match(r'^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?/?$', proxy)
+        if not hit:
+            raise QuietError('Unable to parse proxy setting %s=%r' %
+                             (proxy_env, proxy))
         
+        if hit.group(1) == 'https://':
+            log.warning('HTTPS connection to proxy is probably pointless and not supported, '
+                        'will use standard HTTP', extra=LOG_ONCE)
+        
+        if hit.group(3):
+            proxy_port = int(hit.group(3)[1:])
+        else:
+            proxy_port = 80
+            
+        proxy_host = hit.group(2)
+        log.info('Using CONNECT proxy %s:%d', proxy_host, proxy_port,
+                 extra=LOG_ONCE)
+        proxy = (proxy_host, proxy_port)
+    else:
+        proxy = None
+        
+    backend = backend_class(options.storage_url, backend_login, backend_passphrase,
+                            ssl_context, proxy=proxy)
+    try:
         # Do not use backend.lookup(), this would use a HEAD request and
         # not provide any useful error messages if something goes wrong
         # (e.g. wrong credentials)
@@ -1542,7 +1540,7 @@ def get_backend_factory(options, plain=False):
         
     if plain:
         return lambda: backend_class(options.storage_url, backend_login, backend_passphrase,
-                                     ssl_context)
+                                     ssl_context, proxy=proxy)
             
     if encrypted and not fs_passphrase:
         if sys.stdin.isatty():
@@ -1563,7 +1561,8 @@ def get_backend_factory(options, plain=False):
     if not encrypted:
         return lambda: BetterBackend(None, compress,
                                     backend_class(options.storage_url, backend_login,
-                                                  backend_passphrase, ssl_context))
+                                                  backend_passphrase, ssl_context=ssl_context,
+                                                  proxy=proxy))
 
     tmp_backend = BetterBackend(fs_passphrase, compress, backend)
 
@@ -1576,6 +1575,6 @@ def get_backend_factory(options, plain=False):
         
     return lambda: BetterBackend(data_pw, compress,
                                  backend_class(options.storage_url, backend_login,
-                                               backend_passphrase, ssl_context))
-
+                                               backend_passphrase, ssl_context=ssl_context,
+                                               proxy=proxy))
 fix_python_bug_7776()

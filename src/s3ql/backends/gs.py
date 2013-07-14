@@ -27,8 +27,9 @@ class Backend(s3c.Backend):
 
     use_expect_100c = False
     
-    def __init__(self, storage_url, gs_key, gs_secret, ssl_context):
-        super().__init__(storage_url, gs_key, gs_secret, ssl_context)
+    def __init__(self, storage_url, gs_key, gs_secret, ssl_context=None, proxy=None):
+        super().__init__(storage_url, gs_key, gs_secret, ssl_context=ssl_context,
+                         proxy=proxy)
 
         self.xml_ns_prefix = '{http://doc.s3.amazonaws.com/2006-03-01}'
 

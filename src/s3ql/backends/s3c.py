@@ -47,7 +47,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     use_expect_100c = True
 
-    def __init__(self, storage_url, login, password, ssl_context):
+    def __init__(self, storage_url, login, password, ssl_context=None,
+                 proxy=None):
         '''Initialize backend object
 
         *ssl_context* may be a `ssl.SSLContext` instance or *None*.
@@ -62,6 +63,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.hostname = host
         self.port = port
         self.ssl_context = ssl_context
+        self.proxy = proxy
         self.conn = self._get_conn()
 
         self.password = password
@@ -109,7 +111,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def _get_conn(self):
         '''Return connection to server'''
         
-        return http_connection(self.hostname, self.port, self.ssl_context)
+        return http_connection(self.hostname, self.port, proxy=self.proxy,
+                               ssl_context=self.ssl_context)
 
     @copy_ancestor_docstring
     def is_temp_failure(self, exc): #IGNORE:W0613
