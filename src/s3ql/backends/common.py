@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging, LOG_ONCE # Ensure use of custom logger class
-from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL, ChecksumError
+from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL, ChecksumError, sha256
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from Crypto.Cipher import AES
@@ -335,9 +335,6 @@ def get_ssl_context(options):
 
     return context
 
-
-def sha256(s):
-    return hashlib.sha256(s).digest()
 
 class BackendPool(object):
     '''A pool of backends

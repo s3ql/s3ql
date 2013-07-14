@@ -234,6 +234,9 @@ def sha256_fh(fh):
 
     return sha.digest()
 
+def sha256(s):
+    return hashlib.sha256(s).digest()
+
 def md5sum(buf):
     '''Return md5 sum for *buf*'''
     
