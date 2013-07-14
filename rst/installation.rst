@@ -50,15 +50,15 @@ that is not the case.
 * The `APSW Python Module <http://code.google.com/p/apsw/>`_. To check
   which (if any) version of APWS is installed, run the command ::
 
-    python -c 'import apsw; print apsw.apswversion()'
+    python -c 'import apsw; print(apsw.apswversion())'
 
   The printed version number should be at least 3.7.0. 
 
 * The `Python LLFUSE module
   <http://code.google.com/p/python-llfuse/>`_. To check if this module
-  is installed, execute `python -c 'import llfuse; print
-  llfuse.__version__'`. This should print a version number. You need at
-  least version 0.39.
+  is installed, execute `python -c 'import llfuse;
+  print(llfuse.__version__)'`. This should print a version number. You
+  need at least version 0.39.
 
 .. _inst-s3ql:
 
