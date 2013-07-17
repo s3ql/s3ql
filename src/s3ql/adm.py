@@ -335,6 +335,7 @@ def upgrade(backend, cachepath):
 
     param['revision'] = CURRENT_FS_REV
     param['last-modified'] = time.time()
+    param['seq_no'] += 1
 
     log.info('Dumping metadata...')
     with tempfile.TemporaryFile() as fh:
@@ -352,6 +353,8 @@ def upgrade(backend, cachepath):
     log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
     log.info('Cycling metadata backups...')
     cycle_metadata(backend)
+    
+    backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
 
     with open(cachepath + '.params', 'wb') as fh:
         pickle.dump(param, fh, PICKLE_PROTOCOL)
