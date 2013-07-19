@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2013-07-18, S3QL 2.3
 
   * Reading the file system passphrase from the authinfo2 file
     is now working again.
