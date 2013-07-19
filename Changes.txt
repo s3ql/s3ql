@@ -11,7 +11,9 @@ UNRELEASED, S3QL tip
     revision when `s3qladm upgrade` was run with a different
     --cachedir argument.
 
-  
+  * Fixed a crash of the s3 backend when multiple objects are deleted
+    and the s3 connection needs to be re-established.
+
 2013-07-12, S3QL 2.2
 
   * Eliminated a race condition that resulted in an apparent loss of

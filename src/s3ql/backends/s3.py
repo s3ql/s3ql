@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from ..logging import logging # Ensure use of custom logger class
 from . import s3c
 from .s3c import XML_CONTENT_RE, get_S3Error
-from .common import NoSuchObject
+from .common import NoSuchObject, retry
 from ..common import QuietError, BUFSIZE
 from ..inherit_docstrings import copy_ancestor_docstring
 from xml.sax.saxutils import escape as xml_escape
@@ -69,6 +69,7 @@ class Backend(s3c.Backend):
                 keys[:MAX_KEYS] = tmp
 
 
+    @retry
     def _delete_multi(self, keys, force=False):
 
         body = [ '<Delete>' ]
