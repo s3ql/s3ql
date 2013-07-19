@@ -6,6 +6,11 @@ UNRELEASED, S3QL tip
   * The precedence of the authinfo2 sections has been fixed to agree
     with the documentation: later entries override earlier entries
     rather than the other way around.
+
+  * Fixed a problem with mount.s3ql not recognizing the upgraded
+    revision when `s3qladm upgrade` was run with a different
+    --cachedir argument.
+
   
 2013-07-12, S3QL 2.2
 
