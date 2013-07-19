@@ -467,7 +467,7 @@ def parse_args(args):
                       help="Create profiling information. If you don't understand this, "
                            "then you don't need it.")
     parser.add_argument("--compress", action="store", default='lzma-6',
-                        metavar='<algorithm>[-<lvl>]', type=compression_type,
+                        metavar='<algorithm-lvl>', type=compression_type,
                         help="Compression algorithm and compression level to use when "
                              "storing new data. *algorithm* may be any of `lzma`, `bzip2`, "
                              "`zlib`, or none. *lvl* may be any integer from 0 (fastest) "
