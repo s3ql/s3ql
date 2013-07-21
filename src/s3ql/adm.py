@@ -245,22 +245,24 @@ def upgrade(backend, cachepath):
     seq_no = get_seq_no(backend)
 
     # Check for cached metadata
+    db = None
     if os.path.exists(cachepath + '.params'):
         with open(cachepath + '.params', 'rb') as fh:
             param = pickle.load(fh)
         if param['seq_no'] < seq_no:
+            log.info('Ignoring locally cached metadata (outdated).')
             param = backend.lookup('s3ql_metadata')
         elif param['seq_no'] > seq_no:
             print('File system not unmounted cleanly, need to run fsck before upgrade.')
             print(get_old_rev_msg(param['revision'], 'fsck.s3ql'))
             raise QuietError()
         else:
-            # Move local metadata out of the way before we overwrite it
-            # (you never know...)
-            if os.path.exists(cachepath + '.db.bak'):
-                raise QuietError('Metadata backup already exists, did something go wrong?')
-            os.rename(cachepath + '.db', cachepath + '.db.bak')
-            shutil.copyfile(cachepath + '.params', cachepath + '.params.bak')
+            # Normally we'd use cached metadata now, but for this upgrade
+            # we actually have to ensure that we restore the sqlite db
+            # from the metadata dump.
+            #log.info('Using cached metadata.')
+            #db = Connection(cachepath + '.db')
+            log.info('Ignoring locally cached metadata for upgrade.')
     else:
         param = backend.lookup('s3ql_metadata')
 
@@ -316,21 +318,35 @@ def upgrade(backend, cachepath):
     if sys.stdin.readline().strip().lower() != 'yes':
         raise QuietError()
 
-    # For this upgrade, we just need to ensure that we don't use the locally
-    # cached SQLite database (because some types have changed)
-    with tempfile.TemporaryFile() as tmpfh:
-        def do_read(fh):
+    # For this upgrade, we just need to recreate the sqlite database from the
+    # metadata dump, because some SQLite types have changed
+    assert db is None
+    
+    # Keep backup of local metadata (just in case...)
+    if os.path.exists(cachepath + '.params'):
+        assert os.path.exists(cachepath + '.db')
+        if (os.path.exists(cachepath + '.db.bak') or
+            os.path.exists(cachepath + '.params.bak')):
+            raise QuietError('Metadata backup already exists, did something go wrong?')
+        os.rename(cachepath + '.db', cachepath + '.db.bak')
+        os.rename(cachepath + '.params', cachepath + '.params.bak')
+    
+    if not db:
+        # Need to download metadata
+        with tempfile.TemporaryFile() as tmpfh:
+            def do_read(fh):
+                tmpfh.seek(0)
+                tmpfh.truncate()
+                stream_read_bz2(fh, tmpfh)
+
+            log.info("Downloading & uncompressing metadata...")
+            backend.perform_read(do_read, "s3ql_metadata")
+
+            log.info("Reading metadata...")
             tmpfh.seek(0)
-            tmpfh.truncate()
-            stream_read_bz2(fh, tmpfh)
+            db = restore_metadata(tmpfh, cachepath + '.db')
 
-        log.info("Downloading & uncompressing metadata...")
-        backend.perform_read(do_read, "s3ql_metadata")
-
-        log.info("Reading metadata...")
-        tmpfh.seek(0)
-        db = restore_metadata(tmpfh, cachepath + '.db')
-
+            
     log.info('Upgrading from revision %d to %d...', param['revision'], CURRENT_FS_REV)
 
     param['revision'] = CURRENT_FS_REV
