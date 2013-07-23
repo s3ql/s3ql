@@ -197,10 +197,16 @@ class build_cython(setuptools.Command):
 
     def run(self):
         try:
+            import Cython
             from Cython.Compiler.Main import compile as cython_compile
             from Cython.Compiler.Options import extra_warnings
         except ImportError:
             raise SystemExit('Cython needs to be installed for this command') from None
+
+        cython_ver = [ int(x) for x in Cython.__version__.split('.') ]
+        if cython_ver < [0, 17]:
+            raise SystemExit('Found Cython %s, but need 0.17 or newer'
+                             % (Cython.__version__,))
 
         directives = dict(extra_warnings)
         directives['embedsignature'] = True
