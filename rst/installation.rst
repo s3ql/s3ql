@@ -94,7 +94,7 @@ Development Version
 
 If you have checked out the unstable development version from the
 Mercurial repository, a bit more effort is required. You need to also
-have Cython_ (0.16 or newer) and Sphinx_ (1.1 or newer) installed, and
+have Cython_ (0.17 or newer) and Sphinx_ (1.1 or newer) installed, and
 the necessary commands are::
 
   python setup.py build_cython
