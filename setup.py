@@ -58,7 +58,7 @@ class build_docs(setuptools.Command):
             from sphinx.application import Sphinx
             from docutils.utils import SystemMessage
         except ImportError:
-            raise QuietError('This command requires Sphinx to be installed.')
+            raise SystemExit('This command requires Sphinx to be installed.')
 
         dest_dir = os.path.join(basedir, 'doc')
         src_dir = os.path.join(basedir, 'rst')
