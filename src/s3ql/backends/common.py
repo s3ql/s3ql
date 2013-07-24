@@ -1367,9 +1367,9 @@ def get_backend_factory(options, plain=False):
             backend_passphrase = sys.stdin.readline().rstrip()
 
     ssl_context = get_ssl_context(options)
+    backend = backend_class(options.storage_url, backend_login, backend_passphrase,
+                            ssl_context)
     try:
-        backend = backend_class(options.storage_url, backend_login, backend_passphrase,
-                                ssl_context)
         
         # Do not use backend.lookup(), this would use a HEAD request and
         # not provide any useful error messages if something goes wrong
