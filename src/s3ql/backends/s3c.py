@@ -285,41 +285,59 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         while True:
                 
             resp = self._send_request(method, path, headers, subres, query_string, body)
-            log.debug('_do_request(): request-id: %s', resp.getheader('x-amz-request-id'))
+            log.debug('status: %d, request-id: %s', resp.status, resp.getheader('x-amz-request-id'))
 
             if (resp.status < 300 or resp.status > 399):
                 break
 
             # Assume redirect
-            new_url = resp.getheader('Location')
-            if new_url is None:
-                break
-            log.info('_do_request(): redirected to %s', new_url)
-                        
             redirect_count += 1
             if redirect_count > 10:
                 raise RuntimeError('Too many chained redirections')
-    
-            # Pylint can't infer SplitResult Types
-            #pylint: disable=E1103
-            o = urlsplit(new_url)
-            if o.scheme:
-                if isinstance(self.conn, http.client.HTTPConnection) and o.scheme != 'http':
-                    raise RuntimeError('Redirect to non-http URL')
-                elif isinstance(self.conn, http.client.HTTPSConnection) and o.scheme != 'https':
-                    raise RuntimeError('Redirect to non-https URL')
-            if o.hostname != self.hostname or o.port != self.port:
-                self.hostname = o.hostname
-                self.port = o.port
-                self.conn = self._get_conn()
+
+            # First try location header...
+            new_url = resp.getheader('Location')
+            if new_url:
+                # Read and discard body
+                while True:
+                    if not resp.read(BUFSIZE):
+                        break
+
+                # Pylint can't infer SplitResult Types
+                #pylint: disable=E1103
+                o = urlsplit(new_url)
+                if o.scheme:
+                    if self.ssl_context and o.scheme != 'https':
+                        raise RuntimeError('Redirect to non-https URL')
+                    elif not self.ssl_context and o.scheme != 'http':
+                        raise RuntimeError('Redirect to non-http URL')
+                if o.hostname != self.hostname or o.port != self.port:
+                    self.hostname = o.hostname
+                    self.port = o.port
+                    self.conn = self._get_conn()
+                else:
+                    raise RuntimeError('Redirect to different path on same host')
+                
+            # ..but endpoint may also be hidden in message body..
             else:
-                raise RuntimeError('Redirect to different path on same host')
-            
+                # If we got a HEAD response, the server cannot transmit the
+                # request body with the endpoint
+                if method == 'HEAD':
+                    raise HTTPError(resp.status, resp.reason)
+
+                tree = self._parse_xml_response(resp)
+                new_url = tree.findtext('Endpoint')
+
+                if not new_url:
+                    raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'))
+
+                self.hostname = new_url
+                self.conn = self._get_conn()
+                
+            log.info('_do_request(): redirected to %s', new_url)
+
             if body and not isinstance(body, (bytes, bytearray, memoryview)):
                 body.seek(0)
-
-            # Read and discard body
-            log.debug('Response body: %s', resp.read())
 
         # We need to call read() at least once for httplib to consider this
         # request finished, even if there is no response body.
@@ -335,15 +353,23 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if method.upper() == 'HEAD':
             raise HTTPError(resp.status, resp.reason)
 
+        # Error
+        tree = self._parse_xml_response(resp)
+        raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'))
+
+    
+    def _parse_xml_response(self, resp):
+        '''Return element tree for XML response'''
+
         content_type = resp.getheader('Content-Type')
         if not content_type or not XML_CONTENT_RE.match(content_type):
             raise HTTPError(resp.status, resp.reason, resp.getheaders(), resp.read())
  
-        # Error
         tree = ElementTree.parse(resp).getroot()
-        raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'))
 
+        return tree
 
+    
     @prepend_ancestor_docstring
     def clear(self):
         """
