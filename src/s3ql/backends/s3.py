@@ -49,7 +49,20 @@ class Backend(s3c.Backend):
         if not re.match('^[a-z0-9][a-z0-9.-]{1,60}[a-z0-9]$', bucket_name):
             raise QuietError('Invalid bucket name.')
         
+        # Dots in the bucket cause problems with SSL certificate validation,
+        # because server certificate is for *.s3.amazonaws.com (which does not
+        # match e.g. a.b.s3.amazonaws.com). However, when using path based
+        # bucket selection, AWS issues a redirect to the former
+        # location. Therefore, S3 buckets with dots in their names cannot be
+        # accessed securely. This can only be fixed by Amazon by allowing
+        # path-based bucket selection, or providing a valid SSL certificate for
+        # endpoints that also matches if the bucket name contains dots.
+        if '.' in bucket_name and ssl_context:
+            raise QuietError('Buckets with dots in the name cannot be accessed over SSL.\n'
+                             'This is purely Amazon\'s fault, see '
+                             'https://forums.aws.amazon.com/thread.jspa?threadID=130560')
         hostname = '%s.s3.amazonaws.com' % bucket_name
+            
         prefix = hit.group(2) or ''
         port = 443 if ssl_context else 80
         return (hostname, port, bucket_name, prefix)

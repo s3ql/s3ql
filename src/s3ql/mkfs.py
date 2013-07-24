@@ -9,6 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from .logging import logging, setup_logging, QuietError
 from . import CURRENT_FS_REV
 from .backends.common import get_backend, BetterBackend, DanglingStorageURLError
+from .backends import s3
 from .common import get_backend_cachedir, CTRL_INODE, stream_write_bz2, PICKLE_PROTOCOL
 from .database import Connection
 from .metadata import dump_metadata, create_tables
@@ -101,7 +102,13 @@ def main(args=None):
 
     log.info("Before using S3QL, make sure to read the user's guide, especially\n"
              "the 'Important Rules to Avoid Loosing Data' section.")
-    
+
+    if isinstance(plain_backend, s3.Backend) and '.' in plain_backend.bucket_name:
+        log.warning('***Warning*** S3 Buckets with names containing dots cannot be '
+                    'accessed using SSL!')
+        log.warning('(cf. https://forums.aws.amazon.com/thread.jspa?threadID=130560)')
+
+        
     if 's3ql_metadata' in plain_backend:
         if not options.force:
             raise QuietError("Found existing file system! Use --force to overwrite")

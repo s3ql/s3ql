@@ -39,7 +39,15 @@ class Backend(s3c.Backend):
             raise QuietError('Invalid storage URL')
 
         bucket_name = hit.group(1)
-        hostname = '%s.commondatastorage.googleapis.com' % bucket_name
+        
+        # Dots in the bucket cause problems with SSL certificate validation,
+        # because server certificate is for *.commondatastorage.googleapis.com
+        # (which does not match e.g. a.b.commondatastorage.googleapis.com)
+        if '.' in bucket_name and ssl_context:
+            hostname = 'commondatastorage.googleapis.com'
+        else:
+            hostname = '%s.commondatastorage.googleapis.com' % bucket_name
+            
         prefix = hit.group(2) or ''
         port = 443 if ssl_context else 80
         return (hostname, port, bucket_name, prefix)

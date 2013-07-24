@@ -3,6 +3,9 @@ UNRELEASED, S3QL tip
   * Attempts to upgrade a file system that is already at the newest
     revision no longer render the local metadata copy unusable.
 
+  * Google storage bucket names containing dots no longer cause
+    problems with SSL certificate validation.
+
 2013-07-18, S3QL 2.3
 
   * Reading the file system passphrase from the authinfo2 file
