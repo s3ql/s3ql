@@ -6,6 +6,11 @@ UNRELEASED, S3QL tip
   * Google storage bucket names containing dots no longer cause
     problems with SSL certificate validation.
 
+  * Fixed crash when statvfs() is called on an almost empty file
+    system (which may happen automatically when using some desktop
+    environments, resulting in an immediate crash after mounting an
+    empty filesystem).
+  
 2013-07-18, S3QL 2.3
 
   * Reading the file system passphrase from the authinfo2 file

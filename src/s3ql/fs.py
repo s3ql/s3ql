@@ -901,7 +901,7 @@ class Operations(llfuse.Operations):
         # file system block size, i.e. the minimum amount of space that can
         # be allocated. This doesn't make much sense for S3QL, so we just
         # return the average size of stored blocks.
-        stat_.f_frsize = size // blocks if blocks != 0 else 4096
+        stat_.f_frsize = max(4096, size // blocks) if blocks != 0 else 4096
         
         # This should actually be the "preferred block size for doing IO.  However, `df` incorrectly
         # interprets f_blocks, f_bfree and f_bavail in terms of f_bsize rather than f_frsize as it
