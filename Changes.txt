@@ -1,3 +1,10 @@
+UNRELEASED, S3QL tip
+
+  * Fixed crash when statvfs() is called on an almost empty file
+    system (which may happen automatically when using some desktop
+    environments, resulting in an immediate crash after mounting an
+    empty filesystem).
+
 2013-07-12, S3QL 1.16
 
   * Eliminated a race condition that resulted in an apparent loss of
