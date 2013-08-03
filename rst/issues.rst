@@ -4,6 +4,19 @@
 Known Issues
 ============
 
+* S3QL de-duplicates data blocks based solely only on SHA256
+  checksums, without doing a byte-by-byte comparison of the blocks.
+  Since it is possible for two data blocks to have the same checksum
+  despite having different contents, this can lead to problems. If two
+  such blocks are stored in an S3QL file system, the data in one block
+  will be lost and replaced by the data in the other block. However,
+  the chances of this occuring for any two blocks are about 1 in 10^77
+  (2^256). For a file system that holds a total of 10^34 blocks, the
+  chances of a collision increase to about 1 in 10^9. Storing more
+  than 10^34 blocks (or about 10^25 TB with an (extremely small) block
+  size of 4 kB) is therefore not recommended. Being exceptionally
+  unlucky may also be a disadvantage.
+
 * S3QL does not support Access Control Lists (ACLs). This is due to
   a bug in the FUSE library and will therefore hopefully be fixed
   at some point. See `issue 385 <http://code.google.com/p/s3ql/issues/detail?id=385>`_
