@@ -105,15 +105,33 @@ OpenStack_ is an open-source cloud server application suite. Swift_ is
 the cloud storage module of OpenStack. Swift/OpenStack storage is
 offered by many different companies.
 
-The storage URL for the OpenStack backend has the form ::
-  
+There are two different storage URL for the OpenStack backend that
+make use of different authentication APIs. For legacy (v1)
+authentication, the storage URL is ::
+
    swift://<hostname>[:<port>]/<container>[/<prefix>]
 
-Note that the storage container must already exist. Most OpenStack
-providers offer a web frontend that you can use to create storage
-containers. *prefix* can be an arbitrary prefix that will be prepended
-to all object names used by S3QL. This allows you to store several
-S3QL file systems in the same container.
+for keystore (v2) authentication, the storage URL is ::
+
+   swiftks://<hostname>[:<port>]/<region>:<container>[/<prefix>]
+
+Note that when using keystore authentication, you can (and have to)
+specify the storage region of the container as well.
+
+In both cases, *hostname* name should be the name of the
+authentication server.  The storage container must already exist (most
+OpenStack providers offer either a web frontend or a command line tool
+for creating containers). *prefix* can be an arbitrary prefix that
+will be prepended to all object names used by S3QL, which can be used
+to store multiple S3QL file systems in the same container.
+
+When using legacy authentication, the backend login and password
+correspond to the OpenStack username and API Access Key. When using
+keystore authentication, the backend password is your regular
+OpenStack password and the backend login combines you OpenStack
+username and tenant name in the form `<tenant>:<user>`. If no tenant
+is required, the OpenStack username alone may be used as backend
+login.
 
 .. _OpenStack: http://www.openstack.org/
 .. _Swift: http://openstack.org/projects/storage/
@@ -124,12 +142,9 @@ Rackspace CloudFiles
 
 Rackspace_ CloudFiles uses OpenStack_ internally, so it is possible to
 just use the OpenStack/Swift backend (see above) with
-``auth.api.rackspacecloud.com`` as the host name and your rackspace
-API key as the backend passphrase. However, in this case you are
-restricted to using containers in the default storage region.
-
-To access containers in other storage regions, there is a special
-``rackspace`` backend that uses a storage URL of the form ::
+``auth.api.rackspacecloud.com`` as the host name. For convenince,
+there is also a special ``rackspace`` backend that uses a storage URL
+of the form ::
 
    rackspace://<region>/<container>[/<prefix>]
 

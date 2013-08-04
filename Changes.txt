@@ -10,6 +10,10 @@ UNRELEASED, S3QL tip
     system (which may happen automatically when using some desktop
     environments, resulting in an immediate crash after mounting an
     empty filesystem).
+
+  * There is a new "swiftks" backend for OpenStack/Swift servers that
+    supports keystone authentication and allows specification of the
+    desired storage region.
   
 2013-07-18, S3QL 2.3
 
