@@ -106,7 +106,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             return True
                 
         return False
-        
+
+    @retry
     def _get_conn(self):
         '''Obtain connection to server and authentication token'''
 
