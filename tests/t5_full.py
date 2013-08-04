@@ -94,19 +94,6 @@ class S3FullTest(RemoteTest, FullTest):
     def setUp(self):
         super().setUp('s3-test')
 
-class GSFullTest(RemoteTest, FullTest):
+class SwiftksFullTest(RemoteTest, FullTest):
     def setUp(self):
-        super().setUp('gs-test')
-        
-class S3CFullTest(RemoteTest, FullTest):
-    def setUp(self):
-        super().setUp('s3c-test')
-
-class SwiftFullTest(RemoteTest, FullTest):
-    def setUp(self):
-        super().setUp('swift-test')
-        
-class RackspaceFullTest(RemoteTest, FullTest):
-    def setUp(self):
-        super().setUp('rackspace-test')
-            
+        super().setUp('swiftks-test')

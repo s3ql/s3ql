@@ -179,18 +179,7 @@ class S3UpgradeTest(RemoteUpgradeTest, UpgradeTest):
     def setUp(self):
         super().setUp('s3-test')
 
-class GSUpgradeTest(RemoteUpgradeTest, UpgradeTest):
-    def setUp(self):
-        super().setUp('gs-test')
-        
-class S3CUpgradeTest(RemoteUpgradeTest, UpgradeTest):
-    def setUp(self):
-        super().setUp('s3c-test')
-
 class SwiftUpgradeTest(RemoteUpgradeTest, UpgradeTest):
     def setUp(self):
         super().setUp('swift-test')
         
-class RackspaceUpgradeTest(RemoteUpgradeTest, UpgradeTest):
-    def setUp(self):
-        super().setUp('rackspace-test')
