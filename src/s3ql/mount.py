@@ -173,9 +173,8 @@ def main(args=None):
 
         # Re-raise if main loop terminated due to exception in other thread
         if exc_info:
-            (tmp0, tmp1, tmp2) = exc_info
-            exc_info[:] = []
-            raise tmp0(tmp1).with_traceback(tmp2)
+            (exc_inst, exc_tb) = exc_info
+            raise exc_inst.with_traceback(exc_tb)
 
         log.info("FUSE main loop terminated.")
 
@@ -596,21 +595,20 @@ def setup_exchook():
     old_exchook = sys.excepthook
     exc_info = []
 
-    def exchook(type_, val, tb):
+    def exchook(exc_type, exc_inst, tb):
         if (_thread.get_ident() != this_thread
             and not exc_info):
             os.kill(os.getpid(), signal.SIGTERM)
-            exc_info.append(type_)
-            exc_info.append(val)
+            exc_info.append(exc_inst)
             exc_info.append(tb)
 
-            old_exchook(type_, val, tb)
+            old_exchook(exc_type, exc_inst, tb)
 
         # If the main thread re-raised exception, there is no need to call
         # excepthook again
         elif not (_thread.get_ident() == this_thread
-                  and exc_info == [type_, val, tb]):
-            old_exchook(type_, val, tb)
+                  and exc_info[0] is exc_inst):
+            old_exchook(exc_type, exc_inst, tb)
 
     sys.excepthook = exchook
 
