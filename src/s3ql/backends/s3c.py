@@ -362,8 +362,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         '''Return element tree for XML response'''
 
         content_type = resp.getheader('Content-Type')
-        if not content_type or not XML_CONTENT_RE.match(content_type):
-            raise HTTPError(resp.status, resp.reason, resp.getheaders(), resp.read())
+        if not isinstance(content_type, str) or not XML_CONTENT_RE.match(content_type):
+            log.error('Unexpected server reply: expected XML, got %r', content_type)
+            log.error('Full response:\n%d %s\n%s\n\n%s', resp.status, resp.reason,
+                      '\n'.join('%s: %s' % x for x in resp.getheaders()),
+                      resp.read(512))
+            raise RuntimeError('Unexpected server response')
  
         tree = ElementTree.parse(resp).getroot()
 
