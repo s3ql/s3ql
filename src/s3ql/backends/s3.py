@@ -95,10 +95,7 @@ class Backend(s3c.Backend):
         
         resp = self._do_request('POST', '/', subres='delete', body=body, headers=headers)
         try:
-            if not XML_CONTENT_RE.match(resp.getheader('Content-Type')):
-                raise RuntimeError('unexpected content type: %s' % resp.getheader('Content-Type'))
-            
-            root = ElementTree.parse(resp)
+            root = self._parse_xml_response(resp)
             ns_p = self.xml_ns_prefix
             
             error_tags = root.findall(ns_p + 'Error')
