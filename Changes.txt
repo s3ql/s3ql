@@ -14,6 +14,9 @@ UNRELEASED, S3QL tip
   * There is a new "swiftks" backend for OpenStack/Swift servers that
     supports keystone authentication and allows specification of the
     desired storage region.
+
+  * Eliminated a race condition that could lead to mount.s3ql crashing
+    with a "KeyError in collections/abc.py" under some circumstances.
   
 2013-07-18, S3QL 2.3
 

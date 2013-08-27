@@ -636,25 +636,19 @@ class CommitThread(Thread):
 
         while not self.stop_event.is_set():
             did_sth = False
-            stamp = time.time()
-            for el in self.block_cache.entries.values():
-                if stamp - el.last_access < 10:
-                    break
-                if not (el.dirty and (el.inode, el.blockno) not in self.block_cache.in_transit):
-                    continue
-
-                # Acquire global lock to access UploadManager instance
-                with llfuse.lock:
+            
+            with llfuse.lock:
+                stamp = time.time()
+                for el in self.block_cache.entries.values():
                     if self.stop_event.is_set():
                         break
-                    # Object may have been accessed while waiting for lock
-                    if not (el.dirty and (el.inode, el.blockno) not in self.block_cache.in_transit):
+                    if stamp - el.last_access < 10:
+                        break
+                    if not el.dirty or (el.inode, el.blockno) in self.block_cache.in_transit:
                         continue
-                    self.block_cache.upload(el)
-                did_sth = True
 
-                if self.stop_event.is_set():
-                    break
+                    self.block_cache.upload(el)
+                    did_sth = True
 
             if not did_sth:
                 self.stop_event.wait(5)
