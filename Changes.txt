@@ -17,7 +17,10 @@ UNRELEASED, S3QL tip
 
   * Eliminated a race condition that could lead to mount.s3ql crashing
     with a "KeyError in collections/abc.py" under some circumstances.
-  
+
+  * Fixed a crash that could occur when trying to clean up after
+    receiving a connection or server error when uploading an object.
+
 2013-07-18, S3QL 2.3
 
   * Reading the file system passphrase from the authinfo2 file
