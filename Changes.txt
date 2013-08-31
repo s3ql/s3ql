@@ -1,3 +1,8 @@
+UNRELEASED, S3QL tip
+
+  * Specifying bzip2 as the compression algorithm for mount.s3ql
+    no longer gives an error.
+  
 2013-08-27, S3QL 2.4
 
   * Attempts to upgrade a file system that is already at the newest

@@ -400,7 +400,7 @@ def parse_args(args):
                 args.insert(pos, '--' + opt)
 
     def compression_type(s):
-        hit = re.match(r'^([a-z]+)(?:-([0-9]))?$', s)
+        hit = re.match(r'^([a-z0-9]+)(?:-([0-9]))?$', s)
         if not hit:
             raise argparse.ArgumentTypeError('%s is not a valid --compress value' % s)
         alg = hit.group(1)
