@@ -362,7 +362,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         '''Return element tree for XML response'''
 
         content_type = resp.getheader('Content-Type')
-        if not isinstance(content_type, str) or not XML_CONTENT_RE.match(content_type):
+
+        # AWS S3 sometimes "forgets" to send a Content-Type
+        # when responding to a multiple delete request.
+        # https://forums.aws.amazon.com/thread.jspa?threadID=134372
+        if content_type is None:
+            log.error('Server did not provide Content-Type, assuming XML')
+        elif not XML_CONTENT_RE.match(content_type):
             log.error('Unexpected server reply: expected XML, got %r', content_type)
             log.error('Full response:\n%d %s\n%s\n\n%s', resp.status, resp.reason,
                       '\n'.join('%s: %s' % x for x in resp.getheaders()),
