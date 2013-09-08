@@ -185,7 +185,8 @@ def is_temp_network_error(exc):
     '''Return true if *exc* represents a potentially temporary network problem'''
 
     if isinstance(exc, (http.client.IncompleteRead, socket.timeout,
-                        ConnectionError, TimeoutError, InterruptedError)):
+                        ssl.SSLZeroReturnError, ConnectionError, TimeoutError,
+                        InterruptedError)):
         return True
      
     # Server closed connection
