@@ -17,24 +17,19 @@ import os.path
 import pytest
 
 @pytest.fixture(autouse=True)
-def save_capfd_fixture(request, capfd):
+def check_test_output(request, capfd):
     request.capfd = capfd
-
-def pytest_runtest_call(__multicall__, item):
-    cap = item._request.capfd
-    report = __multicall__.execute()
-
-    # Peek at captured output
-    (stdout, stderr) = cap.readouterr()
-    sys.stdout.write(stdout)
-    sys.stderr.write(stderr)
-
-    # Check for problems
-    if ('exception' in stderr.lower()
-        or 'exception' in stdout.lower()):
-        raise AssertionError('Suspicious output to stderr')
-
-    return report
+    def raise_on_exception_in_out():
+        # Peek at captured output
+        (stdout, stderr) = capfd.readouterr()
+        sys.stdout.write(stdout)
+        sys.stderr.write(stderr)
+        
+        if ('exception' in stderr.lower()
+            or 'exception' in stdout.lower()):
+            raise AssertionError('Suspicious output to stderr')
+        
+    request.addfinalizer(raise_on_exception_in_out)
 
 def pytest_addoption(parser):
     group = parser.getgroup("terminal reporting")
