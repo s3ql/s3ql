@@ -112,7 +112,7 @@ def main(args=None):
 def download_metadata(backend, storage_url):
     '''Download old metadata backups'''
 
-    backups = sorted(backend.list('s3ql_metadata_bak_'))
+    backups = sorted(backend.list('s3ql_metadata'))
 
     if not backups:
         raise QuietError('No metadata backups found.')
