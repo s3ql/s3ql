@@ -5,6 +5,10 @@ UNRELEASED, S3QL tip
     environments, resulting in an immediate crash after mounting an
     empty filesystem).
 
+  * Fixed another race condition that could lead to the (apparent)
+    vanishing of the file system metadata when the mount.s3ql is
+    killed at an unfortunate time.
+
 2013-07-12, S3QL 1.16
 
   * Eliminated a race condition that resulted in an apparent loss of
