@@ -114,7 +114,8 @@ def cycle_metadata(backend):
         except NoSuchObject:
             pass
 
-    backend.rename("s3ql_metadata", "s3ql_metadata_bak_0")
+    # Copy instead of rename, so can never end up without a metadata object
+    backend.copy("s3ql_metadata", "s3ql_metadata_bak_0")
     backend.rename("s3ql_metadata_new", "s3ql_metadata")
 
 def dump_metadata(db, fh):
