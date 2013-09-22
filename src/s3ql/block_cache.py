@@ -677,8 +677,6 @@ class BlockCache(object):
             end_no = start_no + 1
 
         for blockno in range(start_no, end_no):
-            # We can't use self.mlock here to prevent simultaneous retrieval
-            # of the block with get(), because this could deadlock
             if (inode, blockno) in self.entries:
                 log.debug('remove(inode=%d, blockno=%d): removing from cache',
                           inode, blockno)
