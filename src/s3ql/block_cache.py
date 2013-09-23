@@ -303,8 +303,13 @@ class BlockCache(object):
         '''Upload object'''
 
         def do_write(fh):
+            # If the object has been removed in transit, the cache element is
+            # already closed and we can't seek.
+            if obj_id in self.removed_in_transit:
+                return fh
+            
             el.seek(0)
-            while True:
+            while obj_id not in self.removed_in_transit:
                 buf = el.read(BUFSIZE)
                 if not buf:
                     break
@@ -318,15 +323,25 @@ class BlockCache(object):
             with self.backend_pool() as backend:
                 obj_size = backend.perform_write(do_write, 's3ql_data_%d' % obj_id).get_obj_size()
 
+            removed = obj_id in self.removed_in_transit
+            
             if log.isEnabledFor(logging.DEBUG):
-                time_ = time.time() - time_
-                rate = el.size / (1024 ** 2 * time_) if time_ != 0 else 0
-                log.debug('_do_upload(%s): uploaded %d bytes in %.3f seconds, %.2f MiB/s',
-                          obj_id, el.size, time_, rate)
+                if removed:
+                    log.debug('_do_upload(%s): aborted upload of deleted object', obj_id)
+                else:
+                    time_ = time.time() - time_
+                    rate = el.size / (1024 ** 2 * time_) if time_ != 0 else 0
+                    log.debug('_do_upload(%s): uploaded %d bytes in %.3f seconds, %.2f MiB/s',
+                              obj_id, el.size, time_, rate)
+
+            if removed:
+                self.removed_in_transit.remove(obj_id)
+                self.to_remove.put(obj_id)
 
             with lock:
-                self.db.execute('UPDATE objects SET size=? WHERE id=?',
-                                (obj_size, obj_id))
+                if not removed:
+                    self.db.execute('UPDATE objects SET size=? WHERE id=?',
+                                    (obj_size, obj_id))
 
                 el.dirty = False
                 self.in_transit.remove(obj_id)
@@ -443,14 +458,14 @@ class BlockCache(object):
         log.debug('upload(%s): removing object %d', el, old_obj_id)
         self.db.execute('DELETE FROM objects WHERE id=?', (old_obj_id,))
 
-        while old_obj_id in self.in_transit:
-            log.debug('upload(%s): waiting for transfer of old object %d to complete',
+        if old_obj_id in self.in_transit:
+            log.debug('upload(%s): deferring removal of old object %d, still in transit',
                       el, old_obj_id)
-            self.wait()
-
-        with lock_released:
+            self.removed_in_transit.add(old_obj_id)
+        else:
             log.debug('upload(%s): adding %d to removal queue', el, old_obj_id)
-            self.to_remove.put(old_obj_id)
+            with lock_released:
+                self.to_remove.put(old_obj_id)
 
         return el.size
 
@@ -723,15 +738,16 @@ class BlockCache(object):
                 self.db.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
                                 (obj_id,))
             else:
-                while obj_id in self.in_transit:
-                    log.debug('remove(inode=%d, blockno=%d): waiting for transfer of '
-                              'object %d to complete', inode, blockno, obj_id)
-                    self.wait()
-                log.debug('remove(inode=%d, blockno=%d): deleting object %d',
-                          inode, blockno, obj_id)
+                if obj_id in self.in_transit:
+                    log.debug('remove(inode=%d, blockno=%d): deferring removal of '
+                              'object %d, still in transit', inode, blockno, obj_id)
+                    self.removed_in_transit.add(obj_id)
+                else:
+                    log.debug('remove(inode=%d, blockno=%d): deleting object %d',
+                              inode, blockno, obj_id)
+                    with lock_released:
+                        self.to_remove.put(obj_id)
                 self.db.execute('DELETE FROM objects WHERE id=?', (obj_id,))
-                with lock_released:
-                    self.to_remove.put(obj_id)
 
         log.debug('remove(inode=%d, start=%d, end=%s): end', inode, start_no, end_no)
 

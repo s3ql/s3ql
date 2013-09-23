@@ -1,5 +1,9 @@
 UNRELEASED, S3QL tip
 
+  * Removed a race condition that resulted in a crash when a file was
+    deleted while the upload was in progress, and the upload was then
+    restarted because of a connection problem.
+
   * Specifying bzip2 as the compression algorithm for mount.s3ql
     no longer gives an error.
 
