@@ -11,6 +11,9 @@ UNRELEASED, S3QL tip
     vanishing of the file system metadata when the mount.s3ql is
     killed at an unfortunate time.
 
+  * S3QL programs no longer create an empty file in the default log
+    file location if a custom log file is specified with --log.
+
 2013-08-27, S3QL 2.4
 
   * Attempts to upgrade a file system that is already at the newest

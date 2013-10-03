@@ -7,8 +7,10 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 import logging
+import logging.handlers
 import warnings
 import sys
+import os.path
 
 # Logging messages with severities larger or equal
 # than this value will raise exceptions.
@@ -49,6 +51,38 @@ class QuietError(Exception):
         return self.msg
 
 
+def create_handler(target):
+    '''Create logging handler for given target'''
+    
+    if target.lower() == 'syslog':
+        handler = logging.handlers.SysLogHandler('/dev/log')
+        formatter = logging.Formatter(os.path.basename(sys.argv[0])
+                                       + '[%(process)s] %(threadName)s: '
+                                       + '[%(name)s] %(message)s')
+
+    else:
+        fullpath = os.path.expanduser(target)
+        dirname = os.path.dirname(fullpath)
+        if dirname and not os.path.exists(dirname):
+            try:
+                os.makedirs(dirname)
+            except PermissionError:
+                raise QuietError('No permission to create log file %s' % fullpath)
+
+        try:
+            handler = logging.handlers.RotatingFileHandler(fullpath,
+                                                           maxBytes=1024 ** 2, backupCount=5)
+        except PermissionError:
+            raise QuietError('No permission to write log file %s' % fullpath) from None
+
+        formatter = logging.Formatter('%(asctime)s.%(msecs)03d [pid=%(process)r, '
+                                      'thread=%(threadName)r, module=%(name)r, '
+                                      'fn=%(funcName)r, line=%(lineno)r]: %(message)s',
+                                      datefmt="%Y-%m-%d %H:%M:%S")
+
+    handler.setFormatter(formatter)
+    return handler
+    
 def setup_logging(options):
     root_logger = logging.getLogger()
     if root_logger.handlers:
@@ -57,7 +91,7 @@ def setup_logging(options):
 
     stdout_handler = add_stdout_logging(options.quiet)
     if hasattr(options, 'log') and options.log:
-        root_logger.addHandler(options.log)
+        root_logger.addHandler(create_handler(options.log))
     elif options.debug and (not hasattr(options, 'log') or not options.log):
         # When we have debugging enabled but no separate log target,
         # make stdout logging more detailed.

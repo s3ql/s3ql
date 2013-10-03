@@ -38,12 +38,11 @@ from . import RELEASE
 from argparse import ArgumentTypeError, ArgumentError
 import argparse
 from .logging import logging # Ensure use of custom logger class
-import logging.handlers
 import os
 import re
-import sys
 
 DEFAULT_USAGE = object()
+log = logging.getLogger(__name__)
 
 class HelpFormatter(argparse.HelpFormatter):
 
@@ -171,8 +170,8 @@ class ArgumentParser(argparse.ArgumentParser):
                       help='Store cached data in this directory '
                            '(default: `~/.s3ql)`')
 
-    def add_log(self, default='none'):
-        self.add_argument("--log", type=log_handler_type, metavar='<target>', default=default,
+    def add_log(self, default=None):
+        self.add_argument("--log", type=str_or_None_type, metavar='target>', default=default,
                       help='Write logging info into this file. File will be rotated when '
                            'it reaches 1 MiB, and at most 5 old log files will be kept. '
                            'Specify ``none`` to disable logging. Default: ``%(default)s``')
@@ -224,37 +223,7 @@ def storage_url_type(s):
 
     return s
 
-def log_handler_type(s):
-    '''Return logging handler for given destination'''
-    
+def str_or_None_type(s):
     if s.lower() == 'none':
         return None
-    
-    elif s.lower() == 'syslog':
-        handler = logging.handlers.SysLogHandler('/dev/log')
-        formatter = logging.Formatter(os.path.basename(sys.argv[0])
-                                       + '[%(process)s] %(threadName)s: '
-                                       + '[%(name)s] %(message)s')
-        
-    else:
-        fullpath = os.path.expanduser(s)
-        dirname = os.path.dirname(fullpath)
-        if dirname and not os.path.exists(dirname):
-            try:
-                os.makedirs(dirname)
-            except PermissionError:
-                raise ArgumentTypeError('No permission to create log file %s' % fullpath)
-                    
-        try:
-            handler = logging.handlers.RotatingFileHandler(fullpath,
-                                                           maxBytes=1024 ** 2, backupCount=5)
-        except PermissionError:
-            raise ArgumentTypeError('No permission to write log file %s' % fullpath) from None
-        
-        formatter = logging.Formatter('%(asctime)s.%(msecs)03d [pid=%(process)r, '
-                                      'thread=%(threadName)r, module=%(name)r, '
-                                      'fn=%(funcName)r, line=%(lineno)r]: %(message)s',
-                                      datefmt="%Y-%m-%d %H:%M:%S")
-
-    handler.setFormatter(formatter)
-    return handler
+    return s
