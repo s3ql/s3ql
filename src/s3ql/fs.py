@@ -822,8 +822,10 @@ class Operations(llfuse.Operations):
 
                 except ChecksumError as exc:
                     log.warning('Backend returned malformed data for block %d of inode %d (%s)',
-                             last_block, id_, exc)
-                    raise
+                                last_block, id_, exc)
+                    self.failsafe = True
+                    self.broken_blocks[id_].add(last_block)
+                    raise FUSEError(errno.EIO)
 
         if attr.st_mode is not None:
             inode.mode = attr.st_mode
