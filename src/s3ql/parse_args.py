@@ -171,7 +171,7 @@ class ArgumentParser(argparse.ArgumentParser):
                            '(default: `~/.s3ql)`')
 
     def add_log(self, default=None):
-        self.add_argument("--log", type=str_or_None_type, metavar='target>', default=default,
+        self.add_argument("--log", type=str_or_None_type, metavar='<target>', default=default,
                       help='Write logging info into this file. File will be rotated when '
                            'it reaches 1 MiB, and at most 5 old log files will be kept. '
                            'Specify ``none`` to disable logging. Default: ``%(default)s``')
