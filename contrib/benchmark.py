@@ -26,6 +26,9 @@ basedir = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), '..'))
 if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
+    exec_prefix = os.path.join(basedir, 'bin', '')
+else:
+    exec_prefix = ''
 
 from s3ql.logging import logging, setup_logging, QuietError
 from s3ql.backends.common import get_backend, BetterBackend, DanglingStorageURLError
@@ -86,9 +89,9 @@ def main(args=None):
     size = 50 * 1024 * 1024
     while write_time < 3:        
         log.debug('Write took %.3g seconds, retrying', write_time) 
-        subprocess.check_call(['mkfs.s3ql', '--plain', 'local://%s' % backend_dir,
+        subprocess.check_call([exec_prefix + 'mkfs.s3ql', '--plain', 'local://%s' % backend_dir,
                                '--quiet', '--force', '--cachedir', options.cachedir])
-        subprocess.check_call(['mount.s3ql', '--threads', '1', '--quiet',
+        subprocess.check_call([exec_prefix + 'mount.s3ql', '--threads', '1', '--quiet',
                                '--cachesize', '%d' % (2 * size / 1024), '--log',
                                '%s/mount.log' % backend_dir, '--cachedir', options.cachedir,
                                'local://%s' % backend_dir, mnt_dir])
@@ -109,7 +112,7 @@ def main(args=None):
             write_time = time.time() - write_time
             os.unlink('%s/bigfile' % mnt_dir)
         finally:
-            subprocess.check_call(['umount.s3ql', mnt_dir])
+            subprocess.check_call([exec_prefix + 'umount.s3ql', mnt_dir])
             
     fuse_speed = copied / write_time
     log.info('Cache throughput: %d KiB/sec', fuse_speed / 1024)
