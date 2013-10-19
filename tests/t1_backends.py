@@ -17,6 +17,7 @@ import stat
 import tempfile
 import time
 import unittest
+import pytest
 
 RETRY_DELAY = 1
 
@@ -400,7 +401,8 @@ class LocalTests(BackendTestsMixin, unittest.TestCase):
         self.backend.clear()
         os.rmdir(self.backend_dir)
 
-class CompressionTests(BackendTestsMixin, unittest.TestCase):
+
+class CompressionTestsMixin(BackendTestsMixin):
 
     def setUp(self):
         self.name_cnt = 0
@@ -410,16 +412,82 @@ class CompressionTests(BackendTestsMixin, unittest.TestCase):
         self.retries = 0
 
     def _wrap_backend(self):
-        return BetterBackend(None, ('zlib', 6), self.plain_backend)
+        raise RuntimeError("Must be implemented in derived classes.")
 
     def tearDown(self):
         self.backend.clear()
         os.rmdir(self.backend_dir)
 
-class EncryptionTests(CompressionTests):
+    def _make_corrupt_obj(self):
+        key = self.newname()
+        value = self.newvalue()
+
+        self.backend[key] = value
+
+        # Corrupt the data
+        compr_value = bytearray(self.plain_backend[key])
+        compr_value[-3:] = b'000'
+        self.plain_backend.store(key, compr_value,
+                                 self.plain_backend.lookup(key))
+
+        return key
+
+    def test_corruption(self):
+        key = self._make_corrupt_obj()
+        with pytest.raises(ChecksumError) as exc:
+            self.backend.fetch(key)
+        assert exc.value.str == 'Invalid compressed stream'
+
+    def _make_extended_obj(self):
+        key = self.newname()
+        value = self.newvalue()
+
+        self.backend[key] = value
+
+        # Add bogus extra data
+        compr_value = self.plain_backend[key]
+        compr_value += b'000'
+        self.plain_backend.store(key, compr_value,
+                                 self.plain_backend.lookup(key))
+
+        return key
+    
+    def test_extra_data(self):
+        key = self._make_extended_obj()
+        with pytest.raises(ChecksumError) as exc:
+            self.backend.fetch(key)
+        assert exc.value.str == 'Data after end of compressed stream'
+
+            
+class ZlibCompressionTests(CompressionTestsMixin, unittest.TestCase):
+    def _wrap_backend(self):
+        return BetterBackend(None, ('zlib', 6), self.plain_backend)
+
+        
+class BzipCompressionTests(CompressionTestsMixin, unittest.TestCase):
+    def _wrap_backend(self):
+        return BetterBackend(None, ('bzip2', 6), self.plain_backend)
+
+class LzmaCompressionTests(CompressionTestsMixin, unittest.TestCase):
+    def _wrap_backend(self):
+        return BetterBackend(None, ('lzma', 6), self.plain_backend)
+    
+class EncryptionTests(CompressionTestsMixin, unittest.TestCase):
 
     def _wrap_backend(self):
-        return BetterBackend(b'schluz', (None, 0), self.plain_backend)
+        return BetterBackend(b'schluz', ('zlib', 0), self.plain_backend)
+
+    def test_corruption(self):
+        key = self._make_corrupt_obj()
+        with pytest.raises(ChecksumError) as exc:
+            self.backend.fetch(key)
+        assert exc.value.str == 'HMAC mismatch'
+
+    def test_extra_data(self):
+        key = self._make_extended_obj()
+        with pytest.raises(ChecksumError) as exc:
+            self.backend.fetch(key)
+        assert exc.value.str == 'HMAC mismatch'
 
     def test_encryption(self):
 

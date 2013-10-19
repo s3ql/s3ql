@@ -893,17 +893,15 @@ class DecompressFilter(AbstractInputFilter):
             try:
                 buf = self.decomp.decompress(buf)
             except IOError as exc:
-                if exc.args == ('invalid data stream',):
+                if exc.args[0].lower().startswith('invalid data stream'):
                     raise ChecksumError('Invalid compressed stream') from None
                 raise
             except lzma.LZMAError as exc:
-                if exc.args == ('Corrupt input data',):
+                if exc.args[0].lower().startswith('corrupt input data'):
                     raise ChecksumError('Invalid compressed stream') from None
                 raise
             except zlib.error as exc:
-                if exc.args[0].startswith('Error -3 while decompressing:'):
-                    log.warning('LegacyDecryptDecompressFilter._read(): %s',
-                             exc.args[0])
+                if exc.args[0].lower().startswith('error -3 while decompressing'):
                     raise ChecksumError('Invalid compressed stream') from None
                 raise
 
@@ -1117,17 +1115,15 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
             try:
                 buf = self.decomp.decompress(buf)
             except IOError as exc:
-                if exc.args == ('invalid data stream',):
+                if exc.args[0].lower().startswith('invalid data stream'):
                     raise ChecksumError('Invalid compressed stream') from None
                 raise
             except lzma.LZMAError as exc:
-                if exc.args == ('Corrupt input data',):
+                if exc.args[0].lower().startswith('corrupt input data'):
                     raise ChecksumError('Invalid compressed stream') from None
                 raise
             except zlib.error as exc:
-                if exc.args[0].startswith('Error -3 while decompressing:'):
-                    log.warning('LegacyDecryptDecompressFilter._read(): %s',
-                             exc.args[0])
+                if exc.args[0].lower().startswith('error -3 while decompressing'):
                     raise ChecksumError('Invalid compressed stream') from None
                 raise
 
