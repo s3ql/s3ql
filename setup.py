@@ -18,7 +18,6 @@ try:
 except ImportError:
     raise SystemExit('Setuptools/distribute package not found. Please install from '
                      'https://pypi.python.org/pypi/distribute')
-import setuptools.command.test as setuptools_test
 from setuptools import Extension
     
 import os
