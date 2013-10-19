@@ -591,23 +591,25 @@ def setup_exchook():
     by this function.
     '''
 
-    this_thread = _thread.get_ident()
+    main_thread = _thread.get_ident()
     old_exchook = sys.excepthook
     exc_info = []
 
     def exchook(exc_type, exc_inst, tb):
-        if (_thread.get_ident() != this_thread
-            and not exc_info):
-            os.kill(os.getpid(), signal.SIGTERM)
-            exc_info.append(exc_inst)
-            exc_info.append(tb)
-
+        reporting_thread = _thread.get_ident()
+        if reporting_thread != main_thread:
+            if exc_info:
+                log.warning("Unhandled top-level exception during shutdown "
+                            "(will not be re-raised)")
+            else:
+                os.kill(os.getpid(), signal.SIGTERM)
+                exc_info.append(exc_inst)
+                exc_info.append(tb)
             old_exchook(exc_type, exc_inst, tb)
 
         # If the main thread re-raised exception, there is no need to call
         # excepthook again
-        elif not (_thread.get_ident() == this_thread
-                  and exc_info[0] is exc_inst):
+        elif not exc_info or exc_info[0] is not exc_inst:
             old_exchook(exc_type, exc_inst, tb)
 
     sys.excepthook = exchook

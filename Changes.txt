@@ -20,6 +20,9 @@ UNRELEASED, S3QL tip
   * If a backend returns corrupted data, mount.s3ql no longer crashes
     but switches to read-only operation.
 
+  * Fixed a problem with error messages from mount.s3ql being lost,
+    resulting in a file system shutdown for apparently no reason.
+  
 2013-08-27, S3QL 2.4
 
   * Attempts to upgrade a file system that is already at the newest
