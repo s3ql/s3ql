@@ -312,6 +312,7 @@ class BackendPool(object):
     def push_conn(self, conn):
         '''Push connection back into pool'''
 
+        conn.reset()
         with self.lock:
             self.pool.append(conn)
 
@@ -377,6 +378,21 @@ class AbstractBackend(object, metaclass=ABCMeta):
     def iteritems(self):
         for key in self.list():
             yield (key, self[key])
+
+    def reset(self):
+        '''Reset backend
+
+        This resets the backend and ensures that it is ready to process
+        requests. In most cases, this method does nothing. However, if e.g. a
+        file handle returned by a previous call to `open_read` was not properly
+        closed (e.g. because an exception happened during reading), the `reset`
+        method will make sure that any underlying connection is properly closed.
+
+        Obviously, this method must not be called while any file handles
+        returned by the backend are still in use.
+        '''
+
+        pass
 
     @retry
     def perform_read(self, fn, key):
@@ -595,6 +611,10 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
         if (compression[0] not in ('bzip2', 'lzma', 'zlib', None)
             or compression[1] not in range(10)):
             raise ValueError('Unsupported compression: %s' % compression)
+
+    @copy_ancestor_docstring
+    def reset(self):
+        self.backend.reset()
 
     @copy_ancestor_docstring
     def lookup(self, key):

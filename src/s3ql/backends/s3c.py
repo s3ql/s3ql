@@ -67,6 +67,16 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.login = login
         self.xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
 
+    @copy_ancestor_docstring
+    def reset(self):
+        # A bit of a nasty hack, but a better solution that fully
+        # replaces the annoying http.client class is already in the works...
+        if (self.conn._HTTPConnection__state != http.client._CS_IDLE
+            or (self.conn._HTTPConnection__response
+                and not self.conn._HTTPConnection__response.isclosed())):
+            log.debug('Resetting state of http connection %d', id(self.conn))
+            self.conn.close()
+
     @staticmethod
     def _parse_storage_url(storage_url, ssl_context):
         '''Extract information from storage URL

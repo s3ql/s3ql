@@ -187,12 +187,12 @@ class fuse_tests(unittest.TestCase):
         self.mount_process = None
         self.name_cnt = 0
 
-    def mkfs(self):
+    def mkfs(self, max_obj_size=500):
         proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
-                                 '-L', 'test fs', '--max-obj-size', '500', '--fatal-warnings',
-                                 '--cachedir', self.cache_dir, '--quiet', '--authfile',
-                                 '/dev/null', self.storage_url ], stdin=subprocess.PIPE,
-                                universal_newlines=True)
+                                 '-L', 'test fs', '--max-obj-size', str(max_obj_size),
+                                 '--fatal-warnings', '--cachedir', self.cache_dir, '--quiet',
+                                 '--authfile', '/dev/null', self.storage_url ],
+                                stdin=subprocess.PIPE, universal_newlines=True)
 
         if self.backend_login is not None:
             print(self.backend_login, file=proc.stdin)
@@ -203,13 +203,15 @@ class fuse_tests(unittest.TestCase):
 
         self.assertEqual(proc.wait(), 0)
 
-    def mount(self):
-        self.mount_process = \
-            subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'mount.s3ql'),
-                              "--fg", '--cachedir', self.cache_dir, '--log', 'none',
-                              '--compress', 'zlib', '--quiet', '--fatal-warnings',
-                              self.storage_url, self.mnt_dir, '--authfile', '/dev/null' ],
-                             stdin=subprocess.PIPE, universal_newlines=True)
+    def mount(self, fatal_warnings=True):
+        cmd = [sys.executable, os.path.join(BASEDIR, 'bin', 'mount.s3ql'),
+               "--fg", '--cachedir', self.cache_dir, '--log', 'none',
+               '--compress', 'zlib', '--quiet', self.storage_url, self.mnt_dir,
+               '--authfile', '/dev/null' ]
+        if fatal_warnings:
+            cmd.append('--fatal-warnings')
+        self.mount_process = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                                              universal_newlines=True)
         if self.backend_login is not None:
             print(self.backend_login, file=self.mount_process.stdin)
             print(self.backend_passphrase, file=self.mount_process.stdin)
