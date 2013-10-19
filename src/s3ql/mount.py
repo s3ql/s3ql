@@ -186,7 +186,7 @@ def main(args=None):
     # corrupted, in which case we want to force an fsck.
     param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
     if operations.failsafe:
-        log.warn('File system errors encountered, marking for fsck.')
+        log.warning('File system errors encountered, marking for fsck.')
         param['needs_fsck'] = True
     with backend_pool() as backend:
         seq_no = get_seq_no(backend)
