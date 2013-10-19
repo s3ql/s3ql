@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from ..logging import logging # Ensure use of custom logger class
 from . import s3c
-from .s3c import XML_CONTENT_RE, get_S3Error
+from .s3c import get_S3Error
 from .common import NoSuchObject, retry
 from ..common import QuietError, BUFSIZE
 from ..inherit_docstrings import copy_ancestor_docstring
@@ -125,6 +125,13 @@ class Backend(s3c.Backend):
             if errcode == 'NoSuchKeyError':
                 raise NoSuchObject(errkey)
             else:
+                # Debugging http://code.google.com/p/s3ql/issues/detail?id=422
+                if not isinstance(errcode, str):
+                    log.error('Dazed and confused! Got errcode %r', errcode)
+                    log.error('Full response is:\n%s', ElementTree.tostring(root))
+                    raise RuntimeError("Internal error, please report to "
+                                       "http://code.google.com/p/s3ql/issues/detail?id=422")
+
                 raise get_S3Error(errcode, 'Error deleting %s: %s' % (errkey, errmsg))
 
         finally:
