@@ -151,8 +151,8 @@ def main(args=None):
     in_speed = dict()
     out_speed = dict()
     for alg in ALGS:
-        log.info('compressing with %s...', alg)
-        backend = BetterBackend('pass', alg, Backend('local://' + backend_dir, None, None))
+        log.info('compressing with %s-6...', alg)
+        backend = BetterBackend(b'pass', (alg, 6), Backend('local://' + backend_dir, None, None))
         def do_write(dst): #pylint: disable=E0102
             src.seek(0)
             stamp = time.time()
