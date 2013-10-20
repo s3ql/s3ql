@@ -53,7 +53,7 @@ class AdmTests(unittest.TestCase):
         passphrase_new = 'sd982jhd'
 
         proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 's3qladm'),
-                                 '--quiet', '--fatal-warnings', '--authfile',
+                                 '--quiet', '--fatal-warnings', '--log', 'none', '--authfile',
                                  '/dev/null', 'passphrase', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
 
@@ -86,8 +86,8 @@ class AdmTests(unittest.TestCase):
 
             proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'fsck.s3ql'),
                                      '--quiet', '--fatal-warnings', '--authfile', fh.name,
-                                     self.storage_url ], stdin=subprocess.PIPE,
-                                    universal_newlines=True)
+                                     '--cachedir', self.cache_dir, '--log', 'none', self.storage_url ],
+                                    stdin=subprocess.PIPE, universal_newlines=True)
 
             proc.stdin.close()
             self.assertEqual(proc.wait(), 0)
