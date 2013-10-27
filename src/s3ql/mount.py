@@ -11,7 +11,7 @@ from . import fs, CURRENT_FS_REV
 from .backends.common import get_backend_factory, BackendPool, DanglingStorageURLError
 from .block_cache import BlockCache
 from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2, stream_read_bz2,
-                     PICKLE_PROTOCOL)
+                     PICKLE_PROTOCOL, iter_values)
 from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
@@ -641,7 +641,7 @@ class CommitThread(Thread):
             
             with llfuse.lock:
                 stamp = time.time()
-                for el in self.block_cache.entries.values():
+                for el in iter_values(self.block_cache.entries):
                     if self.stop_event.is_set():
                         break
                     if stamp - el.last_access < 10:

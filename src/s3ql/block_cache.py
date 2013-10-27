@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .common import sha256_fh, BUFSIZE
+from .common import sha256_fh, BUFSIZE, iter_values
 from .database import NoSuchRowError
 from .logging import logging # Ensure use of custom logger class
 from collections import OrderedDict
@@ -622,7 +622,7 @@ class BlockCache(object):
             need_entries = len(self.entries) - self.max_entries
 
             # Try to expire entries that are not dirty
-            for el in self.entries.values():
+            for el in iter_values(self.entries):
                 if el.dirty:
                     if (el.inode, el.blockno) in self.in_transit:
                         log.debug('expire: %s is dirty, but already being uploaded', el)
@@ -646,7 +646,7 @@ class BlockCache(object):
                 break
 
             # Try to upload just enough
-            for el in self.entries.values():
+            for el in iter_values(self.entries):
                 if el.dirty and (el.inode, el.blockno) not in self.in_transit:
                     log.debug('expire: uploading %s..', el)
                     freed = self.upload(el) # Releases global lock
@@ -767,7 +767,7 @@ class BlockCache(object):
         This method releases the global lock.
         """
 
-        for el in self.entries.values():
+        for el in iter_values(self.entries):
             if not (el.dirty and (el.inode, el.blockno) not in self.in_transit):
                 continue
 
