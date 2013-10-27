@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2013-10-27, S3QL 1.17
 
   * Fixed crash when statvfs() is called on an almost empty file
     system (which may happen automatically when using some desktop
