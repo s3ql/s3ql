@@ -111,6 +111,12 @@ class Backend(s3c.Backend):
                 assert fullkey.startswith(self.prefix)
                 keys.remove(fullkey[offset:])
 
+            if log.isEnabledFor(logging.DEBUG):
+                for errtag in error_tags:
+                    log.debug('Delete %s failed with %s', 
+                              errtag.findtext(ns_p + 'Key')[offset:],
+                              errtag.findtext(ns_p + 'Code'))
+                
             # If *force*, just modify the passed list and return without
             # raising an exception, otherwise raise exception for the first error
             if force:
