@@ -13,7 +13,6 @@ from .common import NoSuchObject, retry
 from ..common import QuietError, BUFSIZE
 from ..inherit_docstrings import copy_ancestor_docstring
 from xml.sax.saxutils import escape as xml_escape
-from xml.etree import ElementTree
 import re
 
 log = logging.getLogger(__name__)
@@ -113,25 +112,17 @@ class Backend(s3c.Backend):
                 keys.remove(fullkey[offset:])
 
             # If *force*, just modify the passed list and return without
-            # raising an exception
+            # raising an exception, otherwise raise exception for the first error
             if force:
                 return
 
-            # Otherwise raise exception for the first error
-            errcode = error_tags[0].find(ns_p + 'Code')
-            errmsg = error_tags[0].find(ns_p + 'Message')
-            errkey = error_tags[0].find(ns_p + 'Key')[offset:]
+            errcode = error_tags[0].findtext(ns_p + 'Code')
+            errmsg = error_tags[0].findtext(ns_p + 'Message')
+            errkey = error_tags[0].findtext(ns_p + 'Key')[offset:]
 
             if errcode == 'NoSuchKeyError':
                 raise NoSuchObject(errkey)
             else:
-                # Debugging http://code.google.com/p/s3ql/issues/detail?id=422
-                if not isinstance(errcode, str):
-                    log.error('Dazed and confused! Got errcode %r', errcode)
-                    log.error('Full response is:\n%s', ElementTree.tostring(root))
-                    raise RuntimeError("Internal error, please report to "
-                                       "http://code.google.com/p/s3ql/issues/detail?id=422")
-
                 raise get_S3Error(errcode, 'Error deleting %s: %s' % (errkey, errmsg))
 
         finally:
