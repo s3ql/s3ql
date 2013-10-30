@@ -287,5 +287,5 @@ def iter_values(d):
     for key in d:
         try:
             yield d[key]
-        except IndexError:
+        except KeyError:
             pass
