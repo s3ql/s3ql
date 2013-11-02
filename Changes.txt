@@ -1,3 +1,8 @@
+UNRELEASED, S3QL tip
+
+  * Fixed a problem with mount.s3ql crashing with `KeyError` under
+    same circumstances.
+
 2013-10-27, S3QL 1.17
 
   * Fixed crash when statvfs() is called on an almost empty file

@@ -133,6 +133,18 @@ class OrderedDictTests(unittest.TestCase):
             self.assertEquals(od_i.next(), key)
         self.assertRaises(StopIteration, od_i.next)
 
+    def test_3_iterate_mutate(self):
+        od = OrderedDict()
+
+        for i in xrange(5):
+            od[i] = i
+
+        for key in od:
+            assert key in od
+            if key == 2:
+                del od[2]
+                del od[1]
+
 
 def suite():
     return unittest.makeSuite(OrderedDictTests)

@@ -94,6 +94,8 @@ class OrderedDict(collections.MutableMapping):
         el = self.data.pop(key)  # exception can be passed on
         el.prev.next = el.next
         el.next.prev = el.prev
+        el.next = self.tail
+        el.prev = self.head
 
     def __getitem__(self, key):
         return self.data[key].value
