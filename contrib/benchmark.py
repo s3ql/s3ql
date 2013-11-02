@@ -84,39 +84,42 @@ def main(args=None):
     mnt_dir = tempfile.mkdtemp(prefix='s3ql-mnt')
     atexit.register(shutil.rmtree, backend_dir)
     atexit.register(shutil.rmtree, mnt_dir)
-    
-    write_time = 0
-    size = 50 * 1024 * 1024
-    while write_time < 3:        
-        log.debug('Write took %.3g seconds, retrying', write_time) 
-        subprocess.check_call([exec_prefix + 'mkfs.s3ql', '--plain', 'local://%s' % backend_dir,
-                               '--quiet', '--force', '--cachedir', options.cachedir])
-        subprocess.check_call([exec_prefix + 'mount.s3ql', '--threads', '1', '--quiet',
-                               '--cachesize', '%d' % (2 * size / 1024), '--log',
-                               '%s/mount.log' % backend_dir, '--cachedir', options.cachedir,
-                               'local://%s' % backend_dir, mnt_dir])
-        try:    
-            size *= 2    
-            with open('%s/bigfile' % mnt_dir, 'wb', 0) as dst:
-                rnd_fh.seek(0)
-                write_time = time.time()
-                copied = 0
-                while copied < size:
-                    buf = rnd_fh.read(BUFSIZE)
-                    if not buf:
-                        rnd_fh.seek(0)
-                        continue
-                    dst.write(buf)
-                    copied += len(buf)
-        
-            write_time = time.time() - write_time
-            os.unlink('%s/bigfile' % mnt_dir)
-        finally:
-            subprocess.check_call([exec_prefix + 'umount.s3ql', mnt_dir])
-            
-    fuse_speed = copied / write_time
-    log.info('Cache throughput: %d KiB/sec', fuse_speed / 1024)
 
+    block_sizes = [ 2**b for b in range(12, 18) ]
+    for blocksize in block_sizes:
+        write_time = 0
+        size = 50 * 1024 * 1024
+        while write_time < 3:        
+            log.debug('Write took %.3g seconds, retrying', write_time) 
+            subprocess.check_call([exec_prefix + 'mkfs.s3ql', '--plain', 'local://%s' % backend_dir,
+                                   '--quiet', '--force', '--cachedir', options.cachedir])
+            subprocess.check_call([exec_prefix + 'mount.s3ql', '--threads', '1', '--quiet',
+                                   '--cachesize', '%d' % (2 * size / 1024), '--log',
+                                   '%s/mount.log' % backend_dir, '--cachedir', options.cachedir,
+                                   'local://%s' % backend_dir, mnt_dir])
+            try:    
+                size *= 2    
+                with open('%s/bigfile' % mnt_dir, 'wb', 0) as dst:
+                    rnd_fh.seek(0)
+                    write_time = time.time()
+                    copied = 0
+                    while copied < size:
+                        buf = rnd_fh.read(blocksize)
+                        if not buf:
+                            rnd_fh.seek(0)
+                            continue
+                        dst.write(buf)
+                        copied += len(buf)
+
+                write_time = time.time() - write_time
+                os.unlink('%s/bigfile' % mnt_dir)
+            finally:
+                subprocess.check_call([exec_prefix + 'umount.s3ql', mnt_dir])
+            
+        fuse_speed = copied / write_time
+        log.info('Cache throughput with %3d KiB blocks: %d KiB/sec',
+                 blocksize / 1024, fuse_speed / 1024)
+    
     # Upload random data to prevent effects of compression
     # on the network layer
     log.info('Measuring raw backend throughput..')
@@ -173,7 +176,9 @@ def main(args=None):
         log.info('%s compression speed: %d KiB/sec per thread (out)', alg, out_speed[alg] / 1024)
 
     print('')
-
+    print('With %d KiB blocks, maximum performance for different compression'
+          % (block_sizes[-1]/1024), 'algorithms and thread counts is:', '', sep='\n')
+    
     threads = set([1,2,4,8])
     cores = os.sysconf('SC_NPROCESSORS_ONLN')
     if cores != -1:
