@@ -11,7 +11,7 @@ from . import fs, CURRENT_FS_REV
 from .backends.common import get_backend_factory, BackendPool, DanglingStorageURLError
 from .block_cache import BlockCache
 from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2, stream_read_bz2,
-                     PICKLE_PROTOCOL, iter_values)
+                     PICKLE_PROTOCOL)
 from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
@@ -641,7 +641,19 @@ class CommitThread(Thread):
             
             with llfuse.lock:
                 stamp = time.time()
-                for el in iter_values(self.block_cache.entries):
+                # Need to make copy, since we aren't allowed to change
+                # dict while iterating through it. The performance hit doesn't seem
+                # to be that bad:
+                # >>> from timeit import timeit
+                # >>> timeit("k=0\nfor el in list(d.values()):\n k += el",
+                # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',
+                # ... number=500)/500 * 1e3
+                # 1.3769531380003173
+                # >>> timeit("k=0\nfor el in d.values(n:\n k += el",
+                # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',
+                # ... number=500)/500 * 1e3
+                # 1.456586996000624
+                for el in list(self.block_cache.entries.values()):
                     if self.stop_event.is_set():
                         break
                     if stamp - el.last_access < 10:

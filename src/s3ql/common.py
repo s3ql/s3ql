@@ -9,7 +9,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, QuietError # Ensure use of custom logger class
 from llfuse import ROOT_INODE
-from collections import OrderedDict
 import bz2
 import errno
 import hashlib
@@ -272,20 +271,3 @@ def assert_s3ql_mountpoint(mountpoint):
         raise QuietError('%s is not a mount point' % mountpoint)
 
     return ctrlfile
-
-
-def iter_values(d):
-    '''Yield values in OrderedDict *d*
-
-    This method is very similar to ``d.values()``, but works around
-    http://bugs.python.org/issue19414.
-    '''
-
-    if not isinstance(d, OrderedDict):
-        raise TypeError('expected OrderedDict, got %s' % type(d))
-    
-    for key in d:
-        try:
-            yield d[key]
-        except KeyError:
-            pass
