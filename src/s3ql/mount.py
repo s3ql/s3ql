@@ -17,8 +17,8 @@ from .database import Connection
 from .inode_cache import InodeCache
 from .metadata import cycle_metadata, dump_metadata, restore_metadata
 from .parse_args import ArgumentParser
+from .exit_stack import ExitStack
 from threading import Thread
-from contextlib import ExitStack
 import _thread
 import argparse
 import faulthandler
@@ -674,6 +674,7 @@ class CommitThread(Thread):
 
         log.debug('CommitThread: stop() called')
         self.stop_event.set()
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])
