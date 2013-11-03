@@ -21,6 +21,7 @@ import tempfile
 import threading
 import time
 import unittest
+import queue
 
 # A dummy removal queue to monkeypatch around the need for removal and upload
 # threads
@@ -28,7 +29,9 @@ class DummyQueue:
     def __init__(self, cache):
         self.obj = None
         self.cache = cache
-        
+
+    def get_nowait(self):
+        return self.get(block=False)
         
     def put(self, obj):
         self.obj = obj
@@ -36,7 +39,7 @@ class DummyQueue:
 
     def get(self, block=True):
         if self.obj is None:
-            raise RuntimeError("Don't know what to return")
+            raise queue.Empty()
         elif self.obj is QuitSentinel:
             self.obj = None
             return QuitSentinel

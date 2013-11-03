@@ -12,7 +12,7 @@ from .logging import logging # Ensure use of custom logger class
 from collections import OrderedDict
 from contextlib import contextmanager
 from llfuse import lock, lock_released
-from queue import Queue, Empty as QueueEmtpy
+from queue import Queue, Empty as QueueEmpty
 import os
 import shutil
 import threading
@@ -274,13 +274,22 @@ class BlockCache(object):
         log.debug('destroy(): waiting for upload threads...')
         for t in self.upload_threads:
             t.join()
-        self.to_upload = None
         
         log.debug('destroy(): waiting for removal threads...')
         for t in self.removal_threads:
             t.join()
-        self.to_remove = None
+
+        assert len(self.in_transit) == 0
+        assert len(self.removed_in_transit) == 0
+        try:
+            self.to_remove.get_nowait()
+        except QueueEmpty:
+            pass
+        else:
+            raise RuntimeError('Internal error: removal queue not empty.')
         
+        self.to_upload = None
+        self.to_remove = None
         self.upload_threads = None
         self.removal_threads = None
 
@@ -483,7 +492,7 @@ class BlockCache(object):
             try:
                 log.debug('reading from queue (blocking=%s)', len(ids)==0)
                 tmp = self.to_remove.get(block=len(ids)==0)
-            except QueueEmtpy:
+            except QueueEmpty:
                 tmp = FlushSentinel
 
             if (tmp is FlushSentinel or tmp is QuitSentinel) and ids:
