@@ -602,6 +602,7 @@ def setup_exchook():
                 log.warning("Unhandled top-level exception during shutdown "
                             "(will not be re-raised)")
             else:
+                log.debug('recording exception %s', exc_inst)
                 os.kill(os.getpid(), signal.SIGTERM)
                 exc_info.append(exc_inst)
                 exc_info.append(tb)
@@ -609,7 +610,9 @@ def setup_exchook():
 
         # If the main thread re-raised exception, there is no need to call
         # excepthook again
-        elif not exc_info or exc_info[0] is not exc_inst:
+        elif exc_info and exc_info[0] is exc_inst:
+            log.debug('Suppressing exception hook for re-raised %s', exc_inst)
+        else:
             old_exchook(exc_type, exc_inst, tb)
 
     sys.excepthook = exchook
