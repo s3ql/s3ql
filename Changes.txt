@@ -3,6 +3,9 @@ UNRELEASED, S3QL tip
   * Fixed a problem with mount.s3ql crashing with `KeyError` in
     `collections/abc.py`.
 
+  * Fixed a problem with mount.s3ql crashing with `ValueError: I/O
+    operation on closed file`.
+
 2013-10-19, S3QL 2.5
 
   * Removed a race condition that resulted in a crash when a file was
