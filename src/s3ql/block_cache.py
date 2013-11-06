@@ -565,6 +565,7 @@ class BlockCache(object):
                         continue
 
                     # We need to download
+                    self.in_transit_blocks[(inode, blockno)] = obj_id
                     self.in_transit_objs.add(obj_id)
                     log.debug('get(inode=%d, block=%d): downloading object %d..',
                               inode, blockno, obj_id)
@@ -594,6 +595,7 @@ class BlockCache(object):
                         raise
                     finally:
                         self.in_transit_objs.remove(obj_id)
+                        del self.in_transit_blocks[(inode, blockno)]
                         with lock_released:
                             self.transfer_completed.notify_all()
 
