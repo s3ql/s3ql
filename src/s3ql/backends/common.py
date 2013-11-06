@@ -911,20 +911,16 @@ class DecompressFilter(AbstractInputFilter):
                 return b''
 
             try:
-                buf = self.decomp.decompress(buf)
-            except IOError as exc:
-                if exc.args[0].lower().startswith('invalid data stream'):
-                    raise ChecksumError('Invalid compressed stream') from None
+                buf = decompress(self.decomp, buf)
+            except ChecksumError:
+                # Still read the stream completely (so that in case of
+                # an encrypted stream we check the HMAC).
+                while True:
+                    buf = self.fh.read(BUFSIZE)
+                    if not buf:
+                        break
                 raise
-            except lzma.LZMAError as exc:
-                if exc.args[0].lower().startswith('corrupt input data'):
-                    raise ChecksumError('Invalid compressed stream') from None
-                raise
-            except zlib.error as exc:
-                if exc.args[0].lower().startswith('error -3 while decompressing'):
-                    raise ChecksumError('Invalid compressed stream') from None
-                raise
-
+            
         return buf
 
     def close(self):
@@ -936,6 +932,7 @@ class DecompressFilter(AbstractInputFilter):
     def __exit__(self, *a):
         self.close()
         return False
+
 
 class EncryptFilter(object):
     '''Encrypt data while writing'''
@@ -1132,20 +1129,7 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
             if not self.decomp:
                 break
 
-            try:
-                buf = self.decomp.decompress(buf)
-            except IOError as exc:
-                if exc.args[0].lower().startswith('invalid data stream'):
-                    raise ChecksumError('Invalid compressed stream') from None
-                raise
-            except lzma.LZMAError as exc:
-                if exc.args[0].lower().startswith('corrupt input data'):
-                    raise ChecksumError('Invalid compressed stream') from None
-                raise
-            except zlib.error as exc:
-                if exc.args[0].lower().startswith('error -3 while decompressing'):
-                    raise ChecksumError('Invalid compressed stream') from None
-                raise
+            buf = decompress(self.decomp, buf)
 
         self.hmac.update(buf)
         return buf
@@ -1159,7 +1143,31 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
     def __exit__(self, *a):
         self.close()
         return False
-    
+
+
+def decompress(decomp, buf):
+    '''Decompress *buf* using *decomp*
+
+    This method encapsulates exception handling for different
+    decompressors.
+    '''
+
+    try:
+        return decomp.decompress(buf)
+    except IOError as exc:
+        if exc.args[0].lower().startswith('invalid data stream'):
+            raise ChecksumError('Invalid compressed stream') from None
+        raise
+    except lzma.LZMAError as exc:
+        if exc.args[0].lower().startswith('corrupt input data'):
+            raise ChecksumError('Invalid compressed stream') from None
+        raise
+    except zlib.error as exc:
+        if exc.args[0].lower().startswith('error -3 while decompressing'):
+            raise ChecksumError('Invalid compressed stream') from None
+        raise
+
+
 def encrypt(buf, passphrase, nonce):
     '''Encrypt *buf*'''
 
