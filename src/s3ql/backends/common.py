@@ -186,7 +186,7 @@ def is_temp_network_error(exc):
 
     if isinstance(exc, (http.client.IncompleteRead, socket.timeout,
                         ssl.SSLZeroReturnError, ConnectionError, TimeoutError,
-                        InterruptedError, ssl.SSLEOFErrror, ssl.SSLSyscallError)):
+                        InterruptedError, ssl.SSLEOFError, ssl.SSLSyscallError)):
         return True
      
     # Server closed connection
