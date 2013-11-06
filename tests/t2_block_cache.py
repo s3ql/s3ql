@@ -164,7 +164,46 @@ class cache_tests(unittest.TestCase):
             self.cache.in_transit.discard((inode, blockno))
             raise
 
-            
+
+    def test_issue419_variant(self):
+        inode = self.inode
+        blockno = 42
+        data = self.random_data(int(0.5 * self.max_obj_size))
+
+        # Create object
+        with self.cache.get(inode, blockno+1) as fh:
+            fh.seek(0)
+            fh.write(data)
+
+        # Add another one
+        with self.cache.get(inode, blockno) as fh:
+            fh.seek(0)
+            fh.write(data)
+        
+        # Catch upload calls
+        upload_args = []
+        class DummyDistributor:
+            def put(self, arg):
+                upload_args.append(arg)
+        self.cache.to_upload = DummyDistributor()
+        try:
+            # Upload
+            self.cache.commit()
+
+            # Remove (while upload is in progress)
+            self.cache.remove(inode, blockno)
+
+            # Now do upload
+            assert len(upload_args) == 1
+            with llfuse.lock_released:
+                self.cache._do_upload(*upload_args[0])
+        except:
+            # Make sure that we don't deadlock
+            del self.cache.entries[(inode, blockno)]
+            self.cache.in_transit.discard((inode, blockno))
+            raise
+
+        
     def test_expire(self):
         inode = self.inode
 
