@@ -706,14 +706,13 @@ class ObjectW(object):
         etag = resp.getheader('ETag').strip('"')
         assert resp.length == 0
 
-        # Try-catch to ensure that we don't loose the BadDigest exception
-        try:
-            if etag != self.md5.hexdigest():
+        if etag != self.md5.hexdigest():
+            # delete may fail, but we don't want to loose the BadDigest exception
+            try:
+                self.backend.delete(self.key)
+            finally:
                 raise BadDigestError('BadDigest', 'MD5 mismatch for %s (received: %s, sent: %s)' %
                                      (self.key, etag, self.md5.hexdigest))
-        except:
-            self.backend.delete(self.key)
-            raise
 
         self.fh.close()
         self.closed = True
