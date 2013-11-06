@@ -698,16 +698,11 @@ class ObjectW(object):
 
         log.debug('ObjectW(%s).close(): start', self.key)
 
-        # This is essentially an assertion. There should be no other
-        # thread accessing the file handle while we write it.
-        fh = self.fh
-        self.fh = None
-        
-        fh.seek(0)
+        self.fh.seek(0)
         self.headers['Content-Length'] = self.obj_size
         self.headers['Content-Type'] = 'application/octet-stream'
         resp = self.backend._do_request('PUT', '/%s%s' % (self.backend.prefix, self.key),
-                                        headers=self.headers, body=fh)
+                                        headers=self.headers, body=self.fh)
         etag = resp.getheader('ETag').strip('"')
         assert resp.length == 0
 
@@ -719,7 +714,7 @@ class ObjectW(object):
                 raise BadDigestError('BadDigest', 'MD5 mismatch for %s (received: %s, sent: %s)' %
                                      (self.key, etag, self.md5.hexdigest))
 
-        fh.close()
+        self.fh.close()
         self.closed = True
 
     def __enter__(self):
