@@ -395,8 +395,13 @@ class BlockCache(object):
         self.in_transit_blocks[(el.inode, el.blockno)] = None
 
         try:
-            el.seek(0)
-            hash_ = sha256_fh(el)
+            # NOTE: This requires that threads do not release the global lock in
+            # contexts managed by `get`. Otherwise, they may modify the object
+            # while we are calculating the checksum. Within `get` itself, we
+            # are safe because of the in_transit_blocks check.
+            with lock_released:
+                el.seek(0)
+                hash_ = sha256_fh(el)
 
             try:
                 old_block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
@@ -515,8 +520,10 @@ class BlockCache(object):
     def get(self, inode, blockno):
         """Get file handle for block `blockno` of `inode`
         
-        This method releases the global lock, and the managed block
-        may do so as well.
+        This method releases the global lock. The managed block, however,
+        is executed with the global lock acquired and MUST NOT release
+        it. This ensures that only one thread is accessing a given block
+        at a time.
         
         Note: if `get` and `remove` are called concurrently, then it is
         possible that a block that has been requested with `get` and
@@ -612,7 +619,8 @@ class BlockCache(object):
             #log.debug('get(inode=%d, block=%d): yield', inode, blockno)
             yield el
         finally:
-            # Update cachesize 
+            # Update cachesize. NOTE: this requires that at most one
+            # thread has access to a cache entry at any time.
             self.size += el.size - oldsize
 
         #log.debug('get(inode=%d, block=%d): end', inode, blockno)

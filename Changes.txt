@@ -9,7 +9,10 @@ UNRELEASED, S3QL tip
   * Fixed a race condition that could lead to data corruption when
     multiple processes trigger download of the same data block
     simultaneously.
-  
+
+  * Increased deduplication performance. Previously, block checksums
+    were accidentally computed without parallelism.
+
 2013-10-19, S3QL 2.5
 
   * Removed a race condition that resulted in a crash when a file was
