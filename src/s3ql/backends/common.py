@@ -1035,7 +1035,7 @@ class DecryptFilter(AbstractInputFilter):
         buf = self.fh.read(size)
         if not buf:
             if not self.hmac_checked:
-                raise ChecksumError('HMAC mismatch')
+                raise ChecksumError('Premature end of stream.')
             return b''
 
         inbuf = self.cipher.decrypt(buf)
