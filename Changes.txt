@@ -10,8 +10,12 @@ UNRELEASED, S3QL tip
     multiple processes trigger download of the same data block
     simultaneously.
 
+  * Fixed a problem with S3QL crashing with "SSLEOFError" when an SSL
+    connection is terminated unexpectedly.
+    
   * Increased deduplication performance. Previously, block checksums
     were accidentally computed without parallelism.
+
 
 2013-10-19, S3QL 2.5
 
