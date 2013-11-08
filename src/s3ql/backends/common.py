@@ -911,6 +911,8 @@ class DecompressFilter(AbstractInputFilter):
         while not buf:
             buf = self.fh.read(size)
             if not buf:
+                if not self.decomp.eof:
+                    raise ChecksumError('Premature end of stream.')
                 if self.decomp.unused_data:
                     raise ChecksumError('Data after end of compressed stream')
                 return b''
