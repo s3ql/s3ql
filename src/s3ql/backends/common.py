@@ -977,10 +977,10 @@ class EncryptFilter(object):
 
         buf = struct.pack(b'<I', len(data)) + data
         self.hmac.update(buf)
-        buf = self.cipher.encrypt(buf)
-        if buf:
-            self.fh.write(buf)
-            self.obj_size += len(buf)
+        buf2 = self.cipher.encrypt(buf)
+        assert len(buf2) == len(buf)
+        self.fh.write(buf2)
+        self.obj_size += len(buf2)
 
     def close(self):
         assert not self.closed
@@ -988,9 +988,11 @@ class EncryptFilter(object):
         # Packet length of 0 indicates end of stream, only HMAC follows
         buf = struct.pack(b'<I', 0)
         self.hmac.update(buf)
-        buf = self.cipher.encrypt(buf + self.hmac.digest())
-        self.fh.write(buf)
-        self.obj_size += len(buf)
+        buf += self.hmac.digest()
+        buf2 = self.cipher.encrypt(buf)
+        assert len(buf) == len(buf2)
+        self.fh.write(buf2)
+        self.obj_size += len(buf2)
         self.fh.close()
         self.closed = True
 
@@ -1048,6 +1050,7 @@ class DecryptFilter(AbstractInputFilter):
             return b''
 
         inbuf = self.cipher.decrypt(buf)
+        assert len(inbuf) == len(buf)
         outbuf = b''
         while True:
 
