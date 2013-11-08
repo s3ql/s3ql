@@ -610,6 +610,9 @@ class ObjectR(object):
         (and verified).
         '''
 
+        if size == 0:
+            return b''
+
         # chunked encoding handled by httplib
         buf = self.resp.read(size)
 

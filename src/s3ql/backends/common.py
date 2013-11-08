@@ -902,6 +902,9 @@ class DecompressFilter(AbstractInputFilter):
     def _read(self, size):
         '''Read roughly *size* bytes'''
 
+        if size == 0:
+            return b''
+        
         buf = b''
         while not buf:
             buf = self.fh.read(size)
@@ -1032,6 +1035,9 @@ class DecryptFilter(AbstractInputFilter):
     def _read(self, size):
         '''Read roughly *size* bytes'''
 
+        if size == 0:
+            return b''
+        
         buf = self.fh.read(size)
         if not buf:
             if not self.hmac_checked:
