@@ -701,6 +701,8 @@ class ObjectW(object):
 
         log.debug('ObjectW(%s).close(): start', self.key)
 
+        assert not self.closed
+
         self.fh.seek(0)
         self.headers['Content-Length'] = self.obj_size
         self.headers['Content-Type'] = 'application/octet-stream'

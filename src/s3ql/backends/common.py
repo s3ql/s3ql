@@ -865,6 +865,7 @@ class CompressFilter(object):
             self.obj_size += len(buf)
 
     def close(self):
+        assert not self.closed
         buf = self.compr.flush()
         self.fh.write(buf)
         self.obj_size += len(buf)
@@ -982,6 +983,8 @@ class EncryptFilter(object):
             self.obj_size += len(buf)
 
     def close(self):
+        assert not self.closed
+        
         # Packet length of 0 indicates end of stream, only HMAC follows
         buf = struct.pack(b'<I', 0)
         self.hmac.update(buf)
