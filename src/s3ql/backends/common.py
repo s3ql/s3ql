@@ -867,8 +867,9 @@ class CompressFilter(object):
     def close(self):
         assert not self.closed
         buf = self.compr.flush()
-        self.fh.write(buf)
-        self.obj_size += len(buf)
+        if buf:
+            self.fh.write(buf)
+            self.obj_size += len(buf)
         self.fh.close()
         self.closed = True
 
