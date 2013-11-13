@@ -475,7 +475,7 @@ class LzmaCompressionTests(CompressionTestsMixin, unittest.TestCase):
 class EncryptionTests(CompressionTestsMixin, unittest.TestCase):
 
     def _wrap_backend(self):
-        return BetterBackend(b'schluz', ('zlib', 0), self.plain_backend)
+        return BetterBackend(b'schluz', (None, 0), self.plain_backend)
 
     def test_corruption(self):
         key = self._make_corrupt_obj()
