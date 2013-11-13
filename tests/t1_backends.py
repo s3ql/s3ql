@@ -10,6 +10,7 @@ from s3ql.backends import local, s3, gs, s3c, swift, rackspace, swiftks
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBackend, get_ssl_context, AuthenticationError, AuthorizationError,
     DanglingStorageURLError, MalformedObjectError)
+from s3ql.common import BUFSIZE
 from argparse import Namespace
 import configparser
 import os
@@ -18,6 +19,7 @@ import tempfile
 import time
 import unittest
 import pytest
+import struct
 
 RETRY_DELAY = 1
 
@@ -476,6 +478,28 @@ class EncryptionTests(CompressionTestsMixin, unittest.TestCase):
 
     def _wrap_backend(self):
         return BetterBackend(b'schluz', (None, 0), self.plain_backend)
+
+    def test_multi_packet(self):
+        with self.backend.open_write('my_obj') as fh:
+            for i in range(5):
+                fh.write(b'\xFF' * BUFSIZE)
+
+        with self.backend.open_read('my_obj') as fh:
+            while True:
+                buf = fh.read(BUFSIZE//2)
+                if not buf:
+                    break
+
+    def test_issue431(self):
+        hdr_len = struct.calcsize(b'<I')
+        with self.backend.open_write('my_obj') as fh:
+            fh.write(b'\xFF' * 50)
+            fh.write(b'\xFF' * 50)
+
+        with self.backend.open_read('my_obj') as fh:
+            fh._read(50 + 2*hdr_len)
+            fh.read(50)
+            assert fh.read(50) == b''
 
     def test_corruption(self):
         key = self._make_corrupt_obj()

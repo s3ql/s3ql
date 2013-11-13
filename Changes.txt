@@ -16,6 +16,9 @@ UNRELEASED, S3QL tip
   * Increased deduplication performance. Previously, block checksums
     were accidentally computed without parallelism.
 
+  * Fixed a problem with mount.s3ql (incorrectly) reporting corrupted
+    data for compressed blocks of some specific sizes. Many thanks to
+    Balázs for extensive debugging of this problem.
 
 2013-10-19, S3QL 2.5
 
