@@ -881,7 +881,7 @@ class DecryptFilter(AbstractInputFilter):
                 outbuf += inbuf
                 break
             elif len(inbuf) <= self.remaining + self.off_size:
-                inbuf += self.fh.read(self.off_size)
+                inbuf += self.cipher.decrypt(self.fh.read(self.off_size))
                 continue
                 
             outbuf += inbuf[:self.remaining]

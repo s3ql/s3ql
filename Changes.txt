@@ -1,8 +1,12 @@
 UNRELEASED, S3QL tip
 
   * Fixed a problem with mount.s3ql crashing with `KeyError` under
-    same circumstances.
+    some circumstances.
 
+  * Fixed a problem with mount.s3ql (incorrectly) reporting corrupted
+    data for compressed blocks of some specific sizes. Many thanks to
+    Balázs for extensive debugging of this problem.
+    
 2013-10-27, S3QL 1.17
 
   * Fixed crash when statvfs() is called on an almost empty file
