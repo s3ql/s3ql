@@ -1062,7 +1062,7 @@ class DecryptFilter(AbstractInputFilter):
                 self.hmac.update(inbuf)
                 outbuf += inbuf
                 break
-            elif len(inbuf) <= self.remaining + self.off_size:
+            elif len(inbuf) < self.remaining + self.off_size:
                 inbuf += self.cipher.decrypt(self.fh.read(self.off_size))
                 continue
                 
