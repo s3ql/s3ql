@@ -496,6 +496,10 @@ class BlockCache(object):
     def _removal_loop(self):
         '''Process removal queue'''
 
+        # This method may look more complicated than necessary, but
+        # it ensures that we read as many objects from the queue
+        # as we can without blocking, and then hand them over to
+        # the backend all at once.
         ids = []
         while True:
             try:
