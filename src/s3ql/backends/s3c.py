@@ -603,7 +603,7 @@ class ObjectR(object):
         self.md5 = hashlib.md5()
 
     def read(self, size=None):
-        '''Read object data
+        '''Read up to *size* bytes of object data
         
         For integrity checking to work, this method has to be called until
         it returns an empty string, indicating that all data has been read
