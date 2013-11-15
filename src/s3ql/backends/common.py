@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging # Ensure use of custom logger class
-from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL, ChecksumError
+from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL, ChecksumError, read_exactly
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from Crypto.Cipher import AES
@@ -27,6 +27,7 @@ import http.client
 import lzma
 import os
 import pickle
+import io
 import re
 import socket
 import stat
@@ -801,45 +802,6 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
         self.backend.close()
 
 
-class AbstractInputFilter(object, metaclass=ABCMeta):
-    '''Process data while reading'''
-
-    def __init__(self):
-        super().__init__()
-        self.buffer = b''
-
-    def read(self, size=None):
-        '''Try to read *size* bytes
-        
-        If *None*, read until EOF.
-        '''
-
-        if size is None:
-            remaining = 1 << 31
-        else:
-            remaining = size - len(self.buffer)
-
-        while remaining > 0:
-            buf = self._read(BUFSIZE)
-            if not buf:
-                break
-            remaining -= len(buf)
-            self.buffer += buf
-
-        if size is None:
-            buf = self.buffer
-            self.buffer = b''
-        else:
-            buf = self.buffer[:size]
-            self.buffer = self.buffer[size:]
-
-        return buf
-
-    @abstractmethod
-    def _read(self, size):
-        '''Read roughly *size* bytes'''
-        pass
-
 class CompressFilter(object):
     '''Compress data while writing'''
 
@@ -885,26 +847,53 @@ class CompressFilter(object):
             raise RuntimeError('Object must be closed first.')
         return self.obj_size
 
+class InputFilter(io.RawIOBase):
 
-class DecompressFilter(AbstractInputFilter):
+    def readable(self):
+        return True
+
+    def readinto(self, buf):
+        var = self.read(len(buf))
+        buf[:len(var)] = var
+        return var
+
+    def read(self, size=-1):
+        if size == -1:
+            return self.readall()
+        elif size == 0:
+            return b''
+
+        b = bytearray(size)
+        len_ = self.readinto(b)
+        return b[:len_]
+    
+class DecompressFilter(InputFilter):
     '''Decompress data while reading'''
 
     def __init__(self, fh, decomp, metadata=None):
         '''Initialize
         
-        *fh* should be a file-like object. *decomp* should be a
-        fresh decompressor instance with a *decompress* method.
+        *fh* should be a file-like object and may be unbuffered. *decomp* should
+        be a fresh decompressor instance with a *decompress* method.
         '''
         super().__init__()
 
         self.fh = fh
         self.decomp = decomp
         self.metadata = metadata
+            
+    def read(self, size=-1):
+        '''Read up to *size* bytes
 
-    def _read(self, size):
-        '''Read roughly *size* bytes'''
+        This method is currently buggy and may also return *more*
+        than *size* bytes. Callers should be prepared to handle
+        that. This is because some of the used (de)compression modules
+        don't support output limiting.
+        '''
 
-        if size == 0:
+        if size == -1:
+            return self.readall()
+        elif size == 0:
             return b''
         
         buf = b''
@@ -1012,7 +1001,7 @@ class EncryptFilter(object):
         return self.obj_size
 
 
-class DecryptFilter(AbstractInputFilter):
+class DecryptFilter(InputFilter):
     '''Decrypt data while reading
     
     Reader has to read the entire stream in order for HMAC
@@ -1022,7 +1011,7 @@ class DecryptFilter(AbstractInputFilter):
     def __init__(self, fh, passphrase, metadata=None):
         '''Initialize
         
-        *fh* should be a file-like object.
+        *fh* should be a file-like object that may be unbuffered.
         '''
         super().__init__()
 
@@ -1031,7 +1020,7 @@ class DecryptFilter(AbstractInputFilter):
         self.remaining = 0 # Remaining length of current packet
         self.metadata = metadata
         self.hmac_checked = False
-
+            
         # Read nonce
         len_ = struct.unpack(b'<B', fh.read(struct.calcsize(b'<B')))[0]
         nonce = fh.read(len_)
@@ -1040,10 +1029,12 @@ class DecryptFilter(AbstractInputFilter):
         self.cipher = aes_cipher(key)
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
 
-    def _read(self, size):
-        '''Read roughly *size* bytes'''
+    def read(self, size=-1):
+        '''Read up to *size* bytes'''
 
-        if size == 0:
+        if size == -1:
+            return self.readall()
+        elif size == 0:
             return b''
         
         buf = self.fh.read(size)
@@ -1075,8 +1066,10 @@ class DecryptFilter(AbstractInputFilter):
 
             # End of file, read and check HMAC
             if paket_size == 0:
-                if len(inbuf) != HMAC_SIZE:
-                    inbuf += self.cipher.decrypt(self.fh.read(HMAC_SIZE - len(inbuf)))
+                if len(inbuf) > HMAC_SIZE:
+                    raise ChecksumError('Extraneous data at end of object')
+                elif len(inbuf) < HMAC_SIZE:
+                    inbuf += self.cipher.decrypt(read_exactly(self.fh, HMAC_SIZE - len(inbuf)))
                 if not hmac.compare_digest(inbuf, self.hmac.digest()):
                     raise ChecksumError('HMAC mismatch')
                 self.hmac_checked = True
@@ -1094,7 +1087,7 @@ class DecryptFilter(AbstractInputFilter):
         self.close()
         return False
 
-class LegacyDecryptDecompressFilter(AbstractInputFilter):
+class LegacyDecryptDecompressFilter(io.RawIOBase):
     '''Decrypt and Decompress data while reading
     
     Reader has to read the entire stream in order for HMAC
@@ -1104,7 +1097,7 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
     def __init__(self, fh, passphrase, decomp, metadata=None):
         '''Initialize
         
-        *fh* should be a file-like object.
+        *fh* should be a file-like object and may be unbuffered.
         '''
         super().__init__()
 
@@ -1122,8 +1115,19 @@ class LegacyDecryptDecompressFilter(AbstractInputFilter):
         self.cipher = aes_cipher(key)
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
 
-    def _read(self, size):
-        '''Read roughly *size* bytes'''
+    def read(self, size=-1):
+        '''Read up to *size* bytes
+        
+        This method is currently buggy and may also return *more*
+        than *size* bytes. Callers should be prepared to handle
+        that. This is because some of the used (de)compression modules
+        don't support output limiting.
+        '''
+
+        if size == -1:
+            return self.readall()
+        elif size == 0:
+            return b''
 
         buf = None
         while not buf:

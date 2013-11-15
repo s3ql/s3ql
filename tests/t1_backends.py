@@ -497,7 +497,7 @@ class EncryptionTests(CompressionTestsMixin, unittest.TestCase):
             fh.write(b'\xFF' * 50)
 
         with self.backend.open_read('my_obj') as fh:
-            fh._read(50 + 2*hdr_len)
+            fh.read(50 + 2*hdr_len)
             fh.read(50)
             assert fh.read(50) == b''
 
@@ -511,7 +511,7 @@ class EncryptionTests(CompressionTestsMixin, unittest.TestCase):
         key = self._make_extended_obj()
         with pytest.raises(ChecksumError) as exc:
             self.backend.fetch(key)
-        assert exc.value.str == 'HMAC mismatch'
+        assert exc.value.str == 'Extraneous data at end of object'
 
     def test_encryption(self):
 
