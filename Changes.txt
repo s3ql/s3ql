@@ -20,6 +20,9 @@ UNRELEASED, S3QL tip
     data for compressed blocks of some specific sizes. Many thanks to
     Balázs for extensive debugging of this problem.
 
+  * Specifying --debug when using syslog or file logging no longer
+    suppresses informational messages to stdout.
+  
 2013-10-19, S3QL 2.5
 
   * Removed a race condition that resulted in a crash when a file was

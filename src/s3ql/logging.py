@@ -108,6 +108,7 @@ def setup_logging(options):
         if 'all' in options.debug:
             root_logger.setLevel(logging.DEBUG)
         else:
+            root_logger.setLevel(logging.INFO)
             for module in options.debug:
                 logging.getLogger(module).setLevel(logging.DEBUG)
 
