@@ -16,8 +16,8 @@ if sys.version_info < (3,3):
 try:
     import setuptools
 except ImportError:
-    raise SystemExit('Setuptools/distribute package not found. Please install from '
-                     'https://pypi.python.org/pypi/distribute')
+    raise SystemExit('Setuptools package not found. Please install from '
+                     'https://pypi.python.org/pypi/setuptools')
 from setuptools import Extension
     
 import os
