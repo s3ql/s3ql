@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .common import sha256_fh, BUFSIZE
+from .common import BUFSIZE
 from .database import NoSuchRowError
 from .logging import logging # Ensure use of custom logger class
 from collections import OrderedDict
@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from llfuse import lock, lock_released
 from queue import Queue, Empty as QueueEmpty
 import os
+import hashlib
 import shutil
 import threading
 import time
@@ -113,16 +114,19 @@ class CacheEntry(object):
     Attributes:
     -----------
     
-    :dirty:
-       entry has been changed since it was last uploaded.
-    
-    :size: current file size
-    
+    :dirty:    entry has been changed since it was last uploaded.
+    :removed:  entry has been removed.
+    :size:     current file size
     :pos: current position in file
+
+    The *removed* attribute is used if an entry is removed
+    while being uploaded or checksummed. In that case, the
+    file cannot be closed yet so the *removed* attribute is
+    used to signal this to the thread that still uses the object.
     """
 
     __slots__ = [ 'dirty', 'inode', 'blockno', 'last_access',
-                  'size', 'pos', 'fh' ]
+                  'size', 'pos', 'fh', 'removed' ]
 
     def __init__(self, inode, blockno, filename):
         super().__init__()
@@ -135,6 +139,7 @@ class CacheEntry(object):
         self.blockno = blockno
         self.last_access = 0
         self.pos = 0
+        self.removed = False
         self.size = os.fstat(self.fh.fileno()).st_size
 
     def read(self, size=None):
@@ -173,6 +178,7 @@ class CacheEntry(object):
 
     def unlink(self):
         os.unlink(self.fh.name)
+        self.removed = True
 
     def __str__(self):
         return ('<%sCacheEntry, inode=%d, blockno=%d>'
@@ -348,7 +354,9 @@ class BlockCache(object):
 
             with lock:
                 removed = not bool(self.in_transit_objs[obj_id])
-                if not removed:
+                if removed:
+                    el.close()
+                else:
                     self.db.execute('UPDATE objects SET size=? WHERE id=?',
                                     (obj_size, obj_id))
 
@@ -400,8 +408,18 @@ class BlockCache(object):
             # while we are calculating the checksum. Within `get` itself, we
             # are safe because of the in_transit_blocks check.
             with lock_released:
+                sha = hashlib.sha256()
                 el.seek(0)
-                hash_ = sha256_fh(el)
+                while not el.removed:
+                    buf = el.read(BUFSIZE)
+                    if not buf:
+                        break
+                    sha.update(buf)
+                else:
+                    el.close()
+                    del self.in_transit_blocks[(el.inode, el.blockno)]
+                    return 0
+                hash_ = sha.digest()
 
             try:
                 old_block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
@@ -416,7 +434,7 @@ class BlockCache(object):
             # No block with same hash
             except NoSuchRowError:
                 obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, -1)')
-                log.debug('upload(%s): created new object %d', el, obj_id)
+                log.debug('uploa(%s): created new object %d', el, obj_id)
                 block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, hash, size) '
                                          'VALUES(?,?,?,?)', (1, obj_id, hash_, el.size))
                 log.debug('upload(%s): created new block %d', el, block_id)
@@ -732,13 +750,15 @@ class BlockCache(object):
 
                 self.size -= el.size
                 el.unlink()
-                el.close()
 
                 if (inode, blockno) in self.in_transit_blocks:
                     # Block is being uploaded, signal cancel
                     obj_id = self.in_transit_blocks[(inode, blockno)]
-                    assert obj_id in self.in_transit_objs
-                    self.in_transit_objs[obj_id] = False
+                    if obj_id is not None:
+                        assert obj_id in self.in_transit_objs
+                        self.in_transit_objs[obj_id] = False
+                else:
+                    el.close()
                 
             try:
                 block_id = self.db.get_val('SELECT block_id FROM inode_blocks '

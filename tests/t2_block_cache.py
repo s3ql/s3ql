@@ -203,6 +203,26 @@ class cache_tests(unittest.TestCase):
             self.cache.in_transit.discard((inode, blockno))
             raise
 
+    def test_issue439(self):
+        inode = self.inode
+        blockno = 42
+        data = self.random_data(int(0.5 * self.max_obj_size))
+
+        # Create object
+        with self.cache.get(inode, blockno) as fh:
+            fh.seek(0)
+            fh.write(data)
+
+        # Pretend that upload has started
+        self.cache.in_transit_blocks[(inode, blockno)] = None
+        
+        # Remove it
+        self.cache.remove(inode, blockno)
+
+        # Actually start upload (this may happen if upload starts before remove,
+        # but is interrupted while calculating the checksum)
+        del self.cache.in_transit_blocks[(inode, blockno)]
+        self.cache.upload(fh)
         
     def test_expire(self):
         inode = self.inode
