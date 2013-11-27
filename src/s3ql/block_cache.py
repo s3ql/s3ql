@@ -467,7 +467,7 @@ class BlockCache(object):
                 el.dirty = False
                 del self.in_transit_blocks[(el.inode, el.blockno)]
         except:
-            del self.in_transit_blocks[(el.inode, el.blockno)]
+            self.in_transit_blocks.pop((el.inode, el.blockno), None)
             raise
 
         # Check if we have to remove an old block
