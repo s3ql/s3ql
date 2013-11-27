@@ -202,7 +202,7 @@ class BlockCache(object):
     :max_size: maximum size to which cache can grow
     :max_entries: maximum number of entries in cache
     :in_transit_objs: dict of objects currently in transit, values are
-       false for objects that are already obsolete.
+       corresponding cache elements
     :in_transit_blocks: dict of (inode, blockno) tuples currently being
        uploaded, values are assigned obj_ids or `None` if block
        is currently being hashed.
@@ -217,10 +217,6 @@ class BlockCache(object):
       uploaded completely (can happen when a cache entry is linked to a
       block while the object containing the block is still being
       uploaded)
-
-    If `in_transit_blocks` points to an object id whose value in
-    `in_transit_objs` is False, this means that the object has already become
-    obsolete, and transfer will be aborted as soon as possible.
     """
 
     def __init__(self, backend_pool, db, cachedir, max_size, max_entries=768):
@@ -323,13 +319,8 @@ class BlockCache(object):
         '''Upload object'''
 
         def do_write(fh):
-            # If the object has been removed in transit, the cache element is
-            # already closed and we can't seek.
-            if not self.in_transit_objs[obj_id]:
-                return fh
-            
             el.seek(0)
-            while self.in_transit_objs[obj_id]:
+            while not el.removed:
                 buf = el.read(BUFSIZE)
                 if not buf:
                     break
@@ -353,8 +344,7 @@ class BlockCache(object):
                               obj_id, el.size, time_, rate)
 
             with lock:
-                removed = not bool(self.in_transit_objs[obj_id])
-                if removed:
+                if el.removed:
                     el.close()
                 else:
                     self.db.execute('UPDATE objects SET size=? WHERE id=?',
@@ -365,7 +355,7 @@ class BlockCache(object):
                 del self.in_transit_objs[obj_id]
                 self.transfer_completed.notify_all()
 
-            if removed:
+            if el.removed:
                 self.to_remove.put(obj_id)
                 
         except:
@@ -447,7 +437,7 @@ class BlockCache(object):
                                 'VALUES(?,?,?)', (block_id, el.inode, el.blockno))
 
                 self.in_transit_blocks[(el.inode, el.blockno)] = obj_id
-                self.in_transit_objs[obj_id] = True
+                self.in_transit_objs[obj_id] = el
                 with lock_released:
                     self.to_upload.put((el, obj_id))
 
@@ -497,7 +487,10 @@ class BlockCache(object):
         if old_obj_id in self.in_transit_objs:
             log.debug('upload(%s): deferring removal of old object %d, still in transit',
                       el, old_obj_id)
-            self.in_transit_objs[old_obj_id] = False
+            # The only way for an object to be in transit but no longer
+            # be referenced by any block is if the cache entry that is being
+            # uploaded was subsequently removed.
+            assert self.in_transit_objs[old_obj_id].removed
         else:
             log.debug('upload(%s): adding %d to removal queue', el, old_obj_id)
             with lock_released:
@@ -594,12 +587,11 @@ class BlockCache(object):
                         continue
 
                     # We need to download
-                    self.in_transit_blocks[(inode, blockno)] = obj_id
-                    self.in_transit_objs[obj_id] = True
                     log.debug('get(inode=%d, block=%d): downloading object %d..',
                               inode, blockno, obj_id)
-                        
-                    el = CacheEntry(inode, blockno, filename)    
+                    el = CacheEntry(inode, blockno, filename)
+                    self.in_transit_blocks[(inode, blockno)] = obj_id
+                    self.in_transit_objs[obj_id] = el
                     try:
                         def do_read(fh):
                             el.seek(0)
@@ -751,13 +743,9 @@ class BlockCache(object):
                 self.size -= el.size
                 el.unlink()
 
-                if (inode, blockno) in self.in_transit_blocks:
-                    # Block is being uploaded, signal cancel
-                    obj_id = self.in_transit_blocks[(inode, blockno)]
-                    if obj_id is not None:
-                        assert obj_id in self.in_transit_objs
-                        self.in_transit_objs[obj_id] = False
-                else:
+                # If block is being uploaded upload thread will abort
+                # and close when checking el.removed.
+                if (inode, blockno) not in self.in_transit_blocks:
                     el.close()
                 
             try:
@@ -797,7 +785,10 @@ class BlockCache(object):
                 if obj_id in self.in_transit_objs:
                     log.debug('remove(inode=%d, blockno=%d): deferring removal of '
                               'object %d, still in transit', inode, blockno, obj_id)
-                    self.in_transit_objs[obj_id] = False
+                    # The only way for an object to be in transit but no longer
+                    # be referenced by any block is if the cache entry that is being
+                    # uploaded was subsequently removed.
+                    assert self.in_transit_objs[obj_id].removed
                 else:
                     log.debug('remove(inode=%d, blockno=%d): deleting object %d',
                               inode, blockno, obj_id)
