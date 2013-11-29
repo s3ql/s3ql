@@ -251,8 +251,17 @@ LZMA_MEMORY = { 0: 3, 1: 9, 2: 17, 3: 32, 4: 48,
 def determine_threads(options):
     '''Return optimum number of upload threads'''
 
-    cores = os.sysconf('SC_NPROCESSORS_ONLN')
-    memory = os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGESIZE')
+    try:
+        cores = os.sysconf('SC_NPROCESSORS_ONLN')
+    except ValueError:
+        log.warning('Unable to determine number of CPU cores (sysconf failed).')
+        cores = -1
+
+    try:
+        memory = os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGESIZE')
+    except ValueError:
+        log.warning('Unable to determine number of CPU cores (sysconf failed).')
+        memory = -1
 
     if options.compress[0] == 'lzma':
         # Keep this in sync with compression level in backends/common.py
