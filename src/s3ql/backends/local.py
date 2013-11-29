@@ -54,11 +54,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             with open(path, 'rb') as src:
                 return pickle.load(src)
         except FileNotFoundError:
-            raise NoSuchObject(key) from None
+            raise NoSuchObject(key)
         except pickle.UnpicklingError as exc:
             if (isinstance(exc.args[0], str)
                 and exc.args[0].startswith('invalid load key')):
-                raise ChecksumError('Invalid metadata') from None
+                raise ChecksumError('Invalid metadata')
             raise
 
     @copy_ancestor_docstring
@@ -71,14 +71,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         try:
             fh = ObjectR(path)
         except FileNotFoundError:
-            raise NoSuchObject(key) from None
+            raise NoSuchObject(key)
         
         try:
             fh.metadata = pickle.load(fh)
         except pickle.UnpicklingError as exc:
             if (isinstance(exc.args[0], str)
                 and exc.args[0].startswith('invalid load key')):
-                raise ChecksumError('Invalid metadata') from None
+                raise ChecksumError('Invalid metadata')
             raise
         return fh
 
@@ -131,7 +131,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if force:
                 pass
             else:
-                raise NoSuchObject(key) from None
+                raise NoSuchObject(key)
 
     @copy_ancestor_docstring
     def list(self, prefix=''):
@@ -182,7 +182,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             with open(path_src, 'rb') as src:
                 shutil.copyfileobj(src, dest, BUFSIZE)
         except FileNotFoundError:
-            raise NoSuchObject(src) from None
+            raise NoSuchObject(src)
         finally:
             dest.close()
 

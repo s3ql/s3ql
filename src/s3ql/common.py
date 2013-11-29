@@ -161,7 +161,7 @@ def inode_for_path(path, conn):
             inode = conn.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
                                  (el, inode))
         except NoSuchRowError:
-            raise KeyError('Path %s does not exist' % path) from None
+            raise KeyError('Path %s does not exist' % path)
 
     return inode
 
@@ -211,7 +211,7 @@ def get_backend_cachedir(storage_url, cachedir):
         try:
             os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
         except PermissionError:
-            raise QuietError('No permission to create cache directory (%s)' % cachedir) from None
+            raise QuietError('No permission to create cache directory (%s)' % cachedir)
         
     if not os.access(cachedir, os.R_OK | os.W_OK | os.X_OK):
         raise QuietError('No permission to access cache directory (%s)' % cachedir)
@@ -253,10 +253,10 @@ def assert_s3ql_fs(path):
     try:
         os.stat(path)
     except FileNotFoundError:
-        raise QuietError('%s does not exist' % path) from None
+        raise QuietError('%s does not exist' % path)
     except OSError as exc:
         if exc.errno is errno.ENOTCONN:
-            raise QuietError('File system appears to have crashed.') from None
+            raise QuietError('File system appears to have crashed.')
         raise
 
     ctrlfile = os.path.join(path, CTRL_NAME)

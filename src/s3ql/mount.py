@@ -95,7 +95,7 @@ def main(args=None):
         with backend_pool() as backend:
             (param, db) = get_metadata(backend, cachepath)
     except DanglingStorageURLError as exc:
-        raise QuietError(str(exc)) from None
+        raise QuietError(str(exc))
 
     if param['max_obj_size'] < options.min_obj_size:
         raise QuietError('Maximum object size must be bigger than minimum object size.')
@@ -122,7 +122,7 @@ def main(args=None):
         try:
             llfuse.init(operations, options.mountpoint, get_fuse_opts(options))
         except RuntimeError as exc:
-            raise QuietError(str(exc)) from None
+            raise QuietError(str(exc))
         
         unmount_clean = False
         def unmount():

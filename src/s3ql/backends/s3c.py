@@ -136,7 +136,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if force:
                 pass
             else:
-                raise NoSuchObject(key) from None
+                raise NoSuchObject(key)
 
     @retry_generator
     @copy_ancestor_docstring
@@ -196,7 +196,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             assert resp.length == 0
         except HTTPError as exc:
             if exc.status == 404:
-                raise NoSuchObject(key) from None
+                raise NoSuchObject(key)
             else:
                 raise
 
@@ -212,7 +212,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             assert resp.length == 0
         except HTTPError as exc:
             if exc.status == 404:
-                raise NoSuchObject(key) from None
+                raise NoSuchObject(key)
             else:
                 raise
 
@@ -228,7 +228,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         try:
             resp = self._do_request('GET', '/%s%s' % (self.prefix, key))
         except NoSuchKeyError:
-            raise NoSuchObject(key) from None
+            raise NoSuchObject(key)
 
         return ObjectR(key, resp, self, extractmeta(resp))
 
@@ -269,7 +269,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             # Discard response body
             resp.read()
         except NoSuchKeyError:
-            raise NoSuchObject(src) from None
+            raise NoSuchObject(src)
 
     def _do_request(self, method, path, subres=None, query_string=None,
                     headers=None, body=None):
@@ -782,7 +782,7 @@ def extractmeta(resp):
         except pickle.UnpicklingError as exc:
             if (isinstance(exc.args[0], str)
                 and exc.args[0].startswith('invalid load key')):
-                raise ChecksumError('Invalid metadata') from None
+                raise ChecksumError('Invalid metadata')
             raise
     else:
         return meta

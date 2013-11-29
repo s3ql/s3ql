@@ -143,7 +143,7 @@ class Connection(object):
         try:
             row = next(res)
         except StopIteration:
-            raise NoSuchRowError() from None
+            raise NoSuchRowError()
         try:
             next(res)
         except StopIteration:

@@ -147,7 +147,7 @@ class Operations(llfuse.Operations):
                 id_ = self.db.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
                                       (name, id_p))
             except NoSuchRowError:
-                raise llfuse.FUSEError(errno.ENOENT) from None
+                raise llfuse.FUSEError(errno.ENOENT)
             inode = self.inodes[id_]
 
         self.open_inodes[inode.id] += 1
@@ -175,7 +175,7 @@ class Operations(llfuse.Operations):
             return self.db.get_val("SELECT target FROM symlink_targets WHERE inode=?", (id_,))
         except NoSuchRowError:
             log.warning('Inode does not have symlink target: %d', id_)
-            raise FUSEError(errno.EINVAL) from None
+            raise FUSEError(errno.EINVAL)
 
     def opendir(self, id_):
         log.debug('opendir(%d): start', id_)
@@ -225,7 +225,7 @@ class Operations(llfuse.Operations):
                 value = self.db.get_val('SELECT value FROM ext_attributes_v WHERE inode=? AND name=?',
                                           (id_, name))
             except NoSuchRowError:
-                raise llfuse.FUSEError(llfuse.ENOATTR) from None
+                raise llfuse.FUSEError(llfuse.ENOATTR)
             return value
 
     def listxattr(self, id_):
@@ -286,7 +286,7 @@ class Operations(llfuse.Operations):
         try:
             name_id = self._del_name(name)
         except NoSuchRowError:
-            raise llfuse.FUSEError(llfuse.ENOATTR) from None
+            raise llfuse.FUSEError(llfuse.ENOATTR)
 
         changes = self.db.execute('DELETE FROM ext_attributes WHERE inode=? AND name_id=?',
                                   (id_, name_id))
@@ -425,7 +425,7 @@ class Operations(llfuse.Operations):
             src_inode = self.inodes[src_id]
             target_inode = self.inodes[target_id]
         except KeyError:
-            raise FUSEError(errno.ENOENT) from None
+            raise FUSEError(errno.ENOENT)
         for attr in ('atime', 'ctime', 'mtime', 'mode', 'uid', 'gid'):
             setattr(target_inode, attr, getattr(src_inode, attr))
 
@@ -458,7 +458,7 @@ class Operations(llfuse.Operations):
                                                    ctime=inode.ctime, rdev=inode.rdev)
                         except OutOfInodesError:
                             log.warning('Could not find a free inode')
-                            raise FUSEError(errno.ENOSPC) from None
+                            raise FUSEError(errno.ENOSPC)
     
                         id_new = inode_new.id
     
@@ -990,7 +990,7 @@ class Operations(llfuse.Operations):
                                              rdev=rdev, size=size)
         except OutOfInodesError:
             log.warning('Could not find a free inode')
-            raise FUSEError(errno.ENOSPC) from None
+            raise FUSEError(errno.ENOSPC)
 
         self.db.execute("INSERT INTO contents(name_id, inode, parent_inode) VALUES(?,?,?)",
                         (self._add_name(name), inode.id, id_p))

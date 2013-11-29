@@ -666,7 +666,7 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
             try:
                 buf = metadata['data']
             except KeyError:
-                raise MalformedObjectError() from None
+                raise MalformedObjectError()
             buf = b64decode(buf)
 
         if encrypted:
@@ -677,7 +677,7 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
         except pickle.UnpicklingError as exc:
             if (isinstance(exc.args[0], str)
                 and exc.args[0].startswith('invalid load key')):
-                raise ChecksumError('Invalid metadata') from None
+                raise ChecksumError('Invalid metadata')
             raise
 
         return metadata
@@ -1223,15 +1223,15 @@ def decompress(decomp, buf):
         return decomp.decompress(buf)
     except IOError as exc:
         if exc.args[0].lower().startswith('invalid data stream'):
-            raise ChecksumError('Invalid compressed stream') from None
+            raise ChecksumError('Invalid compressed stream')
         raise
     except lzma.LZMAError as exc:
         if exc.args[0].lower().startswith('corrupt input data'):
-            raise ChecksumError('Invalid compressed stream') from None
+            raise ChecksumError('Invalid compressed stream')
         raise
     except zlib.error as exc:
         if exc.args[0].lower().startswith('error -3 while decompressing'):
-            raise ChecksumError('Invalid compressed stream') from None
+            raise ChecksumError('Invalid compressed stream')
         raise
 
 
@@ -1411,7 +1411,7 @@ def get_backend_factory(options, plain=False):
     try:
         __import__(backend_name)
     except ImportError:
-        raise QuietError('No such backend: %s' % hit.group(1)) from None
+        raise QuietError('No such backend: %s' % hit.group(1))
 
     backend_class = getattr(sys.modules[backend_name], 'Backend')
 
@@ -1469,13 +1469,13 @@ def get_backend_factory(options, plain=False):
         backend.fetch('s3ql_passphrase')
         
     except DanglingStorageURLError as exc:
-        raise QuietError(str(exc)) from None
+        raise QuietError(str(exc))
     
     except AuthorizationError:
-        raise QuietError('No permission to access backend.') from None
+        raise QuietError('No permission to access backend.')
 
     except AuthenticationError:
-        raise QuietError('Invalid credentials (or skewed system clock?).') from None
+        raise QuietError('Invalid credentials (or skewed system clock?).')
         
     except NoSuchObject:
         encrypted = False
@@ -1516,7 +1516,7 @@ def get_backend_factory(options, plain=False):
     try:
         data_pw = tmp_backend['s3ql_passphrase']
     except ChecksumError:
-        raise QuietError('Wrong file system passphrase') from None
+        raise QuietError('Wrong file system passphrase')
     finally:
         tmp_backend.close()
         

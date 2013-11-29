@@ -84,7 +84,7 @@ def main(args=None):
     try:
         os.mkdir(options.target)
     except PermissionError:
-        raise QuietError('No permission to create target directory') from None
+        raise QuietError('No permission to create target directory')
 
     fstat_t = os.stat(options.target)
     llfuse.setxattr(ctrlfile, 'copy', pickle.dumps((fstat_s.st_ino, fstat_t.st_ino),

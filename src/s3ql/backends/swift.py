@@ -62,7 +62,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             resp = self._do_request('GET', '/', query_string={'limit': 1 })
         except HTTPError as exc:
             if exc.status == 404:
-                raise DanglingStorageURLError(self.container_name) from None
+                raise DanglingStorageURLError(self.container_name)
             raise
         resp.read()   
                     
@@ -249,7 +249,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             assert resp.length == 0
         except HTTPError as exc:
             if exc.status == 404:
-                raise NoSuchObject(key) from None
+                raise NoSuchObject(key)
             else:
                 raise
 
@@ -265,7 +265,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             assert resp.length == 0
         except HTTPError as exc:
             if exc.status == 404:
-                raise NoSuchObject(key) from None
+                raise NoSuchObject(key)
             else:
                 raise
 
@@ -281,7 +281,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             resp = self._do_request('GET', '/%s%s' % (self.prefix, key))
         except HTTPError as exc:
             if exc.status == 404:
-                raise NoSuchObject(key) from None
+                raise NoSuchObject(key)
             raise
 
         return ObjectR(key, resp, self, extractmeta(resp))
@@ -332,7 +332,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             assert resp.length == 0
         except HTTPError as exc:
             if exc.status == 404 and not force:
-                raise NoSuchObject(key) from None
+                raise NoSuchObject(key)
             elif exc.status != 404:
                 raise
 
@@ -349,7 +349,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             resp.read()
         except HTTPError as exc:
             if exc.status == 404:
-                raise NoSuchObject(src) from None
+                raise NoSuchObject(src)
             raise
 
     @retry_generator
@@ -371,7 +371,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                                                                   'limit': batch_size })
             except HTTPError as exc:
                 if exc.status == 404:
-                    raise DanglingStorageURLError(self.container_name) from None
+                    raise DanglingStorageURLError(self.container_name)
                 raise
             
             if resp.status == 204:
@@ -431,7 +431,7 @@ def extractmeta(resp):
         except pickle.UnpicklingError as exc:
             if (isinstance(exc.args[0], str)
                 and exc.args[0].startswith('invalid load key')):
-                raise ChecksumError('Invalid metadata') from None
+                raise ChecksumError('Invalid metadata')
             raise
     else:
         return meta

@@ -145,7 +145,7 @@ class InodeCache(object):
             try:
                 inode = self.getattr(id_)
             except NoSuchRowError:
-                raise KeyError('No such inode: %d' % id_) from None
+                raise KeyError('No such inode: %d' % id_)
 
             old_id = self.cached_rows[self.pos]
             self.cached_rows[self.pos] = id_
