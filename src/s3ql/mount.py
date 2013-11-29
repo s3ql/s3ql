@@ -24,6 +24,8 @@ import argparse
 import faulthandler
 import llfuse
 import os
+import platform
+import subprocess
 import pickle
 import re
 import signal
@@ -244,10 +246,43 @@ def main(args=None):
 
     log.info('All done.')
 
+
+def get_system_memory():
+    '''Attempt to determine total system memory
+
+    If amount cannot be determined, emits warning and
+    returns -1.
+    '''
+    
+    # MacOS X doesn't support sysconf('SC_PHYS_PAGES')
+    if platform.system() == 'Darwin':
+        try:
+            out = subprocess.check_output(['sysctl', 'hw.memsize'],
+                                          universal_newlines=True)
+        except subprocess.CalledProcessError as exc:
+            log.warning('Cannot determine system memory, sysctl failed with %s',
+                        exc.output)
+            return -1
+
+        # output of sysctl is 'hw.memsize: #'. Strip the prefix.
+        hit = re.match(r'^hw.memsize: ([0-9]+)$', out)
+        if not hit:
+            log.warning('Cannot determine system memory, unable to parse sysctl output.')
+            return -1
+            
+        return int(hit.group(1))
+        
+    else:
+        try:
+            return os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGESIZE')
+        except ValueError:
+            log.warning('Unable to determine number of CPU cores (sysconf failed).')
+            return -1
+
+            
 # Memory required for LZMA compression in MB (from xz(1))
 LZMA_MEMORY = { 0: 3, 1: 9, 2: 17, 3: 32, 4: 48,
                 5: 94, 6: 94, 7: 186, 8: 370, 9: 674 }
-
 def determine_threads(options):
     '''Return optimum number of upload threads'''
 
@@ -257,11 +292,7 @@ def determine_threads(options):
         log.warning('Unable to determine number of CPU cores (sysconf failed).')
         cores = -1
 
-    try:
-        memory = os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGESIZE')
-    except ValueError:
-        log.warning('Unable to determine number of CPU cores (sysconf failed).')
-        memory = -1
+    memory = get_system_memory()
 
     if options.compress[0] == 'lzma':
         # Keep this in sync with compression level in backends/common.py
