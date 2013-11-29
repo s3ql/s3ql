@@ -78,6 +78,27 @@ def lazy_umount(mountpoint):
     if subprocess.call(umount_cmd) != 0:
         raise UmountSubError(mountpoint)
 
+def get_cmdline(pid):
+    '''Return command line for *pid*
+
+    If *pid* doesn't exists, return None. If command line
+    cannot be determined for other reasons, log warning
+    and return None.
+    '''
+
+    try:
+        output = subprocess.check_output(['ps', '-p', str(pid), '-o', 'args='],
+                                         universal_newlines=True).strip()
+    except subprocess.CalledProcessError:
+        log.warning('Unable to execute ps, assuming process %d has terminated.'
+                    % pid)
+        return None
+
+    if output:
+        return output
+    else:
+        return None
+    
 def blocking_umount(mountpoint):
     '''Invoke fusermount and wait for daemon to terminate.'''
 
@@ -97,9 +118,7 @@ def blocking_umount(mountpoint):
     log.debug('PID is %d', pid)
 
     # Get command line to make race conditions less-likely
-    with open('/proc/%d/cmdline' % pid, 'r') as fh:
-        cmdline = fh.readline()
-    log.debug('cmdline is %r', cmdline)
+    cmdline = get_cmdline(pid)
 
     # Unmount
     log.debug('Unmounting...')
@@ -124,17 +143,14 @@ def blocking_umount(mountpoint):
 
         # Check that the process did not terminate and the PID
         # was reused by a different process
-        try:
-            with open('/proc/%d/cmdline' % pid, 'r') as fh:
-                if fh.readline() != cmdline:
-                    log.debug('PID still alive, but cmdline changed')
-                    # PID must have been reused, original process terminated
-                    break
-                else:
-                    log.debug('PID still alive and commandline unchanged.')
-        except OSError:
-            # Process must have exited by now
+        cmdline2 = get_cmdline(pid)
+        if cmdline2 is None:
             log.debug('Reading cmdline failed, assuming daemon has quit.')
+            break
+        elif cmdline2 == cmdline:
+            log.debug('PID still alive and commandline unchanged.')
+        else:
+            log.debug('PID still alive, but cmdline changed')
             break
 
         # Process still exists, we wait
