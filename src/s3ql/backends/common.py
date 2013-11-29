@@ -1115,6 +1115,17 @@ class LegacyDecryptDecompressFilter(io.RawIOBase):
         self.cipher = aes_cipher(key)
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
 
+    def _decrypt(self, buf):
+        # Work around https://bugs.launchpad.net/pycrypto/+bug/1256172
+        # cipher.decrypt refuses to work with anything but bytes
+        if not isinstance(buf, bytes):
+            buf = bytes(buf)
+            
+        len_ = len(buf)
+        buf = self.cipher.decrypt(buf)
+        assert len(buf) == len_
+        return buf
+    
     def read(self, size=-1):
         '''Read up to *size* bytes
         
@@ -1133,7 +1144,7 @@ class LegacyDecryptDecompressFilter(io.RawIOBase):
         while not buf:
             buf = self.fh.read(size)
             if not buf and not self.hmac_checked:
-                if not hmac.compare_digest(self.cipher.decrypt(self.hash), 
+                if not hmac.compare_digest(self._decrypt(self.hash), 
                                            self.hmac.digest()):
                     raise ChecksumError('HMAC mismatch')
                 elif self.decomp and self.decomp.unused_data:
@@ -1144,7 +1155,7 @@ class LegacyDecryptDecompressFilter(io.RawIOBase):
             elif not buf:
                 return b''
 
-            buf = self.cipher.decrypt(buf)
+            buf = self.decrypt(buf)
             if not self.decomp:
                 break
 
