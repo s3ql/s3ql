@@ -9,8 +9,9 @@ This program can be distributed under the terms of the GNU GPLv3.
 from s3ql.backends import local, s3, gs, s3c, swift, rackspace, swiftks
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBackend, get_ssl_context, AuthenticationError, AuthorizationError,
-    DanglingStorageURLError, MalformedObjectError)
+    DanglingStorageURLError, MalformedObjectError, DecryptFilter, DecompressFilter)
 from s3ql.common import BUFSIZE
+import s3ql.backends.common
 from argparse import Namespace
 import configparser
 import os
@@ -69,6 +70,40 @@ class BackendTestsMixin(object):
         self.assertEqual(self.backend[key], value)
         self.assertEqual(self.backend.lookup(key), metadata)
 
+
+    def test_readslowly(self):
+        key = self.newname()
+        value = self.newvalue()
+        metadata = { 'jimmy': 'jups@42' }
+
+        with self.backend.open_write(key, metadata) as fh:
+            fh.write(value)
+
+        def read():
+            buf = []
+            with self.backend.open_read(key) as fh:
+                # Force slow reading from underlying layer
+                if isinstance(fh, (DecryptFilter, DecompressFilter)):
+                    real_read = fh.fh.read
+                    def read_slowly(size):
+                        return real_read(1)
+                    fh.fh.read = read_slowly
+                while True:
+                    buf.append(fh.read(1))
+                    if not buf[-1]:
+                        break
+                    
+                return (b''.join(buf), fh.metadata)
+
+        try:
+            s3ql.backends.common.BUFSIZE = 1
+            (value2, metadata2) = self.retry(read, NoSuchObject)
+        finally:
+            s3ql.backends.common.BUFSIZE = BUFSIZE
+
+        self.assertEqual(value, value2)
+        self.assertEqual(metadata, metadata2)
+        
     def test_setitem(self):
         key = self.newname()
         value = self.newvalue()
@@ -546,3 +581,10 @@ class EncryptionCompressionTests(EncryptionTests):
 
     def _wrap_backend(self):
         return BetterBackend(b'schlurz', ('zlib', 6), self.plain_backend)
+
+
+if __name__ == '__main__':
+    t = EncryptionTests()
+    t.setUp()
+    t.test_readslowly()
+    t.tearDown()

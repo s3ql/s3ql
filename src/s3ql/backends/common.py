@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging # Ensure use of custom logger class
-from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL, ChecksumError, read_exactly
+from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL, ChecksumError
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from Crypto.Cipher import AES
@@ -1029,6 +1029,30 @@ class DecryptFilter(InputFilter):
         self.cipher = aes_cipher(key)
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
 
+    def _read_and_decrypt(self, size):
+        '''Read and decrypt up to *size* bytes'''
+
+        if size <= 0:
+            raise ValueError("Exact *size* required (got %d)" % size)
+        
+        buf = self.fh.read(size)
+        if not buf:
+            if self.hmac_checked:
+                return b''
+            else:
+                raise ChecksumError('Premature end of stream.')
+
+        # Work around https://bugs.launchpad.net/pycrypto/+bug/1256172
+        # cipher.decrypt refuses to work with anything but bytes
+        if not isinstance(buf, bytes):
+            buf = bytes(buf)
+            
+        len_ = len(buf)
+        buf = self.cipher.decrypt(buf)
+        assert len(buf) == len_
+        
+        return buf
+    
     def read(self, size=-1):
         '''Read up to *size* bytes'''
 
@@ -1037,39 +1061,52 @@ class DecryptFilter(InputFilter):
         elif size == 0:
             return b''
         
-        buf = self.fh.read(size)
-        if not buf:
-            if not self.hmac_checked:
-                raise ChecksumError('Premature end of stream.')
-            return b''
-
-        inbuf = self.cipher.decrypt(buf)
-        assert len(inbuf) == len(buf)
         outbuf = b''
+        inbuf = b''
         while True:
-
-            if len(inbuf) <= self.remaining:
+            
+            # If all remaining data is part of the same packet, return it.
+            if inbuf and len(inbuf) <= self.remaining:
                 self.remaining -= len(inbuf)
                 self.hmac.update(inbuf)
                 outbuf += inbuf
                 break
-            elif len(inbuf) < self.remaining + self.off_size:
-                inbuf += self.cipher.decrypt(self.fh.read(self.off_size))
+            
+            # Otherwise keep reading until we have something to return
+            # but make sure not to stop in packet header (so that we don't
+            # cache the partially read header from one invocation to the next).
+            to_next = self.remaining + self.off_size
+            if (not inbuf or len(inbuf) < to_next):
+                if not inbuf:
+                    buf = self._read_and_decrypt(size - len(outbuf))
+                    if not buf:
+                        break
+                else:
+                    buf = self._read_and_decrypt(to_next - len(inbuf))
+                    assert buf
+                inbuf += buf
                 continue
-                
+            
+            # Copy rest of current packet to output and start reading
+            # from next packet
             outbuf += inbuf[:self.remaining]
-            self.hmac.update(inbuf[:self.remaining + self.off_size])
-            paket_size = struct.unpack(b'<I', inbuf[self.remaining
-                                                    :self.remaining + self.off_size])[0]
-            inbuf = inbuf[self.remaining + self.off_size:]
+            self.hmac.update(inbuf[:to_next])
+            paket_size = struct.unpack(b'<I', inbuf[self.remaining:to_next])[0]
+            inbuf = inbuf[to_next:]
             self.remaining = paket_size
 
             # End of file, read and check HMAC
             if paket_size == 0:
-                if len(inbuf) > HMAC_SIZE:
+                while len(inbuf) < HMAC_SIZE:
+                    # Don't read exactly the missing amount, we wan't to detect
+                    # if there's extraneous data
+                    buf = self._read_and_decrypt(HMAC_SIZE)
+                    assert buf
+                    inbuf += buf
+                
+                if len(inbuf) > HMAC_SIZE or self.fh.read(1):
                     raise ChecksumError('Extraneous data at end of object')
-                elif len(inbuf) < HMAC_SIZE:
-                    inbuf += self.cipher.decrypt(read_exactly(self.fh, HMAC_SIZE - len(inbuf)))
+                
                 if not hmac.compare_digest(inbuf, self.hmac.digest()):
                     raise ChecksumError('HMAC mismatch')
                 self.hmac_checked = True
