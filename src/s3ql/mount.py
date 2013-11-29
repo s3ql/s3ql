@@ -403,6 +403,11 @@ def get_fuse_opts(options):
 
     fuse_opts = [ "nonempty", 'fsname=%s' % options.storage_url,
                   'subtype=s3ql' ]
+    
+    if platform.system() == 'Darwin':
+        # FUSE4X and OSXFUSE claim to support nonempty, but
+        # neither of them actually do.
+        fuse_opts.remove('nonempty')
 
     if options.allow_other:
         fuse_opts.append('allow_other')
