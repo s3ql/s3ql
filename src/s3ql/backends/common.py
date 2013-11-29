@@ -860,39 +860,77 @@ class DecryptFilter(AbstractInputFilter):
         self.cipher = aes.AES(key) #IGNORE:E1102
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
 
-    def _read(self, size):
-        '''Read roughly *size* bytes'''
+    def _read_and_decrypt(self, size):
+        '''Read and decrypt up to *size* bytes'''
 
+        if size <= 0:
+            raise ValueError("Exact *size* required (got %d)" % size)
+        
         buf = self.fh.read(size)
         if not buf:
-            if not self.hmac_checked:
-                raise ChecksumError('HMAC mismatch')
-            return ''
+            if self.hmac_checked:
+                return b''
+            else:
+                raise ChecksumError('Premature end of stream.')
 
-        inbuf = self.cipher.process(buf)
-        outbuf = ''
+        len_ = len(buf)
+        buf = self.cipher.process(buf)
+        assert len(buf) == len_
+        
+        return buf
+    
+    def _read(self, size):
+        '''Read up to *size* bytes'''
+
+        if size == 0:
+            return b''
+        
+        outbuf = b''
+        inbuf = b''
         while True:
-
-            if len(inbuf) <= self.remaining:
+            
+            # If all remaining data is part of the same packet, return it.
+            if inbuf and len(inbuf) <= self.remaining:
                 self.remaining -= len(inbuf)
                 self.hmac.update(inbuf)
                 outbuf += inbuf
                 break
-            elif len(inbuf) <= self.remaining + self.off_size:
-                inbuf += self.cipher.decrypt(self.fh.read(self.off_size))
+            
+            # Otherwise keep reading until we have something to return
+            # but make sure not to stop in packet header (so that we don't
+            # cache the partially read header from one invocation to the next).
+            to_next = self.remaining + self.off_size
+            if (not inbuf or len(inbuf) < to_next):
+                if not inbuf:
+                    buf = self._read_and_decrypt(size - len(outbuf))
+                    if not buf:
+                        break
+                else:
+                    buf = self._read_and_decrypt(to_next - len(inbuf))
+                    assert buf
+                inbuf += buf
                 continue
-                
+            
+            # Copy rest of current packet to output and start reading
+            # from next packet
             outbuf += inbuf[:self.remaining]
-            self.hmac.update(inbuf[:self.remaining + self.off_size])
-            paket_size = struct.unpack(b'<I', inbuf[self.remaining
-                                                    :self.remaining + self.off_size])[0]
-            inbuf = inbuf[self.remaining + self.off_size:]
+            self.hmac.update(inbuf[:to_next])
+            paket_size = struct.unpack(b'<I', inbuf[self.remaining:to_next])[0]
+            inbuf = inbuf[to_next:]
             self.remaining = paket_size
 
             # End of file, read and check HMAC
             if paket_size == 0:
-                if len(inbuf) != HMAC_SIZE:
-                    inbuf += self.cipher.process(self.fh.read(HMAC_SIZE - len(inbuf)))
+                while len(inbuf) < HMAC_SIZE:
+                    # Don't read exactly the missing amount, we wan't to detect
+                    # if there's extraneous data
+                    buf = self._read_and_decrypt(HMAC_SIZE)
+                    assert buf
+                    inbuf += buf
+                
+                if len(inbuf) > HMAC_SIZE or self.fh.read(1):
+                    raise ChecksumError('Extraneous data at end of object')
+                
                 if inbuf != self.hmac.digest():
                     raise ChecksumError('HMAC mismatch')
                 self.hmac_checked = True
