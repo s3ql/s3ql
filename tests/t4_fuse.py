@@ -15,6 +15,7 @@ import logging
 import os.path
 import random
 import shutil
+import platform
 import stat
 import subprocess
 import sys
@@ -168,7 +169,8 @@ BASEDIR = os.path.abspath(os.path.join(os.path.dirname(mypath), '..'))
 class fuse_tests(unittest.TestCase):
 
     def setUp(self):
-        skip_if_no_fusermount()
+        if platform.system() != 'Darwin':
+            skip_if_no_fusermount()
 
         # We need this to test multi block operations
         self.src = __file__
@@ -263,8 +265,11 @@ class fuse_tests(unittest.TestCase):
 
     def tearDown(self):
         with open('/dev/null', 'wb') as devnull:
-            subprocess.call(['fusermount', '-z', '-u', self.mnt_dir],
-                            stderr=devnull)
+            if platform.system() == 'Darwin':
+                subprocess.call(['umount', '-l', self.mnt_dir], stderr=devnull)
+            else:
+                subprocess.call(['fusermount', '-z', '-u', self.mnt_dir],
+                                stderr=devnull)
         os.rmdir(self.mnt_dir)
 
         # Give mount process a little while to terminate

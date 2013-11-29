@@ -13,6 +13,7 @@ import llfuse
 import os
 import pickle
 import subprocess
+import platform
 import sys
 import textwrap
 import time
@@ -70,7 +71,8 @@ class MountInUseError(UmountError):
 def lazy_umount(mountpoint):
     '''Invoke fusermount -u -z for mountpoint'''
 
-    if os.getuid() == 0:
+    if os.getuid() == 0 or platform.system() == 'Darwin':
+        # MacOS X always uses umount rather than fusermount
         umount_cmd = ('umount', '-l', mountpoint)
     else:
         umount_cmd = ('fusermount', '-u', '-z', mountpoint)
@@ -123,7 +125,8 @@ def blocking_umount(mountpoint):
     # Unmount
     log.debug('Unmounting...')
 
-    if os.getuid() == 0:
+    if os.getuid() == 0 or platform.system() == 'Darwin':
+        # MacOS X always uses umount rather than fusermount
         umount_cmd = ['umount', mountpoint]
     else:
         umount_cmd = ['fusermount', '-u', mountpoint]
