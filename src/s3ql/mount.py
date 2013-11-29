@@ -262,9 +262,12 @@ def determine_threads(options):
         # Only check LZMA memory usage
         mem_per_thread = 0
 
-    if cores == -1 or memory == -1:
+    if cores == -1:
         log.warning("Can't determine number of cores, using 2 upload threads.")
-        return 1
+        return 2
+    elif memory == -1 and mem_per_thread != 0:
+        log.warning("Can't determine available memory, using 2 upload threads.")
+        return 2
     elif 2 * cores * mem_per_thread > (memory / 2):
         threads = min(int((memory / 2) // mem_per_thread), 10)
         if threads > 0:
