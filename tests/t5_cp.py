@@ -10,6 +10,7 @@ from t4_fuse import populate_dir, skip_without_rsync
 import os.path
 import shutil
 import subprocess
+from subprocess import check_output, CalledProcessError
 import t4_fuse
 import sys
 import tempfile
@@ -40,15 +41,15 @@ class cpTests(t4_fuse.fuse_tests):
                                    os.path.join(self.mnt_dir, 'copy')])
 
             # compare
-            with subprocess.Popen(['rsync', '-anciHAX', '--delete',
-                                   tempdir + '/', os.path.join(self.mnt_dir, 'copy') + '/'],
-                                  stdout=subprocess.PIPE, universal_newlines=True,
-                                  stderr=subprocess.STDOUT) as rsync:
-                out = rsync.communicate()[0]
+            try:
+                out = check_output(['rsync', '-anciHAX', '--delete', tempdir + '/',
+                                    os.path.join(self.mnt_dir, 'copy') + '/'],
+                                   universal_newlines=True, stderr=subprocess.STDOUT)
+            except CalledProcessError as exc:
+                self.fail('rsync failed with ' + exc.output)
+                
             if out:
                 self.fail('Copy not equal to original, rsync says:\n' + out)
-            elif rsync.returncode != 0:
-                self.fail('rsync failed with ' + out)
 
         finally:
             shutil.rmtree(tempdir)

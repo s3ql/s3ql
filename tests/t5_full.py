@@ -10,6 +10,7 @@ from t4_fuse import populate_dir, skip_without_rsync, BASEDIR
 from t1_backends import get_remote_test_info
 import shutil
 import subprocess
+from subprocess import check_output, CalledProcessError
 import t4_fuse
 import tempfile
 import sys
@@ -40,16 +41,14 @@ class FullTest(t4_fuse.fuse_tests):
             self.cache_dir = tempfile.mkdtemp('s3ql-cache-')
             self.fsck()
             self.mount()
-            with subprocess.Popen(['rsync', '-anciHAX', '--delete',
-                                   '--exclude', '/lost+found',
-                                   ref_dir + '/', self.mnt_dir + '/'],
-                                  stdout=subprocess.PIPE, universal_newlines=True,
-                                  stderr=subprocess.STDOUT) as rsync:
-                out = rsync.communicate()[0]
+            try:
+                out = check_output(['rsync', '-anciHAX', '--delete', '--exclude', '/lost+found',
+                                    ref_dir + '/', self.mnt_dir + '/'], universal_newlines=True,
+                                  stderr=subprocess.STDOUT)
+            except CalledProcessError as exc:
+                self.fail('rsync failed with ' + exc.output)
             if out:
                 self.fail('Copy not equal to original, rsync says:\n' + out)
-            elif rsync.returncode != 0:
-                self.fail('rsync failed with ' + out)
 
             self.umount()
 
