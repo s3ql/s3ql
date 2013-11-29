@@ -9,6 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, QuietError # Ensure use of custom logger class
 from llfuse import ROOT_INODE
+import subprocess
 import bz2
 import errno
 import hashlib
@@ -100,6 +101,34 @@ def stream_read_bz2(ifh, ofh):
     if decompressor.unused_data or ifh.read(1) != b'':
         raise ChecksumError('Data after end of bz2 stream')
 
+    
+def is_mounted(storage_url):
+    '''Try to determine if *storage_url* is mounted
+
+    Note that the result may be wrong.. this is really just
+    a best-effort guess.
+    '''
+
+    match = storage_url + ' '
+    if os.path.exists('/proc/mounts'):
+        with open('/proc/mounts', 'r') as fh:
+            for line in fh:
+                if line.startswith(match):
+                    return True
+            return False
+
+    try:
+        for line in subprocess.check_output(['mount'], stderr=subprocess.STDOUT,
+                                            universal_newlines=True):
+            if line.startswith(match):
+                return True
+    except subprocess.CalledProcessError:
+        log.warning('Warning! Unable to check if file system is mounted '
+                    '(/proc/mounts missing and mount call failed)')
+    
+    return False
+
+        
 class ChecksumError(Exception):
     """
     Raised if there is a checksum error in the data that we received.

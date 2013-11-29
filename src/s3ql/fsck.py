@@ -11,7 +11,7 @@ from . import CURRENT_FS_REV
 from .backends.common import NoSuchObject, get_backend, DanglingStorageURLError
 from .common import (ROOT_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE, get_backend_cachedir, 
                      get_seq_no, stream_write_bz2, stream_read_bz2, CTRL_INODE, 
-                     PICKLE_PROTOCOL)
+                     PICKLE_PROTOCOL, is_mounted)
 from .database import NoSuchRowError, Connection
 from .metadata import restore_metadata, cycle_metadata, dump_metadata, create_tables
 from .parse_args import ArgumentParser
@@ -1075,11 +1075,8 @@ def main(args=None):
 
     # Check if fs is mounted on this computer
     # This is not foolproof but should prevent common mistakes
-    match = options.storage_url + ' /'
-    with open('/proc/mounts', 'r') as fh:
-        for line in fh:
-            if line.startswith(match):
-                raise QuietError('Can not check mounted file system.')
+    if is_mounted(options.storage_url):
+        raise QuietError('Can not check mounted file system.')
 
     try:
         backend = get_backend(options)

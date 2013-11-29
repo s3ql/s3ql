@@ -10,7 +10,7 @@ from .logging import logging, QuietError, setup_logging
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.common import BetterBackend, get_backend, DanglingStorageURLError
 from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2,
-                     stream_read_bz2, PICKLE_PROTOCOL)
+                     stream_read_bz2, PICKLE_PROTOCOL, is_mounted)
 from .metadata import restore_metadata, cycle_metadata, dump_metadata
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
@@ -77,11 +77,8 @@ def main(args=None):
 
     # Check if fs is mounted on this computer
     # This is not foolproof but should prevent common mistakes
-    match = options.storage_url + ' /'
-    with open('/proc/mounts', 'r') as fh:
-        for line in fh:
-            if line.startswith(match):
-                raise QuietError('Can not work on mounted file system.')
+    if is_mounted(options.storage_url):
+        raise QuietError('Can not work on mounted file system.')
 
     if options.action == 'clear':
         try:
