@@ -782,6 +782,7 @@ class BlockCache(object):
                 self.db.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
                                 (obj_id,))
             else:
+                self.db.execute('DELETE FROM objects WHERE id=?', (obj_id,))
                 if obj_id in self.in_transit_objs:
                     log.debug('remove(inode=%d, blockno=%d): deferring removal of '
                               'object %d, still in transit', inode, blockno, obj_id)
@@ -794,7 +795,6 @@ class BlockCache(object):
                               inode, blockno, obj_id)
                     with lock_released:
                         self.to_remove.put(obj_id)
-                self.db.execute('DELETE FROM objects WHERE id=?', (obj_id,))
 
         log.debug('remove(inode=%d, start=%d, end=%s): end', inode, start_no, end_no)
 
