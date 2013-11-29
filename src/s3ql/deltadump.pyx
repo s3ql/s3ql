@@ -1,5 +1,5 @@
 '''
-_deltadump.pyx - this file is part of S3QL (http://s3ql.googlecode.com)
+deltadump.pyx - this file is part of S3QL (http://s3ql.googlecode.com)
 
 Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 
@@ -33,7 +33,7 @@ cdef extern from 'stdio.h' nogil:
     int fflush(FILE * stream)
     int fileno(FILE * stream)
 
-cdef extern from 'endian.h' nogil:
+cdef extern from 'endian_indep.h' nogil:
     uint64_t htole64(uint64_t host_64bits)
     uint64_t le64toh(uint64_t little_endian_64bits)
 

@@ -22,6 +22,9 @@ UNRELEASED, S3QL tip
 
   * Specifying --debug when using syslog or file logging no longer
     suppresses informational messages to stdout.
+
+  * Fixed build under MacOS X. Thanks to john@nachtimwald.com for the
+    patch!
   
 2013-10-19, S3QL 2.5
 
