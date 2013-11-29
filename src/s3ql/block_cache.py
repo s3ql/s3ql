@@ -335,7 +335,7 @@ class BlockCache(object):
                 obj_size = backend.perform_write(do_write, 's3ql_data_%d' % obj_id).get_obj_size()
 
             if log.isEnabledFor(logging.DEBUG):
-                if not self.in_transit_objs[obj_id]:
+                if el.removed:
                     log.debug('_do_upload(%s): aborted upload of deleted object', obj_id)
                 else:
                     time_ = time.time() - time_
