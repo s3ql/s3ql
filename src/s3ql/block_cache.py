@@ -343,6 +343,9 @@ class BlockCache(object):
                     log.debug('_do_upload(%s): uploaded %d bytes in %.3f seconds, %.2f MiB/s',
                               obj_id, el.size, time_, rate)
 
+            if el.removed:
+                self.to_remove.put(obj_id)
+
             with lock:
                 if el.removed:
                     el.close()
@@ -355,9 +358,6 @@ class BlockCache(object):
                 del self.in_transit_objs[obj_id]
                 self.transfer_completed.notify_all()
 
-            if el.removed:
-                self.to_remove.put(obj_id)
-                
         except:
             with lock:
                 self.in_transit_objs.pop(obj_id, None)
