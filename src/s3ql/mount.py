@@ -81,17 +81,20 @@ def main(args=None):
     if options.threads is None:
         options.threads = determine_threads(options)
 
-    avail_fd = detect_max_fds() - 6 * options.threads
-    if avail_fd <= 64:
-        raise QuietError("Not enough available file descriptors.")
-    elif options.max_cache_entries is None:
+    if options.max_cache_entries is None:
+        avail_fd = detect_avail_fds(4096) - 6 * options.threads
+        if avail_fd <= 64:
+            raise QuietError("Not enough available file descriptors.")
         log.info('Autodetected %d file descriptors available for cache entries',
                  avail_fd)
         options.max_cache_entries = avail_fd
-    elif options.max_cache_entries > avail_fd:
-        log.warning("Up to %d cache entries requested, but detected only %d "
-                    "available file descriptors.", options.max_cache_entries, avail_fd)
-        options.max_cache_entries = avail_fd
+    else:
+        avail_fd = (detect_avail_fds(options.max_cache_entries + 6 * options.threads)
+                    - 6 * options.threads)
+        if options.max_cache_entries > avail_fd:
+            log.warning("Up to %d cache entries requested, but detected only %d "
+                        "available file descriptors.", options.max_cache_entries, avail_fd)
+            options.max_cache_entries = avail_fd
 
     if options.profile:
         import cProfile
@@ -681,18 +684,19 @@ def setup_exchook():
     return exc_info
 
 
-def detect_max_fds():
-    '''Detect maximum number of file descriptors'''
+def detect_avail_fds(max_=4096):
+    '''Detect number of available file descriptors'''
 
     files = []
     try:
-        while True:
+        for i in range(max_):
             try:
                 files.append(tempfile.TemporaryFile())
             except OSError as exc:
                 if exc.errno != errno.EMFILE:
                     raise
                 return len(files)
+        return max_
     finally:
         for f in files:
             try:
