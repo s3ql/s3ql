@@ -704,7 +704,7 @@ class CommitThread(Thread):
                 # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',
                 # ... number=500)/500 * 1e3
                 # 1.456586996000624
-                for el in list(self.block_cache.entries.values()):
+                for el in list(self.block_cache.cache.values()):
                     if self.stop_event.is_set():
                         break
                     if stamp - el.last_access < 10:

@@ -147,21 +147,21 @@ class cache_tests(unittest.TestCase):
         commit(self.cache, inode, most_recent[-3])
 
         # We want to expire 4 entries, 2 of which are already flushed
-        self.cache.max_entries = 16
+        self.cache.cache.max_entries = 16
         self.cache.backend_pool = TestBackendPool(self.backend_pool, no_write=2)
         self.cache.expire()
         self.cache.backend_pool.verify()
-        self.assertEqual(len(self.cache.entries), 16)
+        self.assertEqual(len(self.cache.cache), 16)
 
         for i in range(20):
             if i in most_recent:
-                self.assertTrue((inode, i) not in self.cache.entries)
+                self.assertTrue((inode, i) not in self.cache.cache)
             else:
-                self.assertTrue((inode, i) in self.cache.entries)
+                self.assertTrue((inode, i) in self.cache.cache)
 
     def test_upload(self):
         inode = self.inode
-        datalen = int(0.1 * self.cache.max_size)
+        datalen = int(0.1 * self.cache.cache.max_size)
         blockno1 = 21
         blockno2 = 25
         blockno3 = 7
@@ -232,7 +232,7 @@ class cache_tests(unittest.TestCase):
 
     def test_remove_referenced(self):
         inode = self.inode
-        datalen = int(0.1 * self.cache.max_size)
+        datalen = int(0.1 * self.cache.cache.max_size)
         blockno1 = 21
         blockno2 = 24
         data = self.random_data(datalen)
@@ -399,7 +399,7 @@ def commit(cache, inode, block=None):
     uploads have been completed.
     """
 
-    for el in cache.entries.values():
+    for el in cache.cache.values():
         if el.inode != inode:
             continue
         if not el.dirty:
@@ -411,8 +411,8 @@ def commit(cache, inode, block=None):
         cache.upload(el)
 
 if __name__ == '__main__':
-    t = cache_tests()
-    t.setUp()
-    t.test_expire()
-    t.tearDown()
+    import pytest
+    #pytest.main([__file__, '-x', '-k', 'expire'])
+    pytest.main([__file__, '-x'])
+
     

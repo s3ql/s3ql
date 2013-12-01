@@ -174,6 +174,36 @@ class CacheEntry(object):
         return ('<%sCacheEntry, inode=%d, blockno=%d>'
                 % ('Dirty ' if self.dirty else '', self.inode, self.blockno))
 
+
+class CacheDict(OrderedDict):
+    '''
+    An ordered dictionary designed to store CacheEntries.
+
+    Attributes:
+    
+    :max_size: maximum size to which cache can grow
+    :max_entries: maximum number of entries in cache
+    :size: current size of all entries together
+    '''
+
+    def __init__(self, max_size, max_entries):
+        super().__init__()
+        self.max_size = max_size
+        self.max_entries = max_entries
+        self.size = 0
+
+    def remove(self, key):
+        '''Remove *key* from disk and cache, update size'''
+        
+        el = self.pop(key)
+        el.close()
+        el.unlink()
+        self.size -= el.size
+
+    def is_full(self):
+        return (self.size > self.max_size
+                or len(self) > self.max_entries)
+
 class BlockCache(object):
     """Provides access to file blocks
     
@@ -187,15 +217,16 @@ class BlockCache(object):
     ----------
     
     :path: where cached data is stored
-    :entries: ordered dictionary of cache entries
-    :size: current size of all cached entries
-    :max_size: maximum size to which cache can grow
-    :max_entries: maximum number of entries in cache
+    :cache: ordered dictionary of cache entries
     :mlock: MultiLock to synchronize access to objects and cache entries
     :in_transit: set of cache entries that are currently being uploaded
     :to_upload: distributes objects to upload to worker threads
     :to_remove: distributes objects to remove to worker threads
     :transfer_complete: signals completion of an object upload
+    :upload_threads: list of threads processing upload queue
+    :removal_threads: list of threads processing removal queue
+    :db: Handle to SQL DB
+    :backend_pool: BackendPool instance
     """
 
     def __init__(self, backend_pool, db, cachedir, max_size, max_entries=768):
@@ -204,10 +235,7 @@ class BlockCache(object):
         self.path = cachedir
         self.db = db
         self.backend_pool = backend_pool
-        self.entries = OrderedDict()
-        self.max_entries = max_entries
-        self.size = 0
-        self.max_size = max_size
+        self.cache = CacheDict(max_size, max_entries)
         self.mlock = MultiLock()
         self.in_transit = set()
         self.upload_threads = []
@@ -223,7 +251,7 @@ class BlockCache(object):
 
     def __len__(self):
         '''Get number of objects in cache'''
-        return len(self.entries)
+        return len(self.cache)
 
     def init(self, threads=1):
         '''Start worker threads'''
@@ -396,6 +424,7 @@ class BlockCache(object):
         with lock_released:
             try:
                 self._lock_entry(el.inode, el.blockno)
+                assert el not in self.in_transit
                 if not el.dirty:
                     log.debug('upload(%s): not dirty, returning', el)
                     self._unlock_entry(el.inode, el.blockno)
@@ -566,7 +595,7 @@ class BlockCache(object):
 
         #log.debug('get(inode=%d, block=%d): start', inode, blockno)
 
-        if self.size > self.max_size or len(self.entries) > self.max_entries:
+        if self.cache.is_full():
             self.expire()
 
         self._lock_entry(inode, blockno, release_global=True)
@@ -579,7 +608,7 @@ class BlockCache(object):
             finally:
                 # Update cachesize. NOTE: this requires that at most one
                 # thread has access to a cache entry at any time.
-                self.size += el.size - oldsize
+                self.cache.size += el.size - oldsize
         finally:
             self._unlock_entry(inode, blockno)
             
@@ -592,7 +621,7 @@ class BlockCache(object):
         '''
         
         try:
-            el = self.entries[(inode, blockno)]
+            el = self.cache[(inode, blockno)]
 
         # Not in cache
         except KeyError:
@@ -605,7 +634,7 @@ class BlockCache(object):
             except NoSuchRowError:
                 log.debug('_get_entry(inode=%d, block=%d): creating new block', inode, blockno)
                 el = CacheEntry(inode, blockno, filename)
-                self.entries[(inode, blockno)] = el
+                self.cache[(inode, blockno)] = el
                 return el
             
             # Need to download corresponding object
@@ -634,14 +663,14 @@ class BlockCache(object):
                 el.close()
                 raise
             
-            self.entries[(inode, blockno)] = el
+            self.cache[(inode, blockno)] = el
             el.dirty = False # (writing will have set dirty flag)
-            self.size += el.size
+            self.cache.size += el.size
 
         # In Cache
         else:
             #log.debug('_get_entry(inode=%d, block=%d): in cache', inode, blockno)
-            self.entries.move_to_end((inode, blockno), last=True) # move to head
+            self.cache.move_to_end((inode, blockno), last=True) # move to head
             
         return el
 
@@ -657,8 +686,8 @@ class BlockCache(object):
         log.debug('expire: start')
 
         while True:
-            need_size = self.size - self.max_size
-            need_entries = len(self.entries) - self.max_entries
+            need_size = self.cache.size - self.cache.max_size
+            need_entries = len(self.cache) - self.cache.max_entries
             
             if need_size <= 0 and need_entries <= 0:
                 break
@@ -667,7 +696,7 @@ class BlockCache(object):
             # iterating through it. Look at the comments in CommitThread.run()
             # (mount.py) for an estimate of the resulting performance hit.
             sth_in_transit = False
-            for el in list(self.entries.values()):
+            for el in list(self.cache.values()):
                 if need_size <= 0 and need_entries <= 0:
                     break
             
@@ -689,9 +718,7 @@ class BlockCache(object):
                         log.debug('%s got dirty while waiting for lock', el)
                         continue
 
-                    el.close()
-                    el.unlink()
-                    del self.entries[(el.inode, el.blockno)]
+                    self.cache.remove((el.inode, el.blockno))
                 finally:
                     self._unlock_entry(el.inode, el.blockno)
 
@@ -720,13 +747,10 @@ class BlockCache(object):
         for blockno in range(start_no, end_no):
             self._lock_entry(inode, blockno)
             try:
-                if (inode, blockno) in self.entries:
+                if (inode, blockno) in self.cache:
                     log.debug('remove(inode=%d, blockno=%d): removing from cache',
                               inode, blockno)
-                    el = self.entries.pop((inode, blockno))
-                    self.size -= el.size
-                    el.close()
-                    el.unlink()
+                    self.cache.remove((inode, blockno))
 
                 try:
                     block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
@@ -751,7 +775,7 @@ class BlockCache(object):
         """Flush buffers for given block"""
 
         try:
-            el = self.entries[(inode, blockno)]
+            el = self.cache[(inode, blockno)]
         except KeyError:
             return
 
@@ -770,7 +794,7 @@ class BlockCache(object):
         # Need to make copy, since we aren't allowed to change dict while
         # iterating through it. Look at the comments in CommitThread.run()
         # (mount.py) for an estimate of the resulting performance hit.
-        for el in list(self.entries.values()):
+        for el in list(self.cache.values()):
             if not el.dirty or el in self.in_transit:
                 continue
 
@@ -783,15 +807,15 @@ class BlockCache(object):
         """
 
         log.debug('clear: start')
-        bak = self.max_entries
-        self.max_entries = 0
+        bak = self.cache.max_entries
+        self.cache.max_entries = 0
         self.expire() # Releases global lock
-        self.max_entries = bak
+        self.cache.max_entries = bak
 
         log.debug('clear: end')
 
 
     def __del__(self):
-        if len(self.entries) > 0:
-            raise RuntimeError("BlockCache instance was destroyed without calling destroy()!")
+        if len(self.cache) > 0:
+            raise RuntimeError("BlockManager instance was destroyed without calling destroy()!")
 
