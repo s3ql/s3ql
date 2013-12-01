@@ -645,7 +645,6 @@ class BlockCache(object):
             
         return el
 
-
     def expire(self):
         """Perform cache expiry
         
@@ -657,73 +656,48 @@ class BlockCache(object):
 
         log.debug('expire: start')
 
-        did_nothing_count = 0
-        while (len(self.entries) > self.max_entries or
-               (len(self.entries) > 0  and self.size > self.max_size)):
-
+        while True:
             need_size = self.size - self.max_size
             need_entries = len(self.entries) - self.max_entries
+            
+            if need_size <= 0 and need_entries <= 0:
+                break
 
-            # Try to expire entries that are not dirty
             # Need to make copy, since we aren't allowed to change dict while
             # iterating through it. Look at the comments in CommitThread.run()
             # (mount.py) for an estimate of the resulting performance hit.
+            sth_in_transit = False
             for el in list(self.entries.values()):
+                if need_size <= 0 and need_entries <= 0:
+                    break
+            
+                need_entries -= 1
+                need_size -= el.size
+
                 if el.dirty:
-                    if el in self.in_transit:
-                        log.debug('expire: %s is dirty, but already being uploaded', el)
-                        continue
-                    else:
-                        log.debug('expire: %s is dirty, trying to flush', el)
-                        break
+                    if el not in self.in_transit:
+                        log.debug('expire: uploading %s..', el)
+                        self.upload(el) # Releases global lock
+                    sth_in_transit = True
+                    continue
 
                 log.debug('removing inode %d, block %d from cache', el.inode, el.blockno)
                 self._lock_entry(el.inode, el.blockno, release_global=True)
                 try:
                     # May have changed while we were waiting for lock
                     if el.dirty:
-                        log.debug('expire: %s got dirty while waiting for lock', el)
+                        log.debug('%s got dirty while waiting for lock', el)
                         continue
-                    del self.entries[(el.inode, el.blockno)]
+
                     el.close()
                     el.unlink()
+                    del self.entries[(el.inode, el.blockno)]
                 finally:
                     self._unlock_entry(el.inode, el.blockno)
-                    
-                need_entries -= 1
-                self.size -= el.size
-                need_size -= el.size
 
-                did_nothing_count = 0
-                if need_size <= 0 and need_entries <= 0:
-                    break
-
-            if need_size <= 0 and need_entries <= 0:
-                break
-
-            # Try to upload just enough
-            for el in list(self.entries.values()):
-                if el.dirty and el not in self.in_transit:
-                    log.debug('expire: uploading %s..', el)
-                    freed = self.upload(el) # Releases global lock
-                    need_size -= freed
-                    did_nothing_count = 0
-                else:
-                    log.debug('expire: %s can soon be expired..', el)
-                    need_size -= el.size
-                need_entries -= 1
-
-                if need_size <= 0 and need_entries <= 0:
-                    break
-
-            did_nothing_count += 1
-            if did_nothing_count > 50:
-                log.error('Problem in expire()')
-                break
-
-            # Wait for the next entry  
-            log.debug('expire: waiting for transfer threads..')
-            self.wait() # Releases global lock
+            if sth_in_transit:
+                log.debug('expire: waiting for transfer threads..')
+                self.wait() # Releases global lock
 
         log.debug('expire: end')
 
