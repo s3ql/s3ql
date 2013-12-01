@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''
 t2_block_cache.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
@@ -5,6 +6,11 @@ Copyright (C) 2008-2010 Nikolaus Rath <Nikolaus@rath.org>
 
 This program can be distributed under the terms of the GNU GPLv3.
 '''
+
+if __name__ == '__main__':
+    import pytest
+    import sys
+    sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 from contextlib import contextmanager
 from s3ql.backends import local
@@ -410,9 +416,3 @@ def commit(cache, inode, block=None):
 
         cache.upload(el)
 
-if __name__ == '__main__':
-    import pytest
-    #pytest.main([__file__, '-x', '-k', 'expire'])
-    pytest.main([__file__, '-x'])
-
-    
