@@ -21,6 +21,7 @@ from .exit_stack import ExitStack
 from threading import Thread
 import _thread
 import argparse
+import errno
 import faulthandler
 import llfuse
 import os
@@ -74,11 +75,23 @@ def main(args=None):
     # Save handler so that we can remove it when daemonizing
     stdout_log_handler = setup_logging(options)
 
+    if not os.path.exists(options.mountpoint):
+        raise QuietError('Mountpoint does not exist.')
+        
     if options.threads is None:
         options.threads = determine_threads(options)
 
-    if not os.path.exists(options.mountpoint):
-        raise QuietError('Mountpoint does not exist.')
+    avail_fd = detect_max_fds() - 6 * options.threads
+    if avail_fd <= 64:
+        raise QuietError("Not enough available file descriptors.")
+    elif options.max_cache_entries is None:
+        log.info('Autodetected %d file descriptors available for cache entries',
+                 avail_fd)
+        options.max_cache_entries = avail_fd
+    elif options.max_cache_entries > avail_fd:
+        log.warning("Up to %d cache entries requested, but detected only %d "
+                    "available file descriptors.", options.max_cache_entries, avail_fd)
+        options.max_cache_entries = avail_fd
 
     if options.profile:
         import cProfile
@@ -482,8 +495,8 @@ def parse_args(args):
                       help="Cache size in KiB (default: 102400 (100 MiB)). Should be at least 10 times "
                       "the maximum object size of the filesystem, otherwise an object may be retrieved "
                       "and written several times during a single write() or read() operation.")
-    parser.add_argument("--max-cache-entries", type=int, default=768, metavar='<num>',
-                      help="Maximum number of entries in cache (default: %(default)d). "
+    parser.add_argument("--max-cache-entries", type=int, default=None, metavar='<num>',
+                      help="Maximum number of entries in cache (default: autodetect). "
                       'Each cache entry requires one file descriptor, so if you increase '
                       'this number you have to make sure that your process file descriptor '
                       'limit (as set with `ulimit -n`) is high enough (at least the number '
@@ -667,6 +680,24 @@ def setup_exchook():
 
     return exc_info
 
+
+def detect_max_fds():
+    '''Detect maximum number of file descriptors'''
+
+    files = []
+    try:
+        while True:
+            try:
+                files.append(tempfile.TemporaryFile())
+            except OSError as exc:
+                if exc.errno != errno.EMFILE:
+                    raise
+                return len(files)
+    finally:
+        for f in files:
+            try:
+                f.close()
+            except: pass
 
 
 class CommitThread(Thread):
