@@ -401,6 +401,51 @@ class cache_tests(unittest.TestCase):
             fh.seek(0)
             self.assertEqual(fh.read(42), b'')
 
+
+    def test_remove_race(self):
+        inode = self.inode
+        blockno = 42
+        data = self.random_data(int(0.5 * self.max_obj_size))
+
+        # Prepare to catch the upload request
+        args = []
+        def put(a):
+            args.append(a)
+        self.cache.to_upload.put = put
+        
+        # Start uploading one block
+        with self.cache.get(inode, blockno) as fh:
+            fh.seek(0)
+            fh.write(data)
+        self.cache.upload(fh)
+        assert args[-1][0] == fh
+        
+        # Create second block, link to first one (which is
+        # in transfer now)
+        with self.cache.get(inode, blockno+1) as fh:
+            fh.seek(0)
+            fh.write(data)
+        self.cache.upload(fh)
+        assert len(args) == 1
+
+        # Remove first block (transfer will be aborted)
+        self.cache.remove(inode, blockno)
+
+        # Continue transfer
+        del self.cache.to_upload.put
+        with llfuse.lock_released:
+            for a in args:
+                self.cache.to_upload.put(a)
+        
+        # Flush cache
+        self.cache.clear()
+        
+        # Make sure that object persists and second block can
+        # still be read.
+        with self.cache.get(inode, blockno+1) as fh:
+            fh.seek(0)
+            assert fh.read() == data
+            
 class TestBackendPool(AbstractBackend):
     def __init__(self, backend_pool, no_read=0, no_write=0, no_del=0):
         super().__init__()
