@@ -125,105 +125,6 @@ class cache_tests(unittest.TestCase):
             fh.seek(0)
             self.assertEqual(data, fh.read(len(data)))
 
-
-    def test_issue419(self):
-        inode = self.inode
-        blockno = 42
-        data = self.random_data(int(0.5 * self.max_obj_size))
-
-        # Create object
-        with self.cache.get(inode, blockno) as fh:
-            fh.seek(0)
-            fh.write(data)
-
-        # Add another one
-        with self.cache.get(inode, blockno+1) as fh:
-            fh.seek(0)
-            fh.write(data)
-        
-        # Catch upload calls
-        upload_args = []
-        class DummyDistributor:
-            def put(self, arg):
-                upload_args.append(arg)
-        self.cache.to_upload = DummyDistributor()
-        try:
-            # Upload
-            self.cache.commit()
-
-            # Remove (while upload is in progress)
-            self.cache.remove(inode, blockno)
-
-            # Now do upload
-            assert len(upload_args) == 1
-            with llfuse.lock_released:
-                self.cache._do_upload(*upload_args[0])
-        except:
-            # Make sure that we don't deadlock
-            del self.cache.entries[(inode, blockno)]
-            self.cache.in_transit.discard((inode, blockno))
-            raise
-
-
-    def test_issue419_variant(self):
-        inode = self.inode
-        blockno = 42
-        data = self.random_data(int(0.5 * self.max_obj_size))
-
-        # Create object
-        with self.cache.get(inode, blockno+1) as fh:
-            fh.seek(0)
-            fh.write(data)
-
-        # Add another one
-        with self.cache.get(inode, blockno) as fh:
-            fh.seek(0)
-            fh.write(data)
-        
-        # Catch upload calls
-        upload_args = []
-        class DummyDistributor:
-            def put(self, arg):
-                upload_args.append(arg)
-        self.cache.to_upload = DummyDistributor()
-        try:
-            # Upload
-            self.cache.commit()
-
-            # Remove (while upload is in progress)
-            self.cache.remove(inode, blockno)
-
-            # Now do upload
-            assert len(upload_args) == 1
-            with llfuse.lock_released:
-                self.cache._do_upload(*upload_args[0])
-        except:
-            # Make sure that we don't deadlock
-            del self.cache.entries[(inode, blockno)]
-            self.cache.in_transit.discard((inode, blockno))
-            raise
-
-    def test_issue439(self):
-        inode = self.inode
-        blockno = 42
-        data = self.random_data(int(0.5 * self.max_obj_size))
-
-        # Create object
-        with self.cache.get(inode, blockno) as fh:
-            fh.seek(0)
-            fh.write(data)
-
-        # Pretend that upload has started
-        self.cache.in_transit_blocks[(inode, blockno)] = None
-        
-        # Remove it
-        self.cache.remove(inode, blockno)
-
-        # Actually start upload (this may happen if upload starts before remove,
-        # but is interrupted while calculating the checksum)
-        del self.cache.in_transit_blocks[(inode, blockno)]
-        self.cache.upload(fh)
-        
     def test_expire(self):
         inode = self.inode
 
@@ -401,50 +302,6 @@ class cache_tests(unittest.TestCase):
             fh.seek(0)
             self.assertEqual(fh.read(42), b'')
 
-
-    def test_remove_race(self):
-        inode = self.inode
-        blockno = 42
-        data = self.random_data(int(0.5 * self.max_obj_size))
-
-        # Prepare to catch the upload request
-        args = []
-        def put(a):
-            args.append(a)
-        self.cache.to_upload.put = put
-        
-        # Start uploading one block
-        with self.cache.get(inode, blockno) as fh:
-            fh.seek(0)
-            fh.write(data)
-        self.cache.upload(fh)
-        assert args[-1][0] == fh
-        
-        # Create second block, link to first one (which is
-        # in transfer now)
-        with self.cache.get(inode, blockno+1) as fh:
-            fh.seek(0)
-            fh.write(data)
-        self.cache.upload(fh)
-        assert len(args) == 1
-
-        # Remove first block (transfer will be aborted)
-        self.cache.remove(inode, blockno)
-
-        # Continue transfer
-        del self.cache.to_upload.put
-        with llfuse.lock_released:
-            for a in args:
-                self.cache.to_upload.put(a)
-        
-        # Flush cache
-        self.cache.clear()
-        
-        # Make sure that object persists and second block can
-        # still be read.
-        with self.cache.get(inode, blockno+1) as fh:
-            fh.seek(0)
-            assert fh.read() == data
             
 class TestBackendPool(AbstractBackend):
     def __init__(self, backend_pool, no_read=0, no_write=0, no_del=0):
@@ -552,3 +409,10 @@ def commit(cache, inode, block=None):
             continue
 
         cache.upload(el)
+
+if __name__ == '__main__':
+    t = cache_tests()
+    t.setUp()
+    t.test_expire()
+    t.tearDown()
+    

@@ -12,7 +12,7 @@ UNRELEASED, S3QL tip
 
   * Fixed a problem with S3QL crashing with "SSLEOFError" when an SSL
     connection is terminated unexpectedly.
-    
+
   * Increased deduplication performance. Previously, block checksums
     were accidentally computed without parallelism.
 

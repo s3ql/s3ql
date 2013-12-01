@@ -1127,7 +1127,8 @@ class Operations(llfuse.Operations):
         if not datasync:
             self.inodes.flush_id(fh)
 
-        self.cache.flush(fh)
+        for blockno in range(0, self.inodes[fh].size // self.max_obj_size + 1):
+            self.cache.flush(fh, blockno)
 
     def forget(self, forget_list):
         log.debug('forget(%s): start', forget_list)
@@ -1143,7 +1144,7 @@ class Operations(llfuse.Operations):
                 inode = self.inodes[id_]
                 if inode.refcount == 0:
                     log.debug('_forget(%s): removing %d from cache', forget_list, id_)
-                    self.cache.remove(id_, 0, int(math.ceil(inode.size / self.max_obj_size)))
+                    self.cache.remove(id_, 0, inode.size // self.max_obj_size + 1)
                     # Since the inode is not open, it's not possible that new blocks
                     # get created at this point and we can safely delete the inode
                     self.db.execute('UPDATE names SET refcount = refcount - 1 WHERE '
