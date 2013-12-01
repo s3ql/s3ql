@@ -671,6 +671,7 @@ class BlockCache(object):
                         log.debug('expire: %s is dirty, trying to flush', el)
                         break
 
+                log.debug('removing inode %d, block %d from cache', el.inode, el.blockno)
                 del self.entries[(el.inode, el.blockno)]
                 el.close()
                 el.unlink()
