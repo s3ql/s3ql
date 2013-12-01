@@ -554,8 +554,8 @@ class BlockCache(object):
         while el is None:
             # Don't allow changing objects while they're being uploaded
             if (inode, blockno) in self.in_transit_blocks:
-                log.debug('get(inode=%d, block=%d): inode/blockno in transit (%s), waiting',
-                          inode, blockno, self.in_transit_blocks)
+                log.debug('get(inode=%d, block=%d): inode/blockno in transit, waiting',
+                          inode, blockno)
                 self.wait()
                 continue
 
