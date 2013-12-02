@@ -26,8 +26,8 @@ UNRELEASED, S3QL tip
   * Fixed build under MacOS X. Thanks to john@nachtimwald.com for the
     patch!
 
-  * mount.s3ql now autodetects a sensible default for the
-    --max-cache-entries option.
+  * mount.s3ql now autodetects a sensible defaults for the
+    --max-cache-entries and --cachesize options.
     
 2013-10-19, S3QL 2.5
 

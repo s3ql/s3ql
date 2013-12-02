@@ -34,6 +34,7 @@ import sys
 import tempfile
 import threading
 import time
+import shutil
 import atexit
 
 log = logging.getLogger(__name__)
@@ -118,6 +119,16 @@ def main(args=None):
     if param['max_obj_size'] < options.min_obj_size:
         raise QuietError('Maximum object size must be bigger than minimum object size.')
 
+    # Handle --cachesize
+    rec_cachesize = options.max_cache_entries * param['max_obj_size'] / 2
+    avail_cache = shutil.disk_usage(os.path.dirname(cachepath))[2]
+    if options.cachesize is None:
+        options.cachesize = min(rec_cachesize, 0.8 * avail_cache)
+        log.info('Setting cache size to %d MB', options.cachesize / 1024**2)
+    elif options.cachesize < avail_cache:
+        log.warning('Warning! Requested cache size %d MB, but only %d MB available',
+                    options.cachesize / 1024**2, avail_cache / 1024**2)
+        
     if options.nfs:
         # NFS may try to look up '..', so we have to speed up this kind of query
         log.info('Creating NFS indices...')
@@ -494,10 +505,8 @@ def parse_args(args):
 
     parser.add_argument("mountpoint", metavar='<mountpoint>', type=os.path.abspath,
                         help='Where to mount the file system')
-    parser.add_argument("--cachesize", type=int, default=102400, metavar='<size>',
-                      help="Cache size in KiB (default: 102400 (100 MiB)). Should be at least 10 times "
-                      "the maximum object size of the filesystem, otherwise an object may be retrieved "
-                      "and written several times during a single write() or read() operation.")
+    parser.add_argument("--cachesize", type=int, default=None, metavar='<size>',
+                      help="Cache size in KiB (default: autodetect).")
     parser.add_argument("--max-cache-entries", type=int, default=None, metavar='<num>',
                       help="Maximum number of entries in cache (default: autodetect). "
                       'Each cache entry requires one file descriptor, so if you increase '
