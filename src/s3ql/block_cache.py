@@ -470,8 +470,8 @@ class BlockCache(object):
                 self.db.execute('INSERT OR REPLACE INTO inode_blocks (block_id, inode, blockno) '
                                 'VALUES(?,?,?)', (block_id, el.inode, el.blockno))
                 
-                self._lock_obj(obj_id)
                 with lock_released:
+                    self._lock_obj(obj_id)
                     self.to_upload.put((el, obj_id))
 
             # There is a block with the same hash
@@ -485,7 +485,7 @@ class BlockCache(object):
 
                 el.dirty = False
                 self.in_transit.remove(el)
-                self._unlock_entry(el.inode, el.blockno)
+                self._unlock_entry(el.inode, el.blockno, release_global=True)
                 
                 if old_block_id == block_id:
                     log.debug('upload(%s): unchanged, block_id=%d', el, block_id)
@@ -493,8 +493,9 @@ class BlockCache(object):
                 
         except:
             self.in_transit.discard(el)
-            self._unlock_entry(el.inode, el.blockno, noerror=True)
-            self._unlock_obj(obj_id, noerror=True)
+            with lock_released:
+                self._unlock_entry(el.inode, el.blockno, noerror=True)
+                self._unlock_obj(obj_id, noerror=True)
             raise
 
         # Check if we have to remove an old block
@@ -610,7 +611,7 @@ class BlockCache(object):
                 # thread has access to a cache entry at any time.
                 self.cache.size += el.size - oldsize
         finally:
-            self._unlock_entry(inode, blockno)
+            self._unlock_entry(inode, blockno, release_global=True)
             
         #log.debug('get(inode=%d, block=%d): end', inode, blockno)
 
@@ -720,7 +721,7 @@ class BlockCache(object):
 
                     self.cache.remove((el.inode, el.blockno))
                 finally:
-                    self._unlock_entry(el.inode, el.blockno)
+                    self._unlock_entry(el.inode, el.blockno, release_global=True)
 
             if sth_in_transit:
                 log.debug('expire: waiting for transfer threads..')
@@ -745,7 +746,7 @@ class BlockCache(object):
             end_no = start_no + 1
 
         for blockno in range(start_no, end_no):
-            self._lock_entry(inode, blockno)
+            self._lock_entry(inode, blockno, release_global=True)
             try:
                 if (inode, blockno) in self.cache:
                     log.debug('remove(inode=%d, blockno=%d): removing from cache',
@@ -764,7 +765,7 @@ class BlockCache(object):
                                 (inode, blockno))
 
             finally:
-                self._unlock_entry(inode, blockno)
+                self._unlock_entry(inode, blockno, release_global=True)
                 
             # Decrease block refcount
             self._deref_block(block_id)
