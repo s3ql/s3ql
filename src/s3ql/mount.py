@@ -21,7 +21,6 @@ from .exit_stack import ExitStack
 from threading import Thread
 import _thread
 import argparse
-import errno
 import faulthandler
 import llfuse
 import os
@@ -30,6 +29,7 @@ import subprocess
 import pickle
 import re
 import signal
+import resource
 import sys
 import tempfile
 import threading
@@ -82,16 +82,23 @@ def main(args=None):
     if options.threads is None:
         options.threads = determine_threads(options)
 
+    avail_fd = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
+    if avail_fd == resource.RLIM_INFINITY:
+        avail_fd = 4096
+    resource.setrlimit(resource.RLIMIT_NOFILE, (avail_fd, avail_fd))
+
+    # Subtract some fd's for random things we forgot, and a fixed number for
+    # each upload thread (because each thread is using at least one socket and
+    # at least one temporary file)
+    avail_fd -= 32 + 3 * options.threads
+    
     if options.max_cache_entries is None:
-        avail_fd = detect_avail_fds(4096) - 6 * options.threads
         if avail_fd <= 64:
             raise QuietError("Not enough available file descriptors.")
         log.info('Autodetected %d file descriptors available for cache entries',
                  avail_fd)
         options.max_cache_entries = avail_fd
     else:
-        avail_fd = (detect_avail_fds(options.max_cache_entries + 6 * options.threads)
-                    - 6 * options.threads)
         if options.max_cache_entries > avail_fd:
             log.warning("Up to %d cache entries requested, but detected only %d "
                         "available file descriptors.", options.max_cache_entries, avail_fd)
@@ -691,26 +698,6 @@ def setup_exchook():
     sys.excepthook = exchook
 
     return exc_info
-
-
-def detect_avail_fds(max_=4096):
-    '''Detect number of available file descriptors'''
-
-    files = []
-    try:
-        for i in range(max_):
-            try:
-                files.append(tempfile.TemporaryFile())
-            except OSError as exc:
-                if exc.errno != errno.EMFILE:
-                    raise
-                return len(files)
-        return max_
-    finally:
-        for f in files:
-            try:
-                f.close()
-            except: pass
 
 
 class CommitThread(Thread):
