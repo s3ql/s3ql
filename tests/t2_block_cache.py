@@ -19,6 +19,7 @@ from s3ql.block_cache import BlockCache, QuitSentinel
 from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
+from t4_fuse import AsyncFn
 import llfuse
 import os
 import shutil
@@ -270,6 +271,47 @@ class cache_tests(unittest.TestCase):
             fh.seek(0)
             self.assertEqual(fh.read(42), b'')
 
+    def test_expire_race(self):
+        # Create element
+        inode = self.inode
+        blockno = 1
+        data1 = self.random_data(int(0.4 * self.max_obj_size))
+        with self.cache.get(inode, 1) as fh:
+            fh.seek(0)
+            fh.write(data1)
+        self.cache.upload(fh)
+
+        # Make sure entry will be expired
+        self.cache.cache.max_entries = 0
+        def e_w_l():
+            with llfuse.lock:
+                self.cache.expire()
+        
+        # Lock it
+        self.cache._lock_entry(inode, blockno, release_global=True)
+
+        try:        
+            # Start expiration, will block on lock
+            t1 = AsyncFn(e_w_l)
+            t1.start()
+    
+            # Start second expiration, will block
+            t2 = AsyncFn(e_w_l)
+            t2.start()
+    
+            # Release lock
+            with llfuse.lock_released:
+                time.sleep(0.1)
+                self.cache._unlock_entry(inode, blockno)
+                t1.join_and_raise()
+                t2.join_and_raise()
+    
+            assert len(self.cache.cache) == 0
+        finally:
+                self.cache._unlock_entry(inode, blockno, release_global=True,
+                                         noerror=True)
+            
+        
     def test_remove_cache_db(self):
         inode = self.inode
         data1 = self.random_data(int(0.4 * self.max_obj_size))

@@ -718,7 +718,9 @@ class BlockCache(object):
                     if el.dirty:
                         log.debug('%s got dirty while waiting for lock', el)
                         continue
-
+                    if (el.inode, el.blockno) not in self.cache:
+                        log.debug('%s removed while waiting for lock', el)
+                        continue
                     self.cache.remove((el.inode, el.blockno))
                 finally:
                     self._unlock_entry(el.inode, el.blockno, release_global=True)
