@@ -311,7 +311,47 @@ class cache_tests(unittest.TestCase):
                 self.cache._unlock_entry(inode, blockno, release_global=True,
                                          noerror=True)
             
+
+    def test_parallel_expire(self):
+        # Create elements
+        inode = self.inode
+        for i in range(5):
+            data1 = self.random_data(int(0.4 * self.max_obj_size))
+            with self.cache.get(inode, i) as fh:
+                fh.write(data1)
+
+        # We want to expire just one element, but have
+        # several threads running expire() simultaneously
+        self.cache.cache.max_entries = 4
+        def e_w_l():
+            with llfuse.lock:
+                self.cache.expire()
         
+        # Lock first element so that we have time to start threads
+        self.cache._lock_entry(inode, 0, release_global=True)
+
+        try:        
+            # Start expiration, will block on lock
+            t1 = AsyncFn(e_w_l)
+            t1.start()
+    
+            # Start second expiration, will block
+            t2 = AsyncFn(e_w_l)
+            t2.start()
+    
+            # Release lock
+            with llfuse.lock_released:
+                time.sleep(0.1)
+                self.cache._unlock_entry(inode, 0)
+                t1.join_and_raise()
+                t2.join_and_raise()
+    
+            assert len(self.cache.cache) == 4
+        finally:
+                self.cache._unlock_entry(inode, 0, release_global=True,
+                                         noerror=True)
+            
+                
     def test_remove_cache_db(self):
         inode = self.inode
         data1 = self.random_data(int(0.4 * self.max_obj_size))
