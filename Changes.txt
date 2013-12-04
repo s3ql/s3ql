@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2013-12-03, S3QL 2.6
 
   * Fixed a problem with mount.s3ql crashing with `KeyError` in
     `collections/abc.py`.
