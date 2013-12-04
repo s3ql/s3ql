@@ -4,7 +4,7 @@ graft contrib
 graft tests
 graft util
 graft bin
-recursive-include src *.py *.c *.pyx
+recursive-include src *.py *.c *.pyx *.h
 include Changes.txt
 include INSTALL.txt
 include README.txt
