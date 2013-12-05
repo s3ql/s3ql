@@ -413,8 +413,6 @@ class BlockCache(object):
     def upload(self, el):
         '''Upload cache entry `el` asynchronously
         
-        Return (uncompressed) size of cache entry.
-        
         This method releases the global lock.
         '''
 
@@ -428,7 +426,11 @@ class BlockCache(object):
                 if not el.dirty:
                     log.debug('upload(%s): not dirty, returning', el)
                     self._unlock_entry(el.inode, el.blockno)
-                    return el.size
+                    return
+                if (el.inode, el.blockno) not in self.cache:
+                    log.debug('%s removed while waiting for lock', el)
+                    self._unlock_entry(el.inode, el.blockno)
+                    return
                 
                 self.in_transit.add(el)
                 sha = hashlib.sha256()
@@ -489,7 +491,7 @@ class BlockCache(object):
                 
                 if old_block_id == block_id:
                     log.debug('upload(%s): unchanged, block_id=%d', el, block_id)
-                    return el.size
+                    return
                 
         except:
             self.in_transit.discard(el)
@@ -501,11 +503,9 @@ class BlockCache(object):
         # Check if we have to remove an old block
         if not old_block_id:
             log.debug('upload(%s): no old block, returning', el)
-            return el.size
+            return
 
         self._deref_block(old_block_id)
-        
-        return el.size
 
     
     def _deref_block(self, block_id):

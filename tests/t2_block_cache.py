@@ -271,6 +271,20 @@ class cache_tests(unittest.TestCase):
             fh.seek(0)
             self.assertEqual(fh.read(42), b'')
 
+    def test_upload_race(self):
+        inode = self.inode
+        blockno = 1
+        data1 = self.random_data(int(0.4 * self.max_obj_size))
+        with self.cache.get(inode, 1) as fh:
+            fh.seek(0)
+            fh.write(data1)
+
+        # Remove it
+        self.cache.remove(inode, 1)
+        
+        # Try to upload it, may happen if CommitThread is interrupted
+        self.cache.upload(fh)
+        
     def test_expire_race(self):
         # Create element
         inode = self.inode
