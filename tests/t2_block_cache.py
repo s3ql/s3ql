@@ -275,12 +275,12 @@ class cache_tests(unittest.TestCase):
         inode = self.inode
         blockno = 1
         data1 = self.random_data(int(0.4 * self.max_obj_size))
-        with self.cache.get(inode, 1) as fh:
+        with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
             fh.write(data1)
 
         # Remove it
-        self.cache.remove(inode, 1)
+        self.cache.remove(inode, blockno)
         
         # Try to upload it, may happen if CommitThread is interrupted
         self.cache.upload(fh)
@@ -290,7 +290,7 @@ class cache_tests(unittest.TestCase):
         inode = self.inode
         blockno = 1
         data1 = self.random_data(int(0.4 * self.max_obj_size))
-        with self.cache.get(inode, 1) as fh:
+        with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
             fh.write(data1)
         self.cache.upload(fh)
