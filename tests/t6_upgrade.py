@@ -6,7 +6,7 @@ Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from t4_fuse import populate_dir, skip_without_rsync, BASEDIR, retry
+from common import populate_dir, skip_without_rsync, BASEDIR, retry
 from t1_backends import get_remote_test_info
 import shutil
 import subprocess

@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from t4_fuse import populate_dir, skip_without_rsync
+from common import populate_dir, skip_without_rsync, BASEDIR
 import os.path
 import shutil
 import subprocess
@@ -36,7 +36,7 @@ class cpTests(t4_fuse.fuse_tests):
                                    os.path.join(self.mnt_dir, 'orig') + '/'])
 
             # copy
-            subprocess.check_call([sys.executable, os.path.join(t4_fuse.BASEDIR, 'bin', 's3qlcp'),
+            subprocess.check_call([sys.executable, os.path.join(BASEDIR, 'bin', 's3qlcp'),
                                    '--quiet', os.path.join(self.mnt_dir, 'orig'),
                                    os.path.join(self.mnt_dir, 'copy')])
 

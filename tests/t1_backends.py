@@ -11,11 +11,10 @@ from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObjec
     BetterBackend, get_ssl_context, AuthenticationError, AuthorizationError,
     DanglingStorageURLError, MalformedObjectError, DecryptFilter, DecompressFilter)
 from s3ql.common import BUFSIZE
+from common import get_remote_test_info
 import s3ql.backends.common
 from argparse import Namespace
-import configparser
 import os
-import stat
 import tempfile
 import time
 import unittest
@@ -286,33 +285,6 @@ class BackendTestsMixin(object):
         self.retry(check2, AssertionError, NoSuchObject)
         self.retry(lambda: self.assertEqual(self.backend[key2], value),
                    NoSuchObject)
-
-def get_remote_test_info(name, skipTest):
-        authfile = os.path.expanduser('~/.s3ql/authinfo2')
-        if not os.path.exists(authfile):
-            skipTest('No authentication file found.')
-
-        mode = os.stat(authfile).st_mode
-        if mode & (stat.S_IRGRP | stat.S_IROTH):
-            skipTest("Authentication file has insecure permissions")
-
-        config = configparser.ConfigParser()
-        config.read(authfile)
-
-        try:
-            fs_name = config.get(name, 'test-fs')
-            backend_login = config.get(name, 'backend-login')
-            backend_password = config.get(name, 'backend-password')
-        except (configparser.NoOptionError, configparser.NoSectionError):
-            skipTest("Authentication file does not have %s section" % name)
-
-        # Append prefix to make sure that we're starting with an empty bucket
-        if fs_name[-1] != '/':
-            fs_name += '/'
-        fs_name += 's3ql_test_%d/' % time.time()
-
-        return (backend_login, backend_password, fs_name)
-
 
 class S3Tests(BackendTestsMixin, unittest.TestCase):
         

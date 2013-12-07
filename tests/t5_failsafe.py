@@ -11,7 +11,7 @@ import t4_fuse
 import s3ql.ctrl
 import pytest
 import errno
-from t1_backends import get_remote_test_info
+from common import get_remote_test_info
 from s3ql.backends import gs
 from argparse import Namespace
 from s3ql.common import BUFSIZE

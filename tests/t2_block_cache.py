@@ -19,7 +19,7 @@ from s3ql.block_cache import BlockCache, QuitSentinel
 from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
-from t4_fuse import AsyncFn
+from common import AsyncFn
 import llfuse
 import os
 import shutil

@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from s3ql.common import get_backend_cachedir
 from s3ql.database import Connection
-from t4_fuse import populate_dir, skip_without_rsync
+from common import populate_dir, skip_without_rsync
 import shutil
 import subprocess
 from subprocess import check_output, CalledProcessError
