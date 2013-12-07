@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''
 t1_retry.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
@@ -6,15 +7,22 @@ Copyright (c) Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from s3ql.backends.common import retry, retry_generator
+if __name__ == '__main__':
+    import pytest
+    import sys
+    sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
+from s3ql.backends.common import retry, retry_generator
+from common import catch_logmsg
+import logging
 
 class TemporaryProblem(Exception):
     pass
 
-class ThirdAttempt:
-    def __init__(self):
+class NthAttempt:
+    def __init__(self, succeed_on=3):
         self.count = 0
+        self.succeed_on = succeed_on
 
     @staticmethod
     def is_temp_failure(exc):
@@ -22,7 +30,7 @@ class ThirdAttempt:
 
     @retry
     def do_stuff(self):
-        if self.count == 3:
+        if self.count == self.succeed_on:
             return True
         self.count += 1
         raise TemporaryProblem()
@@ -43,13 +51,17 @@ class ThirdAttempt:
             yield i
             
 def test_retry():
-    inst = ThirdAttempt()
+    inst = NthAttempt(3)
     
     assert inst.do_stuff()
-    
 
 def test_retry_generator():
-    inst = ThirdAttempt()
+    inst = NthAttempt(3)
     assert list(inst.list_stuff(10)) == list(range(10))
-    
-    
+
+def test_logging():
+    inst = NthAttempt(6)
+    with catch_logmsg('^Encountered %s exception', 
+                      count=2, level=logging.WARNING):
+        inst.do_stuff()
+

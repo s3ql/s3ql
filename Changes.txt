@@ -2,7 +2,11 @@ UNRELEASED, S3QL tip
 
   * Fixed another race condition that could lead to mount.s3ql
     crashing with `ValueError: I/O operation on closed file`.
-  
+
+  * S3QL no longer generates warning messages for the first two times
+    that it has to resend a request to the storage backend. If there
+    is no success after the second try, messages are emitted as before. 
+
 2013-12-03, S3QL 2.6
 
   * Fixed a problem with mount.s3ql crashing with `KeyError` in

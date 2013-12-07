@@ -61,6 +61,7 @@ def retry(method):
         self = a[0]
         interval = 1 / 50
         waited = 0
+        retries = 0
         while True:
             try:
                 return method(*a, **kw)
@@ -74,10 +75,19 @@ def retry(method):
                             self.__class__.__name__, method.__name__, exc)
                     raise
 
-                log.info('Encountered %s exception (%s), retrying call to %s.%s...',
-                          type(exc).__name__, exc, self.__class__.__name__, method.__name__)
+                retries += 1
+                if retries <= 2:
+                    log_fn = log.debug
+                elif retries <= 4:
+                    log_fn = log.info
+                else:
+                    log_fn = log.warning
+                    
+                log_fn('Encountered %s exception (%s), retrying call to %s.%s for the %d-th time...',
+                       type(exc).__name__, exc, self.__class__.__name__, method.__name__, retries)
 
                 if hasattr(exc, 'retry_after') and exc.retry_after:
+                    log.debug('retry_after is %.2f seconds', exc.retry_after)
                     interval = exc.retry_after
                 
             time.sleep(interval)
