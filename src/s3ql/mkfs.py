@@ -135,6 +135,9 @@ def main(args=None):
 
         backend = BetterBackend(wrap_pw, ('lzma', 2), plain_backend)
         backend['s3ql_passphrase'] = data_pw
+        backend['s3ql_passphrase_bak1'] = data_pw
+        backend['s3ql_passphrase_bak2'] = data_pw
+        backend['s3ql_passphrase_bak3'] = data_pw
     else:
         data_pw = None
 

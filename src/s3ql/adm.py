@@ -183,8 +183,12 @@ def change_passphrase(backend):
 
     backend.passphrase = wrap_pw
     backend['s3ql_passphrase'] = data_pw
+    backend['s3ql_passphrase_bak1'] = data_pw
+    backend['s3ql_passphrase_bak2'] = data_pw
+    backend['s3ql_passphrase_bak3'] = data_pw
     backend.passphrase = data_pw
 
+    
 def clear(backend, cachepath):
     print('I am about to delete all data in %s.' % backend,
           'This includes any S3QL file systems as well as any other stored objects.',

@@ -7,6 +7,11 @@ UNRELEASED, S3QL tip
     that it has to resend a request to the storage backend. If there
     is no success after the second try, messages are emitted as before. 
 
+  * S3QL now stores multiple copies of the master encryption key to
+    allow recovery if the backend looses the object holding the
+    primary copy. To take advantage of this functionality for existing
+    file systems, change the file system passphrase with s3qladm.
+
 2013-12-03, S3QL 2.6
 
   * Fixed a problem with mount.s3ql crashing with `KeyError` in
