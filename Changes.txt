@@ -1,3 +1,8 @@
+UNRELEASED, S3QL tip
+
+  * Fixed another race condition that could lead to mount.s3ql
+    crashing with `ValueError: I/O operation on closed file`.
+  
 2013-12-03, S3QL 2.6
 
   * Fixed a problem with mount.s3ql crashing with `KeyError` in
