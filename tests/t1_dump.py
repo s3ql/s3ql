@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''
 t1_dump.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
@@ -5,6 +6,11 @@ Copyright (c) Nikolaus Rath <Nikolaus@rath.org>
 
 This program can be distributed under the terms of the GNU GPLv3.
 '''
+
+if __name__ == '__main__':
+    import pytest
+    import sys
+    sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 import unittest
 from s3ql import deltadump
