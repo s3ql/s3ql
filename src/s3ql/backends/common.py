@@ -1202,7 +1202,7 @@ class LegacyDecryptDecompressFilter(io.RawIOBase):
             elif not buf:
                 return b''
 
-            buf = self.decrypt(buf)
+            buf = self._decrypt(buf)
             if not self.decomp:
                 break
 
