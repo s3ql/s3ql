@@ -12,6 +12,10 @@ UNRELEASED, S3QL tip
     primary copy. To take advantage of this functionality for existing
     file systems, change the file system passphrase with s3qladm.
 
+  * Fixed problem with automatic cache size detection (mount.s3ql was
+    treating bytes as kilobytes). Thanks to GVormayr@gmail.com for the
+    patch!
+
 2013-12-03, S3QL 2.6
 
   * Fixed a problem with mount.s3ql crashing with `KeyError` in

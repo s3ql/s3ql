@@ -128,13 +128,13 @@ def main(args=None):
 
     # Handle --cachesize
     rec_cachesize = options.max_cache_entries * param['max_obj_size'] / 2
-    avail_cache = shutil.disk_usage(os.path.dirname(cachepath))[2]
+    avail_cache = shutil.disk_usage(os.path.dirname(cachepath))[2] / 1024
     if options.cachesize is None:
         options.cachesize = min(rec_cachesize, 0.8 * avail_cache)
-        log.info('Setting cache size to %d MB', options.cachesize / 1024**2)
-    elif options.cachesize < avail_cache:
+        log.info('Setting cache size to %d MB', options.cachesize / 1024)
+    elif options.cachesize > avail_cache:
         log.warning('Warning! Requested cache size %d MB, but only %d MB available',
-                    options.cachesize / 1024**2, avail_cache / 1024**2)
+                    options.cachesize / 1024, avail_cache / 1024)
         
     if options.nfs:
         # NFS may try to look up '..', so we have to speed up this kind of query
