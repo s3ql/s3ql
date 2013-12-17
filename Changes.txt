@@ -19,6 +19,9 @@ UNRELEASED, S3QL tip
   * Fixed "AttributeError in LegacyDecryptDecompressFilter" crash when
     reading objects written by old S3QL versions.
 
+  * Fixed a problem with umount.s3ql giving a strange error when
+    the mountpoint is still in use.
+
 2013-12-03, S3QL 2.6
 
   * Fixed a problem with mount.s3ql crashing with `KeyError` in

@@ -54,6 +54,7 @@ class UmountError(Exception):
     """
 
     message = 'internal error'
+    exitcode = 3
     
     def __init__(self, mountpoint):
         super().__init__()
@@ -64,9 +65,11 @@ class UmountError(Exception):
 
 class UmountSubError(UmountError):
     message = 'Unmount subprocess failed.'
+    exitcode = 2
     
 class MountInUseError(UmountError):
     message = 'In use.'
+    exitcode = 1
 
 def lazy_umount(mountpoint):
     '''Invoke fusermount -u -z for mountpoint'''
