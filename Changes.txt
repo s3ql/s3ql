@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2013-12-16, S3QL 2.7
 
   * Fixed another race condition that could lead to mount.s3ql
     crashing with `ValueError: I/O operation on closed file`.
