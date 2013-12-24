@@ -661,10 +661,10 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
         encr_alg = metadata['encryption']
         encrypted = (encr_alg != 'None')
 
-        if encrypted and not self.passphrase:
+        if encrypted and self.passphrase is None:
             raise ChecksumError('Encrypted object and no passphrase supplied')
 
-        elif not encrypted and self.passphrase:
+        elif not encrypted and self.passphrase is not None:
             raise ObjectNotEncrypted()
 
         # Pre 2.x buckets
@@ -747,7 +747,7 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
         meta_raw = dict()
 
-        if self.passphrase:
+        if self.passphrase is not None:
             meta_raw['encryption'] = 'AES_v2'
             nonce = struct.pack('<f', time.time()) + key.encode('utf-8')
             meta_raw['data'] = b64encode(encrypt(meta_buf, self.passphrase, nonce))
