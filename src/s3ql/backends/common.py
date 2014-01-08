@@ -245,7 +245,7 @@ def http_connection(hostname, port=None, ssl_context=None):
             proxy_port = 80
             
         proxy_host = hit.group(2)
-        log.info('Using proxy %s:%d', proxy_host, proxy_port)
+        log.debug('Using proxy %s:%d', proxy_host, proxy_port)
         
         if ssl_context:
             conn = http.client.HTTPSConnection(proxy_host, proxy_port,
