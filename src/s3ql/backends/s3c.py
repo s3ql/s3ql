@@ -12,6 +12,7 @@ from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, h
     AuthenticationError, DanglingStorageURLError, is_temp_network_error, retry_generator)
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
+from io import BytesIO
 from base64 import b64encode, b64decode
 from email.utils import parsedate_tz, mktime_tz
 from urllib.parse import urlsplit
@@ -384,8 +385,18 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                       '\n'.join('%s: %s' % x for x in resp.getheaders()),
                       resp.read(512))
             raise RuntimeError('Unexpected server response')
- 
-        tree = ElementTree.parse(resp).getroot()
+
+        # We don't stream the data into the parser because we want
+        # to be able to dump a copy if the parsing fails.
+        body = resp.read()
+        try:
+            tree = ElementTree.parse(BytesIO(body)).getroot()
+        except:
+            log.error('Unable to parse server response as XML:\n'
+                      '%d %s\n%s\n\n%s', resp.status, resp.reason,
+                      '\n'.join('%s: %s' % x for x in resp.getheaders()),
+                      body)
+            raise
 
         return tree
 
