@@ -115,7 +115,7 @@ class HTTPConnection:
     reset by calling the `close` method.
 
     All request and response headers are represented as strings, but must be
-    representable in latin1. Request and response body must be bytes.
+    encodable in latin1. Request and response body must be bytes.
 
 
     Avoiding Deadlocks
@@ -182,7 +182,7 @@ class HTTPConnection:
         for doc in documents:
             cofun = conn.send_request('GET', doc, via_cofun=True)
             for _ in cofun: # value of _ is irrelevant and undefined
-                # ..but interrupt is partial response data is available
+                # ..but interrupt if partial response data is available
                 read_response()
 
         # All requests send, now read rest of responses
@@ -194,7 +194,7 @@ class HTTPConnection:
     needed. In principle, the `write` method could return a cofunction as
     well. However, this typically does not make sense as `write` itself is
     already called repeatedly until all data has been written. Instead, `write`
-    therefore accepts *partial=True* argument, which causes it to write only as
+    therefore accepts a *partial=True* argument, which causes it to write only as
     much data as currently fits into the transmit buffer (the actual number of
     bytes written is returned). As long as a prior `select` indicates that the
     connection is ready for writing, calls to `write` (with ``partial=True``)
@@ -238,7 +238,7 @@ class HTTPConnection:
                     len_ = conn.write(buf, partial=True)
                     buf = buf[len_:]
 
-        # All requests send, now read rest of responses
+        # All requests sent, now read rest of responses
         while conn.response_pending():
             read_response()
 
@@ -294,7 +294,7 @@ class HTTPConnection:
     transmission of the request body.
 
     To use this mechanism with `httpio`, simply pass the *expect100* parameter
-    to `send_request` and call `read_response` twice: once before sending body
+    to `send_request`, and call `read_response` twice: once before sending body
     data, and a second time to read the final response::
 
         conn = HTTPConnection(hostname)
@@ -318,6 +318,7 @@ class HTTPConnection:
 
      :proxy:
           a tuple ``(hostname, port)`` of the proxy server to use or `None`.
+          Note that currently only CONNECT-style proxying is supported.
      :_pending_requests:
           a deque of ``(method, url, body_len)`` tuples corresponding to
           requests whose response has not yet been read completely. Requests
@@ -338,7 +339,8 @@ class HTTPConnection:
           Transfer encoding of the active response (if any).
      :_coroutine_active:
           True if there is an active coroutine (there can be only one, since
-          outgoing data from the different coroutines could get interleaved)
+          otherwise outgoing data from the different coroutines could get
+          interleaved)
     '''
 
     def __init__(self, hostname, port=None, ssl_context=None, proxy=None):
