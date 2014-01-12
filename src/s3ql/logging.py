@@ -95,9 +95,8 @@ def setup_logging(options):
     elif options.debug and (not hasattr(options, 'log') or not options.log):
         # When we have debugging enabled but no separate log target,
         # make stdout logging more detailed.
-        formatter = logging.Formatter('%(asctime)s.%(msecs)03d [pid=%(process)r, '
-                                      'thread=%(threadName)r, module=%(name)r, '
-                                      'fn=%(funcName)r, line=%(lineno)r]: %(message)s',
+        formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(process)s %(threadName)s '
+                                      '%(name)s.%(funcName)s: %(message)s',
                                       datefmt="%Y-%m-%d %H:%M:%S")
         stdout_handler.setFormatter(formatter)
         stdout_handler.setLevel(logging.NOTSET)
