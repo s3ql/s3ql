@@ -217,8 +217,12 @@ def is_temp_network_error(exc):
 def http_connection(hostname, port=None, ssl_context=None):
     '''Return http connection to *hostname*:*port*
     
-    This method honors the http_proxy and https_proxy environment variables. If
-    *port* is None, it defaults to 80 or 443, depending on *ssl_context*.
+    This method honors the http_proxy and https_proxy environment
+    variables. However, it uses CONNECT-style proxying for both http and https
+    connections, so proxied http connections may not work with all proxy
+    servers.
+
+    If *port* is None, it defaults to 80 or 443, depending on *ssl_context*.
     '''
     
     log.debug('Connecting to %s...', hostname)
@@ -229,11 +233,17 @@ def http_connection(hostname, port=None, ssl_context=None):
         else:
             port = 443
             
-    if 'https_proxy' in os.environ:
-        proxy = os.environ['https_proxy']
+    if ssl_context is None:
+        proxy_env = 'http_proxy'
+    else:
+        proxy_env = 'https_proxy'
+            
+    if proxy_env in os.environ:
+        proxy = os.environ[proxy_env]
         hit = re.match(r'^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?/?$', proxy)
         if not hit:
-            log.warning('Unable to parse proxy setting %s', proxy)
+            raise QuietError('Unable to parse proxy setting %s=%r' %
+                             (proxy_env, proxy))
         
         if hit.group(1) == 'https://':
             log.warning('HTTPS connection to proxy is probably pointless and not supported, '
@@ -245,7 +255,7 @@ def http_connection(hostname, port=None, ssl_context=None):
             proxy_port = 80
             
         proxy_host = hit.group(2)
-        log.debug('Using proxy %s:%d', proxy_host, proxy_port)
+        log.info('Using CONNECT proxy %s:%d', proxy_host, proxy_port)
         
         if ssl_context:
             conn = http.client.HTTPSConnection(proxy_host, proxy_port,

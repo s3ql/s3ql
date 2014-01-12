@@ -12,8 +12,14 @@ backend together with some backend-specific information and uniquely
 identifies an S3QL file system. The form of the storage url depends on
 the backend and is described for every backend below.
 
-All storage backends respect the ``http_proxy`` and ``https_proxy``
-environment variables.
+All storage backends respect the :envvar:`!http_proxy` (for plain HTTP
+connections) and :envvar:`!https_proxy` (for SSL connections)
+environment variables. However, S3QL currently supports only
+CONNECT-style proxying. Therefore, there may be compatibility issues
+with some proxy servers when using plain HTTP (i.e., when using the
+:cmdopt:`--no-ssl` option). A workaround for this case is to either
+use SSL connections (for which proxying is fully supported) or to use
+a direct connection without proxy.
 
 Google Storage
 ==============

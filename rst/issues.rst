@@ -89,3 +89,9 @@ Known Issues
   using Python's ElementTree XML parser, which is `vulnerable to
   entity expansion attacks
   <http://docs.python.org/3/library/xml.html#xml-vulnerabilities>`_.
+
+* S3QL currently supports only CONNECT-style proxying. Therefore,
+  there may be compatibility issues with some proxy servers when using
+  plain HTTP (i.e., when using the :cmdopt:`--no-ssl` option). A
+  workaround for this case is to either use SSL connections (for which
+  proxying is fully supported) or to use a direct connection.
