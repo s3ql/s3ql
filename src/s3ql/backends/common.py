@@ -260,7 +260,43 @@ def http_connection(hostname, port=None, ssl_context=None):
     else:
         return http.client.HTTPConnection(hostname, port)
 
+
+def fix_python_bug_7776():    
+    '''Install workaround for http://bugs.python.org/issue7776'''
+
+    if sys.version_info > (3,4):
+        return
+
+    from http.client import HTTPConnection, HTTPSConnection
     
+    init_old = HTTPConnection.__init__ 
+    def __init__(self, *a, **kw):
+        init_old(self, *a, **kw)
+        self.host_real = self.host
+        self.port_real = self.port
+    HTTPConnection.__init__ = __init__
+
+    connect_old = HTTPConnection.connect
+    def connect(self, *a, **kw):
+        self.host = self.host_real
+        self.port = self.port_real
+        return connect_old(self, *a, **kw)
+    HTTPConnection.connect = connect
+
+    connect_old_https = HTTPSConnection.connect
+    def connect(self, *a, **kw):
+        self.host = self.host_real
+        self.port = self.port_real
+        return connect_old_https(self, *a, **kw)
+    HTTPSConnection.connect = connect
+    
+    set_tunnel_old = HTTPConnection.set_tunnel
+    def set_tunnel(self, *a, **kw):
+        set_tunnel_old(self, *a, **kw)
+        self._set_hostport(self._tunnel_host, self._tunnel_port)
+    HTTPConnection.set_tunnel = set_tunnel
+
+
 def get_ssl_context(options):
     '''Construct SSLContext object from *options*
 
@@ -1533,3 +1569,5 @@ def get_backend_factory(options, plain=False):
     return lambda: BetterBackend(data_pw, compress,
                                  backend_class(options.storage_url, backend_login,
                                                backend_passphrase, ssl_context))
+
+fix_python_bug_7776()
