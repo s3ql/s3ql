@@ -82,21 +82,21 @@ Features
 
 
 
-Development Status
-==================
+Which Version Should I Download?
+================================
 
-After two years of beta-testing by about 93 users did not reveal any
-data-critical bugs, S3QL was declared **stable** with the release of
-version 1.0 on May 13th, 2011. Note that this does not mean that S3QL
-is bug-free. S3QL still has several known, and probably many more
-unknown bugs. However, there is a high probability that these bugs
-will, although being inconvenient, not endanger any stored data.
+Short answer: if your system supports Python 3.3 or newer, download
+the most recent *2.x* version.
 
-Please report any problems on the `mailing list`_ or the `issue
-tracker`_.
+Long answer: there are two supported branches of S3QL. Both branches
+are suitable for production use. The *maint-1.x* branch (version
+numbers *1.x*) is no longer actively developed and receives only
+selected high-impact bugfixes. It is provided for systems without
+Python 3 support. For systems with Python 3.3 or newer, it is
+recommended run the *default* S3QL branch (with version numbers
+*2.x*). This branch is actively developed and has a number of new
+features that are not available in the *1.x* versions.
 
-.. _`mailing list`: http://groups.google.com/group/s3ql
-.. _`issue tracker`: https://bitbucket.org/nikratio/s3ql/issues
 
 Typical Usage
 =============

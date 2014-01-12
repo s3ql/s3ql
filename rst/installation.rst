@@ -19,6 +19,16 @@ installation instructions
 <http://code.google.com/p/s3ql/w/list?q=label:Installation>`_ on the wiki.
 
 
+Note that there are two branches of S3QL. The *maint-1.x* branch
+(version numbers *1.x*) is no longer actively developed and receives
+only selected high-impact bugfixes. It is provided for systems without
+Python 3 support. For systems with Python 3.3 or newer, it is
+recommended run the *default* S3QL branch (with version numbers
+*2.x*). This branch is actively developed and has a number of new
+features that are not available in the *1.x* versions.
+
+The following instructions are for S3QL |version|.
+
 Dependencies
 ============
 
