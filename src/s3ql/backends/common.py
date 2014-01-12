@@ -6,7 +6,7 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging # Ensure use of custom logger class
+from ..logging import logging, LOG_ONCE # Ensure use of custom logger class
 from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL, ChecksumError
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
@@ -247,7 +247,7 @@ def http_connection(hostname, port=None, ssl_context=None):
         
         if hit.group(1) == 'https://':
             log.warning('HTTPS connection to proxy is probably pointless and not supported, '
-                        'will use standard HTTP')
+                        'will use standard HTTP', extra=LOG_ONCE)
         
         if hit.group(3):
             proxy_port = int(hit.group(3)[1:])
@@ -255,7 +255,8 @@ def http_connection(hostname, port=None, ssl_context=None):
             proxy_port = 80
             
         proxy_host = hit.group(2)
-        log.info('Using CONNECT proxy %s:%d', proxy_host, proxy_port)
+        log.info('Using CONNECT proxy %s:%d', proxy_host, proxy_port,
+                 extra=LOG_ONCE)
         
         if ssl_context:
             conn = http.client.HTTPSConnection(proxy_host, proxy_port,

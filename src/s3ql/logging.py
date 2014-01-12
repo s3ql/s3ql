@@ -184,15 +184,26 @@ class Logger(logging.getLoggerClass()):
 
     * Loggers can automatically raise exceptions when a log message exceeds
       a specified severity. This is useful when running unit tests.
+
+    * Log messages that are emitted with an *log_once* attribute in the
+      *extra* parameter are only emitted once per logger.
     '''
 
     def __init__(self, name):
         super().__init__(name)
+        self.log_cache = set()
 
     def handle(self, record):
         if (record.levelno >= EXCEPTION_SEVERITY
             and not hasattr(record, 'force_log')):
             raise LoggingError(record)
+
+        if hasattr(record, 'log_once') and record.log_once:
+            id_ = hash((record.name, record.levelno, record.msg,
+                        record.args, record.exc_info))
+            if id_ in self.log_cache:
+                return
+            self.log_cache.add(id_)
 
         # Do not call superclass method directly so that we can
         # re-use this method when monkeypatching the root logger.
@@ -201,6 +212,10 @@ class Logger(logging.getLoggerClass()):
     def _handle_real(self, record):
         return super().handle(record)
 
+
+# Convenience object for use in logging calls, e.g.
+# log.warning('This will be printed only once', extra=LOG_ONCE)
+LOG_ONCE = { 'log_once': True }
 
 # Ensure that no handlers have been created yet
 loggers = logging.Logger.manager.loggerDict
