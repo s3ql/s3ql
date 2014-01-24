@@ -1,6 +1,9 @@
 UNRELEASED, S3QL 2.8
 
   * Fixed various problems with using a proxy server.
+
+  * Sending SIGUSR1 to mount.s3ql now generates a stacktrace
+    (debugging feature).
   
 2013-12-16, S3QL 2.7
 
