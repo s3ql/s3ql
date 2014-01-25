@@ -14,7 +14,7 @@ if __name__ == '__main__':
 
 from os.path import basename
 from s3ql.common import CTRL_NAME, PICKLE_PROTOCOL, path2bytes
-from common import retry, BASEDIR, skip_if_no_fusermount
+from common import retry, skip_if_no_fusermount
 import pickle
 import filecmp
 import llfuse
@@ -23,13 +23,15 @@ import shutil
 import platform
 import stat
 import subprocess
-import sys
 import tempfile
 import unittest
+import pytest
 
 # For debugging
 USE_VALGRIND = False
 
+
+@pytest.mark.usefixtures('s3ql_cmd_argv')
 class fuse_tests(unittest.TestCase):
 
     def setUp(self):
@@ -54,10 +56,10 @@ class fuse_tests(unittest.TestCase):
         self.name_cnt = 0
 
     def mkfs(self, max_obj_size=500):
-        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
-                                 '-L', 'test fs', '--max-obj-size', str(max_obj_size),
-                                 '--fatal-warnings', '--cachedir', self.cache_dir, '--quiet',
-                                 '--authfile', '/dev/null', self.storage_url ],
+        proc = subprocess.Popen(self.s3ql_cmd_argv('mkfs.s3ql') + 
+                                [ '-L', 'test fs', '--max-obj-size', str(max_obj_size),
+                                  '--fatal-warnings', '--cachedir', self.cache_dir, '--quiet',
+                                  '--authfile', '/dev/null', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
 
         if self.backend_login is not None:
@@ -70,10 +72,10 @@ class fuse_tests(unittest.TestCase):
         self.assertEqual(proc.wait(), 0)
 
     def mount(self, fatal_warnings=True):
-        cmd = [sys.executable, os.path.join(BASEDIR, 'bin', 'mount.s3ql'),
-               "--fg", '--cachedir', self.cache_dir, '--log', 'none',
-               '--compress', 'zlib', '--quiet', self.storage_url, self.mnt_dir,
-               '--authfile', '/dev/null' ]
+        cmd = (self.s3ql_cmd_argv('mount.s3ql') +
+               ["--fg", '--cachedir', self.cache_dir, '--log', 'none',
+                '--compress', 'zlib', '--quiet', self.storage_url, self.mnt_dir,
+                '--authfile', '/dev/null' ])
         if fatal_warnings:
             cmd.append('--fatal-warnings')
         self.mount_process = subprocess.Popen(cmd, stdin=subprocess.PIPE,
@@ -94,8 +96,8 @@ class fuse_tests(unittest.TestCase):
             retry(5, lambda: subprocess.call(['fuser', '-m', self.mnt_dir],
                                              stdout=devnull, stderr=devnull) == 1)
 
-        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'umount.s3ql'),
-                                 '--quiet', self.mnt_dir])
+        proc = subprocess.Popen(self.s3ql_cmd_argv('umount.s3ql') +
+                                ['--quiet', self.mnt_dir])
         retry(90, lambda : proc.poll() is not None)
         self.assertEqual(proc.wait(), 0)
 
@@ -119,10 +121,10 @@ class fuse_tests(unittest.TestCase):
                   file=authinfo_fh, sep='\n')
             authinfo_fh.flush()
 
-            proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'fsck.s3ql'),
-                                     '--force', '--quiet', '--log', 'none', '--cachedir',
-                                     self.cache_dir, '--fatal-warnings', '--authfile',
-                                     authinfo_fh.name, self.storage_url ],
+            proc = subprocess.Popen(self.s3ql_cmd_argv('fsck.s3ql') + 
+                                    [ '--force', '--quiet', '--log', 'none', '--cachedir',
+                                      self.cache_dir, '--fatal-warnings', '--authfile',
+                                      authinfo_fh.name, self.storage_url ],
                                     stdin=subprocess.PIPE, universal_newlines=True)
             proc.stdin.close()
             self.assertEqual(proc.wait(), 0)
@@ -321,8 +323,8 @@ class fuse_tests(unittest.TestCase):
         fstat = os.stat(filename)
         size = fstat.st_size
 
-        subprocess.check_call([sys.executable, os.path.join(BASEDIR, 'bin', 's3qlctrl'),
-                               '--quiet', 'flushcache', self.mnt_dir ])
+        subprocess.check_call(self.s3ql_cmd_argv('s3qlctrl') + 
+                              [ '--quiet', 'flushcache', self.mnt_dir ])
 
         fd = os.open(filename, os.O_RDWR)
 

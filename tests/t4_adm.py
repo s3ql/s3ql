@@ -15,18 +15,13 @@ if __name__ == '__main__':
 from s3ql.backends import local
 from s3ql.backends.common import BetterBackend
 import shutil
-import sys
 import tempfile
 import unittest
 import subprocess
-import os.path
+import pytest
 
-if __name__ == '__main__':
-    mypath = sys.argv[0]
-else:
-    mypath = __file__
-BASEDIR = os.path.abspath(os.path.join(os.path.dirname(mypath), '..'))
 
+@pytest.mark.usefixtures('s3ql_cmd_argv')
 class AdmTests(unittest.TestCase):
 
     def setUp(self):
@@ -41,8 +36,8 @@ class AdmTests(unittest.TestCase):
         shutil.rmtree(self.backend_dir)
 
     def mkfs(self):
-        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'mkfs.s3ql'),
-                                 '-L', 'test fs', '--max-obj-size', '500', '--fatal-warnings',
+        proc = subprocess.Popen(self.s3ql_cmd_argv('mkfs.s3ql') + 
+                                ['-L', 'test fs', '--max-obj-size', '500', '--fatal-warnings',
                                  '--authfile', '/dev/null', '--cachedir', self.cache_dir,
                                  '--quiet', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
@@ -58,9 +53,9 @@ class AdmTests(unittest.TestCase):
 
         passphrase_new = 'sd982jhd'
 
-        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 's3qladm'),
-                                 '--quiet', '--fatal-warnings', '--log', 'none', '--authfile',
-                                 '/dev/null', 'passphrase', self.storage_url ],
+        proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') + 
+                                [ '--quiet', '--fatal-warnings', '--log', 'none', '--authfile',
+                                  '/dev/null', 'passphrase', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
 
         print(self.passphrase, file=proc.stdin)
@@ -90,9 +85,9 @@ class AdmTests(unittest.TestCase):
                   file=fh, sep='\n')
             fh.flush()
 
-            proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 'fsck.s3ql'),
-                                     '--quiet', '--fatal-warnings', '--authfile', fh.name,
-                                     '--cachedir', self.cache_dir, '--log', 'none', self.storage_url ],
+            proc = subprocess.Popen(self.s3ql_cmd_argv('fsck.s3ql') + 
+                                    [ '--quiet', '--fatal-warnings', '--authfile', fh.name,
+                                      '--cachedir', self.cache_dir, '--log', 'none', self.storage_url ],
                                     stdin=subprocess.PIPE, universal_newlines=True)
 
             proc.stdin.close()

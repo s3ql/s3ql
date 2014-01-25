@@ -12,15 +12,16 @@ if __name__ == '__main__':
     import sys
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from common import populate_dir, skip_without_rsync, BASEDIR, get_remote_test_info
+from common import populate_dir, skip_without_rsync, get_remote_test_info
 import shutil
 import subprocess
 from subprocess import check_output, CalledProcessError
 import t4_fuse
 import tempfile
-import sys
-import os
+import pytest
 
+
+@pytest.mark.usefixtures('s3ql_cmd_argv')
 class FullTest(t4_fuse.fuse_tests):
 
     def populate_dir(self, path):
@@ -81,9 +82,9 @@ class RemoteTest:
     def tearDown(self):
         super().tearDown()
     
-        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 's3qladm'),
-                                 '--quiet', '--authfile', '/dev/null', '--fatal-warnings',
-                                 'clear', self.storage_url ],
+        proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') + 
+                                [ '--quiet', '--authfile', '/dev/null', '--fatal-warnings',
+                                  'clear', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
         if self.backend_login is not None:
             print(self.backend_login, file=proc.stdin)

@@ -361,8 +361,3 @@ def get_remote_test_info(name, skipTest):
         return (backend_login, backend_password, fs_name)
 
         
-if __name__ == '__main__':
-    mypath = sys.argv[0]
-else:
-    mypath = __file__
-BASEDIR = os.path.abspath(os.path.join(os.path.dirname(mypath), '..'))

@@ -12,7 +12,7 @@ if __name__ == '__main__':
     import sys
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from common import populate_dir, skip_without_rsync, BASEDIR, retry
+from common import populate_dir, skip_without_rsync, retry
 from t1_backends import get_remote_test_info
 import shutil
 import subprocess
@@ -21,13 +21,16 @@ import t4_fuse
 import tempfile
 import os
 import unittest
-import sys
+import pytest
 
+@pytest.mark.usefixtures('s3ql_cmd_argv')
 class UpgradeTest(t4_fuse.fuse_tests):
 
     def setUp(self):
         skip_without_rsync()
-        basedir_old = os.path.join(BASEDIR, 's3ql.old')
+
+        basedir_old = os.path.abspath(os.path.join(os.path.dirname(__file__),
+                                                   '..', 's3ql.old'))
         if not os.path.exists(os.path.join(basedir_old, 'bin', 'mkfs.s3ql')):
             raise unittest.SkipTest('no previous S3QL version found')
 
@@ -87,9 +90,9 @@ class UpgradeTest(t4_fuse.fuse_tests):
         self.assertFalse(os.path.ismount(self.mnt_dir))
 
     def upgrade(self):
-        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 's3qladm'),
-                                 '--fatal-warnings', '--cachedir', self.cache_dir, '--authfile',
-                                 '/dev/null', '--quiet', 'upgrade', self.storage_url ],
+        proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') + 
+                                [ '--fatal-warnings', '--cachedir', self.cache_dir, '--authfile',
+                                  '/dev/null', '--quiet', 'upgrade', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
 
         if self.backend_login is not None:
@@ -170,9 +173,9 @@ class RemoteUpgradeTest:
     def tearDown(self):
         super().tearDown()
         
-        proc = subprocess.Popen([sys.executable, os.path.join(BASEDIR, 'bin', 's3qladm'),
-                                 '--quiet', '--authfile', '/dev/null', '--fatal-warnings',
-                                 'clear', self.storage_url ],
+        proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') +
+                                [ '--quiet', '--authfile', '/dev/null', '--fatal-warnings',
+                                  'clear', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
         if self.backend_login is not None:
             print(self.backend_login, file=proc.stdin)

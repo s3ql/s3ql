@@ -4,7 +4,11 @@ UNRELEASED, S3QL 2.8
 
   * Sending SIGUSR1 to mount.s3ql now generates a stacktrace
     (debugging feature).
-  
+
+  * When passing --installed to the test runner, S3QL commands
+    are now loaded from $PATH instead of the packages bin/
+    directory.
+
 2013-12-16, S3QL 2.7
 
   * Fixed another race condition that could lead to mount.s3ql

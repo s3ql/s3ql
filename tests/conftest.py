@@ -31,6 +31,18 @@ def check_test_output(request, capfd):
         
     request.addfinalizer(raise_on_exception_in_out)
 
+
+@pytest.fixture(scope="class")
+def s3ql_cmd_argv(request):
+    '''Provide argument list to execute s3ql commands in tests'''
+
+    if request.config.getoption('installed'):
+        request.cls.s3ql_cmd_argv = lambda self, cmd: [ cmd ]
+    else:
+        basedir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        request.cls.s3ql_cmd_argv = lambda self, cmd: [ sys.executable,
+                                                        os.path.join(basedir, 'bin', cmd) ]
+
 def pytest_addoption(parser):
     group = parser.getgroup("terminal reporting")
     group._addoption("--logdebug", action="append", metavar='<module>',

@@ -12,15 +12,17 @@ if __name__ == '__main__':
     import sys
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from common import populate_dir, skip_without_rsync, BASEDIR
+from common import populate_dir, skip_without_rsync
 import os.path
 import shutil
 import subprocess
 from subprocess import check_output, CalledProcessError
 import t4_fuse
-import sys
 import tempfile
+import pytest
 
+
+@pytest.mark.usefixtures('s3ql_cmd_argv')
 class cpTests(t4_fuse.fuse_tests):
 
     def runTest(self):
@@ -42,9 +44,9 @@ class cpTests(t4_fuse.fuse_tests):
                                    os.path.join(self.mnt_dir, 'orig') + '/'])
 
             # copy
-            subprocess.check_call([sys.executable, os.path.join(BASEDIR, 'bin', 's3qlcp'),
-                                   '--quiet', os.path.join(self.mnt_dir, 'orig'),
-                                   os.path.join(self.mnt_dir, 'copy')])
+            subprocess.check_call(self.s3ql_cmd_argv('s3qlcp') + 
+                                  [ '--quiet', os.path.join(self.mnt_dir, 'orig'),
+                                    os.path.join(self.mnt_dir, 'copy')])
 
             # compare
             try:
