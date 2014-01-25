@@ -96,7 +96,7 @@ class fs_api_tests(unittest.TestCase):
         self.name_cnt = 0
 
     def tearDown(self):
-        self.server.inodes.flush()
+        self.server.inodes.destroy()
         llfuse.lock.release()
         self.block_cache.destroy()
         shutil.rmtree(self.cachedir)
