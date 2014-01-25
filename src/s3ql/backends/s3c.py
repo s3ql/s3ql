@@ -328,6 +328,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 if o.hostname != self.hostname or o.port != self.port:
                     self.hostname = o.hostname
                     self.port = o.port
+                    self.conn.close()
                     self.conn = self._get_conn()
                 else:
                     raise RuntimeError('Redirect to different path on same host')
@@ -346,6 +347,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'))
 
                 self.hostname = new_url
+                self.conn.close()
                 self.conn = self._get_conn()
                 
             log.info('_do_request(): redirected to %s', new_url)

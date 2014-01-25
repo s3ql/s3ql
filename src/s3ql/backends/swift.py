@@ -232,6 +232,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # Expired auth token
         if resp.status == 401:
             log.info('OpenStack auth token seems to have expired, requesting new one.')
+            self.conn.close()
+            # Force constructing a new connection with a new token, otherwise
+            # the connection will be reestablished with the same token.
             self.conn = None
             raise AuthenticationExpired(resp.reason)
         
