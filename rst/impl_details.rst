@@ -16,20 +16,21 @@ Like most unix filesystems, S3QL has a concept of inodes.
 
 The contents of directory inodes (aka the names and inodes of the
 files and sub directories contained in a directory) are stored
-directly in a [http://www.sqlite.org SQLite] database. This database
-is stored in a special S3 object that is downloaded when the file
+directly in an SQLite_ database. This database
+is stored in a special storage object that is downloaded when the file
 system is mounted and uploaded periodically in the background and when
 the file system is unmounted. This has two implications:
 
-#. The entire file system tree can be read from the database. Fetching
-   or storing S3 objects is only required to access the contents of
-   files (or, more precisely, inodes). This makes most file system
-   operations very fast because no data has to be send over the
-   network.
+#. The entire file system tree can be read from the
+   database. Fetching/storing storage objects from/in the storage
+   backend is only required to access the contents of files (or, more
+   precisely, inodes). This makes most file system operations very
+   fast because no data has to be send over the network.
 
-#. An S3QL filesystem can only be mounted at one position at a time,
-   otherwise changes made in one mountpoint will invariably be
-   overwritten when the second mount point is unmounted.
+#. An S3QL filesystem can only be mounted on one computer at a time,
+   using a single :command:`mount.s3ql` process. Otherwise changes made in
+   one mountpoint will invariably be overwritten when the second mount
+   point is unmounted.
  
 Sockets, FIFOs and character devices do not need any additional
 storage, all information about them is contained in the database.
@@ -46,7 +47,7 @@ blocks and from blocks to objects is stored in the database.
 While the file system is mounted, blocks are cached locally.
 
 Blocks can also be compressed and encrypted before they are stored in
-S3.
+the storage backend.
 
 If some files have blocks with identical contents, the blocks will be
 stored in the same backend object (i.e., the data is only stored
@@ -56,10 +57,9 @@ Data De-Duplication
 ===================
 
 Instead of uploading every block, S3QL first computes a checksum (a
-SHA256 hash, for those who are interested) to check if an identical
-blocks has already been stored in an backend object. If that is the
-case, the new block will be linked to the existing object instead of
-being uploaded.
+SHA256 hash) to check if an identical blocks has already been stored
+in an backend object. If that is the case, the new block will be
+linked to the existing object instead of being uploaded.
 
 This procedure is invisible for the user and the contents of the block
 can still be changed. If several blocks share a backend object and one
@@ -74,19 +74,20 @@ When an application tries to read or write from a file, S3QL
 determines the block that contains the required part of the file and
 retrieves it from the backend or creates it if it does not yet exist.
 The block is then held in the cache directory. It is committed to S3
-when it has not been accessed for more than 10 seconds. Blocks are
+when it has not been accessed for more than a few seconds. Blocks are
 removed from the cache only when the maximum cache size is reached.
 
-When the file system is unmounted, all modified blocks are committed
-to the backend and the cache is cleaned.
+When the file system is unmounted, all modified blocks are written to
+the backend and the cache is cleaned.
 
 Eventual Consistency Handling
 =============================
 
-S3QL has to take into account that changes in objects do not propagate
-immediately in all backends. For example, when an Amazon S3 object is
-uploaded and immediately downloaded again, the downloaded data might
-not yet reflect the changes done in the upload (see also
+S3QL has to take into account that with some storage providers,
+changes in objects do not propagate immediately. For example, when an
+Amazon S3 object is uploaded and immediately downloaded again, the
+downloaded data might not yet reflect the changes done in the upload
+(see also
 http://developer.amazonwebservices.com/connect/message.jspa?messageID=38538)
 
 For the data blocks this is not a problem because a data blocks always
@@ -108,28 +109,30 @@ marker object updated.
 Encryption
 ==========
 
-When the file system is created, `mkfs.s3ql` generates a 256 bit
-master key by reading from `/dev/random`. The master key is encrypted
-with the passphrase that is entered by the user, and then stored with
-the rest of the file system data. Since the passphrase is only used to
-access the master key (which is used to encrypt the actual file system
-data), the passphrase can easily be changed.
+When the file system is created, :command:`mkfs.s3ql` generates a 256 bit
+master key by reading from :file:`/dev/random`. The master key is
+encrypted with the passphrase that is entered by the user, and then
+stored with the rest of the file system data. Since the passphrase is
+only used to access the master key (which is used to encrypt the
+actual file system data), the passphrase can easily be changed.
 
 Data is encrypted with a new session key for each object and each
 upload. The session key is generated by appending a nonce to the
 master key and then calculating the SHA256 hash. The nonce is
 generated by concatenating the object id and the current UTC time as a
-32 bit float. The precision of the time is given by the
-[http://docs.python.org/library/time.html#time.time Python `time()`
-function] and usually at least 1 millisecond. The SHA256
-implementation is included in the Python standard library.
+32 bit float. The precision of the time is given by the Python `time()
+<http://docs.python.org/library/time.html#time.time>`_ function and
+usually at least 1 millisecond. The SHA256 implementation is included
+in the Python standard library.
 
 Once the session key has been calculated, a SHA256 HMAC is calculated
 over the data that is to be uploaded. Afterwards, the data is
-compressed with the LZMA, [http://en.wikipedia.org/wiki/Bz2 Bz2
-algorithm] or LZ and the HMAC inserted at the beginning. Both HMAC and
-compressed data are then encrypted using 256 bit AES in CTR mode. The
-AES-CTR implementation is provided by the [http://cryptopp.com/
-Crypto++] library. Finally, the nonce is inserted in front of the
-encrypted data and HMAC, and the packet is send to the backend as a
-new S3 object.
+compressed (unless :cmdopt:`--compress none` was passed to
+:command:`mount.s3ql`) and the HMAC inserted at the beginning. Both HMAC
+and compressed data are then encrypted using 256 bit AES in CTR
+mode using PyCrypto_.  Finally, the nonce is
+inserted in front of the encrypted data and HMAC, and the packet is
+send to the backend as a new S3 object.
+
+.. _PyCrypto: http://www.pycrypto.org/
+.. _SQLite: http://www.sqlite.org/
