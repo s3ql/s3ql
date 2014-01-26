@@ -9,6 +9,10 @@ UNRELEASED, S3QL 2.8
     are now loaded from $PATH instead of the packages bin/
     directory.
 
+  * The runtest.py script now comes with the correct shebang
+    (i.e., it can now be called as "./runtests.py" instead of
+    "python3 runtests.py").
+
 2013-12-16, S3QL 2.7
 
   * Fixed another race condition that could lead to mount.s3ql

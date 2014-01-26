@@ -24,6 +24,7 @@ import os
 import subprocess
 import logging.handlers
 import warnings
+import shutil
 from glob import glob
 import faulthandler
 faulthandler.enable()
@@ -262,8 +263,18 @@ class make_testscript(setuptools.Command):
     def run(self):
         import pytest
         pytest.main(['--genscript', 'runtests.py'])
-        os.chmod('runtests.py', 0o755)
 
+        # Fixup shebang
+        with open('runtests.py.tmp', 'wb') as ofh, \
+                open('runtests.py', 'rb') as ifh:
+            ofh.write(b'#!/usr/bin/env python3\n')
+            ifh.readline()
+            shutil.copyfileobj(ifh, ofh)
+        os.rename('runtests.py.tmp', 'runtests.py')
+
+        # Make executable
+        os.chmod('runtests.py', 0o755)
+        
 def fix_docutils():
     '''Work around https://bitbucket.org/birkenfeld/sphinx/issue/1154/'''
     
