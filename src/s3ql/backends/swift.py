@@ -28,8 +28,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     
     The backend guarantees get after create consistency, i.e. a newly created
     object will be immediately retrievable. 
+
+    If the *expect_100c* attribute is True, the 'Expect: 100-continue' header is
+    used to check for error codes before uploading payload data.
     """
 
+    use_expect_100c = True
+    
     def __init__(self, storage_url, login, password, ssl_context=None, proxy=None):
         # Unused argument
         #pylint: disable=W0613
@@ -115,7 +120,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         log.debug('_get_conn(): start')
         
         conn = http_connection(self.hostname, self.port, proxy=self.proxy,
-                               ssl_contetx=self.ssl_context)
+                               ssl_context=self.ssl_context)
         headers={ 'X-Auth-User': self.login,
                   'X-Auth-Key': self.password }
         
@@ -187,7 +192,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         headers['X-Auth-Token'] = self.auth_token
     
         try:
-            if body is None or isinstance(body, bytes):
+            if body is None or not self.use_expect_100c or isinstance(body, bytes):
                 # Easy case, small or no payload
                 log.debug('_send_request(): processing request for %s', path)
                 self.conn.request(method, path, body, headers)
@@ -202,7 +207,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 self.conn.endheaders(None)
 
                 log.debug('_send_request(): Waiting for 100-cont..')
-
+                
                 # Sneak in our own response class as instance variable,
                 # so that it knows about the body that still needs to
                 # be sent...
