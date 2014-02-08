@@ -328,7 +328,7 @@ class S3Tests(BackendTestsMixin, unittest.TestCase):
 
     def tearDown(self):
         self.backend.clear()
-
+        self.backend.close()
 
 class SwiftTests(S3Tests):
     def setUp(self):
@@ -431,6 +431,7 @@ class CompressionTestsMixin(BackendTestsMixin):
 
     def tearDown(self):
         self.backend.clear()
+        self.backend.close()
         os.rmdir(self.backend_dir)
 
     def _make_corrupt_obj(self):
