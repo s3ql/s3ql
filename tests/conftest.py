@@ -11,6 +11,12 @@ initialize logging and adjust the load path before running
 any tests.
 '''
 
+# Python version check
+import sys
+if sys.version_info < (3,3):
+    raise SystemExit('Python version is %d.%d.%d, but S3QL requires Python 3.3 or newer'
+                     % sys.version_info[:3])
+
 import logging.handlers
 import sys
 import os.path
