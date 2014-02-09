@@ -17,9 +17,10 @@ Known Issues
   size of 4 kB) is therefore not recommended. Being exceptionally
   unlucky may also be a disadvantage.
 
-* S3QL does not support Access Control Lists (ACLs). This is due to
-  a bug in the FUSE library and will therefore hopefully be fixed
-  at some point. See `issue 385 <http://code.google.com/p/s3ql/issues/detail?id=385>`_
+* S3QL does not support Access Control Lists (ACLs). This is due to a
+  bug in the FUSE library and will therefore hopefully be fixed at
+  some point. See `issue #16
+  <https://bitbucket.org/nikratio/s3ql/issue/16/support-access-control-lists-acls>`_
   for more details.
 
 * S3QL is rather slow when an application tries to write data in
@@ -60,13 +61,13 @@ Known Issues
 
 * The `umount` and `fusermount -u` commands will *not* block until all
   data has been uploaded to the backend. (this is a FUSE limitation
-  that will hopefully be removed in the future, see `issue 159
-  <http://code.google.com/p/s3ql/issues/detail?id=159>`_). If you use
-  either command to unmount an S3QL file system, you have to take care
-  to explicitly wait for the `mount.s3ql` process to terminate before
-  you shut down or restart the system. Therefore it is generally not a
-  good idea to mount an S3QL file system in `/etc/fstab` (you should
-  use a dedicated init script instead).
+  that will hopefully be removed in the future, see `issue #1
+  <https://bitbucket.org/nikratio/s3ql/issue/1/blocking-fusermount-and-umount>`_). If
+  you use either command to unmount an S3QL file system, you have to
+  take care to explicitly wait for the `mount.s3ql` process to
+  terminate before you shut down or restart the system. Therefore it
+  is generally not a good idea to mount an S3QL file system in
+  `/etc/fstab` (you should use a dedicated init script instead).
 
 * S3QL relies on the backends not to run out of space. This is a given
   for big storage providers like Amazon S3 or Google Storage, but you

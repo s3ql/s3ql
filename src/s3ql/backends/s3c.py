@@ -641,7 +641,7 @@ class ObjectR(object):
                 # http://bugs.python.org/issue15633, but should be fixed in 
                 # Python 3.3 and newer
                 log.error('ObjectR.read(): response not closed after end of data, '
-                          'please report on http://code.google.com/p/s3ql/issues/')
+                          'please report on https://bitbucket.org/nikratio/s3ql/issues')
                 log.error('Method: %s, chunked: %s, read length: %s '
                           'response length: %s, chunk_left: %s, status: %d '
                           'reason "%s", version: %s, will_close: %s',

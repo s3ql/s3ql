@@ -44,7 +44,7 @@ error occured.
 See Also
 ========
 
-|command| is shipped as part of S3QL, http://code.google.com/p/s3ql/.
+|command| is shipped as part of S3QL, https://bitbucket.org/nikratio/s3ql/.
 
 .. |command| replace:: :command:`pcp` 
 

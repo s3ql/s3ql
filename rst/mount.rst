@@ -115,8 +115,8 @@ as follows (and should be placed in `/etc/init/`):
    * file systems mounted in `/etc/fstab` will be unmounted with the
      `umount` command, so your system will not wait until all data has
      been uploaded but shutdown (or restart) immediately (this is a
-     FUSE limitation, see `issue 159
-     <http://code.google.com/p/s3ql/issues/detail?id=159>`_).
+     FUSE limitation, see `issue #1
+     <https://bitbucket.org/nikratio/s3ql/issue/1/blocking-fusermount-and-umount>`_).
 
    * There is no way to tell the system that mounting S3QL requires a
      Python interpreter to be available, so it may attempt to run

@@ -11,12 +11,12 @@ on your distribution. In some cases S3QL and all its dependencies can
 be installed with as little as three commands, while in other cases more work
 may be required.
 
-The `S3QL Wiki <http://code.google.com/p/s3ql/w/list>`_ contains
-installation instructions for quite a few different Linux
+The `S3QL Wiki <https://bitbucket.org/nikratio/s3ql/wiki/Home>`_
+contains installation instructions for quite a few different Linux
 distributions. You should only use the generic instructions in this
-manual if your distribution is not included in the `distribution-specific
-installation instructions
-<http://code.google.com/p/s3ql/w/list?q=label:Installation>`_ on the wiki.
+manual if your distribution is not included in the
+`distribution-specific installation instructions
+<https://bitbucket.org/nikratio/s3ql/wiki/Installation>`_ on the wiki.
 
 
 Note that there are two branches of S3QL. The *maint-1.x* branch
@@ -80,13 +80,13 @@ Installing S3QL
 
 To install S3QL itself, proceed as follows:
 
-1. Download S3QL from http://code.google.com/p/s3ql/downloads/list
+1. Download S3QL from https://bitbucket.org/nikratio/s3ql/downloads
 2. Unpack it into a folder of your choice
 3. Run `python3 setup.py build_ext --inplace` to build S3QL.
 4. Run `python3 runtests.py tests` to run a self-test. If this fails, ask
    for help on the `mailing list
    <http://groups.google.com/group/s3ql>`_ or report a bug in the
-   `issue tracker <http://code.google.com/p/s3ql/issues/list>`_.
+   `issue tracker <https://bitbucket.org/nikratio/s3ql/issues>`_.
 
 Now you have three options:
 
