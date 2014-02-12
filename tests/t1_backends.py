@@ -292,14 +292,9 @@ class BackendTestsMixin(object):
         self.retry(lambda: self.assertEqual(self.backend[key2], value),
                    NoSuchObject)
 
-class S3Tests(BackendTestsMixin, unittest.TestCase):
+
+class BackendTestTemplate(BackendTestsMixin):
         
-    def setUp(self):
-        self.name_cnt = 0
-        self.retries = 45
-
-        self.setUp2(s3.Backend, 's3-test')
-
     def setUp2(self, backend_class, backend_fs_name):
         
         options = Namespace()
@@ -330,42 +325,20 @@ class S3Tests(BackendTestsMixin, unittest.TestCase):
         self.backend.clear()
         self.backend.close()
 
-class SwiftTests(S3Tests):
-    def setUp(self):
-        self.name_cnt = 0
-        self.retries = 90
-
-        self.setUp2(swift.Backend, 'swift-test')
-
-class SwiftKSTests(S3Tests):
-    def setUp(self):
-        self.name_cnt = 0
-        self.retries = 90
-
-        self.setUp2(swiftks.Backend, 'swiftks-test')
         
-class RackspaceTests(S3Tests):
-    def setUp(self):
+# Dynamically generate tests for other backends
+for backend_display_name in ('Swift', 'S3', 'SwiftKS', 'Rackspace', 'GS', 'S3C'):
+    backend_name = backend_display_name.lower()
+    backend_class = globals()[backend_name].Backend
+    def setUp(self, backend_name=backend_name,
+              backend_class=backend_class):
         self.name_cnt = 0
         self.retries = 90
-
-        self.setUp2(rackspace.Backend, 'rackspace-test')
-
-class GSTests(S3Tests):
-    def setUp(self):
-        self.name_cnt = 0
-        self.retries = 90
-
-        self.setUp2(gs.Backend, 'gs-test')
-
-
-class S3CTests(S3Tests):
-    def setUp(self):
-        self.name_cnt = 0
-        self.retries = 90
-
-        self.setUp2(s3c.Backend, 's3c-test')
-
+        self.setUp2(backend_class, backend_name + '-test')
+    test_class_name = backend_display_name + 'Tests'
+    globals()[test_class_name] = type(test_class_name,
+                                      (BackendTestTemplate, unittest.TestCase),
+                                      { 'setUp': setUp })
 
 
 class LocalTests(BackendTestsMixin, unittest.TestCase):
