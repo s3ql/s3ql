@@ -13,6 +13,7 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 from s3ql.backends import local, s3, gs, s3c, swift, rackspace, swiftks
+from s3ql import backends
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBackend, get_ssl_context, AuthenticationError, AuthorizationError,
     DanglingStorageURLError, MalformedObjectError, DecryptFilter, DecompressFilter)
@@ -29,6 +30,122 @@ import struct
 
 RETRY_DELAY = 1
 
+@pytest.yield_fixture(params=('local', 's3', 'gs', 's3c', 'swift',
+                              'rackspace', 'swiftks'))
+def plain_backend(request):
+    backend_name = request.param
+    backend_module = getattr(backends, backend_name)
+    backend_class = backend_module.Backend
+    if backend_name == 'local':
+        backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
+        backend = backend_class('local://' + backend_dir, None, None)
+    else:
+        options = Namespace()
+        options.no_ssl = False
+        options.ssl_ca_path = None
+
+        (backend_login, backend_password,
+         fs_name) = get_remote_test_info(backend_name + '-test', pytest.skip)
+        
+        backend = backend_class(fs_name, backend_login, backend_password,
+                                ssl_context=get_ssl_context(options))
+
+    try:
+        backend.fetch('empty_object')
+    except DanglingStorageURLError:
+        pytest.skip('Bucket %s does not exist' % fs_name)
+    except AuthorizationError:
+        pytest.skip('No permission to access %s' % fs_name)
+    except AuthenticationError:
+        pytest.skip('Unable to access %s, invalid credentials or skewed '
+                    'system clock?' % fs_name)
+    except NoSuchObject:
+        pass
+    else:
+        pytest.skip('Test bucket not empty')
+    
+    try:
+        yield backend
+
+    finally:
+        backend.clear()
+        backend.close()
+        if backend_name == 'local':
+            os.rmdir(backend_dir)
+
+@pytest.fixture(params=('plain', 'aes+lzma', 'zlib', 'bzip2', 'lzma'))
+def backend(request, plain_backend):
+    arg = request.param
+    if arg == 'plain':
+        return plain_backend
+    elif arg == 'aes+lzma':
+        return BetterBackend(b'schlurz', ('lzma', 6), plain_backend)
+    else:
+        return BetterBackend(None, (arg, 6), plain_backend)
+
+@pytest.fixture()
+def retries(request, plain_backend):
+    if isinstance(plain_backend, local.Backend):
+        return 0
+    else:
+        return 90
+    
+@pytest.fixture()
+def retry_fn(request, plain_backend):
+    if isinstance(plain_backend, local.Backend):
+        return lambda x, *a: x()
+
+    def retry(fn, *exceptions):
+        tries = 0
+        while True:
+            try:
+                return fn()
+            except Exception as exc:
+                if not isinstance(exc, exceptions):
+                    raise
+                if tries >= 90:
+                    raise
+                tries += 1
+                time.sleep(RETRY_DELAY)
+            else:
+                break
+            
+    return retry
+
+name_counter = [0]
+def newname():
+    '''Return random, unique string'''
+    name_counter[0] += 1
+    return "s3ql/<tag=%d>/!sp ace_'quote\":_&end\\" % name_counter[0]
+    
+def newvalue():
+    return newname().encode()
+
+def test_write(backend, retry_fn):
+    key = newname()
+    value = newvalue()
+    metadata = { 'jimmy': 'jups@42' }
+
+    with pytest.raises(NoSuchObject):
+        backend.lookup(key)
+        
+    with pytest.raises(NoSuchObject):
+        backend.fetch(key)
+        
+    with backend.open_write(key, metadata) as fh:
+        fh.write(value)
+
+    def read():
+        with backend.open_read(key) as fh:
+            return (fh.read(), fh.metadata)
+    (value2, metadata2) = retry_fn(read, NoSuchObject)
+
+    assert value == value2
+    assert metadata == metadata2
+    assert backend[key] == value
+    assert backend.lookup(key) == metadata
+
+    
 class BackendTestsMixin(object):
 
     def newname(self):
