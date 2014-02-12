@@ -790,6 +790,19 @@ class CompressFilter(object):
 
 class InputFilter(io.RawIOBase):
 
+    # Overwrite default implementation to make sure that we're using a decent
+    # blocksize
+    def readall(self):
+        """Read until EOF, using multiple read() calls."""
+        
+        res = bytearray()
+        while True:
+            data = self.read(BUFSIZE)
+            if not data:
+                break
+            res += data
+        return res
+
     def readable(self):
         return True
 
