@@ -839,10 +839,9 @@ class DecompressFilter(InputFilter):
     def read(self, size=-1):
         '''Read up to *size* bytes
 
-        This method is currently buggy and may also return *more*
-        than *size* bytes. Callers should be prepared to handle
-        that. This is because some of the used (de)compression modules
-        don't support output limiting.
+        This method is currently buggy and may also return *more* than *size*
+        bytes. Callers should be prepared to handle that. This is because some
+        of the used (de)compression modules don't support output limiting.
         '''
 
         if size == -1:
