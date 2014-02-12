@@ -367,42 +367,6 @@ class S3CTests(S3Tests):
         self.setUp2(s3c.Backend, 's3c-test')
 
 
-class URLTests(unittest.TestCase):
-    
-    # access to protected members
-    #pylint: disable=W0212
-     
-    def test_s3(self):
-        self.assertEqual(s3.Backend._parse_storage_url('s3://name', ssl_context=None)[2:],
-                          ('name', ''))
-        self.assertEqual(s3.Backend._parse_storage_url('s3://name/', ssl_context=None)[2:],
-                          ('name', ''))
-        self.assertEqual(s3.Backend._parse_storage_url('s3://name/pref/', ssl_context=None)[2:],
-                          ('name', 'pref/'))
-        self.assertEqual(s3.Backend._parse_storage_url('s3://name//pref/', ssl_context=None)[2:],
-                          ('name', '/pref/'))
-
-    def test_gs(self):
-        self.assertEqual(gs.Backend._parse_storage_url('gs://name', ssl_context=None)[2:],
-                          ('name', ''))
-        self.assertEqual(gs.Backend._parse_storage_url('gs://name/', ssl_context=None)[2:],
-                          ('name', ''))
-        self.assertEqual(gs.Backend._parse_storage_url('gs://name/pref/', ssl_context=None)[2:],
-                          ('name', 'pref/'))
-        self.assertEqual(gs.Backend._parse_storage_url('gs://name//pref/', ssl_context=None)[2:],
-                          ('name', '/pref/'))
-                        
-    def test_s3c(self):
-        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org/name', ssl_context=None),
-                          ('host.org', 80, 'name', ''))
-        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org:23/name', ssl_context=None),
-                          ('host.org', 23, 'name', ''))
-        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org/name/', ssl_context=None),
-                          ('host.org', 80, 'name', ''))
-        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org/name/pref', ssl_context=None),
-                          ('host.org', 80, 'name', 'pref'))
-        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org:17/name/pref/', ssl_context=None),
-                          ('host.org', 17, 'name', 'pref/'))
 
 class LocalTests(BackendTestsMixin, unittest.TestCase):
 
@@ -562,8 +526,39 @@ class EncryptionCompressionTests(EncryptionTests):
         return BetterBackend(b'schlurz', ('zlib', 6), self.plain_backend)
 
 
-if __name__ == '__main__':
-    t = EncryptionTests()
-    t.setUp()
-    t.test_readslowly()
-    t.tearDown()
+class URLTests(unittest.TestCase):
+    
+    # access to protected members
+    #pylint: disable=W0212
+     
+    def test_s3(self):
+        self.assertEqual(s3.Backend._parse_storage_url('s3://name', ssl_context=None)[2:],
+                          ('name', ''))
+        self.assertEqual(s3.Backend._parse_storage_url('s3://name/', ssl_context=None)[2:],
+                          ('name', ''))
+        self.assertEqual(s3.Backend._parse_storage_url('s3://name/pref/', ssl_context=None)[2:],
+                          ('name', 'pref/'))
+        self.assertEqual(s3.Backend._parse_storage_url('s3://name//pref/', ssl_context=None)[2:],
+                          ('name', '/pref/'))
+
+    def test_gs(self):
+        self.assertEqual(gs.Backend._parse_storage_url('gs://name', ssl_context=None)[2:],
+                          ('name', ''))
+        self.assertEqual(gs.Backend._parse_storage_url('gs://name/', ssl_context=None)[2:],
+                          ('name', ''))
+        self.assertEqual(gs.Backend._parse_storage_url('gs://name/pref/', ssl_context=None)[2:],
+                          ('name', 'pref/'))
+        self.assertEqual(gs.Backend._parse_storage_url('gs://name//pref/', ssl_context=None)[2:],
+                          ('name', '/pref/'))
+                        
+    def test_s3c(self):
+        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org/name', ssl_context=None),
+                          ('host.org', 80, 'name', ''))
+        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org:23/name', ssl_context=None),
+                          ('host.org', 23, 'name', ''))
+        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org/name/', ssl_context=None),
+                          ('host.org', 80, 'name', ''))
+        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org/name/pref', ssl_context=None),
+                          ('host.org', 80, 'name', 'pref'))
+        self.assertEqual(s3c.Backend._parse_storage_url('s3c://host.org:17/name/pref/', ssl_context=None),
+                          ('host.org', 17, 'name', 'pref/'))
