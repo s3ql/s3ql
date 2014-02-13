@@ -615,9 +615,10 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
         try:
             metadata = pickle.loads(buf)
-        except pickle.UnpicklingError as exc:
-            if (isinstance(exc.args[0], str)
-                and exc.args[0].startswith('invalid load key')):
+        except pickle.UnpicklingError:
+            # This can only happen if the object was not integrity-protected,
+            # otherwise it's a bug in S3QL
+            if not encrypted:
                 raise ChecksumError('Invalid metadata')
             raise
 
