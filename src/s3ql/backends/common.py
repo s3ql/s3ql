@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging, LOG_ONCE # Ensure use of custom logger class
-from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL, ChecksumError, sha256
+from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL, ChecksumError
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from Crypto.Cipher import AES
@@ -23,13 +23,11 @@ import ssl
 import configparser
 import hashlib
 import hmac
-import http.client
 import lzma
 import os
 import pickle
 import io
 import re
-import socket
 import stat
 import struct
 import sys
@@ -190,93 +188,6 @@ def retry_generator(method):
                      '`RetryIterator` instance.')
 
     return wrapped
-
-
-def is_temp_network_error(exc):
-    '''Return true if *exc* represents a potentially temporary network problem'''
-
-    if isinstance(exc, (http.client.IncompleteRead, socket.timeout,
-                        ssl.SSLZeroReturnError, ConnectionError, TimeoutError,
-                        InterruptedError, ssl.SSLEOFError, ssl.SSLSyscallError)):
-        return True
-     
-    # Server closed connection
-    elif (isinstance(exc, http.client.BadStatusLine)
-          and (not exc.line or exc.line == "''")):
-        return True
-
-    # Formally this is a permanent error. However, it may also indicate
-    # that there is currently no network connection to the DNS server
-    elif (isinstance(exc, socket.gaierror) 
-          and exc.errno in (socket.EAI_AGAIN, socket.EAI_NONAME)):
-        return True 
-              
-    return False
-    
-    
-def http_connection(hostname, port=None, ssl_context=None, proxy=None):
-    '''Return http connection to *hostname*:*port*
-    
-    If *port* is None, it defaults to 80 or 443, depending on *ssl_context*.
-    '''
-    
-    log.debug('Connecting to %s...', hostname)
-
-    if port is None:
-        if ssl_context is None:
-            port = 80
-        else:
-            port = 443
-
-    if proxy:
-        (proxy_host, proxy_port) = proxy
-        if ssl_context:
-            conn = http.client.HTTPSConnection(proxy_host, proxy_port,
-                                               context=ssl_context)
-        else:
-            conn = http.client.HTTPConnection(proxy_host, proxy_port)
-        conn.set_tunnel(hostname, port)
-        return conn
-    elif ssl_context:
-        return http.client.HTTPSConnection(hostname, port, context=ssl_context)
-    else:
-        return http.client.HTTPConnection(hostname, port)
-
-
-def fix_python_bug_7776():    
-    '''Install workaround for http://bugs.python.org/issue7776'''
-
-    if sys.version_info > (3,4):
-        return
-
-    from http.client import HTTPConnection, HTTPSConnection
-    
-    init_old = HTTPConnection.__init__ 
-    def __init__(self, *a, **kw):
-        init_old(self, *a, **kw)
-        self.host_real = self.host
-        self.port_real = self.port
-    HTTPConnection.__init__ = __init__
-
-    connect_old = HTTPConnection.connect
-    def connect(self, *a, **kw):
-        self.host = self.host_real
-        self.port = self.port_real
-        return connect_old(self, *a, **kw)
-    HTTPConnection.connect = connect
-
-    connect_old_https = HTTPSConnection.connect
-    def connect(self, *a, **kw):
-        self.host = self.host_real
-        self.port = self.port_real
-        return connect_old_https(self, *a, **kw)
-    HTTPSConnection.connect = connect
-    
-    set_tunnel_old = HTTPConnection.set_tunnel
-    def set_tunnel(self, *a, **kw):
-        set_tunnel_old(self, *a, **kw)
-        self._set_hostport(self._tunnel_host, self._tunnel_port)
-    HTTPConnection.set_tunnel = set_tunnel
 
 
 def get_ssl_context(options):
@@ -618,6 +529,11 @@ class AbstractBackend(object, metaclass=ABCMeta):
         '''
         
         pass
+
+        
+def sha256(s):
+    return hashlib.sha256(s).digest()
+
     
 class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
     '''
@@ -1057,15 +973,12 @@ class DecryptFilter(InputFilter):
     def _read_and_decrypt(self, size):
         '''Read and decrypt up to *size* bytes'''
 
-        if size <= 0:
+        if not isinstance(size, int) or size <= 0:
             raise ValueError("Exact *size* required (got %d)" % size)
         
         buf = self.fh.read(size)
         if not buf:
-            if self.hmac_checked:
-                return b''
-            else:
-                raise ChecksumError('Premature end of stream.')
+            raise ChecksumError('Premature end of stream.')
 
         # Work around https://bugs.launchpad.net/pycrypto/+bug/1256172
         # cipher.decrypt refuses to work with anything but bytes
@@ -1084,6 +997,11 @@ class DecryptFilter(InputFilter):
         if size == -1:
             return self.readall()
         elif size == 0:
+            return b''
+
+        # If HMAC has been checked, then we've read the complete file (we don't
+        # want to read b'' from the underlying fh repeatedly)
+        if self.hmac_checked:
             return b''
         
         outbuf = b''
@@ -1577,4 +1495,3 @@ def get_backend_factory(options, plain=False):
                                  backend_class(options.storage_url, backend_login,
                                                backend_passphrase, ssl_context=ssl_context,
                                                proxy=proxy))
-fix_python_bug_7776()

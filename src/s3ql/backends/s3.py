@@ -133,11 +133,5 @@ class Backend(s3c.Backend):
             else:
                 raise get_S3Error(errcode, 'Error deleting %s: %s' % (errkey, errmsg))
 
-        finally:
-            # Need to read rest of response
-            while True:
-                buf = resp.read(BUFSIZE)
-                if buf == b'':
-                    break
-            
-    
+        except:
+            self.conn.discard()

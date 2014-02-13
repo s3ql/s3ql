@@ -7,20 +7,20 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging # Ensure use of custom logger class
-from ..common import BUFSIZE, QuietError, PICKLE_PROTOCOL, ChecksumError, md5sum
-from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, 
-    AuthenticationError, DanglingStorageURLError, is_temp_network_error, retry_generator)
+from ..common import QuietError, PICKLE_PROTOCOL, ChecksumError
+from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, 
+    AuthenticationError, DanglingStorageURLError, retry_generator)
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from io import BytesIO
+from dugong import HTTPConnection, is_temp_network_error, BodyFollowing, CaseInsensitiveDict
 from base64 import b64encode, b64decode
 from email.utils import parsedate_tz, mktime_tz
 from urllib.parse import urlsplit
 from xml.etree import ElementTree
-from http.client import _MAXLINE, CONTINUE, LineTooLong
 import hashlib
+import os
 import hmac
-import http.client
 import re
 import tempfile
 import time
@@ -72,11 +72,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def reset(self):
-        # A bit of a nasty hack, but a better solution that fully
-        # replaces the annoying http.client class is already in the works...
-        if (self.conn._HTTPConnection__state != http.client._CS_IDLE
-            or (self.conn._HTTPConnection__response
-                and not self.conn._HTTPConnection__response.isclosed())):
+        if self.conn.response_pending() or self.conn._out_remaining:
             log.debug('Resetting state of http connection %d', id(self.conn))
             self.conn.close()
 
@@ -110,9 +106,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     def _get_conn(self):
         '''Return connection to server'''
-        
-        return http_connection(self.hostname, self.port, proxy=self.proxy,
-                               ssl_context=self.ssl_context)
+
+        return HTTPConnection(self.hostname, self.port, proxy=self.proxy,
+                              ssl_context=self.ssl_context)
 
     @copy_ancestor_docstring
     def is_temp_failure(self, exc): #IGNORE:W0613
@@ -129,19 +125,52 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         
         return False
 
+    def _dump_response(self, resp, body=None):
+        '''Return string representation of server response
+
+        Only the beginning of the response body is read, so this is
+        mostly useful for debugging.
+        '''
+
+        if body is None:
+            body = self.conn.read(2048)
+            if body:
+                self.conn.discard()
+        else:
+            body = body[:2048]
+            
+        return '%d %s\n%s\n\n%s' % (resp.status, resp.reason,
+                                    '\n'.join('%s: %s' % x for x in resp.headers.items()),
+                                    body.decode('utf-8', errors='backslashreplace'))
+    
+    def _assert_empty_response(self, resp):
+        '''Assert that current response body is empty'''
+
+        buf = self.conn.read(2048)
+        if not buf:
+            return # expected
+        
+        # Log the problem
+        self.conn.discard()
+        log.error('Unexpected server response. Expected nothing, got:\n'
+                  '%d %s\n%s\n\n%s', resp.status, resp.reason,
+                  '\n'.join('%s: %s' % x for x in resp.headers.items()),
+                  buf)
+        raise RuntimeError('Unexpected server response')
+
     @retry
     @copy_ancestor_docstring
     def delete(self, key, force=False):
         log.debug('delete(%s)', key)
         try:
             resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
-            assert resp.length == 0
+            self._assert_empty_response(resp)
         except NoSuchKeyError:
             if force:
                 pass
             else:
                 raise NoSuchObject(key)
-
+    
     @retry_generator
     @copy_ancestor_docstring
     def list(self, prefix='', start_after=''):
@@ -160,10 +189,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                                                               'marker': marker,
                                                               'max-keys': 1000 })
 
-            if not XML_CONTENT_RE.match(resp.getheader('Content-Type')):
-                raise RuntimeError('unexpected content type: %s' % resp.getheader('Content-Type'))
+            if not XML_CONTENT_RE.match(resp.headers['Content-Type']):
+                raise RuntimeError('unexpected content type: %s' %
+                                   resp.headers['Content-Type'])
 
-            itree = iter(ElementTree.iterparse(resp, events=("start", "end")))
+            itree = iter(ElementTree.iterparse(self.conn, events=("start", "end")))
             (event, root) = next(itree)
 
             try:
@@ -181,10 +211,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
             except GeneratorExit:
                 # Need to read rest of response
-                while True:
-                    buf = resp.read(BUFSIZE)
-                    if buf == b'':
-                        break
+                self.conn.discard()
                 break
 
             if keys_remaining is None:
@@ -197,7 +224,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         try:
             resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-            assert resp.length == 0
+            self._assert_empty_response(resp)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
@@ -213,17 +240,17 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         try:
             resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-            assert resp.length == 0
+            self._assert_empty_response(resp)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
             else:
                 raise
 
-        for (name, val) in resp.getheaders():
-            if name.lower() == 'content-length':
-                return int(val)
-        raise RuntimeError('HEAD request did not return Content-Length')
+        try:
+            return int(resp.headers['Content-Length'])
+        except KeyError:
+            raise RuntimeError('HEAD request did not return Content-Length')
 
 
     @retry
@@ -252,7 +279,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         chunksize = 255
         i = 0
-        headers = dict()
+        headers = CaseInsensitiveDict()
         headers['x-amz-meta-format'] = 'pickle'
         while i*chunksize < len(meta_buf):
             headers['x-amz-meta-data-%02d' % i] = meta_buf[i*chunksize:(i+1)*chunksize]
@@ -267,11 +294,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         log.debug('copy(%s, %s): start', src, dest)
 
         try:
-            resp = self._do_request('PUT', '/%s%s' % (self.prefix, dest),
-                                    headers={ 'x-amz-copy-source': '/%s/%s%s' % (self.bucket_name,
-                                                                                self.prefix, src)})
-            # Discard response body
-            resp.read()
+            self._do_request('PUT', '/%s%s' % (self.prefix, dest),
+                             headers={ 'x-amz-copy-source': '/%s/%s%s' % (self.bucket_name,
+                                                                          self.prefix, src)})
+            self.conn.discard()
         except NoSuchKeyError:
             raise NoSuchObject(src)
 
@@ -283,23 +309,17 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                   method, path, subres, query_string, headers, body)
 
         if headers is None:
-            headers = dict()
+            headers = CaseInsensitiveDict()
 
-        headers['connection'] = 'keep-alive'
-
-        if not body:
-            headers['content-length'] = '0'
-        elif isinstance(body, (str, bytes, bytearray, memoryview)):
-            if isinstance(body, str):
-                body = body.encode('ascii')
-            headers['content-length'] = '%d' % (len(body))
-            headers['content-md5'] = b64encode(md5sum(body)).decode('ascii')
-
+        if isinstance(body, (bytes, bytearray, memoryview)):
+            headers['Content-MD5'] = md5sum_b64(body)
+            
         redirect_count = 0
         while True:
-                
-            resp = self._send_request(method, path, headers, subres, query_string, body)
-            log.debug('status: %d, request-id: %s', resp.status, resp.getheader('x-amz-request-id'))
+            resp = self._send_request(method, path, headers=headers, subres=subres,
+                                      query_string=query_string, body=body)
+            log.debug('status: %d, request-id: %s', resp.status,
+                      resp.headers['x-amz-request-id'])
 
             if (resp.status < 300 or resp.status > 399):
                 break
@@ -310,12 +330,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 raise RuntimeError('Too many chained redirections')
 
             # First try location header...
-            new_url = resp.getheader('Location')
+            new_url = resp.headers['Location']
             if new_url:
-                # Read and discard body
-                while True:
-                    if not resp.read(BUFSIZE):
-                        break
+                # Discard body
+                self.conn.discard()
 
                 # Pylint can't infer SplitResult Types
                 #pylint: disable=E1103
@@ -338,7 +356,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 # If we got a HEAD response, the server cannot transmit the
                 # request body with the endpoint
                 if method == 'HEAD':
-                    raise HTTPError(resp.status, resp.reason)
+                    assert self.conn.read(1) == b''
+                    raise HTTPError(resp.status, resp.reason, resp.headers)
 
                 tree = self._parse_xml_response(resp)
                 new_url = tree.findtext('Endpoint')
@@ -355,11 +374,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if body and not isinstance(body, (bytes, bytearray, memoryview)):
                 body.seek(0)
 
-        # We need to call read() at least once for httplib to consider this
-        # request finished, even if there is no response body.
-        if resp.length == 0:
-            resp.read()
-
         # Success 
         if resp.status >= 200 and resp.status <= 299:
             return resp
@@ -367,7 +381,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # If method == HEAD, server must not return response body
         # even in case of errors
         if method.upper() == 'HEAD':
-            raise HTTPError(resp.status, resp.reason)
+            assert self.conn.read(1) == b''
+            raise HTTPError(resp.status, resp.reason, resp.headers)
 
         # Error
         tree = self._parse_xml_response(resp)
@@ -377,7 +392,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def _parse_xml_response(self, resp):
         '''Return element tree for XML response'''
 
-        content_type = resp.getheader('Content-Type')
+        content_type = resp.headers['Content-Type']
 
         # AWS S3 sometimes "forgets" to send a Content-Type
         # when responding to a multiple delete request.
@@ -385,22 +400,18 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if content_type is None:
             log.error('Server did not provide Content-Type, assuming XML')
         elif not XML_CONTENT_RE.match(content_type):
-            log.error('Unexpected server reply: expected XML, got %r', content_type)
-            log.error('Full response:\n%d %s\n%s\n\n%s', resp.status, resp.reason,
-                      '\n'.join('%s: %s' % x for x in resp.getheaders()),
-                      resp.read(512))
+            log.error('Unexpected server reply: expected XML, got:\n%s',
+                      self._dump_response(resp))
             raise RuntimeError('Unexpected server response')
 
         # We don't stream the data into the parser because we want
         # to be able to dump a copy if the parsing fails.
-        body = resp.read()
+        body = self.conn.readall()
         try:
             tree = ElementTree.parse(BytesIO(body)).getroot()
         except:
-            log.error('Unable to parse server response as XML:\n'
-                      '%d %s\n%s\n\n%s', resp.status, resp.reason,
-                      '\n'.join('%s: %s' % x for x in resp.getheaders()),
-                      body)
+            log.error('Unable to parse server response as XML:\n%s',
+                      self._dump_response(resp, body))
             raise
 
         return tree
@@ -434,13 +445,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         '''
 
         # See http://docs.amazonwebservices.com/AmazonS3/latest/dev/RESTAuthentication.html
-
-        # Lowercase headers
-        headers = { x.lower(): y for (x,y) in headers.items() }
-
+        if not isinstance(headers, CaseInsensitiveDict):
+            headers = CaseInsensitiveDict(headers)
+        
         # Date, can't use strftime because it's locale dependent
         now = time.gmtime()
-        headers['date'] = ('%s, %02d %s %04d %02d:%02d:%02d GMT'
+        headers['Date'] = ('%s, %02d %s %04d %02d:%02d:%02d GMT'
                            % (C_DAY_NAMES[now.tm_wday],
                               now.tm_mday,
                               C_MONTH_NAMES[now.tm_mon - 1],
@@ -449,15 +459,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         auth_strs = [method, '\n']
 
-        for hdr in ('content-md5', 'content-type', 'date'):
+        for hdr in ('Content-MD5', 'Content-Type', 'Date'):
             if hdr in headers:
                 auth_strs.append(headers[hdr])
             auth_strs.append('\n')
 
-        for hdr in sorted(x for x in headers if x.startswith('x-amz-')):
+        for hdr in sorted(x for x in headers if x.lower().startswith('x-amz-')):
             val = ' '.join(re.split(r'\s*\n\s*', headers[hdr].strip()))
             auth_strs.append('%s:%s\n' % (hdr, val))
-
 
         # Always include bucket name in path for signing
         sign_path = urllib.parse.quote('/%s%s' % (self.bucket_name, path))
@@ -471,7 +480,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         signature = b64encode(hmac.new(self.password.encode(), auth_str,
                                        hashlib.sha1).digest()).decode()
 
-        headers['authorization'] = 'AWS %s:%s' % (self.login, signature)
+        headers['Authorization'] = 'AWS %s:%s' % (self.login, signature)
         
         # Construct full path
         if not self.hostname.startswith(self.bucket_name):
@@ -487,34 +496,32 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             path += '?%s' % subres
 
         try:
-            if body is None or not self.use_expect_100c or isinstance(body, bytes):
-                # Easy case, small or no payload
-                log.debug('_send_request(): processing request for %s', path)
-                self.conn.request(method, path, body, headers)
-                return self.conn.getresponse()
+            log.debug('_send_request(): %s %s', method, path)
+            if body is None or isinstance(body, (bytes, bytearray, memoryview)):
+                self.conn.send_request(method, path, body=body, headers=headers)
+            else:
+                body_len = os.fstat(body.fileno()).st_size
+                self.conn.send_request(method, path, expect100=self.use_expect_100c,
+                                       headers=headers, body=BodyFollowing(body_len))
 
-            # Potentially big message body, so we use 100-continue
-            log.debug('_send_request(): sending request for %s', path)
-            self.conn.putrequest(method, path)
-            headers['expect'] = '100-continue'
-            for (hdr, value) in headers.items():
-                self.conn.putheader(hdr, value)
-            self.conn.endheaders(None)
+                if self.use_expect_100c:
+                    resp = self.conn.read_response()
+                    assert resp.method == method
+                    assert resp.url == path
+                    if resp.status != 100:
+                        # Error
+                        return resp
 
-            log.debug('_send_request(): Waiting for 100-cont..')
+                for _ in self.conn.co_sendfile(body):
+                    # This means we got some response from the server before
+                    # sending all data, presumbaly it will be an error reply
+                    break
 
-            # Sneak in our own response class as instance variable,
-            # so that it knows about the body that still needs to
-            # be sent...
-            resp = HTTPResponse(self.conn.sock, body)
-            native_response_class = self.conn.response_class
-            try:
-                self.conn.response_class = resp
-                assert self.conn.getresponse() is resp
-            finally:
-                self.conn.response_class = native_response_class
+            resp = self.conn.read_response()
+            assert resp.method == method
+            assert resp.url == path
             return resp
-            
+        
         except Exception as exc:
             if is_temp_network_error(exc):
                 # We probably can't use the connection anymore
@@ -524,82 +531,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def close(self):
         self.conn.close()
-        
-class HTTPResponse(http.client.HTTPResponse):
-    '''
-    This class provides a HTTP Response object that supports waiting for
-    "100 Continue" and then sending the request body.
 
-    The http.client.HTTPConnection module is almost impossible to extend,
-    because the __response and __state variables are mangled. Implementing
-    support for "100-Continue" doesn't fit into the existing state
-    transitions.  Therefore, it has been implemented in a custom
-    HTTPResponse class instead.
-
-    Even though HTTPConnection allows to define a custom HTTPResponse class, it
-    doesn't provide any means to pass extra information to the response
-    constructor. Therefore, we instantiate the response manually and save the
-    instance in the `response_class` attribute of the connection instance. We
-    turn the class variable holding the response class into an instance variable
-    holding the response instance. Only after the response instance has been
-    created, we call the connection's `getresponse` method. Since this method
-    doesn't know about the changed semantics of `response_class`, HTTPResponse
-    instances have to fake an instantiation by just returning itself when called.
-    '''
-
-    def __init__(self, sock, body):
-        self.sock = sock
-        self.body = body
-        self.__cached_status = None
-        
-    def __call__(self, sock, debuglevel=0, method=None, url=None):
-        '''Fake object instantiation'''
-
-        assert self.sock is sock
-
-        super().__init__(sock, debuglevel, method=method, url=url)
-
-        return self
-
-    def _read_status(self):
-        if self.__cached_status is None:
-            self.__cached_status = super()._read_status()
-
-        return self.__cached_status
-
-    def begin(self):
-        log.debug('Waiting for 100-continue...')
-
-        (version, status, reason) = self._read_status()
-        if status != CONTINUE:
-            # Oops, error. Let regular code take over
-            return super().begin()
-
-        # skip the header from the 100 response
-        while True:
-            skip = self.fp.readline(_MAXLINE + 1)
-            if len(skip) > _MAXLINE:
-                raise LineTooLong("header line")
-            skip = skip.strip()
-            if not skip:
-                break
-            log.debug('Got 100 continue header: %s', skip)
-
-        # Send body
-        if not hasattr(self.body, 'read'):
-            self.sock.sendall(self.body)
-        else:
-            while True:
-                buf = self.body.read(BUFSIZE)
-                if not buf:
-                    break
-                self.sock.sendall(buf)
-
-        # *Now* read the actual response
-        self.__cached_status = None
-        return super().begin()
-
-                
 class ObjectR(object):
     '''An S3 object open for reading'''
 
@@ -629,27 +561,12 @@ class ObjectR(object):
         if size == 0:
             return b''
 
-        # chunked encoding handled by httplib
-        buf = self.resp.read(size)
+        buf = self.backend.conn.read(size)
 
         # Check MD5 on EOF
         if not buf and not self.md5_checked:
-            etag = self.resp.getheader('ETag').strip('"')
+            etag = self.resp.headers['ETag'].strip('"')
             self.md5_checked = True
-            
-            if not self.resp.isclosed():
-                # http://bugs.python.org/issue15633, but should be fixed in 
-                # Python 3.3 and newer
-                log.error('ObjectR.read(): response not closed after end of data, '
-                          'please report on https://bitbucket.org/nikratio/s3ql/issues')
-                log.error('Method: %s, chunked: %s, read length: %s '
-                          'response length: %s, chunk_left: %s, status: %d '
-                          'reason "%s", version: %s, will_close: %s',
-                          self.resp._method, self.resp.chunked, size, self.resp.length,
-                          self.resp.chunk_left, self.resp.status, self.resp.reason,
-                          self.resp.version, self.resp.will_close)             
-                self.resp.close() 
-            
             if etag != self.md5.hexdigest():
                 log.warning('ObjectR(%s).close(): MD5 mismatch: %s vs %s', self.key, etag,
                          self.md5.hexdigest())
@@ -720,12 +637,11 @@ class ObjectW(object):
         assert not self.closed
 
         self.fh.seek(0)
-        self.headers['Content-Length'] = self.obj_size
         self.headers['Content-Type'] = 'application/octet-stream'
         resp = self.backend._do_request('PUT', '/%s%s' % (self.backend.prefix, self.key),
                                         headers=self.headers, body=self.fh)
-        etag = resp.getheader('ETag').strip('"')
-        assert resp.length == 0
+        etag = resp.headers['ETag'].strip('"')
+        self.backend._assert_empty_response(resp)
 
         if etag != self.md5.hexdigest():
             # delete may fail, but we don't want to loose the BadDigest exception
@@ -733,7 +649,7 @@ class ObjectW(object):
                 self.backend.delete(self.key)
             finally:
                 raise BadDigestError('BadDigest', 'MD5 mismatch for %s (received: %s, sent: %s)' %
-                                     (self.key, etag, self.md5.hexdigest))
+                                     (self.key, etag, self.md5.hexdigest()))
 
         self.fh.close()
         self.closed = True
@@ -775,7 +691,7 @@ def extractmeta(resp):
 
     meta = dict()
     format_ = 'raw'
-    for (name, val) in resp.getheaders():
+    for (name, val) in resp.headers.items():
         # HTTP headers are case-insensitive and pre 2.x S3QL versions metadata
         # names verbatim (and thus loose capitalization info), so we force lower
         # case (since we know that this is the original capitalization).
@@ -804,17 +720,22 @@ def extractmeta(resp):
         return meta
 
 
+def md5sum_b64(buf):
+    '''Return base64 encoded MD5 sum'''
+    
+    return b64encode(hashlib.md5(buf).digest()).decode('ascii')
+
+            
 class HTTPError(Exception):
     '''
     Represents an HTTP error returned by S3.
     '''
 
-    def __init__(self, status, msg, headers=None, body=None):
+    def __init__(self, status, msg, headers=None):
         super().__init__()
         self.status = status
         self.msg = msg
         self.headers = headers
-        self.body = body
         self.retry_after = None
         
         if self.headers is not None:
@@ -824,7 +745,7 @@ class HTTPError(Exception):
         '''Parse headers for Retry-After value'''
         
         val = None
-        for (k, v) in self.headers:
+        for (k, v) in self.headers.items():
             if k.lower() == 'retry-after':
                 hit = re.match(r'^\s*([0-9]+)\s*$', v)
                 if hit:

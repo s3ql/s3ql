@@ -7,17 +7,19 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging # Ensure use of custom logger class
-from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL, md5sum
-from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, http_connection, 
-    DanglingStorageURLError, is_temp_network_error, ChecksumError, retry_generator)
-from .s3c import HTTPError, ObjectR, ObjectW, HTTPResponse
+from ..common import QuietError, PICKLE_PROTOCOL
+from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
+    DanglingStorageURLError, ChecksumError, retry_generator)
+from .s3c import HTTPError, ObjectR, ObjectW, md5sum_b64
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
+from dugong import HTTPConnection, BodyFollowing, is_temp_network_error, CaseInsensitiveDict
 from urllib.parse import urlsplit
 from base64 import b64encode, b64decode
 import json
 import re
 import io
+import os
 import pickle
 import urllib.parse
 
@@ -25,24 +27,24 @@ log = logging.getLogger(__name__)
 
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """A backend to store data in OpenStack Swift
-    
+
     The backend guarantees get after create consistency, i.e. a newly created
-    object will be immediately retrievable. 
+    object will be immediately retrievable.
 
     If the *expect_100c* attribute is True, the 'Expect: 100-continue' header is
     used to check for error codes before uploading payload data.
     """
 
     use_expect_100c = True
-    
+
     def __init__(self, storage_url, login, password, ssl_context=None, proxy=None):
         # Unused argument
         #pylint: disable=W0613
-        
+
         super().__init__()
 
         (host, port, container_name, prefix) = self._parse_storage_url(storage_url, ssl_context)
-            
+
         self.hostname = host
         self.port = port
         self.container_name = container_name
@@ -54,34 +56,34 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.conn = None
         self.proxy = proxy
         self.ssl_context = ssl_context
-        
+
         self._container_exists()
 
     def __str__(self):
         return 'swift container %s, prefix %s' % (self.container_name, self.prefix)
-        
+
     @retry
     def _container_exists(self):
         '''Make sure that the container exists'''
-        
+
         try:
-            resp = self._do_request('GET', '/', query_string={'limit': 1 })
+            self._do_request('GET', '/', query_string={'limit': 1 })
+            self.conn.discard()
         except HTTPError as exc:
             if exc.status == 404:
                 raise DanglingStorageURLError(self.container_name)
             raise
-        resp.read()   
-                    
+
     @staticmethod
     def _parse_storage_url(storage_url, ssl_context):
         '''Extract information from storage URL
-        
+
         Return a tuple *(host, port, container_name, prefix)* .
         '''
 
         hit = re.match(r'^[a-zA-Z0-9]+://' # Backend
                        r'([^/:]+)' # Hostname
-                       r'(?::([0-9]+))?' # Port 
+                       r'(?::([0-9]+))?' # Port
                        r'/([^/]+)' # Bucketname
                        r'(?:/(.*))?$', # Prefix
                        storage_url)
@@ -97,7 +99,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             port = 80
         containername = hit.group(3)
         prefix = hit.group(4) or ''
-        
+
         return (hostname, port, containername, prefix)
 
     @copy_ancestor_docstring
@@ -110,7 +112,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         elif is_temp_network_error(exc):
             return True
-                
+
         return False
 
     @retry
@@ -118,44 +120,48 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         '''Obtain connection to server and authentication token'''
 
         log.debug('_get_conn(): start')
-        
-        conn = http_connection(self.hostname, self.port, proxy=self.proxy,
-                               ssl_context=self.ssl_context)
-        headers={ 'X-Auth-User': self.login,
-                  'X-Auth-Key': self.password }
-        
+
+        conn = HTTPConnection(self.hostname, self.port, proxy=self.proxy,
+                              ssl_context=self.ssl_context)
+
+        headers = CaseInsensitiveDict()
+        headers['X-Auth-User'] = self.login
+        headers['X-Auth-Key'] = self.password
+
         for auth_path in ('/v1.0', '/auth/v1.0'):
             log.debug('_get_conn(): GET %s', auth_path)
-            conn.request('GET', auth_path, None, headers)
-            resp = conn.getresponse()
-            
+            conn.send_request('GET', auth_path, headers=headers)
+            resp = conn.read_response()
+
             if resp.status == 412:
                 log.debug('_refresh_auth(): auth to %s failed, trying next path', auth_path)
-                resp.read()
+                self.conn.discard()
                 continue
-            
+
             elif resp.status == 401:
-                raise AuthorizationError(resp.read())
-            
+                self.conn.discard()
+                raise AuthorizationError(resp.reason)
+
             elif resp.status > 299 or resp.status < 200:
-                raise HTTPError(resp.status, resp.reason, resp.getheaders(), resp.read())
-                
+                self.conn.discard()
+                raise HTTPError(resp.status, resp.reason, resp.headers)
+
             # Pylint can't infer SplitResult Types
-            #pylint: disable=E1103                
-            self.auth_token = resp.getheader('X-Auth-Token')
-            o = urlsplit(resp.getheader('X-Storage-Url'))
+            #pylint: disable=E1103
+            self.auth_token = resp.headers['X-Auth-Token']
+            o = urlsplit(resp.headers['X-Storage-Url'])
             self.auth_prefix = urllib.parse.unquote(o.path)
             conn.close()
 
-            return http_connection(o.hostname, o.port, proxy=self.proxy,
+            return HTTPConnection(o.hostname, o.port, proxy=self.proxy,
                                   ssl_context=self.ssl_context)
-        
+
         raise RuntimeError('No valid authentication path found')
-    
+
     def _do_request(self, method, path, subres=None, query_string=None,
                     headers=None, body=None):
         '''Send request, read and return response object
-        
+
         This method modifies the *headers* dictionary.
         '''
 
@@ -163,20 +169,15 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                   method, path, subres, query_string, headers, body)
 
         if headers is None:
-            headers = dict()
+            headers = CaseInsensitiveDict()
 
-        if not body:
-            headers['content-length'] = '0'
-        elif isinstance(body, (str, bytes, bytearray, memoryview)):
-            if isinstance(body, str):
-                body = body.encode('ascii')
-            headers['content-length'] = '%d' % (len(body))
-            headers['content-md5'] = b64encode(md5sum(body)).decode('ascii')
+        if isinstance(body, (bytes, bytearray, memoryview)):
+            headers['Content-MD5'] = md5sum_b64(body)
 
         if self.conn is None:
             log.debug('_do_request(): no active connection, calling _get_conn()')
             self.conn =  self._get_conn()
-                        
+
         # Construct full path
         path = urllib.parse.quote('%s/%s%s' % (self.auth_prefix, self.container_name, path))
         if query_string:
@@ -188,49 +189,43 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         elif subres:
             path += '?%s' % subres
 
-        headers['connection'] = 'keep-alive'
         headers['X-Auth-Token'] = self.auth_token
-    
         try:
-            if body is None or not self.use_expect_100c or isinstance(body, bytes):
-                # Easy case, small or no payload
-                log.debug('_send_request(): processing request for %s', path)
-                self.conn.request(method, path, body, headers)
-                resp = self.conn.getresponse()
+            resp = None
+            log.debug('_send_request(): %s %s', method, path)
+            if body is None or isinstance(body, (bytes, bytearray, memoryview)):
+                self.conn.send_request(method, path, body=body, headers=headers)
             else:
-                # Potentially big message body, so we use 100-continue
-                log.debug('_send_request(): sending request for %s', path)
-                self.conn.putrequest(method, path)
-                headers['expect'] = '100-continue'
-                for (hdr, value) in headers.items():
-                    self.conn.putheader(hdr, value)
-                self.conn.endheaders(None)
+                body_len = os.fstat(body.fileno()).st_size
+                self.conn.send_request(method, path, expect100=self.use_expect_100c,
+                                       headers=headers, body=BodyFollowing(body_len))
 
-                log.debug('_send_request(): Waiting for 100-cont..')
-                
-                # Sneak in our own response class as instance variable,
-                # so that it knows about the body that still needs to
-                # be sent...
-                resp = HTTPResponse(self.conn.sock, body)
-                native_response_class = self.conn.response_class
-                try:
-                    self.conn.response_class = resp
-                    assert self.conn.getresponse() is resp
-                finally:
-                    self.conn.response_class = native_response_class
-            
+                if self.use_expect_100c:
+                    resp = self.conn.read_response()
+                    assert resp.method == method
+                    assert resp.url == path
+                    if resp.status == 100:
+                        resp = None
+                    # Otherwise fall through below
+
+                if resp is None:
+                    for _ in self.conn.co_sendfile(body):
+                        # This means we got some response from the server before
+                        # sending all data, presumbaly it will be an error reply
+                        break
+
+            if resp is None:
+                resp = self.conn.read_response()
+                assert resp.method == method
+                assert resp.url == path
+
         except Exception as exc:
             if is_temp_network_error(exc):
                 # We probably can't use the connection anymore
                 self.conn.close()
             raise
-    
-        # We need to call read() at least once for httplib to consider this
-        # request finished, even if there is no response body.
-        if resp.length == 0:
-            resp.read()
 
-        # Success 
+        # Success
         if resp.status >= 200 and resp.status <= 299:
             return resp
 
@@ -242,22 +237,58 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             # the connection will be reestablished with the same token.
             self.conn = None
             raise AuthenticationExpired(resp.reason)
-        
+
         # If method == HEAD, server must not return response body
         # even in case of errors
+        self.conn.discard()
         if method.upper() == 'HEAD':
-            raise HTTPError(resp.status, resp.reason)
+            raise HTTPError(resp.status, resp.reason, resp.headers)
         else:
-            raise HTTPError(resp.status, resp.reason, resp.getheaders(), resp.read())
-     
-    @retry 
+            raise HTTPError(resp.status, resp.reason, resp.headers)
+
+        
+    def _assert_empty_response(self, resp):
+        '''Assert that current response body is empty'''
+
+        buf = self.conn.read(2048)
+        if not buf:
+            return # expected
+
+        # Log the problem
+        self.conn.discard()
+        log.error('Unexpected server response. Expected nothing, got:\n'
+                  '%d %s\n%s\n\n%s', resp.status, resp.reason,
+                  '\n'.join('%s: %s' % x for x in resp.headers.items()),
+                  buf)
+        raise RuntimeError('Unexpected server response')
+
+    
+    def _dump_response(self, resp, body=None):
+        '''Return string representation of server response
+
+        Only the beginning of the response body is read, so this is
+        mostly useful for debugging.
+        '''
+
+        if body is None:
+            body = self.conn.read(2048)
+            if body:
+                self.conn.discard()
+        else:
+            body = body[:2048]
+            
+        return '%d %s\n%s\n\n%s' % (resp.status, resp.reason,
+                                    '\n'.join('%s: %s' % x for x in resp.headers.items()),
+                                    body.decode('utf-8', errors='backslashreplace'))
+
+    @retry
     @copy_ancestor_docstring
     def lookup(self, key):
         log.debug('lookup(%s)', key)
 
         try:
             resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-            assert resp.length == 0
+            self._assert_empty_response(resp)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
@@ -273,18 +304,18 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         try:
             resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-            assert resp.length == 0
+            self._assert_empty_response(resp)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
             else:
                 raise
 
-        for (name, val) in resp.getheaders():
-            if name.lower() == 'content-length':
-                return int(val)
-        raise RuntimeError('HEAD request did not return Content-Length')
-    
+        try:
+            return int(resp.headers['Content-Length'])
+        except KeyError:
+            raise RuntimeError('HEAD request did not return Content-Length')
+
     @retry
     @copy_ancestor_docstring
     def open_read(self, key):
@@ -304,7 +335,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         when its `close` method is called.
         """
         log.debug('open_write(%s): start', key)
-        
+
         # We don't store the metadata keys directly, because HTTP headers
         # are case insensitive (so the server may change capitalization)
         # and we may run into length restrictions.
@@ -312,7 +343,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         chunksize = 255
         i = 0
-        headers = dict()
+        headers = CaseInsensitiveDict()
         headers['X-Object-Meta-Format'] = 'pickle'
         while i*chunksize < len(meta_buf):
             headers['X-Object-Meta-Data-%02d' % i] = meta_buf[i*chunksize:(i+1)*chunksize]
@@ -322,7 +353,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def clear(self):
-        
+
         # We have to cache keys, because otherwise we can't use the
         # http connection to delete keys.
         for (no, s3key) in enumerate(list(self)):
@@ -340,7 +371,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         log.debug('delete(%s)', key)
         try:
             resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
-            assert resp.length == 0
+            self._assert_empty_response(resp)
         except HTTPError as exc:
             if exc.status == 404 and not force:
                 raise NoSuchObject(key)
@@ -351,13 +382,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def copy(self, src, dest):
         log.debug('copy(%s, %s): start', src, dest)
-
+        headers = CaseInsensitiveDict()
+        headers['X-Copy-From'] = '/%s/%s%s' % (self.container_name, self.prefix, src)
         try:
-            resp = self._do_request('PUT', '/%s%s' % (self.prefix, dest),
-                                    headers={ 'X-Copy-From': '/%s/%s%s' % (self.container_name,
-                                                                           self.prefix, src)})
-            # Discard response body
-            resp.read()
+            self._do_request('PUT', '/%s%s' % (self.prefix, dest), headers=headers)
+            self.conn.discard()
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(src)
@@ -371,7 +400,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         keys_remaining = True
         marker = start_after
         prefix = self.prefix + prefix
-        
+
         while keys_remaining:
             log.debug('list(%s): requesting with marker=%s', prefix, marker)
 
@@ -384,41 +413,47 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 if exc.status == 404:
                     raise DanglingStorageURLError(self.container_name)
                 raise
-            
+
             if resp.status == 204:
                 return
-            
-            assert resp.getheader('content-type') == 'application/json; charset=utf-8'
-            
+
+            if (resp.headers['content-type'] != 'application/json; charset=utf-8'):
+                log.error('Unexpected server response. Expected json, got:\n%s',
+                          self._dump_response(resp))
+                raise RuntimeError('Unexpected server reply')
+
             strip = len(self.prefix)
             count = 0
             try:
-                text_resp = io.TextIOWrapper(resp, encoding='utf-8')
-                for dataset in json.load(text_resp):
+                # JSON does not have a streaming API, so we just read
+                # the entire response in memory.
+                for dataset in json.loads(self.conn.read().decode('utf-8')):
                     count += 1
                     marker = dataset['name']
                     yield marker[strip:]
-                
+
             except GeneratorExit:
-                # Need to read rest of response
-                while True:
-                    buf = resp.read(BUFSIZE)
-                    if buf == b'':
-                        break
+                self.conn.discard()
                 break
-            
-            keys_remaining = count == batch_size 
+
+            keys_remaining = count == batch_size
 
     @copy_ancestor_docstring
     def close(self):
         self.conn.close()
-    
+
+    @copy_ancestor_docstring
+    def reset(self):
+        if self.conn.response_pending() or self.conn._out_remaining:
+            log.debug('Resetting state of http connection %d', id(self.conn))
+            self.conn.close()
+
 def extractmeta(resp):
     '''Extract metadata from HTTP response object'''
 
     meta = dict()
     format_ = 'raw'
-    for (name, val) in resp.getheaders():
+    for (name, val) in resp.headers.items():
         # HTTP headers are case-insensitive and pre 2.x S3QL versions metadata
         # names verbatim (and thus loose capitalization info), so we force lower
         # case (since we know that this is the original capitalization).
@@ -457,5 +492,3 @@ class AuthenticationExpired(Exception):
 
     def __str__(self):
         return 'Auth token expired. Server said: %s' % self.msg
-    
-        

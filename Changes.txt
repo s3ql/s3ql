@@ -13,6 +13,9 @@ UNRELEASED, S3QL 2.8
     (i.e., it can now be called as "./runtests.py" instead of
     "python3 runtests.py").
 
+  * S3QL now requires the python dugong module
+    (https://bitbucket.org/nikratio/python-dugong)
+  
 2013-12-16, S3QL 2.7
 
   * Fixed another race condition that could lead to mount.s3ql

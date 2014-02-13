@@ -128,6 +128,7 @@ def main():
 
     required_pkgs = ['apsw >= 3.7.0',
                      'pycrypto',
+                     'dugong',
                      'llfuse >= 0.39' ]
 
     setuptools.setup(

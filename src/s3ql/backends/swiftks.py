@@ -9,7 +9,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 from ..logging import logging # Ensure use of custom logger class
 from . import swift
 from ..common import QuietError
-from .common import AuthorizationError, http_connection, retry
+from dugong import HTTPConnection, CaseInsensitiveDict
+from .common import AuthorizationError, retry
 from .s3c import HTTPError
 from ..inherit_docstrings import copy_ancestor_docstring
 from urllib.parse import urlsplit
@@ -76,11 +77,12 @@ class Backend(swift.Backend):
 
         log.debug('_get_conn(): start')
         
-        conn = http_connection(self.hostname, port=self.port, proxy=self.proxy,
-                               ssl_context=self.ssl_context)
+        conn = HTTPConnection(self.hostname, port=self.port, proxy=self.proxy,
+                              ssl_context=self.ssl_context)
 
-        headers={ 'Content-Type': 'application/json',
-                  'Accept': 'application/json; charset="utf-8"' }
+        headers = CaseInsensitiveDict()
+        headers['Content-Type'] = 'application/json'
+        headers['Accept'] = 'application/json; charset="utf-8"'
 
         if ':' in self.login:
             (tenant,user) = self.login.split(':')
@@ -95,16 +97,19 @@ class Backend(swift.Backend):
         if tenant:
             auth_body['auth']['tenantName'] = tenant
 
-        conn.request('POST', '/v2.0/tokens', json.dumps(auth_body).encode('utf-8'), headers)
-        resp = conn.getresponse()
+        conn.send_request('POST', '/v2.0/tokens', body=json.dumps(auth_body).encode('utf-8'),
+                          headers=headers)
+        resp = conn.read_response()
             
         if resp.status == 401:
-            raise AuthorizationError(resp.read())
+            self.conn.discard()
+            raise AuthorizationError(resp.reason)
             
         elif resp.status > 299 or resp.status < 200:
-            raise HTTPError(resp.status, resp.reason, resp.getheaders(), resp.read())
+            self.conn.discard()
+            raise HTTPError(resp.status, resp.reason, resp.headers)
 
-        cat = json.loads(resp.read().decode('utf-8'))
+        cat = json.loads(conn.read().decode('utf-8'))
         self.auth_token = cat['access']['token']['id']
 
         avail_regions = []
@@ -121,8 +126,8 @@ class Backend(swift.Backend):
                 self.auth_prefix = urllib.parse.unquote(o.path)
                 conn.close()
 
-                return http_connection(o.hostname, o.port,  proxy=self.proxy,
-                                       ssl_context=self.ssl_context)
+                return HTTPConnection(o.hostname, o.port,  proxy=self.proxy,
+                                      ssl_context=self.ssl_context)
 
         if len(avail_regions) < 10:
             raise QuietError('No accessible object storage service found in region %s'
