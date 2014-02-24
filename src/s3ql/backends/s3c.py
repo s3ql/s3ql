@@ -7,12 +7,13 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging # Ensure use of custom logger class
-from ..common import QuietError, PICKLE_PROTOCOL, ChecksumError
+from ..common import QuietError, PICKLE_PROTOCOL, ChecksumError, BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, 
     AuthenticationError, DanglingStorageURLError, retry_generator)
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from io import BytesIO
+from shutil import copyfileobj
 from dugong import HTTPConnection, is_temp_network_error, BodyFollowing, CaseInsensitiveDict
 from base64 import b64encode, b64decode
 from email.utils import parsedate_tz, mktime_tz
@@ -74,7 +75,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def reset(self):
         if self.conn.response_pending() or self.conn._out_remaining:
             log.debug('Resetting state of http connection %d', id(self.conn))
-            self.conn.close()
+            self.conn.disconnect()
 
     @staticmethod
     def _parse_storage_url(storage_url, ssl_context):
@@ -346,7 +347,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 if o.hostname != self.hostname or o.port != self.port:
                     self.hostname = o.hostname
                     self.port = o.port
-                    self.conn.close()
+                    self.conn.disconnect()
                     self.conn = self._get_conn()
                 else:
                     raise RuntimeError('Redirect to different path on same host')
@@ -366,7 +367,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'))
 
                 self.hostname = new_url
-                self.conn.close()
+                self.conn.disconnect()
                 self.conn = self._get_conn()
                 
             log.info('_do_request(): redirected to %s', new_url)
@@ -507,30 +508,27 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 if self.use_expect_100c:
                     resp = self.conn.read_response()
                     assert resp.method == method
-                    assert resp.url == path
+                    assert resp.path == path
                     if resp.status != 100:
                         # Error
                         return resp
 
-                for _ in self.conn.co_sendfile(body):
-                    # This means we got some response from the server before
-                    # sending all data, presumbaly it will be an error reply
-                    break
+                copyfileobj(body, self.conn, BUFSIZE)
 
             resp = self.conn.read_response()
             assert resp.method == method
-            assert resp.url == path
+            assert resp.path == path
             return resp
         
         except Exception as exc:
             if is_temp_network_error(exc):
                 # We probably can't use the connection anymore
-                self.conn.close()
+                self.conn.disconnect()
             raise
 
     @copy_ancestor_docstring
     def close(self):
-        self.conn.close()
+        self.conn.disconnect()
 
 class ObjectR(object):
     '''An S3 object open for reading'''

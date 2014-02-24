@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging # Ensure use of custom logger class
-from ..common import QuietError, PICKLE_PROTOCOL
+from ..common import QuietError, PICKLE_PROTOCOL, BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
     DanglingStorageURLError, ChecksumError, retry_generator)
 from .s3c import HTTPError, ObjectR, ObjectW, md5sum_b64
@@ -17,8 +17,8 @@ from dugong import HTTPConnection, BodyFollowing, is_temp_network_error, CaseIns
 from urllib.parse import urlsplit
 from base64 import b64encode, b64decode
 import json
+import shutil
 import re
-import io
 import os
 import pickle
 import urllib.parse
@@ -151,7 +151,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self.auth_token = resp.headers['X-Auth-Token']
             o = urlsplit(resp.headers['X-Storage-Url'])
             self.auth_prefix = urllib.parse.unquote(o.path)
-            conn.close()
+            conn.disconnect()
 
             return HTTPConnection(o.hostname, o.port, proxy=self.proxy,
                                   ssl_context=self.ssl_context)
@@ -203,26 +203,22 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 if self.use_expect_100c:
                     resp = self.conn.read_response()
                     assert resp.method == method
-                    assert resp.url == path
+                    assert resp.path == path
                     if resp.status == 100:
                         resp = None
                     # Otherwise fall through below
 
-                if resp is None:
-                    for _ in self.conn.co_sendfile(body):
-                        # This means we got some response from the server before
-                        # sending all data, presumbaly it will be an error reply
-                        break
+                shutil.copyfileobj(body, self.conn, BUFSIZE)
 
             if resp is None:
                 resp = self.conn.read_response()
                 assert resp.method == method
-                assert resp.url == path
+                assert resp.path == path
 
         except Exception as exc:
             if is_temp_network_error(exc):
                 # We probably can't use the connection anymore
-                self.conn.close()
+                self.conn.disconnect()
             raise
 
         # Success
@@ -232,7 +228,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # Expired auth token
         if resp.status == 401:
             log.info('OpenStack auth token seems to have expired, requesting new one.')
-            self.conn.close()
+            self.conn.disconnect()
             # Force constructing a new connection with a new token, otherwise
             # the connection will be reestablished with the same token.
             self.conn = None
@@ -417,7 +413,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if resp.status == 204:
                 return
 
-            if (resp.headers['content-type'] != 'application/json; charset=utf-8'):
+            hit = re.match('application/json; charset="?(.+?)"?$',
+                           resp.headers['content-type'])
+            if not hit:
                 log.error('Unexpected server response. Expected json, got:\n%s',
                           self._dump_response(resp))
                 raise RuntimeError('Unexpected server reply')
@@ -427,7 +425,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             try:
                 # JSON does not have a streaming API, so we just read
                 # the entire response in memory.
-                for dataset in json.loads(self.conn.read().decode('utf-8')):
+                for dataset in json.loads(self.conn.read().decode(hit.group(1))):
                     count += 1
                     marker = dataset['name']
                     yield marker[strip:]
@@ -440,13 +438,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def close(self):
-        self.conn.close()
+        self.conn.disconnect()
 
     @copy_ancestor_docstring
     def reset(self):
         if self.conn.response_pending() or self.conn._out_remaining:
             log.debug('Resetting state of http connection %d', id(self.conn))
-            self.conn.close()
+            self.conn.disconnect()
 
 def extractmeta(resp):
     '''Extract metadata from HTTP response object'''

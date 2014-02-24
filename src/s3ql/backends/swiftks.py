@@ -124,7 +124,7 @@ class Backend(swift.Backend):
                 
                 o = urlsplit(endpoint['publicURL'])
                 self.auth_prefix = urllib.parse.unquote(o.path)
-                conn.close()
+                conn.disconnect()
 
                 return HTTPConnection(o.hostname, o.port,  proxy=self.proxy,
                                       ssl_context=self.ssl_context)
