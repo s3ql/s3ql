@@ -20,7 +20,7 @@ import stat
 import sys
 
 # Buffer size when writing objects
-BUFSIZE = 256 * 1024
+BUFSIZE = 64 * 1024
 
 # Pickle protocol version to use.
 PICKLE_PROTOCOL = 2
