@@ -44,30 +44,42 @@ class Distributor(object):
     def put(self, obj):
         '''Offer *obj* for consumption
         
-        The method blocks until another thread calls `get()` to consume
-        the object.
+        The method blocks until another thread calls `get()` to consume the
+        object, unless *obj* is `QuitSentinel`. In this case, the method returns
+        immediately.
         '''
 
         if obj is None:
             raise ValueError("Can't put None into Queue")
 
         with self.cv:
+            # Wait until we can place the object
             while self.slot is not None:
                 self.cv.wait()
+
+            # Place it
             self.slot = obj
             self.cv.notify_all()
+
+            # Wait until it's been consumed
+            if obj is QuitSentinel:
+                return
+            while self.slot is not None:
+                self.cv.wait()
 
     def get(self):
         '''Consume and return an object
         
-        The method blocks until another thread offers an object
-        by calling the `put` method.
+        The method blocks until another thread offers an object by calling the
+        `put` method. If a `QuitSentinel` object is encountered, it is *not*
+        removed and can be retrieved an unlimited number of times.
         '''
         with self.cv:
             while not self.slot:
                 self.cv.wait()
             tmp = self.slot
-            self.slot = None
+            if tmp is not QuitSentinel:
+                self.slot = None
             self.cv.notify_all()
         return tmp
 
@@ -316,10 +328,15 @@ class BlockCache(object):
         with lock:
             self.clear()
 
-        for t in self.upload_threads:
+        # QuitSentinel can be retrieved infinitely
+        if self.upload_threads:
             self.to_upload.put(QuitSentinel)
 
         for t in self.removal_threads:
+            # Temporarily extend queue size, to make sure that we can fit
+            # in all Sentinel objects (otherwise we may deadlock if some
+            # threads have terminated prematurely)
+            self.to_remove.maxsize += len(self.removal_threads)
             self.to_remove.put(QuitSentinel)
 
         log.debug('destroy(): waiting for upload threads...')
@@ -332,11 +349,12 @@ class BlockCache(object):
 
         assert len(self.in_transit) == 0
         try:
-            self.to_remove.get_nowait()
+            while self.to_remove.get_nowait() is QuitSentinel:
+                pass
         except QueueEmpty:
             pass
         else:
-            raise RuntimeError('Internal error: removal queue not empty.')
+            raise RuntimeError('Removal queue not empty - exception in removal threads?')
         
         self.to_upload = None
         self.to_remove = None

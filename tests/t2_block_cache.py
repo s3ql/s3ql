@@ -29,6 +29,7 @@ import threading
 import time
 import unittest
 import queue
+import pytest
 
 # A dummy removal queue to monkeypatch around the need for removal and upload
 # threads
@@ -105,7 +106,56 @@ class cache_tests(unittest.TestCase):
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.backend_dir)
         os.unlink(self.dbfile.name)
+
+    def test_deadlock(self):
+        # Make sure that we don't deadlock if some upload threads
+        # terminate prematurely
+
+        # Create an object
+        with self.cache.get(self.inode, 0) as fh:
+            fh.seek(0)
+            fh.write(b'barf!')
+        self.cache.commit()
+
+        # Monkeypatch to avoid error messages about uncaught exceptinons
+        # in other threads
+        def _upload_loop(*a, fn=self.cache._upload_loop):
+            try:
+                return fn(*a)
+            except PermissionError:
+                pass
+        def _removal_loop(*a, fn=self.cache._removal_loop):
+            try:
+                return fn(*a)
+            except PermissionError:
+                pass
+        self.cache._upload_loop = _upload_loop
+        self.cache._removal_loop = _removal_loop
+
+        # Start threads
+        self.cache.init(threads=5)
+
+        # Make sure that upload and removal will fail
+        os.chmod(self.backend_dir + '/s3ql_data_', 0o555)
         
+        # Create another object
+        with self.cache.get(self.inode, 1) as fh:
+            fh.seek(0)
+            fh.write(b'bar wurfz!')
+        
+        # Remove something
+        self.cache.remove(self.inode, 0)
+
+        # Shutdown threads
+        llfuse.lock.release()
+        try:
+            self.cache.destroy()
+        finally:
+            # Fix permissions and make second destroy call into no-op
+            os.chmod(self.backend_dir + '/s3ql_data_', 0o755)
+            self.cache.destroy = lambda: None
+            llfuse.lock.acquire()
+
     @staticmethod
     def random_data(len_):
         with open("/dev/urandom", "rb") as fh:
