@@ -22,7 +22,7 @@ import sys
 import os.path
 import pytest
 
-@pytest.fixture(autouse=True)
+# Converted to autouse fixture below if capture is activated
 def check_test_output(request, capfd):
     request.capfd = capfd
     def raise_on_exception_in_out():
@@ -59,9 +59,15 @@ def pytest_addoption(parser):
     group = parser.getgroup("general")
     group._addoption("--installed", action="store_true", default=False,
                      help="Test the installed package.")
+
     
 def pytest_configure(config):
 
+    # Enable stdout and stderr analysis, unless output capture is disabled
+    if config.getoption('capture') != 'no':
+        global check_test_output
+        check_test_output = pytest.fixture(autouse=True)(check_test_output)
+    
     logdebug = config.getoption('logdebug')
 
     # If we are running from the S3QL source directory, make sure that we
