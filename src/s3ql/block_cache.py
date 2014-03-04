@@ -41,32 +41,43 @@ class Distributor(object):
         self.slot = None
         self.cv = threading.Condition()
 
-    def put(self, obj):
+        #: Number of threads waiting to consume an object
+        self.readers = 0
+        
+    def put(self, obj, timeout=None):
         '''Offer *obj* for consumption
         
         The method blocks until another thread calls `get()` to consume the
         object, unless *obj* is `QuitSentinel`. In this case, the method returns
         immediately.
+
+        Return `True` if the object was consumed, and `False` if *timeout* was
+        exceeded without any activity in the queue (this means an individual
+        invocation may wait for longer than *timeout* if objects from other
+        threads are being consumed).
         '''
 
         if obj is None:
             raise ValueError("Can't put None into Queue")
 
         with self.cv:
-            # Wait until we can place the object
-            while self.slot is not None:
-                self.cv.wait()
+            if obj is not QuitSentinel:
+                # Wait until a thread is ready to read
+                while self.readers == 0 or self.slot is not None:
+                    log.debug('waiting for reader..')
+                    if not self.cv.wait(timeout):
+                        log.debug('timeout, returning')
+                        return False
+                log.debug('got reader')
+                self.readers -= 1
 
-            # Place it
+            log.debug('enqueueing %s', obj)
+            assert self.slot is None
             self.slot = obj
-            self.cv.notify_all()
+            self.cv.notify_all() # notify readers
 
-            # Wait until it's been consumed
-            if obj is QuitSentinel:
-                return
-            while self.slot is not None:
-                self.cv.wait()
-
+        return True
+    
     def get(self):
         '''Consume and return an object
         
@@ -75,12 +86,15 @@ class Distributor(object):
         removed and can be retrieved an unlimited number of times.
         '''
         with self.cv:
-            while not self.slot:
+            self.readers += 1 
+            self.cv.notify_all() # notify writers
+            while self.slot is None:
+                log.debug('waiting for writer..')
                 self.cv.wait()
             tmp = self.slot
             if tmp is not QuitSentinel:
                 self.slot = None
-            self.cv.notify_all()
+                
         return tmp
 
 
@@ -113,7 +127,6 @@ class SimpleEvent(object):
         self.__cond.acquire()
         try:
             self.__cond.wait()
-            return
         finally:
             self.__cond.release()
 
