@@ -90,10 +90,18 @@ def pytest_configure(config):
     if root_logger.handlers:
         root_logger.warning("Logging already initialized.")
     else:
-        handler = logging.handlers.RotatingFileHandler(os.path.join(basedir, 'tests', 'test.log'),
-                                                       maxBytes=10 * 1024 ** 2, backupCount=0)
-        formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
-                                      '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
+        handler = logging.handlers.RotatingFileHandler(
+            os.path.join(basedir, 'tests', 'test.log'),
+            maxBytes=10 * 1024 ** 2, backupCount=0)
+        if logdebug is None:
+            formatter = logging.Formatter(
+                '%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
+                '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
+        else:
+            formatter = logging.Formatter(
+                '%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
+                '[%(name)s.%(funcName)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
+
         handler.setFormatter(formatter)
         root_logger.addHandler(handler)
 
