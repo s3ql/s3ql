@@ -14,14 +14,16 @@ if __name__ == '__main__':
 
 from contextlib import contextmanager
 from s3ql.backends import local
-from s3ql.backends.common import BackendPool, AbstractBackend
-from s3ql.block_cache import BlockCache, QuitSentinel
+from s3ql.backends.common import BackendPool, AbstractBackend, NoSuchObject
+from s3ql.block_cache import BlockCache, QuitSentinel, NoWorkerThreads
 from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
-from common import AsyncFn
+from common import AsyncFn, catch_logmsg
 import llfuse
+import errno
 import os
+import logging
 import shutil
 import stat
 import tempfile
@@ -41,9 +43,10 @@ class DummyQueue:
     def get_nowait(self):
         return self.get(block=False)
         
-    def put(self, obj):
+    def put(self, obj, timeout=None):
         self.obj = obj
         self.cache._removal_loop()
+        return True
 
     def get(self, block=True):
         if self.obj is None:
@@ -91,8 +94,9 @@ class cache_tests(unittest.TestCase):
         cache.to_remove = DummyQueue(cache)
 
         class DummyDistributor:
-            def put(self, arg):
+            def put(self, arg, timeout=None):
                 cache._do_upload(*arg)
+                return True
         cache.to_upload = DummyDistributor()
         
         # Tested methods assume that they are called from
@@ -107,7 +111,7 @@ class cache_tests(unittest.TestCase):
         shutil.rmtree(self.backend_dir)
         os.unlink(self.dbfile.name)
 
-    def test_deadlock(self):
+    def test_destroy_deadlock(self):
         # Make sure that we don't deadlock if some upload threads
         # terminate prematurely
 
@@ -130,7 +134,7 @@ class cache_tests(unittest.TestCase):
         def _removal_loop(*a, fn=self.cache._removal_loop):
             try:
                 return fn(*a)
-            except PermissionError:
+            except (PermissionError, NoSuchObject):
                 nonlocal removal_exc
                 removal_exc = True
         self.cache._upload_loop = _upload_loop
@@ -153,7 +157,11 @@ class cache_tests(unittest.TestCase):
         # Shutdown threads
         llfuse.lock.release()
         try:
-            self.cache.destroy()
+            with catch_logmsg('Unable to flush cache, no upload threads left alive',
+                              level=logging.ERROR):
+                with pytest.raises(OSError) as exc_info:
+                    self.cache.destroy()
+                assert exc_info.value.errno == errno.ENOTEMPTY
         finally:
             # Fix permissions and make second destroy call into no-op
             os.chmod(self.backend_dir + '/s3ql_data_', 0o755)
@@ -161,6 +169,50 @@ class cache_tests(unittest.TestCase):
             llfuse.lock.acquire()
 
         assert removal_exc
+        assert upload_exc
+        
+    def test_expire_deadlock(self):
+        # Make sure that we don't deadlock if uploads threads
+        # are gone and we try to expire
+
+        # Monkeypatch to avoid error messages about uncaught exceptinons
+        # in other threads
+        upload_exc = False
+        def _upload_loop(*a, fn=self.cache._upload_loop):
+            try:
+                return fn(*a)
+            except PermissionError:
+                nonlocal upload_exc
+                upload_exc = True
+        self.cache._upload_loop = _upload_loop
+
+        # There will also be exceptions from trying to remove the
+        # objects whose upload previously failed.
+        def _removal_loop(*a, fn=self.cache._removal_loop):
+            try:
+                return fn(*a)
+            except NoSuchObject:
+                pass
+        self.cache._removal_loop = _removal_loop
+
+        # Start threads
+        self.cache.init(threads=3)
+
+        # Make sure that upload will fail
+        os.chmod(self.backend_dir, 0o555)
+        
+        # Create object
+        with self.cache.get(self.inode, 0) as fh:
+            fh.write(b'bar wurfz!')
+
+        # Expire
+        with pytest.raises(NoWorkerThreads):
+            self.cache.clear()
+
+        # Fix permissions, remove object
+        os.chmod(self.backend_dir, 0o755)
+        self.cache.remove(self.inode, 0)
+
         assert upload_exc
         
     @staticmethod

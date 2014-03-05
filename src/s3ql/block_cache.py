@@ -13,7 +13,7 @@ from .logging import logging # Ensure use of custom logger class
 from collections import OrderedDict
 from contextlib import contextmanager
 from llfuse import lock, lock_released
-from queue import Queue, Empty as QueueEmpty
+from queue import Queue, Empty as QueueEmpty, Full as QueueFull
 import os
 import hashlib
 import shutil
@@ -29,6 +29,14 @@ QuitSentinel = object()
 # Special queue entry that signals that removal queue should
 # be flushed
 FlushSentinel = object()
+
+class NoWorkerThreads(Exception):
+    '''
+    Raised when trying to enqueue an object, but there
+    are no active consumer threads.
+    '''
+    
+    pass
 
 class Distributor(object):
     '''
@@ -48,8 +56,7 @@ class Distributor(object):
         '''Offer *obj* for consumption
         
         The method blocks until another thread calls `get()` to consume the
-        object, unless *obj* is `QuitSentinel`. In this case, the method returns
-        immediately.
+        object.
 
         Return `True` if the object was consumed, and `False` if *timeout* was
         exceeded without any activity in the queue (this means an individual
@@ -61,17 +68,15 @@ class Distributor(object):
             raise ValueError("Can't put None into Queue")
 
         with self.cv:
-            if obj is not QuitSentinel:
-                # Wait until a thread is ready to read
-                while self.readers == 0 or self.slot is not None:
-                    log.debug('waiting for reader..')
-                    if not self.cv.wait(timeout):
-                        log.debug('timeout, returning')
-                        return False
-                log.debug('got reader')
-                self.readers -= 1
-
-            log.debug('enqueueing %s', obj)
+            # Wait until a thread is ready to read
+            while self.readers == 0 or self.slot is not None:
+                log.debug('waiting for reader..')
+                if not self.cv.wait(timeout):
+                    log.debug('timeout, returning')
+                    return False
+                
+            log.debug('got reader, enqueueing %s', obj)
+            self.readers -= 1
             assert self.slot is None
             self.slot = obj
             self.cv.notify_all() # notify readers
@@ -82,18 +87,17 @@ class Distributor(object):
         '''Consume and return an object
         
         The method blocks until another thread offers an object by calling the
-        `put` method. If a `QuitSentinel` object is encountered, it is *not*
-        removed and can be retrieved an unlimited number of times.
+        `put` method. 
         '''
         with self.cv:
             self.readers += 1 
-            self.cv.notify_all() # notify writers
+            self.cv.notify_all()
             while self.slot is None:
                 log.debug('waiting for writer..')
                 self.cv.wait()
             tmp = self.slot
-            if tmp is not QuitSentinel:
-                self.slot = None
+            self.slot = None
+            self.cv.notify_all() 
                 
         return tmp
 
@@ -337,26 +341,34 @@ class BlockCache(object):
         This method should be called without the global lock held.
         '''
 
-        log.debug('destroy(): clearing cache...')
-        with lock:
-            self.clear()
+        log.debug('clearing cache...')
+        try:
+            with lock:
+                self.clear()
+        except NoWorkerThreads:
+            log.error('Unable to flush cache, no upload threads left alive')
 
-        # QuitSentinel can be retrieved infinitely
-        if self.upload_threads:
-            self.to_upload.put(QuitSentinel)
+        # Signal termination to worker threads. If some of them
+        # terminated prematurely, continue gracefully.
+        log.debug('Signaling upload threads...')
+        try:
+            for t in self.upload_threads:
+                self._queue_upload(QuitSentinel)
+        except NoWorkerThreads:
+            pass
 
-        for t in self.removal_threads:
-            # Temporarily extend queue size, to make sure that we can fit
-            # in all Sentinel objects (otherwise we may deadlock if some
-            # threads have terminated prematurely)
-            self.to_remove.maxsize += len(self.removal_threads)
-            self.to_remove.put(QuitSentinel)
+        log.debug('Signaling removal threads...')
+        try:
+            for t in self.removal_threads:
+                self._queue_removal(QuitSentinel)
+        except NoWorkerThreads:
+            pass
 
-        log.debug('destroy(): waiting for upload threads...')
+        log.debug('waiting for upload threads...')
         for t in self.upload_threads:
             t.join()
         
-        log.debug('destroy(): waiting for removal threads...')
+        log.debug('waiting for removal threads...')
         for t in self.removal_threads:
             t.join()
 
@@ -367,7 +379,8 @@ class BlockCache(object):
         except QueueEmpty:
             pass
         else:
-            raise RuntimeError('Removal queue not empty - exception in removal threads?')
+            log.error('Could not complete object removals, '
+                      'no removal threads left alive')
         
         self.to_upload = None
         self.to_remove = None
@@ -421,6 +434,34 @@ class BlockCache(object):
                 self.db.execute('UPDATE objects SET size=? WHERE id=?', (obj_size, obj_id))
                 el.dirty = False
 
+        except:
+            # At this point we have to remove references to this storage object
+            # from the objects and blocks table to prevent future cache elements
+            # to be de-duplicated against this (missing) one. However, this may
+            # already have happened during the attempted upload. The only way to
+            # avoid this problem is to insert the hash into the blocks table
+            # *after* successfull upload. But this would open a window without
+            # de-duplication just to handle the special case of an upload
+            # failing.            
+            #
+            # On the other hand, we also want to prevent future deduplication
+            # against this block: otherwise the next attempt to upload the same
+            # cache element (by a different upload thread that has not
+            # encountered problems yet) is guaranteed to link against the
+            # non-existing block, and the data will be lost.
+            #
+            # Therefore, we just set the hash of the missing block to NULL,
+            # and rely on fsck to pick up the pieces. Note that we cannot
+            # delete the row from the blocks table, because the id will get
+            # assigned to a new block, so the inode_blocks entries will
+            # refer to incorrect data.
+            #
+            
+            with lock:
+                self.db.execute('UPDATE blocks SET hash=NULL WHERE obj_id=?',
+                                (obj_id,))
+            raise
+            
         finally:
             self.in_transit.remove(el)
             self._unlock_obj(obj_id)
@@ -505,7 +546,7 @@ class BlockCache(object):
                 
                 with lock_released:
                     self._lock_obj(obj_id)
-                    self.to_upload.put((el, obj_id))
+                    self._queue_upload((el, obj_id))
 
             # There is a block with the same hash
             else:
@@ -538,7 +579,35 @@ class BlockCache(object):
 
         self._deref_block(old_block_id)
 
-    
+    def _queue_upload(self, obj):
+        '''Put *obj* into upload queue'''
+
+        while True:
+            if self.to_upload.put(obj, timeout=5):
+                return
+            for t in self.upload_threads:
+                if t.is_alive():
+                    break
+            else:
+                raise NoWorkerThreads('no upload threads')
+            
+    def _queue_removal(self, obj):
+        '''Put *obj* into removal queue'''
+
+        while True:
+            try:
+                self.to_remove.put(obj, timeout=5)
+            except QueueFull:
+                pass
+            else:
+                return
+            
+            for t in self.removal_threads:
+                if t.is_alive():
+                    break
+            else:
+                raise NoWorkerThreads('no removal threads')
+            
     def _deref_block(self, block_id):
         '''Decrease reference count for *block_id*
 
@@ -576,7 +645,7 @@ class BlockCache(object):
         with lock_released:
             self._lock_obj(obj_id)
             self._unlock_obj(obj_id)
-            self.to_remove.put(obj_id)
+            self._queue_removal(obj_id)
 
 
     def transfer_in_progress(self):

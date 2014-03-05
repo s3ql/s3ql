@@ -16,8 +16,8 @@ UNRELEASED, S3QL 2.8
   * S3QL now requires the python dugong module
     (https://bitbucket.org/nikratio/python-dugong)
 
-  * Fixed a hang on unmount when several upload threads terminated
-    prematurely because of unexpected backend problems.
+  * Fixed a file system hang when all upload threads encounter
+    unexpected backend problems.
   
 2013-12-16, S3QL 2.7
 

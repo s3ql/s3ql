@@ -88,8 +88,9 @@ class fs_api_tests(unittest.TestCase):
         cache.to_remove = DummyQueue(cache)
 
         class DummyDistributor:
-            def put(self, arg):
+            def put(self, arg, timeout=None):
                 cache._do_upload(*arg)
+                return True
         cache.to_upload = DummyDistributor()
         
         # Keep track of unused filenames
