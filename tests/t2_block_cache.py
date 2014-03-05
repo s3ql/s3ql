@@ -119,16 +119,20 @@ class cache_tests(unittest.TestCase):
 
         # Monkeypatch to avoid error messages about uncaught exceptinons
         # in other threads
+        upload_exc = False
+        removal_exc = False
         def _upload_loop(*a, fn=self.cache._upload_loop):
             try:
                 return fn(*a)
             except PermissionError:
-                pass
+                nonlocal upload_exc
+                upload_exc = True
         def _removal_loop(*a, fn=self.cache._removal_loop):
             try:
                 return fn(*a)
             except PermissionError:
-                pass
+                nonlocal removal_exc
+                removal_exc = True
         self.cache._upload_loop = _upload_loop
         self.cache._removal_loop = _removal_loop
 
@@ -156,6 +160,9 @@ class cache_tests(unittest.TestCase):
             self.cache.destroy = lambda: None
             llfuse.lock.acquire()
 
+        assert removal_exc
+        assert upload_exc
+        
     @staticmethod
     def random_data(len_):
         with open("/dev/urandom", "rb") as fh:
