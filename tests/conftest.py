@@ -21,6 +21,8 @@ import logging.handlers
 import sys
 import os.path
 import pytest
+import faulthandler
+import signal
 
 # Converted to autouse fixture below if capture is activated
 def check_test_output(request, capfd):
@@ -83,6 +85,11 @@ def pytest_configure(config):
         import warnings
         warnings.resetwarnings()
         warnings.simplefilter('error')
+
+    # Enable faulthandler
+    faultlog_fh = open(os.path.join(basedir, 'tests', 'test_crit.log'), 'a')
+    faulthandler.enable(faultlog_fh)
+    faulthandler.register(signal.SIGUSR1, file=faultlog_fh)
 
     # Enable logging
     import s3ql.logging

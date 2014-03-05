@@ -13,5 +13,6 @@ syntax: regexp
 ^contrib/expire_backups.1$
 ^contrib/pcp.1$
 ^tests/test.log$
+^tests/test_crit.log$
 ^runtests.py$
 ^s3ql.old$
