@@ -1,4 +1,4 @@
-UNRELEASED, S3QL 2.8
+2014-03-13, S3QL 2.8
 
   * Fixed various problems with using a proxy server.
 
@@ -18,7 +18,7 @@ UNRELEASED, S3QL 2.8
 
   * Fixed a file system hang when all upload threads encounter
     unexpected backend problems.
-  
+
 2013-12-16, S3QL 2.7
 
   * Fixed another race condition that could lead to mount.s3ql
