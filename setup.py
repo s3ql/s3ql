@@ -18,6 +18,7 @@ from setuptools import Extension
 import setuptools.command.test as setuptools_test
 
 import sys
+from distutils.version import LooseVersion
 import os
 import subprocess
 import logging.handlers
@@ -208,8 +209,7 @@ class build_cython(setuptools.Command):
         except ImportError:
             raise SystemExit('Cython needs to be installed for this command')
 
-        cython_ver = [ int(x) for x in Cython.__version__.split('.') ]
-        if cython_ver < [0, 17]:
+        if LooseVersion(Cython.__version__) < "0.17":
             raise SystemExit('Found Cython %s, but need 0.17 or newer'
                              % (Cython.__version__,))
 
