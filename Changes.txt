@@ -1,3 +1,10 @@
+2014-03-29, S3QL 2.8.1
+
+  * No changes in S3QL itself.
+
+  * The S3QL 2.8 tarball accidentally included a copy of the Python
+    dugong module. This has been fixed in the 2.8.1 release.
+
 2014-03-13, S3QL 2.8
 
   * Fixed various problems with using a proxy server.
