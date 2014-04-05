@@ -15,5 +15,7 @@ exclude MANIFEST.in
 prune doc/doctrees
 prune src/dugong
 prune doc/man/.doctrees
+prune doc/html/.doctrees
 global-exclude *.pyc
 global-exclude *.pyo
+global-exclude *.log
