@@ -14,7 +14,8 @@ from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docs
                                   ABCDocstMeta)
 from io import BytesIO
 from shutil import copyfileobj
-from dugong import HTTPConnection, is_temp_network_error, BodyFollowing, CaseInsensitiveDict
+from dugong import (HTTPConnection, is_temp_network_error, BodyFollowing, CaseInsensitiveDict,
+                    UnsupportedResponse)
 from base64 import b64encode, b64decode
 from email.utils import parsedate_tz, mktime_tz
 from urllib.parse import urlsplit
@@ -134,9 +135,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         '''
 
         if body is None:
-            body = self.conn.read(2048)
-            if body:
-                self.conn.discard()
+            try:
+                body = self.conn.read(2048)
+                if body:
+                    self.conn.discard()
+            except UnsupportedResponse:
+                log.warning('Unsupported response, trying to retrieve data from raw socket!')
+                body = self.conn.read_raw(2048)
+                self.conn.close()
         else:
             body = body[:2048]
             
