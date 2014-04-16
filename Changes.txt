@@ -1,3 +1,8 @@
+UNRELEASED, S3QL tip
+
+  * Fix crash when using swift backend and server uses an
+    authentication URL other than /v1.0.
+    
 2014-03-29, S3QL 2.8.1
 
   * No changes in S3QL itself.

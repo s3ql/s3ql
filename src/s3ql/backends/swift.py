@@ -135,15 +135,15 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
             if resp.status == 412:
                 log.debug('_refresh_auth(): auth to %s failed, trying next path', auth_path)
-                self.conn.discard()
+                conn.discard()
                 continue
 
             elif resp.status == 401:
-                self.conn.discard()
+                conn.disconnect()
                 raise AuthorizationError(resp.reason)
 
             elif resp.status > 299 or resp.status < 200:
-                self.conn.discard()
+                conn.disconnect()
                 raise HTTPError(resp.status, resp.reason, resp.headers)
 
             # Pylint can't infer SplitResult Types
