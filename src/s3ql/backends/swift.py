@@ -133,7 +133,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             conn.send_request('GET', auth_path, headers=headers)
             resp = conn.read_response()
 
-            if resp.status == 412:
+            if resp.status in (404, 412):
                 log.debug('_refresh_auth(): auth to %s failed, trying next path', auth_path)
                 conn.discard()
                 continue
