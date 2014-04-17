@@ -114,27 +114,21 @@ class cache_tests(unittest.TestCase):
     def test_destroy_deadlock(self):
         # Make sure that we don't deadlock if some upload threads
         # terminate prematurely
-
-        # Create an object
-        with self.cache.get(self.inode, 0) as fh:
-            fh.seek(0)
-            fh.write(b'barf!')
-        self.cache.commit()
-
-        # Monkeypatch to avoid error messages about uncaught exceptinons
+        
+        # Monkeypatch to avoid error messages about uncaught exceptions
         # in other threads
         upload_exc = False
         removal_exc = False
         def _upload_loop(*a, fn=self.cache._upload_loop):
             try:
                 return fn(*a)
-            except PermissionError:
+            except NotADirectoryError:
                 nonlocal upload_exc
                 upload_exc = True
         def _removal_loop(*a, fn=self.cache._removal_loop):
             try:
                 return fn(*a)
-            except (PermissionError, NoSuchObject):
+            except (NotADirectoryError, NoSuchObject):
                 nonlocal removal_exc
                 removal_exc = True
         self.cache._upload_loop = _upload_loop
@@ -144,7 +138,8 @@ class cache_tests(unittest.TestCase):
         self.cache.init(threads=5)
 
         # Make sure that upload and removal will fail
-        os.chmod(self.backend_dir + '/s3ql_data_', 0o555)
+        os.rename(self.backend_dir, self.backend_dir + '-tmp')
+        open(self.backend_dir, 'w').close()
         
         # Create another object
         with self.cache.get(self.inode, 1) as fh:
@@ -163,8 +158,9 @@ class cache_tests(unittest.TestCase):
                     self.cache.destroy()
                 assert exc_info.value.errno == errno.ENOTEMPTY
         finally:
-            # Fix permissions and make second destroy call into no-op
-            os.chmod(self.backend_dir + '/s3ql_data_', 0o755)
+            # Fix backend dir and make second destroy call into no-op
+            os.unlink(self.backend_dir)
+            os.rename(self.backend_dir + '-tmp', self.backend_dir)
             self.cache.destroy = lambda: None
             llfuse.lock.acquire()
 
@@ -181,7 +177,7 @@ class cache_tests(unittest.TestCase):
         def _upload_loop(*a, fn=self.cache._upload_loop):
             try:
                 return fn(*a)
-            except PermissionError:
+            except NotADirectoryError:
                 nonlocal upload_exc
                 upload_exc = True
         self.cache._upload_loop = _upload_loop
@@ -191,7 +187,7 @@ class cache_tests(unittest.TestCase):
         def _removal_loop(*a, fn=self.cache._removal_loop):
             try:
                 return fn(*a)
-            except NoSuchObject:
+            except (NoSuchObject, NotADirectoryError):
                 pass
         self.cache._removal_loop = _removal_loop
 
@@ -199,7 +195,8 @@ class cache_tests(unittest.TestCase):
         self.cache.init(threads=3)
 
         # Make sure that upload will fail
-        os.chmod(self.backend_dir, 0o555)
+        os.rename(self.backend_dir, self.backend_dir + '-tmp')
+        open(self.backend_dir, 'w').close()
         
         # Create object
         with self.cache.get(self.inode, 0) as fh:
@@ -209,8 +206,9 @@ class cache_tests(unittest.TestCase):
         with pytest.raises(NoWorkerThreads):
             self.cache.clear()
 
-        # Fix permissions, remove object
-        os.chmod(self.backend_dir, 0o755)
+        # Fix backend dir and remove object
+        os.unlink(self.backend_dir)
+        os.rename(self.backend_dir + '-tmp', self.backend_dir)
         self.cache.remove(self.inode, 0)
 
         assert upload_exc
