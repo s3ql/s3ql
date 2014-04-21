@@ -326,8 +326,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             headers['Content-MD5'] = md5sum_b64(body)
             
         redirect_count = 0
+        this_method = method
         while True:
-            resp = self._send_request(method, path, headers=headers, subres=subres,
+            resp = self._send_request(this_method, path, headers=headers, subres=subres,
                                       query_string=query_string, body=body)
             log.debug('status: %d, request-id: %s', resp.status,
                       resp.headers['x-amz-request-id'])
@@ -361,15 +362,16 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     self.conn = self._get_conn()
                 else:
                     raise RuntimeError('Redirect to different path on same host')
-                
-            # ..but endpoint may also be hidden in message body..
-            else:
-                # If we got a HEAD response, the server cannot transmit the
-                # request body with the endpoint
-                if method == 'HEAD':
-                    assert self.conn.read(1) == b''
-                    raise HTTPError(resp.status, resp.reason, resp.headers)
 
+            # ..but endpoint may also be hidden in message body.
+            # If we have done a HEAD request, we have to change to GET
+            # to actually retrieve the body.
+            elif resp.method == 'HEAD':
+                log.debug('Switching from HEAD to GET to read redirect body')
+                this_method = 'GET'
+
+            # Try to read new URL from request body
+            else:
                 tree = self._parse_xml_response(resp)
                 new_url = tree.findtext('Endpoint')
 
@@ -379,11 +381,19 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 self.hostname = new_url
                 self.conn.disconnect()
                 self.conn = self._get_conn()
-                
-            log.info('_do_request(): redirected to %s', new_url)
 
+                # Update method
+                this_method = method
+
+            log.info('_do_request(): redirected to %s', self.conn.hostname)
+            
             if body and not isinstance(body, (bytes, bytearray, memoryview)):
                 body.seek(0)
+
+        # At the end, the request should have gone out with the right
+        # method
+        if this_method != method:
+            raise RuntimeError('Dazed and confused - HEAD fails but GET works?')
 
         # Success
         if resp.status >= 200 and resp.status <= 299:
