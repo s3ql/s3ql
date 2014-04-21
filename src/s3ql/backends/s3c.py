@@ -121,8 +121,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         elif is_temp_network_error(exc):
             return True
-        
-        elif isinstance(exc, HTTPError) and exc.status >= 500 and exc.status <= 599:
+
+        # In doubt, we retry on 5xx. However, there are some codes
+        # where retry is definitely not desired.
+        elif (isinstance(exc, HTTPError)
+              and exc.status >= 500 and exc.status <= 599
+              and exc.status not in (501,505,508,510,511,523)):
             return True
         
         return False
@@ -381,21 +385,46 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if body and not isinstance(body, (bytes, bytearray, memoryview)):
                 body.seek(0)
 
-        # Success 
+        # Success
         if resp.status >= 200 and resp.status <= 299:
             return resp
 
+        # Error
+        self._parse_error_response(resp)
+
+    def _parse_error_response(self, resp):
+        '''Handle error response from server
+
+        Try to raise most-specific exception.
+        '''
+
+        # Note that even though the final server backend may guarantee to always
+        # deliver an XML document body with a detailed error message, we may
+        # also get errors from intermediate proxies.        
+        content_type = resp.headers['Content-Type']
+
         # If method == HEAD, server must not return response body
         # even in case of errors
-        if method.upper() == 'HEAD':
+        if resp.method.upper() == 'HEAD':
             assert self.conn.read(1) == b''
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
-        # Error
-        tree = self._parse_xml_response(resp)
+        # If not XML, do the best we can
+        if not XML_CONTENT_RE.match(content_type):
+            raise HTTPError(resp.status, resp.reason, resp.headers)
+
+        # We don't stream the data into the parser because we want
+        # to be able to dump a copy if the parsing fails.
+        body = self.conn.readall()
+        try:
+            tree = ElementTree.parse(BytesIO(body)).getroot()
+        except:
+            log.error('Unable to parse server response as XML:\n%s',
+                      self._dump_response(resp, body))
+            raise
+
         raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'))
 
-    
     def _parse_xml_response(self, resp):
         '''Return element tree for XML response'''
 
@@ -423,7 +452,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return tree
 
-    
     @prepend_ancestor_docstring
     def clear(self):
         """
