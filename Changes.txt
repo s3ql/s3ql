@@ -4,6 +4,10 @@ UNRELEASED, S3QL tip
     authentication URL other than /v1.0.
 
   * Fixed two test failures when running unit tests as root.
+
+  * Fixed problems when receiving an HTTP error without a well-formed
+    XML body from the remote server (this may happen e.g. due to
+    failure in a transparent proxy or load balancer).
   
 2014-03-29, S3QL 2.8.1
 
