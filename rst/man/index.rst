@@ -19,5 +19,6 @@ here in the User's Guide.
    lock
    umount
    fsck
+   oauth_client
    pcp
    expire_backups

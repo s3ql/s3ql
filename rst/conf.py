@@ -239,6 +239,8 @@ man_pages = [
      None, 1),
     ('man/pcp', 'pcp', u'Recursive, parallel copy of directory trees',
      None, 1),
+    ('man/oauth_client', 's3ql_oauth_client', u'Obtain Google Storage OAuth2 tokens',
+     None, 1),
 ]
 
 

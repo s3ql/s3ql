@@ -61,6 +61,11 @@ that is not the case.
   <https://pypi.python.org/pypi/defusedxml/>`_. To check if this
   module is installed, try to execute `python -c 'import defusedxml'`.
 
+* If you want to use OAuth2 authentication with Google Storage, you
+  need the `Python requests module
+  <https://pypi.python.org/pypi/requests/>`_. To check if this module
+  is installed, try to execute `python -c 'import requests'`.
+  
 * `SQLite <http://www.sqlite.org/>`_ version 3.7.0 or newer. SQLite
   has to be installed as a *shared library* with development headers.
 

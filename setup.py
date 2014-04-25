@@ -129,6 +129,7 @@ def main():
 
     required_pkgs = ['apsw >= 3.7.0',
                      'pycrypto',
+                     'requests',
                      'defusedxml',
                      'dugong >= 2.0',
                      'llfuse >= 0.39' ]
@@ -175,6 +176,7 @@ def main():
                          's3qlctrl = s3ql.ctrl:main',
                          's3qllock = s3ql.lock:main',
                          's3qlrm = s3ql.remove:main',
+                         's3ql_oauth_client = s3ql.oauth_client:main',
                          ]
                           },
           install_requires=required_pkgs,
