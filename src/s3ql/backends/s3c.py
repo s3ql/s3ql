@@ -19,7 +19,7 @@ from dugong import (HTTPConnection, is_temp_network_error, BodyFollowing, CaseIn
 from base64 import b64encode, b64decode
 from email.utils import parsedate_tz, mktime_tz
 from urllib.parse import urlsplit
-from xml.etree import ElementTree
+import defusedxml.cElementTree as ElementTree
 import hashlib
 import os
 import hmac

@@ -8,6 +8,14 @@ UNRELEASED, S3QL tip
   * Fixed problems when receiving an HTTP error without a well-formed
     XML body from the remote server (this may happen e.g. due to
     failure in a transparent proxy or load balancer).
+
+  * S3QL now depends on the defusedxml Python module
+    (https://pypi.python.org/pypi/defusedxml/).
+
+  * S3QL is no longer vulnerable to DOS attacks from malicious backend
+    servers. Previously, a malicious server could induce S3QL to
+    consume arbitrary amounts of memory by recursive XML entity
+    expansion.
   
 2014-03-29, S3QL 2.8.1
 

@@ -129,6 +129,7 @@ def main():
 
     required_pkgs = ['apsw >= 3.7.0',
                      'pycrypto',
+                     'defusedxml',
                      'dugong >= 2.0',
                      'llfuse >= 0.39' ]
 
