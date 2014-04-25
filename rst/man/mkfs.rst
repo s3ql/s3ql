@@ -1,8 +1,9 @@
 .. -*- mode: rst -*-
 
-================================
-The :program:`mkfs.s3ql` command
-================================
+=====================
+The |command| command
+=====================
+
 
 Synopsis
 ========
@@ -38,4 +39,4 @@ The |command| command accepts the following options.
 
 .. include:: ../include/postman.rst
 
-.. |command| replace:: :command:`mkfs.s3ql` 
+.. |command| replace:: :program:`mkfs.s3ql` 

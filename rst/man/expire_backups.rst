@@ -1,9 +1,9 @@
 .. -*- mode: rst -*-
 
+=====================
+The |command| command
+=====================
 
-=======================================
- The :program:`expire_backups` command
-=======================================
 
 Synopsis
 ========
@@ -102,5 +102,5 @@ See Also
 
 |command| is shipped as part of S3QL, https://bitbucket.org/nikratio/s3ql/.
 
-.. |command| replace:: :command:`expire_backups` 
+.. |command| replace:: :program:`expire_backups` 
 

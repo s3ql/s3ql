@@ -1,8 +1,9 @@
 .. -*- mode: rst -*-
 
-================================
-The :program:`fsck.s3ql` command
-================================
+=====================
+The |command| command
+=====================
+
 
 Synopsis
 ========
@@ -32,4 +33,4 @@ The |command| command accepts the following options.
 
 .. include:: ../include/postman.rst
 
-.. |command| replace:: :command:`fsck.s3ql` 
+.. |command| replace:: :program:`fsck.s3ql` 

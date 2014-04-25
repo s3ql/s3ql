@@ -28,7 +28,7 @@ the file system is unmounted. This has two implications:
    fast because no data has to be send over the network.
 
 #. An S3QL filesystem can only be mounted on one computer at a time,
-   using a single :command:`mount.s3ql` process. Otherwise changes made in
+   using a single :program:`mount.s3ql` process. Otherwise changes made in
    one mountpoint will invariably be overwritten when the second mount
    point is unmounted.
  
@@ -109,7 +109,7 @@ marker object updated.
 Encryption
 ==========
 
-When the file system is created, :command:`mkfs.s3ql` generates a 256 bit
+When the file system is created, :program:`mkfs.s3ql` generates a 256 bit
 master key by reading from :file:`/dev/random`. The master key is
 encrypted with the passphrase that is entered by the user, and then
 stored with the rest of the file system data. Since the passphrase is
@@ -128,7 +128,7 @@ in the Python standard library.
 Once the session key has been calculated, a SHA256 HMAC is calculated
 over the data that is to be uploaded. Afterwards, the data is
 compressed (unless :cmdopt:`--compress none` was passed to
-:command:`mount.s3ql`) and the HMAC inserted at the beginning. Both HMAC
+:program:`mount.s3ql`) and the HMAC inserted at the beginning. Both HMAC
 and compressed data are then encrypted using 256 bit AES in CTR
 mode using PyCrypto_.  Finally, the nonce is
 inserted in front of the encrypted data and HMAC, and the packet is

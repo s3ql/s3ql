@@ -1,9 +1,8 @@
 .. -*- mode: rst -*-
 
-
-=================================
-The :program:`s3qlstat` command
-=================================
+=====================
+The |command| command
+=====================
 
 Synopsis
 ========
@@ -35,5 +34,5 @@ The |command| command accepts the following options:
 
 .. include:: ../include/postman.rst
 
-.. |command| replace:: :command:`s3qlstat` 
+.. |command| replace:: :program:`s3qlstat` 
 

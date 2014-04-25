@@ -1,9 +1,9 @@
 .. -*- mode: rst -*-
 
+=====================
+The |command| command
+=====================
 
-=================================
-The :program:`s3qlcp` command
-=================================
 
 Synopsis
 ========
@@ -89,5 +89,5 @@ The |command| command accepts the following options:
 .. include:: ../include/postman.rst
 
 
-.. |command| replace:: :command:`s3qlcp` 
+.. |command| replace:: :program:`s3qlcp` 
 

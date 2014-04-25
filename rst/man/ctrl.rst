@@ -1,9 +1,9 @@
 .. -*- mode: rst -*-
 
+=====================
+The |command| command
+=====================
 
-=================================
-The :program:`s3qlctrl` command
-=================================
 
 Synopsis
 ========
@@ -69,5 +69,5 @@ what specific action is being invoked:
 .. include:: ../include/postman.rst
 
 
-.. |command| replace:: :command:`s3qlctrl` 
+.. |command| replace:: :program:`s3qlctrl` 
 

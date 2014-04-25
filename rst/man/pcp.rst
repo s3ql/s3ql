@@ -1,9 +1,9 @@
 .. -*- mode: rst -*-
 
+=====================
+The |command| command
+=====================
 
-=================================
-The :program:`pcp` command
-=================================
 
 Synopsis
 ========
@@ -46,5 +46,5 @@ See Also
 
 |command| is shipped as part of S3QL, https://bitbucket.org/nikratio/s3ql/.
 
-.. |command| replace:: :command:`pcp` 
+.. |command| replace:: :program:`pcp` 
 

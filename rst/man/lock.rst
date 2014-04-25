@@ -1,9 +1,9 @@
 .. -*- mode: rst -*-
 
+=====================
+The |command| command
+=====================
 
-=================================
-The :program:`s3qllock` command
-=================================
 
 Synopsis
 ========
@@ -78,5 +78,5 @@ The |command| command accepts the following options:
 .. include:: ../include/postman.rst
 
 
-.. |command| replace:: :command:`s3qllock` 
+.. |command| replace:: :program:`s3qllock` 
 

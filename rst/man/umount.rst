@@ -1,8 +1,8 @@
 .. -*- mode: rst -*-
 
-==================================
-The :program:`umount.s3ql` command
-==================================
+=====================
+The |command| command
+=====================
 
 Synopsis
 ========
@@ -41,4 +41,4 @@ The |command| command accepts the following options.
 
 .. include:: ../include/postman.rst
 
-.. |command| replace:: :command:`umount.s3ql` 
+.. |command| replace:: :program:`umount.s3ql` 

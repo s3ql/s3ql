@@ -1,9 +1,9 @@
 .. -*- mode: rst -*-
 
+=====================
+The |command| command
+=====================
 
-=================================
-The :program:`mount.s3ql` command
-=================================
 
 Synopsis
 ========
@@ -36,5 +36,5 @@ The |command| command accepts the following options.
 .. include:: ../include/postman.rst
 
 
-.. |command| replace:: :command:`mount.s3ql` 
+.. |command| replace:: :program:`mount.s3ql` 
 
