@@ -71,6 +71,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.password = password
         self.login = login
         self.xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
+        self.hdr_prefix = 'x-amz-'
 
     @copy_ancestor_docstring
     def reset(self):
@@ -242,7 +243,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             else:
                 raise
 
-        return extractmeta(resp)
+        return self._extractmeta(resp)
 
     @retry
     @copy_ancestor_docstring
@@ -272,7 +273,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         except NoSuchKeyError:
             raise NoSuchObject(key)
 
-        return ObjectR(key, resp, self, extractmeta(resp))
+        return ObjectR(key, resp, self, self._extractmeta(resp))
 
     @prepend_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
@@ -291,9 +292,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         chunksize = 255
         i = 0
         headers = CaseInsensitiveDict()
-        headers['x-amz-meta-format'] = 'pickle'
+        headers[self.hdr_prefix + 'meta-format'] = 'pickle'
         while i*chunksize < len(meta_buf):
-            headers['x-amz-meta-data-%02d' % i] = meta_buf[i*chunksize:(i+1)*chunksize]
+            headers[self.hdr_prefix +
+                    'meta-data-%02d' % i] = meta_buf[i*chunksize:(i+1)*chunksize]
             i += 1
 
         return ObjectW(key, self, headers)
@@ -306,8 +308,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         try:
             self._do_request('PUT', '/%s%s' % (self.prefix, dest),
-                             headers={ 'x-amz-copy-source': '/%s/%s%s' % (self.bucket_name,
-                                                                          self.prefix, src)})
+                             headers={ self.hdr_prefix + 'copy-source':
+                                           '/%s/%s%s' % (self.bucket_name, self.prefix, src)})
             self.conn.discard()
         except NoSuchKeyError:
             raise NoSuchObject(src)
@@ -574,6 +576,41 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def close(self):
         self.conn.disconnect()
 
+    def _extractmeta(self, resp):
+        '''Extract metadata from HTTP response object'''
+
+        meta = dict()
+        pattern = re.compile(r'^%smeta-(.+)$' % re.escape(self.hdr_prefix),
+                             re.IGNORECASE)
+        format_ = 'raw'
+        for (name, val) in resp.headers.items():
+            # HTTP headers are case-insensitive and pre 2.x S3QL versions metadata
+            # names verbatim (and thus loose capitalization info), so we force lower
+            # case (since we know that this is the original capitalization).
+            name = name.lower()
+
+            hit = pattern.search(name)
+            if not hit:
+                continue
+
+            if hit.group(1) == 'format':
+                format_ = val
+            else:
+                meta[hit.group(1)] = val
+
+        if format_ == 'pickle':
+            buf = ''.join(meta[x] for x in sorted(meta)
+                          if x.startswith('data-'))
+            try:
+                return pickle.loads(b64decode(buf))
+            except pickle.UnpicklingError as exc:
+                if (isinstance(exc.args[0], str)
+                    and exc.args[0].startswith('invalid load key')):
+                    raise ChecksumError('Invalid metadata')
+                raise
+        else:
+            return meta
+        
 class ObjectR(object):
     '''An S3 object open for reading'''
 
@@ -727,39 +764,6 @@ def get_S3Error(code, msg):
         return S3Error(code, msg)
     
     return class_(code, msg)
-
-def extractmeta(resp):
-    '''Extract metadata from HTTP response object'''
-
-    meta = dict()
-    format_ = 'raw'
-    for (name, val) in resp.headers.items():
-        # HTTP headers are case-insensitive and pre 2.x S3QL versions metadata
-        # names verbatim (and thus loose capitalization info), so we force lower
-        # case (since we know that this is the original capitalization).
-        name = name.lower()
-
-        hit = re.match(r'^x-amz-meta-(.+)$', name, re.IGNORECASE)
-        if not hit:
-            continue
-
-        if hit.group(1).lower() == 'format':
-            format_ = val
-        else:
-            meta[hit.group(1)] = val
-
-    if format_ == 'pickle':
-        buf = ''.join(meta[x] for x in sorted(meta)
-                      if x.startswith('data-'))
-        try:
-            return pickle.loads(b64decode(buf))
-        except pickle.UnpicklingError as exc:
-            if (isinstance(exc.args[0], str)
-                and exc.args[0].startswith('invalid load key')):
-                raise ChecksumError('Invalid metadata')
-            raise
-    else:
-        return meta
 
 
 def md5sum_b64(buf):
