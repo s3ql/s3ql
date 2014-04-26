@@ -1,5 +1,7 @@
 .. -*- mode: rst -*-
 
+.. _oauth_client:
+
 =====================
 The |command| command
 =====================

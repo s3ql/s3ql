@@ -29,27 +29,41 @@ storage service offered by Google. To use the Google Storage backend,
 you need to have (or sign up for) a Google account, and then `activate
 Google Storage <http://code.google.com/apis/storage/docs/signup.html>`_
 for your account. The account is free, you will pay only for the
-amount of storage and traffic that you actually use. Once you have
-created the account, make sure to `activate legacy access
-<http://code.google.com/apis/storage/docs/reference/v1/apiversion1.html#enabling>`_.
+amount of storage and traffic that you actually use. There are two
+ways to access Google storage:
+
+#. Use S3-like authentication. To do this, first `set a  default
+   project
+   <https://developers.google.com/storage/docs/migrating#defaultproj>`_.
+   Then use the `key management tool
+   <https://code.google.com/apis/console/#:storage:legacy>`_ to
+   retrieve your *Google Storage developer access key* and *Google
+   Storage developer secret* and use that as backend login and backend
+   password.
+
+#. Use OAuth2 authentication. In this case you need to use ``oauth2``
+   as the backend login, and a valid OAuth2 refresh token as the
+   backend password. To obtain a refresh token, you can use the
+   :ref:`s3ql_oauth_client <oauth_client>` program. It will instruct
+   you to open a specific URL in your browser, enter a code and
+   authenticate with your Google account. Once this procedure is
+   complete, :ref:`s3ql_oauth_client <oauth_client>` will print out
+   the refresh token. Note that you need to do this procedure only
+   once, the refresh token will remain valid until you explicitly
+   revoke it.
 
 To create a Google Storage bucket, you can use e.g. the `Google
-Storage Manager <https://sandbox.google.com/storage/>`_. The storage
-URL for accessing the bucket in S3QL is then ::
+Storage Manager`_. The storage URL for accessing the bucket in S3QL is
+then ::
 
    gs://<bucketname>/<prefix>
 
-Here *bucketname* is the name of the bucket, and *prefix* can be
-an arbitrary prefix that will be prepended to all object names used by
+Here *bucketname* is the name of the bucket, and *prefix* can be an
+arbitrary prefix that will be prepended to all object names used by
 S3QL. This allows you to store several S3QL file systems in the same
 Google Storage bucket.
 
-Note that the backend login and password for accessing your Google
-Storage bucket are not your Google account name and password, but the
-*Google Storage developer access key* and *Google Storage developer
-secret* that you can manage with the `Google Storage key management
-tool <https://code.google.com/apis/console/#:storage:legacy>`_.
-
+.. _`Google Storage Manager`: https://sandbox.google.com/storage/
 
 Amazon S3
 =========

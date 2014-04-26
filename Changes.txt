@@ -17,6 +17,11 @@ UNRELEASED, S3QL tip
     consume arbitrary amounts of memory by recursive XML entity
     expansion.
   
+  * S3QL now supports Google OAuth2 authentication. To use it, specify
+    'oauth2' as backend login, and a valid OAuth2 refresh token as
+    backend password. To obtain the refresh token, the (new)
+    s3ql_oauth_client command may be used.
+
 2014-03-29, S3QL 2.8.1
 
   * No changes in S3QL itself.
