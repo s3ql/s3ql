@@ -332,8 +332,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         while True:
             resp = self._send_request(this_method, path, headers=headers, subres=subres,
                                       query_string=query_string, body=body)
-            log.debug('status: %d, request-id: %s', resp.status,
-                      resp.headers['x-amz-request-id'])
 
             if (resp.status < 300 or resp.status > 399):
                 break
@@ -485,15 +483,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def __str__(self):
         return 's3c://%s/%s/%s' % (self.hostname, self.bucket_name, self.prefix)
 
-    def _send_request(self, method, path, headers, subres=None, query_string=None, body=None):
-        '''Add authentication and send request
-        
-        Returns the response object.
-        '''
+    def _authorize_request(self, method, path, headers, subres):
+        '''Add authorization information to *headers*'''
 
         # See http://docs.amazonwebservices.com/AmazonS3/latest/dev/RESTAuthentication.html
-        if not isinstance(headers, CaseInsensitiveDict):
-            headers = CaseInsensitiveDict(headers)
         
         # Date, can't use strftime because it's locale dependent
         now = time.gmtime()
@@ -528,6 +521,17 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                                        hashlib.sha1).digest()).decode()
 
         headers['Authorization'] = 'AWS %s:%s' % (self.login, signature)
+        
+    def _send_request(self, method, path, headers, subres=None, query_string=None, body=None):
+        '''Add authentication and send request
+        
+        Returns the response object.
+        '''
+
+        if not isinstance(headers, CaseInsensitiveDict):
+            headers = CaseInsensitiveDict(headers)
+            
+        self._authorize_request(method, path, headers, subres)
         
         # Construct full path
         if not self.hostname.startswith(self.bucket_name):
