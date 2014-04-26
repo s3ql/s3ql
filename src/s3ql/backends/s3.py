@@ -10,7 +10,7 @@ from ..logging import logging # Ensure use of custom logger class
 from . import s3c
 from .s3c import get_S3Error
 from .common import NoSuchObject, retry
-from ..common import QuietError, BUFSIZE
+from ..common import QuietError
 from ..inherit_docstrings import copy_ancestor_docstring
 from xml.sax.saxutils import escape as xml_escape
 import re
