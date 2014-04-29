@@ -1,3 +1,10 @@
+2014-04-28, S3QL 1.18.1
+
+  * No changes in S3QL itself.
+
+  * The S3QL 1.18 tarball accidentally included a copy of the Python
+    dugong module. This has been fixed in the 1.18.1 release.
+
 2014-04-26, S3QL 1.18
 
   * Fixed a problem with mount.s3ql crashing with `KeyError` under
