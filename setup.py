@@ -9,6 +9,14 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import division, print_function
 
+try:
+    import setuptools
+except ImportError:
+    raise SystemExit('Setuptools package not found. Please install from '
+                     'https://pypi.python.org/pypi/setuptools')
+from setuptools import Extension
+import setuptools.command.test as setuptools_test
+
 import sys
 import os
 import subprocess
@@ -28,15 +36,8 @@ if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
     
 # Add S3QL sources    
 sys.path.insert(0, os.path.join(basedir, 'src'))
-import s3ql
-
-# Import distribute
 sys.path.insert(0, os.path.join(basedir, 'util'))
-from distribute_setup import use_setuptools
-use_setuptools(version='0.6.14', download_delay=5)
-import setuptools
-import setuptools.command.test as setuptools_test
-from setuptools import Extension
+import s3ql
 
 class build_docs(setuptools.Command):
     description = 'Build Sphinx documentation'

@@ -49,7 +49,14 @@ that is not the case.
 * The `PyCrypto++ Python Module
   <http://pypi.python.org/pypi/pycryptopp>`_. To check if this module
   is installed, try to execute `python -c 'import pycryptopp'`. 
-  
+
+* The `setuptools Python Module
+  <https://pypi.python.org/pypi/setuptools>`_, version 1.0 or newer.
+  To check if with version (if any) of this module is installed, try
+  to execute ::
+
+    python -c 'import setuptools; print(setuptools.__version__)'
+
 * `SQLite <http://www.sqlite.org/>`_ version 3.7.0 or newer. SQLite
   has to be installed as a *shared library* with development headers.
 
