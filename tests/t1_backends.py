@@ -18,7 +18,7 @@ from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObjec
     BetterBackend, get_ssl_context, AuthenticationError, AuthorizationError,
     DanglingStorageURLError, MalformedObjectError, DecryptFilter, DecompressFilter)
 from s3ql.common import BUFSIZE
-from common import get_remote_test_info
+from common import get_remote_test_info, NoTestSection
 import s3ql.backends.common
 from argparse import Namespace
 import os
@@ -44,9 +44,12 @@ def plain_backend(request):
         options.no_ssl = False
         options.ssl_ca_path = None
 
-        (backend_login, backend_password,
-         fs_name) = get_remote_test_info(backend_name + '-test', pytest.skip)
-        
+        try:
+            (backend_login, backend_password,
+             fs_name) = get_remote_test_info(backend_name + '-test')
+        except NoTestSection as exc:
+            pytest.skip(exc.reason)
+
         backend = backend_class(fs_name, backend_login, backend_password,
                                 ssl_context=get_ssl_context(options))
 
@@ -418,9 +421,12 @@ class BackendTestTemplate(BackendTestsMixin):
         options.no_ssl = False
         options.ssl_ca_path = None
 
-        (backend_login, backend_password,
-         fs_name) = get_remote_test_info(backend_fs_name, self.skipTest)
-        
+        try:
+            (backend_login, backend_password,
+             fs_name) = get_remote_test_info(backend_fs_name)
+        except NoTestSection as exc:
+            self.skipTest(exc.reason)
+
         self.backend = backend_class(fs_name, backend_login, backend_password,
                                      ssl_context=get_ssl_context(options))
 

@@ -38,14 +38,14 @@ def catch_logmsg(pattern, level=logging.WARNING, count=None):
     logger_class = logging.getLoggerClass()
     handle_orig = logger_class.handle
     caught = [0]
-    
+
     @wraps(handle_orig)
     def handle_new(self, record):
         if (record.levelno != level
             or not re.search(pattern, record.msg)):
             return handle_orig(self, record)
         caught[0] += 1
-        
+
     logger_class.handle = handle_new
     try:
         yield
@@ -122,7 +122,7 @@ class AsyncFn(ExceptionStoringThread):
 
 def retry(timeout, fn, *a, **kw):
     """Wait for fn(*a, **kw) to return True.
-    
+
     If the return value of fn() returns something True, this value
     is returned. Otherwise, the function is called repeatedly for
     `timeout` seconds. If the timeout is reached, `RetryTimeoutError` is
@@ -153,7 +153,7 @@ def skip_if_no_fusermount():
     with subprocess.Popen(['which', 'fusermount'], stdout=subprocess.PIPE,
                           universal_newlines=True) as which:
         fusermount_path = which.communicate()[0].strip()
-    
+
     if not fusermount_path or which.returncode != 0:
         raise unittest.SkipTest("Can't find fusermount executable")
 
@@ -175,7 +175,7 @@ def skip_if_no_fusermount():
 
 def skip_without_rsync():
     try:
-        with open('/dev/null', 'wb') as null:        
+        with open('/dev/null', 'wb') as null:
             subprocess.call(['rsync', '--version'], stdout=null,
                             stderr=subprocess.STDOUT,)
     except FileNotFoundError:
@@ -184,12 +184,12 @@ def skip_without_rsync():
 def populate_dir(path, entries=1000, size=20*1024*1024,
                  pooldir='/usr/bin', seed=None):
     '''Populate directory with random data
-    
+
     *entries* specifies the total number of directory entries that are created
     in the tree. *size* specifies the size occupied by all files together. The
     files in *pooldir* are used as a source of directory names and file
     contents.
-    
+
     *seed* is used to initalize the random number generator and can be used to
     make the created structure reproducible (provided that the contents of
     *pooldir* don't change).
@@ -222,19 +222,19 @@ def populate_dir(path, entries=1000, size=20*1024*1024,
     scale = 0.5 * size / sum(file_sizes)
     file_sizes = [ int(scale * x) for x in file_sizes ]
     file_sizes.append(int(0.5 * size))
-    
+
     # Special characters for use in filenames
-    special_chars = [ chr(x) for x in range(256) 
+    special_chars = [ chr(x) for x in range(256)
                       if x not in (0, ord('/')) ]
 
     def random_name(path):
         '''Get random, non-existing file name underneath *path*
-        
+
         Returns a fully qualified path with a filename chosen from *poolnames*.
         '''
         while True:
             name = poolnames[random.randrange(len(poolnames))]
-            
+
             # Special characters
             len_ = random.randrange(4)
             if len_ > 0:
@@ -247,14 +247,14 @@ def populate_dir(path, entries=1000, size=20*1024*1024,
                     name += s
                 else:
                     name += s + poolnames[random.randrange(len(poolnames))]
-                
+
             fullname = os.path.join(path, name)
             if not os.path.lexists(fullname):
                 break
         return fullname
-    
-    
-    # 
+
+
+    #
     # Step 1: create directory tree
     #
     dirs = [ path ]
@@ -263,8 +263,8 @@ def populate_dir(path, entries=1000, size=20*1024*1024,
         name = random_name(dirs[idx])
         os.mkdir(name)
         dirs.append(name)
-    
-    
+
+
     #
     # Step 2: populate the tree with files
     #
@@ -283,7 +283,7 @@ def populate_dir(path, entries=1000, size=20*1024*1024,
                     dst.write(buf)
                 size -= len(buf)
         files.append(name)
-     
+
     #
     # Step 3: Special files
     #
@@ -293,7 +293,7 @@ def populate_dir(path, entries=1000, size=20*1024*1024,
         files.append(name)
 
     #
-    # Step 4: populate tree with symlinks 
+    # Step 4: populate tree with symlinks
     #
     for _ in range(symlink_cnt):
         relative = random.choice((True, False))
@@ -301,7 +301,7 @@ def populate_dir(path, entries=1000, size=20*1024*1024,
         idx = random.randrange(len(dirs))
         dir_ = dirs[idx]
         name = random_name(dir_)
-    
+
         if existing:
             directory = random.choice((True, False))
             if directory:
@@ -310,20 +310,20 @@ def populate_dir(path, entries=1000, size=20*1024*1024,
                 target = files[random.randrange(len(files))]
         else:
             target = random_name(dirs[random.randrange(len(dirs))])
-    
+
         if relative:
             target = os.path.relpath(target, dir_)
         else:
-            target = os.path.abspath(target) 
-            
+            target = os.path.abspath(target)
+
         os.symlink(target, name)
-        
+
     #
     # Step 5: Create some hardlinks
     #
     for _ in range(hardlink_cnt):
         samedir = random.choice((True, False))
-        
+
         target = files[random.randrange(len(files))]
         if samedir:
             dir_ = os.path.dirname(target)
@@ -332,16 +332,25 @@ def populate_dir(path, entries=1000, size=20*1024*1024,
         name = random_name(dir_)
         os.link(target, name)
         files.append(name)
-    
 
-def get_remote_test_info(name, skipTest):
+
+class NoTestSection(Exception):
+    '''
+    Raised by get_remote_test_info if no matching test
+    section was found.
+    '''
+
+    def __init__(self, reason):
+        self.reason = reason
+
+def get_remote_test_info(name):
         authfile = os.path.expanduser('~/.s3ql/authinfo2')
         if not os.path.exists(authfile):
-            skipTest('No authentication file found.')
+            raise NoTestSection('No authentication file found.')
 
         mode = os.stat(authfile).st_mode
         if mode & (stat.S_IRGRP | stat.S_IROTH):
-            skipTest("Authentication file has insecure permissions")
+            raise NoTestSection("Authentication file has insecure permissions")
 
         config = configparser.ConfigParser()
         config.read(authfile)
@@ -351,7 +360,7 @@ def get_remote_test_info(name, skipTest):
             backend_login = config.get(name, 'backend-login')
             backend_password = config.get(name, 'backend-password')
         except (configparser.NoOptionError, configparser.NoSectionError):
-            skipTest("Authentication file does not have %s section" % name)
+            raise NoTestSection("Authentication file does not have %s section" % name)
 
         # Append prefix to make sure that we're starting with an empty bucket
         if fs_name[-1] != '/':
@@ -359,5 +368,3 @@ def get_remote_test_info(name, skipTest):
         fs_name += 's3ql_test_%d/' % time.time()
 
         return (backend_login, backend_password, fs_name)
-
-        

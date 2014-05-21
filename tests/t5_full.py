@@ -12,7 +12,7 @@ if __name__ == '__main__':
     import sys
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from common import populate_dir, skip_without_rsync, get_remote_test_info
+from common import populate_dir, skip_without_rsync, get_remote_test_info, NoTestSection
 import shutil
 import subprocess
 from subprocess import check_output, CalledProcessError
@@ -26,14 +26,14 @@ class FullTest(t4_fuse.fuse_tests):
 
     def populate_dir(self, path):
         populate_dir(path)
-        
+
     def runTest(self):
         skip_without_rsync()
 
         ref_dir = tempfile.mkdtemp(prefix='s3ql-ref-')
         try:
             self.populate_dir(ref_dir)
-            
+
             # Copy source data
             self.mkfs()
             self.mount()
@@ -71,8 +71,11 @@ class FullTest(t4_fuse.fuse_tests):
 class RemoteTest:
     def setUp(self, name):
         super().setUp()
-        (backend_login, backend_pw,
-         self.storage_url) = get_remote_test_info(name, self.skipTest)
+        try:
+            (backend_login, backend_pw,
+             self.storage_url) = get_remote_test_info(name)
+        except NoTestSection as exc:
+            self.skipTest(exc.reason)
         self.backend_login = backend_login
         self.backend_passphrase = backend_pw
 
@@ -81,8 +84,8 @@ class RemoteTest:
 
     def tearDown(self):
         super().tearDown()
-    
-        proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') + 
+
+        proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') +
                                 [ '--quiet', '--authfile', '/dev/null', '--fatal-warnings',
                                   'clear', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
@@ -94,7 +97,7 @@ class RemoteTest:
 
         self.assertEqual(proc.wait(), 0)
 
-        
+
 class S3FullTest(RemoteTest, FullTest):
     def setUp(self):
         super().setUp('s3-test')

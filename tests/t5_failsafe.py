@@ -17,7 +17,7 @@ import t4_fuse
 import s3ql.ctrl
 import pytest
 import errno
-from common import get_remote_test_info
+from common import get_remote_test_info, NoTestSection
 from s3ql.backends import gs
 from argparse import Namespace
 from s3ql.common import BUFSIZE
@@ -32,11 +32,15 @@ class FailsafeTest(t4_fuse.fuse_tests):
     We use Google Storage, so that we don't have to worry about
     propagation delays.
     '''
-    
+
     def setUp(self):
         super().setUp()
-        (backend_login, backend_pw,
-         self.storage_url) = get_remote_test_info('gs-test', self.skipTest)
+        try:
+            (backend_login, backend_pw,
+             self.storage_url) = get_remote_test_info('gs-test')
+        except NoTestSection as exc:
+            self.skipTest(exc.reason)
+
         self.backend_login = backend_login
         self.backend_passphrase = backend_pw
 
@@ -61,7 +65,7 @@ class FailsafeTest(t4_fuse.fuse_tests):
                 for _ in range(5):
                     fh.write(src.read(BUFSIZE))
         s3ql.ctrl.main(['flushcache', self.mnt_dir])
-            
+
         with open(fname2, 'w') as fh:
             fh.write('Hello, second world')
         s3ql.ctrl.main(['flushcache', self.mnt_dir])
@@ -79,7 +83,7 @@ class FailsafeTest(t4_fuse.fuse_tests):
             with open(fname1, 'rb') as fh:
                 fh.read()
         assert exc_info.value.errno == errno.EIO
-        
+
         # This should still work
         with open(fname2, 'rb') as fh:
             fh.read()
@@ -87,5 +91,3 @@ class FailsafeTest(t4_fuse.fuse_tests):
         # But this should not
         with pytest.raises(PermissionError):
             open(fname2, 'wb')
-
-

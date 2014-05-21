@@ -13,7 +13,7 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 from common import populate_dir, skip_without_rsync, retry
-from t1_backends import get_remote_test_info
+from t1_backends import get_remote_test_info, NoTestSection
 import shutil
 import subprocess
 from subprocess import check_output, CalledProcessError
@@ -38,7 +38,7 @@ class UpgradeTest(t4_fuse.fuse_tests):
         self.ref_dir = tempfile.mkdtemp(prefix='s3ql-ref-')
         self.bak_dir = tempfile.mkdtemp(prefix='s3ql-bak-')
         self.basedir_old = basedir_old
-        
+
     def tearDown(self):
         super().tearDown()
         shutil.rmtree(self.ref_dir)
@@ -90,7 +90,7 @@ class UpgradeTest(t4_fuse.fuse_tests):
         self.assertFalse(os.path.ismount(self.mnt_dir))
 
     def upgrade(self):
-        proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') + 
+        proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') +
                                 [ '--fatal-warnings', '--cachedir', self.cache_dir, '--authfile',
                                   '/dev/null', '--quiet', 'upgrade', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
@@ -105,7 +105,7 @@ class UpgradeTest(t4_fuse.fuse_tests):
         self.assertEqual(proc.wait(), 0)
 
     def compare(self):
-        
+
         # Compare
         self.fsck()
         self.mount()
@@ -119,7 +119,7 @@ class UpgradeTest(t4_fuse.fuse_tests):
             self.fail('Copy not equal to original, rsync says:\n' + out)
 
         self.umount()
-        
+
     def runTest(self):
         populate_dir(self.ref_dir)
 
@@ -150,11 +150,14 @@ class UpgradeTest(t4_fuse.fuse_tests):
 class RemoteUpgradeTest:
     def setUp(self, name):
         super().setUp()
-        (backend_login, backend_pw,
-         self.storage_url) = get_remote_test_info(name, self.skipTest)
+        try:
+            (backend_login, backend_pw,
+             self.storage_url) = get_remote_test_info(name)
+        except NoTestSection as exc:
+            self.skipTest(exc.reason)
         self.backend_login = backend_login
         self.backend_passphrase = backend_pw
-        
+
     def runTest(self):
         populate_dir(self.ref_dir, entries=50, size=5*1024*1024)
 
@@ -172,7 +175,7 @@ class RemoteUpgradeTest:
 
     def tearDown(self):
         super().tearDown()
-        
+
         proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') +
                                 [ '--quiet', '--authfile', '/dev/null', '--fatal-warnings',
                                   'clear', self.storage_url ],
@@ -192,4 +195,3 @@ class S3UpgradeTest(RemoteUpgradeTest, UpgradeTest):
 class SwiftUpgradeTest(RemoteUpgradeTest, UpgradeTest):
     def setUp(self):
         super().setUp('swift-test')
-        
