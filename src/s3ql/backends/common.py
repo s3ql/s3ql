@@ -6,8 +6,8 @@ Copyright (C) 2008-2009 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging, LOG_ONCE # Ensure use of custom logger class
-from ..common import QuietError, BUFSIZE, PICKLE_PROTOCOL, ChecksumError
+from ..logging import logging # Ensure use of custom logger class
+from ..common import BUFSIZE, PICKLE_PROTOCOL, ChecksumError
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from Crypto.Cipher import AES
@@ -16,21 +16,14 @@ from abc import abstractmethod, ABCMeta
 from base64 import b64decode, b64encode
 from contextlib import contextmanager
 from functools import wraps
-from getpass import getpass
 from io import BytesIO
 import bz2
-import ssl
-import configparser
 import hashlib
 import hmac
 import lzma
-import os
 import pickle
 import io
-import re
-import stat
 import struct
-import sys
 import threading
 import time
 import zlib
@@ -189,33 +182,6 @@ def retry_generator(method):
 
     return wrapped
 
-
-def get_ssl_context(options):
-    '''Construct SSLContext object from *options*
-
-    If SSL is disabled, return None.
-    '''
-
-    if options.no_ssl:
-        return None
-    
-    # Best practice according to http://docs.python.org/3/library/ssl.html#protocol-versions
-    context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-    context.options |= ssl.OP_NO_SSLv2
-    context.verify_mode = ssl.CERT_REQUIRED
-
-    path = options.ssl_ca_path
-    if path is None:
-        log.debug('Reading default CA certificates.')
-        context.set_default_verify_paths()
-    elif os.path.isfile(path):
-        log.debug('Reading CA certificates from file %s', path)
-        context.load_verify_locations(cafile=path)
-    else:
-        log.debug('Reading CA certificates from directory %s', path)
-        context.load_verify_locations(capath=path)
-
-    return context
 
 
 class BackendPool(object):
@@ -1343,168 +1309,3 @@ def convert_legacy_metadata(meta):
         meta['compression'] = 'None'
 
 
-def get_backend(options, plain=False):
-    '''Return backend for given storage-url
-    
-    If *plain* is true, don't attempt to unlock and don't wrap into
-    BetterBackend.
-    '''
-
-    return get_backend_factory(options, plain)()
-
-def get_backend_factory(options, plain=False):
-    '''Return factory producing backend objects for given storage-url
-    
-    If *plain* is true, don't attempt to unlock and don't wrap into
-    BetterBackend.    
-    '''
-
-    hit = re.match(r'^([a-zA-Z0-9]+)://', options.storage_url)
-    if not hit:
-        raise QuietError('Unknown storage url: %s' % options.storage_url)
-
-    backend_name = 's3ql.backends.%s' % hit.group(1)
-    try:
-        __import__(backend_name)
-    except ImportError:
-        raise QuietError('No such backend: %s' % hit.group(1))
-
-    backend_class = getattr(sys.modules[backend_name], 'Backend')
-
-    # Read authfile
-    config = configparser.ConfigParser()
-    if os.path.isfile(options.authfile):
-        mode = os.stat(options.authfile).st_mode
-        if mode & (stat.S_IRGRP | stat.S_IROTH):
-            raise QuietError("%s has insecure permissions, aborting." % options.authfile)
-        config.read(options.authfile)
-
-    backend_login = None
-    backend_passphrase = None
-    fs_passphrase = None
-    for section in config.sections():
-        def getopt(name):
-            try:
-                return config.get(section, name)
-            except configparser.NoOptionError:
-                return None
-
-        pattern = getopt('storage-url')
-
-        if not pattern or not options.storage_url.startswith(pattern):
-            continue
-
-        backend_login = getopt('backend-login') or backend_login
-        backend_passphrase = getopt('backend-password') or backend_passphrase
-        fs_passphrase = getopt('fs-passphrase') or fs_passphrase
-        if getopt('fs-passphrase') is None and getopt('bucket-passphrase') is not None:
-            fs_passphrase = getopt('bucket-passphrase')
-            log.warning("Warning: the 'bucket-passphrase' configuration option has been "
-                        "renamed to 'fs-passphrase'! Please update your authinfo file.")
-
-    if not backend_login and backend_class.needs_login:
-        if sys.stdin.isatty():
-            backend_login = getpass("Enter backend login: ")
-        else:
-            backend_login = sys.stdin.readline().rstrip()
-
-    if not backend_passphrase and backend_class.needs_login:
-        if sys.stdin.isatty():
-            backend_passphrase = getpass("Enter backend passphrase: ")
-        else:
-            backend_passphrase = sys.stdin.readline().rstrip()
-
-    ssl_context = get_ssl_context(options)
-    if ssl_context is None:
-        proxy_env = 'http_proxy'
-    else:
-        proxy_env = 'https_proxy'
-            
-    if proxy_env in os.environ:
-        proxy = os.environ[proxy_env]
-        hit = re.match(r'^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?/?$', proxy)
-        if not hit:
-            raise QuietError('Unable to parse proxy setting %s=%r' %
-                             (proxy_env, proxy))
-        
-        if hit.group(1) == 'https://':
-            log.warning('HTTPS connection to proxy is probably pointless and not supported, '
-                        'will use standard HTTP', extra=LOG_ONCE)
-        
-        if hit.group(3):
-            proxy_port = int(hit.group(3)[1:])
-        else:
-            proxy_port = 80
-            
-        proxy_host = hit.group(2)
-        log.info('Using CONNECT proxy %s:%d', proxy_host, proxy_port,
-                 extra=LOG_ONCE)
-        proxy = (proxy_host, proxy_port)
-    else:
-        proxy = None
-        
-    backend = backend_class(options.storage_url, backend_login, backend_passphrase,
-                            ssl_context, proxy=proxy)
-    try:
-        # Do not use backend.lookup(), this would use a HEAD request and
-        # not provide any useful error messages if something goes wrong
-        # (e.g. wrong credentials)
-        backend.fetch('s3ql_passphrase')
-        
-    except DanglingStorageURLError as exc:
-        raise QuietError(str(exc))
-    
-    except AuthorizationError:
-        raise QuietError('No permission to access backend.')
-
-    except AuthenticationError:
-        raise QuietError('Invalid credentials (or skewed system clock?).')
-        
-    except NoSuchObject:
-        encrypted = False
-        
-    else:
-        encrypted = True
-
-    finally:
-        backend.close()
-        
-    if plain:
-        return lambda: backend_class(options.storage_url, backend_login, backend_passphrase,
-                                     ssl_context, proxy=proxy)
-            
-    if encrypted and not fs_passphrase:
-        if sys.stdin.isatty():
-            fs_passphrase = getpass("Enter file system encryption passphrase: ")
-        else:
-            fs_passphrase = sys.stdin.readline().rstrip()
-    elif not encrypted:
-        fs_passphrase = None
-        
-    if fs_passphrase is not None:
-        fs_passphrase = fs_passphrase.encode('utf-8')
-        
-    if hasattr(options, 'compress'):
-        compress = options.compress
-    else:
-        compress = ('lzma', 2)
-
-    if not encrypted:
-        return lambda: BetterBackend(None, compress,
-                                    backend_class(options.storage_url, backend_login,
-                                                  backend_passphrase, ssl_context=ssl_context,
-                                                  proxy=proxy))
-
-    tmp_backend = BetterBackend(fs_passphrase, compress, backend)
-
-    try:
-        data_pw = tmp_backend['s3ql_passphrase']
-    except ChecksumError:
-        raise QuietError('Wrong file system passphrase')
-    finally:
-        tmp_backend.close()
-        
-    return lambda: BetterBackend(data_pw, compress,
-                                 backend_class(options.storage_url, backend_login,
-                                               backend_passphrase, ssl_context=ssl_context,
-                                               proxy=proxy))

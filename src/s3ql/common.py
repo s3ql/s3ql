@@ -18,6 +18,7 @@ import os
 import posixpath
 import stat
 import sys
+import ssl
 
 # Buffer size when writing objects
 BUFSIZE = 64 * 1024
@@ -291,3 +292,30 @@ def assert_s3ql_mountpoint(mountpoint):
         raise QuietError('%s is not a mount point' % mountpoint)
 
     return ctrlfile
+
+def get_ssl_context(options):
+    '''Construct SSLContext object from *options*
+
+    If SSL is disabled, return None.
+    '''
+
+    if options.no_ssl:
+        return None
+
+    # Best practice according to http://docs.python.org/3/library/ssl.html#protocol-versions
+    context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+    context.options |= ssl.OP_NO_SSLv2
+    context.verify_mode = ssl.CERT_REQUIRED
+
+    path = options.ssl_ca_path
+    if path is None:
+        log.debug('Reading default CA certificates.')
+        context.set_default_verify_paths()
+    elif os.path.isfile(path):
+        log.debug('Reading CA certificates from file %s', path)
+        context.load_verify_locations(cafile=path)
+    else:
+        log.debug('Reading CA certificates from directory %s', path)
+        context.load_verify_locations(capath=path)
+
+    return context

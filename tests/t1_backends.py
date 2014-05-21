@@ -15,9 +15,9 @@ if __name__ == '__main__':
 from s3ql.backends import local, s3, gs, s3c, swift, rackspace, swiftks
 from s3ql import backends
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
-    BetterBackend, get_ssl_context, AuthenticationError, AuthorizationError,
+    BetterBackend, AuthenticationError, AuthorizationError,
     DanglingStorageURLError, MalformedObjectError, DecryptFilter, DecompressFilter)
-from s3ql.common import BUFSIZE
+from s3ql.common import BUFSIZE, get_ssl_context
 from common import get_remote_test_info, NoTestSection
 import s3ql.backends.common
 from argparse import Namespace

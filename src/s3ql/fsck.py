@@ -8,7 +8,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, setup_logging, QuietError
 from . import CURRENT_FS_REV
-from .backends.common import NoSuchObject, get_backend, DanglingStorageURLError
+from .backends.common import NoSuchObject, DanglingStorageURLError
+from .backends import get_backend
 from .common import (ROOT_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE, get_backend_cachedir, 
                      get_seq_no, stream_write_bz2, stream_read_bz2, CTRL_INODE, 
                      PICKLE_PROTOCOL, is_mounted)

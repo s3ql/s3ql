@@ -8,7 +8,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, setup_logging, QuietError
 from . import fs, CURRENT_FS_REV
-from .backends.common import get_backend_factory, BackendPool, DanglingStorageURLError
+from .backends.common import BackendPool, DanglingStorageURLError
+from .backends import get_backend_factory
 from .block_cache import BlockCache
 from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2, stream_read_bz2,
                      PICKLE_PROTOCOL)

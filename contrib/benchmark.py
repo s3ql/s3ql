@@ -31,7 +31,8 @@ else:
     exec_prefix = ''
 
 from s3ql.logging import logging, setup_logging, QuietError
-from s3ql.backends.common import get_backend, BetterBackend, DanglingStorageURLError
+from s3ql.backends import get_backend
+from s3ql.backends.common import BetterBackend, DanglingStorageURLError
 from s3ql.backends.local import Backend
 from s3ql.common import BUFSIZE
 from s3ql.parse_args import ArgumentParser

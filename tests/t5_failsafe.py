@@ -21,7 +21,7 @@ from common import get_remote_test_info, NoTestSection
 from s3ql.backends import gs
 from argparse import Namespace
 from s3ql.common import BUFSIZE
-from s3ql.backends.common import get_ssl_context
+from s3ql.common import get_ssl_context
 
 class FailsafeTest(t4_fuse.fuse_tests):
     '''
