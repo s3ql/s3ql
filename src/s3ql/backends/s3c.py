@@ -669,7 +669,11 @@ class ObjectR(object):
     def close(self):
         '''Close object'''
 
-        pass
+        # If we have not read all the data, close the entire
+        # connection (otherwise we loose synchronization)
+        if not self.md5_checked:
+            self.backend.conn.disconnect()
+
 
 class ObjectW(object):
     '''An S3 object open for writing
