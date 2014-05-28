@@ -116,7 +116,7 @@ def get_backend_wrappers():
         def init(self, class_=backend_class, login=backend_login,
                  password=backend_pw, url=backend_url):
             self.backend = class_(url, login, password, ssl_context=ssl_context)
-            self.retry_time = 90
+            self.retry_time = 600
             try:
                 self.backend.fetch('empty_object')
             except DanglingStorageURLError:
