@@ -504,7 +504,6 @@ def test_corruption(backend):
     else:
         assert exc.value.str == 'HMAC mismatch'
 
-@pytest.mark.xfail()
 def test_extra_data(backend):
     if not isinstance(backend, BetterBackend):
         pytest.skip('only supported for compressed or encrypted backends')

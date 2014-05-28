@@ -22,6 +22,8 @@ UNRELEASED, S3QL tip
     backend password. To obtain the refresh token, the (new)
     s3ql_oauth_client command may be used.
 
+  * S3QL now requires version 3.1 or newer of the dugong module.
+
 2014-03-29, S3QL 2.8.1
 
   * No changes in S3QL itself.

@@ -86,7 +86,7 @@ that is not the case.
   <https://bitbucket.org/nikratio/python-dugong/>`_. To check if this
   module is installed, try to execute `python -c 'import dugong';
   print(dugong.__version__)'`. This should print a version number. You
-  need at least version 2.0.
+  need at least version 3.1.
   
 .. _inst-s3ql:
 

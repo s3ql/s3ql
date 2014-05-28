@@ -136,8 +136,7 @@ class Backend(s3c.Backend):
                 if hit:
                     charset = hit.group(1) or 'utf-8'
                     body = conn.readall().decode(charset)
-                    # Google sometimes attaches \0 bytes at the end of the response!?
-                    resp_json = json.loads(body.rstrip('\0'))
+                    resp_json = json.loads(body)
 
             if 'error' in resp_json:
                 raise AuthenticationError(resp_json['error'])

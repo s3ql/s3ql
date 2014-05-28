@@ -131,7 +131,7 @@ def main():
                      'pycrypto',
                      'requests',
                      'defusedxml',
-                     'dugong >= 2.0',
+                     'dugong >= 3.1',
                      'llfuse >= 0.39' ]
 
     setuptools.setup(
