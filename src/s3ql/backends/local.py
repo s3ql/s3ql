@@ -35,14 +35,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         #pylint: disable=W0613
 
         super().__init__()
-        name = storage_url[len('local://'):]
-        self.name = name
+        self.prefix = storage_url[len('local://'):]
 
-        if not os.path.exists(name):
-            raise DanglingStorageURLError(name)
+        if not os.path.exists(self.prefix):
+            raise DanglingStorageURLError(self.prefix)
 
     def __str__(self):
-        return 'local directory %s' % self.name
+        return 'local directory %s' % self.prefix
 
     @copy_ancestor_docstring
     def is_temp_failure(self, exc): #IGNORE:W0613
@@ -107,8 +106,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def clear(self):
-        for name in os.listdir(self.name):
-            path = os.path.join(self.name, name)
+        for name in os.listdir(self.prefix):
+            path = os.path.join(self.prefix, name)
             if os.path.isdir(path):
                 shutil.rmtree(path)
             else:
@@ -140,13 +139,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if prefix:
             base = os.path.dirname(self._key_to_path(prefix))
         else:
-            base = self.name
+            base = self.prefix
 
         for (path, dirnames, filenames) in os.walk(base, topdown=True):
 
             # Do not look in wrong directories
             if prefix:
-                rpath = path[len(self.name):] # path relative to base
+                rpath = path[len(self.prefix):] # path relative to base
                 prefix_l = ''.join(rpath.split('/'))
 
                 dirs_to_walk = list()
@@ -213,10 +212,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         key = escape(key)
 
         if not key.startswith('s3ql_data_'):
-            return os.path.join(self.name, key)
+            return os.path.join(self.prefix, key)
 
         no = key[10:]
-        path = [ self.name, 's3ql_data_']
+        path = [ self.prefix, 's3ql_data_']
         for i in range(0, len(no), 3):
             path.append(no[:i])
         path.append(key)
