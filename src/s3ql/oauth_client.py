@@ -47,18 +47,18 @@ def _log_response(r):
 
     s.append('')
     s.append(r.text)
-    
+
     log.debug('\n'.join(s))
 
 def _parse_response(r):
-    
+
     _log_response(r)
     if r.status_code != requests.codes.ok:
         raise QuietError('Connection failed with: %d %s'
                          % (r.status_code, r.reason))
 
     return r.json()
-    
+
 def main(args=None):
 
     if args is None:
@@ -68,13 +68,13 @@ def main(args=None):
     setup_logging(options)
 
     cli = requests.Session()
-    
+
     r = cli.post('https://accounts.google.com/o/oauth2/device/code',
                  data={ 'client_id': CLIENT_ID,
                         'scope': 'https://www.googleapis.com/auth/devstorage.read_write' },
                  verify=True, allow_redirects=False, timeout=20)
     req_json = _parse_response(r)
-    
+
     print(textwrap.fill('Please open %s in your browser and enter the following '
                         'user code: %s' % (req_json['verification_url'],
                                            req_json['user_code'])))
@@ -91,7 +91,7 @@ def main(args=None):
                      verify=True, allow_redirects=False, timeout=20)
         resp_json = _parse_response(r)
         r.close()
-        
+
         if 'error' in resp_json:
             if resp_json['error'] == 'authorization_pending':
                 continue
@@ -99,7 +99,6 @@ def main(args=None):
                 raise QuietError('Authentication failed: ' + resp_json['error'])
         else:
             break
-        
+
     print('Success. Your refresh token is:\n',
           resp_json['refresh_token'])
-    

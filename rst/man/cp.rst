@@ -10,8 +10,8 @@ Synopsis
 
 ::
 
-   s3qlcp [options] <source-dir> <dest-dir> 
-  
+   s3qlcp [options] <source-dir> <dest-dir>
+
 Description
 ===========
 
@@ -75,7 +75,7 @@ any backup program.
 
 
 .. end_main_content
-  
+
 
 Options
 =======
@@ -89,5 +89,4 @@ The |command| command accepts the following options:
 .. include:: ../include/postman.rst
 
 
-.. |command| replace:: :program:`s3qlcp` 
-
+.. |command| replace:: :program:`s3qlcp`

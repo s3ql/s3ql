@@ -242,7 +242,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         else:
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
-        
+
     def _assert_empty_response(self, resp):
         '''Assert that current response body is empty'''
 
@@ -258,7 +258,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                   buf)
         raise RuntimeError('Unexpected server response')
 
-    
+
     def _dump_response(self, resp, body=None):
         '''Return string representation of server response
 
@@ -272,7 +272,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 self.conn.discard()
         else:
             body = body[:2048]
-            
+
         return '%d %s\n%s\n\n%s' % (resp.status, resp.reason,
                                     '\n'.join('%s: %s' % x for x in resp.headers.items()),
                                     body.decode('utf-8', errors='backslashreplace'))

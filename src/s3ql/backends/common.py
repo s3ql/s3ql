@@ -37,7 +37,7 @@ HMAC_SIZE = 32
 RETRY_TIMEOUT = 60 * 60 * 24
 def retry(method):
     '''Wrap *method* for retrying on some exceptions
-    
+
     If *method* raises an exception for which the instance's
     `is_temp_failure(exc)` method is true, the *method* is called again
     at increasing intervals. If this persists for more than `RETRY_TIMEOUT`
@@ -46,7 +46,7 @@ def retry(method):
 
     if inspect.isgeneratorfunction(method):
         raise TypeError('Wrapping a generator function is pointless')
-    
+
     @wraps(method)
     def wrapped(*a, **kw):
         self = a[0]
@@ -73,14 +73,14 @@ def retry(method):
                     log_fn = log.info
                 else:
                     log_fn = log.warning
-                    
+
                 log_fn('Encountered %s exception (%s), retrying call to %s.%s for the %d-th time...',
                        type(exc).__name__, exc, self.__class__.__name__, method.__name__, retries)
 
                 if hasattr(exc, 'retry_after') and exc.retry_after:
                     log.debug('retry_after is %.2f seconds', exc.retry_after)
                     interval = exc.retry_after
-                
+
             time.sleep(interval)
             waited += interval
             interval = min(5*60, 2*interval)
@@ -96,10 +96,10 @@ def retry(method):
 
 def extend_docstring(fun, s):
     '''Append *s* to *fun*'s docstring with proper wrapping and indentation'''
-    
+
     if fun.__doc__ is None:
         fun.__doc__ = ''
-        
+
     # Figure out proper indentation
     indent = 60
     for line in fun.__doc__.splitlines()[1:]:
@@ -135,7 +135,7 @@ class RetryIterator:
     def __init__(self, generator, is_temp_failure_fn, args=(), kwargs=None):
         if not inspect.isgeneratorfunction(generator):
             raise TypeError('*generator* must be generator function')
-        
+
         self.generator = generator
         self.iterator = None
         self.is_temp_failure = is_temp_failure_fn
@@ -143,7 +143,7 @@ class RetryIterator:
             kwargs = {}
         self.kwargs = kwargs
         self.args = args
-        
+
     def __iter__(self):
         return self
 
@@ -158,7 +158,7 @@ class RetryIterator:
             if self.is_temp_failure(exc):
                 self.iterator = None
             raise
-            
+
         self.kwargs['start_after'] = el
         return el
 
@@ -189,12 +189,12 @@ class BackendPool(object):
 
     This class is threadsafe. All methods (except for internal methods
     starting with underscore) may be called concurrently by different
-    threads.    
+    threads.
     '''
 
     def __init__(self, factory):
         '''Init pool
-        
+
         *factory* should be a callable that provides new
         connections.
         '''
@@ -228,7 +228,7 @@ class BackendPool(object):
         with self.lock:
             while self.pool:
                 self.pool.pop().close()
-        
+
     @contextmanager
     def __call__(self, close=False):
         '''Provide connection from pool (context manager)
@@ -249,10 +249,10 @@ class BackendPool(object):
 
 class AbstractBackend(object, metaclass=ABCMeta):
     '''Functionality shared between all backends.
-    
+
     Instances behave similarly to dicts. They can be iterated over and
     indexed into, but raise a separate set of exceptions.
-    
+
     The backend guarantees get after create consistency, i.e. a newly created
     object will be immediately retrievable. Additional consistency guarantees
     may or may not be available and can be queried for with instance methods.
@@ -300,7 +300,7 @@ class AbstractBackend(object, metaclass=ABCMeta):
     @retry
     def perform_read(self, fn, key):
         '''Read object data using *fn*, retry on temporary failure
-        
+
         Open object for reading, call `fn(fh)` and close object. If a temporary
         error (as defined by `is_temp_failure`) occurs during opening, closing
         or execution of *fn*, the operation is retried.
@@ -311,7 +311,7 @@ class AbstractBackend(object, metaclass=ABCMeta):
     @retry
     def perform_write(self, fn, key, metadata=None, is_compressed=False):
         '''Read object data using *fn*, retry on temporary failure
-        
+
         Open object for writing, call `fn(fh)` and close object. If a temporary
         error (as defined by `is_temp_failure`) occurs during opening, closing
         or execution of *fn*, the operation is retried.
@@ -350,11 +350,11 @@ class AbstractBackend(object, metaclass=ABCMeta):
     @abstractmethod
     def is_temp_failure(self, exc):
         '''Return true if exc indicates a temporary error
-    
+
         Return true if the given exception indicates a temporary problem. Most
         instance methods automatically retry the request in this case, so the
         caller does not need to worry about temporary failures.
-        
+
         However, in same cases (e.g. when reading or writing an object), the
         request cannot automatically be retried. In these case this method can
         be used to check for temporary problems and so that the request can be
@@ -437,7 +437,7 @@ class AbstractBackend(object, metaclass=ABCMeta):
         Deleted objects are removed from the *keys* list, so that the caller can
         determine which objects have not yet been processed if an exception is
         occurs.
-        
+
         If *force* is True, attempts to delete non-existing objects will
         succeed. Note, however, that even if *force* is False, it is not
         guaranteed that an attempt to delete a non-existing object will raise an
@@ -455,7 +455,7 @@ class AbstractBackend(object, metaclass=ABCMeta):
                 raise
 
         del keys[:]
-    
+
     @abstractmethod
     def list(self, prefix=''):
         '''List keys in backend
@@ -467,16 +467,16 @@ class AbstractBackend(object, metaclass=ABCMeta):
     @abstractmethod
     def copy(self, src, dest):
         """Copy data stored under key `src` to key `dest`
-        
+
         If `dest` already exists, it will be overwritten. The copying
-        is done on the remote side. 
+        is done on the remote side.
         """
 
         pass
 
     def rename(self, src, dest):
         """Rename key `src` to `dest`
-        
+
         If `dest` already exists, it will be overwritten. The rename
         is done on the remote side.
         """
@@ -493,14 +493,14 @@ class AbstractBackend(object, metaclass=ABCMeta):
         `close` has been called, in this case the necessary resources are
         transparently allocated again.
         '''
-        
+
         pass
 
-        
+
 def sha256(s):
     return hashlib.sha256(s).digest()
 
-    
+
 class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
     '''
     This class adds encryption, compression and integrity protection to a plain
@@ -511,7 +511,7 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
         super().__init__()
 
         assert passphrase is None or isinstance(passphrase, (bytes, bytearray, memoryview))
-        
+
         self.passphrase = passphrase
         self.compression = compression
         self.backend = backend
@@ -545,7 +545,7 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
     def _unwrap_meta(self, metadata):
         '''Unwrap metadata
-        
+
         If the backend has a password set but the object is not encrypted,
         `ObjectNotEncrypted` is raised.
         '''
@@ -606,7 +606,7 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
             compr_alg = fh.metadata['compression']
             encr_alg = fh.metadata['encryption']
-    
+
             if compr_alg == 'BZIP2':
                 decompressor = bz2.BZ2Decompressor()
             elif compr_alg == 'LZMA':
@@ -617,7 +617,7 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
                 decompressor = None
             else:
                 raise RuntimeError('Unsupported compression: %s' % compr_alg)
-    
+
             if encr_alg == 'AES':
                 fh = LegacyDecryptDecompressFilter(fh, self.passphrase, decompressor)
             else:
@@ -625,15 +625,15 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
                     fh = DecryptFilter(fh, self.passphrase)
                 elif encr_alg != 'None':
                     raise RuntimeError('Unsupported encryption: %s' % encr_alg)
-    
+
                 if decompressor:
                     fh = DecompressFilter(fh, decompressor)
-    
+
             fh.metadata = metadata
         except:
             fh.close()
             raise
-        
+
         return fh
 
     @copy_ancestor_docstring
@@ -692,7 +692,7 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def delete_multi(self, keys, force=False):
         return self.backend.delete_multi(keys, force=force)
-    
+
     @copy_ancestor_docstring
     def list(self, prefix=''):
         return self.backend.list(prefix)
@@ -715,7 +715,7 @@ class CompressFilter(object):
 
     def __init__(self, fh, compr):
         '''Initialize
-        
+
         *fh* should be a file-like object. *decomp* should be a fresh compressor
         instance with a *compress* method.
         '''
@@ -761,7 +761,7 @@ class InputFilter(io.RawIOBase):
     # blocksize
     def readall(self):
         """Read until EOF, using multiple read() calls."""
-        
+
         res = bytearray()
         while True:
             data = self.read(BUFSIZE)
@@ -787,13 +787,13 @@ class InputFilter(io.RawIOBase):
         b = bytearray(size)
         len_ = self.readinto(b)
         return b[:len_]
-    
+
 class DecompressFilter(InputFilter):
     '''Decompress data while reading'''
 
     def __init__(self, fh, decomp, metadata=None):
         '''Initialize
-        
+
         *fh* should be a file-like object and may be unbuffered. *decomp* should
         be a fresh decompressor instance with a *decompress* method.
         '''
@@ -802,7 +802,7 @@ class DecompressFilter(InputFilter):
         self.fh = fh
         self.decomp = decomp
         self.metadata = metadata
-            
+
     def read(self, size=-1):
         '''Read up to *size* bytes
 
@@ -815,7 +815,7 @@ class DecompressFilter(InputFilter):
             return self.readall()
         elif size == 0:
             return b''
-        
+
         buf = b''
         while not buf:
             buf = self.fh.read(size)
@@ -836,7 +836,7 @@ class DecompressFilter(InputFilter):
                     if not buf:
                         break
                 raise
-            
+
         return buf
 
     def close(self):
@@ -855,7 +855,7 @@ class EncryptFilter(object):
 
     def __init__(self, fh, passphrase, nonce):
         '''Initialize
-        
+
         *fh* should be a file-like object.
         '''
         super().__init__()
@@ -875,9 +875,9 @@ class EncryptFilter(object):
 
     def write(self, data):
         '''Write *data*
-        
+
         len(data) must be < 2**32.
-    
+
         Every invocation of `write` generates a packet that contains both the
         length of the data and the data, so the passed data should have
         reasonable size (if the data is written in e.g. 4 byte chunks, it is
@@ -896,7 +896,7 @@ class EncryptFilter(object):
 
     def close(self):
         assert not self.closed
-        
+
         # Packet length of 0 indicates end of stream, only HMAC follows
         buf = struct.pack(b'<I', 0)
         self.hmac.update(buf)
@@ -923,14 +923,14 @@ class EncryptFilter(object):
 
 class DecryptFilter(InputFilter):
     '''Decrypt data while reading
-    
+
     Reader has to read the entire stream in order for HMAC
     checking to work.
     '''
 
     def __init__(self, fh, passphrase, metadata=None):
         '''Initialize
-        
+
         *fh* should be a file-like object that may be unbuffered.
         '''
         super().__init__()
@@ -940,7 +940,7 @@ class DecryptFilter(InputFilter):
         self.remaining = 0 # Remaining length of current packet
         self.metadata = metadata
         self.hmac_checked = False
-            
+
         # Read nonce
         len_ = struct.unpack(b'<B', fh.read(struct.calcsize(b'<B')))[0]
         nonce = fh.read(len_)
@@ -954,7 +954,7 @@ class DecryptFilter(InputFilter):
 
         if not isinstance(size, int) or size <= 0:
             raise ValueError("Exact *size* required (got %d)" % size)
-        
+
         buf = self.fh.read(size)
         if not buf:
             raise ChecksumError('Premature end of stream.')
@@ -963,13 +963,13 @@ class DecryptFilter(InputFilter):
         # cipher.decrypt refuses to work with anything but bytes
         if not isinstance(buf, bytes):
             buf = bytes(buf)
-            
+
         len_ = len(buf)
         buf = self.cipher.decrypt(buf)
         assert len(buf) == len_
-        
+
         return buf
-    
+
     def read(self, size=-1):
         '''Read up to *size* bytes'''
 
@@ -982,18 +982,18 @@ class DecryptFilter(InputFilter):
         # want to read b'' from the underlying fh repeatedly)
         if self.hmac_checked:
             return b''
-        
+
         outbuf = b''
         inbuf = b''
         while True:
-            
+
             # If all remaining data is part of the same packet, return it.
             if inbuf and len(inbuf) <= self.remaining:
                 self.remaining -= len(inbuf)
                 self.hmac.update(inbuf)
                 outbuf += inbuf
                 break
-            
+
             # Otherwise keep reading until we have something to return
             # but make sure not to stop in packet header (so that we don't
             # cache the partially read header from one invocation to the next).
@@ -1008,7 +1008,7 @@ class DecryptFilter(InputFilter):
                     assert buf
                 inbuf += buf
                 continue
-            
+
             # Copy rest of current packet to output and start reading
             # from next packet
             outbuf += inbuf[:self.remaining]
@@ -1025,10 +1025,10 @@ class DecryptFilter(InputFilter):
                     buf = self._read_and_decrypt(HMAC_SIZE)
                     assert buf
                     inbuf += buf
-                
+
                 if len(inbuf) > HMAC_SIZE or self.fh.read(1):
                     raise ChecksumError('Extraneous data at end of object')
-                
+
                 if not hmac.compare_digest(inbuf, self.hmac.digest()):
                     raise ChecksumError('HMAC mismatch')
                 self.hmac_checked = True
@@ -1048,14 +1048,14 @@ class DecryptFilter(InputFilter):
 
 class LegacyDecryptDecompressFilter(io.RawIOBase):
     '''Decrypt and Decompress data while reading
-    
+
     Reader has to read the entire stream in order for HMAC
     checking to work.
     '''
 
     def __init__(self, fh, passphrase, decomp, metadata=None):
         '''Initialize
-        
+
         *fh* should be a file-like object and may be unbuffered.
         '''
         super().__init__()
@@ -1079,15 +1079,15 @@ class LegacyDecryptDecompressFilter(io.RawIOBase):
         # cipher.decrypt refuses to work with anything but bytes
         if not isinstance(buf, bytes):
             buf = bytes(buf)
-            
+
         len_ = len(buf)
         buf = self.cipher.decrypt(buf)
         assert len(buf) == len_
         return buf
-    
+
     def read(self, size=-1):
         '''Read up to *size* bytes
-        
+
         This method is currently buggy and may also return *more*
         than *size* bytes. Callers should be prepared to handle
         that. This is because some of the used (de)compression modules
@@ -1103,7 +1103,7 @@ class LegacyDecryptDecompressFilter(io.RawIOBase):
         while not buf:
             buf = self.fh.read(size)
             if not buf and not self.hmac_checked:
-                if not hmac.compare_digest(self._decrypt(self.hash), 
+                if not hmac.compare_digest(self._decrypt(self.hash),
                                            self.hmac.digest()):
                     raise ChecksumError('HMAC mismatch')
                 elif self.decomp and self.decomp.unused_data:
@@ -1161,7 +1161,7 @@ def encrypt(buf, passphrase, nonce):
     '''Encrypt *buf*'''
 
     key = sha256(passphrase + nonce)
-    cipher = aes_cipher(key) 
+    cipher = aes_cipher(key)
     hmac_ = hmac.new(key, digestmod=hashlib.sha256)
 
     hmac_.update(buf)
@@ -1181,7 +1181,7 @@ def decrypt(buf, passphrase):
     nonce = fh.read(len_)
 
     key = sha256(passphrase + nonce)
-    cipher = aes_cipher(key) 
+    cipher = aes_cipher(key)
     hmac_ = hmac.new(key, digestmod=hashlib.sha256)
 
     # Read (encrypted) hmac
@@ -1202,7 +1202,7 @@ class ObjectNotEncrypted(Exception):
     '''
     Raised by the backend if an object was requested from an encrypted
     backend, but the object was stored without encryption.
-    
+
     We do not want to simply return the uncrypted object, because the
     caller may rely on the objects integrity being cryptographically
     verified.
@@ -1260,19 +1260,19 @@ class AuthenticationError(Exception):
 
     def __str__(self):
         return 'Access denied. Server said: %s' % self.msg
-   
+
 def aes_cipher(key):
     '''Return AES cipher in CTR mode for *key*'''
-    
-    return AES.new(key, AES.MODE_CTR, 
-                   counter=Counter.new(128, initial_value=0)) 
-        
+
+    return AES.new(key, AES.MODE_CTR,
+                   counter=Counter.new(128, initial_value=0))
+
 def convert_legacy_metadata(meta):
 
     # For legacy format, meta is always a dict
     if not isinstance(meta, dict):
         return
-    
+
     if ('encryption' in meta and
         'compression' in meta):
         return
@@ -1307,5 +1307,3 @@ def convert_legacy_metadata(meta):
 
     if meta['compression'] == 'NONE':
         meta['compression'] = 'None'
-
-

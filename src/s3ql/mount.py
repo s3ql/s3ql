@@ -42,7 +42,7 @@ log = logging.getLogger(__name__)
 
 def install_thread_excepthook():
     """work around sys.excepthook thread bug
-    
+
     See http://bugs.python.org/issue1230540.
 
     Call once from __main__ before creating any threads. If using
@@ -73,13 +73,13 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-    
+
     # Save handler so that we can remove it when daemonizing
     stdout_log_handler = setup_logging(options)
 
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.')
-        
+
     if options.threads is None:
         options.threads = determine_threads(options)
 
@@ -92,7 +92,7 @@ def main(args=None):
     # each upload thread (because each thread is using at least one socket and
     # at least one temporary file)
     avail_fd -= 32 + 3 * options.threads
-    
+
     if options.max_cache_entries is None:
         if avail_fd <= 64:
             raise QuietError("Not enough available file descriptors.")
@@ -113,7 +113,7 @@ def main(args=None):
     backend_factory = get_backend_factory(options)
     backend_pool = BackendPool(backend_factory)
     atexit.register(backend_pool.flush)
-    
+
     # Get paths
     cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
 
@@ -136,7 +136,7 @@ def main(args=None):
     elif options.cachesize > avail_cache:
         log.warning('Warning! Requested cache size %d MB, but only %d MB available',
                     options.cachesize / 1024, avail_cache / 1024)
-        
+
     if options.nfs:
         # NFS may try to look up '..', so we have to speed up this kind of query
         log.info('Creating NFS indices...')
@@ -160,7 +160,7 @@ def main(args=None):
             llfuse.init(operations, options.mountpoint, get_fuse_opts(options))
         except RuntimeError as exc:
             raise QuietError(str(exc))
-        
+
         unmount_clean = False
         def unmount():
             log.info("Unmounting file system...")
@@ -169,7 +169,7 @@ def main(args=None):
             with llfuse.lock:
                 llfuse.close(unmount=unmount_clean)
         cm.callback(unmount)
-        
+
         if options.fg:
             faulthandler.enable()
             faulthandler.register(signal.SIGUSR1)
@@ -181,12 +181,12 @@ def main(args=None):
             faulthandler.enable(crit_log_fh)
             faulthandler.register(signal.SIGUSR1, file=crit_log_fh)
             daemonize(options.cachedir)
-        
+
         mark_metadata_dirty(backend, cachepath, param)
-        
+
         block_cache.init(options.threads)
         cm.callback(block_cache.destroy)
-        
+
         metadata_upload_thread.start()
         cm.callback(metadata_upload_thread.join)
         cm.callback(metadata_upload_thread.stop)
@@ -194,7 +194,7 @@ def main(args=None):
         commit_thread.start()
         cm.callback(commit_thread.join)
         cm.callback(commit_thread.stop)
-        
+
         if options.upstart:
             os.kill(os.getpid(), signal.SIGSTOP)
 
@@ -290,7 +290,7 @@ def get_system_memory():
     If amount cannot be determined, emits warning and
     returns -1.
     '''
-    
+
     # MacOS X doesn't support sysconf('SC_PHYS_PAGES')
     if platform.system() == 'Darwin':
         try:
@@ -306,9 +306,9 @@ def get_system_memory():
         if not hit:
             log.warning('Cannot determine system memory, unable to parse sysctl output.')
             return -1
-            
+
         return int(hit.group(1))
-        
+
     else:
         try:
             return os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGESIZE')
@@ -316,7 +316,7 @@ def get_system_memory():
             log.warning('Unable to determine number of CPU cores (sysconf failed).')
             return -1
 
-            
+
 # Memory required for LZMA compression in MB (from xz(1))
 LZMA_MEMORY = { 0: 3, 1: 9, 2: 17, 3: 32, 4: 48,
                 5: 94, 6: 94, 7: 186, 8: 370, 9: 674 }
@@ -374,7 +374,7 @@ def get_metadata(backend, cachepath):
             log.info('Ignoring locally cached metadata (outdated).')
             param = backend.lookup('s3ql_metadata')
         elif param['seq_no'] > seq_no:
-            raise QuietError("File system not unmounted cleanly, run fsck!")            
+            raise QuietError("File system not unmounted cleanly, run fsck!")
         else:
             log.info('Using cached metadata.')
             db = Connection(cachepath + '.db')
@@ -383,7 +383,7 @@ def get_metadata(backend, cachepath):
 
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:
-        raise QuietError('Backend reports that fs is still mounted elsewhere, aborting.')       
+        raise QuietError('Backend reports that fs is still mounted elsewhere, aborting.')
 
     # Check revision
     if param['revision'] < CURRENT_FS_REV:
@@ -414,19 +414,19 @@ def get_metadata(backend, cachepath):
 
             log.info('Downloading and decompressing metadata...')
             backend.perform_read(do_read, "s3ql_metadata")
-            
+
             log.info("Reading metadata...")
             tmpfh.seek(0)
             db = restore_metadata(tmpfh, cachepath + '.db')
 
     with open(cachepath + '.params', 'wb') as fh:
         pickle.dump(param, fh, PICKLE_PROTOCOL)
-            
+
     return (param, db)
 
 def mark_metadata_dirty(backend, cachepath, param):
     '''Mark metadata as dirty and increase sequence number'''
-    
+
     param['seq_no'] += 1
     param['needs_fsck'] = True
     backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
@@ -440,7 +440,7 @@ def get_fuse_opts(options):
 
     fuse_opts = [ "nonempty", 'fsname=%s' % options.storage_url,
                   'subtype=s3ql' ]
-    
+
     if platform.system() == 'Darwin':
         # FUSE4X and OSXFUSE claim to support nonempty, but
         # neither of them actually do.
@@ -499,7 +499,7 @@ def parse_args(args):
         if alg == 'none':
             alg =  None
         return (alg, lvl)
-        
+
     parser = ArgumentParser(
         description="Mount an S3QL file system.")
 
@@ -589,9 +589,9 @@ class MetadataUploadThread(Thread):
     Periodically upload metadata. Upload is done every `interval`
     seconds, and whenever `event` is set. To terminate thread,
     set `quit` attribute as well as `event` event.
-    
+
     This class uses the llfuse global lock. When calling objects
-    passed in the constructor, the global lock is acquired first.    
+    passed in the constructor, the global lock is acquired first.
     '''
 
     def __init__(self, backend_pool, param, db, interval):
@@ -669,7 +669,7 @@ class MetadataUploadThread(Thread):
 
 def setup_exchook():
     '''Send SIGTERM if any other thread terminates with an exception
-    
+
     The exc_info will be saved in the list object returned
     by this function.
     '''
@@ -706,7 +706,7 @@ def setup_exchook():
 class CommitThread(Thread):
     '''
     Periodically upload dirty blocks.
-    
+
     This class uses the llfuse global lock. When calling objects
     passed in the constructor, the global lock is acquired first.
     '''
@@ -723,7 +723,7 @@ class CommitThread(Thread):
 
         while not self.stop_event.is_set():
             did_sth = False
-            
+
             with llfuse.lock:
                 stamp = time.time()
                 # Need to make copy, since we aren't allowed to change

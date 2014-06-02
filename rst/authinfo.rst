@@ -24,14 +24,14 @@ In each section, the following entries can be defined:
 
 :backend-login:
   Specifies the username to use for authentication with the backend.
-  
+
 :backend-password:
   Specifies the password to use for authentication with the backend.
 
 :fs-passphrase:
   Specifies the passphrase to use to decrypt the file system (if
   it is encrypted).
-  
+
 
 When reading the authentication file, S3QL considers every applicable
 section in order and uses the last value that it found for each entry.
@@ -54,9 +54,9 @@ For example, consider the following authentication file::
   storage-url: s3://joes-second-bucket/with-prefix
   backend-login: bill
   backend-password: bi23ll
-  fs-passphrase: ll23bi 
-  
-With this authentication file, S3QL would try to log in as "joe" 
+  fs-passphrase: ll23bi
+
+With this authentication file, S3QL would try to log in as "joe"
 whenever the s3 backend is used, except when accessing a storage url
 that begins with "s3://joes-second-bucket/with-prefix". In that case,
 the last section becomes active and S3QL would use the "bill"
@@ -66,4 +66,3 @@ for storage urls that start with "s3://joes-first-bucket" or
 
 The authentication file is parsed by the `Python ConfigParser
 module <http://docs.python.org/library/configparser.html>`_.
-  

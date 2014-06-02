@@ -12,7 +12,7 @@ Synopsis
 
    expire_backups [options] <age> [<age> ...]
 
-   
+
 Description
 ===========
 
@@ -52,7 +52,7 @@ following backups available:
   had specified the above backup strategy in terms of absolute ages,
   they would all be deleted! Specifying age ranges in terms of backup
   cycles avoids these sort of problems.
-  
+
 :program:`expire_backups` usage is simple. It requires backups to have
 names of the forms ``year-month-day_hour:minute:seconds``
 (``YYYY-MM-DD_HH:mm:ss``) and works on all backups in the current
@@ -102,5 +102,4 @@ See Also
 
 |command| is shipped as part of S3QL, https://bitbucket.org/nikratio/s3ql/.
 
-.. |command| replace:: :program:`expire_backups` 
-
+.. |command| replace:: :program:`expire_backups`

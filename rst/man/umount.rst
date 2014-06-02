@@ -11,7 +11,7 @@ Synopsis
 
    umount.s3ql [options] <mount point>
 
-  
+
 Description
 ===========
 
@@ -41,4 +41,4 @@ The |command| command accepts the following options.
 
 .. include:: ../include/postman.rst
 
-.. |command| replace:: :program:`umount.s3ql` 
+.. |command| replace:: :program:`umount.s3ql`

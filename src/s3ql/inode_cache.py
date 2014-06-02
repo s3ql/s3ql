@@ -64,7 +64,7 @@ class _Inode(object):
 
     def __hash__(self):
         return self.id
-        
+
     def copy(self):
         copy = _Inode(self.generation)
 
@@ -82,32 +82,32 @@ class _Inode(object):
 class InodeCache(object):
     '''
     This class maps the `inode` SQL table to a dict, caching the rows.
-    
+
     If the cache is full and a row is not in the cache, the least-recently
     retrieved row is deleted from the cache. This means that accessing
-    cached rows will *not* change the order of their expiration. 
-    
-    Attributes: 
+    cached rows will *not* change the order of their expiration.
+
+    Attributes:
     -----------
     :attrs:   inode indexed dict holding the attributes
     :cached_rows: list of the inodes that are in cache
-    :pos:    position of the most recently retrieved inode in 
+    :pos:    position of the most recently retrieved inode in
              'cached_rows'.
-             
+
     Notes
     -----
-    
+
     Callers should keep in mind that the changes of the returned inode
     object will only be written to the database if the inode is still
-    in the cache when its attributes are updated: it is possible for 
+    in the cache when its attributes are updated: it is possible for
     the caller to keep a reference to an inode when that
     inode has already been expired from the InodeCache. Modifications
     to this inode object will be lost(!).
-    
+
     Callers should therefore use the returned inode objects only
     as long as they can guarantee that no other calls to InodeCache
-    are made that may result in expiration of inodes from the cache.  
-    
+    are made that may result in expiration of inodes from the cache.
+
     Moreover, the caller must make sure that he does not call
     InodeCache methods while a database transaction is active that
     may be rolled back. This would rollback database updates
@@ -123,7 +123,7 @@ class InodeCache(object):
         self.generation = inode_gen
 
         # Fill the cache with dummy data, so that we don't have to
-        # check if the cache is full or not (it will always be full)        
+        # check if the cache is full or not (it will always be full)
         for _ in range(CACHE_SIZE):
             self.cached_rows.append(None)
 

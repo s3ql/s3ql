@@ -34,7 +34,7 @@ class NthAttempt:
             return True
         self.count += 1
         raise TemporaryProblem()
-    
+
     @retry_generator
     def list_stuff(self, upto=10, start_after=-1):
         for i in range(upto):
@@ -47,12 +47,12 @@ class NthAttempt:
             if i == 7 and self.count < 4:
                 self.count += 1
                 raise TemporaryProblem
-            
+
             yield i
-            
+
 def test_retry():
     inst = NthAttempt(3)
-    
+
     assert inst.do_stuff()
 
 def test_retry_generator():
@@ -61,7 +61,6 @@ def test_retry_generator():
 
 def test_logging():
     inst = NthAttempt(6)
-    with catch_logmsg('^Encountered %s exception', 
+    with catch_logmsg('^Encountered %s exception',
                       count=2, level=logging.WARNING):
         inst.do_stuff()
-

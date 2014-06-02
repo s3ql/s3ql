@@ -9,25 +9,25 @@ This module provides a customized ArgumentParser class. Differences
 are:
 
   * a --version argument is added by default
-  
-  * convenience functions are available for adding --quiet, 
+
+  * convenience functions are available for adding --quiet,
     --debug, --cachedir, --log and --authfile options.
-  
+
   * instead of the usage string one can pass a usage list. The first
     element will be prefixed with ``usage: `` as usual. Additional
     elements will be printed on separate lines and prefixed with
     ``  or:  ``.
-    
+
   * When element of an usage list, the ``DEFAULT_USAGE`` object
     will be replaced by the automatically generated usage message,
     excluding any --help arguments.
-    
+
   * When specified on its own, the replacement will be done including
     any --help arguments.
-      
+
   * The ``usage`` and ``add_help`` settings are inherited from the
-    parent parser to the subparsers. 
-    
+    parent parser to the subparsers.
+
 '''
 
 # Pylint really gets confused by this module
@@ -48,7 +48,7 @@ class HelpFormatter(argparse.HelpFormatter):
 
     def _format_usage(self, usage, actions, groups, prefix):
         '''Special handling for usage lists
-        
+
         If usage is a list object, its elements will be printed on
         separate lines. DEFAULT_USAGE will be replaced by the
         default usage string of the parser (but, if `usage`` is a list,
@@ -143,12 +143,12 @@ class ArgumentParser(argparse.ArgumentParser):
         self.add_argument("--no-ssl", action="store_true", default=False,
                           help="Do not use secure (ssl) connections when connecting "
                                "to remote servers.")
-        
+
         self.add_argument("--ssl-ca-path", metavar='path', default=None, type=str,
                           help="File or directory or containing the trusted CA certificates. "
                                "If not specified, the defaults compiled into the system's "
                                "OpenSSL library are used.")
-        
+
     def add_debug_modules(self):
         self.add_argument("--debug", action="append", metavar='<module>',
                           help="activate debugging output from <module>. Use `all` "
@@ -179,7 +179,7 @@ class ArgumentParser(argparse.ArgumentParser):
     def add_fatal_warnings(self):
         # Make all log messages of severity warning or higher raise
         # exceptions. This option is not listed in the --help output and used by
-        # the unit tests.     
+        # the unit tests.
         self.add_argument("--fatal-warnings", action='store_true', default=False,
                           help=argparse.SUPPRESS)
 
@@ -206,7 +206,7 @@ class ArgumentParser(argparse.ArgumentParser):
         return super().add_subparsers(**kw)
 
     def parse_args(self, *args, **kwargs):
-        
+
         try:
             return super().parse_args(*args, **kwargs)
         except ArgumentError as exc:
@@ -214,7 +214,7 @@ class ArgumentParser(argparse.ArgumentParser):
 
 def storage_url_type(s):
     '''Validate and canonicalize storage url'''
-    
+
     if not re.match(r'^([a-zA-Z0-9]+)://(.+)$', s):
         raise ArgumentTypeError('%s is not a valid storage url.' % s)
 

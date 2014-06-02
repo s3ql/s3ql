@@ -65,10 +65,10 @@ class fs_api_tests(unittest.TestCase):
         self.max_obj_size = 1024
 
         # Destructors are not guaranteed to run, and we can't unlink
-        # the file immediately because apsw refers to it by name. 
-        # Therefore, we unlink the file manually in tearDown() 
+        # the file immediately because apsw refers to it by name.
+        # Therefore, we unlink the file manually in tearDown()
         self.dbfile = tempfile.NamedTemporaryFile(delete=False)
-        
+
         self.db = Connection(self.dbfile.name)
         create_tables(self.db)
         init_tables(self.db)
@@ -92,7 +92,7 @@ class fs_api_tests(unittest.TestCase):
                 cache._do_upload(*arg)
                 return True
         cache.to_upload = DummyDistributor()
-        
+
         # Keep track of unused filenames
         self.name_cnt = 0
 
@@ -670,10 +670,10 @@ class fs_api_tests(unittest.TestCase):
         self.server.write(fh, 0, data)
         self.server.cache.clear()
         self.assertTrue(self.server.failsafe is False)
-        
+
         datafile = os.path.join(self.backend_dir, 's3ql_data_', 's3ql_data_1')
         shutil.copy(datafile, datafile + '.bak')
-        
+
         # Modify contents
         with open(datafile, 'rb+') as rfh:
             rfh.seek(560)
@@ -690,20 +690,20 @@ class fs_api_tests(unittest.TestCase):
         with self.assertRaises(FUSEError) as cm:
             self.server.read(fh, 0, len_)
         self.assertEqual(cm.exception.errno, errno.EIO)
-        
+
         # Release and re-open, now we should be able to access again
         self.server.release(fh)
         self.server.forget([(inode.id, 1)])
-        
+
         # ..but not write access since we are in failsafe mode
         with self.assertRaises(FUSEError) as cm:
             self.server.open(inode.id, os.O_RDWR)
         self.assertEqual(cm.exception.errno, errno.EPERM)
-        
+
         # ..ready only is fine.
         fh = self.server.open(inode.id, os.O_RDONLY)
         self.server.read(fh, 0, len_)
-        
+
         # Remove completely, should give error after cache flush
         os.unlink(datafile)
         self.server.read(fh, 3, len_//2)
@@ -713,10 +713,10 @@ class fs_api_tests(unittest.TestCase):
                               count=1, level=logging.ERROR):
                 self.server.read(fh, 5, len_//2)
         self.assertEqual(cm.exception.errno, errno.EIO)
-        
-        
+
+
         # Don't call fsck, we're missing a block
-        
+
     def test_create_open(self):
         name = self.newname()
         # Create a new file

@@ -101,7 +101,7 @@ def main(args=None):
                                    PICKLE_PROTOCOL))
 
     elif options.action == 'cachesize':
-        llfuse.setxattr(ctrlfile, 'cachesize', 
+        llfuse.setxattr(ctrlfile, 'cachesize',
                         pickle.dumps(options.cachesize * 1024, PICKLE_PROTOCOL))
 
 

@@ -37,6 +37,5 @@ class Backend(swiftks.Backend):
             port = 443
         else:
             port = 80
-            
-        return ('auth.api.rackspacecloud.com', port, region, containername, prefix)
 
+        return ('auth.api.rackspacecloud.com', port, region, containername, prefix)

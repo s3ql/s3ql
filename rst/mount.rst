@@ -126,4 +126,3 @@ as follows (and should be placed in `/etc/init/`):
    * There is no standard way to tell the system that internet
      connection has to be up before the S3QL file system can be
      mounted.
-     

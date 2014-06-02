@@ -84,5 +84,3 @@ def redirect_stream(system_stream, target_stream):
     else:
         target_fd = target_stream.fileno()
     os.dup2(target_fd, system_stream.fileno())
-
-

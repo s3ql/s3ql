@@ -10,7 +10,7 @@ Synopsis
 ::
 
    s3qlstat [options] <mountpoint>
-  
+
 Description
 ===========
 
@@ -21,7 +21,7 @@ at :var:`mountpoint`.
 
 |command| can only be called by the user that mounted the file system
 and (if the file system was mounted with :cmdopt:`--allow-other` or
-:cmdopt:`--allow-root`) the root user. 
+:cmdopt:`--allow-root`) the root user.
 
 
 Options
@@ -34,5 +34,4 @@ The |command| command accepts the following options:
 
 .. include:: ../include/postman.rst
 
-.. |command| replace:: :program:`s3qlstat` 
-
+.. |command| replace:: :program:`s3qlstat`

@@ -65,7 +65,7 @@ def init_tables(conn):
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                     os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
 
-    # Insert control inode, the actual values don't matter that much 
+    # Insert control inode, the actual values don't matter that much
     conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
                  "VALUES (?,?,?,?,?,?,?,?)",
                  (CTRL_INODE, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
@@ -108,7 +108,7 @@ def main(args=None):
                     'accessed using SSL!')
         log.warning('(cf. https://forums.aws.amazon.com/thread.jspa?threadID=130560)')
 
-        
+
     if 's3ql_metadata' in plain_backend:
         if not options.force:
             raise QuietError("Found existing file system! Use --force to overwrite")
@@ -144,7 +144,7 @@ def main(args=None):
     backend = BetterBackend(data_pw, ('lzma', 2), plain_backend)
     atexit.unregister(plain_backend.close)
     atexit.register(backend.close)
-    
+
     # Setup database
     cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
 
@@ -189,7 +189,7 @@ def main(args=None):
         obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
                                       is_compressed=True)
         backend.store('s3ql_seq_no_%d' % param['seq_no'], b'Empty')
-        
+
     log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
     with open(cachepath + '.params', 'wb') as fh:
         pickle.dump(param, fh, PICKLE_PROTOCOL)

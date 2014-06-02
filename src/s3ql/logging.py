@@ -53,7 +53,7 @@ class QuietError(Exception):
 
 def create_handler(target):
     '''Create logging handler for given target'''
-    
+
     if target.lower() == 'syslog':
         handler = logging.handlers.SysLogHandler('/dev/log')
         formatter = logging.Formatter(os.path.basename(sys.argv[0])
@@ -82,7 +82,7 @@ def create_handler(target):
 
     handler.setFormatter(formatter)
     return handler
-    
+
 def setup_logging(options):
     root_logger = logging.getLogger()
     if root_logger.handlers:
@@ -132,8 +132,8 @@ def setup_logging(options):
 
     else:
         logging.captureWarnings(capture=True)
-        
-        
+
+
     return stdout_handler
 
 def setup_excepthook():

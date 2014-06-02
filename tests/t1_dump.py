@@ -30,7 +30,7 @@ class DumpTests(unittest.TestCase):
         # Disable exclusive locking for all tests
         self.src.execute('PRAGMA locking_mode = NORMAL')
         self.dst.execute('PRAGMA locking_mode = NORMAL')
-        
+
         self.create_table(self.src)
         self.create_table(self.dst)
 
@@ -43,7 +43,7 @@ class DumpTests(unittest.TestCase):
 
     def test_transactions(self):
         self.fill_vals(self.src)
-        dumpspec = (('id', deltadump.INTEGER, 0),)        
+        dumpspec = (('id', deltadump.INTEGER, 0),)
         deltadump.dump_table(table='test', order='id', columns=dumpspec,
                              db=self.src, fh=self.fh)
         self.fh.seek(0)
@@ -52,7 +52,7 @@ class DumpTests(unittest.TestCase):
         deltadump.load_table(table='test', columns=dumpspec, db=self.dst,
                              fh=self.fh, trx_rows=10)
         self.compare_tables(self.src, self.dst)
-                
+
     def test_1_vals_1(self):
         self.fill_vals(self.src)
         dumpspec = (('id', deltadump.INTEGER, 0),)
@@ -201,7 +201,7 @@ class DumpTests(unittest.TestCase):
                     val = rfh.read(random.randint(0, 140))
                 else:
                     val = rfh.read(len_)
-    
+
                 db.execute('UPDATE test SET buf=? WHERE id=?', (val, id_))
 
     def fill_vals(self, db):

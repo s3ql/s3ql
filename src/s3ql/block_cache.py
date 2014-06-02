@@ -35,7 +35,7 @@ class NoWorkerThreads(Exception):
     Raised when trying to enqueue an object, but there
     are no active consumer threads.
     '''
-    
+
     pass
 
 class Distributor(object):
@@ -51,10 +51,10 @@ class Distributor(object):
 
         #: Number of threads waiting to consume an object
         self.readers = 0
-        
+
     def put(self, obj, timeout=None):
         '''Offer *obj* for consumption
-        
+
         The method blocks until another thread calls `get()` to consume the
         object.
 
@@ -74,7 +74,7 @@ class Distributor(object):
                 if not self.cv.wait(timeout):
                     log.debug('timeout, returning')
                     return False
-                
+
             log.debug('got reader, enqueueing %s', obj)
             self.readers -= 1
             assert self.slot is None
@@ -82,23 +82,23 @@ class Distributor(object):
             self.cv.notify_all() # notify readers
 
         return True
-    
+
     def get(self):
         '''Consume and return an object
-        
+
         The method blocks until another thread offers an object by calling the
-        `put` method. 
+        `put` method.
         '''
         with self.cv:
-            self.readers += 1 
+            self.readers += 1
             self.cv.notify_all()
             while self.slot is None:
                 log.debug('waiting for writer..')
                 self.cv.wait()
             tmp = self.slot
             self.slot = None
-            self.cv.notify_all() 
-                
+            self.cv.notify_all()
+
         return tmp
 
 
@@ -137,10 +137,10 @@ class SimpleEvent(object):
 
 class CacheEntry(object):
     """An element in the block cache
-    
+
     Attributes:
     -----------
-    
+
     :dirty:    entry has been changed since it was last uploaded.
     :size:     current file size
     :pos: current position in file
@@ -209,7 +209,7 @@ class CacheDict(OrderedDict):
     An ordered dictionary designed to store CacheEntries.
 
     Attributes:
-    
+
     :max_size: maximum size to which cache can grow
     :max_entries: maximum number of entries in cache
     :size: current size of all entries together
@@ -223,7 +223,7 @@ class CacheDict(OrderedDict):
 
     def remove(self, key):
         '''Remove *key* from disk and cache, update size'''
-        
+
         el = self.pop(key)
         el.close()
         el.unlink()
@@ -235,16 +235,16 @@ class CacheDict(OrderedDict):
 
 class BlockCache(object):
     """Provides access to file blocks
-    
+
     This class manages access to file blocks. It takes care of creation,
     uploading, downloading and deduplication.
- 
+
     This class uses the llfuse global lock. Methods which release the lock have
     are marked as such in their docstring.
-    
+
     Attributes
     ----------
-    
+
     :path: where cached data is stored
     :cache: ordered dictionary of cache entries
     :mlock: MultiLock to synchronize access to objects and cache entries
@@ -272,9 +272,9 @@ class BlockCache(object):
         self.transfer_completed = SimpleEvent()
 
         # Will be initialized once threads are available
-        self.to_upload = None 
+        self.to_upload = None
         self.to_remove = None
-        
+
         if not os.path.exists(self.path):
             os.mkdir(self.path)
 
@@ -328,16 +328,16 @@ class BlockCache(object):
     def _unlock_entry(self, inode, blockno, release_global=False,
                       noerror=False):
         '''Release lock on cache entry'''
-        
+
         if release_global:
             with lock_released:
                 self.mlock.release((inode, blockno), noerror=noerror)
         else:
             self.mlock.release((inode, blockno), noerror=noerror)
-            
+
     def destroy(self):
         '''Clean up and stop worker threads
-        
+
         This method should be called without the global lock held.
         '''
 
@@ -367,7 +367,7 @@ class BlockCache(object):
         log.debug('waiting for upload threads...')
         for t in self.upload_threads:
             t.join()
-        
+
         log.debug('waiting for removal threads...')
         for t in self.removal_threads:
             t.join()
@@ -381,7 +381,7 @@ class BlockCache(object):
         else:
             log.error('Could not complete object removals, '
                       'no removal threads left alive')
-        
+
         self.to_upload = None
         self.to_remove = None
         self.upload_threads = None
@@ -391,7 +391,7 @@ class BlockCache(object):
 
         log.debug('cleanup done.')
 
-        
+
     def _upload_loop(self):
         '''Process upload queue'''
 
@@ -403,7 +403,7 @@ class BlockCache(object):
 
             self._do_upload(*tmp)
 
-            
+
     def _do_upload(self, el, obj_id):
         '''Upload object'''
 
@@ -442,7 +442,7 @@ class BlockCache(object):
             # avoid this problem is to insert the hash into the blocks table
             # *after* successfull upload. But this would open a window without
             # de-duplication just to handle the special case of an upload
-            # failing.            
+            # failing.
             #
             # On the other hand, we also want to prevent future deduplication
             # against this block: otherwise the next attempt to upload the same
@@ -456,12 +456,12 @@ class BlockCache(object):
             # assigned to a new block, so the inode_blocks entries will
             # refer to incorrect data.
             #
-            
+
             with lock:
                 self.db.execute('UPDATE blocks SET hash=NULL WHERE obj_id=?',
                                 (obj_id,))
             raise
-            
+
         finally:
             self.in_transit.remove(el)
             self._unlock_obj(obj_id)
@@ -471,7 +471,7 @@ class BlockCache(object):
 
     def wait(self):
         '''Wait until an object has been uploaded
-        
+
         If there are no objects in transit, return immediately. This method
         releases the global lock.
         '''
@@ -484,7 +484,7 @@ class BlockCache(object):
 
     def upload(self, el):
         '''Upload cache entry `el` asynchronously
-        
+
         This method releases the global lock.
         '''
 
@@ -503,7 +503,7 @@ class BlockCache(object):
                     log.debug('%s removed while waiting for lock', el)
                     self._unlock_entry(el.inode, el.blockno)
                     return
-                
+
                 self.in_transit.add(el)
                 sha = hashlib.sha256()
                 el.seek(0)
@@ -543,7 +543,7 @@ class BlockCache(object):
                 # are available in db.
                 self.db.execute('INSERT OR REPLACE INTO inode_blocks (block_id, inode, blockno) '
                                 'VALUES(?,?,?)', (block_id, el.inode, el.blockno))
-                
+
                 with lock_released:
                     self._lock_obj(obj_id)
                     self._queue_upload((el, obj_id))
@@ -560,11 +560,11 @@ class BlockCache(object):
                 el.dirty = False
                 self.in_transit.remove(el)
                 self._unlock_entry(el.inode, el.blockno, release_global=True)
-                
+
                 if old_block_id == block_id:
                     log.debug('upload(%s): unchanged, block_id=%d', el, block_id)
                     return
-                
+
         except:
             self.in_transit.discard(el)
             with lock_released:
@@ -590,7 +590,7 @@ class BlockCache(object):
                     break
             else:
                 raise NoWorkerThreads('no upload threads')
-            
+
     def _queue_removal(self, obj):
         '''Put *obj* into removal queue'''
 
@@ -601,13 +601,13 @@ class BlockCache(object):
                 pass
             else:
                 return
-            
+
             for t in self.removal_threads:
                 if t.is_alive():
                     break
             else:
                 raise NoWorkerThreads('no removal threads')
-            
+
     def _deref_block(self, block_id):
         '''Decrease reference count for *block_id*
 
@@ -617,7 +617,7 @@ class BlockCache(object):
 
         This method releases the global lock.
         '''
-        
+
         refcount = self.db.get_val('SELECT refcount FROM blocks WHERE id=?', (block_id,))
         if refcount > 1:
             log.debug('decreased refcount for block: %d', block_id)
@@ -641,7 +641,7 @@ class BlockCache(object):
         # transit itself. We can release it immediately after, because
         # the object is no longer in the database.
         log.debug('adding %d to removal queue', obj_id)
-        
+
         with lock_released:
             self._lock_obj(obj_id)
             self._unlock_obj(obj_id)
@@ -683,12 +683,12 @@ class BlockCache(object):
     @contextmanager
     def get(self, inode, blockno):
         """Get file handle for block `blockno` of `inode`
-        
+
         This method releases the global lock. The managed block, however,
         is executed with the global lock acquired and MUST NOT release
         it. This ensures that only one thread is accessing a given block
         at a time.
-        
+
         Note: if `get` and `remove` are called concurrently, then it is
         possible that a block that has been requested with `get` and
         passed to `remove` for deletion will not be deleted.
@@ -712,7 +712,7 @@ class BlockCache(object):
                 self.cache.size += el.size - oldsize
         finally:
             self._unlock_entry(inode, blockno, release_global=True)
-            
+
         #log.debug('get(inode=%d, block=%d): end', inode, blockno)
 
     def _get_entry(self, inode, blockno):
@@ -720,7 +720,7 @@ class BlockCache(object):
 
         Assume that cache entry lock has been acquired.
         '''
-        
+
         try:
             el = self.cache[(inode, blockno)]
 
@@ -737,13 +737,13 @@ class BlockCache(object):
                 el = CacheEntry(inode, blockno, filename)
                 self.cache[(inode, blockno)] = el
                 return el
-            
+
             # Need to download corresponding object
             obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (block_id,))
             log.debug('_get_entry(inode=%d, block=%d): downloading object %d..',
                       inode, blockno, obj_id)
             el = CacheEntry(inode, blockno, filename)
-            try: 
+            try:
                 def do_read(fh):
                     el.seek(0)
                     el.truncate()
@@ -763,7 +763,7 @@ class BlockCache(object):
                 el.unlink()
                 el.close()
                 raise
-            
+
             self.cache[(inode, blockno)] = el
             el.dirty = False # (writing will have set dirty flag)
             self.cache.size += el.size
@@ -772,12 +772,12 @@ class BlockCache(object):
         else:
             #log.debug('_get_entry(inode=%d, block=%d): in cache', inode, blockno)
             self.cache.move_to_end((inode, blockno), last=True) # move to head
-            
+
         return el
 
     def expire(self):
         """Perform cache expiry
-        
+
         This method releases the global lock.
         """
 
@@ -789,7 +789,7 @@ class BlockCache(object):
         while True:
             need_size = self.cache.size - self.cache.max_size
             need_entries = len(self.cache) - self.cache.max_entries
-            
+
             if need_size <= 0 and need_entries <= 0:
                 break
 
@@ -800,7 +800,7 @@ class BlockCache(object):
             for el in list(self.cache.values()):
                 if need_size <= 0 and need_entries <= 0:
                     break
-            
+
                 need_entries -= 1
                 need_size -= el.size
 
@@ -834,11 +834,11 @@ class BlockCache(object):
 
     def remove(self, inode, start_no, end_no=None):
         """Remove blocks for `inode`
-        
+
         If `end_no` is not specified, remove just the `start_no` block.
         Otherwise removes all blocks from `start_no` to, but not including,
-         `end_no`. 
-        
+         `end_no`.
+
         This method releases the global lock.
         """
 
@@ -868,7 +868,7 @@ class BlockCache(object):
 
             finally:
                 self._unlock_entry(inode, blockno, release_global=True)
-                
+
             # Decrease block refcount
             self._deref_block(block_id)
 
@@ -886,11 +886,11 @@ class BlockCache(object):
 
     def commit(self):
         """Initiate upload of all dirty blocks
-        
+
         When the method returns, all blocks have been registered
-        in the database (but the actual uploads may still be 
+        in the database (but the actual uploads may still be
         in progress).
-        
+
         This method releases the global lock.
         """
 
@@ -902,10 +902,10 @@ class BlockCache(object):
                 continue
 
             self.upload(el) # Releases global lock
-            
+
     def clear(self):
         """Clear cache
-        
+
         This method releases the global lock.
         """
 
@@ -921,4 +921,3 @@ class BlockCache(object):
     def __del__(self):
         if len(self.cache) > 0:
             raise RuntimeError("BlockManager instance was destroyed without calling destroy()!")
-

@@ -25,7 +25,7 @@ if sys.version_info < (3,3):
 if sys.version_info >= (3,3,3):
     ExitStack = _ExitStack
 
-else:   
+else:
     class ExitStack(_ExitStack):
         def __exit__(self, *exc_details):
             received_exc = exc_details[0] is not None
@@ -68,5 +68,3 @@ else:
                     exc_details[1].__context__ = fixed_ctx
                     raise
             return received_exc and suppressed_exc
-
-

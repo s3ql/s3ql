@@ -24,18 +24,18 @@ sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
 if sqlite_ver < (3, 7, 0):
     raise QuietError('SQLite version too old, must be 3.7.0 or newer!\n')
 
-            
+
 initsql = (
            # WAL mode causes trouble with e.g. copy_tree, so we don't use it at the moment
-           # (cf. http://article.gmane.org/gmane.comp.db.sqlite.general/65243). 
-           # However, if we start using it we must initiaze it *before* setting 
+           # (cf. http://article.gmane.org/gmane.comp.db.sqlite.general/65243).
+           # However, if we start using it we must initiaze it *before* setting
            # locking_mode to EXCLUSIVE, otherwise we can't switch the locking
            # mode without first disabling WAL.
            'PRAGMA synchronous = OFF',
            'PRAGMA journal_mode = OFF',
            #'PRAGMA synchronous = NORMAL',
            #'PRAGMA journal_mode = WAL',
-           
+
            'PRAGMA foreign_keys = OFF',
            'PRAGMA locking_mode = EXCLUSIVE',
            'PRAGMA recursize_triggers = on',
@@ -49,16 +49,16 @@ class Connection(object):
     '''
     This class wraps an APSW connection object. It should be used instead of any
     native APSW cursors.
-    
+
     It provides methods to directly execute SQL commands and creates apsw
     cursors dynamically.
-    
+
     Instances are not thread safe. They can be passed between threads,
     but must not be called concurrently.
-    
+
     Attributes
     ----------
-    
+
     :conn:     apsw connection object
     '''
 
@@ -83,8 +83,8 @@ class Connection(object):
             return 0
 
     def query(self, *a, **kw):
-        '''Return iterator over results of given SQL statement 
-        
+        '''Return iterator over results of given SQL statement
+
         If the caller does not retrieve all rows the iterator's close() method
         should be called as soon as possible to terminate the SQL statement
         (otherwise it may block execution of other statements). To this end,
@@ -120,7 +120,7 @@ class Connection(object):
 
     def get_val(self, *a, **kw):
         """Execute statement and return first element of first result row.
-        
+
         If there is no result row, raises `NoSuchRowError`. If there is more
         than one row, raises `NoUniqueValueError`.
         """
@@ -134,7 +134,7 @@ class Connection(object):
 
     def get_row(self, *a, **kw):
         """Execute select statement and return first row.
-        
+
         If there are no result rows, raises `NoSuchRowError`. If there is more
         than one result row, raises `NoUniqueValueError`.
         """
@@ -168,7 +168,7 @@ class Connection(object):
 
 
 class NoUniqueValueError(Exception):
-    '''Raised if get_val or get_row was called with a query 
+    '''Raised if get_val or get_row was called with a query
     that generated more than one result row.
     '''
 
@@ -187,25 +187,25 @@ class ResultSet(object):
     '''
     Provide iteration over encapsulated apsw cursor. Additionally,
     `ResultSet` instances may be used as context managers to terminate
-    the query before all result rows have been retrieved. 
+    the query before all result rows have been retrieved.
     '''
-    
+
     def __init__(self, cur):
         self.cur = cur
-        
+
     def __next__(self):
         return next(self.cur)
-    
+
     def __iter__(self):
         return self
-    
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_value, traceback):
         self.cur.close()
-        
+
     def close(self):
         '''Terminate query'''
-        
+
         self.cur.close()

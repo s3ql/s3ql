@@ -58,7 +58,7 @@ def parse_args(args):
                         help='File to transfer')
     parser.add_argument('--threads', metavar='<n>', type=int, default=None,
                         help='Also include statistics for <n> threads in results.')
-    
+
     parser.add_cachedir()
     return parser.parse_args(args)
 
@@ -79,7 +79,7 @@ def main(args=None):
             buf = src.read(BUFSIZE)
             rnd_fh.write(buf)
             copied += len(buf)
-            
+
     log.info('Measuring throughput to cache...')
     backend_dir = tempfile.mkdtemp(prefix='s3ql-benchmark-')
     mnt_dir = tempfile.mkdtemp(prefix='s3ql-mnt')
@@ -90,16 +90,16 @@ def main(args=None):
     for blocksize in block_sizes:
         write_time = 0
         size = 50 * 1024 * 1024
-        while write_time < 3:        
-            log.debug('Write took %.3g seconds, retrying', write_time) 
+        while write_time < 3:
+            log.debug('Write took %.3g seconds, retrying', write_time)
             subprocess.check_call([exec_prefix + 'mkfs.s3ql', '--plain', 'local://%s' % backend_dir,
                                    '--quiet', '--force', '--cachedir', options.cachedir])
             subprocess.check_call([exec_prefix + 'mount.s3ql', '--threads', '1', '--quiet',
                                    '--cachesize', '%d' % (2 * size / 1024), '--log',
                                    '%s/mount.log' % backend_dir, '--cachedir', options.cachedir,
                                    'local://%s' % backend_dir, mnt_dir])
-            try:    
-                size *= 2    
+            try:
+                size *= 2
                 with open('%s/bigfile' % mnt_dir, 'wb', 0) as dst:
                     rnd_fh.seek(0)
                     write_time = time.time()
@@ -116,11 +116,11 @@ def main(args=None):
                 os.unlink('%s/bigfile' % mnt_dir)
             finally:
                 subprocess.check_call([exec_prefix + 'umount.s3ql', mnt_dir])
-            
+
         fuse_speed = copied / write_time
         log.info('Cache throughput with %3d KiB blocks: %d KiB/sec',
                  blocksize / 1024, fuse_speed / 1024)
-    
+
     # Upload random data to prevent effects of compression
     # on the network layer
     log.info('Measuring raw backend throughput..')
@@ -128,7 +128,7 @@ def main(args=None):
         backend = get_backend(options, plain=True)
     except DanglingStorageURLError as exc:
         raise QuietError(str(exc)) from None
-    
+
     upload_time = 0
     size = 512 * 1024
     while upload_time < 10:
@@ -168,7 +168,7 @@ def main(args=None):
                 if not buf:
                     break
                 dst.write(buf)
-            return (dst, stamp)            
+            return (dst, stamp)
         (dst_fh, stamp) = backend.perform_write(do_write, 's3ql_testdata')
         dt = time.time() - stamp
         in_speed[alg] = size / dt
@@ -179,17 +179,17 @@ def main(args=None):
     print('')
     print('With %d KiB blocks, maximum performance for different compression'
           % (block_sizes[-1]/1024), 'algorithms and thread counts is:', '', sep='\n')
-    
+
     threads = set([1,2,4,8])
     cores = os.sysconf('SC_NPROCESSORS_ONLN')
     if cores != -1:
         threads.add(cores)
     if options.threads:
         threads.add(options.threads)
-        
+
     print('%-26s' % 'Threads:',
           ('%12d' * len(threads)) % tuple(sorted(threads)))
-    
+
     for alg in ALGS:
         speeds = []
         limits = []
@@ -204,16 +204,16 @@ def main(args=None):
             if speed / in_speed[alg] * out_speed[alg] > backend_speed:
                 limit = 'uplink'
                 speed = backend_speed * in_speed[alg] / out_speed[alg]
-                
+
             limits.append(limit)
-            speeds.append(speed / 1024)    
+            speeds.append(speed / 1024)
 
         print('%-26s' % ('Max FS throughput (%s):' % alg),
               ('%7d KiB/s' * len(threads)) % tuple(speeds))
         print('%-26s' % '..limited by:',
               ('%12s' * len(threads)) % tuple(limits))
-                
-    print('')                
+
+    print('')
     print('All numbers assume that the test file is representative and that',
           'there are enough processor cores to run all active threads in parallel.',
           'To compensate for network latency, you should use about twice as',

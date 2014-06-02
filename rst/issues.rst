@@ -44,7 +44,7 @@ Known Issues
 * S3QL always updates file and directory access times as if the ``relatime``
   mount option has been specified: the access time ("atime") is only updated
   if it is currently earlier than either the status change time
-  ("ctime") or modification time ("mtime"). 
+  ("ctime") or modification time ("mtime").
 
 * S3QL directories always have an `st_nlink` value of 1. This may confuse
   programs that rely on directories having `st_nlink` values of *(2 +

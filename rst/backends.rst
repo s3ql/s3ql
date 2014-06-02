@@ -221,7 +221,7 @@ mountpoint).
 The storage URL for local storage is ::
 
    local://<path>
-   
+
 Note that you have to write three consecutive slashes to specify an
 absolute path, e.g. `local:///var/archive`. Also, relative paths will
 automatically be converted to absolute paths before the authentication

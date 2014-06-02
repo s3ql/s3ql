@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from ..logging import logging # Ensure use of custom logger class
 from ..common import QuietError, PICKLE_PROTOCOL, ChecksumError, BUFSIZE
-from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError, 
+from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
     AuthenticationError, DanglingStorageURLError, retry_generator)
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
@@ -38,9 +38,9 @@ log = logging.getLogger(__name__)
 
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """A backend to stored data in some S3 compatible storage service.
-    
+
     This class uses standard HTTP connections to connect to GS.
-    
+
     The backend guarantees only immediate get after create consistency.
 
     If the *expect_100c* class variable is True, the 'Expect: 100-continue'
@@ -55,7 +55,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         *ssl_context* may be a `ssl.SSLContext` instance or *None*.
         '''
-        
+
         super().__init__()
 
         (host, port, bucket_name, prefix) = self._parse_storage_url(storage_url, ssl_context)
@@ -82,13 +82,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @staticmethod
     def _parse_storage_url(storage_url, ssl_context):
         '''Extract information from storage URL
-        
+
         Return a tuple * (host, port, bucket_name, prefix) * .
         '''
 
         hit = re.match(r'^[a-zA-Z0-9]+://' # Backend
                        r'([^/:]+)' # Hostname
-                       r'(?::([0-9]+))?' # Port 
+                       r'(?::([0-9]+))?' # Port
                        r'/([^/]+)' # Bucketname
                        r'(?:/(.*))?$', # Prefix
                        storage_url)
@@ -115,8 +115,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def is_temp_failure(self, exc): #IGNORE:W0613
-        if isinstance(exc, (InternalError, BadDigestError, IncompleteBodyError, 
-                            RequestTimeoutError, OperationAbortedError, SlowDownError, 
+        if isinstance(exc, (InternalError, BadDigestError, IncompleteBodyError,
+                            RequestTimeoutError, OperationAbortedError, SlowDownError,
                             RequestTimeTooSkewedError)):
             return True
 
@@ -129,7 +129,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
               and exc.status >= 500 and exc.status <= 599
               and exc.status not in (501,505,508,510,511,523)):
             return True
-        
+
         return False
 
     def _dump_response(self, resp, body=None):
@@ -150,18 +150,18 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 self.conn.close()
         else:
             body = body[:2048]
-            
+
         return '%d %s\n%s\n\n%s' % (resp.status, resp.reason,
                                     '\n'.join('%s: %s' % x for x in resp.headers.items()),
                                     body.decode('utf-8', errors='backslashreplace'))
-    
+
     def _assert_empty_response(self, resp):
         '''Assert that current response body is empty'''
 
         buf = self.conn.read(2048)
         if not buf:
             return # expected
-        
+
         # Log the problem
         self.conn.discard()
         log.error('Unexpected server response. Expected nothing, got:\n'
@@ -182,7 +182,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 pass
             else:
                 raise NoSuchObject(key)
-    
+
     @retry_generator
     @copy_ancestor_docstring
     def list(self, prefix='', start_after=''):
@@ -326,7 +326,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         if isinstance(body, (bytes, bytearray, memoryview)):
             headers['Content-MD5'] = md5sum_b64(body)
-            
+
         redirect_count = 0
         this_method = method
         while True:
@@ -386,7 +386,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 this_method = method
 
             log.info('_do_request(): redirected to %s', self.conn.hostname)
-            
+
             if body and not isinstance(body, (bytes, bytearray, memoryview)):
                 body.seek(0)
 
@@ -410,7 +410,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # Note that even though the final server backend may guarantee to always
         # deliver an XML document body with a detailed error message, we may
-        # also get errors from intermediate proxies.        
+        # also get errors from intermediate proxies.
         content_type = resp.headers['Content-Type']
 
         # If method == HEAD, server must not return response body
@@ -487,7 +487,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         '''Add authorization information to *headers*'''
 
         # See http://docs.amazonwebservices.com/AmazonS3/latest/dev/RESTAuthentication.html
-        
+
         # Date, can't use strftime because it's locale dependent
         now = time.gmtime()
         headers['Date'] = ('%s, %02d %s %04d %02d:%02d:%02d GMT'
@@ -521,18 +521,18 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                                        hashlib.sha1).digest()).decode()
 
         headers['Authorization'] = 'AWS %s:%s' % (self.login, signature)
-        
+
     def _send_request(self, method, path, headers, subres=None, query_string=None, body=None):
         '''Add authentication and send request
-        
+
         Returns the response object.
         '''
 
         if not isinstance(headers, CaseInsensitiveDict):
             headers = CaseInsensitiveDict(headers)
-            
+
         self._authorize_request(method, path, headers, subres)
-        
+
         # Construct full path
         if not self.hostname.startswith(self.bucket_name):
             path = '/%s%s' % (self.bucket_name, path)
@@ -569,7 +569,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             assert resp.method == method
             assert resp.path == path
             return resp
-        
+
         except Exception as exc:
             if is_temp_network_error(exc):
                 # We probably can't use the connection anymore
@@ -614,14 +614,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 raise
         else:
             return meta
-        
+
 class ObjectR(object):
     '''An S3 object open for reading'''
 
     # NOTE: This class is used as a base class for the swift backend,
     # so changes here should be checked for their effects on other
     # backends.
-    
+
     def __init__(self, key, resp, backend, metadata=None):
         self.key = key
         self.resp = resp
@@ -630,12 +630,12 @@ class ObjectR(object):
         self.metadata = metadata
 
         # False positive, hashlib *does* have md5 member
-        #pylint: disable=E1101        
+        #pylint: disable=E1101
         self.md5 = hashlib.md5()
 
     def read(self, size=None):
         '''Read up to *size* bytes of object data
-        
+
         For integrity checking to work, this method has to be called until
         it returns an empty string, indicating that all data has been read
         (and verified).
@@ -654,7 +654,7 @@ class ObjectR(object):
                 log.warning('ObjectR(%s).close(): MD5 mismatch: %s vs %s', self.key, etag,
                          self.md5.hexdigest())
                 raise BadDigestError('BadDigest', 'ETag header does not agree with calculated MD5')
-            
+
             return buf
 
         self.md5.update(buf)
@@ -677,29 +677,29 @@ class ObjectR(object):
 
 class ObjectW(object):
     '''An S3 object open for writing
-    
+
     All data is first cached in memory, upload only starts when
     the close() method is called.
     '''
-    
+
     # NOTE: This class is used as a base class for the swift backend,
     # so changes here should be checked for their effects on other
     # backends.
-    
+
     def __init__(self, key, backend, headers):
         self.key = key
         self.backend = backend
         self.headers = headers
         self.closed = False
         self.obj_size = 0
-        
+
         # According to http://docs.python.org/3/library/functions.html#open
-        # the buffer size is typically ~8 kB. We process data in much 
+        # the buffer size is typically ~8 kB. We process data in much
         # larger chunks, so buffering would only hurt performance.
-        self.fh = tempfile.TemporaryFile(buffering=0) 
+        self.fh = tempfile.TemporaryFile(buffering=0)
 
         # False positive, hashlib *does* have md5 member
-        #pylint: disable=E1101        
+        #pylint: disable=E1101
         self.md5 = hashlib.md5()
 
     def write(self, buf):
@@ -760,26 +760,26 @@ def get_S3Error(code, msg):
     # Special case
     # http://code.google.com/p/s3ql/issues/detail?id=369
     if code == 'Timeout':
-        code = 'RequestTimeout'  
+        code = 'RequestTimeout'
 
     if code.endswith('Error'):
         name = code
     else:
         name = code + 'Error'
-    class_ = globals().get(name, S3Error)    
-    
+    class_ = globals().get(name, S3Error)
+
     if not issubclass(class_, S3Error):
         return S3Error(code, msg)
-    
+
     return class_(code, msg)
 
 
 def md5sum_b64(buf):
     '''Return base64 encoded MD5 sum'''
-    
+
     return b64encode(hashlib.md5(buf).digest()).decode('ascii')
 
-            
+
 class HTTPError(Exception):
     '''
     Represents an HTTP error returned by S3.
@@ -791,13 +791,13 @@ class HTTPError(Exception):
         self.msg = msg
         self.headers = headers
         self.retry_after = None
-        
+
         if self.headers is not None:
             self._set_retry_after()
-        
+
     def _set_retry_after(self):
         '''Parse headers for Retry-After value'''
-        
+
         val = None
         for (k, v) in self.headers.items():
             if k.lower() == 'retry-after':
@@ -810,13 +810,13 @@ class HTTPError(Exception):
                         log.warning('Unable to parse header: %s: %s', k, v)
                         continue
                     val = mktime_tz(*date) - time.time()
-                    
+
         if val is not None:
             if val > 300 or val < 0:
                 log.warning('Ignoring invalid retry-after value of %.3f', val)
             else:
                 self.retry_after = val
-            
+
     def __str__(self):
         return '%d %s' % (self.status, self.msg)
 

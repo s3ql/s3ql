@@ -29,4 +29,3 @@ class CommandLineLexer(RegexLexer):
             ],
 
     }
-

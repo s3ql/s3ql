@@ -12,7 +12,7 @@ Synopsis
 
    pcp [options] <source> [<source> ...] <destination>
 
-   
+
 Description
 ===========
 
@@ -46,5 +46,4 @@ See Also
 
 |command| is shipped as part of S3QL, https://bitbucket.org/nikratio/s3ql/.
 
-.. |command| replace:: :program:`pcp` 
-
+.. |command| replace:: :program:`pcp`

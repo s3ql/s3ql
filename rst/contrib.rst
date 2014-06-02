@@ -86,4 +86,3 @@ s3ql_upstart.conf
 ``s3ql_upstart.conf`` is an example upstart job definition file. It
 defines a job that automatically mounts an S3QL file system on system
 start, and properly unmounts it when the system is shut down.
-

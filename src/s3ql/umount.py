@@ -22,13 +22,13 @@ log = logging.getLogger(__name__)
 
 def parse_args(args):
     '''Parse command line
-     
-    This function writes to stdout/stderr and may call `system.exit()` instead 
+
+    This function writes to stdout/stderr and may call `system.exit()` instead
     of throwing an exception if it encounters errors.
     '''
 
     parser = ArgumentParser(
-        description=textwrap.dedent('''\ 
+        description=textwrap.dedent('''\
         Unmounts an S3QL file system. The command returns only after all data
         has been uploaded to the backend.'''))
 
@@ -55,18 +55,18 @@ class UmountError(Exception):
 
     message = 'internal error'
     exitcode = 3
-    
+
     def __init__(self, mountpoint):
         super().__init__()
         self.mountpoint = mountpoint
-        
+
     def __str__(self):
         return self.message
 
 class UmountSubError(UmountError):
     message = 'Unmount subprocess failed.'
     exitcode = 2
-    
+
 class MountInUseError(UmountError):
     message = 'In use.'
     exitcode = 1
@@ -103,12 +103,12 @@ def get_cmdline(pid):
         return output
     else:
         return None
-    
+
 def blocking_umount(mountpoint):
     '''Invoke fusermount and wait for daemon to terminate.'''
 
     with open('/dev/null', 'wb') as devnull:
-        if subprocess.call(['fuser', '-m', mountpoint], stdout=devnull, 
+        if subprocess.call(['fuser', '-m', mountpoint], stdout=devnull,
                            stderr=devnull) == 0:
             raise MountInUseError(mountpoint)
 
@@ -175,7 +175,7 @@ def main(args=None):
     setup_logging(options)
 
     assert_s3ql_mountpoint(options.mountpoint)
-    
+
     try:
         if options.lazy:
             lazy_umount(options.mountpoint)
@@ -192,7 +192,7 @@ def main(args=None):
     except UmountError as err:
         print('%s: %s' % (options.mountpoint, err), file=sys.stderr)
         sys.exit(err.exitcode)
-    
+
     sys.exit(0)
 
 if __name__ == '__main__':

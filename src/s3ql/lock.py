@@ -24,7 +24,7 @@ def parse_args(args):
         description=textwrap.dedent('''\
         Makes the given directory tree(s) immutable. No changes of any sort can
         be performed on the tree after that. Immutable entries can only be
-        deleted with s3qlrm. 
+        deleted with s3qlrm.
         '''))
 
     parser.add_debug()

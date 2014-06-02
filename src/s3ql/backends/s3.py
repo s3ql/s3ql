@@ -22,17 +22,17 @@ MAX_KEYS = 1000
 
 # Pylint goes berserk with false positives
 #pylint: disable=E1002,E1101
-              
+
 class Backend(s3c.Backend):
     """A backend to store data in Amazon S3
-    
+
     This class uses standard HTTP connections to connect to S3.
-    
+
     The backend guarantees get after create consistency, i.e. a newly created
     object will be immediately retrievable. Additional consistency guarantees
-    may or may not be available and can be queried for with instance methods.    
+    may or may not be available and can be queried for with instance methods.
     """
-    
+
     def __init__(self, storage_url, login, password, ssl_context=None,
                  proxy=None):
         super().__init__(storage_url, login, password, proxy=proxy,
@@ -45,11 +45,11 @@ class Backend(s3c.Backend):
             raise QuietError('Invalid storage URL')
 
         bucket_name = hit.group(1)
-        
+
         # http://docs.amazonwebservices.com/AmazonS3/2006-03-01/dev/BucketRestrictions.html
         if not re.match('^[a-z0-9][a-z0-9.-]{1,60}[a-z0-9]$', bucket_name):
             raise QuietError('Invalid bucket name.')
-        
+
         # Dots in the bucket cause problems with SSL certificate validation,
         # because server certificate is for *.s3.amazonaws.com (which does not
         # match e.g. a.b.s3.amazonaws.com). However, when using path based
@@ -63,7 +63,7 @@ class Backend(s3c.Backend):
                              'This is purely Amazon\'s fault, see '
                              'https://forums.aws.amazon.com/thread.jspa?threadID=130560')
         hostname = '%s.s3.amazonaws.com' % bucket_name
-            
+
         prefix = hit.group(2) or ''
         port = 443 if ssl_context else 80
         return (hostname, port, bucket_name, prefix)
@@ -93,12 +93,12 @@ class Backend(s3c.Backend):
         body.append('</Delete>')
         body = '\n'.join(body).encode('utf-8')
         headers = { 'content-type': 'text/xml; charset=utf-8' }
-        
+
         resp = self._do_request('POST', '/', subres='delete', body=body, headers=headers)
         try:
             root = self._parse_xml_response(resp)
             ns_p = self.xml_ns_prefix
-            
+
             error_tags = root.findall(ns_p + 'Error')
             if not error_tags:
                 # No errors occured, everything has been deleted
@@ -115,10 +115,10 @@ class Backend(s3c.Backend):
 
             if log.isEnabledFor(logging.DEBUG):
                 for errtag in error_tags:
-                    log.debug('Delete %s failed with %s', 
+                    log.debug('Delete %s failed with %s',
                               errtag.findtext(ns_p + 'Key')[offset:],
                               errtag.findtext(ns_p + 'Code'))
-                
+
             # If *force*, just modify the passed list and return without
             # raising an exception, otherwise raise exception for the first error
             if force:

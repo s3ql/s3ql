@@ -12,7 +12,7 @@ Synopsis
 
    mount.s3ql [options] <storage url> <mount point>
 
-  
+
 Description
 ===========
 
@@ -36,5 +36,4 @@ The |command| command accepts the following options.
 .. include:: ../include/postman.rst
 
 
-.. |command| replace:: :program:`mount.s3ql` 
-
+.. |command| replace:: :program:`mount.s3ql`

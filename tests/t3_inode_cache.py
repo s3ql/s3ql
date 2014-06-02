@@ -25,10 +25,10 @@ class cache_tests(unittest.TestCase):
 
     def setUp(self):
         # Destructors are not guaranteed to run, and we can't unlink
-        # the file immediately because apsw refers to it by name. 
-        # Therefore, we unlink the file manually in tearDown() 
+        # the file immediately because apsw refers to it by name.
+        # Therefore, we unlink the file manually in tearDown()
         self.dbfile = tempfile.NamedTemporaryFile(delete=False)
-        
+
         self.db = Connection(self.dbfile.name)
         create_tables(self.db)
         init_tables(self.db)

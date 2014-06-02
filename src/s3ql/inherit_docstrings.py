@@ -31,7 +31,7 @@ def copy_ancestor_docstring(fn):
 
 def _copy_ancestor_docstring(mro, fn):
     '''Decorator to set docstring for *fn* from *mro*'''
-    
+
     if fn.__doc__ is not None:
         raise RuntimeError('Function already has docstring')
 
@@ -84,7 +84,7 @@ DECORATORS = (('copy_ancestor_docstring', _copy_ancestor_docstring),
               ('prepend_ancestor_docstring', _prepend_ancestor_docstring))
 
 class InheritableDocstrings(type):
-    
+
     @classmethod
     def __prepare__(cls, name, bases, **kwds):
         classdict = super().__prepare__(name, bases, *kwds)
@@ -93,7 +93,7 @@ class InheritableDocstrings(type):
         # Inject decorators into class namespace
         for (name, fn) in DECORATORS:
             classdict[name] = partial(fn, mro)
-        
+
         return classdict
 
     def __new__(cls, name, bases, classdict):
@@ -103,19 +103,18 @@ class InheritableDocstrings(type):
             # (Pythonbug? reported as http://bugs.python.org/issue18334)
             if dec_name not in classdict:
                 continue
-            
+
             # Make sure that class definition hasn't messed with decorator
             if getattr(classdict[dec_name], 'func', None) is not fn:
                 raise RuntimeError('No %s attribute may be created in classes using '
                                    'the InheritableDocstrings metaclass' % name)
 
-        
+
             # Delete decorator from class namespace
             del classdict[dec_name]
-        
+
         return super().__new__(cls, name, bases, classdict)
 
 # Derive new metaclass to add docstring inheritance
 class ABCDocstMeta(ABCMeta, InheritableDocstrings):
     pass
-        

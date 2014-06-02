@@ -100,7 +100,7 @@ Of course, none of this is acceptable for a file system, and S3QL
 generally handles any of the above situations internally so that it
 always provides a fully consistent file system to the user. However,
 there are some situations where an S3QL user nevertheless needs to be
-aware of the peculiarities of his chosen storage service. 
+aware of the peculiarities of his chosen storage service.
 
 Suppose that you mount the file system, store some new data, delete
 some old data and unmount it. If you then mount the file system again

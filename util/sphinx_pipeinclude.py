@@ -29,10 +29,10 @@ class PipeInclude(Include):
 
         command = self.arguments[0]
         command_list = shlex.split(command)
-        
+
         if command_list[0] == 'python':
             command_list[0] = sys.executable
-            
+
         encoding = self.options.get(
             'encoding', self.state.document.settings.input_encoding)
         tab_width = self.options.get(
@@ -104,4 +104,3 @@ class PipeInclude(Include):
 
 def setup(app):
     app.add_directive('pipeinclude', PipeInclude)
-

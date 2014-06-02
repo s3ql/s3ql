@@ -79,7 +79,7 @@ def main(args=None):
 
     if os.path.ismount(options.source):
         raise QuietError('%s is a mount point.' % options.source)
-        
+
     ctrlfile = assert_fs_owner(options.source)
     try:
         os.mkdir(options.target)

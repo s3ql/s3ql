@@ -13,7 +13,7 @@ Synopsis
 ::
 
    s3ql_oauth_client [options]
-  
+
 Description
 ===========
 
@@ -29,7 +29,7 @@ token.
 When combined with the special username ``oauth2``, the refresh token
 can be used as a backend passphrase when using the Google Storage S3QL
 backend.
-  
+
 
 Options
 =======
@@ -42,4 +42,3 @@ The |command| command accepts the following options:
 .. include:: ../include/postman.rst
 
 .. |command| replace:: :program:`s3ql_oauth_client`
-

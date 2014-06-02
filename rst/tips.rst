@@ -50,7 +50,7 @@ Improving copy performance
 
    The following applies only when copying data **from** an S3QL file
    system, **not** when copying data **to** an S3QL file system.
-   
+
 If you want to copy a lot of smaller files *from* an S3QL file system
 (e.g. for a system restore) you will probably notice that the
 performance is rather bad.

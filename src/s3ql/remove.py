@@ -23,7 +23,7 @@ def parse_args(args):
     parser = ArgumentParser(
         description=textwrap.dedent('''\
         Recursively delete files and directories in an S3QL file system,
-        including immutable entries. 
+        including immutable entries.
         '''))
 
     parser.add_debug()

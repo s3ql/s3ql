@@ -21,6 +21,6 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
 if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
     import warnings
     warnings.simplefilter('default')
-    
+
 import s3ql.oauth_client
 s3ql.oauth_client.main(sys.argv[1:])

@@ -28,7 +28,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def __init__(self, storage_url, backend_login, backend_pw,
                  ssl_context=None, proxy=None):
         '''Initialize local backend
-        
+
         Login and password are ignored.
         '''
         # Unused argument
@@ -72,7 +72,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             fh = ObjectR(path)
         except FileNotFoundError:
             raise NoSuchObject(key)
-        
+
         try:
             fh.metadata = pickle.load(fh)
         except pickle.UnpicklingError as exc:
@@ -264,7 +264,7 @@ class ObjectW(object):
         # almost always only accessed by block_cache and stream_read_bz2/stream_write_bz2, which all
         # use the much larger s3ql.common.BUFSIZE
         self.fh = open(name, 'wb', buffering=0)
-        
+
         self.obj_size = 0
         self.closed = False
 

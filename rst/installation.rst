@@ -65,7 +65,7 @@ that is not the case.
   need the `Python requests module
   <https://pypi.python.org/pypi/requests/>`_. To check if this module
   is installed, try to execute `python -c 'import requests'`.
-  
+
 * `SQLite <http://www.sqlite.org/>`_ version 3.7.0 or newer. SQLite
   has to be installed as a *shared library* with development headers.
 
@@ -74,7 +74,7 @@ that is not the case.
 
     python -c 'import apsw; print(apsw.apswversion())'
 
-  The printed version number should be at least 3.7.0. 
+  The printed version number should be at least 3.7.0.
 
 * The `Python LLFUSE module
   <http://code.google.com/p/python-llfuse/>`_. To check if this module
@@ -87,7 +87,7 @@ that is not the case.
   module is installed, try to execute `python -c 'import dugong';
   print(dugong.__version__)'`. This should print a version number. You
   need at least version 3.1.
-  
+
 .. _inst-s3ql:
 
 Installing S3QL
@@ -145,7 +145,7 @@ file. In that case, the build system will behave as it does for a
 regular release.
 
 The HTML and PDF documentation can be generated with ::
-  
+
   python3 setup.py build_sphinx
 
 and S3QL can be installed as usual with ::

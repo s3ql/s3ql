@@ -11,7 +11,7 @@ Synopsis
 ::
 
    s3qllock [options] <directory>
-  
+
 Description
 ===========
 
@@ -25,7 +25,7 @@ rid of an immutable tree is to use the :program:`s3qlrm` command.
 
 |command| can only be called by the user that mounted the file system
 and (if the file system was mounted with :cmdopt:`--allow-other` or
-:cmdopt:`--allow-root`) the root user. 
+:cmdopt:`--allow-root`) the root user.
 
 Rationale
 =========
@@ -46,7 +46,7 @@ later on. In the worst case, this may make your entire backup system
 worthless. Imagine that your system gets infected by a nasty virus
 that simply deletes all files it can find -- if the virus is active
 while the backup file system is mounted, the virus will destroy all
-your old backups as well! 
+your old backups as well!
 
 Even if the possibility of a malicious virus or trojan horse is
 excluded, being able to change a backup after it has been made is
@@ -64,7 +64,7 @@ changed after they have been made immutable.
 
 
 .. end_main_content
-  
+
 
 Options
 =======
@@ -78,5 +78,4 @@ The |command| command accepts the following options:
 .. include:: ../include/postman.rst
 
 
-.. |command| replace:: :program:`s3qllock` 
-
+.. |command| replace:: :program:`s3qllock`

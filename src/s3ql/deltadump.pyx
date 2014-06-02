@@ -136,7 +136,7 @@ cdef int raise_from_errno(err_class=OSError) except -1:
     '''Raise OSError for current errno value'''
 
     raise err_class(errno, PyUnicode_FromString(strerror(errno)))
-    
+
 cdef int fclose(FILE * fp) except -1:
     '''Call libc.fclose() and raise exception on failure'''
 
@@ -147,7 +147,7 @@ cdef int fclose(FILE * fp) except -1:
     # below (which is necessary in case there is cached input data)
     if fflush(fp) != 0:
         raise_from_errno()
-    
+
     # Reposition FD to position of FILE*, otherwise next read from FD will miss
     # data currently in stream buffer. It seems that call to fflush() achieves
     # the same thing, but this does not seem to be documented so we don't rely
@@ -179,7 +179,7 @@ cdef void * calloc(size_t cnt, size_t size) except NULL:
 
 cdef int SQLITE_CHECK_RC(int rc, int success, sqlite3* db) except -1:
     '''Raise correct exception if *rc* != *success*'''
-    
+
     if rc != success:
         exc = apsw.exceptionfor(rc)
         raise type(exc)(PyUnicode_FromString(sqlite3_errmsg(db)))
@@ -194,12 +194,12 @@ cdef int prep_columns(columns, int** col_types_p, int** col_args_p) except -1:
     that they're freed again.
     '''
     cdef int col_count, *col_types, *col_args
-    
+
     col_count = len(columns)
     col_types = < int *> calloc(col_count, sizeof(int))
     col_args = < int *> calloc(col_count, sizeof(int))
 
-    # Initialize col_args and col_types   
+    # Initialize col_args and col_types
     for i in range(col_count):
         if columns[i][1] not in (BLOB, INTEGER, TIME):
             raise ValueError("Invalid type for column %d" % i)
@@ -240,7 +240,7 @@ def check_sqlite():
     same options can the database object be shared between *apsw* and
     *deltadump*.
     '''
-    
+
     cdef const_char *buf
 
     apsw_sqlite_version = apsw.sqlitelibversion()
@@ -252,7 +252,7 @@ def check_sqlite():
     if apsw_sqlite_version != s3ql_sqlite_version:
         raise RuntimeError('SQLite version mismatch between APSW and S3QL '
                            '(%s vs %s)' % (apsw_sqlite_version, s3ql_sqlite_version))
-    
+
     apsw_sqlite_options = set(apsw.compile_options)
     s3ql_sqlite_options = set()
     for idx in itertools.count(0):
@@ -278,14 +278,14 @@ def dump_table(table, order, columns, db, fh):
     *order* specifies the order in which the rows are written and must be a
     string that can be inserted after the "ORDER BY" clause in an SQL SELECT
     statement.
-    
+
     *db* is an `s3ql.Connection` instance for the database.
-    
+
     *columns* must a list of 3-tuples, one for each column that should be
     stored. The first element of the tuple must contain the column name and the
     second element the type of data stored in the column (`INTEGER`, `TIME`
     or `BLOB`). Times will be converted to nanosecond integers.
-    
+
     For integers and seconds, the third tuple element specifies the expected
     change of the values between rows. For blobs it can be either zero
     (indicating variable length columns) or an integer specifying the length of
@@ -325,11 +325,11 @@ def dump_table(table, order, columns, db, fh):
         fp = dup_to_fp(fh, b'wb')
         cm.callback(lambda: fclose(fp))
 
-        # Allocate col_args and col_types 
+        # Allocate col_args and col_types
         col_count = prep_columns(columns, &col_types, &col_args)
         cm.callback(lambda: free(col_args))
         cm.callback(lambda: free(col_types))
-        
+
         # Allocate int64_prev
         int64_prev = < int64_t *> calloc(len(columns), sizeof(int64_t))
         cm.callback(lambda: free(int64_prev))
@@ -391,7 +391,7 @@ def load_table(table, columns, db, fh, trx_rows=5000):
     '''Load *columns* of *table* from *fh*
 
     *db* is an `s3ql.Connection` instance for the database.
-    
+
     *columns* must be the same list of 3-tuples that was passed to
     `dump_table` when creating the dump stored in *fh*.
 
@@ -446,7 +446,7 @@ def load_table(table, columns, db, fh, trx_rows=5000):
         fp = dup_to_fp(fh, b'rb')
         cm.callback(lambda: fclose(fp))
 
-        # Allocate col_args and col_types 
+        # Allocate col_args and col_types
         col_count = prep_columns(columns, &col_types, &col_args)
         cm.callback(lambda: free(col_args))
         cm.callback(lambda: free(col_types))
@@ -520,10 +520,10 @@ def load_table(table, columns, db, fh, trx_rows=5000):
 
                     if len_ != 0:
                         fread(buf, len_, fp)
-                        
+
                     SQLITE_CHECK_RC(sqlite3_bind_blob(stmt, j + 1, buf, len_, SQLITE_TRANSIENT),
                                     SQLITE_OK, sqlite3_db)
-                
+
             SQLITE_CHECK_RC(sqlite3_step(stmt), SQLITE_DONE, sqlite3_db)
             SQLITE_CHECK_RC(sqlite3_reset(stmt), SQLITE_OK, sqlite3_db)
 
@@ -536,7 +536,7 @@ def load_table(table, columns, db, fh, trx_rows=5000):
                 SQLITE_CHECK_RC(sqlite3_step(begin_stmt), SQLITE_DONE, sqlite3_db)
                 SQLITE_CHECK_RC(sqlite3_reset(commit_stmt), SQLITE_OK, sqlite3_db)
                 SQLITE_CHECK_RC(sqlite3_reset(begin_stmt), SQLITE_OK, sqlite3_db)
-                
+
 
 cdef inline int write_integer(int64_t int64, FILE * fp) except -1:
     '''Write *int64* into *fp*, using as little space as possible
@@ -620,4 +620,3 @@ cdef inline int read_integer(int64_t * out, FILE * fp) except -1:
         out[0] = < int64_t > uint64
 
     return len_ + 1
-

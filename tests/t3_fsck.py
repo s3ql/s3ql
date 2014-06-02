@@ -186,7 +186,7 @@ class fsck_tests(unittest.TestCase):
 
     def _add_name(self, name):
         '''Get id for *name* and increase refcount
-        
+
         Name is inserted in table if it does not yet exist.
         '''
 
@@ -341,7 +341,7 @@ class fsck_tests(unittest.TestCase):
 
     def test_loops(self):
 
-        # Create some directory inodes  
+        # Create some directory inodes
         inodes = [ self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                                  "VALUES (?,?,?,?,?,?,?)",
                                  (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR,
@@ -477,7 +477,7 @@ class fsck_tests(unittest.TestCase):
         self._link(b'test-entry', inode)
 
         self.assert_fsck(self.fsck.check_unix)
-        
+
         newmode = self.db.get_val('SELECT mode FROM inodes WHERE id=?', (inode,))
         self.assertEqual(stat.S_IMODE(newmode), perms)
         self.assertEqual(stat.S_IFMT(newmode), stat.S_IFREG)
@@ -491,19 +491,19 @@ class fsck_tests(unittest.TestCase):
                               (perms, os.getuid(), os.getgid(), stamp, stamp, stamp, 1))
         inode2 = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
                               "VALUES (?,?,?,?,?,?,?)",
-                              (perms | stat.S_IFREG, os.getuid(), os.getgid(), stamp, 
+                              (perms | stat.S_IFREG, os.getuid(), os.getgid(), stamp,
                                stamp, stamp, 1))
 
         self._link(b'test-entry', inode)
         self._link(b'subentry', inode2, inode)
 
         self.assert_fsck(self.fsck.check_unix)
-        
+
         newmode = self.db.get_val('SELECT mode FROM inodes WHERE id=?', (inode,))
         self.assertEqual(stat.S_IMODE(newmode), perms)
         self.assertEqual(stat.S_IFMT(newmode), stat.S_IFDIR)
-        
-        
+
+
     def test_unix_symlink_no_target(self):
 
         inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "

@@ -14,7 +14,7 @@ Synopsis
 
 Description
 ===========
-  
+
 .. include:: ../include/about.rst
 
 The |command| command checks the new file system in the location
@@ -33,4 +33,4 @@ The |command| command accepts the following options.
 
 .. include:: ../include/postman.rst
 
-.. |command| replace:: :program:`fsck.s3ql` 
+.. |command| replace:: :program:`fsck.s3ql`

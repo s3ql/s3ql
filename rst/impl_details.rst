@@ -31,7 +31,7 @@ the file system is unmounted. This has two implications:
    using a single :program:`mount.s3ql` process. Otherwise changes made in
    one mountpoint will invariably be overwritten when the second mount
    point is unmounted.
- 
+
 Sockets, FIFOs and character devices do not need any additional
 storage, all information about them is contained in the database.
 

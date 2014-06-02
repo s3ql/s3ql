@@ -96,18 +96,16 @@ syntax is ::
 
  s3qlctrl [options] <action> <mountpoint> ...
 
-`<mountpoint>` must be the location of a mounted S3QL file system. 
+`<mountpoint>` must be the location of a mounted S3QL file system.
 For a list of valid options, run `s3qlctrl --help`. `<action>`
 may be either of:
 
   :flushcache:
-              Flush file system cache. The command blocks until the cache has
-              been flushed.
+	      Flush file system cache. The command blocks until the cache has
+	      been flushed.
   :log:
-              Change log level.
+	      Change log level.
   :cachesize:
-              Change file system cache size.
+	      Change file system cache size.
   :upload-meta:
-              Trigger a metadata upload. 
-
-
+	      Trigger a metadata upload.

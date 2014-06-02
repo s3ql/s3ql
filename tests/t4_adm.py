@@ -36,7 +36,7 @@ class AdmTests(unittest.TestCase):
         shutil.rmtree(self.backend_dir)
 
     def mkfs(self):
-        proc = subprocess.Popen(self.s3ql_cmd_argv('mkfs.s3ql') + 
+        proc = subprocess.Popen(self.s3ql_cmd_argv('mkfs.s3ql') +
                                 ['-L', 'test fs', '--max-obj-size', '500', '--fatal-warnings',
                                  '--authfile', '/dev/null', '--cachedir', self.cache_dir,
                                  '--quiet', self.storage_url ],
@@ -53,7 +53,7 @@ class AdmTests(unittest.TestCase):
 
         passphrase_new = 'sd982jhd'
 
-        proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') + 
+        proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') +
                                 [ '--quiet', '--fatal-warnings', '--log', 'none', '--authfile',
                                   '/dev/null', 'passphrase', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
@@ -67,8 +67,8 @@ class AdmTests(unittest.TestCase):
 
         plain_backend = local.Backend(self.storage_url, None, None)
         backend = BetterBackend(passphrase_new.encode(), ('zlib', 6), plain_backend)
-        
-        backend.fetch('s3ql_passphrase') # will fail with wrong pw 
+
+        backend.fetch('s3ql_passphrase') # will fail with wrong pw
 
 
     def test_authinfo(self):
@@ -85,7 +85,7 @@ class AdmTests(unittest.TestCase):
                   file=fh, sep='\n')
             fh.flush()
 
-            proc = subprocess.Popen(self.s3ql_cmd_argv('fsck.s3ql') + 
+            proc = subprocess.Popen(self.s3ql_cmd_argv('fsck.s3ql') +
                                     [ '--quiet', '--fatal-warnings', '--authfile', fh.name,
                                       '--cachedir', self.cache_dir, '--log', 'none', self.storage_url ],
                                     stdin=subprocess.PIPE, universal_newlines=True)

@@ -44,7 +44,7 @@ class cpTests(t4_fuse.fuse_tests):
                                    os.path.join(self.mnt_dir, 'orig') + '/'])
 
             # copy
-            subprocess.check_call(self.s3ql_cmd_argv('s3qlcp') + 
+            subprocess.check_call(self.s3ql_cmd_argv('s3qlcp') +
                                   [ '--quiet', os.path.join(self.mnt_dir, 'orig'),
                                     os.path.join(self.mnt_dir, 'copy')])
 
@@ -55,10 +55,9 @@ class cpTests(t4_fuse.fuse_tests):
                                    universal_newlines=True, stderr=subprocess.STDOUT)
             except CalledProcessError as exc:
                 self.fail('rsync failed with ' + exc.output)
-                
+
             if out:
                 self.fail('Copy not equal to original, rsync says:\n' + out)
 
         finally:
             shutil.rmtree(tempdir)
-

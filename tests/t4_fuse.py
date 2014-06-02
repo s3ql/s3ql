@@ -56,7 +56,7 @@ class fuse_tests(unittest.TestCase):
         self.name_cnt = 0
 
     def mkfs(self, max_obj_size=500):
-        proc = subprocess.Popen(self.s3ql_cmd_argv('mkfs.s3ql') + 
+        proc = subprocess.Popen(self.s3ql_cmd_argv('mkfs.s3ql') +
                                 [ '-L', 'test fs', '--max-obj-size', str(max_obj_size),
                                   '--fatal-warnings', '--cachedir', self.cache_dir, '--quiet',
                                   '--authfile', '/dev/null', self.storage_url ],
@@ -121,7 +121,7 @@ class fuse_tests(unittest.TestCase):
                   file=authinfo_fh, sep='\n')
             authinfo_fh.flush()
 
-            proc = subprocess.Popen(self.s3ql_cmd_argv('fsck.s3ql') + 
+            proc = subprocess.Popen(self.s3ql_cmd_argv('fsck.s3ql') +
                                     [ '--force', '--quiet', '--log', 'none', '--cachedir',
                                       self.cache_dir, '--fatal-warnings', '--authfile',
                                       authinfo_fh.name, self.storage_url ],
@@ -151,9 +151,9 @@ class fuse_tests(unittest.TestCase):
 
 
     def test_all(self):
-        # Workaround py.test not calling runTest   
+        # Workaround py.test not calling runTest
         return self.runTest()
-        
+
     def runTest(self):
         # Run all tests in same environment, mounting and umounting
         # just takes too long otherwise
@@ -323,7 +323,7 @@ class fuse_tests(unittest.TestCase):
         fstat = os.stat(filename)
         size = fstat.st_size
 
-        subprocess.check_call(self.s3ql_cmd_argv('s3qlctrl') + 
+        subprocess.check_call(self.s3ql_cmd_argv('s3qlctrl') +
                               [ '--quiet', 'flushcache', self.mnt_dir ])
 
         fd = os.open(filename, os.O_RDWR)
@@ -343,10 +343,8 @@ class fuse_tests(unittest.TestCase):
         os.mkdir(fullname)
         self.assertTrue(stat.S_ISDIR(os.stat(fullname).st_mode))
         self.assertTrue(dirname in llfuse.listdir(self.mnt_dir))
-        llfuse.setxattr('%s/%s' % (self.mnt_dir, CTRL_NAME), 
+        llfuse.setxattr('%s/%s' % (self.mnt_dir, CTRL_NAME),
                         'rmtree', pickle.dumps((llfuse.ROOT_INODE, path2bytes(dirname)),
                                                PICKLE_PROTOCOL))
         self.assertRaises(FileNotFoundError, os.stat, fullname)
         self.assertTrue(dirname not in llfuse.listdir(self.mnt_dir))
-
-        

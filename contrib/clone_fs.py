@@ -42,7 +42,7 @@ def parse_args(args):
     parser.add_debug()
     parser.add_ssl()
     parser.add_version()
-    
+
     parser.add_argument("src_storage_url", metavar='<source-storage-url>',
                         type=storage_url_type,
                         help='Storage URL of the source backend that contains the file system')
@@ -62,13 +62,13 @@ def copy_loop(queue, src_backend, dst_backend):
 
     Terminate when None is received.
     '''
-    
+
     tmpfh = tempfile.TemporaryFile()
     while True:
         key = queue.get()
         if key is None:
             break
-        
+
         log.debug('reading object %s', key)
         def do_read(fh):
             tmpfh.seek(0)
@@ -80,7 +80,7 @@ def copy_loop(queue, src_backend, dst_backend):
                 tmpfh.write(buf)
             return fh.metadata
         metadata = src_backend.perform_read(do_read, key)
-        
+
         log.debug('writing object %s', key)
         def do_write(fh):
             tmpfh.seek(0)
@@ -90,7 +90,7 @@ def copy_loop(queue, src_backend, dst_backend):
                     break
                 fh.write(buf)
         dst_backend.perform_write(do_write, key, metadata)
-    
+
 def main(args=None):
     if args is None:
         args = sys.argv[1:]
@@ -118,7 +118,7 @@ def main(args=None):
         t = Thread(target=copy_loop, args=(queue, src_backend, dst_backend))
         t.start()
         threads.append(t)
-    
+
     for (i, key) in enumerate(src_backends[-1]):
         if i % 500 == 0 and sys.stdout.isatty():
             sys.stdout.write('\rCopied %d objects so far...' % i)
@@ -127,12 +127,12 @@ def main(args=None):
 
     for t in threads:
         queue.put(None)
-        
+
     for t in threads:
-        t.join()   
-        
+        t.join()
+
     if sys.stdout.isatty():
         sys.stdout.write('\n')
-    
+
 if __name__ == '__main__':
     main(sys.argv[1:])

@@ -43,7 +43,7 @@ def parse_args(args):
         have at least one backup in each age range at all times. It will keep
         exactly as many backups as are required for that and delete any
         backups that become redundant.
-        
+
         Age ranges are specified by giving a list of range boundaries in terms
         of backup cycles. Every time you create a new backup, the existing
         backups age by one cycle.

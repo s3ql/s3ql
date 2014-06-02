@@ -25,10 +25,10 @@ class Backend(swift.Backend):
     def __init__(self, storage_url, login, password, ssl_context=None, proxy=None):
         # Unused argument
         #pylint: disable=W0613
-        
+
         (host, port, region,
          container_name, prefix) = self._parse_storage_url(storage_url, ssl_context)
-            
+
         self.hostname = host
         self.port = port
         self.region = region
@@ -41,7 +41,7 @@ class Backend(swift.Backend):
         self.auth_prefix = None
         self.conn = None
         self.ssl_context = ssl_context
-        
+
         self._container_exists()
 
     @staticmethod
@@ -50,7 +50,7 @@ class Backend(swift.Backend):
 
         hit = re.match(r'^[a-zA-Z0-9]+://' # Backend
                        r'([^/:]+)' # Hostname
-                       r'(?::([0-9]+))?' # Port 
+                       r'(?::([0-9]+))?' # Port
                        r'/([a-zA-Z0-9._-]+):' # Region
                        r'([^/]+)' # Bucketname
                        r'(?:/(.*))?$', # Prefix
@@ -68,7 +68,7 @@ class Backend(swift.Backend):
         region = hit.group(3)
         containername = hit.group(4)
         prefix = hit.group(5) or ''
-        
+
         return (hostname, port, region, containername, prefix)
 
     @retry
@@ -76,7 +76,7 @@ class Backend(swift.Backend):
         '''Obtain connection to server and authentication token'''
 
         log.debug('_get_conn(): start')
-        
+
         conn = HTTPConnection(self.hostname, port=self.port, proxy=self.proxy,
                               ssl_context=self.ssl_context)
 
@@ -89,7 +89,7 @@ class Backend(swift.Backend):
         else:
             tenant = None
             user = self.login
-            
+
         auth_body = { 'auth':
                           { 'passwordCredentials':
                                 { 'username': user,
@@ -100,11 +100,11 @@ class Backend(swift.Backend):
         conn.send_request('POST', '/v2.0/tokens', body=json.dumps(auth_body).encode('utf-8'),
                           headers=headers)
         resp = conn.read_response()
-            
+
         if resp.status == 401:
             self.conn.discard()
             raise AuthorizationError(resp.reason)
-            
+
         elif resp.status > 299 or resp.status < 200:
             self.conn.discard()
             raise HTTPError(resp.status, resp.reason, resp.headers)
@@ -121,7 +121,7 @@ class Backend(swift.Backend):
                 if endpoint['region'] != self.region:
                     avail_regions.append(endpoint['region'])
                     continue
-                
+
                 o = urlsplit(endpoint['publicURL'])
                 self.auth_prefix = urllib.parse.unquote(o.path)
                 conn.disconnect()
@@ -131,10 +131,8 @@ class Backend(swift.Backend):
 
         if len(avail_regions) < 10:
             raise QuietError('No accessible object storage service found in region %s'
-                             ' (available regions: %s)' 
+                             ' (available regions: %s)'
                              % (self.region, ', '.join(avail_regions)))
         else:
             raise QuietError('No accessible object storage service found in region %s'
                              % self.region)
-            
-

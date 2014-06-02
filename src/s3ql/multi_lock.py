@@ -16,14 +16,14 @@ log = logging.getLogger(__name__)
 
 class MultiLock:
     """Provides locking for multiple objects.
-    
+
     This class provides locking for a dynamically changing set of objects: The
     `acquire` and `release` methods have an additional argument, the locking
     key. Only locks with the same key can actually see each other, so that
     several threads can hold locks with different locking keys at the same time.
-    
+
     MultiLock instances can be used as context managers.
-    
+
     Note that it is actually possible for one thread to release a lock that has
     been obtained by a different thread. This is not a bug but a feature.
     """
@@ -49,7 +49,7 @@ class MultiLock:
         with self.cond:
             if not self.cond.wait_for(lambda: key not in self.locked_keys, timeout):
                 return False
-            
+
             self.locked_keys.add(key)
 
     def release(self, *key, noerror=False):

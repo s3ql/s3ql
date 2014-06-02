@@ -64,17 +64,17 @@ DUMP_SPEC = [
 
 def restore_metadata(fh, dbfile):
     '''Read metadata from *fh* and write into *dbfile*
-    
+
     Return database connection to *dbfile*.
-    
+
     *fh* must be able to return an actual file descriptor from
     its `fileno` method.
-    
+
     *dbfile* will be created with 0600 permissions. Data is
     first written into a temporary file *dbfile* + '.tmp', and
     the file is renamed once all data has been loaded.
-    
-    
+
+
     '''
 
     tmpfile = dbfile + '.tmp'
@@ -82,26 +82,26 @@ def restore_metadata(fh, dbfile):
                  stat.S_IRUSR | stat.S_IWUSR)
     try:
         os.close(fd)
-    
+
         db = Connection(tmpfile)
         db.execute('PRAGMA locking_mode = NORMAL')
         db.execute('PRAGMA synchronous = OFF')
         db.execute('PRAGMA journal_mode = OFF')
         create_tables(db)
-        
+
         for (table, _, columns) in DUMP_SPEC:
             log.info('..%s..', table)
             load_table(table, columns, db=db, fh=fh)
         db.execute('ANALYZE')
-        
+
         # We must close the database to rename it
         db.close()
     except:
         os.unlink(tmpfile)
         raise
-    
+
     os.rename(tmpfile, dbfile)
-    
+
     return Connection(dbfile)
 
 def cycle_metadata(backend):
@@ -120,7 +120,7 @@ def cycle_metadata(backend):
 
 def dump_metadata(db, fh):
     '''Dump metadata into fh
-    
+
     *fh* must be able to return an actual file descriptor from
     its `fileno` method.
     '''
@@ -131,22 +131,22 @@ def dump_metadata(db, fh):
         # (need to access DB to actually release locks)
         db.execute('PRAGMA locking_mode = NORMAL')
         db.has_val('SELECT rowid FROM %s LIMIT 1' % DUMP_SPEC[0][0])
-        
+
         for (table, order, columns) in DUMP_SPEC:
             log.info('..%s..', table)
             dump_table(table, order, columns, db=db, fh=fh)
-    
+
     finally:
         db.execute('PRAGMA locking_mode = %s' % locking_mode)
-        
-        
+
+
 def create_tables(conn):
     # Table of storage objects
     # Refcount is included for performance reasons
     conn.execute("""
     CREATE TABLE objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
-        refcount  INT NOT NULL, 
+        refcount  INT NOT NULL,
         size      INT NOT NULL
     )""")
 
@@ -157,7 +157,7 @@ def create_tables(conn):
         id        INTEGER PRIMARY KEY,
         hash      BLOB(16) UNIQUE,
         refcount  INT,
-        size      INT NOT NULL,    
+        size      INT NOT NULL,
         obj_id    INTEGER NOT NULL REFERENCES objects(id)
     )""")
 
@@ -216,7 +216,7 @@ def create_tables(conn):
         name_id   INT NOT NULL REFERENCES names(id),
         inode     INT NOT NULL REFERENCES inodes(id),
         parent_inode INT NOT NULL REFERENCES inodes(id),
-        
+
         UNIQUE (parent_inode, name_id)
     )""")
 
@@ -226,14 +226,14 @@ def create_tables(conn):
         inode     INTEGER NOT NULL REFERENCES inodes(id),
         name_id   INTEGER NOT NULL REFERENCES names(id),
         value     BLOB NOT NULL,
- 
-        PRIMARY KEY (inode, name_id)               
+
+        PRIMARY KEY (inode, name_id)
     )""")
 
     # Shortcuts
     conn.execute("""
     CREATE VIEW contents_v AS
-    SELECT * FROM contents JOIN names ON names.id = name_id       
+    SELECT * FROM contents JOIN names ON names.id = name_id
     """)
     conn.execute("""
     CREATE VIEW ext_attributes_v AS

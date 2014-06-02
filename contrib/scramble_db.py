@@ -66,10 +66,10 @@ def main(args=None):
     # Check for cached metadata
     cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
     if not os.path.exists(cachepath + '.params'):
-        raise QuietError("No local metadata found.")            
+        raise QuietError("No local metadata found.")
 
     param = pickle.load(open(cachepath + '.params', 'rb'))
-            
+
     # Check revision
     if param['revision'] < CURRENT_FS_REV:
         raise QuietError('File system revision too old.')
@@ -78,14 +78,14 @@ def main(args=None):
 
     if os.path.exists(DBNAME):
         raise QuietError('%s exists, aborting.' % DBNAME)
-    
+
     log.info('Copying database...')
     dst = tempfile.NamedTemporaryFile()
     with open(cachepath + '.db', 'rb') as src:
         shutil.copyfileobj(src, dst)
     dst.flush()
     db = Connection(dst.name)
-     
+
     log.info('Scrambling...')
     md5 = lambda x: hashlib.md5(x).hexdigest()
     for (id_, name) in db.query('SELECT id, name FROM names'):
@@ -99,11 +99,10 @@ def main(args=None):
     for (id_, name) in db.query('SELECT rowid, value FROM ext_attributes'):
         db.execute('UPDATE ext_attributes SET value=? WHERE rowid=?',
                    (md5(name), id_))
-    
+
     log.info('Saving...')
     with open(DBNAME, 'wb+') as fh:
         dump_metadata(db, fh)
-    
+
 if __name__ == '__main__':
     main(sys.argv[1:])
-

@@ -38,7 +38,7 @@ Features
   sizes up to 2 TB.
 
 * **Dynamic Size.** The size of an S3QL file system grows and shrinks
-  dynamically as required. 
+  dynamically as required.
 
 * **Compression.** Before storage, all data may compressed with the
   LZMA, bzip2 or deflate (gzip) algorithm.

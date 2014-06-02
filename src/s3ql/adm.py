@@ -123,7 +123,7 @@ def download_metadata(backend, storage_url):
         except:
             log.error('Error retrieving information about %s, skipping', name)
             continue
-        
+
         if 'last-modified' in params:
             date = Datetime.fromtimestamp(params['last-modified']).strftime('%Y-%m-%d %H:%M:%S')
         else:
@@ -151,7 +151,7 @@ def download_metadata(backend, storage_url):
             tmpfh.seek(0)
             tmpfh.truncate()
             stream_read_bz2(fh, tmpfh)
-            
+
         log.info('Downloading and decompressing %s...', name)
         backend.perform_read(do_read, name)
 
@@ -189,13 +189,13 @@ def change_passphrase(backend):
     backend['s3ql_passphrase_bak3'] = data_pw
     backend.passphrase = data_pw
 
-    
+
 def clear(backend, cachepath):
     print('I am about to delete all data in %s.' % backend,
           'This includes any S3QL file systems as well as any other stored objects.',
           'Please enter "yes" to continue.', '> ', sep='\n', end='')
     sys.stdout.flush()
-    
+
     if sys.stdin.readline().strip().lower() != 'yes':
         raise QuietError()
 
@@ -219,7 +219,7 @@ def get_old_rev_msg(rev, prog):
     return textwrap.dedent('''\
         The last S3QL version that supported this file system revision
         was %(version)s. You can run this version's %(prog)s by executing:
-        
+
           $ wget http://s3ql.googlecode.com/files/s3ql-%(version)s.tar.bz2
           $ tar xjf s3ql-%(version)s.tar.bz2
           $ (cd s3ql-%(version)s; ./setup.py build_ext)
@@ -235,9 +235,9 @@ def upgrade(backend, cachepath):
     seq_nos = list(backend.list('s3ql_seq_no_'))
     if (seq_nos[0].endswith('.meta')
         or seq_nos[0].endswith('.dat')):
-        print(textwrap.dedent(''' 
+        print(textwrap.dedent('''
             File system revision too old to upgrade!
-            
+
             You need to use an older S3QL version to upgrade to a more recent
             revision before you can use this version to upgrade to the newest
             revision.
@@ -289,9 +289,9 @@ def upgrade(backend, cachepath):
 
     # Check revision
     if param['revision'] < 16:
-        print(textwrap.dedent(''' 
+        print(textwrap.dedent('''
             File system revision too old to upgrade!
-            
+
             You need to use an older S3QL version to upgrade to a more recent
             revision before you can use this version to upgrade to the newest
             revision.
@@ -304,26 +304,26 @@ def upgrade(backend, cachepath):
         return
 
     print(textwrap.dedent('''
-        I am about to update the file system to the newest revision. 
+        I am about to update the file system to the newest revision.
         You will not be able to access the file system with any older version
-        of S3QL after this operation. 
-        
+        of S3QL after this operation.
+
         You should make very sure that this command is not interrupted and
         that no one else tries to mount, fsck or upgrade the file system at
         the same time.
-        
+
         '''))
 
     print('Please enter "yes" to continue.', '> ', sep='\n', end='')
     sys.stdout.flush()
-    
+
     if sys.stdin.readline().strip().lower() != 'yes':
         raise QuietError()
 
     # For this upgrade, we just need to recreate the sqlite database from the
     # metadata dump, because some SQLite types have changed
     assert db is None
-    
+
     # Keep backup of local metadata (just in case...)
     if os.path.exists(cachepath + '.params'):
         assert os.path.exists(cachepath + '.db')
@@ -332,7 +332,7 @@ def upgrade(backend, cachepath):
             raise QuietError('Metadata backup already exists, did something go wrong?')
         os.rename(cachepath + '.db', cachepath + '.db.bak')
         os.rename(cachepath + '.params', cachepath + '.params.bak')
-    
+
     if not db:
         # Need to download metadata
         with tempfile.TemporaryFile() as tmpfh:
@@ -348,7 +348,7 @@ def upgrade(backend, cachepath):
             tmpfh.seek(0)
             db = restore_metadata(tmpfh, cachepath + '.db')
 
-            
+
     log.info('Upgrading from revision %d to %d...', param['revision'], CURRENT_FS_REV)
 
     param['revision'] = CURRENT_FS_REV
@@ -367,11 +367,11 @@ def upgrade(backend, cachepath):
         backend.store('s3ql_seq_no_%d' % param['seq_no'], b'Empty')
         obj_fh = backend.perform_write(do_write, "s3ql_metadata_new", metadata=param,
                                       is_compressed=True)
-        
+
     log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
     log.info('Cycling metadata backups...')
     cycle_metadata(backend)
-    
+
     backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
 
     with open(cachepath + '.params', 'wb') as fh:
@@ -384,4 +384,3 @@ def upgrade(backend, cachepath):
 
 if __name__ == '__main__':
     main(sys.argv[1:])
-

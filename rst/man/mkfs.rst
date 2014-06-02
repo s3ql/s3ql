@@ -14,7 +14,7 @@ Synopsis
 
 Description
 ===========
-  
+
 .. include:: ../include/about.rst
 
 The |command| command creates a new file system in the location
@@ -39,4 +39,4 @@ The |command| command accepts the following options.
 
 .. include:: ../include/postman.rst
 
-.. |command| replace:: :program:`mkfs.s3ql` 
+.. |command| replace:: :program:`mkfs.s3ql`

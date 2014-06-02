@@ -42,7 +42,7 @@ class DummyQueue:
 
     def get_nowait(self):
         return self.get(block=False)
-        
+
     def put(self, obj, timeout=None):
         self.obj = obj
         self.cache._removal_loop()
@@ -64,15 +64,15 @@ class cache_tests(unittest.TestCase):
     def setUp(self):
 
         self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-        self.backend_pool = BackendPool(lambda: local.Backend('local://' + self.backend_dir, 
+        self.backend_pool = BackendPool(lambda: local.Backend('local://' + self.backend_dir,
                                                            None, None))
 
         self.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.max_obj_size = 1024
 
         # Destructors are not guaranteed to run, and we can't unlink
-        # the file immediately because apsw refers to it by name. 
-        # Therefore, we unlink the file manually in tearDown() 
+        # the file immediately because apsw refers to it by name.
+        # Therefore, we unlink the file manually in tearDown()
         self.dbfile = tempfile.NamedTemporaryFile(delete=False)
         self.db = Connection(self.dbfile.name)
         create_tables(self.db)
@@ -89,7 +89,7 @@ class cache_tests(unittest.TestCase):
         cache = BlockCache(self.backend_pool, self.db, self.cachedir + "/cache",
                            self.max_obj_size * 100)
         self.cache = cache
-        
+
         # Monkeypatch around the need for removal and upload threads
         cache.to_remove = DummyQueue(cache)
 
@@ -98,7 +98,7 @@ class cache_tests(unittest.TestCase):
                 cache._do_upload(*arg)
                 return True
         cache.to_upload = DummyDistributor()
-        
+
         # Tested methods assume that they are called from
         # file system request handler
         llfuse.lock.acquire()
@@ -114,7 +114,7 @@ class cache_tests(unittest.TestCase):
     def test_destroy_deadlock(self):
         # Make sure that we don't deadlock if some upload threads
         # terminate prematurely
-        
+
         # Monkeypatch to avoid error messages about uncaught exceptions
         # in other threads
         upload_exc = False
@@ -140,12 +140,12 @@ class cache_tests(unittest.TestCase):
         # Make sure that upload and removal will fail
         os.rename(self.backend_dir, self.backend_dir + '-tmp')
         open(self.backend_dir, 'w').close()
-        
+
         # Create another object
         with self.cache.get(self.inode, 1) as fh:
             fh.seek(0)
             fh.write(b'bar wurfz!')
-        
+
         # Remove something
         self.cache.remove(self.inode, 0)
 
@@ -166,7 +166,7 @@ class cache_tests(unittest.TestCase):
 
         assert removal_exc
         assert upload_exc
-        
+
     def test_expire_deadlock(self):
         # Make sure that we don't deadlock if uploads threads
         # are gone and we try to expire
@@ -197,7 +197,7 @@ class cache_tests(unittest.TestCase):
         # Make sure that upload will fail
         os.rename(self.backend_dir, self.backend_dir + '-tmp')
         open(self.backend_dir, 'w').close()
-        
+
         # Create object
         with self.cache.get(self.inode, 0) as fh:
             fh.write(b'bar wurfz!')
@@ -212,7 +212,7 @@ class cache_tests(unittest.TestCase):
         self.cache.remove(self.inode, 0)
 
         assert upload_exc
-        
+
     @staticmethod
     def random_data(len_):
         with open("/dev/urandom", "rb") as fh:
@@ -388,10 +388,10 @@ class cache_tests(unittest.TestCase):
 
         # Remove it
         self.cache.remove(inode, blockno)
-        
+
         # Try to upload it, may happen if CommitThread is interrupted
         self.cache.upload(fh)
-        
+
     def test_expire_race(self):
         # Create element
         inode = self.inode
@@ -407,31 +407,31 @@ class cache_tests(unittest.TestCase):
         def e_w_l():
             with llfuse.lock:
                 self.cache.expire()
-        
+
         # Lock it
         self.cache._lock_entry(inode, blockno, release_global=True)
 
-        try:        
+        try:
             # Start expiration, will block on lock
             t1 = AsyncFn(e_w_l)
             t1.start()
-    
+
             # Start second expiration, will block
             t2 = AsyncFn(e_w_l)
             t2.start()
-    
+
             # Release lock
             with llfuse.lock_released:
                 time.sleep(0.1)
                 self.cache._unlock_entry(inode, blockno)
                 t1.join_and_raise()
                 t2.join_and_raise()
-    
+
             assert len(self.cache.cache) == 0
         finally:
                 self.cache._unlock_entry(inode, blockno, release_global=True,
                                          noerror=True)
-            
+
 
     def test_parallel_expire(self):
         # Create elements
@@ -447,37 +447,37 @@ class cache_tests(unittest.TestCase):
         def e_w_l():
             with llfuse.lock:
                 self.cache.expire()
-        
+
         # Lock first element so that we have time to start threads
         self.cache._lock_entry(inode, 0, release_global=True)
 
-        try:        
+        try:
             # Start expiration, will block on lock
             t1 = AsyncFn(e_w_l)
             t1.start()
-    
+
             # Start second expiration, will block
             t2 = AsyncFn(e_w_l)
             t2.start()
-    
+
             # Release lock
             with llfuse.lock_released:
                 time.sleep(0.1)
                 self.cache._unlock_entry(inode, 0)
                 t1.join_and_raise()
                 t2.join_and_raise()
-    
+
             assert len(self.cache.cache) == 4
         finally:
                 self.cache._unlock_entry(inode, 0, release_global=True,
                                          noerror=True)
-            
-                
+
+
     def test_remove_cache_db(self):
         inode = self.inode
         data1 = self.random_data(int(0.4 * self.max_obj_size))
 
-        # Case 2: Element in cache and db 
+        # Case 2: Element in cache and db
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
             fh.write(data1)
@@ -511,7 +511,7 @@ class cache_tests(unittest.TestCase):
             fh.seek(0)
             self.assertEqual(fh.read(42), b'')
 
-            
+
 class TestBackendPool(AbstractBackend):
     def __init__(self, backend_pool, no_read=0, no_write=0, no_del=0):
         super().__init__()
@@ -582,15 +582,15 @@ class TestBackendPool(AbstractBackend):
 
     def copy(self, src, dest):
         """Copy data stored under key `src` to key `dest`
-        
+
         If `dest` already exists, it will be overwritten. The copying
-        is done on the remote side. 
+        is done on the remote side.
         """
         return self.backend.copy(src, dest)
 
     def rename(self, src, dest):
         """Rename key `src` to `dest`
-        
+
         If `dest` already exists, it will be overwritten. The rename
         is done on the remote side.
         """
@@ -603,7 +603,7 @@ class TestBackendPool(AbstractBackend):
 
 def commit(cache, inode, block=None):
     """Upload data for `inode`
-    
+
     This is only for testing purposes, since the method blocks until all current
     uploads have been completed.
     """
@@ -618,4 +618,3 @@ def commit(cache, inode, block=None):
             continue
 
         cache.upload(el)
-

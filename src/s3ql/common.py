@@ -102,7 +102,7 @@ def stream_read_bz2(ifh, ofh):
     if decompressor.unused_data or ifh.read(1) != b'':
         raise ChecksumError('Data after end of bz2 stream')
 
-    
+
 def is_mounted(storage_url):
     '''Try to determine if *storage_url* is mounted
 
@@ -126,10 +126,10 @@ def is_mounted(storage_url):
     except subprocess.CalledProcessError:
         log.warning('Warning! Unable to check if file system is mounted '
                     '(/proc/mounts missing and mount call failed)')
-    
+
     return False
 
-        
+
 class ChecksumError(Exception):
     """
     Raised if there is a checksum error in the data that we received.
@@ -144,7 +144,7 @@ class ChecksumError(Exception):
 
 def inode_for_path(path, conn):
     """Return inode of directory entry at `path`
-    
+
      Raises `KeyError` if the path does not exist.
     """
     from .database import NoSuchRowError
@@ -168,7 +168,7 @@ def inode_for_path(path, conn):
 
 def get_path(id_, conn, name=None):
     """Return a full path for inode `id_`.
-    
+
     If `name` is specified, it is appended at the very end of the
     path (useful if looking up the path for file name with parent
     inode).
@@ -213,10 +213,10 @@ def get_backend_cachedir(storage_url, cachedir):
             os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
         except PermissionError:
             raise QuietError('No permission to create cache directory (%s)' % cachedir)
-        
+
     if not os.access(cachedir, os.R_OK | os.W_OK | os.X_OK):
         raise QuietError('No permission to access cache directory (%s)' % cachedir)
-    
+
     return os.path.join(cachedir, _escape(storage_url))
 
 
@@ -238,7 +238,7 @@ def sha256_fh(fh):
 
 def assert_s3ql_fs(path):
     '''Raise `QuietError` if *path* is not on an S3QL file system
-    
+
     Returns name of the S3QL control file.
     '''
 
@@ -257,33 +257,33 @@ def assert_s3ql_fs(path):
         raise QuietError('%s is not on an S3QL file system' % path)
 
     return ctrlfile
-    
-    
+
+
 def assert_fs_owner(path, mountpoint=False):
     '''Raise `QuietError` if user is not owner of S3QL fs at *path*
-    
-    Implicitly calls `assert_s3ql_fs` first. Returns name of the 
+
+    Implicitly calls `assert_s3ql_fs` first. Returns name of the
     S3QL control file.
-    
+
     If *mountpoint* is True, also call `assert_s3ql_mountpoint`, i.e.
     fail if *path* is not the mount point of the file system.
     '''
-        
+
     if mountpoint:
         ctrlfile = assert_s3ql_mountpoint(path)
     else:
         ctrlfile = assert_s3ql_fs(path)
-    
+
     if os.stat(ctrlfile).st_uid != os.geteuid() and os.geteuid() != 0:
         raise QuietError('Permission denied. %s is was not mounted by you '
                          'and you are not root.' % path)
 
     return ctrlfile
-    
+
 def assert_s3ql_mountpoint(mountpoint):
     '''Raise QuietError if *mountpoint* is not an S3QL mountpoint
-    
-    Implicitly calls `assert_s3ql_fs` first. Returns name of the 
+
+    Implicitly calls `assert_s3ql_fs` first. Returns name of the
     S3QL control file.
     '''
 

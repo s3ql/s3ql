@@ -10,8 +10,8 @@ from .logging import logging, setup_logging, QuietError
 from . import CURRENT_FS_REV
 from .backends.common import NoSuchObject, DanglingStorageURLError
 from .backends import get_backend
-from .common import (ROOT_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE, get_backend_cachedir, 
-                     get_seq_no, stream_write_bz2, stream_read_bz2, CTRL_INODE, 
+from .common import (ROOT_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE, get_backend_cachedir,
+                     get_seq_no, stream_write_bz2, stream_read_bz2, CTRL_INODE,
                      PICKLE_PROTOCOL, is_mounted)
 from .database import NoSuchRowError, Connection
 from .metadata import restore_metadata, cycle_metadata, dump_metadata, create_tables
@@ -60,7 +60,7 @@ class Fsck(object):
 
     def check(self):
         """Check file system
-        
+
         Sets instance variable `found_errors`.
         """
 
@@ -116,11 +116,11 @@ class Fsck(object):
 
     def check_foreign_keys(self):
         '''Check for referential integrity
-        
+
         Checks that all foreign keys in the SQLite tables actually resolve.
-        This is necessary, because we disable runtime checking by SQLite 
+        This is necessary, because we disable runtime checking by SQLite
         for performance reasons.
-        
+
         Note: any problems should have already been caught by the more
         specific checkers.
         '''
@@ -201,7 +201,7 @@ class Fsck(object):
                                   (block_id, inode, blockno))
 
                 # We just decrease the refcount, but don't take any action
-                # because the reference count might be wrong 
+                # because the reference count might be wrong
                 self.conn.execute('UPDATE blocks SET refcount=refcount-1 WHERE id=?', (old_block_id,))
                 self.unlinked_blocks.add(old_block_id)
 
@@ -277,7 +277,7 @@ class Fsck(object):
                                          'ON parent_inode = inodes.id WHERE inodes.id IS NULL'):
             self.found_errors = True
             name = self.conn.get_val('SELECT name FROM names WHERE id = ?', (name_id,))
-            (id_p_new, newname) = self.resolve_free(b"/lost+found", 
+            (id_p_new, newname) = self.resolve_free(b"/lost+found",
                                                     ('[%d]-%s' % (inode_p, name)).encode())
 
             self.log_error('Parent inode %d for "%s" vanished, moving to /lost+found', inode_p, name)
@@ -418,13 +418,13 @@ class Fsck(object):
                           '(id INTEGER PRIMARY KEY, min_size INTEGER NOT NULL)')
         try:
             self.conn.execute('''
-            INSERT INTO min_sizes (id, min_size) 
-            SELECT inode, MAX(blockno * ? + size) 
-            FROM inode_blocks JOIN blocks ON block_id == blocks.id 
+            INSERT INTO min_sizes (id, min_size)
+            SELECT inode, MAX(blockno * ? + size)
+            FROM inode_blocks JOIN blocks ON block_id == blocks.id
             GROUP BY inode''', (self.max_obj_size,))
 
             self.conn.execute('''
-               CREATE TEMPORARY TABLE wrong_sizes AS 
+               CREATE TEMPORARY TABLE wrong_sizes AS
                SELECT id, size, min_size
                  FROM inodes JOIN min_sizes USING (id)
                 WHERE size < min_size''')
@@ -452,10 +452,10 @@ class Fsck(object):
                               'SELECT inode, COUNT(name_id) FROM contents GROUP BY inode')
 
             self.conn.execute('''
-               CREATE TEMPORARY TABLE wrong_refcounts AS 
-               SELECT id, refcounts.refcount, inodes.refcount 
-                 FROM inodes LEFT JOIN refcounts USING (id) 
-                WHERE inodes.refcount != refcounts.refcount 
+               CREATE TEMPORARY TABLE wrong_refcounts AS
+               SELECT id, refcounts.refcount, inodes.refcount
+                 FROM inodes LEFT JOIN refcounts USING (id)
+                WHERE inodes.refcount != refcounts.refcount
                    OR refcounts.refcount IS NULL''')
 
             for (id_, cnt, cnt_old) in self.conn.query('SELECT * FROM wrong_refcounts'):
@@ -584,17 +584,17 @@ class Fsck(object):
                           '(id INTEGER PRIMARY KEY, refcount INTEGER NOT NULL)')
         try:
             self.conn.execute('''
-               INSERT INTO refcounts (id, refcount) 
-                 SELECT block_id, COUNT(blockno)  
+               INSERT INTO refcounts (id, refcount)
+                 SELECT block_id, COUNT(blockno)
                  FROM inode_blocks
                  GROUP BY block_id
             ''')
 
             self.conn.execute('''
-               CREATE TEMPORARY TABLE wrong_refcounts AS 
-               SELECT id, refcounts.refcount, blocks.refcount, obj_id 
-                 FROM blocks LEFT JOIN refcounts USING (id) 
-                WHERE blocks.refcount != refcounts.refcount 
+               CREATE TEMPORARY TABLE wrong_refcounts AS
+               SELECT id, refcounts.refcount, blocks.refcount, obj_id
+                 FROM blocks LEFT JOIN refcounts USING (id)
+                WHERE blocks.refcount != refcounts.refcount
                    OR refcounts.refcount IS NULL''')
 
             for (id_, cnt, cnt_old, obj_id) in self.conn.query('SELECT * FROM wrong_refcounts'):
@@ -661,10 +661,10 @@ class Fsck(object):
                               '   WHERE name_id = refcounts.id)')
 
             self.conn.execute('''
-               CREATE TEMPORARY TABLE wrong_refcounts AS 
-               SELECT id, refcounts.refcount, names.refcount 
-                 FROM names LEFT JOIN refcounts USING (id) 
-                WHERE names.refcount != refcounts.refcount 
+               CREATE TEMPORARY TABLE wrong_refcounts AS
+               SELECT id, refcounts.refcount, names.refcount
+                 FROM names LEFT JOIN refcounts USING (id)
+                WHERE names.refcount != refcounts.refcount
                    OR refcounts.refcount IS NULL''')
 
             for (id_, cnt, cnt_old) in self.conn.query('SELECT * FROM wrong_refcounts'):
@@ -683,7 +683,7 @@ class Fsck(object):
 
     def check_unix(self):
         """Check if file systems for agreement with UNIX conventions
-        
+
         This means:
         - Only directories should have child entries
         - Only regular files should have data blocks and a size
@@ -692,7 +692,7 @@ class Fsck(object):
         - symlink size is length of target
         - names are not longer than 255 bytes
         - All directory entries have a valid mode
-        
+
         Note that none of this is enforced by S3QL. However, as long as S3QL
         only communicates with the UNIX FUSE module, none of the above should
         happen (and if it does, it would probably confuse the system quite a
@@ -707,7 +707,7 @@ class Fsck(object):
 
             has_children = self.conn.has_val('SELECT 1 FROM contents WHERE parent_inode=? LIMIT 1',
                                              (inode,))
-            
+
             if stat.S_IFMT(mode) == 0:
                 if has_children:
                     mode = mode | stat.S_IFDIR
@@ -718,9 +718,9 @@ class Fsck(object):
 
                 self.found_errors = True
                 self.log_error('Inode %d (%s): directory entry has no type, changed '
-                               'to %s.', inode, get_path(inode, self.conn), made_to)                    
+                               'to %s.', inode, get_path(inode, self.conn), made_to)
                 self.conn.execute('UPDATE inodes SET mode=? WHERE id=?', (mode, inode))
-                            
+
             if stat.S_ISLNK(mode) and target is None:
                 self.found_errors = True
                 self.log_error('Inode %d (%s): symlink does not have target. '
@@ -766,10 +766,10 @@ class Fsck(object):
                 self.log_error('Inode %d (%s) is not a regular file but has data blocks. '
                                'This is probably going to confuse your system!',
                                inode, get_path(inode, self.conn))
-                
 
-                
-                                
+
+
+
 
         for (name, id_p) in self.conn.query('SELECT name, parent_inode FROM contents_v '
                                             'WHERE LENGTH(name) > 255'):
@@ -790,10 +790,10 @@ class Fsck(object):
                               'SELECT obj_id, COUNT(obj_id) FROM blocks GROUP BY obj_id')
 
             self.conn.execute('''
-               CREATE TEMPORARY TABLE wrong_refcounts AS 
-               SELECT id, refcounts.refcount, objects.refcount 
-                 FROM objects LEFT JOIN refcounts USING (id) 
-                WHERE objects.refcount != refcounts.refcount 
+               CREATE TEMPORARY TABLE wrong_refcounts AS
+               SELECT id, refcounts.refcount, objects.refcount
+                 FROM objects LEFT JOIN refcounts USING (id)
+                WHERE objects.refcount != refcounts.refcount
                    OR refcounts.refcount IS NULL''')
 
             for (id_, cnt, cnt_old) in self.conn.query('SELECT * FROM wrong_refcounts'):
@@ -874,7 +874,7 @@ class Fsck(object):
                 for (id_,) in self.conn.query('SELECT inode FROM inode_blocks JOIN blocks ON block_id = id '
                                               'WHERE obj_id=? ', (obj_id,)):
 
-                    # Same file may lack several blocks, but we want to move it 
+                    # Same file may lack several blocks, but we want to move it
                     # only once
                     if id_ in self.moved_inodes:
                         continue
@@ -900,10 +900,10 @@ class Fsck(object):
         finally:
             if sys.stdout.isatty():
                 sys.stdout.write('\n')
-                
+
             self.conn.execute('DROP TABLE obj_ids')
             self.conn.execute('DROP TABLE IF EXISTS missing')
-            
+
 
     def check_objects_size(self):
         """Check objects.size"""
@@ -920,7 +920,7 @@ class Fsck(object):
 
     def resolve_free(self, path, name):
         '''Return parent inode and name of an unused directory entry
-        
+
         The directory entry will be in `path`. If an entry `name` already
         exists there, we append a numeric suffix.
         '''
@@ -952,7 +952,7 @@ class Fsck(object):
 
     def _add_name(self, name):
         '''Get id for *name* and increase refcount
-        
+
         Name is inserted in table if it does not yet exist.
         '''
 
@@ -1084,9 +1084,9 @@ def main(args=None):
     except DanglingStorageURLError as exc:
         raise QuietError(str(exc))
     atexit.register(backend.close)
-    
+
     log.info('Starting fsck of %s', options.storage_url)
-    
+
     cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
     seq_no = get_seq_no(backend)
     db = None
@@ -1106,7 +1106,7 @@ def main(args=None):
         if param['seq_no'] > seq_no:
             log.warning('File system has not been unmounted cleanly.')
             param['needs_fsck'] = True
-            
+
         elif backend.lookup('s3ql_metadata')['seq_no'] != param['seq_no']:
             log.warning('Remote metadata is outdated.')
             param['needs_fsck'] = True
@@ -1130,7 +1130,7 @@ def main(args=None):
               has not been unmounted cleanly or the data has not yet propagated through the backend.
               In the later case, waiting for a while should fix the problem, in the former case you
               should try to run fsck on the computer where the file system has been mounted most
-              recently. 
+              recently.
               ''')))
 
         print('Enter "continue" to use the outdated data anyway:',
@@ -1176,12 +1176,12 @@ def main(args=None):
 
             log.info('Downloading and decompressing metadata...')
             backend.perform_read(do_read, "s3ql_metadata")
-            
+
             log.info("Reading metadata...")
             tmpfh.seek(0)
             db = restore_metadata(tmpfh, cachepath + '.db')
 
-    # Increase metadata sequence no 
+    # Increase metadata sequence no
     param['seq_no'] += 1
     param['needs_fsck'] = True
     backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
@@ -1218,7 +1218,7 @@ def main(args=None):
             fh.seek(0)
             stream_write_bz2(fh, obj_fh)
             return obj_fh
-    
+
         log.info("Compressing and uploading metadata...")
         obj_fh = backend.perform_write(do_write, "s3ql_metadata_new", metadata=param,
                                       is_compressed=True)
@@ -1234,7 +1234,7 @@ def main(args=None):
     db.close()
 
     log.info('Completed fsck of %s', options.storage_url)
-    
+
 def renumber_inodes(db):
     '''Renumber inodes'''
 
@@ -1293,7 +1293,7 @@ def renumber_inodes(db):
 
 def escape(path):
     '''Escape slashes in path so that is usable as a file name'''
-    
+
     return path[1:].replace(b'_', b'__').replace(b'/', b'_')
 
 if __name__ == '__main__':

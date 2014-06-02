@@ -26,9 +26,9 @@ log = logging.getLogger(__name__)
 
 class Backend(s3c.Backend):
     """A backend to store data in Google Storage
-    
+
     This class uses standard HTTP connections to connect to GS.
-    
+
     The backend guarantees immediate get consistency and eventual list
     consistency.
     """
@@ -40,7 +40,7 @@ class Backend(s3c.Backend):
     # This class variable holds the mapping from refresh tokens to
     # access tokens.
     access_token = dict()
-    
+
     def __init__(self, storage_url, gs_key, gs_secret, ssl_context=None, proxy=None):
         super().__init__(storage_url, gs_key, gs_secret, ssl_context=ssl_context,
                          proxy=proxy)
@@ -81,7 +81,7 @@ class Backend(s3c.Backend):
             return super()._authorize_request(method, path, headers, subres)
 
         headers['Authorization'] = 'Bearer ' + self.access_token[self.password]
-        
+
         now = time.gmtime()
         headers['Date'] = ('%s, %02d %s %04d %02d:%02d:%02d GMT'
                            % (C_DAY_NAMES[now.tm_wday],
@@ -103,7 +103,7 @@ class Backend(s3c.Backend):
         else:
             headers[self.hdr_prefix + 'copy-source'] = \
                 '/%s/%s%s' % (self.bucket_name, self.prefix, src)
-    
+
         try:
             self._do_request('PUT', '/%s%s' % (self.prefix, dest), headers=headers)
             self.conn.discard()
@@ -112,7 +112,7 @@ class Backend(s3c.Backend):
 
     def _get_access_token(self):
         log.info('Requesting new access token')
-        
+
         headers = CaseInsensitiveDict()
         headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=utf-8'
 
@@ -140,15 +140,15 @@ class Backend(s3c.Backend):
 
             if 'error' in resp_json:
                 raise AuthenticationError(resp_json['error'])
-                
+
             if resp.status > 299 or resp.status < 200:
                 raise HTTPError(resp.status, resp.reason, resp.headers)
 
             if 'access_token' not in resp_json:
                 raise RuntimeError('Unable to parse server response')
-            
+
             self.access_token[self.password] = resp_json['access_token']
-            
+
         finally:
             conn.disconnect()
 
@@ -170,7 +170,7 @@ class Backend(s3c.Backend):
             try:
                 del self.access_token[self.password]
             except KeyError: # Mind multithreading..
-                pass 
+                pass
 
         # If we use OAuth2 and don't have an access token, retrieve
         # one

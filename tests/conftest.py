@@ -32,11 +32,11 @@ def check_test_output(request, capfd):
         (stdout, stderr) = capfd.readouterr()
         sys.stdout.write(stdout)
         sys.stderr.write(stderr)
-        
+
         if ('exception' in stderr.lower()
             or 'exception' in stdout.lower()):
             raise AssertionError('Suspicious output to stderr')
-        
+
     request.addfinalizer(raise_on_exception_in_out)
 
 
@@ -62,14 +62,14 @@ def pytest_addoption(parser):
     group._addoption("--installed", action="store_true", default=False,
                      help="Test the installed package.")
 
-    
+
 def pytest_configure(config):
 
     # Enable stdout and stderr analysis, unless output capture is disabled
     if config.getoption('capture') != 'no':
         global check_test_output
         check_test_output = pytest.fixture(autouse=True)(check_test_output)
-    
+
     logdebug = config.getoption('logdebug')
 
     # If we are running from the S3QL source directory, make sure that we

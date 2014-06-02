@@ -14,7 +14,7 @@ Synopsis
 
 where :var:`action` may be either of :program:`passphrase`,
 :program:`upgrade`, :program:`delete` or :program:`download-metadata`.
-  
+
 Description
 ===========
 

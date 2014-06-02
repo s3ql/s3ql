@@ -15,7 +15,7 @@ Synopsis
 where :var:`action` may be either of :program:`flushcache`,
 :program:`upload-meta`, :program:`cachesize` or
 :program:`log-metadata`.
-  
+
 Description
 ===========
 
@@ -41,11 +41,11 @@ cachesize
   Changes the cache size of the file system. This action requires an
   additional argument that specifies the new cache size in KiB, so the
   complete command line is::
-  
+
    s3qlctrl [options] cachesize <mountpoint> <new-cache-size>
 
 log
-  Change the amount of information that is logged into 
+  Change the amount of information that is logged into
   :file:`~/.s3ql/mount.log` file. The complete syntax is::
 
     s3qlctrl [options] log <mountpoint> <level> [<module> [<module> ...]]
@@ -53,8 +53,8 @@ log
   here :var:`level` is the desired new log level and may be either of
   *debug*, *info* or *warn*. One or more :var:`module` may only be
   specified with the *debug* level and allow to restrict the debug
-  output to just the listed modules. 
-  
+  output to just the listed modules.
+
 
 Options
 =======
@@ -69,5 +69,4 @@ what specific action is being invoked:
 .. include:: ../include/postman.rst
 
 
-.. |command| replace:: :program:`s3qlctrl` 
-
+.. |command| replace:: :program:`s3qlctrl`

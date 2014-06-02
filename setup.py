@@ -12,14 +12,14 @@ import sys
 if sys.version_info < (3,3):
     raise SystemExit('Python version is %d.%d.%d, but S3QL requires Python 3.3 or newer'
                      % sys.version_info[:3])
-    
+
 try:
     import setuptools
 except ImportError:
     raise SystemExit('Setuptools package not found. Please install from '
                      'https://pypi.python.org/pypi/setuptools')
 from setuptools import Extension
-    
+
 from distutils.version import LooseVersion
 import os
 import subprocess
@@ -35,12 +35,12 @@ faulthandler.enable()
 #pylint: disable=W0611
 import multiprocessing
 
-# When running from HG repo, enable all warnings    
+# When running from HG repo, enable all warnings
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
 if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
     warnings.simplefilter('default')
-    
-# Add S3QL sources    
+
+# Add S3QL sources
 sys.path.insert(0, os.path.join(basedir, 'src'))
 sys.path.insert(0, os.path.join(basedir, 'util'))
 import s3ql
@@ -68,7 +68,7 @@ class build_docs(setuptools.Command):
             raise SystemExit('This command requires Sphinx to be installed.') from None
 
         fix_docutils()
-        
+
         dest_dir = os.path.join(basedir, 'doc')
         src_dir = os.path.join(basedir, 'rst')
 
@@ -97,7 +97,7 @@ class build_docs(setuptools.Command):
                       err.args[0].encode('ascii', 'backslashreplace'),
                       file=sys.stderr)
 
-        # These shouldn't be installed by default                    
+        # These shouldn't be installed by default
         for name in ('expire_backups.1', 'pcp.1'):
             os.rename(os.path.join(dest_dir, 'man', name),
                       os.path.join(basedir, 'contrib', name))
@@ -117,7 +117,7 @@ def main():
         long_desc = fh.read()
 
     compile_args = ['-Wall' ]
-    
+
     # Enable fatal warnings only when compiling from Mercurial tip.
     # Otherwise, this breaks both forward and backward compatibility
     # (because compilation with newer compiler may fail if additional
@@ -220,7 +220,7 @@ class build_cython(setuptools.Command):
 
         # http://trac.cython.org/cython_trac/ticket/714
         options['compiler_directives']['warn.maybe_uninitialized'] = False
-        
+
         for extension in self.extensions:
             for file_ in extension.sources:
                 (file_, ext) = os.path.splitext(file_)
@@ -278,14 +278,14 @@ class make_testscript(setuptools.Command):
 
         # Make executable
         os.chmod('runtests.py', 0o755)
-        
+
 def fix_docutils():
     '''Work around https://bitbucket.org/birkenfeld/sphinx/issue/1154/'''
-    
-    import docutils.parsers 
+
+    import docutils.parsers
     from docutils.parsers import rst
     old_getclass = docutils.parsers.get_parser_class
-    
+
     # Check if bug is there
     try:
         old_getclass('rst')
@@ -293,7 +293,7 @@ def fix_docutils():
         pass
     else:
         return
-     
+
     def get_parser_class(parser_name):
         """Return the Parser class from the `parser_name` module."""
         if parser_name in ('rst', 'restructuredtext'):
@@ -301,9 +301,9 @@ def fix_docutils():
         else:
             return old_getclass(parser_name)
     docutils.parsers.get_parser_class = get_parser_class
-    
+
     assert docutils.parsers.get_parser_class('rst') is rst.Parser
 
-    
+
 if __name__ == '__main__':
     main()
