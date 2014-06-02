@@ -193,7 +193,9 @@ cdef int prep_columns(columns, int** col_types_p, int** col_args_p) except -1:
     Both arrays are allocated dynamically, caller has to ensure
     that they're freed again.
     '''
-    cdef int col_count, *col_types, *col_args
+    cdef int col_count
+    cdef int *col_types
+    cdef int *col_args
 
     col_count = len(columns)
     col_types = < int *> calloc(col_count, sizeof(int))
@@ -300,8 +302,11 @@ def dump_table(table, order, columns, db, fh):
 
     cdef sqlite3 *sqlite3_db
     cdef sqlite3_stmt *stmt
-    cdef int *col_types, *col_args, col_count, rc, i, len_
-    cdef int64_t *int64_prev, int64, tmp
+    cdef int *col_types
+    cdef int *col_args
+    cdef int col_count, rc, i, len_
+    cdef int64_t *int64_prev
+    cdef int64_t int64, tmp
     cdef FILE *fp
     cdef const_void *buf
     cdef int64_t row_count
@@ -406,8 +411,12 @@ def load_table(table, columns, db, fh, trx_rows=5000):
     '''
 
     cdef sqlite3 *sqlite3_db
-    cdef sqlite3_stmt *stmt, *begin_stmt, *commit_stmt
-    cdef int *col_types, *col_args, col_count, rc, len_, i, j
+    cdef sqlite3_stmt *stmt
+    cdef sqlite3_stmt *begin_stmt
+    cdef sqlite3_stmt *commit_stmt
+    cdef int *col_types
+    cdef int *col_args
+    cdef int col_count, rc, len_, i, j
     cdef int64_t *int64_prev
     cdef FILE *fp
     cdef void *buf
