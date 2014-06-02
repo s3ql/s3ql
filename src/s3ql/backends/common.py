@@ -465,23 +465,29 @@ class AbstractBackend(object, metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def copy(self, src, dest):
+    def copy(self, src, dest, metadata=None):
         """Copy data stored under key `src` to key `dest`
 
-        If `dest` already exists, it will be overwritten. The copying
-        is done on the remote side.
+        If `dest` already exists, it will be overwritten. If *metadata* is
+        `None` metadata will be copied from the source as well, otherwise
+        *metadata* becomes the metadata for the new object.
+
+        Copying will be done on the remote side without retrieving object data.
         """
 
         pass
 
-    def rename(self, src, dest):
+    def rename(self, src, dest, metadata=None):
         """Rename key `src` to `dest`
 
-        If `dest` already exists, it will be overwritten. The rename
-        is done on the remote side.
+        If `dest` already exists, it will be overwritten. If *metadata* is
+        `None` metadata will be preserved, otherwise *metadata* becomes the
+        metadata for the renamed object.
+
+        Rename done remotely without retrieving object data.
         """
 
-        self.copy(src, dest)
+        self.copy(src, dest, metadata)
         self.delete(src)
 
     def close(self):
@@ -698,11 +704,15 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
         return self.backend.list(prefix)
 
     @copy_ancestor_docstring
-    def copy(self, src, dest):
+    def copy(self, src, dest, metadata=None):
+        if metadata is not None:
+            raise RuntimeError('Not yet supported')
         return self.backend.copy(src, dest)
 
     @copy_ancestor_docstring
-    def rename(self, src, dest):
+    def rename(self, src, dest, metadata=None):
+        if metadata is not None:
+            raise RuntimeError('Not yet supported')
         return self.backend.rename(src, dest)
 
     @copy_ancestor_docstring

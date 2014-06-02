@@ -25,6 +25,9 @@ import urllib.parse
 
 log = logging.getLogger(__name__)
 
+#: Suffix to use when creating temporary objects
+TEMP_SUFFIX = '_tmp$oentuhuo23986konteuh1062$'
+
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """A backend to store data in OpenStack Swift
 
@@ -281,6 +284,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def lookup(self, key):
         log.debug('lookup(%s)', key)
+        if key.endswith(TEMP_SUFFIX):
+            raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
 
         try:
             resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
@@ -296,6 +301,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @retry
     @copy_ancestor_docstring
     def get_size(self, key):
+        if key.endswith(TEMP_SUFFIX):
+            raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
         log.debug('get_size(%s)', key)
 
         try:
@@ -315,6 +322,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @retry
     @copy_ancestor_docstring
     def open_read(self, key):
+        if key.endswith(TEMP_SUFFIX):
+            raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
         try:
             resp = self._do_request('GET', '/%s%s' % (self.prefix, key))
         except HTTPError as exc:
@@ -324,13 +333,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return ObjectR(key, resp, self, extractmeta(resp))
 
-    @prepend_ancestor_docstring
-    def open_write(self, key, metadata=None, is_compressed=False):
-        """
-        The returned object will buffer all data and only start the upload
-        when its `close` method is called.
-        """
-        log.debug('open_write(%s): start', key)
+    def _add_meta_headers(self, headers, metadata):
 
         # We don't store the metadata keys directly, because HTTP headers
         # are case insensitive (so the server may change capitalization)
@@ -339,11 +342,24 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         chunksize = 255
         i = 0
-        headers = CaseInsensitiveDict()
         headers['X-Object-Meta-Format'] = 'pickle'
         while i*chunksize < len(meta_buf):
             headers['X-Object-Meta-Data-%02d' % i] = meta_buf[i*chunksize:(i+1)*chunksize]
             i += 1
+
+    @prepend_ancestor_docstring
+    def open_write(self, key, metadata=None, is_compressed=False):
+        """
+        The returned object will buffer all data and only start the upload
+        when its `close` method is called.
+        """
+        log.debug('open_write(%s): start', key)
+
+        if key.endswith(TEMP_SUFFIX):
+            raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
+
+        headers = CaseInsensitiveDict()
+        self._add_meta_headers(headers, metadata)
 
         return ObjectW(key, self, headers)
 
@@ -364,6 +380,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @retry
     @copy_ancestor_docstring
     def delete(self, key, force=False):
+        if key.endswith(TEMP_SUFFIX):
+            raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
         log.debug('delete(%s)', key)
         try:
             resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
@@ -376,10 +394,23 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @retry
     @copy_ancestor_docstring
-    def copy(self, src, dest):
+    def copy(self, src, dest, metadata=None):
+        if dest.endswith(TEMP_SUFFIX) or src.endswith(TEMP_SUFFIX):
+            raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
         log.debug('copy(%s, %s): start', src, dest)
+
         headers = CaseInsensitiveDict()
         headers['X-Copy-From'] = '/%s/%s%s' % (self.container_name, self.prefix, src)
+
+        if metadata is not None:
+            # We can't do a direct copy, because during copy we can only update the
+            # metadata, but not replace it. Therefore, we have to make a full copy
+            # followed by a separate request to replace the metadata. To avoid an
+            # inconsistent intermediate state, we use a temporary object.
+            final_dest = dest
+            dest = final_dest + TEMP_SUFFIX
+            headers['X-Delete-After'] = '600'
+
         try:
             self._do_request('PUT', '/%s%s' % (self.prefix, dest), headers=headers)
             self.conn.discard()
@@ -387,6 +418,21 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if exc.status == 404:
                 raise NoSuchObject(src)
             raise
+
+        if metadata is None:
+            return
+
+        # Update metadata
+        headers = CaseInsensitiveDict()
+        self._add_meta_headers(headers, metadata)
+        self._do_request('POST', '/%s%s' % (self.prefix, dest), headers=headers)
+        self.conn.discard()
+
+        # Rename object
+        headers = CaseInsensitiveDict()
+        headers['X-Copy-From'] = '/%s/%s%s' % (self.container_name, self.prefix, dest)
+        self._do_request('PUT', '/%s%s' % (self.prefix, final_dest), headers=headers)
+        self.conn.discard()
 
     @retry_generator
     @copy_ancestor_docstring
@@ -428,6 +474,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 for dataset in json.loads(self.conn.read().decode(hit.group(1))):
                     count += 1
                     marker = dataset['name']
+                    if marker.endswith(TEMP_SUFFIX):
+                        continue
                     yield marker[strip:]
 
             except GeneratorExit:

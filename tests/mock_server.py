@@ -130,11 +130,19 @@ class S3RequestHandler(BaseHTTPRequestHandler):
                                 code='InvalidArgument')
                 return
 
+            metadata_directive = self.headers.get('x-amz-metadata-directive', 'COPY')
+            if metadata_directive not in ('COPY', 'REPLACE'):
+                self.send_error(400, message='Invalid metadata directive',
+                                code='InvalidArgument')
+                return
             src = hit.group(2)
             try:
                 data = self.server.data[src]
-                self.server.metadata[q.key] = self.server.metadata[src]
                 self.server.data[q.key] = data
+                if metadata_directive == 'COPY':
+                    self.server.metadata[q.key] = self.server.metadata[src]
+                else:
+                    self.server.metadata[q.key] = meta
             except KeyError:
                 self.send_error(404, code='NoSuchKey', resource=src)
         else:

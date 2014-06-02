@@ -451,6 +451,32 @@ def test_copy(backend):
     assert value == value2
     assert metadata == metadata2
 
+def test_copy_newmeta(backend):
+    if isinstance(backend, BetterBackend):
+        pytest.skip('not yet supported for compressed or encrypted backends')
+    key1 = newname()
+    key2 = newname()
+    value = newvalue()
+    meta1 = { 'jimmy': 'jups@42' }
+    meta2 = { 'jiy': 'jfobauske42' }
+
+    backend.store(key1, value, meta1)
+
+    # Wait for object to become visible
+    assert_in_index(backend, [key1])
+    fetch_object(backend, key1)
+
+    assert_not_in_index(backend, [key2])
+    assert_not_readable(backend, key2)
+
+    backend.copy(key1, key2, meta2)
+
+    assert_in_index(backend, [key2])
+    (value2, meta) = fetch_object(backend, key2)
+
+    assert value == value2
+    assert meta == meta2
+
 def test_rename(backend):
     key1 = newname()
     key2 = newname()
@@ -476,6 +502,32 @@ def test_rename(backend):
 
     assert_not_in_index(backend, [key1])
     assert_not_readable(backend, key1)
+
+def test_rename_newmeta(backend):
+    if isinstance(backend, BetterBackend):
+        pytest.skip('not yet supported for compressed or encrypted backends')
+    key1 = newname()
+    key2 = newname()
+    value = newvalue()
+    meta1 = { 'jimmy': 'jups@42' }
+    meta2 = { 'apple': 'potatoes' }
+
+    backend.store(key1, value, meta1)
+
+    # Wait for object to become visible
+    assert_in_index(backend, [key1])
+    fetch_object(backend, key1)
+
+    assert_not_in_index(backend, [key2])
+    assert_not_readable(backend, key2)
+
+    backend.rename(key1, key2, meta2)
+
+    assert_in_index(backend, [key2])
+    (value2, meta) = fetch_object(backend, key2)
+
+    assert value == value2
+    assert meta == meta2
 
 def test_corruption(backend):
     if not isinstance(backend, BetterBackend):

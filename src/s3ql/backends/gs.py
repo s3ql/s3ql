@@ -90,26 +90,6 @@ class Backend(s3c.Backend):
                               now.tm_year, now.tm_hour,
                               now.tm_min, now.tm_sec))
 
-    @retry
-    @copy_ancestor_docstring
-    def copy(self, src, dest):
-        log.debug('copy(%s, %s): start', src, dest)
-
-        headers = CaseInsensitiveDict()
-        if self.use_oauth2:
-            headers[self.hdr_prefix + 'copy-source'] = \
-                '%s/%s%s' % (self.bucket_name, self.prefix, src)
-            headers[self.hdr_prefix + 'metadata-directive'] = 'COPY'
-        else:
-            headers[self.hdr_prefix + 'copy-source'] = \
-                '/%s/%s%s' % (self.bucket_name, self.prefix, src)
-
-        try:
-            self._do_request('PUT', '/%s%s' % (self.prefix, dest), headers=headers)
-            self.conn.discard()
-        except NoSuchKeyError:
-            raise NoSuchObject(src)
-
     def _get_access_token(self):
         log.info('Requesting new access token')
 

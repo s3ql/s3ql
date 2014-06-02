@@ -284,6 +284,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         log.debug('open_write(%s): start', key)
 
+        headers = CaseInsensitiveDict()
+        self._add_meta_headers(headers, metadata)
+
+        return ObjectW(key, self, headers)
+
+    def _add_meta_headers(self, headers, metadata):
+
         # We don't store the metadata keys directly, because HTTP headers
         # are case insensitive (so the server may change capitalization)
         # and we may run into length restrictions.
@@ -291,25 +298,29 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         chunksize = 255
         i = 0
-        headers = CaseInsensitiveDict()
         headers[self.hdr_prefix + 'meta-format'] = 'pickle'
         while i*chunksize < len(meta_buf):
             headers[self.hdr_prefix +
                     'meta-data-%02d' % i] = meta_buf[i*chunksize:(i+1)*chunksize]
             i += 1
 
-        return ObjectW(key, self, headers)
-
-
     @retry
     @copy_ancestor_docstring
-    def copy(self, src, dest):
+    def copy(self, src, dest, metadata=None):
         log.debug('copy(%s, %s): start', src, dest)
 
+        headers = CaseInsensitiveDict()
+        headers[self.hdr_prefix + 'copy-source'] = \
+            '/%s/%s%s' % (self.bucket_name, self.prefix, src)
+
+        if metadata is None:
+            headers[self.hdr_prefix + 'metadata-directive'] = 'COPY'
+        else:
+            headers[self.hdr_prefix + 'metadata-directive'] = 'REPLACE'
+            self._add_meta_headers(headers, metadata)
+
         try:
-            self._do_request('PUT', '/%s%s' % (self.prefix, dest),
-                             headers={ self.hdr_prefix + 'copy-source':
-                                           '/%s/%s%s' % (self.bucket_name, self.prefix, src)})
+            self._do_request('PUT', '/%s%s' % (self.prefix, dest), headers=headers)
             self.conn.discard()
         except NoSuchKeyError:
             raise NoSuchObject(src)

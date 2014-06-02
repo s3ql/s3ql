@@ -90,17 +90,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # conflicts between parallel reads, the last one wins
         tmpname = '%s#%d-%d' % (path, os.getpid(), _thread.get_ident())
 
-        try:
-            dest = ObjectW(tmpname)
-        except FileNotFoundError:
-            try:
-                os.makedirs(os.path.dirname(path))
-            except FileExistsError:
-                # Another thread may have created the directory already
-                pass
-            dest = ObjectW(tmpname)
-
+        dest = ObjectW(tmpname)
         os.rename(tmpname, path)
+
         pickle.dump(metadata, dest, PICKLE_PROTOCOL)
         return dest
 
@@ -162,46 +154,40 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     yield key
 
     @copy_ancestor_docstring
-    def copy(self, src, dest):
+    def copy(self, src, dest, metadata=None):
+
         path_src = self._key_to_path(src)
         path_dest = self._key_to_path(dest)
 
-        # Can't use shutil.copyfile() here, need to make
-        # sure destination path exists
         try:
-            dest = open(path_dest, 'wb')
-        except FileNotFoundError:
-            try:
-                os.makedirs(os.path.dirname(path_dest))
-            except FileExistsError:
-                # Another thread may have created the directory already
-                pass
-            dest = open(path_dest, 'wb')
-
-        try:
-            with open(path_src, 'rb') as src:
-                shutil.copyfileobj(src, dest, BUFSIZE)
+            src = open(path_src, 'rb')
         except FileNotFoundError:
             raise NoSuchObject(src)
+
+        dest = None
+        try:
+            # By renaming, we make sure that there are no conflicts between
+            # parallel writes, the last one wins
+            tmpname = '%s#%d-%d' % (path_dest, os.getpid(), _thread.get_ident())
+            dest = ObjectW(tmpname)
+
+            if metadata is not None:
+                try:
+                    pickle.load(src)
+                except pickle.UnpicklingError:
+                    raise ChecksumError('Invalid metadata')
+                pickle.dump(metadata, dest, PICKLE_PROTOCOL)
+            shutil.copyfileobj(src, dest, BUFSIZE)
+        except:
+            if dest:
+                os.unlink(tmpname)
+            raise
+
         finally:
+            src.close()
             dest.close()
 
-    @copy_ancestor_docstring
-    def rename(self, src, dest):
-        src_path = self._key_to_path(src)
-        dest_path = self._key_to_path(dest)
-        if not os.path.exists(src_path):
-            raise NoSuchObject(src)
-
-        try:
-            os.rename(src_path, dest_path)
-        except FileNotFoundError:
-            try:
-                os.makedirs(os.path.dirname(dest_path))
-            except FileExistsError:
-                # Another thread may have created the directory already
-                pass
-            os.rename(src_path, dest_path)
+        os.rename(tmpname, path_dest)
 
     def _key_to_path(self, key):
         '''Return path for given key'''
@@ -259,11 +245,22 @@ class ObjectW(object):
     def __init__(self, name):
         super().__init__()
 
-        # Inherit from io.FileIO rather than io.BufferedReader to disable buffering. Default buffer
-        # size is ~8 kB (http://docs.python.org/3/library/functions.html#open), but backends are
-        # almost always only accessed by block_cache and stream_read_bz2/stream_write_bz2, which all
-        # use the much larger s3ql.common.BUFSIZE
-        self.fh = open(name, 'wb', buffering=0)
+        # Default buffer size is ~8 kB
+        # (http://docs.python.org/3/library/functions.html#open), but backends
+        # are almost always only accessed by block_cache and
+        # stream_read_bz2/stream_write_bz2, which all use the much larger
+        # s3ql.common.BUFSIZE - so we may just as well disable buffering.
+
+        # Create parent directories as needed
+        try:
+            self.fh = open(name, 'wb', buffering=0)
+        except FileNotFoundError:
+            try:
+                os.makedirs(os.path.dirname(name))
+            except FileExistsError:
+                # Another thread may have created the directory already
+                pass
+            self.fh = open(name, 'wb', buffering=0)
 
         self.obj_size = 0
         self.closed = False
