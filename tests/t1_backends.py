@@ -84,6 +84,10 @@ def get_backend_wrappers():
             self.backend = class_(url % { 'host': self.server.server_address[0],
                                           'port': self.server.server_address[1] },
                                   'joe', 'swordfish')
+
+            # Mock server should never have temporary failure
+            self.backend.is_temp_failure = lambda exc: False
+
             return self.backend
         def cleanup(self):
             self.backend.close()
