@@ -676,6 +676,7 @@ class ObjectR(object):
         return self
 
     def __exit__(self, *a):
+        self.close()
         return False
 
     def close(self):
