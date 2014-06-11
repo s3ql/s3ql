@@ -636,6 +636,7 @@ class ObjectR(object):
     def __init__(self, key, resp, backend, metadata=None):
         self.key = key
         self.resp = resp
+        self.closed = False
         self.md5_checked = False
         self.backend = backend
         self.metadata = metadata
@@ -679,6 +680,10 @@ class ObjectR(object):
 
     def close(self):
         '''Close object'''
+
+        if self.closed:
+            return
+        self.closed = True
 
         # If we have not read all the data, close the entire
         # connection (otherwise we loose synchronization)
