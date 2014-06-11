@@ -162,6 +162,12 @@ class cache_tests(unittest.TestCase):
             os.unlink(self.backend_dir)
             os.rename(self.backend_dir + '-tmp', self.backend_dir)
             self.cache.destroy = lambda: None
+
+            # Remove elements from cache, or we get a warning from
+            # BlockCache.__del__
+            for key in self.cache.cache.keys():
+                self.cache.cache.remove(key)
+
             llfuse.lock.acquire()
 
         assert removal_exc
