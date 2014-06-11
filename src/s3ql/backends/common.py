@@ -604,6 +604,7 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
         """
 
         fh = self.backend.open_read(key)
+        checksum_warning = False
         try:
             convert_legacy_metadata(fh.metadata)
 
@@ -624,6 +625,10 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
             else:
                 raise RuntimeError('Unsupported compression: %s' % compr_alg)
 
+            # If we've come this far, we want to emit a warning if the object
+            # has not been read completely on close().
+            checksum_warning = True
+
             if encr_alg == 'AES':
                 fh = LegacyDecryptDecompressFilter(fh, self.passphrase, decompressor)
             else:
@@ -637,7 +642,7 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
             fh.metadata = metadata
         except:
-            fh.close()
+            fh.close(checksum_warning=checksum_warning)
             raise
 
         return fh
@@ -798,6 +803,12 @@ class InputFilter(io.RawIOBase):
         len_ = self.readinto(b)
         return b[:len_]
 
+    def discard_input(self):
+        while True:
+            buf = self.fh.read(BUFSIZE)
+            if not buf:
+                break
+
 class DecompressFilter(InputFilter):
     '''Decompress data while reading'''
 
@@ -834,17 +845,15 @@ class DecompressFilter(InputFilter):
                     raise ChecksumError('Premature end of stream.')
                 if self.decomp.unused_data:
                     raise ChecksumError('Data after end of compressed stream')
+
                 return b''
 
             try:
                 buf = decompress(self.decomp, buf)
             except ChecksumError:
-                # Still read the stream completely (so that in case of
-                # an encrypted stream we check the HMAC).
-                while True:
-                    buf = self.fh.read(BUFSIZE)
-                    if not buf:
-                        break
+                # Read rest of stream, so that we raise HMAC or MD5 error instead
+                # if problem is on lower layer
+                self.discard_input()
                 raise
 
         return buf
@@ -1032,15 +1041,19 @@ class DecryptFilter(InputFilter):
                 while len(inbuf) < HMAC_SIZE:
                     # Don't read exactly the missing amount, we wan't to detect
                     # if there's extraneous data
-                    buf = self._read_and_decrypt(HMAC_SIZE)
+                    buf = self._read_and_decrypt(HMAC_SIZE+1)
                     assert buf
                     inbuf += buf
 
                 if len(inbuf) > HMAC_SIZE or self.fh.read(1):
+                    # Read rest of stream, so that we raise MD5 error instead
+                    # if problem is on lower layer
+                    self.discard_input()
                     raise ChecksumError('Extraneous data at end of object')
 
                 if not hmac.compare_digest(inbuf, self.hmac.digest()):
                     raise ChecksumError('HMAC mismatch')
+
                 self.hmac_checked = True
                 break
 
@@ -1083,6 +1096,12 @@ class LegacyDecryptDecompressFilter(io.RawIOBase):
         key = sha256(passphrase + nonce)
         self.cipher = aes_cipher(key)
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
+
+    def discard_input(self):
+        while True:
+            buf = self.fh.read(BUFSIZE)
+            if not buf:
+                break
 
     def _decrypt(self, buf):
         # Work around https://bugs.launchpad.net/pycrypto/+bug/1256172

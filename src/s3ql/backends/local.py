@@ -239,6 +239,13 @@ class ObjectR(io.FileIO):
         super().__init__(name)
         self.metadata = metadata
 
+    def close(self, checksum_warning=True):
+        '''Close object
+
+        The *checksum_warning* parameter is ignored.
+        '''
+        super().close()
+
 class ObjectW(object):
     '''A local storage object opened for writing'''
 

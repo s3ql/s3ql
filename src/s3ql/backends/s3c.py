@@ -657,19 +657,17 @@ class ObjectR(object):
             return b''
 
         buf = self.backend.conn.read(size)
+        self.md5.update(buf)
 
         # Check MD5 on EOF
-        if not buf and not self.md5_checked:
+        # (size == None implies EOF)
+        if (not buf or size is None) and not self.md5_checked:
             etag = self.resp.headers['ETag'].strip('"')
             self.md5_checked = True
             if etag != self.md5.hexdigest():
                 log.warning('ObjectR(%s).close(): MD5 mismatch: %s vs %s', self.key, etag,
                          self.md5.hexdigest())
                 raise BadDigestError('BadDigest', 'ETag header does not agree with calculated MD5')
-
-            return buf
-
-        self.md5.update(buf)
         return buf
 
     def __enter__(self):
@@ -679,8 +677,13 @@ class ObjectR(object):
         self.close()
         return False
 
-    def close(self):
-        '''Close object'''
+    def close(self, checksum_warning=True):
+        '''Close object
+
+        If *checksum_warning* is true, this will generate a warning message if
+        the object has not been fully read (because in that case the MD5
+        checksum cannot be checked).
+        '''
 
         if self.closed:
             return
@@ -689,6 +692,9 @@ class ObjectR(object):
         # If we have not read all the data, close the entire
         # connection (otherwise we loose synchronization)
         if not self.md5_checked:
+            if checksum_warning:
+                log.warning("Object closed prematurely, can't check MD5, and have to "
+                            "reset connection")
             self.backend.conn.disconnect()
 
 

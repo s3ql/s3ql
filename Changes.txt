@@ -24,6 +24,10 @@ UNRELEASED, S3QL tip
 
   * S3QL now requires version 3.1 or newer of the dugong module.
 
+  * In some cases, transmission errors when reading storage objects
+    from a backend may have been misreported as corrupted backend
+    objects. This has been fixed.
+
 2014-03-29, S3QL 2.8.1
 
   * No changes in S3QL itself.
