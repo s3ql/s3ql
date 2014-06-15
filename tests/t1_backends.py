@@ -41,7 +41,6 @@ class BackendWrapper:
     def __init__(self):
         self.name = None
         self.retry_time = 0
-        self.mock_server = False
 
     def init(self):
         '''Return backend instance'''
@@ -161,11 +160,10 @@ def pytest_generate_tests(metafunc):
 def plain_backend(request):
     bw = request.param
     backend = bw.init()
-    assert not hasattr(backend, 'retry_time')
-    backend.retry_time = bw.retry_time
+    assert not hasattr(backend, 'wrapper')
+    backend.wrapper = bw
 
-    assert not hasattr(backend, 'orig_prefix')
-    backend.orig_prefix = backend.prefix
+    bw.orig_prefix = backend.prefix
 
     try:
         yield backend
@@ -187,13 +185,13 @@ def backend(request, plain_backend):
         backend = BetterBackend(None, (compenc_kind, 6), plain_backend)
 
     if backend is not plain_backend:
-        assert not hasattr(backend, 'retry_time')
-        backend.retry_time = plain_backend.retry_time
+        assert not hasattr(backend, 'wrapper')
+        backend.wrapper = plain_backend.wrapper
 
     # "clear" the backend by selecting a different prefix for every
     # test (actually deleting all objects would mean that we have to
     # wait for propagation delays)
-    plain_backend.prefix = '%s%3d/' % (plain_backend.orig_prefix,
+    plain_backend.prefix = '%s%3d/' % (plain_backend.wrapper.orig_prefix,
                                        backend_prefix_counter[0])
     backend_prefix_counter[0] += 1
     return backend
@@ -210,14 +208,14 @@ def fetch_object(backend, key, sleep_time=1):
     '''Read data and metadata for *key* from *backend*
 
     If `NoSuchObject` exception is encountered, retry for
-    up to ``backend.retry_time`` seconds.
+    up to ``backend.wrapper.retry_time`` seconds.
     '''
     waited=0
     while True:
         try:
             return backend.fetch(key)
         except NoSuchObject:
-            if waited >= backend.retry_time:
+            if waited >= backend.wrapper.retry_time:
                 raise
         time.sleep(sleep_time)
         waited += sleep_time
@@ -226,14 +224,14 @@ def lookup_object(backend, key, sleep_time=1):
     '''Read metadata for *key* from *backend*
 
     If `NoSuchObject` exception is encountered, retry for
-    up to ``backend.retry_time`` seconds.
+    up to ``backend.wrapper.retry_time`` seconds.
     '''
     waited=0
     while True:
         try:
             return backend.lookup(key)
         except NoSuchObject:
-            if waited >= backend.retry_time:
+            if waited >= backend.wrapper.retry_time:
                 raise
         time.sleep(sleep_time)
         waited += sleep_time
@@ -242,7 +240,7 @@ def assert_in_index(backend, keys, sleep_time=1):
     '''Assert that *keys* will appear in index
 
     Raises assertion error if *keys* do not show up within
-    ``backend.retry_timeout`` seconds.
+    ``backend.wrapper.retry_time`` seconds.
     '''
     waited=0
     keys = set(keys) # copy
@@ -250,7 +248,7 @@ def assert_in_index(backend, keys, sleep_time=1):
         index = set(backend.list())
         if not keys - index:
             return
-        elif waited >= backend.retry_time:
+        elif waited >= backend.wrapper.retry_time:
             assert keys - index == empty_set
         time.sleep(sleep_time)
         waited += sleep_time
@@ -259,7 +257,7 @@ def assert_not_in_index(backend, keys, sleep_time=1):
     '''Assert that *keys* will disappear from index
 
     Raises assertion error if *keys* do not disappear within
-    ``backend.retry_timeout`` seconds.
+    ``backend.wrapper.retry_time`` seconds.
     '''
     waited=0
     keys = set(keys) # copy
@@ -267,7 +265,7 @@ def assert_not_in_index(backend, keys, sleep_time=1):
         index = set(backend.list())
         if keys - index == keys:
             return
-        elif waited >= backend.retry_time:
+        elif waited >= backend.wrapper.retry_time:
             assert keys - index == keys
         time.sleep(sleep_time)
         waited += sleep_time
@@ -276,7 +274,7 @@ def assert_not_readable(backend, key, sleep_time=1):
     '''Assert that *key* does not exist in *backend*
 
     Asserts that a `NoSuchObject` exception will be raised when trying to read
-    the object after at most ``backend.retry_time`` seconds.
+    the object after at most ``backend.wrapper.retry_time`` seconds.
     '''
     waited=0
     while True:
@@ -284,7 +282,7 @@ def assert_not_readable(backend, key, sleep_time=1):
             backend.fetch(key)
         except NoSuchObject:
             return
-        if waited >= backend.retry_time:
+        if waited >= backend.wrapper.retry_time:
             pytest.fail('object %s still present in backend' % key)
         time.sleep(sleep_time)
         waited += sleep_time
@@ -324,7 +322,7 @@ def test_list(backend):
     assert set(backend.list('prefixc')) == empty_set
 
 def test_readslowly(backend):
-    if backend.retry_time:
+    if backend.wrapper.retry_time:
         pytest.skip('requires immediate consistency backend')
 
     key = newname()
@@ -398,7 +396,7 @@ def test_delete_multi(backend):
 
     # Without full consistency, deleting an non-existing object
     # may not give an error
-    assert backend.retry_time or len(to_delete) > 0
+    assert backend.wrapper.retry_time or len(to_delete) > 0
 
     deleted = set(keys[::2]) - set(to_delete)
     assert len(deleted) > 0
@@ -630,7 +628,7 @@ def test_encryption(backend):
     if (not isinstance(backend, BetterBackend)
         or backend.passphrase is None):
         pytest.skip('only supported for encrypted backends')
-    elif backend.retry_time:
+    elif backend.wrapper.retry_time:
         pytest.skip('requires backend with immediate consistency')
     plain_backend = backend.backend
 
