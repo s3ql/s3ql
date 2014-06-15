@@ -1183,7 +1183,8 @@ def decompress(decomp, buf):
             raise ChecksumError('Invalid compressed stream')
         raise
     except lzma.LZMAError as exc:
-        if exc.args[0].lower().startswith('corrupt input data'):
+        if (exc.args[0].lower().startswith('corrupt input data')
+            or exc.args[0].startswith('Input format not supported')):
             raise ChecksumError('Invalid compressed stream')
         raise
     except zlib.error as exc:

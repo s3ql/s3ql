@@ -28,6 +28,9 @@ UNRELEASED, S3QL tip
     from a backend may have been misreported as corrupted backend
     objects. This has been fixed.
 
+  * S3QL no longer crashes when data corruption occurs in the first
+    few bytes of an LZMA compressed storage object.
+
 2014-03-29, S3QL 2.8.1
 
   * No changes in S3QL itself.

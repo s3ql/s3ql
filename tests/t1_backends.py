@@ -19,8 +19,9 @@ from s3ql.backends.local import Backend as LocalBackend
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBackend, AuthenticationError, AuthorizationError, DanglingStorageURLError,
     MalformedObjectError)
+from s3ql.backends.s3c import BadDigestError
 from s3ql.common import BUFSIZE, get_ssl_context
-from common import get_remote_test_info, NoTestSection
+from common import get_remote_test_info, NoTestSection, catch_logmsg
 import s3ql.backends.common
 from argparse import Namespace
 import tempfile
@@ -41,6 +42,8 @@ class BackendWrapper:
     def __init__(self):
         self.name = None
         self.retry_time = 0
+        self.server = None
+        self.may_temp_fail = False
 
     def init(self):
         '''Return backend instance'''
@@ -84,8 +87,14 @@ def get_backend_wrappers():
                                           'port': self.server.server_address[1] },
                                   'joe', 'swordfish')
 
-            # Mock server should never have temporary failure
-            self.backend.is_temp_failure = lambda exc: False
+            # Mock server should not have temporary failures by default
+            is_temp_failure = self.backend.is_temp_failure
+            def wrap(exc):
+                if self.may_temp_fail:
+                    return is_temp_failure(exc)
+                else:
+                    return False
+            self.backend.is_temp_failure = wrap
 
             return self.backend
         def cleanup(self):
@@ -650,6 +659,47 @@ def test_encryption(backend):
     assert_raises(ObjectNotEncrypted, backend.fetch, 'not-encrypted')
     assert_raises(ObjectNotEncrypted, backend.lookup, 'not-encrypted')
 
+def test_corrupted_get(backend):
+    if not backend.wrapper.server:
+        pytest.skip('requires mock server')
+    data = b'hello there, let us see whats going on'
+
+    backend['quote'] = data
+
+    backend.wrapper.server.trigger_transmission_error()
+    with catch_logmsg('^MD5 mismatch:', count=1, level=logging.WARNING):
+        assert_raises(BadDigestError, backend.fetch, 'quote')
+
+    assert backend['quote'] == data
+
+    backend.wrapper.may_temp_fail = True
+    try:
+        backend.wrapper.server.trigger_transmission_error()
+        with catch_logmsg('^MD5 mismatch:', count=1, level=logging.WARNING):
+            assert backend['quote'] == data
+    finally:
+        backend.wrapper.may_temp_fail = False
+
+def test_corrupted_put(backend):
+    if not backend.wrapper.server:
+        pytest.skip('requires mock server')
+    data = b'hello there, let us see whats going on'
+
+    backend.wrapper.server.trigger_transmission_error()
+    fh = backend.open_write('quote')
+    fh.write(data)
+    assert_raises(BadDigestError, fh.close)
+    fh.close()
+
+    backend.wrapper.may_temp_fail = True
+    try:
+        backend.wrapper.server.trigger_transmission_error()
+        backend['quote'] = data
+    finally:
+        backend.wrapper.may_temp_fail = False
+
+    assert backend['quote'] == data
+
 def test_s3_url_parsing():
     parse = backends.s3.Backend._parse_storage_url
     assert parse('s3://name', ssl_context=None)[2:] == ('name', '')
@@ -673,3 +723,4 @@ def test_s3c_url_parsing():
                  ssl_context=None) == ('host.org', 80, 'name', 'pref')
     assert parse('s3c://host.org:17/name/pref/',
                  ssl_context=None) == ('host.org', 17, 'name', 'pref/')
+
