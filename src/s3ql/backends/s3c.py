@@ -665,9 +665,10 @@ class ObjectR(object):
             etag = self.resp.headers['ETag'].strip('"')
             self.md5_checked = True
             if etag != self.md5.hexdigest():
-                log.warning('ObjectR(%s).close(): MD5 mismatch: %s vs %s', self.key, etag,
-                         self.md5.hexdigest())
-                raise BadDigestError('BadDigest', 'ETag header does not agree with calculated MD5')
+                log.warning('MD5 mismatch for %s: %s vs %s',
+                            self.key, etag, self.md5.hexdigest())
+                raise BadDigestError('BadDigest',
+                                     'ETag header does not agree with calculated MD5')
         return buf
 
     def __enter__(self):
