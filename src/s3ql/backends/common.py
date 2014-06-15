@@ -750,13 +750,16 @@ class CompressFilter(object):
             self.obj_size += len(buf)
 
     def close(self):
-        assert not self.closed
-        buf = self.compr.flush()
-        if buf:
-            self.fh.write(buf)
-            self.obj_size += len(buf)
+        # There may be errors when calling fh.close(), so we make sure that a
+        # repeated call is forwarded to fh.close(), even if we already cleaned
+        # up.
+        if not self.closed:
+            buf = self.compr.flush()
+            if buf:
+                self.fh.write(buf)
+                self.obj_size += len(buf)
+            self.closed = True
         self.fh.close()
-        self.closed = True
 
     def __enter__(self):
         return self
@@ -914,18 +917,21 @@ class EncryptFilter(object):
         self.obj_size += len(buf2)
 
     def close(self):
-        assert not self.closed
+        # There may be errors when calling fh.close(), so we make sure that a
+        # repeated call is forwarded to fh.close(), even if we already cleaned
+        # up.
+        if not self.closed:
+            # Packet length of 0 indicates end of stream, only HMAC follows
+            buf = struct.pack(b'<I', 0)
+            self.hmac.update(buf)
+            buf += self.hmac.digest()
+            buf2 = self.cipher.encrypt(buf)
+            assert len(buf) == len(buf2)
+            self.fh.write(buf2)
+            self.obj_size += len(buf2)
+            self.closed = True
 
-        # Packet length of 0 indicates end of stream, only HMAC follows
-        buf = struct.pack(b'<I', 0)
-        self.hmac.update(buf)
-        buf += self.hmac.digest()
-        buf2 = self.cipher.encrypt(buf)
-        assert len(buf) == len(buf2)
-        self.fh.write(buf2)
-        self.obj_size += len(buf2)
         self.fh.close()
-        self.closed = True
 
     def __enter__(self):
         return self

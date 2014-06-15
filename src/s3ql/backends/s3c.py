@@ -744,7 +744,10 @@ class ObjectW(object):
 
         log.debug('ObjectW(%s).close(): start', self.key)
 
-        assert not self.closed
+        if self.closed:
+            # still call fh.close, may have generated an error before
+            self.fh.close()
+            return
 
         self.fh.seek(0)
         self.headers['Content-Type'] = 'application/octet-stream'
@@ -761,8 +764,8 @@ class ObjectW(object):
                 raise BadDigestError('BadDigest', 'MD5 mismatch for %s (received: %s, sent: %s)' %
                                      (self.key, etag, self.md5.hexdigest()))
 
-        self.fh.close()
         self.closed = True
+        self.fh.close()
 
     def __enter__(self):
         return self
