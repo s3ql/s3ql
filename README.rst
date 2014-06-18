@@ -125,4 +125,4 @@ and the `User's Guide`_ for more information.
 
 .. _`User's Guide`: http://www.rath.org/s3ql-docs/index.html
 .. _`S3QL wiki`: https://bitbucket.org/nikratio/s3ql/wiki/
-.. _`Installation Instructions`: https://bitbucket.org/nikratio/s3ql/wiki/Installation%20Instructions
+.. _`Installation Instructions`: https://bitbucket.org/nikratio/s3ql/wiki/Installation
