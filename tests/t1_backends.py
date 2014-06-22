@@ -19,7 +19,7 @@ from s3ql.backends.local import Backend as LocalBackend
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBackend, AuthenticationError, AuthorizationError, DanglingStorageURLError,
     MalformedObjectError)
-from s3ql.backends.s3c import BadDigestError
+from s3ql.backends.s3c import BadDigestError, SlowDownError, HTTPError
 from s3ql.common import BUFSIZE, get_ssl_context
 from common import get_remote_test_info, NoTestSection, catch_logmsg
 import s3ql.backends.common
@@ -712,6 +712,160 @@ def test_corrupted_put(backend, monkeypatch):
 
     assert backend[key] == value
 
+def test_get_s3error(backend, monkeypatch):
+    if not backend.wrapper.server:
+        pytest.skip('requires mock server')
+    value = b'hello there, let us see whats going on'
+    key = 'quote'
+    backend[key] = value
+
+    # Monkeypatch request handler to produce 3 errors
+    handler_class = backend.wrapper.server.RequestHandlerClass
+    def do_GET(self, real_GET=handler_class.do_GET, count=[0]):
+        count[0] += 1
+        if count[0] > 3:
+            return real_GET(self)
+        else:
+            self.send_error(503, code='SlowDown')
+    monkeypatch.setattr(handler_class, 'do_GET', do_GET)
+    assert_raises(SlowDownError, backend.fetch, value)
+
+    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    assert backend[key] == value
+
+def test_head_s3error(backend, monkeypatch):
+    if not backend.wrapper.server:
+        pytest.skip('requires mock server')
+
+    value = b'hello there, let us see whats going on'
+    key = 'quote'
+    meta = {'bar': 42, 'foo': 42**2}
+    backend.store(key, value, metadata=meta)
+
+    # Monkeypatch request handler to produce 3 errors
+    handler_class = backend.wrapper.server.RequestHandlerClass
+    def do_HEAD(self, real_HEAD=handler_class.do_HEAD, count=[0]):
+        count[0] += 1
+        if count[0] > 3:
+            return real_HEAD(self)
+        else:
+            self.send_error(503, code='SlowDown')
+    monkeypatch.setattr(handler_class, 'do_HEAD', do_HEAD)
+    with pytest.raises(HTTPError) as exc:
+        backend.lookup(key)
+    assert exc.value.status == 503
+
+    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    assert backend.lookup(key) == meta
+
+def test_delete_s3error(backend, monkeypatch):
+    if not backend.wrapper.server:
+        pytest.skip('requires mock server')
+
+    value = b'hello there, let us see whats going on'
+    key = 'quote'
+    backend[key] = value
+
+    # Monkeypatch request handler to produce 3 errors
+    handler_class = backend.wrapper.server.RequestHandlerClass
+    def do_DELETE(self, real_DELETE=handler_class.do_DELETE, count=[0]):
+        count[0] += 1
+        if count[0] > 3:
+            return real_DELETE(self)
+        else:
+            self.send_error(503, code='SlowDown')
+    monkeypatch.setattr(handler_class, 'do_DELETE', do_DELETE)
+    assert_raises(SlowDownError, backend.delete, key)
+
+    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    backend.delete(key)
+
+def test_put_s3error_early(backend, monkeypatch):
+    '''Fail after expect-100'''
+
+    if not backend.wrapper.server:
+        pytest.skip('requires mock server')
+
+    data = b'hello there, let us see whats going on'
+    key = 'borg'
+
+    # Monkeypatch request handler to produce 3 errors
+    handler_class = backend.wrapper.server.RequestHandlerClass
+    def handle_expect_100(self, real=handler_class.handle_expect_100, count=[0]):
+        count[0] += 1
+        if count[0] > 3:
+            return real(self)
+        else:
+            self.send_error(503, code='SlowDown')
+            return False
+    monkeypatch.setattr(handler_class, 'handle_expect_100', handle_expect_100)
+    fh = backend.open_write(key)
+    fh.write(data)
+    assert_raises(SlowDownError, fh.close)
+
+    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    fh.close()
+
+def test_put_s3error_med(backend, monkeypatch):
+    '''Fail as soon as data is received'''
+
+    if not backend.wrapper.server:
+        pytest.skip('requires mock server')
+
+    data = b'hello there, let us see whats going on'
+    key = 'borg'
+
+    # Monkeypatch request handler to produce 3 errors
+    handler_class = backend.wrapper.server.RequestHandlerClass
+    def do_PUT(self, real_PUT=handler_class.do_PUT, count=[0]):
+        count[0] += 1
+        # Note: every time we return an error, the request will be retried
+        # *twice*: once because of the error, and a second time because the
+        # connection has been closed by the server.
+        if count[0] > 2:
+            return real_PUT(self)
+        else:
+            self.send_error(503, code='SlowDown')
+
+            # Since we don't read all the data, we have to close
+            # the connection
+            self.close_connection = True
+
+    monkeypatch.setattr(handler_class, 'do_PUT', do_PUT)
+    fh = backend.open_write(key)
+    fh.write(data)
+    assert_raises(SlowDownError, fh.close)
+
+    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    fh.close()
+
+def test_put_s3error_late(backend, monkeypatch):
+    '''Fail after reading all data'''
+
+    if not backend.wrapper.server:
+        pytest.skip('requires mock server')
+
+    data = b'hello there, let us see whats going on'
+    key = 'borg'
+
+    # Monkeypatch request handler to produce 3 errors
+    handler_class = backend.wrapper.server.RequestHandlerClass
+    def do_PUT(self, real_PUT=handler_class.do_PUT, count=[0]):
+        count[0] += 1
+        if count[0] > 3:
+            return real_PUT(self)
+        else:
+            self.rfile.read(int(self.headers['Content-Length']))
+            self.send_error(503, code='SlowDown')
+
+    monkeypatch.setattr(handler_class, 'do_PUT', do_PUT)
+    fh = backend.open_write(key)
+    fh.write(data)
+    assert_raises(SlowDownError, fh.close)
+
+    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    fh.close()
+
 def test_s3_url_parsing():
     parse = backends.s3.Backend._parse_storage_url
     assert parse('s3://name', ssl_context=None)[2:] == ('name', '')
@@ -735,4 +889,3 @@ def test_s3c_url_parsing():
                  ssl_context=None) == ('host.org', 80, 'name', 'pref')
     assert parse('s3c://host.org:17/name/pref/',
                  ssl_context=None) == ('host.org', 17, 'name', 'pref/')
-
