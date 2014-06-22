@@ -659,46 +659,58 @@ def test_encryption(backend):
     assert_raises(ObjectNotEncrypted, backend.fetch, 'not-encrypted')
     assert_raises(ObjectNotEncrypted, backend.lookup, 'not-encrypted')
 
-def test_corrupted_get(backend):
+def test_corrupted_get(backend, monkeypatch):
     if not backend.wrapper.server:
         pytest.skip('requires mock server')
-    data = b'hello there, let us see whats going on'
 
-    backend['quote'] = data
+    key = 'brafasel'
+    value = b'hello there, let us see whats going on'
+    backend[key] = value
 
-    backend.wrapper.server.trigger_transmission_error()
-    with catch_logmsg('^MD5 mismatch:', count=1, level=logging.WARNING):
-        assert_raises(BadDigestError, backend.fetch, 'quote')
+    # Monkeypatch request handler to produce invalid etag
+    handler_class = backend.wrapper.server.RequestHandlerClass
+    def send_header(self, keyword ,value, count=[0],
+                    send_header_real=handler_class.send_header):
+        if keyword == 'ETag':
+            count[0] += 1
+            if count[0] <= 3:
+                value = value[::-1]
+        return send_header_real(self, keyword, value)
+    monkeypatch.setattr(handler_class, 'send_header', send_header)
 
-    assert backend['quote'] == data
+    with catch_logmsg('^MD5 mismatch for', count=1, level=logging.WARNING):
+        assert_raises(BadDigestError, backend.fetch, key)
 
-    backend.wrapper.may_temp_fail = True
-    try:
-        backend.wrapper.server.trigger_transmission_error()
-        with catch_logmsg('^MD5 mismatch:', count=1, level=logging.WARNING):
-            assert backend['quote'] == data
-    finally:
-        backend.wrapper.may_temp_fail = False
+    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    with catch_logmsg('^MD5 mismatch for', count=2, level=logging.WARNING):
+        assert backend[key] == value
 
-def test_corrupted_put(backend):
+def test_corrupted_put(backend, monkeypatch):
     if not backend.wrapper.server:
         pytest.skip('requires mock server')
-    data = b'hello there, let us see whats going on'
 
-    backend.wrapper.server.trigger_transmission_error()
-    fh = backend.open_write('quote')
-    fh.write(data)
+    key = 'brafasel'
+    value = b'hello there, let us see whats going on'
+
+    # Monkeypatch request handler to produce invalid etag
+    handler_class = backend.wrapper.server.RequestHandlerClass
+    def send_header(self, keyword ,value, count=[0],
+                    send_header_real=handler_class.send_header):
+        if keyword == 'ETag':
+            count[0] += 1
+            if count[0] < 3:
+                value = value[::-1]
+        return send_header_real(self, keyword, value)
+    monkeypatch.setattr(handler_class, 'send_header', send_header)
+
+    fh = backend.open_write(key)
+    fh.write(value)
     assert_raises(BadDigestError, fh.close)
+
+    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
     fh.close()
 
-    backend.wrapper.may_temp_fail = True
-    try:
-        backend.wrapper.server.trigger_transmission_error()
-        backend['quote'] = data
-    finally:
-        backend.wrapper.may_temp_fail = False
-
-    assert backend['quote'] == data
+    assert backend[key] == value
 
 def test_s3_url_parsing():
     parse = backends.s3.Backend._parse_storage_url

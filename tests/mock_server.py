@@ -27,7 +27,7 @@ ERROR_RESPONSE_TEMPLATE = '''\
 </Error>
 '''
 
-class StorageServer(socketserver.ThreadingTCPServer):
+class StorageServer(socketserver.TCPServer):
 
     def __init__(self, request_handler, server_address):
         super().__init__(server_address, request_handler)
@@ -35,15 +35,6 @@ class StorageServer(socketserver.ThreadingTCPServer):
         self.metadata = dict()
         self.hostname = self.server_address[0]
         self.port = self.server_address[1]
-
-        # Flags for emulating different failures
-        self._next_is_corrupted = False
-
-    def trigger_transmission_error(self):
-        '''Make next GET request return corrupted data'''
-
-        self._next_is_corrupted = True
-
 
 class ParsedURL:
     __slots__ = [ 'bucket', 'key', 'params', 'fragment' ]
@@ -118,7 +109,6 @@ class S3RequestHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         len_ = self._check_encoding()
-
         q = parse_url(self.path)
         meta = dict()
         for (name, value) in self.headers.items():
@@ -160,11 +150,6 @@ class S3RequestHandler(BaseHTTPRequestHandler):
 
         md5 = hashlib.md5()
         md5.update(data)
-
-        if self.server._next_is_corrupted:
-            self.server._next_is_corrupted = False
-            md5.update(b"no you don't!")
-
         self.send_response(201)
         self.send_header('ETag', '"%s"' % md5.hexdigest())
         self.send_header('Content-Length', '0')
@@ -180,7 +165,6 @@ class S3RequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         q = parse_url(self.path)
-
         if not q.key:
             return self.do_list(q)
 
@@ -200,13 +184,6 @@ class S3RequestHandler(BaseHTTPRequestHandler):
         md5.update(data)
         self.send_header('ETag', '"%s"' % md5.hexdigest())
         self.end_headers()
-
-        if self.server._next_is_corrupted:
-            self.server._next_is_corrupted = False
-            assert len(data) > 10
-            data = bytearray(data)
-            data[3:6] = b'ohn'
-
         self.wfile.write(data)
 
     def do_list(self, q):
