@@ -429,11 +429,16 @@ def mark_metadata_dirty(backend, cachepath, param):
 
     param['seq_no'] += 1
     param['needs_fsck'] = True
-    backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
     with open(cachepath + '.params', 'wb') as fh:
         pickle.dump(param, fh, PICKLE_PROTOCOL)
-    param['needs_fsck'] = False
 
+        # Fsync to make sure that the updated sequence number is committed to
+        # disk. Otherwise, a crash immediately after mount could result in both
+        # the local and remote metadata appearing to be out of date.
+        fh.flush()
+        os.fsync(fh.fileno())
+    backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
+    param['needs_fsck'] = False
 
 def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
