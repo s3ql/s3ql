@@ -8,10 +8,9 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from ..logging import logging # Ensure use of custom logger class
 from . import s3c
-from .s3c import C_DAY_NAMES, C_MONTH_NAMES, NoSuchKeyError, HTTPError, S3Error
+from .s3c import C_DAY_NAMES, C_MONTH_NAMES, HTTPError, S3Error
 from ..common import QuietError
-from .common import retry, NoSuchObject, AuthenticationError
-from ..inherit_docstrings import copy_ancestor_docstring
+from .common import AuthenticationError
 from .. import oauth_client
 from dugong import CaseInsensitiveDict, HTTPConnection
 from urllib.parse import urlencode
