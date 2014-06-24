@@ -233,7 +233,8 @@ class S3RequestHandler(BaseHTTPRequestHandler):
             self.send_header('X-AMZ-Meta-%s' % name, value)
         self.end_headers()
 
-    def send_error(self, status, message=None, code='', resource=''):
+    def send_error(self, status, message=None, code='', resource='',
+                   extra_headers=None):
 
         if not message:
             try:
@@ -250,6 +251,9 @@ class S3RequestHandler(BaseHTTPRequestHandler):
         self.send_response(status, message)
         self.send_header("Content-Type", 'text/xml; charset="utf-8"')
         self.send_header("Content-Length", str(len(content)))
+        if extra_headers:
+            for (name, value) in extra_headers.items():
+                self.send_header(name, value)
         self.end_headers()
         if self.command != 'HEAD' and status >= 200 and status not in (204, 304):
             self.wfile.write(content)
