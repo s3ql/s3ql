@@ -19,7 +19,7 @@ from s3ql.backends.local import Backend as LocalBackend
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBackend, AuthenticationError, AuthorizationError, DanglingStorageURLError,
     MalformedObjectError)
-from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError
+from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, SlowDownError
 from s3ql.common import BUFSIZE, get_ssl_context
 from common import get_remote_test_info, NoTestSection, catch_logmsg
 import s3ql.backends.common
@@ -779,6 +779,33 @@ def test_delete_s3error(backend, monkeypatch):
 
     monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
     backend.delete(key)
+
+def test_backoff(backend, monkeypatch):
+    if not backend.wrapper.server:
+        pytest.skip('requires mock server')
+
+    value = b'hello there, let us see whats going on'
+    key = 'quote'
+    backend[key] = value
+
+    # Monkeypatch request handler
+    handler_class = backend.wrapper.server.RequestHandlerClass
+    timestamps = []
+    def do_DELETE(self, real_DELETE=handler_class.do_DELETE):
+        timestamps.append(time.time())
+        if len(timestamps) < 3:
+            self.send_error(503, code='SlowDown',
+                            extra_headers={'Retry-After': '1'})
+        else:
+            return real_DELETE(self)
+
+    monkeypatch.setattr(handler_class, 'do_DELETE', do_DELETE)
+    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    backend.delete(key)
+
+    assert timestamps[1] - timestamps[0] > 1
+    assert timestamps[2] - timestamps[1] > 1
+    assert timestamps[2] - timestamps[0] < 10
 
 def test_put_s3error_early(backend, monkeypatch):
     '''Fail after expect-100'''

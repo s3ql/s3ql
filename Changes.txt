@@ -31,6 +31,9 @@ UNRELEASED, S3QL tip
   * S3QL no longer crashes when data corruption occurs in the first
     few bytes of an LZMA compressed storage object.
 
+  * S3QL now honors the "Retry-After" HTTP header when receiving an
+    XML error from a storage server.
+
 2014-03-29, S3QL 2.8.1
 
   * No changes in S3QL itself.

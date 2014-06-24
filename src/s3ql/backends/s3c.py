@@ -387,7 +387,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 new_url = tree.findtext('Endpoint')
 
                 if not new_url:
-                    raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'))
+                    raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'),
+                                      resp.headers)
 
                 self.hostname = new_url
                 self.conn.disconnect()
@@ -444,7 +445,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                       self._dump_response(resp, body))
             raise
 
-        raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'))
+        raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'), resp.headers)
 
     def _parse_xml_response(self, resp):
         '''Return element tree for XML response'''
@@ -781,7 +782,7 @@ class ObjectW(object):
         return self.obj_size
 
 
-def get_S3Error(code, msg):
+def get_S3Error(code, msg, headers=None):
     '''Instantiate most specific S3Error subclass'''
 
     # Special case
@@ -796,15 +797,35 @@ def get_S3Error(code, msg):
     class_ = globals().get(name, S3Error)
 
     if not issubclass(class_, S3Error):
-        return S3Error(code, msg)
+        return S3Error(code, msg, headers)
 
-    return class_(code, msg)
+    return class_(code, msg, headers)
 
 
 def md5sum_b64(buf):
     '''Return base64 encoded MD5 sum'''
 
     return b64encode(hashlib.md5(buf).digest()).decode('ascii')
+
+
+def _parse_retry_after(header):
+    '''Parse headers for Retry-After value'''
+
+    hit = re.match(r'^\s*([0-9]+)\s*$', header)
+    if hit:
+        val = int(header)
+    else:
+        date = parsedate_tz(header)
+        if date is None:
+            log.warning('Unable to parse retry-after value: %s', header)
+            return None
+        val = mktime_tz(*date) - time.time()
+
+    if val > 300 or val < 0:
+        log.warning('Ignoring retry-after value of %.3f s, using 1 s instead', val)
+        val = 1
+
+    return val
 
 
 class HTTPError(Exception):
@@ -817,35 +838,15 @@ class HTTPError(Exception):
         self.status = status
         self.msg = msg
         self.headers = headers
-        self.retry_after = None
 
-        if self.headers is not None:
-            self._set_retry_after()
-
-    def _set_retry_after(self):
-        '''Parse headers for Retry-After value'''
-
-        val = None
-        for (k, v) in self.headers.items():
-            if k.lower() == 'retry-after':
-                hit = re.match(r'^\s*([0-9]+)\s*$', v)
-                if hit:
-                    val = int(v)
-                else:
-                    date = parsedate_tz(v)
-                    if date is None:
-                        log.warning('Unable to parse header: %s: %s', k, v)
-                        continue
-                    val = mktime_tz(*date) - time.time()
-
-        if val is not None:
-            if val > 300 or val < 0:
-                log.warning('Ignoring invalid retry-after value of %.3f', val)
-            else:
-                self.retry_after = val
+        if headers and 'Retry-After' in headers:
+            self.retry_after = _parse_retry_after(headers['Retry-After'])
+        else:
+            self.retry_after = None
 
     def __str__(self):
         return '%d %s' % (self.status, self.msg)
+
 
 class S3Error(Exception):
     '''
@@ -853,10 +854,15 @@ class S3Error(Exception):
     http://docs.amazonwebservices.com/AmazonS3/latest/API/ErrorResponses.html
     '''
 
-    def __init__(self, code, msg):
+    def __init__(self, code, msg, headers=None):
         super().__init__(msg)
         self.code = code
         self.msg = msg
+
+        if headers and 'Retry-After' in headers:
+            self.retry_after = _parse_retry_after(headers['Retry-After'])
+        else:
+            self.retry_after = None
 
     def __str__(self):
         return '%s: %s' % (self.code, self.msg)
