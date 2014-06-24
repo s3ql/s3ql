@@ -19,7 +19,7 @@ from s3ql.backends.local import Backend as LocalBackend
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBackend, AuthenticationError, AuthorizationError, DanglingStorageURLError,
     MalformedObjectError)
-from s3ql.backends.s3c import BadDigestError, SlowDownError, HTTPError
+from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError
 from s3ql.common import BUFSIZE, get_ssl_context
 from common import get_remote_test_info, NoTestSection, catch_logmsg
 import s3ql.backends.common
@@ -726,9 +726,9 @@ def test_get_s3error(backend, monkeypatch):
         if count[0] > 3:
             return real_GET(self)
         else:
-            self.send_error(503, code='SlowDown')
+            self.send_error(503, code='OperationAborted')
     monkeypatch.setattr(handler_class, 'do_GET', do_GET)
-    assert_raises(SlowDownError, backend.fetch, value)
+    assert_raises(OperationAbortedError, backend.fetch, value)
 
     monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
     assert backend[key] == value
@@ -749,7 +749,7 @@ def test_head_s3error(backend, monkeypatch):
         if count[0] > 3:
             return real_HEAD(self)
         else:
-            self.send_error(503, code='SlowDown')
+            self.send_error(503, code='OperationAborted')
     monkeypatch.setattr(handler_class, 'do_HEAD', do_HEAD)
     with pytest.raises(HTTPError) as exc:
         backend.lookup(key)
@@ -773,9 +773,9 @@ def test_delete_s3error(backend, monkeypatch):
         if count[0] > 3:
             return real_DELETE(self)
         else:
-            self.send_error(503, code='SlowDown')
+            self.send_error(503, code='OperationAborted')
     monkeypatch.setattr(handler_class, 'do_DELETE', do_DELETE)
-    assert_raises(SlowDownError, backend.delete, key)
+    assert_raises(OperationAbortedError, backend.delete, key)
 
     monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
     backend.delete(key)
@@ -796,12 +796,12 @@ def test_put_s3error_early(backend, monkeypatch):
         if count[0] > 3:
             return real(self)
         else:
-            self.send_error(503, code='SlowDown')
+            self.send_error(503, code='OperationAborted')
             return False
     monkeypatch.setattr(handler_class, 'handle_expect_100', handle_expect_100)
     fh = backend.open_write(key)
     fh.write(data)
-    assert_raises(SlowDownError, fh.close)
+    assert_raises(OperationAbortedError, fh.close)
 
     monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
     fh.close()
@@ -825,7 +825,7 @@ def test_put_s3error_med(backend, monkeypatch):
         if count[0] > 2:
             return real_PUT(self)
         else:
-            self.send_error(503, code='SlowDown')
+            self.send_error(503, code='OperationAborted')
 
             # Since we don't read all the data, we have to close
             # the connection
@@ -834,7 +834,7 @@ def test_put_s3error_med(backend, monkeypatch):
     monkeypatch.setattr(handler_class, 'do_PUT', do_PUT)
     fh = backend.open_write(key)
     fh.write(data)
-    assert_raises(SlowDownError, fh.close)
+    assert_raises(OperationAbortedError, fh.close)
 
     monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
     fh.close()
@@ -856,12 +856,12 @@ def test_put_s3error_late(backend, monkeypatch):
             return real_PUT(self)
         else:
             self.rfile.read(int(self.headers['Content-Length']))
-            self.send_error(503, code='SlowDown')
+            self.send_error(503, code='OperationAborted')
 
     monkeypatch.setattr(handler_class, 'do_PUT', do_PUT)
     fh = backend.open_write(key)
     fh.write(data)
-    assert_raises(SlowDownError, fh.close)
+    assert_raises(OperationAbortedError, fh.close)
 
     monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
     fh.close()
