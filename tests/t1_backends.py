@@ -807,6 +807,34 @@ def test_backoff(backend, monkeypatch):
     assert timestamps[2] - timestamps[1] > 1
     assert timestamps[2] - timestamps[0] < 10
 
+def test_httperror(backend, monkeypatch):
+    if not backend.wrapper.server:
+        pytest.skip('requires mock server')
+
+    value = b'hello there, let us see whats going on'
+    key = 'quote'
+    backend[key] = value
+
+    # Monkeypatch request handler to produce a HTTP Error
+    handler_class = backend.wrapper.server.RequestHandlerClass
+    def do_DELETE(self, real_DELETE=handler_class.do_DELETE, count=[0]):
+        count[0] += 1
+        if count[0] >= 3:
+            return real_DELETE(self)
+        content = "I'm a proxy, and I messed up!".encode('utf-8')
+        self.send_response(502, "Bad Gateway")
+        self.send_header("Content-Type", 'text/plain; charset="utf-8"')
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(content)
+
+    monkeypatch.setattr(handler_class, 'do_DELETE', do_DELETE)
+    assert_raises(HTTPError, backend.delete, key)
+
+    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    backend.delete(key)
+
 def test_put_s3error_early(backend, monkeypatch):
     '''Fail after expect-100'''
 

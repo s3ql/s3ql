@@ -34,6 +34,9 @@ UNRELEASED, S3QL tip
   * S3QL now honors the "Retry-After" HTTP header when receiving an
     XML error from a storage server.
 
+  * Fixed a crash that could occur when the remote server (or some
+    intermediate proxy) sends a non-XML error response.
+
 2014-03-29, S3QL 2.8.1
 
   * No changes in S3QL itself.

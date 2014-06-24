@@ -433,6 +433,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # If not XML, do the best we can
         if not XML_CONTENT_RE.match(content_type):
+            self.conn.discard()
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
         # We don't stream the data into the parser because we want
