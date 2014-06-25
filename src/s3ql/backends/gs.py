@@ -52,6 +52,20 @@ class Backend(s3c.Backend):
 
     @staticmethod
     def _parse_storage_url(storage_url, ssl_context):
+        # Special case for unit testing against local mock server
+        hit = re.match(r'^gs://!unittest!'
+                       r'([^/:]+)' # Hostname
+                       r':([0-9]+)' # Port
+                       r'/([^/]+)' # Bucketname
+                       r'(?:/(.*))?$', # Prefix
+                       storage_url)
+        if hit:
+            hostname = hit.group(1)
+            port = int(hit.group(2))
+            bucket_name = hit.group(3)
+            prefix = hit.group(4) or ''
+            return (hostname, port, bucket_name, prefix)
+
         hit = re.match(r'^gs://([^/]+)(?:/(.*))?$', storage_url)
         if not hit:
             raise QuietError('Invalid storage URL')

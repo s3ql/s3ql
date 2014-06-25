@@ -64,7 +64,8 @@ class S3RequestHandler(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
     meta_header_re = re.compile(r'X-AMZ-Meta-([a-z0-9_.-]+)$',
                                 re.IGNORECASE)
-    xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
+    hdr_prefix = 'X-AMZ-'
+    xml_ns = 'http://s3.amazonaws.com/doc/2006-03-01/'
 
     def log_message(self, format, *args):
         log.debug(format, *args)
@@ -116,7 +117,7 @@ class S3RequestHandler(BaseHTTPRequestHandler):
             if hit:
                 meta[hit.group(1)] = value
 
-        src = self.headers.get('x-amz-copy-source')
+        src = self.headers.get(self.hdr_prefix + 'copy-source')
         if src and len_:
             self.send_error(400, message='Upload and copy are mutually exclusive',
                             code='UnexpectedContent')
@@ -128,7 +129,8 @@ class S3RequestHandler(BaseHTTPRequestHandler):
                                 code='InvalidArgument')
                 return
 
-            metadata_directive = self.headers.get('x-amz-metadata-directive', 'COPY')
+            metadata_directive = self.headers.get(self.hdr_prefix + 'metadata-directive',
+                                                  'COPY')
             if metadata_directive not in ('COPY', 'REPLACE'):
                 self.send_error(400, message='Invalid metadata directive',
                                 code='InvalidArgument')
@@ -179,7 +181,7 @@ class S3RequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", 'application/octet-stream')
         self.send_header("Content-Length", str(len(data)))
         for (name, value) in meta.items():
-            self.send_header('X-AMZ-Meta-%s' % name, value)
+            self.send_header(self.hdr_prefix + 'Meta-%s' % name, value)
         md5 = hashlib.md5()
         md5.update(data)
         self.send_header('ETag', '"%s"' % md5.hexdigest())
@@ -192,7 +194,7 @@ class S3RequestHandler(BaseHTTPRequestHandler):
         prefix = q.params['prefix'][0] if 'prefix' in q.params else ''
 
         resp = ['<?xml version="1.0" encoding="UTF-8"?>',
-                '<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">',
+                '<ListBucketResult xmlns="%s">' % self.xml_ns,
                 '<MaxKeys>%d</MaxKeys>' % max_keys,
                 '<IsTruncated>false</IsTruncated>' ]
 
@@ -230,7 +232,7 @@ class S3RequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", 'application/octet-stream')
         self.send_header("Content-Length", str(len(data)))
         for (name, value) in meta.items():
-            self.send_header('X-AMZ-Meta-%s' % name, value)
+            self.send_header(self.hdr_prefix + 'Meta-%s' % name, value)
         self.end_headers()
 
     def send_error(self, status, message=None, code='', resource='',
@@ -259,6 +261,20 @@ class S3RequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(content)
 
 
+class GSRequestHandler(S3RequestHandler):
+    '''A request handler implementing a subset of the Google Storage API.
+
+    Bucket names are ignored, all keys share the same global namespace.
+    '''
+
+    meta_header_re = re.compile(r'x-goog-meta-([a-z0-9_.-]+)$',
+                                re.IGNORECASE)
+    hdr_prefix = 'x-goog-'
+    xml_ns = 'http://doc.s3.amazonaws.com/2006-03-01'
+
 #: A list of the available mock request handlers with
 #: corresponding storage urls
-handler_list = [ (S3RequestHandler, 's3c://%(host)s:%(port)d/s3ql_test') ]
+handler_list = [ (S3RequestHandler, 's3c://%(host)s:%(port)d/s3ql_test'),
+
+                 # Special syntax only for testing against mock server
+                 (GSRequestHandler, 'gs://!unittest!%(host)s:%(port)d/s3ql_test') ]

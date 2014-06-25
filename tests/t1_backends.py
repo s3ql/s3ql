@@ -16,6 +16,7 @@ import mock_server
 from s3ql import backends
 from s3ql.logging import logging
 from s3ql.backends.local import Backend as LocalBackend
+from s3ql.backends.gs import Backend as GSBackend
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBackend, AuthenticationError, AuthorizationError, DanglingStorageURLError,
     MalformedObjectError)
@@ -99,6 +100,12 @@ class MockBackendWrapper(BackendWrapper):
         storage_url = self.storage_url % { 'host': self.server.server_address[0],
                                            'port': self.server.server_address[1] }
         backend = self.backend_class(storage_url, 'joe', 'swordfish')
+
+        # Enable OAuth when using Google Backend
+        if isinstance(backend, GSBackend):
+            backend.use_oauth2 = True
+            backend.hdr_prefix = 'x-goog-' # Normally set in __init__
+            backend.access_token[backend.password] = 'foobar'
 
         # Mock server should not have temporary failures by default
         is_temp_failure = backend.is_temp_failure
@@ -261,6 +268,13 @@ def require_backend_wrapper(class_):
     def decorator(test_fn):
         assert not hasattr(test_fn, 'wrapper_filter')
         test_fn.wrapper_filter = lambda x: isinstance(x, class_)
+        return test_fn
+    return decorator
+
+def require_wrapper(filter_fn):
+    def decorator(test_fn):
+        assert not hasattr(test_fn, 'wrapper_filter')
+        test_fn.wrapper_filter = filter_fn
         return test_fn
     return decorator
 
@@ -904,7 +918,9 @@ def test_httperror(backend, backend_wrapper, monkeypatch):
     monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     backend.delete(key)
 
-@require_backend_wrapper(MockBackendWrapper)
+# Require mock backend and expect-100 support
+@require_wrapper(lambda x: isinstance(x, MockBackendWrapper)
+                 and x.backend.use_expect_100c)
 def test_put_s3error_early(backend, backend_wrapper, monkeypatch):
     '''Fail after expect-100'''
 
@@ -981,6 +997,42 @@ def test_put_s3error_late(backend, backend_wrapper, monkeypatch):
 
     monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     fh.close()
+
+# Require mock server *and* google storage backend
+@require_wrapper(lambda x: isinstance(x, MockBackendWrapper)
+                 and isinstance(x.backend, GSBackend))
+def test_expired_token(backend, backend_wrapper, monkeypatch):
+    '''Test handling of expired OAuth token'''
+
+
+    key = 'borg'
+    data = b'hello there, let us see whats going on'
+
+    # Monkeypatch backend class to check if token is refreshed
+    token_refreshed = False
+    def _get_access_token(self):
+        nonlocal token_refreshed
+        token_refreshed = True
+        self.access_token[self.password] = 'foobar'
+    monkeypatch.setattr(GSBackend, '_get_access_token',
+                        _get_access_token)
+
+    # Store some data
+    backend[key] = data
+
+    # Monkeypatch request handler to produce error
+    handler_class = backend_wrapper.server.RequestHandlerClass
+    def do_GET(self, real=handler_class.do_GET, count=[0]):
+        count[0] += 1
+        if count[0] > 1:
+            return real(self)
+        else:
+            self.send_error(401, code='AuthenticationRequired')
+    monkeypatch.setattr(handler_class, 'do_GET', do_GET)
+
+    token_refreshed = False
+    assert backend[key] == data
+    assert token_refreshed
 
 def test_s3_url_parsing():
     parse = backends.s3.Backend._parse_storage_url
