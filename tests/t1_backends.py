@@ -19,7 +19,7 @@ from s3ql.backends.local import Backend as LocalBackend
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBackend, AuthenticationError, AuthorizationError, DanglingStorageURLError,
     MalformedObjectError)
-from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, SlowDownError
+from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError
 from s3ql.common import BUFSIZE, get_ssl_context
 from contextlib import ExitStack
 from common import get_remote_test_info, NoTestSection, catch_logmsg
