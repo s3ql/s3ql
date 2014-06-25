@@ -48,6 +48,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """
 
     use_expect_100c = True
+    xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
 
     def __init__(self, storage_url, login, password, ssl_context=None,
                  proxy=None):
@@ -70,7 +71,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         self.password = password
         self.login = login
-        self.xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
         self.hdr_prefix = 'x-amz-'
 
     @copy_ancestor_docstring

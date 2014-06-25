@@ -33,6 +33,7 @@ class Backend(s3c.Backend):
     """
 
     use_expect_100c = False
+    xml_ns_prefix = '{http://doc.s3.amazonaws.com/2006-03-01}'
 
     # We don't want to request an access token for each instance,
     # because there is a limit on the total number of valid tokens.
@@ -44,7 +45,6 @@ class Backend(s3c.Backend):
         super().__init__(storage_url, gs_key, gs_secret, ssl_context=ssl_context,
                          proxy=proxy)
 
-        self.xml_ns_prefix = '{http://doc.s3.amazonaws.com/2006-03-01}'
         self.use_oauth2 = (gs_key == 'oauth2')
 
         if self.use_oauth2:
