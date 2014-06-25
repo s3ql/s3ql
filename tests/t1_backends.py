@@ -21,6 +21,7 @@ from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObjec
     MalformedObjectError)
 from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, SlowDownError
 from s3ql.common import BUFSIZE, get_ssl_context
+from contextlib import ExitStack
 from common import get_remote_test_info, NoTestSection, catch_logmsg
 import s3ql.backends.common
 from argparse import Namespace
@@ -39,171 +40,260 @@ empty_set = set()
 
 class BackendWrapper:
 
-    def __init__(self):
-        self.name = None
-        self.retry_time = 0
-        self.server = None
-        self.may_temp_fail = False
+    def __init__(self, name, retry_time=0):
+        self.name = name
+        self.retry_time = retry_time
+        self.backend = self._init()
 
-    def init(self):
+        self.orig_prefix = self.backend.prefix
+        self.prefix_counter = 0
+
+    def _init(self):
         '''Return backend instance'''
         pass
 
     def cleanup(self):
-        '''Cleanup when backend is no longer needed'''
-        pass
+        '''Cleanup backend'''
+        self.backend.close()
+
+    def reset(self):
+        '''Prepare backend for reuse'''
+
+        # "clear" the backend by selecting a different prefix for every
+        # test (actually deleting all objects would mean that we have to
+        # wait for propagation delays)
+        self.backend.prefix = '%s%3d/' % (self.orig_prefix,
+                                          self.prefix_counter)
+        self.prefix_counter += 1
 
     def __str__(self):
         return self.name
 
-def get_backend_wrappers():
-    wrappers = []
+class LocalBackendWrapper(BackendWrapper):
 
-    # Local backend is special case
-    w = BackendWrapper()
-    w.name = 'local'
-    def init(self):
+    def __init__(self):
+        super().__init__('local')
+
+    def _init(self):
         self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-        self.backend = backends.local.Backend('local://' + self.backend_dir, None, None)
-        return self.backend
+        return backends.local.Backend('local://' + self.backend_dir, None, None)
+
     def cleanup(self):
-        self.backend.close()
+        super().cleanup()
         shutil.rmtree(self.backend_dir)
-    w.init = functools.partial(init, w)
-    w.cleanup = functools.partial(cleanup, w)
-    wrappers.append(w)
+
+class MockBackendWrapper(BackendWrapper):
+    def __init__(self, request_handler, storage_url):
+        backend_name = re.match(r'^([a-zA-Z0-9]+)://', storage_url).group(1)
+        self.backend_class = backends.prefix_map[backend_name]
+        self.request_handler = request_handler
+        self.may_temp_fail = False
+        self.storage_url = storage_url
+        super().__init__('mock_' + backend_name)
+
+    def _init(self):
+        self.server = mock_server.StorageServer(self.request_handler, ('localhost', 0))
+        self.thread = threading.Thread(target=self.server.serve_forever)
+        self.thread.daemon = True
+        self.thread.start()
+        storage_url = self.storage_url % { 'host': self.server.server_address[0],
+                                           'port': self.server.server_address[1] }
+        backend = self.backend_class(storage_url, 'joe', 'swordfish')
+
+        # Mock server should not have temporary failures by default
+        is_temp_failure = backend.is_temp_failure
+        @functools.wraps(backend.is_temp_failure)
+        def wrap(exc):
+            if self.may_temp_fail:
+                return is_temp_failure(exc)
+            else:
+                return False
+        backend.is_temp_failure = wrap
+        return backend
+
+    def cleanup(self):
+        super().cleanup()
+        self.server.server_close()
+        self.server.shutdown()
+
+
+class RemoteBackendWrapper(BackendWrapper):
+
+    def __init__(self, backend_name, backend_class, ssl_context):
+        self.class_ = backend_class
+        self.ssl_context = ssl_context
+        super().__init__(backend_name, retry_time=600)
+
+    def _init(self):
+        # May raise NoTestSection
+        (login, password, storage_url) = get_remote_test_info(self.name + '-test')
+
+        backend = self.class_(storage_url, login, password,
+                              ssl_context=self.ssl_context)
+        try:
+            backend.fetch('empty_object')
+        except DanglingStorageURLError:
+            raise SystemExit('%s does not exist' % storage_url)
+        except AuthorizationError:
+            raise SystemExit('No permission to access %s' % storage_url)
+        except AuthenticationError:
+            raise SystemExit('Unable to access %s, invalid credentials' % storage_url)
+        except NoSuchObject:
+            pass
+        else:
+            raise SystemExit('%s not empty' % storage_url)
+        return backend
+
+    def cleanup(self):
+        self.backend.clear()
+        self.backend.close()
+
+_backend_wrappers = []
+# It'd be nice if we could use the setup_module hook instead, but
+# unfortunately that gets executed *after* pytest_generate_tests.
+def _init_wrappers():
+    '''Get list of *BackendWrapper* instances for all available backends'''
+
+    # Local backend
+    _backend_wrappers.append(LocalBackendWrapper())
 
     # Backends talking to local mock servers
     for (request_handler, storage_url) in mock_server.handler_list:
-        backend_name = re.match(r'^([a-zA-Z0-9]+)://', storage_url).group(1)
-        backend_class = backends.prefix_map[backend_name]
-        w = BackendWrapper()
-        w.name = 'mock_' + backend_name
-        def init(self, handler=request_handler, class_=backend_class, url=storage_url):
-            self.server = mock_server.StorageServer(handler, ('localhost', 0))
-            self.thread = threading.Thread(target=self.server.serve_forever)
-            self.thread.start()
-            self.backend = class_(url % { 'host': self.server.server_address[0],
-                                          'port': self.server.server_address[1] },
-                                  'joe', 'swordfish')
+        _backend_wrappers.append(MockBackendWrapper(request_handler, storage_url))
 
-            # Mock server should not have temporary failures by default
-            is_temp_failure = self.backend.is_temp_failure
-            def wrap(exc):
-                if self.may_temp_fail:
-                    return is_temp_failure(exc)
-                else:
-                    return False
-            self.backend.is_temp_failure = wrap
-
-            return self.backend
-        def cleanup(self):
-            self.backend.close()
-            self.server.server_close()
-            self.server.shutdown()
-        w.init = functools.partial(init, w)
-        w.cleanup = functools.partial(cleanup, w)
-        wrappers.append(w)
-
-    # Backends talking to remote servers
+    # Backends talking to actual remote servers (if available)
     options = Namespace()
     options.no_ssl = False
     options.ssl_ca_path = None
     ssl_context = get_ssl_context(options)
     for (backend_name, backend_class) in backends.prefix_map.items():
-        if backend_name == 'local': # special cased before
-            continue
+         if backend_name == 'local': # local backend has already been handled
+             continue
 
-        w = BackendWrapper()
-        w.name = backend_name
+         try:
+             bw = RemoteBackendWrapper(backend_name, backend_class, ssl_context)
+         except NoTestSection as exc:
+             log.info('Not doing remote tests for %s backend: %s',
+                      backend_name, exc.reason)
+             continue
+         _backend_wrappers.append(bw)
 
-        try:
-            (backend_login, backend_pw,
-             backend_url) = get_remote_test_info(backend_name + '-test')
-        except NoTestSection as exc:
-            log.info('Not doing remote tests for %s backend: %s',
-                     backend_name, exc.reason)
-            continue
+def teardown_module(self):
+    '''Clean-up all backend wrappers'''
 
-        def init(self, class_=backend_class, login=backend_login,
-                 password=backend_pw, url=backend_url):
-            self.backend = class_(url, login, password, ssl_context=ssl_context)
-            self.retry_time = 600
-            try:
-                self.backend.fetch('empty_object')
-            except DanglingStorageURLError:
-                pytest.skip('%s does not exist' % url)
-            except AuthorizationError:
-                pytest.skip('No permission to access %s' % url)
-            except AuthenticationError:
-                pytest.skip('Unable to access %s, invalid credentials' % url)
-            except NoSuchObject:
-                pass
-            else:
-                pytest.skip('%s not empty' % url)
-            return self.backend
-        def cleanup(self):
-            self.backend.clear()
-            self.backend.close()
-        w.init = functools.partial(init, w)
-        w.cleanup = functools.partial(cleanup, w)
-        wrappers.append(w)
+    # Use ExitStack to ensure that all wrappers are cleaned up,
+    # even if a cleanup raises an exception
+    with ExitStack() as stack:
+        for w in _backend_wrappers:
+            stack.callback(w.cleanup)
 
-    return wrappers
+@pytest.fixture()
+def backend_wrapper(request):
+    bw = request.param
+    request.addfinalizer(bw.reset)
+    return request.param
 
-plain_backend_wrappers = get_backend_wrappers()
+@pytest.fixture()
+def retry_time(backend_wrapper):
+    return backend_wrapper.retry_time
+
 def pytest_generate_tests(metafunc):
-    if 'plain_backend' in metafunc.fixturenames:
-        # This is used only internally to construct the `backend` fixture
-        metafunc.parametrize("plain_backend", plain_backend_wrappers,
-                             ids=[ str(w) for w in plain_backend_wrappers ],
-                             scope='module', indirect=True)
+    if not _backend_wrappers:
+        _init_wrappers()
 
     if 'backend' in metafunc.fixturenames:
-        # Function scope, so that we can empty the backend after each test
-        metafunc.parametrize("backend",
-                             [ 'plain', 'aes', 'aes+lzma', 'lzma', 'zlib', 'bzip2' ],
-                             scope='function', indirect=True)
+        assert 'compenc_kind' in metafunc.fixturenames
+        assert 'backend_wrapper' in metafunc.fixturenames
 
-@pytest.yield_fixture()
-def plain_backend(request):
-    bw = request.param
-    backend = bw.init()
-    assert not hasattr(backend, 'wrapper')
-    backend.wrapper = bw
+        if getattr(metafunc.function, 'require_encryption', False):
+            compenc_kind = ('aes+lzma', 'aes')
+        elif getattr(metafunc.function, 'require_compenc', False):
+            compenc_kind = ('aes', 'aes+lzma', 'lzma', 'zlib', 'bzip2')
+        else:
+            compenc_kind = ('plain', 'aes', 'aes+lzma', 'lzma', 'zlib', 'bzip2')
+        metafunc.parametrize("compenc_kind", compenc_kind)
 
-    bw.orig_prefix = backend.prefix
+        if hasattr(metafunc.function, 'wrapper_filter'):
+            wrappers = [ x for x in _backend_wrappers
+                         if metafunc.function.wrapper_filter(x) ]
+        else:
+            wrappers = _backend_wrappers
 
-    try:
-        yield backend
-    finally:
-        bw.cleanup()
+        # Needs to be function scope, otherwise we cannot assign
+        # different parametrizations to different test functions
+        # (cf. https://bitbucket.org/hpk42/pytest/issue/531/)
+        metafunc.parametrize("backend_wrapper", wrappers, indirect=True,
+                             ids=[ str(w) for w in wrappers ])
 
-backend_prefix_counter = [0]
 @pytest.fixture()
-def backend(request, plain_backend):
-    compenc_kind = request.param
-
+def backend(compenc_kind, backend_wrapper):
+    plain_backend = backend_wrapper.backend
     if compenc_kind == 'plain':
-        backend = plain_backend
+        return plain_backend
     elif compenc_kind == 'aes+lzma':
-        backend = BetterBackend(b'schlurz', ('lzma', 6), plain_backend)
+        return BetterBackend(b'schlurz', ('lzma', 6), plain_backend)
     elif compenc_kind == 'aes':
-        backend = BetterBackend(b'schlurz', (None, 6), plain_backend)
+        return BetterBackend(b'schlurz', (None, 6), plain_backend)
     else:
-        backend = BetterBackend(None, (compenc_kind, 6), plain_backend)
+        return BetterBackend(None, (compenc_kind, 6), plain_backend)
 
-    if backend is not plain_backend:
-        assert not hasattr(backend, 'wrapper')
-        backend.wrapper = plain_backend.wrapper
+def require_plain_backend(class_):
+    '''Require plain backend of type *class*_
 
-    # "clear" the backend by selecting a different prefix for every
-    # test (actually deleting all objects would mean that we have to
-    # wait for propagation delays)
-    plain_backend.prefix = '%s%3d/' % (plain_backend.wrapper.orig_prefix,
-                                       backend_prefix_counter[0])
-    backend_prefix_counter[0] += 1
-    return backend
+    Returns a decorator that marks the test function for being
+    called only with plain backends of the specific class.
+    '''
+
+    def decorator(test_fn):
+        assert not hasattr(test_fn, 'wrapper_filter')
+        test_fn.wrapper_filter = lambda x: isinstance(x.backend, class_)
+        return test_fn
+    return decorator
+
+def require_backend_wrapper(class_):
+    '''Require backend wrapper of type *class*_
+
+    Returns a decorator that marks the test function for being
+    called only with backends whose wrappers are instances
+    of *class_*.
+    '''
+
+    def decorator(test_fn):
+        assert not hasattr(test_fn, 'wrapper_filter')
+        test_fn.wrapper_filter = lambda x: isinstance(x, class_)
+        return test_fn
+    return decorator
+
+def require_immediate_consistency(test_fn):
+    '''Require immediate consistency
+
+    Decorator. Marks the function to be called only with backends
+    offering immediate consistency.
+    '''
+
+    assert not hasattr(test_fn, 'wrapper_filter')
+    test_fn.wrapper_filter = (lambda x: x.retry_time == 0)
+    return test_fn
+
+def require_compression_or_encryption(test_fn):
+    '''Require compressing or encrypting backend
+
+    Decorator. Marks the function to be called only with backends
+    that encrypt or compress (or both) their contents.
+    '''
+
+    test_fn.require_compenc = True
+    return test_fn
+
+def require_encryption(test_fn):
+    '''Require encrypting backend
+
+    Decorator. Marks the function to be called only with backends
+    that encrypt their contents.
+    '''
+
+    test_fn.require_encryption = True
+    return test_fn
 
 def newname(name_counter=[0]):
     '''Return random, unique string'''
@@ -213,43 +303,43 @@ def newname(name_counter=[0]):
 def newvalue():
     return newname().encode()
 
-def fetch_object(backend, key, sleep_time=1):
+def fetch_object(backend, key, retry_time, sleep_time=1):
     '''Read data and metadata for *key* from *backend*
 
     If `NoSuchObject` exception is encountered, retry for
-    up to ``backend.wrapper.retry_time`` seconds.
+    up to *retry_time* seconds.
     '''
     waited=0
     while True:
         try:
             return backend.fetch(key)
         except NoSuchObject:
-            if waited >= backend.wrapper.retry_time:
+            if waited >= retry_time:
                 raise
         time.sleep(sleep_time)
         waited += sleep_time
 
-def lookup_object(backend, key, sleep_time=1):
+def lookup_object(backend, key, retry_time, sleep_time=1):
     '''Read metadata for *key* from *backend*
 
     If `NoSuchObject` exception is encountered, retry for
-    up to ``backend.wrapper.retry_time`` seconds.
+    up to *retry_time* seconds.
     '''
     waited=0
     while True:
         try:
             return backend.lookup(key)
         except NoSuchObject:
-            if waited >= backend.wrapper.retry_time:
+            if waited >= retry_time:
                 raise
         time.sleep(sleep_time)
         waited += sleep_time
 
-def assert_in_index(backend, keys, sleep_time=1):
+def assert_in_index(backend, keys, retry_time, sleep_time=1):
     '''Assert that *keys* will appear in index
 
     Raises assertion error if *keys* do not show up within
-    ``backend.wrapper.retry_time`` seconds.
+    *retry_time* seconds.
     '''
     waited=0
     keys = set(keys) # copy
@@ -257,16 +347,16 @@ def assert_in_index(backend, keys, sleep_time=1):
         index = set(backend.list())
         if not keys - index:
             return
-        elif waited >= backend.wrapper.retry_time:
+        elif waited >= retry_time:
             assert keys - index == empty_set
         time.sleep(sleep_time)
         waited += sleep_time
 
-def assert_not_in_index(backend, keys, sleep_time=1):
+def assert_not_in_index(backend, keys, retry_time, sleep_time=1):
     '''Assert that *keys* will disappear from index
 
     Raises assertion error if *keys* do not disappear within
-    ``backend.wrapper.retry_time`` seconds.
+    *retry_time* seconds.
     '''
     waited=0
     keys = set(keys) # copy
@@ -274,16 +364,16 @@ def assert_not_in_index(backend, keys, sleep_time=1):
         index = set(backend.list())
         if keys - index == keys:
             return
-        elif waited >= backend.wrapper.retry_time:
+        elif waited >= retry_time:
             assert keys - index == keys
         time.sleep(sleep_time)
         waited += sleep_time
 
-def assert_not_readable(backend, key, sleep_time=1):
+def assert_not_readable(backend, key, retry_time, sleep_time=1):
     '''Assert that *key* does not exist in *backend*
 
     Asserts that a `NoSuchObject` exception will be raised when trying to read
-    the object after at most ``backend.wrapper.retry_time`` seconds.
+    the object after at most *retry_time* seconds.
     '''
     waited=0
     while True:
@@ -291,12 +381,12 @@ def assert_not_readable(backend, key, sleep_time=1):
             backend.fetch(key)
         except NoSuchObject:
             return
-        if waited >= backend.wrapper.retry_time:
+        if waited >= retry_time:
             pytest.fail('object %s still present in backend' % key)
         time.sleep(sleep_time)
         waited += sleep_time
 
-def test_read_write(backend):
+def test_read_write(backend, retry_time):
     key = newname()
     value = newvalue()
     metadata = { 'jimmy': 'jups@42' }
@@ -309,14 +399,14 @@ def test_read_write(backend):
         fh.write(value)
     backend.perform_write(do_write, key, metadata)
 
-    assert_in_index(backend, [key])
-    (value2, metadata2) = fetch_object(backend, key)
+    assert_in_index(backend, [key], retry_time)
+    (value2, metadata2) = fetch_object(backend, key, retry_time)
 
     assert value == value2
     assert metadata == metadata2
-    assert lookup_object(backend, key) == metadata
+    assert lookup_object(backend, key, retry_time) == metadata
 
-def test_list(backend):
+def test_list(backend, retry_time):
     keys = ([ 'prefixa' + newname() for dummy in range(6) ]
             + [ 'prefixb' + newname() for dummy in range(6) ])
     values = [ newvalue() for dummy in range(12) ]
@@ -324,16 +414,14 @@ def test_list(backend):
     assert set(backend.list()) == empty_set
     for i in range(12):
         backend[keys[i]] = values[i]
-    assert_in_index(backend, keys)
+    assert_in_index(backend, keys, retry_time)
 
     assert set(backend.list('prefixa')) == set(keys[:6])
     assert set(backend.list('prefixb')) == set(keys[6:])
     assert set(backend.list('prefixc')) == empty_set
 
+@require_immediate_consistency
 def test_readslowly(backend):
-    if backend.wrapper.retry_time:
-        pytest.skip('requires immediate consistency backend')
-
     key = newname()
     value = newvalue()
     metadata = { 'jimmy': 'jups@42' }
@@ -362,24 +450,24 @@ def test_readslowly(backend):
     assert value == value2
     assert metadata == metadata2
 
-def test_delete(backend):
+def test_delete(backend, retry_time):
     key = newname()
     value = newvalue()
 
     backend[key] = value
 
     # Wait for object to become visible
-    assert_in_index(backend, [key])
-    fetch_object(backend, key)
+    assert_in_index(backend, [key], retry_time)
+    fetch_object(backend, key, retry_time)
 
     # Delete it
     del backend[key]
 
     # Make sure that it's truly gone
-    assert_not_in_index(backend, [key])
-    assert_not_readable(backend, key)
+    assert_not_in_index(backend, [key], retry_time)
+    assert_not_readable(backend, key, retry_time)
 
-def test_delete_multi(backend):
+def test_delete_multi(backend, retry_time):
     keys = [ newname() for _ in range(30) ]
     value = newvalue()
 
@@ -388,9 +476,9 @@ def test_delete_multi(backend):
         backend[key] = value
 
     # Wait for them
-    assert_in_index(backend, keys)
+    assert_in_index(backend, keys, retry_time)
     for key in keys:
-        fetch_object(backend, key)
+        fetch_object(backend, key, retry_time)
 
     # Delete half of them
     # We don't use force=True but catch the exemption to increase the
@@ -405,21 +493,21 @@ def test_delete_multi(backend):
 
     # Without full consistency, deleting an non-existing object
     # may not give an error
-    assert backend.wrapper.retry_time or len(to_delete) > 0
+    assert retry_time or len(to_delete) > 0
 
     deleted = set(keys[::2]) - set(to_delete)
     assert len(deleted) > 0
     remaining = set(keys) - deleted
 
-    assert_not_in_index(backend, deleted)
+    assert_not_in_index(backend, deleted, retry_time)
     for key in deleted:
-        assert_not_readable(backend, key)
+        assert_not_readable(backend, key, retry_time)
 
-    assert_in_index(backend, remaining)
+    assert_in_index(backend, remaining, retry_time)
     for key in remaining:
-        fetch_object(backend, key)
+        fetch_object(backend, key, retry_time)
 
-def test_clear(backend):
+def test_clear(backend, retry_time):
     keys = [ newname() for _ in range(5) ]
     value = newvalue()
 
@@ -428,18 +516,18 @@ def test_clear(backend):
         backend[key] = value
 
     # Wait for them
-    assert_in_index(backend, keys)
+    assert_in_index(backend, keys, retry_time)
     for key in keys:
-        fetch_object(backend, key)
+        fetch_object(backend, key, retry_time)
 
     # Delete everything
     backend.clear()
 
-    assert_not_in_index(backend, keys)
+    assert_not_in_index(backend, keys, retry_time)
     for key in keys:
-        assert_not_readable(backend, key)
+        assert_not_readable(backend, key, retry_time)
 
-def test_copy(backend):
+def test_copy(backend, retry_time):
     key1 = newname()
     key2 = newname()
     value = newvalue()
@@ -448,21 +536,21 @@ def test_copy(backend):
     backend.store(key1, value, metadata)
 
     # Wait for object to become visible
-    assert_in_index(backend, [key1])
-    fetch_object(backend, key1)
+    assert_in_index(backend, [key1], retry_time)
+    fetch_object(backend, key1, retry_time)
 
-    assert_not_in_index(backend, [key2])
-    assert_not_readable(backend, key2)
+    assert_not_in_index(backend, [key2], retry_time)
+    assert_not_readable(backend, key2, retry_time)
 
     backend.copy(key1, key2)
 
-    assert_in_index(backend, [key2])
-    (value2, metadata2) = fetch_object(backend, key2)
+    assert_in_index(backend, [key2], retry_time)
+    (value2, metadata2) = fetch_object(backend, key2, retry_time)
 
     assert value == value2
     assert metadata == metadata2
 
-def test_copy_newmeta(backend):
+def test_copy_newmeta(backend, retry_time):
     if isinstance(backend, BetterBackend):
         pytest.skip('not yet supported for compressed or encrypted backends')
     key1 = newname()
@@ -474,21 +562,21 @@ def test_copy_newmeta(backend):
     backend.store(key1, value, meta1)
 
     # Wait for object to become visible
-    assert_in_index(backend, [key1])
-    fetch_object(backend, key1)
+    assert_in_index(backend, [key1], retry_time)
+    fetch_object(backend, key1, retry_time)
 
-    assert_not_in_index(backend, [key2])
-    assert_not_readable(backend, key2)
+    assert_not_in_index(backend, [key2], retry_time)
+    assert_not_readable(backend, key2, retry_time)
 
     backend.copy(key1, key2, meta2)
 
-    assert_in_index(backend, [key2])
-    (value2, meta) = fetch_object(backend, key2)
+    assert_in_index(backend, [key2], retry_time)
+    (value2, meta) = fetch_object(backend, key2, retry_time)
 
     assert value == value2
     assert meta == meta2
 
-def test_rename(backend):
+def test_rename(backend, retry_time):
     key1 = newname()
     key2 = newname()
     value = newvalue()
@@ -497,24 +585,24 @@ def test_rename(backend):
     backend.store(key1, value, metadata)
 
     # Wait for object to become visible
-    assert_in_index(backend, [key1])
-    fetch_object(backend, key1)
+    assert_in_index(backend, [key1], retry_time)
+    fetch_object(backend, key1, retry_time)
 
-    assert_not_in_index(backend, [key2])
-    assert_not_readable(backend, key2)
+    assert_not_in_index(backend, [key2], retry_time)
+    assert_not_readable(backend, key2, retry_time)
 
     backend.rename(key1, key2)
 
-    assert_in_index(backend, [key2])
-    (value2, metadata2) = fetch_object(backend, key2)
+    assert_in_index(backend, [key2], retry_time)
+    (value2, metadata2) = fetch_object(backend, key2, retry_time)
 
     assert value == value2
     assert metadata == metadata2
 
-    assert_not_in_index(backend, [key1])
-    assert_not_readable(backend, key1)
+    assert_not_in_index(backend, [key1], retry_time)
+    assert_not_readable(backend, key1, retry_time)
 
-def test_rename_newmeta(backend):
+def test_rename_newmeta(backend, retry_time):
     if isinstance(backend, BetterBackend):
         pytest.skip('not yet supported for compressed or encrypted backends')
     key1 = newname()
@@ -526,23 +614,22 @@ def test_rename_newmeta(backend):
     backend.store(key1, value, meta1)
 
     # Wait for object to become visible
-    assert_in_index(backend, [key1])
-    fetch_object(backend, key1)
+    assert_in_index(backend, [key1], retry_time)
+    fetch_object(backend, key1, retry_time)
 
-    assert_not_in_index(backend, [key2])
-    assert_not_readable(backend, key2)
+    assert_not_in_index(backend, [key2], retry_time)
+    assert_not_readable(backend, key2, retry_time)
 
     backend.rename(key1, key2, meta2)
 
-    assert_in_index(backend, [key2])
-    (value2, meta) = fetch_object(backend, key2)
+    assert_in_index(backend, [key2], retry_time)
+    (value2, meta) = fetch_object(backend, key2, retry_time)
 
     assert value == value2
     assert meta == meta2
 
-def test_corruption(backend):
-    if not isinstance(backend, BetterBackend):
-        pytest.skip('only supported for compressed or encrypted backends')
+@require_compression_or_encryption
+def test_corruption(backend, retry_time):
     plain_backend = backend.backend
 
     # Create compressed object
@@ -551,7 +638,7 @@ def test_corruption(backend):
     backend[key] = value
 
     # Retrieve compressed data
-    (compr_value, meta) = fetch_object(plain_backend, key)
+    (compr_value, meta) = fetch_object(plain_backend, key, retry_time)
     compr_value = bytearray(compr_value)
 
     # Create new, corrupt object
@@ -560,16 +647,15 @@ def test_corruption(backend):
     plain_backend.store(key, compr_value, meta)
 
     with pytest.raises(ChecksumError) as exc:
-        fetch_object(backend, key)
+        fetch_object(backend, key, retry_time)
 
     if backend.passphrase is None: # compression only
         assert exc.value.str == 'Invalid compressed stream'
     else:
         assert exc.value.str == 'HMAC mismatch'
 
-def test_extra_data(backend):
-    if not isinstance(backend, BetterBackend):
-        pytest.skip('only supported for compressed or encrypted backends')
+@require_compression_or_encryption
+def test_extra_data(backend, retry_time):
     plain_backend = backend.backend
 
     # Create compressed object
@@ -578,7 +664,7 @@ def test_extra_data(backend):
     backend[key] = value
 
     # Retrieve compressed data
-    (compr_value, meta) = fetch_object(plain_backend, key)
+    (compr_value, meta) = fetch_object(plain_backend, key, retry_time)
     compr_value = bytearray(compr_value)
 
     # Create new, corrupt object
@@ -587,7 +673,7 @@ def test_extra_data(backend):
     plain_backend.store(key, compr_value, meta)
 
     with pytest.raises(ChecksumError) as exc:
-        fetch_object(backend, key)
+        fetch_object(backend, key, retry_time)
 
     if backend.passphrase is None: # compression only
         assert exc.value.str == 'Data after end of compressed stream'
@@ -614,11 +700,10 @@ def test_multi_packet(backend):
     res = backend.perform_read(do_read, key)
     assert res == b'\xFF' * (5*BUFSIZE)
 
+# No short reads
+@require_plain_backend(LocalBackend)
+@require_compression_or_encryption
 def test_issue431(backend):
-    if not isinstance(backend, BetterBackend):
-        pytest.skip('only supported for compressed or encrypted backends')
-    elif not isinstance(backend.backend, LocalBackend):
-        pytest.skip('requires backend without short reads')
     key = newname()
     hdr_len = struct.calcsize(b'<I')
 
@@ -633,12 +718,9 @@ def test_issue431(backend):
         assert fh.read(50) == b''
     backend.perform_read(do_read, key)
 
+@require_immediate_consistency
+@require_encryption
 def test_encryption(backend):
-    if (not isinstance(backend, BetterBackend)
-        or backend.passphrase is None):
-        pytest.skip('only supported for encrypted backends')
-    elif backend.wrapper.retry_time:
-        pytest.skip('requires backend with immediate consistency')
     plain_backend = backend.backend
 
     plain_backend['plain'] = b'foobar452'
@@ -659,16 +741,14 @@ def test_encryption(backend):
     assert_raises(ObjectNotEncrypted, backend.fetch, 'not-encrypted')
     assert_raises(ObjectNotEncrypted, backend.lookup, 'not-encrypted')
 
-def test_corrupted_get(backend, monkeypatch):
-    if not backend.wrapper.server:
-        pytest.skip('requires mock server')
-
+@require_backend_wrapper(MockBackendWrapper)
+def test_corrupted_get(backend, backend_wrapper, monkeypatch):
     key = 'brafasel'
     value = b'hello there, let us see whats going on'
     backend[key] = value
 
     # Monkeypatch request handler to produce invalid etag
-    handler_class = backend.wrapper.server.RequestHandlerClass
+    handler_class = backend_wrapper.server.RequestHandlerClass
     def send_header(self, keyword ,value, count=[0],
                     send_header_real=handler_class.send_header):
         if keyword == 'ETag':
@@ -681,19 +761,17 @@ def test_corrupted_get(backend, monkeypatch):
     with catch_logmsg('^MD5 mismatch for', count=1, level=logging.WARNING):
         assert_raises(BadDigestError, backend.fetch, key)
 
-    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     with catch_logmsg('^MD5 mismatch for', count=2, level=logging.WARNING):
         assert backend[key] == value
 
-def test_corrupted_put(backend, monkeypatch):
-    if not backend.wrapper.server:
-        pytest.skip('requires mock server')
-
+@require_backend_wrapper(MockBackendWrapper)
+def test_corrupted_put(backend, backend_wrapper, monkeypatch):
     key = 'brafasel'
     value = b'hello there, let us see whats going on'
 
     # Monkeypatch request handler to produce invalid etag
-    handler_class = backend.wrapper.server.RequestHandlerClass
+    handler_class = backend_wrapper.server.RequestHandlerClass
     def send_header(self, keyword ,value, count=[0],
                     send_header_real=handler_class.send_header):
         if keyword == 'ETag':
@@ -707,20 +785,19 @@ def test_corrupted_put(backend, monkeypatch):
     fh.write(value)
     assert_raises(BadDigestError, fh.close)
 
-    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     fh.close()
 
     assert backend[key] == value
 
-def test_get_s3error(backend, monkeypatch):
-    if not backend.wrapper.server:
-        pytest.skip('requires mock server')
+@require_backend_wrapper(MockBackendWrapper)
+def test_get_s3error(backend, backend_wrapper, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
     backend[key] = value
 
     # Monkeypatch request handler to produce 3 errors
-    handler_class = backend.wrapper.server.RequestHandlerClass
+    handler_class = backend_wrapper.server.RequestHandlerClass
     def do_GET(self, real_GET=handler_class.do_GET, count=[0]):
         count[0] += 1
         if count[0] > 3:
@@ -730,20 +807,18 @@ def test_get_s3error(backend, monkeypatch):
     monkeypatch.setattr(handler_class, 'do_GET', do_GET)
     assert_raises(OperationAbortedError, backend.fetch, value)
 
-    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     assert backend[key] == value
 
-def test_head_s3error(backend, monkeypatch):
-    if not backend.wrapper.server:
-        pytest.skip('requires mock server')
-
+@require_backend_wrapper(MockBackendWrapper)
+def test_head_s3error(backend, backend_wrapper, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
     meta = {'bar': 42, 'foo': 42**2}
     backend.store(key, value, metadata=meta)
 
     # Monkeypatch request handler to produce 3 errors
-    handler_class = backend.wrapper.server.RequestHandlerClass
+    handler_class = backend_wrapper.server.RequestHandlerClass
     def do_HEAD(self, real_HEAD=handler_class.do_HEAD, count=[0]):
         count[0] += 1
         if count[0] > 3:
@@ -755,19 +830,17 @@ def test_head_s3error(backend, monkeypatch):
         backend.lookup(key)
     assert exc.value.status == 503
 
-    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     assert backend.lookup(key) == meta
 
-def test_delete_s3error(backend, monkeypatch):
-    if not backend.wrapper.server:
-        pytest.skip('requires mock server')
-
+@require_backend_wrapper(MockBackendWrapper)
+def test_delete_s3error(backend, backend_wrapper, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
     backend[key] = value
 
     # Monkeypatch request handler to produce 3 errors
-    handler_class = backend.wrapper.server.RequestHandlerClass
+    handler_class = backend_wrapper.server.RequestHandlerClass
     def do_DELETE(self, real_DELETE=handler_class.do_DELETE, count=[0]):
         count[0] += 1
         if count[0] > 3:
@@ -777,19 +850,17 @@ def test_delete_s3error(backend, monkeypatch):
     monkeypatch.setattr(handler_class, 'do_DELETE', do_DELETE)
     assert_raises(OperationAbortedError, backend.delete, key)
 
-    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     backend.delete(key)
 
-def test_backoff(backend, monkeypatch):
-    if not backend.wrapper.server:
-        pytest.skip('requires mock server')
-
+@require_backend_wrapper(MockBackendWrapper)
+def test_backoff(backend, backend_wrapper, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
     backend[key] = value
 
     # Monkeypatch request handler
-    handler_class = backend.wrapper.server.RequestHandlerClass
+    handler_class = backend_wrapper.server.RequestHandlerClass
     timestamps = []
     def do_DELETE(self, real_DELETE=handler_class.do_DELETE):
         timestamps.append(time.time())
@@ -800,23 +871,21 @@ def test_backoff(backend, monkeypatch):
             return real_DELETE(self)
 
     monkeypatch.setattr(handler_class, 'do_DELETE', do_DELETE)
-    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     backend.delete(key)
 
     assert timestamps[1] - timestamps[0] > 1
     assert timestamps[2] - timestamps[1] > 1
     assert timestamps[2] - timestamps[0] < 10
 
-def test_httperror(backend, monkeypatch):
-    if not backend.wrapper.server:
-        pytest.skip('requires mock server')
-
+@require_backend_wrapper(MockBackendWrapper)
+def test_httperror(backend, backend_wrapper, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
     backend[key] = value
 
     # Monkeypatch request handler to produce a HTTP Error
-    handler_class = backend.wrapper.server.RequestHandlerClass
+    handler_class = backend_wrapper.server.RequestHandlerClass
     def do_DELETE(self, real_DELETE=handler_class.do_DELETE, count=[0]):
         count[0] += 1
         if count[0] >= 3:
@@ -832,20 +901,18 @@ def test_httperror(backend, monkeypatch):
     monkeypatch.setattr(handler_class, 'do_DELETE', do_DELETE)
     assert_raises(HTTPError, backend.delete, key)
 
-    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     backend.delete(key)
 
-def test_put_s3error_early(backend, monkeypatch):
+@require_backend_wrapper(MockBackendWrapper)
+def test_put_s3error_early(backend, backend_wrapper, monkeypatch):
     '''Fail after expect-100'''
-
-    if not backend.wrapper.server:
-        pytest.skip('requires mock server')
 
     data = b'hello there, let us see whats going on'
     key = 'borg'
 
     # Monkeypatch request handler to produce 3 errors
-    handler_class = backend.wrapper.server.RequestHandlerClass
+    handler_class = backend_wrapper.server.RequestHandlerClass
     def handle_expect_100(self, real=handler_class.handle_expect_100, count=[0]):
         count[0] += 1
         if count[0] > 3:
@@ -858,20 +925,17 @@ def test_put_s3error_early(backend, monkeypatch):
     fh.write(data)
     assert_raises(OperationAbortedError, fh.close)
 
-    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     fh.close()
 
-def test_put_s3error_med(backend, monkeypatch):
+@require_backend_wrapper(MockBackendWrapper)
+def test_put_s3error_med(backend, backend_wrapper, monkeypatch):
     '''Fail as soon as data is received'''
-
-    if not backend.wrapper.server:
-        pytest.skip('requires mock server')
-
     data = b'hello there, let us see whats going on'
     key = 'borg'
 
     # Monkeypatch request handler to produce 3 errors
-    handler_class = backend.wrapper.server.RequestHandlerClass
+    handler_class = backend_wrapper.server.RequestHandlerClass
     def do_PUT(self, real_PUT=handler_class.do_PUT, count=[0]):
         count[0] += 1
         # Note: every time we return an error, the request will be retried
@@ -891,20 +955,17 @@ def test_put_s3error_med(backend, monkeypatch):
     fh.write(data)
     assert_raises(OperationAbortedError, fh.close)
 
-    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     fh.close()
 
-def test_put_s3error_late(backend, monkeypatch):
+@require_backend_wrapper(MockBackendWrapper)
+def test_put_s3error_late(backend, backend_wrapper, monkeypatch):
     '''Fail after reading all data'''
-
-    if not backend.wrapper.server:
-        pytest.skip('requires mock server')
-
     data = b'hello there, let us see whats going on'
     key = 'borg'
 
     # Monkeypatch request handler to produce 3 errors
-    handler_class = backend.wrapper.server.RequestHandlerClass
+    handler_class = backend_wrapper.server.RequestHandlerClass
     def do_PUT(self, real_PUT=handler_class.do_PUT, count=[0]):
         count[0] += 1
         if count[0] > 3:
@@ -918,7 +979,7 @@ def test_put_s3error_late(backend, monkeypatch):
     fh.write(data)
     assert_raises(OperationAbortedError, fh.close)
 
-    monkeypatch.setattr(backend.wrapper, 'may_temp_fail', True)
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     fh.close()
 
 def test_s3_url_parsing():
