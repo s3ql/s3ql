@@ -31,6 +31,15 @@ The |command| command accepts the following options.
 .. pipeinclude:: python ../../bin/fsck.s3ql --help --log none
    :start-after: show this help message and exit
 
+
+Exit Codes
+==========
+
+|command| may terminate with the following exit codes:
+
+.. include:: ../include/exitcodes.rst
+
+
 .. include:: ../include/postman.rst
 
 .. |command| replace:: :program:`fsck.s3ql`

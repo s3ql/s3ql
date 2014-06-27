@@ -53,6 +53,14 @@ download-metadata
   Interactively download backups of the file system metadata.
 
 
+Exit Codes
+==========
+
+|command| may terminate with the following exit codes:
+
+.. include:: ../include/exitcodes.rst
+
+
 .. include:: ../include/postman.rst
 
 .. |command| replace:: :program:`s3qladm`

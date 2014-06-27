@@ -33,7 +33,45 @@ The |command| command accepts the following options.
    :start-after: show this help message and exit
 
 
-.. include:: ../include/postman.rst
+Exit Codes
+==========
 
+|command| may terminate with the following exit codes:
+
+.. include:: ../include/exitcodes.rst
+
+:30:
+   File system was not unmounted cleanly.
+
+:31:
+   File system appears to be mounted elsewhere.
+
+:32:
+   Unsupported file system revision (too old).
+
+:33:
+   Unsupported file system revision (too new).
+   
+:34:
+   Insufficient free nodes, need to run :program:`fsck.s3ql`.
+
+:35:
+   Attempted to mount read-only, this is not supported.
+
+:36:
+   Mountpoint does not exist.
+
+:37:
+   Not enough available file descriptors.
+
+:38:
+   Unable to access backend / invalid storage URL.
+
+:39:
+   Unable to bind file system to mountpoint.
+
+
+   
+.. include:: ../include/postman.rst
 
 .. |command| replace:: :program:`mount.s3ql`

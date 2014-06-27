@@ -37,6 +37,9 @@ UNRELEASED, S3QL tip
   * Fixed a crash that could occur when the remote server (or some
     intermediate proxy) sends a non-XML error response.
 
+  * mount.s3ql now uses different exit codes to indicate different
+    failure conditions.
+
 2014-03-29, S3QL 2.8.1
 
   * No changes in S3QL itself.

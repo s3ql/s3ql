@@ -39,6 +39,15 @@ The |command| command accepts the following options.
 .. pipeinclude:: python ../../bin/umount.s3ql --help
    :start-after: show this help message and exit
 
+
+Exit Codes
+==========
+
+|command| may terminate with the following exit codes:
+
+.. include:: ../include/exitcodes.rst
+
+
 .. include:: ../include/postman.rst
 
 .. |command| replace:: :program:`umount.s3ql`

@@ -66,6 +66,14 @@ what specific action is being invoked:
    :start-after: show this help message and exit
 
 
+Exit Codes
+==========
+
+|command| may terminate with the following exit codes:
+
+.. include:: ../include/exitcodes.rst
+
+
 .. include:: ../include/postman.rst
 
 

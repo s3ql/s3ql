@@ -37,6 +37,14 @@ The |command| command accepts the following options.
    :start-after: show this help message and exit
 
 
+Exit Codes
+==========
+
+|command| may terminate with the following exit codes:
+
+.. include:: ../include/exitcodes.rst
+
+
 .. include:: ../include/postman.rst
 
 .. |command| replace:: :program:`mkfs.s3ql`

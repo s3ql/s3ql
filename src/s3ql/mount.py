@@ -78,7 +78,7 @@ def main(args=None):
     stdout_log_handler = setup_logging(options)
 
     if not os.path.exists(options.mountpoint):
-        raise QuietError('Mountpoint does not exist.')
+        raise QuietError('Mountpoint does not exist.', exitcode=36)
 
     if options.threads is None:
         options.threads = determine_threads(options)
@@ -95,7 +95,8 @@ def main(args=None):
 
     if options.max_cache_entries is None:
         if avail_fd <= 64:
-            raise QuietError("Not enough available file descriptors.")
+            raise QuietError("Not enough available file descriptors.",
+                             exitcode=37)
         log.info('Autodetected %d file descriptors available for cache entries',
                  avail_fd)
         options.max_cache_entries = avail_fd
@@ -122,10 +123,11 @@ def main(args=None):
         with backend_pool() as backend:
             (param, db) = get_metadata(backend, cachepath)
     except DanglingStorageURLError as exc:
-        raise QuietError(str(exc))
+        raise QuietError(str(exc), exitcode=37)
 
     if param['max_obj_size'] < options.min_obj_size:
-        raise QuietError('Maximum object size must be bigger than minimum object size.')
+        raise QuietError('Maximum object size must be bigger than minimum object size.',
+                         exitcode=2)
 
     # Handle --cachesize
     rec_cachesize = options.max_cache_entries * param['max_obj_size'] / 2
@@ -159,7 +161,7 @@ def main(args=None):
         try:
             llfuse.init(operations, options.mountpoint, get_fuse_opts(options))
         except RuntimeError as exc:
-            raise QuietError(str(exc))
+            raise QuietError(str(exc), exitcode=39)
 
         unmount_clean = False
         def unmount():
@@ -374,7 +376,8 @@ def get_metadata(backend, cachepath):
             log.info('Ignoring locally cached metadata (outdated).')
             param = backend.lookup('s3ql_metadata')
         elif param['seq_no'] > seq_no:
-            raise QuietError("File system not unmounted cleanly, run fsck!")
+            raise QuietError("File system not unmounted cleanly, run fsck!",
+                             exitcode=30)
         else:
             log.info('Using cached metadata.')
             db = Connection(cachepath + '.db')
@@ -383,24 +386,28 @@ def get_metadata(backend, cachepath):
 
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:
-        raise QuietError('Backend reports that fs is still mounted elsewhere, aborting.')
+        raise QuietError('Backend reports that fs is still mounted elsewhere, aborting.',
+                         exitcode=31)
 
     # Check revision
     if param['revision'] < CURRENT_FS_REV:
-        raise QuietError('File system revision too old, please run `s3qladm upgrade` first.')
+        raise QuietError('File system revision too old, please run `s3qladm upgrade` first.',
+                         exitcode=32)
     elif param['revision'] > CURRENT_FS_REV:
         raise QuietError('File system revision too new, please update your '
-                         'S3QL installation.')
+                         'S3QL installation.', exitcode=33)
 
     # Check that the fs itself is clean
     if param['needs_fsck']:
-        raise QuietError("File system damaged or not unmounted cleanly, run fsck!")
+        raise QuietError("File system damaged or not unmounted cleanly, run fsck!",
+                         exitcode=30)
     if time.time() - param['last_fsck'] > 60 * 60 * 24 * 31:
         log.warning('Last file system check was more than 1 month ago, '
                  'running fsck.s3ql is recommended.')
 
     if  param['max_inode'] > 2 ** 32 - 50000:
-        raise QuietError('Insufficient free inodes, fsck run required.')
+        raise QuietError('Insufficient free inodes, fsck run required.',
+                         exitcode=34)
     elif param['max_inode'] > 2 ** 31:
         log.warning('Few free inodes remaining, running fsck is recommended')
 
@@ -486,7 +493,8 @@ def parse_args(args):
                            'owner', 'users', 'nobootwait'):
                     continue
                 elif opt == 'ro':
-                    raise QuietError('Read-only mounting not supported.')
+                    raise QuietError('Read-only mounting not supported.',
+                                     exitcode=35)
                 args.insert(pos, '--' + opt)
 
     def compression_type(s):

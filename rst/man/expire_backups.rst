@@ -90,11 +90,13 @@ The |command| command accepts the following options:
 .. pipeinclude:: python ../../contrib/expire_backups.py --help
    :start-after: show this help message and exit
 
-Exit Status
-===========
 
-|command| returns exit code 0 if the operation succeeded and 1 if some
-error occured.
+Exit Codes
+==========
+
+|command| may terminate with the following exit codes:
+
+.. include:: ../include/exitcodes.rst
 
 
 See Also

@@ -1,13 +1,5 @@
 .. -*- mode: rst -*-
 
-
-Exit Status
-===========
-
-|command| returns exit code 0 if the operation succeeded and 1 if some
-error occurred.
-
-
 See Also
 ========
 

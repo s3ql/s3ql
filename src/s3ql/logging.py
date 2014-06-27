@@ -43,9 +43,12 @@ class QuietError(Exception):
     string containing sufficient information about the problem.
     '''
 
-    def __init__(self, msg=''):
+    def __init__(self, msg='', exitcode=1):
         super().__init__()
         self.msg = msg
+
+        #: Exit code to use when terminating process
+        self.exitcode = exitcode
 
     def __str__(self):
         return self.msg
@@ -67,13 +70,15 @@ def create_handler(target):
             try:
                 os.makedirs(dirname)
             except PermissionError:
-                raise QuietError('No permission to create log file %s' % fullpath)
+                raise QuietError('No permission to create log file %s' % fullpath,
+                                 exitcode=10)
 
         try:
             handler = logging.handlers.RotatingFileHandler(fullpath,
                                                            maxBytes=1024 ** 2, backupCount=5)
         except PermissionError:
-            raise QuietError('No permission to write log file %s' % fullpath)
+            raise QuietError('No permission to write log file %s' % fullpath,
+                             exitcode=10)
 
         formatter = logging.Formatter('%(asctime)s.%(msecs)03d [pid=%(process)r, '
                                       'thread=%(threadName)r, module=%(name)r, '
@@ -149,12 +154,14 @@ def setup_excepthook():
             # force_log attribute ensures that logging handler will
             # not raise exception (if EXCEPTION_SEVERITY is set)
             root_logger.error(val.msg, extra={ 'force_log': True })
+            sys.exit(val.exitcode)
         else:
             # force_log attribute ensures that logging handler will
             # not raise exception (if EXCEPTION_SEVERITY is set)
             root_logger.error('Uncaught top-level exception:',
                               exc_info=(type_, val, tb),
                               extra={ 'force_log': True})
+            sys.exit(1)
 
     sys.excepthook = excepthook
 

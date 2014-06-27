@@ -14,6 +14,7 @@ Synopsis
 
    s3ql_oauth_client [options]
 
+
 Description
 ===========
 
@@ -38,6 +39,15 @@ The |command| command accepts the following options:
 
 .. pipeinclude:: python ../../bin/s3ql_oauth_client --help
    :start-after: show this help message and exit
+
+
+Exit Codes
+==========
+
+|command| may terminate with the following exit codes:
+
+.. include:: ../include/exitcodes.rst
+
 
 .. include:: ../include/postman.rst
 
