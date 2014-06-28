@@ -51,20 +51,20 @@ that is not the case.
   To check if with version (if any) of this module is installed, try
   to execute ::
 
-    python -c 'import setuptools; print(setuptools.__version__)'
+    python3 -c 'import setuptools; print(setuptools.__version__)'
 
 * The `PyCrypto Python Module
   <https://www.dlitz.net/software/pycrypto/>`_. To check if this
-  module is installed, try to execute `python -c 'import Crypto'`.
+  module is installed, try to execute `python3 -c 'import Crypto'`.
 
 * The `Python defusedxml module
   <https://pypi.python.org/pypi/defusedxml/>`_. To check if this
-  module is installed, try to execute `python -c 'import defusedxml'`.
+  module is installed, try to execute `python3 -c 'import defusedxml'`.
 
 * If you want to use OAuth2 authentication with Google Storage, you
   need the `Python requests module
   <https://pypi.python.org/pypi/requests/>`_. To check if this module
-  is installed, try to execute `python -c 'import requests'`.
+  is installed, try to execute `python3 -c 'import requests'`.
 
 * `SQLite <http://www.sqlite.org/>`_ version 3.7.0 or newer. SQLite
   has to be installed as a *shared library* with development headers.
@@ -72,19 +72,19 @@ that is not the case.
 * The `APSW Python Module <http://code.google.com/p/apsw/>`_. To check
   which (if any) version of APWS is installed, run the command ::
 
-    python -c 'import apsw; print(apsw.apswversion())'
+    python3 -c 'import apsw; print(apsw.apswversion())'
 
   The printed version number should be at least 3.7.0.
 
 * The `Python LLFUSE module
   <http://code.google.com/p/python-llfuse/>`_. To check if this module
-  is installed, execute `python -c 'import llfuse;
+  is installed, execute `python3 -c 'import llfuse;
   print(llfuse.__version__)'`. This should print a version number. You
   need at least version 0.39.
 
 * The `Python dugong module
   <https://bitbucket.org/nikratio/python-dugong/>`_. To check if this
-  module is installed, try to execute `python -c 'import dugong';
+  module is installed, try to execute `python3 -c 'import dugong';
   print(dugong.__version__)'`. This should print a version number. You
   need at least version 3.1.
 
