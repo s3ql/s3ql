@@ -1077,12 +1077,12 @@ def main(args=None):
     # Check if fs is mounted on this computer
     # This is not foolproof but should prevent common mistakes
     if is_mounted(options.storage_url):
-        raise QuietError('Can not check mounted file system.')
+        raise QuietError('Can not check mounted file system.', exitcode=40)
 
     try:
         backend = get_backend(options)
     except DanglingStorageURLError as exc:
-        raise QuietError(str(exc))
+        raise QuietError(str(exc), exitcode=38)
     atexit.register(backend.close)
 
     log.info('Starting fsck of %s', options.storage_url)
@@ -1119,10 +1119,11 @@ def main(args=None):
 
     # Check revision
     if param['revision'] < CURRENT_FS_REV:
-        raise QuietError('File system revision too old, please run `s3qladm upgrade` first.')
+        raise QuietError('File system revision too old, please run `s3qladm upgrade` first.',
+                         exitcode=32)
     elif param['revision'] > CURRENT_FS_REV:
         raise QuietError('File system revision too new, please update your '
-                         'S3QL installation.')
+                         'S3QL installation.', exitcode=33)
 
     if param['seq_no'] < seq_no:
         print(textwrap.fill(textwrap.dedent('''\
@@ -1136,9 +1137,9 @@ def main(args=None):
         print('Enter "continue" to use the outdated data anyway:',
               '> ', sep='\n', end='')
         if options.batch:
-            raise QuietError('(in batch mode, exiting)')
+            raise QuietError('(in batch mode, exiting)', exitcode=41)
         if sys.stdin.readline().strip() != 'continue':
-            raise QuietError()
+            raise QuietError(exitcode=42)
 
         param['seq_no'] = seq_no
         param['needs_fsck'] = True
@@ -1166,7 +1167,7 @@ def main(args=None):
             raise QuietError('Local metadata is corrupted. Remove or repair the following '
                              'files manually and re-run fsck:\n'
                              + cachepath + '.db (corrupted)\n'
-                             + cachepath + '.param (intact)')
+                             + cachepath + '.param (intact)', exitcode=43)
     else:
         with tempfile.TemporaryFile() as tmpfh:
             def do_read(fh):
@@ -1193,7 +1194,7 @@ def main(args=None):
     param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
 
     if fsck.uncorrectable_errors:
-        raise QuietError("Uncorrectable errors found, aborting.")
+        raise QuietError("Uncorrectable errors found, aborting.", exitcode=44+128)
 
     if os.path.exists(cachepath + '-cache'):
         os.rmdir(cachepath + '-cache')
@@ -1234,6 +1235,11 @@ def main(args=None):
     db.close()
 
     log.info('Completed fsck of %s', options.storage_url)
+
+    if fsck.found_errors:
+        sys.exit(128)
+    else:
+        sys.exit(0)
 
 def renumber_inodes(db):
     '''Renumber inodes'''

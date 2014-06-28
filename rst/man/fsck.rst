@@ -35,13 +35,42 @@ The |command| command accepts the following options.
 Exit Codes
 ==========
 
-|command| may terminate with the following exit codes:
+If |command| found any errors, the exit code will be 128 plus one of
+the codes listed below. If no errors were found, the following exit
+codes are used:
 
 .. include:: ../include/exitcodes.rst
 
 :10:
    Could not open log file for writing.
 
+:32:
+   Unsupported file system revision (too old).
+
+:33:
+   Unsupported file system revision (too new).
+
+:38:
+   Unable to access backend / invalid storage URL.
+  
+:40:
+   Cannot check mounted file system.
+
+:41:
+   User input required, but running in batch mode.
+
+:42:
+   File system check aborted by user.
+
+:43:
+   Local metadata is corrupted.
+
+:44:
+   Uncorrectable errors found.
+
+:128:
+   This error code will be *added* to one of the codes above if
+   errors have been found.
 
 .. include:: ../include/postman.rst
 
