@@ -123,7 +123,7 @@ def main(args=None):
         with backend_pool() as backend:
             (param, db) = get_metadata(backend, cachepath)
     except DanglingStorageURLError as exc:
-        raise QuietError(str(exc), exitcode=37)
+        raise QuietError(str(exc), exitcode=38)
 
     if param['max_obj_size'] < options.min_obj_size:
         raise QuietError('Maximum object size must be bigger than minimum object size.',
