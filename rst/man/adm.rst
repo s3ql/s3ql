@@ -60,6 +60,9 @@ Exit Codes
 
 .. include:: ../include/exitcodes.rst
 
+:10:
+   Could not open log file for writing.
+
 
 .. include:: ../include/postman.rst
 

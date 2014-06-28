@@ -9,8 +9,3 @@
 
 :2:
    Invalid command line argument.
-
-:10:
-   Could not open log file for writing.
-
-   

@@ -40,6 +40,9 @@ Exit Codes
 
 .. include:: ../include/exitcodes.rst
 
+:10:
+   Could not open log file for writing.
+
 :30:
    File system was not unmounted cleanly.
 
@@ -51,7 +54,7 @@ Exit Codes
 
 :33:
    Unsupported file system revision (too new).
-   
+
 :34:
    Insufficient free nodes, need to run :program:`fsck.s3ql`.
 
@@ -71,7 +74,6 @@ Exit Codes
    Unable to bind file system to mountpoint.
 
 
-   
 .. include:: ../include/postman.rst
 
 .. |command| replace:: :program:`mount.s3ql`
