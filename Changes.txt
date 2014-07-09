@@ -1,3 +1,9 @@
+UNRELEASED, S3QL tip
+
+  * The --debug command line parameter now generates a bit less
+    output by default, and there is an additional --debug-module
+    parameter to activate additional messages.
+
 2014-06-28, S3QL 2.9
 
   * Fix crash when using swift backend and server uses an

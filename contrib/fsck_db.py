@@ -30,7 +30,7 @@ def parse_args(args):
         description="Checks S3QL file system metadata")
 
     parser.add_log('~/.s3ql/fsck_db.log')
-    parser.add_debug_modules()
+    parser.add_debug()
     parser.add_quiet()
     parser.add_version()
 

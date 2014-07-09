@@ -54,7 +54,7 @@ def parse_args(args):
                                "Use only if you know what you are doing.",
                           parents=[pparser])
 
-    parser.add_debug_modules()
+    parser.add_debug()
     parser.add_quiet()
     parser.add_log()
     parser.add_authfile()

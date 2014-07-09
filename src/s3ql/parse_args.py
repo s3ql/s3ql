@@ -149,15 +149,12 @@ class ArgumentParser(argparse.ArgumentParser):
                                "If not specified, the defaults compiled into the system's "
                                "OpenSSL library are used.")
 
-    def add_debug_modules(self):
-        self.add_argument("--debug", action="append", metavar='<module>',
-                          help="activate debugging output from <module>. Use `all` "
-                          "to get debug messages from all modules. This option can be "
-                          "specified multiple times.")
-
     def add_debug(self):
-        self.add_argument("--debug", action="store_const", const=['all'],
-                          help="activate debugging output")
+        self.add_argument("--debug-module", action="append", metavar='<module>', dest='debug',
+                          help="Activate debugging output from <module>."
+                               "This option can be specified multiple times.")
+        self.add_argument("--debug", action="append_const", const='s3ql',
+                          help="Activate debugging output from all S3QL modules.")
 
     def add_authfile(self):
         self.add_argument("--authfile", type=str, metavar='<path>',

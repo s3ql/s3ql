@@ -28,7 +28,7 @@ def parse_args(args):
         Obtain OAuth2 refresh token for Google Storage
         '''))
 
-    parser.add_debug_modules()
+    parser.add_debug()
     parser.add_quiet()
     parser.add_version()
 
