@@ -49,7 +49,8 @@ def get_seq_no(backend):
 
     if (seq_nos[0].endswith('.meta')
         or seq_nos[0].endswith('.dat')):
-        raise QuietError('Old file system revision, please run `s3qladm upgrade` first.')
+        raise QuietError('Old file system revision, please run `s3qladm upgrade` first.',
+                         exitcode=32)
 
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in seq_nos ]
     seq_no = max(seq_nos)
