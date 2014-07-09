@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, QuietError, setup_logging
 from . import CURRENT_FS_REV, REV_VER_MAP
-from .backends.common import BetterBackend, DanglingStorageURLError
+from .backends.common import BetterBackend
 from .backends import get_backend
 from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2,
                      stream_read_bz2, PICKLE_PROTOCOL, is_mounted)
@@ -82,19 +82,13 @@ def main(args=None):
         raise QuietError('Can not work on mounted file system.')
 
     if options.action == 'clear':
-        try:
-            backend = get_backend(options, plain=True)
-            atexit.register(backend.close)
-        except DanglingStorageURLError as exc:
-            raise QuietError(str(exc))
+        backend = get_backend(options, plain=True)
+        atexit.register(backend.close)
         return clear(backend,
                      get_backend_cachedir(options.storage_url, options.cachedir))
 
-    try:
-        backend = get_backend(options)
-        atexit.register(backend.close)
-    except DanglingStorageURLError as exc:
-        raise QuietError(str(exc))
+    backend = get_backend(options)
+    atexit.register(backend.close)
 
     if options.action == 'upgrade':
         return upgrade(backend, get_backend_cachedir(options.storage_url,

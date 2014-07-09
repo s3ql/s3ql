@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, setup_logging, QuietError
 from . import CURRENT_FS_REV
-from .backends.common import BetterBackend, DanglingStorageURLError
+from .backends.common import BetterBackend
 from .backends import s3, get_backend
 from .common import get_backend_cachedir, CTRL_INODE, stream_write_bz2, PICKLE_PROTOCOL
 from .database import Connection
@@ -94,11 +94,8 @@ def main(args=None):
         log.warning('Warning: maximum object sizes less than 1 MiB will seriously degrade '
                  'performance.', extra={ 'force_log': True })
 
-    try:
-        plain_backend = get_backend(options, plain=True)
-        atexit.register(plain_backend.close)
-    except DanglingStorageURLError as exc:
-        raise QuietError(str(exc), exitcode=38)
+    plain_backend = get_backend(options, plain=True)
+    atexit.register(plain_backend.close)
 
     log.info("Before using S3QL, make sure to read the user's guide, especially\n"
              "the 'Important Rules to Avoid Loosing Data' section.")

@@ -140,7 +140,7 @@ def get_backend_factory(options, plain=False):
         backend.fetch('s3ql_passphrase')
 
     except DanglingStorageURLError as exc:
-        raise QuietError(str(exc))
+        raise QuietError(str(exc), exitcode=38)
 
     except AuthorizationError:
         raise QuietError('No permission to access backend.')

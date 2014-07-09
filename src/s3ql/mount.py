@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, setup_logging, QuietError
 from . import fs, CURRENT_FS_REV
-from .backends.common import BackendPool, DanglingStorageURLError
+from .backends.common import BackendPool
 from .backends import get_backend_factory
 from .block_cache import BlockCache
 from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2, stream_read_bz2,
@@ -119,11 +119,8 @@ def main(args=None):
     cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
 
     # Retrieve metadata
-    try:
-        with backend_pool() as backend:
-            (param, db) = get_metadata(backend, cachepath)
-    except DanglingStorageURLError as exc:
-        raise QuietError(str(exc), exitcode=38)
+    with backend_pool() as backend:
+        (param, db) = get_metadata(backend, cachepath)
 
     if param['max_obj_size'] < options.min_obj_size:
         raise QuietError('Maximum object size must be bigger than minimum object size.',

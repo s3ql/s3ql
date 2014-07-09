@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, setup_logging, QuietError
 from . import CURRENT_FS_REV
-from .backends.common import NoSuchObject, DanglingStorageURLError
+from .backends.common import NoSuchObject
 from .backends import get_backend
 from .common import (ROOT_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE, get_backend_cachedir,
                      get_seq_no, stream_write_bz2, stream_read_bz2, CTRL_INODE,
@@ -1079,10 +1079,7 @@ def main(args=None):
     if is_mounted(options.storage_url):
         raise QuietError('Can not check mounted file system.', exitcode=40)
 
-    try:
-        backend = get_backend(options)
-    except DanglingStorageURLError as exc:
-        raise QuietError(str(exc), exitcode=38)
+    backend = get_backend(options)
     atexit.register(backend.close)
 
     log.info('Starting fsck of %s', options.storage_url)
