@@ -62,6 +62,9 @@ Exit Codes
 :16:
    Invalid storage URL, specified location does not exist in backend.
 
+:45:
+   Unable to access cache directory.
+
 
 .. include:: ../include/postman.rst
 

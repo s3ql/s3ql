@@ -65,6 +65,9 @@ codes are used:
 :17:
    Wrong file system passphrase.
 
+:18:
+   No S3QL file system found at given storage URL.
+
 :32:
    Unsupported file system revision (too old).
 
@@ -85,6 +88,9 @@ codes are used:
 
 :44:
    Uncorrectable errors found.
+
+:45:
+   Unable to access cache directory.
 
 :128:
    This error code will be *added* to one of the codes above if

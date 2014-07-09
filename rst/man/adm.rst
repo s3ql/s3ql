@@ -84,6 +84,12 @@ Exit Codes
 :17:
    Wrong file system passphrase.
 
+:18:
+   No S3QL file system found at given storage URL.
+
+:45:
+   Unable to access cache directory.
+
 
 .. include:: ../include/postman.rst
 

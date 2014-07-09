@@ -59,7 +59,8 @@ def get_seq_no(backend):
     while ('s3ql_seq_no_%d' % seq_no) not in backend:
         seq_no -= 1
         if seq_no == 0:
-            raise QuietError('No S3QL file system found at given storage URL.')
+            raise QuietError('No S3QL file system found at given storage URL.',
+                             exitcode=18)
     while ('s3ql_seq_no_%d' % seq_no) in backend:
         seq_no += 1
     seq_no -= 1
@@ -213,10 +214,12 @@ def get_backend_cachedir(storage_url, cachedir):
         try:
             os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
         except PermissionError:
-            raise QuietError('No permission to create cache directory (%s)' % cachedir)
+            raise QuietError('No permission to create cache directory (%s)' % cachedir,
+                             exitcode=45)
 
     if not os.access(cachedir, os.R_OK | os.W_OK | os.X_OK):
-        raise QuietError('No permission to access cache directory (%s)' % cachedir)
+        raise QuietError('No permission to access cache directory (%s)' % cachedir,
+                         exitcode=45)
 
     return os.path.join(cachedir, _escape(storage_url))
 
