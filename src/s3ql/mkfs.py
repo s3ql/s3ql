@@ -98,7 +98,7 @@ def main(args=None):
         plain_backend = get_backend(options, plain=True)
         atexit.register(plain_backend.close)
     except DanglingStorageURLError as exc:
-        raise QuietError(str(exc))
+        raise QuietError(str(exc), exitcode=38)
 
     log.info("Before using S3QL, make sure to read the user's guide, especially\n"
              "the 'Important Rules to Avoid Loosing Data' section.")

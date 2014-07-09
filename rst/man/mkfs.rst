@@ -44,6 +44,9 @@ Exit Codes
 
 .. include:: ../include/exitcodes.rst
 
+:38:
+   Unable to access backend / invalid storage URL.
+
 
 .. include:: ../include/postman.rst
 
