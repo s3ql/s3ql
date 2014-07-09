@@ -68,7 +68,7 @@ Exit Codes
    Not enough available file descriptors.
 
 :38:
-   Unable to access backend / invalid storage URL.
+   Invalid storage URL, specified location does not exist in backend.
 
 :39:
    Unable to bind file system to mountpoint.

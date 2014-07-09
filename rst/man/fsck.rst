@@ -51,8 +51,8 @@ codes are used:
    Unsupported file system revision (too new).
 
 :38:
-   Unable to access backend / invalid storage URL.
-  
+   Invalid storage URL, specified location does not exist in backend.
+
 :40:
    Cannot check mounted file system.
 
