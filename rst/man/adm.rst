@@ -63,8 +63,26 @@ Exit Codes
 :10:
    Could not open log file for writing.
 
-:38:
-   Unable to access backend / invalid storage URL.
+:11:
+   No such backend.
+
+:12:
+   Authentication file has insecure permissions.
+
+:13:
+   Unable to parse proxy settings.
+
+:14:
+   Invalid credentials (Authentication failed).
+
+:15:
+   No permission to access backend (Authorization denied).
+
+:16:
+   Invalid storage URL, specified location does not exist in backend.
+
+:17:
+   Wrong file system passphrase.
 
 
 .. include:: ../include/postman.rst

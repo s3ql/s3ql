@@ -51,20 +51,22 @@ def get_backend_factory(options, plain=False):
 
     hit = re.match(r'^([a-zA-Z0-9]+)://', options.storage_url)
     if not hit:
-        raise QuietError('Unknown storage url: %s' % options.storage_url)
+        raise QuietError('Unable to parse storage url "%s"' % options.storage_url,
+                         exitcode=2)
 
     backend = hit.group(1)
     try:
         backend_class = prefix_map[backend]
     except KeyError:
-        raise QuietError('No such backend: %s' % backend)
+        raise QuietError('No such backend: %s' % backend, exitcode=11)
 
     # Read authfile
     config = configparser.ConfigParser()
     if os.path.isfile(options.authfile):
         mode = os.stat(options.authfile).st_mode
         if mode & (stat.S_IRGRP | stat.S_IROTH):
-            raise QuietError("%s has insecure permissions, aborting." % options.authfile)
+            raise QuietError("%s has insecure permissions, aborting." % options.authfile,
+                             exitcode=12)
         config.read(options.authfile)
 
     backend_login = None
@@ -113,7 +115,7 @@ def get_backend_factory(options, plain=False):
         hit = re.match(r'^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?/?$', proxy)
         if not hit:
             raise QuietError('Unable to parse proxy setting %s=%r' %
-                             (proxy_env, proxy))
+                             (proxy_env, proxy), exitcode=13)
 
         if hit.group(1) == 'https://':
             log.warning('HTTPS connection to proxy is probably pointless and not supported, '
@@ -139,14 +141,16 @@ def get_backend_factory(options, plain=False):
         # (e.g. wrong credentials)
         backend.fetch('s3ql_passphrase')
 
-    except DanglingStorageURLError as exc:
-        raise QuietError(str(exc), exitcode=38)
+    except AuthenticationError:
+        raise QuietError('Invalid credentials (or skewed system clock?).',
+                         exitcode=14)
 
     except AuthorizationError:
-        raise QuietError('No permission to access backend.')
+        raise QuietError('No permission to access backend.',
+                         exitcode=15)
 
-    except AuthenticationError:
-        raise QuietError('Invalid credentials (or skewed system clock?).')
+    except DanglingStorageURLError as exc:
+        raise QuietError(str(exc), exitcode=16)
 
     except NoSuchObject:
         encrypted = False
@@ -188,7 +192,7 @@ def get_backend_factory(options, plain=False):
     try:
         data_pw = tmp_backend['s3ql_passphrase']
     except ChecksumError:
-        raise QuietError('Wrong file system passphrase')
+        raise QuietError('Wrong file system passphrase', exitcode=17)
     finally:
         tmp_backend.close()
 

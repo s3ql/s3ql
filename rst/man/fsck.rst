@@ -44,14 +44,32 @@ codes are used:
 :10:
    Could not open log file for writing.
 
+:11:
+   No such backend.
+
+:12:
+   Authentication file has insecure permissions.
+
+:13:
+   Unable to parse proxy settings.
+
+:14:
+   Invalid credentials (Authentication failed).
+
+:15:
+   No permission to access backend (Authorization denied).
+
+:16:
+   Invalid storage URL, specified location does not exist in backend.
+
+:17:
+   Wrong file system passphrase.
+
 :32:
    Unsupported file system revision (too old).
 
 :33:
    Unsupported file system revision (too new).
-
-:38:
-   Invalid storage URL, specified location does not exist in backend.
 
 :40:
    Cannot check mounted file system.
