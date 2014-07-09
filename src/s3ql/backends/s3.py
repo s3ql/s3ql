@@ -42,13 +42,13 @@ class Backend(s3c.Backend):
     def _parse_storage_url(storage_url, ssl_context):
         hit = re.match(r'^s3s?://([^/]+)(?:/(.*))?$', storage_url)
         if not hit:
-            raise QuietError('Invalid storage URL')
+            raise QuietError('Invalid storage URL', exitcode=2)
 
         bucket_name = hit.group(1)
 
         # http://docs.amazonwebservices.com/AmazonS3/2006-03-01/dev/BucketRestrictions.html
         if not re.match('^[a-z0-9][a-z0-9.-]{1,60}[a-z0-9]$', bucket_name):
-            raise QuietError('Invalid bucket name.')
+            raise QuietError('Invalid bucket name.', exitcode=2)
 
         # Dots in the bucket cause problems with SSL certificate validation,
         # because server certificate is for *.s3.amazonaws.com (which does not
@@ -61,7 +61,8 @@ class Backend(s3c.Backend):
         if '.' in bucket_name and ssl_context:
             raise QuietError('Buckets with dots in the name cannot be accessed over SSL.\n'
                              'This is purely Amazon\'s fault, see '
-                             'https://forums.aws.amazon.com/thread.jspa?threadID=130560')
+                             'https://forums.aws.amazon.com/thread.jspa?threadID=130560',
+                             exitcode=2)
         hostname = '%s.s3.amazonaws.com' % bucket_name
 
         prefix = hit.group(2) or ''

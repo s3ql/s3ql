@@ -27,7 +27,7 @@ class Backend(swiftks.Backend):
                        r'(?:/(.*))?$', # Prefix
                        storage_url)
         if not hit:
-            raise QuietError('Invalid storage URL')
+            raise QuietError('Invalid storage URL', exitcode=2)
 
         region = hit.group(1)
         containername = hit.group(2)

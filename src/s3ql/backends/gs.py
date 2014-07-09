@@ -68,7 +68,7 @@ class Backend(s3c.Backend):
 
         hit = re.match(r'^gs://([^/]+)(?:/(.*))?$', storage_url)
         if not hit:
-            raise QuietError('Invalid storage URL')
+            raise QuietError('Invalid storage URL', exitcode=2)
 
         bucket_name = hit.group(1)
 

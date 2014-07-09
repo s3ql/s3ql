@@ -10,7 +10,7 @@ from ..logging import logging # Ensure use of custom logger class
 from . import swift
 from ..common import QuietError
 from dugong import HTTPConnection, CaseInsensitiveDict
-from .common import AuthorizationError, retry
+from .common import AuthorizationError, retry, DanglingStorageURLError
 from .s3c import HTTPError
 from ..inherit_docstrings import copy_ancestor_docstring
 from urllib.parse import urlsplit
@@ -56,7 +56,7 @@ class Backend(swift.Backend):
                        r'(?:/(.*))?$', # Prefix
                        storage_url)
         if not hit:
-            raise QuietError('Invalid storage URL')
+            raise QuietError('Invalid storage URL', exitcode=2)
 
         hostname = hit.group(1)
         if hit.group(2):
