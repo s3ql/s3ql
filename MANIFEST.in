@@ -8,7 +8,6 @@ recursive-include src *.py *.c *.pyx *.h
 include Changes.txt
 include INSTALL.txt
 include README.txt
-include CREDITS.txt
 include LICENSE
 include runtests.py
 exclude MANIFEST.in

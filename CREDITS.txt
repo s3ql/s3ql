@@ -1,5 +1,0 @@
-This is an alphabetical listing of all the people who have
-contributed to S3QL.
-
-Nikolaus Rath <Nikolaus@rath.org>
-Louis Riviere <dugres@gmail.com>
