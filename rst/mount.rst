@@ -5,8 +5,8 @@
 ==========
 
 
-A S3QL file system is mounted with the `mount.s3ql` command. It has
-the following syntax::
+A S3QL file system is mounted with the :program:`mount.s3ql`
+command. It has the following syntax::
 
   mount.s3ql [options] <storage url> <mountpoint>
 
@@ -63,20 +63,21 @@ a file are in the cache.
 Maximum Number of Cache Entries
 -------------------------------
 
-The maximum size of the cache can be configured with the `--cachesize`
-option. In addition to that, the maximum number of objects in the
-cache is limited by the `--max-cache-entries` option, so it is
-possible that the cache does not grow up to the maximum cache size
-because the maximum number of cache elements has been reached. The
-reason for this limit is that each cache entry requires one open
-file descriptor, and Linux distributions usually limit the total
-number of file descriptors per process to about a thousand.
+The maximum size of the cache can be configured with the
+:cmdopt:`--cachesize` option. In addition to that, the maximum number
+of objects in the cache is limited by the
+:cmdopt:`--max-cache-entries` option, so it is possible that the cache
+does not grow up to the maximum cache size because the maximum number
+of cache elements has been reached. The reason for this limit is that
+each cache entry requires one open file descriptor, and Linux
+distributions usually limit the total number of file descriptors per
+process to about a thousand.
 
-If you specify a value for `--max-cache-entries`, you should therefore
-make sure to also configure your system to increase the maximum number
-of open file handles. This can be done temporarily with the `ulimit -n`
-command. The method to permanently change this limit system-wide
-depends on your distribution.
+If you specify a value for :cmdopt:`--max-cache-entries`, you should
+therefore make sure to also configure your system to increase the
+maximum number of open file handles. This can be done temporarily with
+the :program:`ulimit -n` command. The method to permanently change this limit
+system-wide depends on your distribution.
 
 
 
