@@ -13,6 +13,7 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 import mock_server
+from dugong import ConnectionClosed
 from s3ql import backends
 from s3ql.logging import logging
 from s3ql.backends.local import Backend as LocalBackend
@@ -20,7 +21,7 @@ from s3ql.backends.gs import Backend as GSBackend
 from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
     BetterBackend, AuthenticationError, AuthorizationError, DanglingStorageURLError,
     MalformedObjectError)
-from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError
+from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, S3Error
 from s3ql.common import BUFSIZE, get_ssl_context
 from contextlib import ExitStack
 from common import get_remote_test_info, NoTestSection, catch_logmsg
@@ -994,6 +995,67 @@ def test_put_s3error_late(backend, backend_wrapper, monkeypatch):
     fh = backend.open_write(key)
     fh.write(data)
     assert_raises(OperationAbortedError, fh.close)
+
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
+    fh.close()
+
+@require_backend_wrapper(MockBackendWrapper)
+def test_issue58(backend, backend_wrapper, monkeypatch):
+    '''Send error while client is sending data'''
+
+    # Monkeypatch request handler
+    handler_class = backend_wrapper.server.RequestHandlerClass
+    def do_PUT(self, real=handler_class.do_PUT, count=[0]):
+        count[0] += 1
+        if count[0] > 1:
+            return real(self)
+
+        # Read half the data
+        self.rfile.read(min(BUFSIZE, int(self.headers['Content-Length'])//2))
+
+        # Then generate an error and close the connection
+        self.send_error(401, code='MalformedXML')
+        self.close_connection = True
+
+    monkeypatch.setattr(handler_class, 'do_PUT', do_PUT)
+
+    # Write a big object. We need to write random data, or
+    # compression while make the payload too small
+    with pytest.raises(S3Error) as exc_info:
+        with backend.open_write('borg') as fh, \
+                open('/dev/urandom', 'rb') as rnd:
+            for _ in range(5):
+                fh.write(rnd.read(BUFSIZE))
+    assert exc_info.value.code == 'MalformedXML'
+
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
+    fh.close()
+
+@require_backend_wrapper(MockBackendWrapper)
+def test_issue58_b(backend, backend_wrapper, monkeypatch):
+    '''Close connection while client is sending data'''
+
+    # Monkeypatch request handler
+    handler_class = backend_wrapper.server.RequestHandlerClass
+    def do_PUT(self, real=handler_class.do_PUT, count=[0]):
+        count[0] += 1
+        if count[0] > 1:
+            return real(self)
+
+        # Read half the data
+        self.rfile.read(min(BUFSIZE, int(self.headers['Content-Length'])//2))
+
+        # Then close the connection silently
+        self.close_connection = True
+    monkeypatch.setattr(handler_class, 'do_PUT', do_PUT)
+
+    # Write a big object. We need to write random data, or
+    # compression while make the payload too small
+    with pytest.raises(ConnectionClosed):
+        with backend.open_write('borg') as fh, \
+                open('/dev/urandom', 'rb') as rnd:
+            for _ in range(5):
+                fh.write(rnd.read(BUFSIZE))
 
     monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     fh.close()

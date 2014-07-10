@@ -13,7 +13,8 @@ from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
 from .s3c import HTTPError, ObjectR, ObjectW, md5sum_b64
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
-from dugong import HTTPConnection, BodyFollowing, is_temp_network_error, CaseInsensitiveDict
+from dugong import (HTTPConnection, BodyFollowing, is_temp_network_error, CaseInsensitiveDict,
+                    ConnectionClosed)
 from urllib.parse import urlsplit
 from base64 import b64encode, b64decode
 import json
@@ -192,6 +193,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         elif subres:
             path += '?%s' % subres
 
+        # We can probably remove the assertions at some point and
+        # call self.conn.read_response() directly
+        def read_response():
+            resp = self.conn.read_response()
+            assert resp.method == method
+            assert resp.path == path
+            return resp
+
         headers['X-Auth-Token'] = self.auth_token
         try:
             resp = None
@@ -204,19 +213,32 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                                        headers=headers, body=BodyFollowing(body_len))
 
                 if self.use_expect_100c:
-                    resp = self.conn.read_response()
-                    assert resp.method == method
-                    assert resp.path == path
+                    resp = read_response()
                     if resp.status == 100:
                         resp = None
                     # Otherwise fall through below
 
-                shutil.copyfileobj(body, self.conn, BUFSIZE)
+                try:
+                    shutil.copyfileobj(body, self.conn, BUFSIZE)
+                except ConnectionClosed:
+                    # Server closed connection while we were writing body data -
+                    # but we may still be able to read an error response
+                    try:
+                        resp = read_response()
+                    except ConnectionClosed: # No server response available
+                        pass
+                    else:
+                        if resp.status < 400:
+                            log.warning('Server broke connection during upload, but signaled '
+                                        '%d %s', resp.status, resp.reason)
+                            resp = None
+
+                    # Re-raise original error
+                    if resp is None:
+                        raise
 
             if resp is None:
-                resp = self.conn.read_response()
-                assert resp.method == method
-                assert resp.path == path
+                resp = read_response()
 
         except Exception as exc:
             if is_temp_network_error(exc):

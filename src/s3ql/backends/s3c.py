@@ -15,7 +15,7 @@ from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docs
 from io import BytesIO
 from shutil import copyfileobj
 from dugong import (HTTPConnection, is_temp_network_error, BodyFollowing, CaseInsensitiveDict,
-                    UnsupportedResponse)
+                    UnsupportedResponse, ConnectionClosed)
 from base64 import b64encode, b64decode
 from email.utils import parsedate_tz, mktime_tz
 from urllib.parse import urlsplit
@@ -559,6 +559,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         elif subres:
             path += '?%s' % subres
 
+        # We can probably remove the assertions at some point and
+        # call self.conn.read_response() directly
+        def read_response():
+            resp = self.conn.read_response()
+            assert resp.method == method
+            assert resp.path == path
+            return resp
+
         try:
             log.debug('_send_request(): %s %s', method, path)
             if body is None or isinstance(body, (bytes, bytearray, memoryview)):
@@ -569,19 +577,29 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                                        headers=headers, body=BodyFollowing(body_len))
 
                 if self.use_expect_100c:
-                    resp = self.conn.read_response()
-                    assert resp.method == method
-                    assert resp.path == path
-                    if resp.status != 100:
-                        # Error
+                    resp = read_response()
+                    if resp.status != 100: # Error
                         return resp
 
-                copyfileobj(body, self.conn, BUFSIZE)
+                try:
+                    copyfileobj(body, self.conn, BUFSIZE)
+                except ConnectionClosed:
+                    # Server closed connection while we were writing body data -
+                    # but we may still be able to read an error response
+                    try:
+                        resp = read_response()
+                    except ConnectionClosed: # No server response available
+                        pass
+                    else:
+                        if resp.status >= 400: # Got error response
+                            return resp
+                        log.warning('Server broke connection during upload, but signaled '
+                                    '%d %s', resp.status, resp.reason)
 
-            resp = self.conn.read_response()
-            assert resp.method == method
-            assert resp.path == path
-            return resp
+                    # Re-raise first ConnectionClosed exception
+                    raise
+
+            return read_response()
 
         except Exception as exc:
             if is_temp_network_error(exc):
