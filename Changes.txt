@@ -1,5 +1,8 @@
 UNRELEASED, S3QL tip
 
+  * The User's Guide now contains a description of the possible
+    failure modes of mount.s3ql.
+
   * The --debug command line parameter now generates a bit less
     output by default, and there is an additional --debug-module
     parameter to activate additional messages.

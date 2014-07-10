@@ -93,6 +93,53 @@ when the maximum cache size is reached. S3QL always expires the least
 recently used blocks first.
 
 
+Failure Modes
+=============
+
+Once an S3QL file system has been mounted, there is a multitude of
+problems that can occur when communicating with the remote
+server. Generally, :program:`mount.s3ql` always tries to keep the file
+system as accessible as possible under the circumstances. That means
+that if network connectivity is lost, data can still be written as
+long as there is space in the local cache. Attempts to read data not
+already present in the cache, however, will block until connection is
+re-established. If any sort of data corruption is detected, the file
+system will switch to read-only mode. Attempting to read files that
+are affected by the corruption will return an input/output error
+(*errno* set to ``EIO``).
+
+In case of other unexpected or fatal problems, :program:`mount.s3ql`
+terminates, but does not unmount the file system. Any attempt to
+access the mountpoint will result in a "Transport endpoint not
+connected" error (*errno* set to ``ESHUTDOWN``). This ensures that a
+mountpoint whose :program:`mount.s3ql` process has terminated can not
+be confused with a mountpoint containing an empty file system (which
+would be fatal if e.g. the mountpoint is automatically mirrored). When
+this has happened, the mountpoint can be cleared by using the
+:program:`fusermount` command (provided by FUSE) with the ``-u``
+parameter.
+
+:program:`mount.s3ql` will automatically try to re-establish the
+connection to the server if network connectivity is lost, and retry
+sending a request when the connection is established but the remote
+server signals a temporary problem. These attempts will be made at
+increasing intervals for a period up to 24 hours, with retry intervals
+starting at 20 ms and increasing up to 5 minutes. After 24 hours,
+:program:`mount.s3ql` will give up and terminate, leaving the
+mountpoint inaccessible as described above.
+
+Generally, :program:`mount.s3ql` will also emit log messages for any
+unusual conditions that it encounters. The destination for these
+messages can be set with the :cmdopt:`--log` parameter. It is highly
+recommended to periodically check these logs, for example with a tool
+like logcheck_. Many potential issues that :program:`mount.s3ql` may
+encounter do not justify restricting access to the file system, but
+should nevertheless be investigated if they occur. Checking the log
+messages is the only way to find out about them.
+
+.. _logcheck: http://sourceforge.net/projects/logcheck/
+
+
 Automatic Mounting
 ==================
 
