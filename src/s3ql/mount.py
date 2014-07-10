@@ -152,6 +152,7 @@ def main(args=None):
     operations = fs.Operations(block_cache, db, max_obj_size=param['max_obj_size'],
                                inode_cache=InodeCache(db, param['inode_gen']),
                                upload_event=metadata_upload_thread.event)
+    metadata_upload_thread.fs = operations
 
     with ExitStack() as cm:
         log.info('Mounting filesystem...')
@@ -616,8 +617,14 @@ class MetadataUploadThread(Thread):
         self.quit = False
         self.name = 'Metadata-Upload-Thread'
 
+        # Can't assign in constructor, because Operations instance needs
+        # access to self.event as well.
+        self.fs = None
+
     def run(self):
         log.debug('MetadataUploadThread: start')
+
+        assert self.fs is not None
 
         while not self.quit:
             self.event.wait(self.interval)
@@ -638,14 +645,15 @@ class MetadataUploadThread(Thread):
                 fh = tempfile.TemporaryFile()
                 dump_metadata(self.db, fh)
 
-
             with self.backend_pool() as backend:
                 seq_no = get_seq_no(backend)
                 if seq_no != self.param['seq_no']:
                     log.error('Remote metadata is newer than local (%d vs %d), '
-                              'refusing to overwrite!', seq_no, self.param['seq_no'])
+                              'refusing to overwrite and switching to failsafe mode!',
+                              seq_no, self.param['seq_no'])
+                    self.fs.failsafe = True
                     fh.close()
-                    continue
+                    break
 
                 fh.seek(0)
                 self.param['last-modified'] = time.time()
@@ -667,6 +675,9 @@ class MetadataUploadThread(Thread):
 
                 fh.close()
                 self.db_mtime = new_mtime
+
+        # Break reference loop
+        self.fs = None
 
         log.debug('MetadataUploadThread: end')
 
