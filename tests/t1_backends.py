@@ -24,7 +24,7 @@ from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObjec
 from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, S3Error
 from s3ql.common import BUFSIZE, get_ssl_context
 from contextlib import ExitStack
-from common import get_remote_test_info, NoTestSection, catch_logmsg
+from common import get_remote_test_info, NoTestSection, catch_logmsg, CLOCK_GRANULARITY
 import s3ql.backends.common
 from argparse import Namespace
 import tempfile
@@ -889,8 +889,8 @@ def test_backoff(backend, backend_wrapper, monkeypatch):
     monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     backend.delete(key)
 
-    assert timestamps[1] - timestamps[0] > 1
-    assert timestamps[2] - timestamps[1] > 1
+    assert timestamps[1] - timestamps[0] > 1 - CLOCK_GRANULARITY
+    assert timestamps[2] - timestamps[1] > 1 - CLOCK_GRANULARITY
     assert timestamps[2] - timestamps[0] < 10
 
 @require_backend_wrapper(MockBackendWrapper)

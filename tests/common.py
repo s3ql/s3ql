@@ -24,6 +24,14 @@ import random
 import configparser
 import logging
 
+def get_clock_granularity():
+    stamp1 = time.time()
+    stamp2 = stamp1
+    while stamp1 == stamp2:
+        stamp2 = time.time()
+    return 2 * (stamp2 - stamp1)
+CLOCK_GRANULARITY = get_clock_granularity()
+
 @contextmanager
 def catch_logmsg(pattern, level=logging.WARNING, count=None):
     '''Catch (and ignore) log messages matching *pattern*

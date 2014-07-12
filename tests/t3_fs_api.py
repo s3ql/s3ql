@@ -25,7 +25,7 @@ from s3ql.database import Connection
 from s3ql.fsck import Fsck
 from s3ql.inode_cache import InodeCache
 from t2_block_cache import DummyQueue
-from common import catch_logmsg
+from common import catch_logmsg, CLOCK_GRANULARITY
 import errno
 import llfuse
 import os
@@ -43,15 +43,6 @@ class Ctx(object):
     def __init__(self):
         self.uid = randint(0, 2 ** 32)
         self.gid = randint(0, 2 ** 32)
-
-# Determine system clock granularity
-stamp1 = time.time()
-stamp2 = stamp1
-while stamp1 == stamp2:
-    stamp2 = time.time()
-CLOCK_GRANULARITY = 2 * (stamp2 - stamp1)
-del stamp1
-del stamp2
 
 class fs_api_tests(unittest.TestCase):
 
