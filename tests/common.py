@@ -168,10 +168,11 @@ def skip_if_no_fusermount():
         raise unittest.SkipTest('fusermount executable not setuid, and we are not root.')
 
     try:
-        with open('/dev/null', 'wb') as null:
-            subprocess.check_call([fusermount_path, '-V'], stdout=null)
-    except subprocess.CalledProcessError:
-        raise unittest.SkipTest('Unable to execute fusermount') from None
+        fd = os.open('/dev/fuse', os.O_RDWR)
+    except OSError as exc:
+        raise unittest.SkipTest('Unable to open /dev/fuse: %s' % exc.strerror)
+    else:
+        os.close(fd)
 
 def skip_without_rsync():
     try:
