@@ -80,7 +80,7 @@ class S3RequestHandler(BaseHTTPRequestHandler):
                 pass
             else:
                 raise
-        except BrokenPipeError:
+        except (BrokenPipeError, ConnectionResetError):
             pass
 
     def do_DELETE(self):
