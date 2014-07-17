@@ -84,6 +84,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
+        if metadata is None:
+            metadata = dict()
+        elif not isinstance(metadata, dict):
+            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
+
         path = self._key_to_path(key)
 
         # By renaming, we make sure that there are no
@@ -155,10 +160,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def update_meta(self, key, metadata):
+        if not isinstance(metadata, dict):
+            raise TypeError('*metadata*: expected dict, got %s' % type(metadata))
         self.copy(key, key, metadata)
 
     @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None):
+        if not (metadata is None or isinstance(metadata, dict)):
+            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
 
         path_src = self._key_to_path(src)
         path_dest = self._key_to_path(dest)

@@ -284,6 +284,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         log.debug('open_write(%s): start', key)
 
+        if metadata is None:
+            metadata = dict()
+        elif not isinstance(metadata, dict):
+            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
+
         headers = CaseInsensitiveDict()
         self._add_meta_headers(headers, metadata)
 
@@ -309,6 +314,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def copy(self, src, dest, metadata=None):
         log.debug('copy(%s, %s): start', src, dest)
 
+        if not (metadata is None or isinstance(metadata, dict)):
+            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
+
         headers = CaseInsensitiveDict()
         headers[self.hdr_prefix + 'copy-source'] = \
             '/%s/%s%s' % (self.bucket_name, self.prefix, src)
@@ -327,6 +335,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def update_meta(self, key, metadata):
+        if not isinstance(metadata, dict):
+            raise TypeError('*metadata*: expected dict, got %s' % type(metadata))
         self.copy(key, key, metadata)
 
     def _do_request(self, method, path, subres=None, query_string=None,

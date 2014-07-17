@@ -392,7 +392,7 @@ class AbstractBackend(object, metaclass=ABCMeta):
     def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
-        `metadata` can an additional (pickle-able) python object to store with
+        `metadata` can be an additional (pickle-able) `dict` object to store with
         the data. Returns a file- like object. The object must be closed closed
         explicitly. After closing, the *get_obj_size* may be used to retrieve
         the size of the stored object (which may differ from the size of the
@@ -470,7 +470,8 @@ class AbstractBackend(object, metaclass=ABCMeta):
 
         If `dest` already exists, it will be overwritten. If *metadata* is
         `None` metadata will be copied from the source as well, otherwise
-        *metadata* becomes the metadata for the new object.
+        *metadata* becomes the metadata for the new object and must be
+        a pickle-able `dict` instance.
 
         Copying will be done on the remote side without retrieving object data.
         """
@@ -479,7 +480,10 @@ class AbstractBackend(object, metaclass=ABCMeta):
 
     @abstractmethod
     def update_meta(self, key, metadata):
-        """Replace metadata of *key* with *metadata*"""
+        """Replace metadata of *key* with *metadata*
+
+        Metadata must be `dict` instance and pickle-able.
+        """
 
         pass
 
@@ -488,7 +492,8 @@ class AbstractBackend(object, metaclass=ABCMeta):
 
         If `dest` already exists, it will be overwritten. If *metadata* is
         `None` metadata will be preserved, otherwise *metadata* becomes the
-        metadata for the renamed object.
+        metadata for the renamed object and must be a pickle-able `dict`
+        instance.
 
         Rename done remotely without retrieving object data.
         """
@@ -656,8 +661,12 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
 
-        # We always store metadata (even if it's just None), so that we can
+        # We always store metadata (even if it's an empty dict), so that we can
         # verify that the object has been created by us when we call lookup().
+        if metadata is None:
+            metadata = dict()
+        elif not isinstance(metadata, dict):
+            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
         meta_buf = pickle.dumps(metadata, PICKLE_PROTOCOL)
 
         meta_raw = dict()
@@ -716,18 +725,24 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def update_meta(self, key, metadata):
+        if not isinstance(metadata, dict):
+            raise TypeError('*metadata*: expected dict, got %s' % type(metadata))
         raise RuntimeError('Not yet supported')
 
     @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None):
         if metadata is not None:
             raise RuntimeError('Not yet supported')
+        if not (metadata is None or isinstance(metadata, dict)):
+            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
         return self.backend.copy(src, dest)
 
     @copy_ancestor_docstring
     def rename(self, src, dest, metadata=None):
         if metadata is not None:
             raise RuntimeError('Not yet supported')
+        if not (metadata is None or isinstance(metadata, dict)):
+            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
         return self.backend.rename(src, dest)
 
     @copy_ancestor_docstring
