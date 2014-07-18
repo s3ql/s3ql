@@ -233,7 +233,7 @@ def populate_dir(path, entries=1000, size=20*1024*1024,
     file_sizes.append(int(0.5 * size))
 
     # Special characters for use in filenames
-    special_chars = [ chr(x) for x in range(256)
+    special_chars = [ chr(x) for x in range(128)
                       if x not in (0, ord('/')) ]
 
     def random_name(path):
