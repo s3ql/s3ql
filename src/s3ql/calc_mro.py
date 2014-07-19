@@ -1,7 +1,7 @@
 '''
 calc_mro.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
-Copyright (C) 2011 Steven D'Aprano
+Copyright © 2011 Steven D'Aprano
 
 This file may be distributed under the terms of the MIT License.
 

@@ -5,7 +5,7 @@ Implements a Sphinx extension that provides a `pipeinclude` directive
 to include the output of a program.
 
 
-Copyright (C) 2008-2011 Nikolaus Rath <Nikolaus@rath.org>
+Copyright © 2008 Nikolaus Rath <Nikolaus.org>
 
 This program can be distributed under the terms of the GNU GPLv3.
 '''

@@ -5,7 +5,7 @@ clone_fs.py - this file is part of S3QL (http://s3ql.googlecode.com)
 Clone an S3QL file system from one backend into another, without
 recompressing or reencrypting.
 
-Copyright (C) Nikolaus Rath <Nikolaus@rath.org>
+Copyright © 2008 Nikolaus Rath <Nikolaus.org>
 
 This program can be distributed under the terms of the GNU GPLv3.
 '''

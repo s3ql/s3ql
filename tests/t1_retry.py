@@ -2,7 +2,7 @@
 '''
 t1_retry.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
-Copyright (c) Nikolaus Rath <Nikolaus@rath.org>
+Copyright © 2008 Nikolaus Rath <Nikolaus.org>
 
 This program can be distributed under the terms of the GNU GPLv3.
 '''
