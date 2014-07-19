@@ -13,8 +13,7 @@ Module Attributes:
                connection is created.
 '''
 
-from .logging import logging # Ensure use of custom logger class
-from .common import QuietError
+from .logging import logging, QuietError # Ensure use of custom logger class
 import apsw
 import os
 
