@@ -566,8 +566,6 @@ def test_copy(backend, retry_time):
     assert metadata == metadata2
 
 def test_copy_newmeta(backend, retry_time):
-    if isinstance(backend, BetterBackend):
-        pytest.skip('not yet supported for compressed or encrypted backends')
     key1 = newname()
     key2 = newname()
     value = newvalue()
@@ -618,8 +616,6 @@ def test_rename(backend, retry_time):
     assert_not_readable(backend, key1, retry_time)
 
 def test_rename_newmeta(backend, retry_time):
-    if isinstance(backend, BetterBackend):
-        pytest.skip('not yet supported for compressed or encrypted backends')
     key1 = newname()
     key2 = newname()
     value = newvalue()
@@ -644,8 +640,6 @@ def test_rename_newmeta(backend, retry_time):
     assert meta == meta2
 
 def test_update_meta(backend, retry_time):
-    if isinstance(backend, BetterBackend):
-        pytest.skip('not yet supported for compressed or encrypted backends')
     key = 'simple'
     value = b'not too hard'
     meta1 = { 'jimmy': 'jups@42' }
@@ -676,6 +670,7 @@ def test_update_meta(backend, retry_time):
     assert meta == meta2
 
 @require_compression_or_encryption
+@require_immediate_consistency
 def test_corruption(backend, retry_time):
     plain_backend = backend.backend
 
@@ -688,9 +683,9 @@ def test_corruption(backend, retry_time):
     (compr_value, meta) = fetch_object(plain_backend, key, retry_time)
     compr_value = bytearray(compr_value)
 
-    # Create new, corrupt object
+    # Overwrite with corrupted data
+    # (this needs immediate consistency)
     compr_value[-3:] = b'000'
-    key = newname()
     plain_backend.store(key, compr_value, meta)
 
     with pytest.raises(ChecksumError) as exc:
@@ -702,6 +697,7 @@ def test_corruption(backend, retry_time):
         assert exc.value.str == 'HMAC mismatch'
 
 @require_compression_or_encryption
+@require_immediate_consistency
 def test_extra_data(backend, retry_time):
     plain_backend = backend.backend
 
@@ -714,9 +710,9 @@ def test_extra_data(backend, retry_time):
     (compr_value, meta) = fetch_object(plain_backend, key, retry_time)
     compr_value = bytearray(compr_value)
 
-    # Create new, corrupt object
+    # Overwrite with extended data
+    # (this needs immediate consistency)
     compr_value += b'000'
-    key = newname()
     plain_backend.store(key, compr_value, meta)
 
     with pytest.raises(ChecksumError) as exc:
@@ -787,6 +783,25 @@ def test_encryption(backend):
     assert_raises(ChecksumError, backend.lookup, 'encrypted')
     assert_raises(ObjectNotEncrypted, backend.fetch, 'not-encrypted')
     assert_raises(ObjectNotEncrypted, backend.lookup, 'not-encrypted')
+
+@require_encryption
+def test_replay(backend, retry_time):
+    plain_backend = backend.backend
+
+    # Create encrypted object
+    key1 = newname()
+    key2 = newname()
+    value = newvalue()
+    backend[key1] = value
+
+    # Retrieve compressed data
+    (compr_value, meta) = fetch_object(plain_backend, key1, retry_time)
+    compr_value = bytearray(compr_value)
+
+    # Copy into new object
+    plain_backend.store(key2, compr_value, meta)
+
+    assert_raises(ChecksumError, fetch_object, backend, key2, retry_time)
 
 @require_backend_wrapper(MockBackendWrapper)
 def test_corrupted_get(backend, backend_wrapper, monkeypatch):

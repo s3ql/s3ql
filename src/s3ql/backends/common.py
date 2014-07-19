@@ -16,7 +16,6 @@ from abc import abstractmethod, ABCMeta
 from base64 import b64decode, b64encode
 from contextlib import contextmanager
 from functools import wraps
-from io import BytesIO
 import bz2
 import hashlib
 import hmac
@@ -543,9 +542,10 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def lookup(self, key):
-        metadata = self.backend.lookup(key)
-        convert_legacy_metadata(metadata)
-        return self._unwrap_meta(metadata)
+        meta_raw = self.backend.lookup(key)
+        if 'format_version' not in meta_raw:
+            meta_raw = self._convert_legacy_metadata(meta_raw)
+        return self._verify_meta(key, meta_raw)[1]
 
     @prepend_ancestor_docstring
     def get_size(self, key):
@@ -560,17 +560,19 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
     def is_temp_failure(self, exc):
         return self.backend.is_temp_failure(exc)
 
-    def _unwrap_meta(self, metadata):
-        '''Unwrap metadata
+    def _verify_meta(self, key, metadata):
+        '''Unwrap and authenticate metadata
 
         If the backend has a password set but the object is not encrypted,
-        `ObjectNotEncrypted` is raised.
+        `ObjectNotEncrypted` is raised. Returns the object nonce and its
+        metadata. If the object is not encrypted, the nonce is `None`.
         '''
 
-        if (not isinstance(metadata, dict)
-            or 'encryption' not in metadata
-            or 'compression' not in metadata):
+        if not isinstance(metadata, dict):
             raise MalformedObjectError()
+        for mkey in ('encryption', 'compression', 'data'):
+            if mkey not in metadata:
+                raise MalformedObjectError()
 
         encr_alg = metadata['encryption']
         encrypted = (encr_alg != 'None')
@@ -581,31 +583,33 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
         elif not encrypted and self.passphrase is not None:
             raise ObjectNotEncrypted()
 
-        # Pre 2.x buckets
-        if any(k.startswith('meta') for k in metadata):
-            parts = [ metadata[k] for k in sorted(metadata.keys())
-                      if k.startswith('meta') ]
-            buf = b64decode(''.join(parts))
-        else:
+        buf = b64decode(metadata['data'])
+
+        if not encrypted:
             try:
-                buf = metadata['data']
-            except KeyError:
-                raise MalformedObjectError()
-            buf = b64decode(buf)
-
-        if encrypted:
-            buf = decrypt(buf, self.passphrase)
-
-        try:
-            metadata = pickle.loads(buf)
-        except pickle.UnpicklingError:
-            # This can only happen if the object was not integrity-protected,
-            # otherwise it's a bug in S3QL
-            if not encrypted:
+                return (None, pickle.loads(buf))
+            except pickle.UnpicklingError:
                 raise ChecksumError('Invalid metadata')
-            raise
 
-        return metadata
+        # Encrypted
+        for mkey in ('nonce', 'signature', 'object_id'):
+            if mkey not in metadata:
+                raise MalformedObjectError()
+
+        nonce = b64decode(metadata['nonce'])
+        meta_key = sha256(self.passphrase + nonce + b'meta')
+        meta_sig = compute_metadata_signature(meta_key, metadata)
+        if not hmac.compare_digest(b64decode(metadata['signature']),
+                                   meta_sig):
+            raise ChecksumError('HMAC mismatch')
+
+        stored_key = b64decode(metadata['object_id']).decode('utf-8')
+        if stored_key != key:
+            raise ChecksumError('Object content does not match its key (%s vs %s)'
+                                % (stored_key, key))
+
+        buf = b64decode(metadata['data'])
+        return (nonce, pickle.loads(aes_cipher(meta_key).decrypt(buf)))
 
     @prepend_ancestor_docstring
     def open_read(self, key):
@@ -617,13 +621,18 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
         fh = self.backend.open_read(key)
         checksum_warning = False
         try:
-            convert_legacy_metadata(fh.metadata)
+            if 'format_version' in fh.metadata:
+                meta_raw = fh.metadata
+            else:
+                meta_raw = self._convert_legacy_metadata(fh.metadata)
 
             # Also checks if this is a BetterBucket storage object
-            metadata = self._unwrap_meta(fh.metadata)
+            (nonce, meta) = self._verify_meta(key, meta_raw)
+            if nonce:
+                data_key = sha256(self.passphrase + nonce)
 
-            compr_alg = fh.metadata['compression']
-            encr_alg = fh.metadata['encryption']
+            compr_alg = meta_raw['compression']
+            encr_alg = meta_raw['encryption']
 
             if compr_alg == 'BZIP2':
                 decompressor = bz2.BZ2Decompressor()
@@ -636,22 +645,32 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
             else:
                 raise RuntimeError('Unsupported compression: %s' % compr_alg)
 
+            # The `payload_offset` key only exists if the storage object was
+            # created with on old S3QL version. In order to avoid having to
+            # download and re-upload the entire object during the upgrade, the
+            # upgrade procedure adds this header to tell us how many bytes at
+            # the beginning of the object we have to skip to get to the payload.
+            if 'payload_offset' in meta_raw:
+                to_skip = meta_raw['payload_offset']
+                while to_skip:
+                    to_skip -= len(fh.read(to_skip))
+
             # If we've come this far, we want to emit a warning if the object
             # has not been read completely on close().
             checksum_warning = True
 
             if encr_alg == 'AES':
-                fh = LegacyDecryptDecompressFilter(fh, self.passphrase, decompressor)
-            else:
-                if encr_alg == 'AES_v2':
-                    fh = DecryptFilter(fh, self.passphrase)
-                elif encr_alg != 'None':
-                    raise RuntimeError('Unsupported encryption: %s' % encr_alg)
+                fh = LegacyDecryptDecompressFilter(fh, data_key, decompressor)
+                decompressor = None
+            elif encr_alg == 'AES_v2':
+                fh = DecryptFilter(fh, data_key)
+            elif encr_alg != 'None':
+                raise RuntimeError('Unsupported encryption: %s' % encr_alg)
 
-                if decompressor:
-                    fh = DecompressFilter(fh, decompressor)
+            if decompressor:
+                fh = DecompressFilter(fh, decompressor)
 
-            fh.metadata = metadata
+            fh.metadata = meta
         except:
             fh.close(checksum_warning=checksum_warning)
             raise
@@ -661,24 +680,13 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
 
-        # We always store metadata (even if it's an empty dict), so that we can
-        # verify that the object has been created by us when we call lookup().
         if metadata is None:
             metadata = dict()
         elif not isinstance(metadata, dict):
             raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
+
         meta_buf = pickle.dumps(metadata, PICKLE_PROTOCOL)
-
-        meta_raw = dict()
-
-        if self.passphrase is not None:
-            meta_raw['encryption'] = 'AES_v2'
-            nonce = struct.pack('<f', time.time()) + key.encode('utf-8')
-            meta_raw['data'] = b64encode(encrypt(meta_buf, self.passphrase, nonce))
-        else:
-            meta_raw['encryption'] = 'None'
-            meta_raw['data'] = b64encode(meta_buf)
-            nonce = None
+        meta_raw = dict(format_version=1)
 
         if is_compressed or self.compression[0] is None:
             compr = None
@@ -693,10 +701,24 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
             compr = lzma.LZMACompressor(preset=self.compression[1])
             meta_raw['compression'] = 'LZMA'
 
+        if self.passphrase is not None:
+            nonce = struct.pack('<f', time.time()) + key.encode('utf-8')
+            meta_key = sha256(self.passphrase + nonce + b'meta')
+            data_key = sha256(self.passphrase + nonce)
+            meta_raw['encryption'] = 'AES_v2'
+            meta_raw['nonce'] = b64encode(nonce)
+            meta_raw['data'] = b64encode(aes_cipher(meta_key).encrypt(meta_buf))
+            meta_raw['object_id'] = b64encode(key.encode('utf-8'))
+            meta_sig = compute_metadata_signature(meta_key, meta_raw)
+            meta_raw['signature'] = b64encode(meta_sig)
+        else:
+            meta_raw['encryption'] = 'None'
+            meta_raw['data'] = b64encode(meta_buf)
+
         fh = self.backend.open_write(key, meta_raw)
 
-        if nonce:
-            fh = EncryptFilter(fh, self.passphrase, nonce)
+        if self.passphrase is not None:
+            fh = EncryptFilter(fh, data_key)
         if compr:
             fh = CompressFilter(fh, compr)
 
@@ -727,28 +749,159 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
     def update_meta(self, key, metadata):
         if not isinstance(metadata, dict):
             raise TypeError('*metadata*: expected dict, got %s' % type(metadata))
-        raise RuntimeError('Not yet supported')
+        self._copy_or_rename(src=key, dest=key, rename=False,
+                             metadata=metadata)
 
     @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None):
-        if metadata is not None:
-            raise RuntimeError('Not yet supported')
         if not (metadata is None or isinstance(metadata, dict)):
             raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
-        return self.backend.copy(src, dest)
+        self._copy_or_rename(src, dest, rename=False, metadata=metadata)
 
     @copy_ancestor_docstring
     def rename(self, src, dest, metadata=None):
-        if metadata is not None:
-            raise RuntimeError('Not yet supported')
         if not (metadata is None or isinstance(metadata, dict)):
             raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
-        return self.backend.rename(src, dest)
+        self._copy_or_rename(src, dest, rename=True, metadata=metadata)
+
+    def _copy_or_rename(self, src, dest, rename, metadata=None):
+        meta_raw = self.backend.lookup(src)
+        if 'format_version' not in meta_raw:
+            meta_raw = self._convert_legacy_metadata(meta_raw)
+        (nonce, meta_old) = self._verify_meta(src, meta_raw)
+
+        if nonce:
+            meta_key = sha256(self.passphrase + nonce + b'meta')
+            if metadata is not None:
+                meta_buf = pickle.dumps(metadata, PICKLE_PROTOCOL)
+                meta_raw['data'] = b64encode(aes_cipher(meta_key).encrypt(meta_buf))
+            meta_raw['object_id'] = b64encode(dest.encode('utf-8'))
+            meta_raw['signature'] = b64encode(compute_metadata_signature(meta_key, meta_raw))
+        elif metadata is None:
+            # Just copy old metadata
+            meta_raw = None
+        else:
+            meta_buf = pickle.dumps(metadata, PICKLE_PROTOCOL)
+            meta_raw['data'] = b64encode(meta_buf)
+
+        if src == dest: # metadata update only
+            self.backend.update_meta(src, meta_raw)
+        elif rename:
+            self.backend.rename(src, dest, metadata=meta_raw)
+        else:
+            self.backend.copy(src, dest, metadata=meta_raw)
 
     @copy_ancestor_docstring
     def close(self):
         self.backend.close()
 
+    def _convert_legacy_metadata(self, meta,
+                                 LEN_BYTES = struct.calcsize(b'<B'),
+                                 TIME_BYTES = struct.calcsize(b'<f')):
+        '''Convert metadata to newest format
+
+        This method ensures that we can read objects written
+        by older S3QL versions.
+        '''
+
+        meta_new = dict(format_version=1)
+
+        if ('encryption' in meta and
+            'compression' in meta):
+            meta_new['encryption'] = meta['encryption']
+            meta_new['compression'] = meta['compression']
+
+        elif 'encrypted' in meta:
+            s = meta['encrypted']
+            if s == 'True':
+                meta_new['encryption'] = 'AES'
+                meta_new['compression'] = 'BZIP2'
+
+            elif s == 'False':
+                meta_new['encryption'] = 'None'
+                meta_new['compression'] = 'None'
+
+            elif s.startswith('AES/'):
+                meta_new['encryption'] = 'AES'
+                meta_new['compression'] = s[4:]
+
+            elif s.startswith('PLAIN/'):
+                meta_new['encryption'] = 'None'
+                meta_new['compression'] = s[6:]
+            else:
+                raise RuntimeError('Unsupported encryption')
+
+            if meta['compression'] == 'BZ2':
+                meta_new['compression'] = 'BZIP2'
+
+            if meta['compression'] == 'NONE':
+                meta_new['compression'] = 'None'
+        else:
+            meta_new['encryption'] = 'None'
+            meta_new['compression'] = 'None'
+
+        # Extract metadata (pre 2.x versions use multiple headers)
+        if any(k.startswith('meta') for k in meta):
+            parts = [ meta[k] for k in sorted(meta.keys())
+                      if k.startswith('meta') ]
+            meta_new['data'] = ''.join(parts)
+        else:
+            try:
+                meta_new['data'] = meta['data']
+            except KeyError:
+                raise MalformedObjectError()
+
+        if not self.passphrase:
+            return meta_new
+
+        meta_buf = b64decode(meta_new['data'])
+        off = 0
+        def read(len_):
+            nonlocal off
+            tmp = meta_buf[off:off+len_]
+            off += len_
+            return tmp
+
+        len_ = struct.unpack(b'<B', read(LEN_BYTES))[0]
+        nonce = read(len_)
+        key = sha256(self.passphrase + nonce)
+        cipher = aes_cipher(key)
+        hmac_ = hmac.new(key, digestmod=hashlib.sha256)
+        hash_ = read(HMAC_SIZE)
+        meta_buf = meta_buf[off:]
+        meta_buf_plain = cipher.decrypt(meta_buf)
+        hmac_.update(meta_buf_plain)
+        hash_ = cipher.decrypt(hash_)
+
+        if not hmac.compare_digest(hash_, hmac_.digest()):
+            raise ChecksumError('HMAC mismatch')
+
+        obj_id = nonce[TIME_BYTES:].decode('utf-8')
+        meta_key = sha256(self.passphrase + nonce + b'meta')
+        meta_new['nonce'] = b64encode(nonce)
+        meta_new['payload_offset'] = LEN_BYTES + len(nonce)
+        meta_new['data'] = b64encode(aes_cipher(meta_key).encrypt(meta_buf_plain))
+        meta_new['object_id'] = b64encode(obj_id.encode('utf-8'))
+        signature = compute_metadata_signature(meta_key, meta_new)
+        meta_new['signature'] = b64encode(signature)
+
+        return meta_new
+
+def compute_metadata_signature(key, metadata):
+    '''Compute HMAC for metadata dictionary'''
+
+    hmac_ = hmac.new(key, digestmod=hashlib.sha256)
+    for mkey in sorted(metadata.keys()):
+        assert isinstance(mkey, str)
+        if mkey == 'signature':
+            continue
+        val = metadata[mkey]
+        if isinstance(val, str):
+            val = val.encode('utf-8')
+        elif not isinstance(val, (bytes, bytearray)):
+            val = pickle.dumps(val, PICKLE_PROTOCOL)
+        hmac_.update(mkey.encode('utf-8') + val)
+    return hmac_.digest()
 
 class CompressFilter(object):
     '''Compress data while writing'''
@@ -900,7 +1053,7 @@ class DecompressFilter(InputFilter):
 class EncryptFilter(object):
     '''Encrypt data while writing'''
 
-    def __init__(self, fh, passphrase, nonce):
+    def __init__(self, fh, key):
         '''Initialize
 
         *fh* should be a file-like object.
@@ -910,15 +1063,8 @@ class EncryptFilter(object):
         self.fh = fh
         self.obj_size = 0
         self.closed = False
-
-        self.key = sha256(passphrase + nonce)
-        self.cipher = aes_cipher(self.key)
-        self.hmac = hmac.new(self.key, digestmod=hashlib.sha256)
-
-        self.fh.write(struct.pack(b'<B', len(nonce)))
-        self.fh.write(nonce)
-
-        self.obj_size += len(nonce) + 1
+        self.cipher = aes_cipher(key)
+        self.hmac = hmac.new(key, digestmod=hashlib.sha256)
 
     def write(self, data):
         '''Write *data*
@@ -978,7 +1124,9 @@ class DecryptFilter(InputFilter):
     checking to work.
     '''
 
-    def __init__(self, fh, passphrase, metadata=None):
+    off_size = struct.calcsize(b'<I')
+
+    def __init__(self, fh, key, metadata=None):
         '''Initialize
 
         *fh* should be a file-like object that may be unbuffered.
@@ -986,16 +1134,9 @@ class DecryptFilter(InputFilter):
         super().__init__()
 
         self.fh = fh
-        self.off_size = struct.calcsize(b'<I')
         self.remaining = 0 # Remaining length of current packet
         self.metadata = metadata
         self.hmac_checked = False
-
-        # Read nonce
-        len_ = struct.unpack(b'<B', fh.read(struct.calcsize(b'<B')))[0]
-        nonce = fh.read(len_)
-
-        key = sha256(passphrase + nonce)
         self.cipher = aes_cipher(key)
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
 
@@ -1107,7 +1248,7 @@ class LegacyDecryptDecompressFilter(io.RawIOBase):
     checking to work.
     '''
 
-    def __init__(self, fh, passphrase, decomp, metadata=None):
+    def __init__(self, fh, key, decomp):
         '''Initialize
 
         *fh* should be a file-like object and may be unbuffered.
@@ -1115,18 +1256,11 @@ class LegacyDecryptDecompressFilter(io.RawIOBase):
         super().__init__()
 
         self.fh = fh
-        self.metadata = metadata
         self.decomp = decomp
         self.hmac_checked = False
-
-        # Read nonce
-        len_ = struct.unpack(b'<B', fh.read(struct.calcsize(b'<B')))[0]
-        nonce = fh.read(len_)
-        self.hash = fh.read(HMAC_SIZE)
-
-        key = sha256(passphrase + nonce)
         self.cipher = aes_cipher(key)
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
+        self.hash = fh.read(HMAC_SIZE)
 
     def discard_input(self):
         while True:
@@ -1217,48 +1351,6 @@ def decompress(decomp, buf):
             raise ChecksumError('Invalid compressed stream')
         raise
 
-
-def encrypt(buf, passphrase, nonce):
-    '''Encrypt *buf*'''
-
-    key = sha256(passphrase + nonce)
-    cipher = aes_cipher(key)
-    hmac_ = hmac.new(key, digestmod=hashlib.sha256)
-
-    hmac_.update(buf)
-    buf = cipher.encrypt(buf)
-    hash_ = cipher.encrypt(hmac_.digest())
-
-    return b''.join(
-                    (struct.pack(b'<B', len(nonce)),
-                    nonce, hash_, buf))
-
-def decrypt(buf, passphrase):
-    '''Decrypt *buf'''
-
-    fh = BytesIO(buf)
-
-    len_ = struct.unpack(b'<B', fh.read(struct.calcsize(b'<B')))[0]
-    nonce = fh.read(len_)
-
-    key = sha256(passphrase + nonce)
-    cipher = aes_cipher(key)
-    hmac_ = hmac.new(key, digestmod=hashlib.sha256)
-
-    # Read (encrypted) hmac
-    hash_ = fh.read(HMAC_SIZE)
-
-    buf = fh.read()
-    buf = cipher.decrypt(buf)
-    hmac_.update(buf)
-
-    hash_ = cipher.decrypt(hash_)
-
-    if not hmac.compare_digest(hash_, hmac_.digest()):
-        raise ChecksumError('HMAC mismatch')
-
-    return buf
-
 class ObjectNotEncrypted(Exception):
     '''
     Raised by the backend if an object was requested from an encrypted
@@ -1327,44 +1419,3 @@ def aes_cipher(key):
 
     return AES.new(key, AES.MODE_CTR,
                    counter=Counter.new(128, initial_value=0))
-
-def convert_legacy_metadata(meta):
-
-    # For legacy format, meta is always a dict
-    if not isinstance(meta, dict):
-        return
-
-    if ('encryption' in meta and
-        'compression' in meta):
-        return
-
-    if 'encrypted' not in meta:
-        meta['encryption'] = 'None'
-        meta['compression'] = 'None'
-        return
-
-    s = meta.pop('encrypted')
-
-    if s == 'True':
-        meta['encryption'] = 'AES'
-        meta['compression'] = 'BZIP2'
-
-    elif s == 'False':
-        meta['encryption'] = 'None'
-        meta['compression'] = 'None'
-
-    elif s.startswith('AES/'):
-        meta['encryption'] = 'AES'
-        meta['compression'] = s[4:]
-
-    elif s.startswith('PLAIN/'):
-        meta['encryption'] = 'None'
-        meta['compression'] = s[6:]
-    else:
-        raise RuntimeError('Unsupported encryption')
-
-    if meta['compression'] == 'BZ2':
-        meta['compression'] = 'BZIP2'
-
-    if meta['compression'] == 'NONE':
-        meta['compression'] = 'None'

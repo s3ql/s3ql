@@ -8,7 +8,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, QuietError, setup_logging
 from . import CURRENT_FS_REV, REV_VER_MAP
-from .backends.common import BetterBackend
+from .backends.common import BetterBackend, NoSuchObject
+from .database import Connection
 from .backends import get_backend
 from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2,
                      stream_read_bz2, PICKLE_PROTOCOL, is_mounted)
@@ -212,20 +213,45 @@ def clear(backend, cachepath):
 def get_old_rev_msg(rev, prog):
     return textwrap.dedent('''\
         The last S3QL version that supported this file system revision
-        was %(version)s. You can run this version's %(prog)s by executing:
+        was %(version)s. To run this version's %(prog)s, proceed along
+        the following steps:
 
-          $ wget http://s3ql.googlecode.com/files/s3ql-%(version)s.tar.bz2
+          $ wget http://s3ql.googlecode.com/files/s3ql-%(version)s.tar.bz2 \
+            || wget https://bitbucket.org/nikratio/s3ql/downloads/s3ql-%(version)s.tar.bz2
           $ tar xjf s3ql-%(version)s.tar.bz2
           $ (cd s3ql-%(version)s; ./setup.py build_ext)
           $ s3ql-%(version)s/bin/%(prog)s <options>
         ''' % { 'version': REV_VER_MAP[rev],
                 'prog': prog })
 
+def upgrade_monkeypatch():
+    '''Monkeypatch BetterBackend for upgrade
+
+    Monkeypatch BetterBackend, so that we can read the current
+    s3ql_metadata object without getting a ChecksumError. This would
+    happen because previous S3QL versions don't update the object
+    key stored in the object on rename, and the metadata object is
+    created as s3ql_metadata_new``.
+    '''
+    from base64 import b64decode
+
+    verify_meta_orig = BetterBackend._verify_meta
+    def _verify_meta_new(self, key, metadata):
+        if key == 's3ql_metadata':
+            stored_key = b64decode(metadata['object_id']).decode('utf-8')
+            if stored_key == 's3ql_metadata_new':
+                key = stored_key
+        return verify_meta_orig(self, key, metadata)
+    BetterBackend._verify_meta = _verify_meta_new
+
 def upgrade(backend, cachepath):
     '''Upgrade file system to newest revision'''
 
     log.info('Getting file system parameters..')
 
+    upgrade_monkeypatch()
+
+    # Get sequence number and check for *really* old S3QL version
     seq_nos = list(backend.list('s3ql_seq_no_'))
     if (seq_nos[0].endswith('.meta')
         or seq_nos[0].endswith('.dat')):
@@ -253,12 +279,8 @@ def upgrade(backend, cachepath):
             print(get_old_rev_msg(param['revision'], 'fsck.s3ql'))
             raise QuietError()
         else:
-            # Normally we'd use cached metadata now, but for this upgrade
-            # we actually have to ensure that we restore the sqlite db
-            # from the metadata dump.
-            #log.info('Using cached metadata.')
-            #db = Connection(cachepath + '.db')
-            log.info('Ignoring locally cached metadata for upgrade.')
+            log.info('Using cached metadata.')
+            db = Connection(cachepath + '.db')
     else:
         param = backend.lookup('s3ql_metadata')
 
@@ -282,7 +304,7 @@ def upgrade(backend, cachepath):
         raise QuietError()
 
     # Check revision
-    if param['revision'] < 16:
+    if param['revision'] < CURRENT_FS_REV-1:
         print(textwrap.dedent('''
             File system revision too old to upgrade!
 
@@ -314,19 +336,6 @@ def upgrade(backend, cachepath):
     if sys.stdin.readline().strip().lower() != 'yes':
         raise QuietError()
 
-    # For this upgrade, we just need to recreate the sqlite database from the
-    # metadata dump, because some SQLite types have changed
-    assert db is None
-
-    # Keep backup of local metadata (just in case...)
-    if os.path.exists(cachepath + '.params'):
-        assert os.path.exists(cachepath + '.db')
-        if (os.path.exists(cachepath + '.db.bak') or
-            os.path.exists(cachepath + '.params.bak')):
-            raise QuietError('Metadata backup already exists, did something go wrong?')
-        os.rename(cachepath + '.db', cachepath + '.db.bak')
-        os.rename(cachepath + '.params', cachepath + '.params.bak')
-
     if not db:
         # Need to download metadata
         with tempfile.TemporaryFile() as tmpfh:
@@ -342,12 +351,26 @@ def upgrade(backend, cachepath):
             tmpfh.seek(0)
             db = restore_metadata(tmpfh, cachepath + '.db')
 
-
     log.info('Upgrading from revision %d to %d...', param['revision'], CURRENT_FS_REV)
 
     param['revision'] = CURRENT_FS_REV
     param['last-modified'] = time.time()
     param['seq_no'] += 1
+
+    # In this update, we have added a new metadata format. Old objects can still
+    # be read, so we don't need to do any conversion work. However, accessing
+    # (including renaming) encrypted metadata backups will fail because the
+    # embedded object key does not agree with the key under which the object is
+    # stored. Therefore, we need to make sure that we don't try to touch them at
+    # all.
+    if isinstance(backend, BetterBackend) and backend.passphrase:
+        plain_backend = backend.backend
+        for i in range(10)[::-1]:
+            try:
+                plain_backend.rename("s3ql_metadata_bak_%d" % i,
+                                     "s3ql_metadata_bak_%d_pre21" % i)
+            except NoSuchObject:
+                continue
 
     log.info('Dumping metadata...')
     with tempfile.TemporaryFile() as fh:
@@ -374,6 +397,30 @@ def upgrade(backend, cachepath):
     log.info('Cleaning up local metadata...')
     db.execute('ANALYZE')
     db.execute('VACUUM')
+
+
+# This should be used on the *next* fs revision update to ensure that all
+# objects conform to newest standards, so we can drop the legacy routines from
+# backend/common.py.
+def update_obj_metadata(backend, db):
+    '''Upgrade metadata of storage objects'''
+
+    if not isinstance(backend, BetterBackend):
+        log.info('(backend not encrypted or compressed, not much to do here)')
+        return
+
+    plain_backend = backend.backend
+    for (obj_id,) in db.query('SELECT id FROM obj_ids'):
+        meta = plain_backend.lookup('s3ql_data_%d' % obj_id)
+        if 'format_version' in meta:
+            continue
+        meta = backend._convert_legacy_metadata(meta)
+
+        if meta['encryption'] == 'AES':
+            #rewrite_legacy_object(obj_id, meta)
+            raise RuntimeError("Don't know how to convert legacy objects yet")
+        else:
+            plain_backend.update_meta('s3ql_data_%d' % obj_id, meta)
 
 
 if __name__ == '__main__':

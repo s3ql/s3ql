@@ -7,6 +7,25 @@ UNRELEASED, S3QL tip
     output by default, and there is an additional --debug-module
     parameter to activate additional messages.
 
+  * When using encryption, S3QL now checks that a storage object's
+    key corresponds to the data stored under it.
+
+    The lack of this check in previous versions allowed an attacker
+    with control over the storage server to interchange blocks within
+    the same file system (which would have resulted in apparent data
+    corruption in the file system). Targeted modification of specific
+    files, however, would have been very unlikely, because the
+    interchange of blocks had to be done blindly (with the attacker
+    not knowing which file any block belongs to, nor what its contents
+    are).
+
+    Fixes https://bitbucket.org/nikratio/s3ql/issue/52/.
+
+  * The internal file system revision has changed. File systems
+    created with S3QL 2.10 or newer are not compatible with prior S3QL
+    versions. To update an existing file system to the newest
+    revision, use the 's3qladm upgrade' command.
+
 2014-06-28, S3QL 2.9
 
   * Fix crash when using swift backend and server uses an
