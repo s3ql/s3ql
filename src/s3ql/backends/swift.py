@@ -456,6 +456,15 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self._do_request('PUT', '/%s%s' % (self.prefix, final_dest), headers=headers)
         self.conn.discard()
 
+    @copy_ancestor_docstring
+    def update_meta(self, key, metadata):
+        log.debug('start for %s', key)
+
+        headers = CaseInsensitiveDict()
+        self._add_meta_headers(headers, metadata)
+        self._do_request('POST', '/%s%s' % (self.prefix, key), headers=headers)
+        self.conn.discard()
+
     @retry_generator
     @copy_ancestor_docstring
     def list(self, prefix='', start_after='', batch_size=5000):

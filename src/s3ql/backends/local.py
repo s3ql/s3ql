@@ -154,6 +154,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     yield key
 
     @copy_ancestor_docstring
+    def update_meta(self, key, metadata):
+        self.copy(key, key, metadata)
+
+    @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None):
 
         path_src = self._key_to_path(src)

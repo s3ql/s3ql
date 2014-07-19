@@ -325,6 +325,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         except NoSuchKeyError:
             raise NoSuchObject(src)
 
+    @copy_ancestor_docstring
+    def update_meta(self, key, metadata):
+        self.copy(key, key, metadata)
+
     def _do_request(self, method, path, subres=None, query_string=None,
                     headers=None, body=None):
         '''Send request, read and return response object'''

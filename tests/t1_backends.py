@@ -643,6 +643,38 @@ def test_rename_newmeta(backend, retry_time):
     assert value == value2
     assert meta == meta2
 
+def test_update_meta(backend, retry_time):
+    if isinstance(backend, BetterBackend):
+        pytest.skip('not yet supported for compressed or encrypted backends')
+    key = 'simple'
+    value = b'not too hard'
+    meta1 = { 'jimmy': 'jups@42' }
+    meta2 = { 'apple': 'potatoes' }
+
+    backend.store(key, value, meta1)
+
+    # Wait for object to become visible
+    assert_in_index(backend, [key], retry_time)
+    fetch_object(backend, key, retry_time)
+
+    backend.update_meta(key, meta2)
+
+    # Wait for updated metadata
+    waited=0
+    sleep_time = 1
+    while True:
+        (value2, meta) = fetch_object(backend, key, retry_time)
+        if meta != meta1:
+            break
+        elif waited >= retry_time:
+            pytest.fail('metadata for %s not updated after %d seconds'
+                        % (key, waited))
+        time.sleep(sleep_time)
+        waited += sleep_time
+
+    assert value == value2
+    assert meta == meta2
+
 @require_compression_or_encryption
 def test_corruption(backend, retry_time):
     plain_backend = backend.backend

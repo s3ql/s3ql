@@ -586,21 +586,14 @@ class TestBackendPool(AbstractBackend):
         '''
         return self.backend.list(prefix)
 
-    def copy(self, src, dest):
-        """Copy data stored under key `src` to key `dest`
+    def copy(self, src, dest, metadata=None):
+        return self.backend.copy(src, dest, metadata)
 
-        If `dest` already exists, it will be overwritten. The copying
-        is done on the remote side.
-        """
-        return self.backend.copy(src, dest)
+    def rename(self, src, dest, metadata=None):
+        return self.backend.rename(src, dest, metadata)
 
-    def rename(self, src, dest):
-        """Rename key `src` to `dest`
-
-        If `dest` already exists, it will be overwritten. The rename
-        is done on the remote side.
-        """
-        return self.backend.rename(src, dest)
+    def update_meta(self, key, metadata):
+        return self.backend.update_meta(key, metadata)
 
     def get_size(self, key):
         '''Return size of object stored under *key*'''

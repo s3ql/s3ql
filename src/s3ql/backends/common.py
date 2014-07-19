@@ -477,6 +477,12 @@ class AbstractBackend(object, metaclass=ABCMeta):
 
         pass
 
+    @abstractmethod
+    def update_meta(self, key, metadata):
+        """Replace metadata of *key* with *metadata*"""
+
+        pass
+
     def rename(self, src, dest, metadata=None):
         """Rename key `src` to `dest`
 
@@ -707,6 +713,10 @@ class BetterBackend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def list(self, prefix=''):
         return self.backend.list(prefix)
+
+    @copy_ancestor_docstring
+    def update_meta(self, key, metadata):
+        raise RuntimeError('Not yet supported')
 
     @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None):

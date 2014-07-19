@@ -71,7 +71,7 @@ def main(args=None):
 
     r = cli.post('https://accounts.google.com/o/oauth2/device/code',
                  data={ 'client_id': CLIENT_ID,
-                        'scope': 'https://www.googleapis.com/auth/devstorage.read_write' },
+                        'scope': 'https://www.googleapis.com/auth/devstorage.full_control' },
                  verify=True, allow_redirects=False, timeout=20)
     req_json = _parse_response(r)
 
