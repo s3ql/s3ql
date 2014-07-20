@@ -49,6 +49,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     use_expect_100c = True
     xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
+    hdr_prefix = 'x-amz-'
 
     def __init__(self, storage_url, login, password, ssl_context=None,
                  proxy=None):
@@ -71,7 +72,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         self.password = password
         self.login = login
-        self.hdr_prefix = 'x-amz-'
 
     @copy_ancestor_docstring
     def reset(self):
@@ -243,7 +243,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             else:
                 raise
 
-        return self._extractmeta(resp)
+        return self._extractmeta(resp, key)
 
     @retry
     @copy_ancestor_docstring
@@ -273,7 +273,18 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         except NoSuchKeyError:
             raise NoSuchObject(key)
 
-        return ObjectR(key, resp, self, self._extractmeta(resp))
+        try:
+            meta = self._extractmeta(resp, key)
+        except BadDigestError:
+            # If there's less than 64 kb of data, read and throw
+            # away. Otherwise re-establish connection.
+            if resp.length is not None and resp.length < 64*1024:
+                self.conn.discard()
+            else:
+                self.conn.disconnect()
+            raise
+
+        return ObjectR(key, resp, self, meta)
 
     @prepend_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
@@ -294,19 +305,21 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return ObjectW(key, self, headers)
 
-    def _add_meta_headers(self, headers, metadata):
+    # Note! This function is also used by the swift backend.
+    def _add_meta_headers(self, headers, metadata, chunksize=255):
 
         # We don't store the metadata keys directly, because HTTP headers
         # are case insensitive (so the server may change capitalization)
         # and we may run into length restrictions.
-        meta_buf = b64encode(pickle.dumps(metadata, PICKLE_PROTOCOL)).decode('us-ascii')
+        meta_buf = b64encode(pickle.dumps(metadata, PICKLE_PROTOCOL))
 
-        chunksize = 255
-        i = 0
         headers[self.hdr_prefix + 'meta-format'] = 'pickle'
+        headers[self.hdr_prefix + 'meta-md5'] = md5sum_b64(meta_buf)
+
+        i = 0
         while i*chunksize < len(meta_buf):
-            headers[self.hdr_prefix +
-                    'meta-data-%02d' % i] = meta_buf[i*chunksize:(i+1)*chunksize]
+            p = meta_buf[i*chunksize:(i+1)*chunksize].decode('us-ascii')
+            headers[self.hdr_prefix + 'meta-data-%02d' % i] = p
             i += 1
 
     @retry
@@ -625,7 +638,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def close(self):
         self.conn.disconnect()
 
-    def _extractmeta(self, resp):
+    # Note! This function is also used by the swift backend.
+    def _extractmeta(self, resp, key):
         '''Extract metadata from HTTP response object'''
 
         meta = dict()
@@ -650,15 +664,15 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if format_ == 'pickle':
             buf = ''.join(meta[x] for x in sorted(meta)
                           if x.startswith('data-'))
-            try:
-                return pickle.loads(b64decode(buf))
-            except pickle.UnpicklingError as exc:
-                if (isinstance(exc.args[0], str)
-                    and exc.args[0].startswith('invalid load key')):
-                    raise ChecksumError('Invalid metadata')
-                raise
-        else:
+            if 'md5' in meta and md5sum_b64(buf.encode('us-ascii')) != meta['md5']:
+                log.warning('MD5 mismatch in metadata for %s', key)
+                raise BadDigestError('BadDigest',
+                                     'Meta MD5 for %s does not match' % key)
+            return pickle.loads(b64decode(buf))
+        elif format_ == 'raw': # No MD5 available
             return meta
+        else:
+            raise RuntimeError('Unknown metadata format: %s' % format_)
 
 class ObjectR(object):
     '''An S3 object open for reading'''

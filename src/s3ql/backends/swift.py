@@ -7,21 +7,20 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging, QuietError # Ensure use of custom logger class
-from .. import PICKLE_PROTOCOL, BUFSIZE
+from .. import BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
-    DanglingStorageURLError, ChecksumError, retry_generator)
-from .s3c import HTTPError, ObjectR, ObjectW, md5sum_b64
+    DanglingStorageURLError, retry_generator)
+from .s3c import HTTPError, ObjectR, ObjectW, md5sum_b64, BadDigestError
+from . import s3c
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from dugong import (HTTPConnection, BodyFollowing, is_temp_network_error, CaseInsensitiveDict,
                     ConnectionClosed)
 from urllib.parse import urlsplit
-from base64 import b64encode, b64decode
 import json
 import shutil
 import re
 import os
-import pickle
 import urllib.parse
 
 log = logging.getLogger(__name__)
@@ -40,6 +39,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """
 
     use_expect_100c = True
+    hdr_prefix = 'X-Object-'
+
+    _add_meta_headers = s3c.Backend._add_meta_headers
+    _extractmeta = s3c.Backend._extractmeta
 
     def __init__(self, storage_url, login, password, ssl_context=None, proxy=None):
         # Unused argument
@@ -318,7 +321,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             else:
                 raise
 
-        return extractmeta(resp)
+        return self._extractmeta(resp, key)
 
     @retry
     @copy_ancestor_docstring
@@ -353,21 +356,18 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 raise NoSuchObject(key)
             raise
 
-        return ObjectR(key, resp, self, extractmeta(resp))
+        try:
+            meta = self._extractmeta(resp, key)
+        except BadDigestError:
+            # If there's less than 64 kb of data, read and throw
+            # away. Otherwise re-establish connection.
+            if resp.length is not None and resp.length < 64*1024:
+                self.conn.discard()
+            else:
+                self.conn.disconnect()
+            raise
 
-    def _add_meta_headers(self, headers, metadata):
-
-        # We don't store the metadata keys directly, because HTTP headers
-        # are case insensitive (so the server may change capitalization)
-        # and we may run into length restrictions.
-        meta_buf = b64encode(pickle.dumps(metadata, PICKLE_PROTOCOL)).decode('us-ascii')
-
-        chunksize = 255
-        i = 0
-        headers['X-Object-Meta-Format'] = 'pickle'
-        while i*chunksize < len(meta_buf):
-            headers['X-Object-Meta-Data-%02d' % i] = meta_buf[i*chunksize:(i+1)*chunksize]
-            i += 1
+        return ObjectR(key, resp, self, meta)
 
     @prepend_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
@@ -533,41 +533,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if self.conn.response_pending() or self.conn._out_remaining:
             log.debug('Resetting state of http connection %d', id(self.conn))
             self.conn.disconnect()
-
-def extractmeta(resp):
-    '''Extract metadata from HTTP response object'''
-
-    meta = dict()
-    format_ = 'raw'
-    for (name, val) in resp.headers.items():
-        # HTTP headers are case-insensitive and pre 2.x S3QL versions metadata
-        # names verbatim (and thus loose capitalization info), so we force lower
-        # case (since we know that this is the original capitalization).
-        name = name.lower()
-
-        hit = re.match(r'^X-Object-Meta-(.+)$', name, re.IGNORECASE)
-        if not hit:
-            continue
-
-        if hit.group(1).lower() == 'format':
-            format_ = val
-        else:
-            log.debug('read %s: %s', hit.group(1), val)
-            meta[hit.group(1)] = val
-
-    if format_ == 'pickle':
-        buf = ''.join(meta[x] for x in sorted(meta)
-                      if x.lower().startswith('data-'))
-        try:
-            return pickle.loads(b64decode(buf))
-        except pickle.UnpicklingError as exc:
-            if (isinstance(exc.args[0], str)
-                and exc.args[0].startswith('invalid load key')):
-                raise ChecksumError('Invalid metadata')
-            raise
-    else:
-        return meta
-
 
 class AuthenticationExpired(Exception):
     '''Raised if the provided Authentication Token has expired'''

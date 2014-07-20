@@ -829,6 +829,30 @@ def test_corrupted_get(backend, backend_wrapper, monkeypatch):
         assert backend[key] == value
 
 @require_backend_wrapper(MockBackendWrapper)
+def test_corrupted_meta(backend, backend_wrapper, monkeypatch):
+    key = 'brafasel'
+    value = b'hello there, let us see whats going on'
+    backend[key] = value
+
+    # Monkeypatch request handler to mess up metadata
+    handler_class = backend_wrapper.server.RequestHandlerClass
+    def send_header(self, keyword ,value, count=[0],
+                    send_header_real=handler_class.send_header):
+        if keyword == self.hdr_prefix + 'Meta-md5':
+            count[0] += 1
+            if count[0] <= 3:
+                value = value[::-1]
+        return send_header_real(self, keyword, value)
+    monkeypatch.setattr(handler_class, 'send_header', send_header)
+
+    with catch_logmsg('^MD5 mismatch in metadata for', count=1, level=logging.WARNING):
+        assert_raises(BadDigestError, backend.fetch, key)
+
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
+    with catch_logmsg('^MD5 mismatch in metadata for', count=2, level=logging.WARNING):
+        assert backend[key] == value
+
+@require_backend_wrapper(MockBackendWrapper)
 def test_corrupted_put(backend, backend_wrapper, monkeypatch):
     key = 'brafasel'
     value = b'hello there, let us see whats going on'
