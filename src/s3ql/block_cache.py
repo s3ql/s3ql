@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .common import BUFSIZE
+from . import BUFSIZE
 from .database import NoSuchRowError
 from .multi_lock import MultiLock
 from .logging import logging # Ensure use of custom logger class

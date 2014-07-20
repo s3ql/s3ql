@@ -6,10 +6,10 @@ Copyright © 2008 Nikolaus Rath <Nikolaus.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging # Ensure use of custom logger class
-from ..common import QuietError, PICKLE_PROTOCOL, ChecksumError, BUFSIZE
+from ..logging import logging, QuietError # Ensure use of custom logger class
+from .. import PICKLE_PROTOCOL, BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
-    AuthenticationError, DanglingStorageURLError, retry_generator)
+    AuthenticationError, DanglingStorageURLError, retry_generator, ChecksumError)
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from io import BytesIO

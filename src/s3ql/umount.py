@@ -7,7 +7,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from .logging import logging, setup_logging
-from .common import CTRL_NAME, assert_s3ql_mountpoint
+from . import CTRL_NAME
+from .common import assert_s3ql_mountpoint
 from .parse_args import ArgumentParser
 import llfuse
 import os

@@ -13,7 +13,7 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 from s3ql.backends import local
-from s3ql.backends.common import BetterBackend
+from s3ql.backends.comprenc import ComprencBackend
 import shutil
 import tempfile
 import unittest
@@ -66,7 +66,7 @@ class AdmTests(unittest.TestCase):
         self.assertEqual(proc.wait(), 0)
 
         plain_backend = local.Backend(self.storage_url, None, None)
-        backend = BetterBackend(passphrase_new.encode(), ('zlib', 6), plain_backend)
+        backend = ComprencBackend(passphrase_new.encode(), ('zlib', 6), plain_backend)
 
         backend.fetch('s3ql_passphrase') # will fail with wrong pw
 

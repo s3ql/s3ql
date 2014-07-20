@@ -13,7 +13,8 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 from os.path import basename
-from s3ql.common import CTRL_NAME, PICKLE_PROTOCOL, path2bytes
+from s3ql import CTRL_NAME, PICKLE_PROTOCOL
+from s3ql.common import path2bytes
 from common import retry, skip_if_no_fusermount
 import pickle
 import filecmp

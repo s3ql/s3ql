@@ -14,7 +14,8 @@ if __name__ == '__main__':
 
 from contextlib import contextmanager
 from s3ql.backends import local
-from s3ql.backends.common import BackendPool, AbstractBackend, NoSuchObject
+from s3ql.backends.common import AbstractBackend, NoSuchObject
+from s3ql.backends.pool import BackendPool
 from s3ql.block_cache import BlockCache, QuitSentinel, NoWorkerThreads
 from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables

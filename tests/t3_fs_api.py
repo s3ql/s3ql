@@ -16,9 +16,10 @@ from llfuse import FUSEError
 from random import randint
 from s3ql import fs
 from s3ql.backends import local
-from s3ql.backends.common import BackendPool, BetterBackend
+from s3ql.backends.pool import BackendPool
+from s3ql.backends.comprenc import ComprencBackend
 from s3ql.block_cache import BlockCache
-from s3ql.common import ROOT_INODE
+from s3ql import ROOT_INODE
 from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
@@ -49,7 +50,7 @@ class fs_api_tests(unittest.TestCase):
     def setUp(self):
         self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
         plain_backend = local.Backend('local://' + self.backend_dir, None, None)
-        self.backend_pool = BackendPool(lambda: BetterBackend(b'schwubl', ('zlib', 6),
+        self.backend_pool = BackendPool(lambda: ComprencBackend(b'schwubl', ('zlib', 6),
                                                               plain_backend))
         self.backend = self.backend_pool.pop_conn()
         self.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')

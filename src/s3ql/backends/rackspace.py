@@ -6,13 +6,12 @@ Copyright © 2008 Nikolaus Rath <Nikolaus.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..common import QuietError
+from ..logging import logging, QuietError # Ensure use of custom logger class
 from . import swiftks
 from ..inherit_docstrings import copy_ancestor_docstring
 import re
-import logging
 
-log = logging.getLogger("backend.rackspace")
+log = logging.getLogger(__name__)
 
 class Backend(swiftks.Backend):
     """A backend to store data in Rackspace CloudFiles"""

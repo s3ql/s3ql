@@ -24,7 +24,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
 from s3ql.logging import setup_logging, QuietError, logging
-from s3ql.common import PICKLE_PROTOCOL
+from s3ql import PICKLE_PROTOCOL
 from s3ql.parse_args import ArgumentParser
 from s3ql.remove import main as s3qlrm
 

@@ -7,7 +7,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from .logging import logging, setup_logging
-from .common import assert_fs_owner, PICKLE_PROTOCOL
+from .common import assert_fs_owner
+from . import PICKLE_PROTOCOL
 from .parse_args import ArgumentParser
 import llfuse
 import pickle

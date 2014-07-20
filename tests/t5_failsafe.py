@@ -19,10 +19,10 @@ import pytest
 import errno
 from common import get_remote_test_info, NoTestSection
 from s3ql.backends import gs
-from s3ql.backends.common import BetterBackend
 from argparse import Namespace
 from s3ql.backends.local import Backend as LocalBackend
-from s3ql.common import BUFSIZE, get_ssl_context, get_seq_no
+from s3ql.common import get_ssl_context, get_seq_no
+from s3ql import BUFSIZE
 
 class FailsafeTest(t4_fuse.fuse_tests):
     '''

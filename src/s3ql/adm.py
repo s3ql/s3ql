@@ -7,12 +7,12 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from .logging import logging, QuietError, setup_logging
-from . import CURRENT_FS_REV, REV_VER_MAP
-from .backends.common import BetterBackend, NoSuchObject
+from . import CURRENT_FS_REV, REV_VER_MAP, PICKLE_PROTOCOL
+from .backends.common import NoSuchObject
+from .backends.comprenc import ComprencBackend
 from .database import Connection
-from .backends import get_backend
 from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2,
-                     stream_read_bz2, PICKLE_PROTOCOL, is_mounted)
+                     stream_read_bz2, is_mounted, get_backend)
 from .metadata import restore_metadata, cycle_metadata, dump_metadata
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
@@ -164,7 +164,7 @@ def download_metadata(backend, storage_url):
 def change_passphrase(backend):
     '''Change file system passphrase'''
 
-    if not isinstance(backend, BetterBackend) and backend.passphrase:
+    if not isinstance(backend, ComprencBackend) and backend.passphrase:
         raise QuietError('File system is not encrypted.')
 
     data_pw = backend.passphrase
@@ -225,9 +225,9 @@ def get_old_rev_msg(rev, prog):
                 'prog': prog })
 
 def upgrade_monkeypatch():
-    '''Monkeypatch BetterBackend for upgrade
+    '''Monkeypatch ComprencBackend for upgrade
 
-    Monkeypatch BetterBackend, so that we can read the current
+    Monkeypatch ComprencBackend, so that we can read the current
     s3ql_metadata object without getting a ChecksumError. This would
     happen because previous S3QL versions don't update the object
     key stored in the object on rename, and the metadata object is
@@ -235,14 +235,14 @@ def upgrade_monkeypatch():
     '''
     from base64 import b64decode
 
-    verify_meta_orig = BetterBackend._verify_meta
+    verify_meta_orig = ComprencBackend._verify_meta
     def _verify_meta_new(self, key, metadata):
         if key == 's3ql_metadata':
             stored_key = b64decode(metadata['object_id']).decode('utf-8')
             if stored_key == 's3ql_metadata_new':
                 key = stored_key
         return verify_meta_orig(self, key, metadata)
-    BetterBackend._verify_meta = _verify_meta_new
+    ComprencBackend._verify_meta = _verify_meta_new
 
 def upgrade(backend, cachepath):
     '''Upgrade file system to newest revision'''
@@ -363,7 +363,7 @@ def upgrade(backend, cachepath):
     # embedded object key does not agree with the key under which the object is
     # stored. Therefore, we need to make sure that we don't try to touch them at
     # all.
-    if isinstance(backend, BetterBackend) and backend.passphrase:
+    if isinstance(backend, ComprencBackend) and backend.passphrase:
         plain_backend = backend.backend
         for i in range(10)[::-1]:
             try:
@@ -405,7 +405,7 @@ def upgrade(backend, cachepath):
 def update_obj_metadata(backend, db):
     '''Upgrade metadata of storage objects'''
 
-    if not isinstance(backend, BetterBackend):
+    if not isinstance(backend, ComprencBackend):
         log.info('(backend not encrypted or compressed, not much to do here)')
         return
 

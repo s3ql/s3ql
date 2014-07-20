@@ -7,15 +7,14 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from .logging import logging, setup_logging, QuietError
-from . import CURRENT_FS_REV
-from .backends.common import BetterBackend
-from .backends import s3, get_backend
-from .common import get_backend_cachedir, CTRL_INODE, stream_write_bz2, PICKLE_PROTOCOL
+from . import CURRENT_FS_REV, CTRL_INODE, PICKLE_PROTOCOL, ROOT_INODE
+from .backends.comprenc import ComprencBackend
+from .backends import s3
+from .common import get_backend_cachedir, stream_write_bz2, get_backend
 from .database import Connection
 from .metadata import dump_metadata, create_tables
 from .parse_args import ArgumentParser
 from getpass import getpass
-from llfuse import ROOT_INODE
 import os
 import pickle
 import shutil
@@ -130,7 +129,7 @@ def main(args=None):
         data_pw = fh.read(32)
         fh.close()
 
-        backend = BetterBackend(wrap_pw, ('lzma', 2), plain_backend)
+        backend = ComprencBackend(wrap_pw, ('lzma', 2), plain_backend)
         backend['s3ql_passphrase'] = data_pw
         backend['s3ql_passphrase_bak1'] = data_pw
         backend['s3ql_passphrase_bak2'] = data_pw
@@ -138,7 +137,7 @@ def main(args=None):
     else:
         data_pw = None
 
-    backend = BetterBackend(data_pw, ('lzma', 2), plain_backend)
+    backend = ComprencBackend(data_pw, ('lzma', 2), plain_backend)
     atexit.unregister(plain_backend.close)
     atexit.register(backend.close)
 
@@ -169,7 +168,7 @@ def main(args=None):
     param['last-modified'] = time.time()
 
     # This indicates that the convert_legacy_metadata() stuff
-    # in BetterBackend is not required for this file system.
+    # in ComprencBackend is not required for this file system.
     param['backend_revision'] = 1
 
     log.info('Dumping metadata...')

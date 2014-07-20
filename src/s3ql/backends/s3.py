@@ -6,11 +6,10 @@ Copyright © 2008 Nikolaus Rath <Nikolaus.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging # Ensure use of custom logger class
+from ..logging import logging, QuietError # Ensure use of custom logger class
 from . import s3c
 from .s3c import get_S3Error
 from .common import NoSuchObject, retry
-from ..common import QuietError
 from ..inherit_docstrings import copy_ancestor_docstring
 from xml.sax.saxutils import escape as xml_escape
 import re

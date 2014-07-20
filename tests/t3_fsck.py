@@ -13,7 +13,7 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 from s3ql.backends import local
-from s3ql.common import ROOT_INODE
+from s3ql import ROOT_INODE
 from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection, NoSuchRowError

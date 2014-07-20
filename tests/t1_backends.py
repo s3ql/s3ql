@@ -14,15 +14,16 @@ if __name__ == '__main__':
 
 import mock_server
 from dugong import ConnectionClosed
-from s3ql import backends
+from s3ql import backends, BUFSIZE
 from s3ql.logging import logging
 from s3ql.backends.local import Backend as LocalBackend
 from s3ql.backends.gs import Backend as GSBackend
-from s3ql.backends.common import (ChecksumError, ObjectNotEncrypted, NoSuchObject,
-    BetterBackend, AuthenticationError, AuthorizationError, DanglingStorageURLError,
-    MalformedObjectError)
+from s3ql.backends.common import (NoSuchObject, AuthenticationError, AuthorizationError,
+                                  DanglingStorageURLError, ChecksumError)
+from s3ql.backends.comprenc import (ComprencBackend, ObjectNotEncrypted,
+                                    MalformedObjectError)
 from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, S3Error
-from s3ql.common import BUFSIZE, get_ssl_context
+from s3ql.common import get_ssl_context
 from contextlib import ExitStack
 from common import get_remote_test_info, NoTestSection, catch_logmsg, CLOCK_GRANULARITY
 import s3ql.backends.common
@@ -239,11 +240,11 @@ def backend(compenc_kind, backend_wrapper):
     if compenc_kind == 'plain':
         return plain_backend
     elif compenc_kind == 'aes+lzma':
-        return BetterBackend(b'schlurz', ('lzma', 6), plain_backend)
+        return ComprencBackend(b'schlurz', ('lzma', 6), plain_backend)
     elif compenc_kind == 'aes':
-        return BetterBackend(b'schlurz', (None, 6), plain_backend)
+        return ComprencBackend(b'schlurz', (None, 6), plain_backend)
     else:
-        return BetterBackend(None, (compenc_kind, 6), plain_backend)
+        return ComprencBackend(None, (compenc_kind, 6), plain_backend)
 
 def require_plain_backend(class_):
     '''Require plain backend of type *class*_

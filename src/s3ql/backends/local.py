@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging # Ensure use of custom logger class
-from ..common import BUFSIZE, PICKLE_PROTOCOL
+from .. import BUFSIZE, PICKLE_PROTOCOL
 from ..inherit_docstrings import (copy_ancestor_docstring, ABCDocstMeta)
 from .common import AbstractBackend, DanglingStorageURLError, NoSuchObject, ChecksumError
 import _thread

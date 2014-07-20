@@ -7,12 +7,11 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from .logging import logging, setup_logging, QuietError
-from . import CURRENT_FS_REV
+from . import CURRENT_FS_REV, BUFSIZE, CTRL_INODE, PICKLE_PROTOCOL, ROOT_INODE
 from .backends.common import NoSuchObject
-from .backends import get_backend
-from .common import (ROOT_INODE, inode_for_path, sha256_fh, get_path, BUFSIZE, get_backend_cachedir,
-                     get_seq_no, stream_write_bz2, stream_read_bz2, CTRL_INODE,
-                     PICKLE_PROTOCOL, is_mounted)
+from .common import (inode_for_path, sha256_fh, get_path, get_backend_cachedir,
+                     get_seq_no, stream_write_bz2, stream_read_bz2, is_mounted,
+                     get_backend)
 from .database import NoSuchRowError, Connection
 from .metadata import restore_metadata, cycle_metadata, dump_metadata, create_tables
 from .parse_args import ArgumentParser

@@ -31,10 +31,11 @@ else:
     exec_prefix = ''
 
 from s3ql.logging import logging, setup_logging, QuietError
-from s3ql.backends import get_backend
-from s3ql.backends.common import BetterBackend, DanglingStorageURLError
+from s3ql.common import get_backend
+from s3ql.backends.common import DanglingStorageURLError
+from s3ql.backends.comprenc import ComprencBackend
 from s3ql.backends.local import Backend
-from s3ql.common import BUFSIZE
+from s3ql import BUFSIZE
 from s3ql.parse_args import ArgumentParser
 
 ALGS = ('lzma', 'bzip2', 'zlib')
@@ -159,7 +160,7 @@ def main(args=None):
     out_speed = dict()
     for alg in ALGS:
         log.info('compressing with %s-6...', alg)
-        backend = BetterBackend(b'pass', (alg, 6), Backend('local://' + backend_dir, None, None))
+        backend = ComprencBackend(b'pass', (alg, 6), Backend('local://' + backend_dir, None, None))
         def do_write(dst): #pylint: disable=E0102
             src.seek(0)
             stamp = time.time()

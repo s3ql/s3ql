@@ -6,9 +6,8 @@ Copyright © 2008 Nikolaus Rath <Nikolaus.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging # Ensure use of custom logger class
+from ..logging import logging, QuietError # Ensure use of custom logger class
 from . import swift
-from ..common import QuietError
 from dugong import HTTPConnection, CaseInsensitiveDict
 from .common import AuthorizationError, retry, DanglingStorageURLError
 from .s3c import HTTPError

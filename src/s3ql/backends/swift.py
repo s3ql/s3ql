@@ -6,8 +6,8 @@ Copyright © 2008 Nikolaus Rath <Nikolaus.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging # Ensure use of custom logger class
-from ..common import QuietError, PICKLE_PROTOCOL, BUFSIZE
+from ..logging import logging, QuietError # Ensure use of custom logger class
+from .. import PICKLE_PROTOCOL, BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
     DanglingStorageURLError, ChecksumError, retry_generator)
 from .s3c import HTTPError, ObjectR, ObjectW, md5sum_b64

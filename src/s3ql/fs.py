@@ -7,14 +7,13 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from .logging import logging
-from . import deltadump
+from . import deltadump, CTRL_NAME, CTRL_INODE, PICKLE_PROTOCOL
 from .backends.common import NoSuchObject, ChecksumError
-from .common import get_path, CTRL_NAME, CTRL_INODE
+from .common import get_path
 from .database import NoSuchRowError
 from .inode_cache import OutOfInodesError
 from io import BytesIO
 from llfuse import FUSEError
-from s3ql.common import PICKLE_PROTOCOL
 import collections
 import errno
 import llfuse
