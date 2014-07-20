@@ -26,6 +26,9 @@ UNRELEASED, S3QL tip
     versions. To update an existing file system to the newest
     revision, use the 's3qladm upgrade' command.
 
+  * S3QL now aborts immediately instead of retrying if the server
+    storage server reports that the local clock is skewed.
+
 2014-06-28, S3QL 2.9
 
   * Fix crash when using swift backend and server uses an

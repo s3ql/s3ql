@@ -116,8 +116,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def is_temp_failure(self, exc): #IGNORE:W0613
         if isinstance(exc, (InternalError, BadDigestError, IncompleteBodyError,
-                            RequestTimeoutError, OperationAbortedError, SlowDownError,
-                            RequestTimeTooSkewedError)):
+                            RequestTimeoutError, OperationAbortedError, SlowDownError)):
             return True
 
         elif is_temp_network_error(exc):
