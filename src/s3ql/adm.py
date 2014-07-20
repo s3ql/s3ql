@@ -401,13 +401,14 @@ def upgrade(backend, cachepath):
 
 # This should be used on the *next* fs revision update to ensure that all
 # objects conform to newest standards, so we can drop the legacy routines from
-# backend/common.py.
+# backend/common.py as well as the legacy metadata handling in backends/s3c.py
 def update_obj_metadata(backend, db):
     '''Upgrade metadata of storage objects'''
 
     if not isinstance(backend, ComprencBackend):
-        log.info('(backend not encrypted or compressed, not much to do here)')
-        return
+        # Need to make sure that all plain metadata is using
+        # pickle format
+        raise RuntimeError('not implemented yet')
 
     plain_backend = backend.backend
     for (obj_id,) in db.query('SELECT id FROM obj_ids'):
