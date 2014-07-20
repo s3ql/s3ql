@@ -15,6 +15,7 @@ from .backends.comprenc import ComprencBackend
 from getpass import getpass
 import configparser
 import re
+import socket
 import stat
 import sys
 import os
@@ -421,6 +422,10 @@ def get_backend_factory(options, plain=False):
     except AuthorizationError:
         raise QuietError('No permission to access backend.',
                          exitcode=15)
+
+    except (socket.gaierror, socket.herror):
+        raise QuietError("Can't connect to backend: unable to resolve hostname",
+                         exitcode=19)
 
     except DanglingStorageURLError as exc:
         raise QuietError(str(exc), exitcode=16)

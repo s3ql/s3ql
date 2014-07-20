@@ -68,6 +68,9 @@ codes are used:
 :18:
    No S3QL file system found at given storage URL.
 
+:19:
+   Unable to connect to backend, can't resolve hostname.
+
 :32:
    Unsupported file system revision (too old).
 

@@ -62,6 +62,9 @@ Exit Codes
 :16:
    Invalid storage URL, specified location does not exist in backend.
 
+:19:
+   Unable to connect to backend, can't resolve hostname.
+
 :45:
    Unable to access cache directory.
 
