@@ -13,6 +13,7 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 from common import populate_dir, skip_without_rsync, get_remote_test_info, NoTestSection
+from s3ql import backends
 import shutil
 import subprocess
 from subprocess import check_output, CalledProcessError
@@ -98,10 +99,13 @@ class RemoteTest:
         self.assertEqual(proc.wait(), 0)
 
 
-class S3FullTest(RemoteTest, FullTest):
-    def setUp(self):
-        super().setUp('s3-test')
-
-class SwiftksFullTest(RemoteTest, FullTest):
-    def setUp(self):
-        super().setUp('swiftks-test')
+# Dynamically generate tests for other backends
+for backend_name in backends.prefix_map:
+    if backend_name == 'local':
+        continue
+    def setUp(self, backend_name=backend_name):
+        RemoteTest.setUp(self, backend_name + '-test')
+    test_class_name = backend_name + 'FullTests'
+    globals()[test_class_name] = type(test_class_name,
+                                      (RemoteTest, FullTest),
+                                      { 'setUp': setUp })

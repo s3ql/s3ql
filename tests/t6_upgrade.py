@@ -14,6 +14,7 @@ if __name__ == '__main__':
 
 from common import populate_dir, skip_without_rsync, retry
 from t1_backends import get_remote_test_info, NoTestSection
+from s3ql import backends
 import shutil
 import subprocess
 from subprocess import check_output, CalledProcessError
@@ -188,10 +189,13 @@ class RemoteUpgradeTest:
 
         self.assertEqual(proc.wait(), 0)
 
-class S3UpgradeTest(RemoteUpgradeTest, UpgradeTest):
-    def setUp(self):
-        super().setUp('s3-test')
-
-class SwiftUpgradeTest(RemoteUpgradeTest, UpgradeTest):
-    def setUp(self):
-        super().setUp('swift-test')
+# Dynamically generate tests for other backends
+for backend_name in backends.prefix_map:
+    if backend_name == 'local':
+        continue
+    def setUp(self, backend_name=backend_name):
+        RemoteUpgradeTest.setUp(self, backend_name + '-test')
+    test_class_name = backend_name + 'FullTests'
+    globals()[test_class_name] = type(test_class_name,
+                                      (RemoteUpgradeTest, UpgradeTest),
+                                      { 'setUp': setUp })
