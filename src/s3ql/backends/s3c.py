@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from ..logging import logging, QuietError # Ensure use of custom logger class
 from .. import PICKLE_PROTOCOL, BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
-    AuthenticationError, DanglingStorageURLError, retry_generator, ChecksumError)
+    AuthenticationError, DanglingStorageURLError, retry_generator)
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from io import BytesIO
