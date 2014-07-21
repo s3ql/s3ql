@@ -40,6 +40,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if not os.path.exists(self.prefix):
             raise DanglingStorageURLError(self.prefix)
 
+    @property
+    @copy_ancestor_docstring
+    def has_native_rename(self):
+        return False
+
     def __str__(self):
         return 'local directory %s' % self.prefix
 

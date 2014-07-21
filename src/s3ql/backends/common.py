@@ -195,6 +195,12 @@ class AbstractBackend(object, metaclass=ABCMeta):
         for key in self.list():
             yield (key, self[key])
 
+    @property
+    @abstractmethod
+    def has_native_rename(self):
+        '''True if the backend has a native, atomic rename operation'''
+        pass
+
     def reset(self):
         '''Reset backend
 

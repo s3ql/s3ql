@@ -56,6 +56,11 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             or compression[1] not in range(10)):
             raise ValueError('Unsupported compression: %s' % compression)
 
+    @property
+    @copy_ancestor_docstring
+    def has_native_rename(self):
+        return self.backend.has_native_rename
+
     @copy_ancestor_docstring
     def reset(self):
         self.backend.reset()

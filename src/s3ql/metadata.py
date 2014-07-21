@@ -9,6 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from .logging import logging # Ensure use of custom logger class
 from .database import Connection
 from .deltadump import INTEGER, BLOB, TIME, dump_table, load_table
+from .backends.common import NoSuchObject
 import os
 import stat
 
@@ -104,19 +105,27 @@ def restore_metadata(fh, dbfile):
 
     return Connection(dbfile)
 
-def cycle_metadata(backend):
-    from .backends.common import NoSuchObject
+def cycle_metadata(backend, keep=10):
+    '''Rotate metadata backups'''
+
+    # Since we always overwrite the source afterwards, we can
+    # use either copy or rename - so we pick whatever is faster.
+    if backend.has_native_rename:
+        cycle_fn = backend.rename
+    else:
+        cycle_fn = backend.copy
 
     log.info('Backing up old metadata...')
-    for i in range(10)[::-1]:
+    for i in range(keep)[::-1]:
         try:
-            backend.rename("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
+            cycle_fn("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
         except NoSuchObject:
             pass
 
-    # Copy instead of rename, so can never end up without a metadata object
+    # However, the current metadata object should always be copied,
+    # so that even if there's a crash we don't end up without it
     backend.copy("s3ql_metadata", "s3ql_metadata_bak_0")
-    backend.rename("s3ql_metadata_new", "s3ql_metadata")
+    cycle_fn("s3ql_metadata_new", "s3ql_metadata")
 
 def dump_metadata(db, fh):
     '''Dump metadata into fh

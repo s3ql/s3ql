@@ -520,6 +520,8 @@ class cache_tests(unittest.TestCase):
 
 
 class TestBackendPool(AbstractBackend):
+    has_native_rename = False
+
     def __init__(self, backend_pool, no_read=0, no_write=0, no_del=0):
         super().__init__()
         self.no_read = no_read

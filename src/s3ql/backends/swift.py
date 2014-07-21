@@ -69,6 +69,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def __str__(self):
         return 'swift container %s, prefix %s' % (self.container_name, self.prefix)
 
+    @property
+    @copy_ancestor_docstring
+    def has_native_rename(self):
+        return False
+
     @retry
     def _container_exists(self):
         '''Make sure that the container exists'''

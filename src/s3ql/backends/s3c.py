@@ -73,6 +73,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.password = password
         self.login = login
 
+    @property
+    @copy_ancestor_docstring
+    def has_native_rename(self):
+        return False
+
     @copy_ancestor_docstring
     def reset(self):
         if self.conn.response_pending() or self.conn._out_remaining:
