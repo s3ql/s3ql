@@ -9,8 +9,9 @@ This program can be distributed under the terms of the GNU GPLv3.
 from ..logging import logging, QuietError # Ensure use of custom logger class
 from . import s3c
 from .s3c import C_DAY_NAMES, C_MONTH_NAMES, HTTPError, S3Error
-from .common import AuthenticationError
+from .common import AuthenticationError, retry, NoSuchObject
 from .. import oauth_client
+from ..inherit_docstrings import copy_ancestor_docstring
 from dugong import CaseInsensitiveDict, HTTPConnection
 from urllib.parse import urlencode
 import re
@@ -173,3 +174,30 @@ class Backend(s3c.Backend):
         # the error (because we have just refreshed the access token)
         return super()._do_request(method, path, subres=subres, headers=headers,
                                    query_string=query_string, body=body)
+
+    # Overwrite, because Google Storage does not return errors after
+    # 200 OK.
+    @retry
+    @copy_ancestor_docstring
+    def copy(self, src, dest, metadata=None):
+        log.debug('copy(%s, %s): start', src, dest)
+
+        if not (metadata is None or isinstance(metadata, dict)):
+            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
+
+        headers = CaseInsensitiveDict()
+        headers[self.hdr_prefix + 'copy-source'] = \
+            '/%s/%s%s' % (self.bucket_name, self.prefix, src)
+
+        if metadata is None:
+            headers[self.hdr_prefix + 'metadata-directive'] = 'COPY'
+        else:
+            headers[self.hdr_prefix + 'metadata-directive'] = 'REPLACE'
+            self._add_meta_headers(headers, metadata)
+
+        try:
+            self._do_request('PUT', '/%s%s' % (self.prefix, dest), headers=headers)
+            self.conn.discard()
+        except s3c.NoSuchKeyError:
+            raise NoSuchObject(src)
+

@@ -17,6 +17,7 @@ from dugong import ConnectionClosed
 from s3ql import backends, BUFSIZE
 from s3ql.logging import logging
 from s3ql.backends.local import Backend as LocalBackend
+from s3ql.backends import s3c
 from s3ql.backends.gs import Backend as GSBackend
 from s3ql.backends.common import (NoSuchObject, AuthenticationError, AuthorizationError,
                                   DanglingStorageURLError, ChecksumError)
@@ -669,6 +670,30 @@ def test_update_meta(backend, retry_time):
 
     assert value == value2
     assert meta == meta2
+
+# Google storage does not return errors after 200 ok
+@require_wrapper(lambda x: isinstance(x, MockBackendWrapper)
+                 and isinstance(x.backend, s3c.Backend)
+                 and not isinstance(x.backend, GSBackend))
+def test_copy_error(backend, backend_wrapper, monkeypatch):
+    value = b'hello there, let us see whats going on'
+    key1 = 'object-key1'
+    key2 = 'object-key2'
+    backend[key1] = value
+
+    # Monkeypatch request handler to produce error
+    handler_class = backend_wrapper.server.RequestHandlerClass
+    def do_PUT(self, real_PUT=handler_class.do_PUT, count=[0]):
+        count[0] += 1
+        if count[0] > 3:
+            return real_PUT(self)
+        else:
+            self.send_error(200, code='OperationAborted')
+    monkeypatch.setattr(handler_class, 'do_PUT', do_PUT)
+    assert_raises(OperationAbortedError, backend.copy, key1, key2)
+
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
+    backend.copy(key1, key2)
 
 @require_compression_or_encryption
 @require_immediate_consistency

@@ -27,6 +27,14 @@ ERROR_RESPONSE_TEMPLATE = '''\
 </Error>
 '''
 
+COPY_RESPONSE_TEMPLATE = '''\
+<?xml version="1.0" encoding="UTF-8"?>
+<CopyObjectResult xmlns="%(ns)s">
+   <LastModified>2008-02-20T22:13:01</LastModified>
+   <ETag>&quot;%(etag)s&quot;</ETag>
+</CopyObjectResult>
+'''
+
 class StorageServer(socketserver.TCPServer):
 
     def __init__(self, request_handler, server_address):
@@ -152,10 +160,21 @@ class S3RequestHandler(BaseHTTPRequestHandler):
 
         md5 = hashlib.md5()
         md5.update(data)
-        self.send_response(201)
-        self.send_header('ETag', '"%s"' % md5.hexdigest())
-        self.send_header('Content-Length', '0')
-        self.end_headers()
+
+        if src:
+            content = (COPY_RESPONSE_TEMPLATE %
+                       {'etag': md5.hexdigest(),
+                        'ns': self.xml_ns }).encode('utf-8')
+            self.send_response(200)
+            self.send_header('ETag', '"%s"' % md5.hexdigest())
+            self.send_header('Content-Length', str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+        else:
+            self.send_response(201)
+            self.send_header('ETag', '"%s"' % md5.hexdigest())
+            self.send_header('Content-Length', '0')
+            self.end_headers()
 
     def handle_expect_100(self):
         if self.command == 'PUT':

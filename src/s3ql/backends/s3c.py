@@ -345,10 +345,24 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self._add_meta_headers(headers, metadata)
 
         try:
-            self._do_request('PUT', '/%s%s' % (self.prefix, dest), headers=headers)
-            self.conn.discard()
+            resp = self._do_request('PUT', '/%s%s' % (self.prefix, dest), headers=headers)
         except NoSuchKeyError:
             raise NoSuchObject(src)
+
+        # When copying, S3 may return error despite a 200 OK status
+        # http://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectCOPY.html
+        # https://doc.s3.amazonaws.com/proposals/copy.html
+        body = self.conn.readall()
+        root = self._parse_xml_response(resp, body)
+        if root.tag == self.xml_ns_prefix + 'CopyObjectResult':
+            return
+        elif root.tag == 'Error':
+            raise get_S3Error(root.findtext('Code'), root.findtext('Message'),
+                              resp.headers)
+        else:
+            log.error('Unexpected server reply to copy operation:\n%s',
+                      self._dump_response(resp, body))
+            raise RuntimeError('Copy response has %s as root tag' % root.tag)
 
     @copy_ancestor_docstring
     def update_meta(self, key, metadata):
@@ -479,7 +493,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'), resp.headers)
 
-    def _parse_xml_response(self, resp):
+    def _parse_xml_response(self, resp, body=None):
         '''Return element tree for XML response'''
 
         content_type = resp.headers['Content-Type']
@@ -496,7 +510,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # We don't stream the data into the parser because we want
         # to be able to dump a copy if the parsing fails.
-        body = self.conn.readall()
+        if body is None:
+            body = self.conn.readall()
         try:
             tree = ElementTree.parse(BytesIO(body)).getroot()
         except:
