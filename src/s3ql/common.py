@@ -478,3 +478,23 @@ def get_backend_factory(options, plain=False):
                                  backend_class(options.storage_url, backend_login,
                                                backend_passphrase, ssl_context=ssl_context,
                                                proxy=proxy))
+def pretty_print_size(i):
+    '''Return *i* as string with appropriate suffix (MiB, GiB, etc)'''
+
+    if i < 1000:
+        return '%d bytes' % i
+
+    i >>= 10
+    if i < 1000:
+        return '%d KiB' % i
+
+    i >>= 10
+    if i < 1000:
+        return '%d MiB' % i
+
+    i >>= 10
+    if i < 1000:
+        return '%d GiB' % i
+
+    i >>= 10
+    return '%d TB' % i

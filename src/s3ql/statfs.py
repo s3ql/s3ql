@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from .logging import logging, setup_logging
-from .common import assert_fs_owner
+from .common import assert_fs_owner, pretty_print_size
 from .parse_args import ArgumentParser
 import llfuse
 import struct
@@ -53,16 +53,15 @@ def main(args=None):
     p_dedup = dedup_size * 100 / fs_size if fs_size else 0
     p_compr_1 = compr_size * 100 / fs_size if fs_size else 0
     p_compr_2 = compr_size * 100 / dedup_size if dedup_size else 0
-    mb = 1024 ** 2
     print ('Directory entries:    %d' % entries,
            'Inodes:               %d' % inodes,
            'Data blocks:          %d' % blocks,
-           'Total data size:      %.2f MiB' % (fs_size / mb),
-           'After de-duplication: %.2f MiB (%.2f%% of total)'
-             % (dedup_size / mb, p_dedup),
-           'After compression:    %.2f MiB (%.2f%% of total, %.2f%% of de-duplicated)'
-             % (compr_size / mb, p_compr_1, p_compr_2),
-           'Database size:        %.2f MiB (uncompressed)' % (db_size / mb),
+           'Total data size:      %s' % pretty_print_size(fs_size),
+           'After de-duplication: %s (%.2f%% of total)'
+             % (pretty_print_size(dedup_size), p_dedup),
+           'After compression:    %s (%.2f%% of total, %.2f%% of de-duplicated)'
+             % (pretty_print_size(compr_size), p_compr_1, p_compr_2),
+           'Database size:        %s (uncompressed)' % pretty_print_size(db_size),
            '(some values do not take into account not-yet-uploaded dirty blocks in cache)',
            sep='\n')
 

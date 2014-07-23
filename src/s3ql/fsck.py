@@ -11,7 +11,7 @@ from . import CURRENT_FS_REV, BUFSIZE, CTRL_INODE, PICKLE_PROTOCOL, ROOT_INODE
 from .backends.common import NoSuchObject
 from .common import (inode_for_path, sha256_fh, get_path, get_backend_cachedir,
                      get_seq_no, stream_write_bz2, stream_read_bz2, is_mounted,
-                     get_backend)
+                     get_backend, pretty_print_size)
 from .database import NoSuchRowError, Connection
 from .metadata import restore_metadata, cycle_metadata, dump_metadata, create_tables
 from .parse_args import ArgumentParser
@@ -1219,7 +1219,7 @@ def main(args=None):
         log.info("Compressing and uploading metadata...")
         obj_fh = backend.perform_write(do_write, "s3ql_metadata_new", metadata=param,
                                       is_compressed=True)
-    log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
+    log.info('Wrote %s of compressed metadata.', pretty_print_size(obj_fh.get_obj_size()))
     log.info('Cycling metadata backups...')
     cycle_metadata(backend)
     with open(cachepath + '.params', 'wb') as fh:

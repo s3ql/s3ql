@@ -10,7 +10,8 @@ from .logging import logging, setup_logging, QuietError
 from . import CURRENT_FS_REV, CTRL_INODE, PICKLE_PROTOCOL, ROOT_INODE
 from .backends.comprenc import ComprencBackend
 from .backends import s3
-from .common import get_backend_cachedir, stream_write_bz2, get_backend
+from .common import (get_backend_cachedir, stream_write_bz2, get_backend,
+                     pretty_print_size)
 from .database import Connection
 from .metadata import dump_metadata, create_tables
 from .parse_args import ArgumentParser
@@ -186,7 +187,7 @@ def main(args=None):
                                       is_compressed=True)
         backend.store('s3ql_seq_no_%d' % param['seq_no'], b'Empty')
 
-    log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
+    log.info('Wrote %s of compressed metadata.', pretty_print_size(obj_fh.get_obj_size()))
     with open(cachepath + '.params', 'wb') as fh:
         pickle.dump(param, fh, PICKLE_PROTOCOL)
 

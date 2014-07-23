@@ -12,7 +12,7 @@ from .backends.common import NoSuchObject
 from .backends.comprenc import ComprencBackend
 from .database import Connection
 from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2,
-                     stream_read_bz2, is_mounted, get_backend)
+                     stream_read_bz2, is_mounted, get_backend, pretty_print_size)
 from .metadata import restore_metadata, cycle_metadata, dump_metadata
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
@@ -385,7 +385,7 @@ def upgrade(backend, cachepath):
         obj_fh = backend.perform_write(do_write, "s3ql_metadata_new", metadata=param,
                                       is_compressed=True)
 
-    log.info('Wrote %.2f MiB of compressed metadata.', obj_fh.get_obj_size() / 1024 ** 2)
+    log.info('Wrote %s of compressed metadata.', pretty_print_size(obj_fh.get_obj_size()))
     log.info('Cycling metadata backups...')
     cycle_metadata(backend)
 
