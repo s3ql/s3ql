@@ -356,10 +356,10 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             else:
                 raise RuntimeError('Unsupported encryption')
 
-            if meta['compression'] == 'BZ2':
+            if meta_new['compression'] == 'BZ2':
                 meta_new['compression'] = 'BZIP2'
 
-            if meta['compression'] == 'NONE':
+            if meta_new['compression'] == 'NONE':
                 meta_new['compression'] = 'None'
         else:
             meta_new['encryption'] = 'None'
