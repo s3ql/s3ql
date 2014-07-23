@@ -45,12 +45,14 @@ class UpgradeTest(t4_fuse.fuse_tests):
         shutil.rmtree(self.ref_dir)
         shutil.rmtree(self.bak_dir)
 
-    def mkfs_old(self):
-        proc = subprocess.Popen([os.path.join(self.basedir_old, 'bin', 'mkfs.s3ql'),
-                                 '-L', 'test fs', '--max-obj-size', '500', '--authfile',
-                                 '/dev/null', '--cachedir', self.cache_dir, '--quiet',
-                                 self.storage_url ], stdin=subprocess.PIPE,
-                                universal_newlines=True)
+    def mkfs_old(self, force=False, max_obj_size=500):
+        argv = [ os.path.join(self.basedir_old, 'bin', 'mkfs.s3ql'),
+                 '-L', 'test fs', '--max-obj-size', str(max_obj_size),
+                 '--fatal-warnings', '--cachedir', self.cache_dir, '--quiet',
+                  '--authfile', '/dev/null', self.storage_url ]
+        if force:
+            argv.append('--force')
+        proc = subprocess.Popen(argv, stdin=subprocess.PIPE, universal_newlines=True)
 
         if self.backend_login is not None:
             print(self.backend_login, file=proc.stdin)
@@ -121,8 +123,11 @@ class UpgradeTest(t4_fuse.fuse_tests):
 
         self.umount()
 
-    def runTest(self):
+    def populate(self):
         populate_dir(self.ref_dir)
+
+    def runTest(self):
+        self.populate()
 
         # Create and mount using previous S3QL version
         self.mkfs_old()
@@ -130,23 +135,30 @@ class UpgradeTest(t4_fuse.fuse_tests):
         subprocess.check_call(['rsync', '-aHAX', self.ref_dir + '/', self.mnt_dir + '/'])
         self.umount_old()
 
-        # Copy old bucket
-        shutil.copytree(self.backend_dir, os.path.join(self.bak_dir, 'copy'),
-                        symlinks=True)
+        # Try to access with new version (should fail)
+        self.mount(expect_fail=32)
 
         # Upgrade and compare with cache
         self.upgrade()
         self.compare()
 
-        # Upgrade and compare without cache
-        shutil.rmtree(self.backend_dir)
+        # Now do the same thing again, but without cached db
         shutil.rmtree(self.cache_dir)
         self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
-        shutil.copytree(os.path.join(self.bak_dir, 'copy'),
-                        self.backend_dir, symlinks=True)
+        self.mkfs_old(force=True)
+        self.mount_old()
+        subprocess.check_call(['rsync', '-aHAX', self.ref_dir + '/', self.mnt_dir + '/'])
+        self.umount_old()
+
+        # There does not seem a way to avoid the checksum error when
+        # upgrading from rev 20 to rev 21.
+        #shutil.rmtree(self.cache_dir)
+        #self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
+        #self.mount(expect_fail=32)
+        shutil.rmtree(self.cache_dir)
+        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.upgrade()
         self.compare()
-
 
 class RemoteUpgradeTest:
     def setUp(self, name):
@@ -159,20 +171,8 @@ class RemoteUpgradeTest:
         self.backend_login = backend_login
         self.backend_passphrase = backend_pw
 
-    def runTest(self):
+    def populate(self):
         populate_dir(self.ref_dir, entries=50, size=5*1024*1024)
-
-        # Create and mount using previous S3QL version
-        self.mkfs_old()
-        self.mount_old()
-        subprocess.check_call(['rsync', '-aHAX', self.ref_dir + '/', self.mnt_dir + '/'])
-        self.umount_old()
-
-        # Upgrade and compare without cache
-        shutil.rmtree(self.cache_dir)
-        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
-        self.upgrade()
-        self.compare()
 
     def tearDown(self):
         super().tearDown()
@@ -195,7 +195,7 @@ for backend_name in backends.prefix_map:
         continue
     def setUp(self, backend_name=backend_name):
         RemoteUpgradeTest.setUp(self, backend_name + '-test')
-    test_class_name = backend_name + 'FullTests'
+    test_class_name = backend_name + 'UpgradeTests'
     globals()[test_class_name] = type(test_class_name,
                                       (RemoteUpgradeTest, UpgradeTest),
                                       { 'setUp': setUp })

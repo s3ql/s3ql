@@ -72,7 +72,7 @@ class fuse_tests(unittest.TestCase):
 
         self.assertEqual(proc.wait(), 0)
 
-    def mount(self, fatal_warnings=True):
+    def mount(self, fatal_warnings=True, expect_fail=None):
         cmd = (self.s3ql_cmd_argv('mount.s3ql') +
                ["--fg", '--cachedir', self.cache_dir, '--log', 'none',
                 '--compress', 'zlib', '--quiet', self.storage_url, self.mnt_dir,
@@ -86,11 +86,16 @@ class fuse_tests(unittest.TestCase):
             print(self.backend_passphrase, file=self.mount_process.stdin)
         print(self.passphrase, file=self.mount_process.stdin)
         self.mount_process.stdin.close()
-        def poll():
-            if os.path.ismount(self.mnt_dir):
-                return True
-            self.assertIsNone(self.mount_process.poll())
-        retry(30, poll)
+
+        if expect_fail:
+            retry(30, self.mount_process.poll)
+            assert self.mount_process.returncode == expect_fail
+        else:
+            def poll():
+                if os.path.ismount(self.mnt_dir):
+                    return True
+                self.assertIsNone(self.mount_process.poll())
+            retry(30, poll)
 
     def umount(self):
         with open('/dev/null', 'wb') as devnull:
