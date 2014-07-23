@@ -112,7 +112,7 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
         if not encrypted:
             try:
-                return (None, pickle.loads(buf))
+                return (None, pickle.loads(buf, encoding='latin1'))
             except pickle.UnpicklingError:
                 raise ChecksumError('Invalid metadata')
 
@@ -134,7 +134,8 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
                                 % (stored_key, key))
 
         buf = b64decode(metadata['data'])
-        return (nonce, pickle.loads(aes_cipher(meta_key).decrypt(buf)))
+        return (nonce, pickle.loads(aes_cipher(meta_key).decrypt(buf),
+                                    encoding='latin1'))
 
     @prepend_ancestor_docstring
     def open_read(self, key):

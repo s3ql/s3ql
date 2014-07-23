@@ -687,7 +687,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 log.warning('MD5 mismatch in metadata for %s', key)
                 raise BadDigestError('BadDigest',
                                      'Meta MD5 for %s does not match' % key)
-            return pickle.loads(b64decode(buf))
+            return pickle.loads(b64decode(buf), encoding='latin1')
         elif format_ == 'raw': # No MD5 available
             return meta
         else:

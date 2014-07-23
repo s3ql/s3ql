@@ -57,7 +57,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         path = self._key_to_path(key)
         try:
             with open(path, 'rb') as src:
-                return pickle.load(src)
+                return pickle.load(src, encoding='latin1')
         except FileNotFoundError:
             raise NoSuchObject(key)
         except pickle.UnpicklingError as exc:
@@ -79,7 +79,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise NoSuchObject(key)
 
         try:
-            fh.metadata = pickle.load(fh)
+            fh.metadata = pickle.load(fh, encoding='latin1')
         except pickle.UnpicklingError as exc:
             if (isinstance(exc.args[0], str)
                 and exc.args[0].startswith('invalid load key')):
@@ -191,7 +191,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
             if metadata is not None:
                 try:
-                    pickle.load(src)
+                    pickle.load(src, encoding='latin1')
                 except pickle.UnpicklingError:
                     raise ChecksumError('Invalid metadata')
                 pickle.dump(metadata, dest, PICKLE_PROTOCOL)
