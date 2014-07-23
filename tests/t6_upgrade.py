@@ -152,9 +152,9 @@ class UpgradeTest(t4_fuse.fuse_tests):
 
         # There does not seem a way to avoid the checksum error when
         # upgrading from rev 20 to rev 21.
-        #shutil.rmtree(self.cache_dir)
-        #self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
-        #self.mount(expect_fail=32)
+        shutil.rmtree(self.cache_dir)
+        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
+        self.mount(expect_fail=32)
         shutil.rmtree(self.cache_dir)
         self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.upgrade()

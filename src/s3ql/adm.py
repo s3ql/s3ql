@@ -224,10 +224,10 @@ def get_old_rev_msg(rev, prog):
         ''' % { 'version': REV_VER_MAP[rev],
                 'prog': prog })
 
-def upgrade_monkeypatch():
-    '''Monkeypatch ComprencBackend for upgrade
+def upgrade_monkeypatch(backend):
+    '''Monkeypatch ComprencBackend instance *backend* for upgrade
 
-    Monkeypatch ComprencBackend, so that we can read the current
+    Monkeypatch *backend*, so that we can read the current
     s3ql_metadata object without getting a ChecksumError. This would
     happen because previous S3QL versions don't update the object
     key stored in the object on rename, and the metadata object is
@@ -235,21 +235,21 @@ def upgrade_monkeypatch():
     '''
     from base64 import b64decode
 
-    verify_meta_orig = ComprencBackend._verify_meta
-    def _verify_meta_new(self, key, metadata):
+    verify_meta_orig = backend._verify_meta
+    def _verify_meta_new(key, metadata):
         if key == 's3ql_metadata':
             stored_key = b64decode(metadata['object_id']).decode('utf-8')
             if stored_key == 's3ql_metadata_new':
                 key = stored_key
-        return verify_meta_orig(self, key, metadata)
-    ComprencBackend._verify_meta = _verify_meta_new
+        return verify_meta_orig(key, metadata)
+    backend._verify_meta = _verify_meta_new
 
 def upgrade(backend, cachepath):
     '''Upgrade file system to newest revision'''
 
     log.info('Getting file system parameters..')
 
-    upgrade_monkeypatch()
+    upgrade_monkeypatch(backend)
 
     # Get sequence number and check for *really* old S3QL version
     seq_nos = list(backend.list('s3ql_seq_no_'))
@@ -404,6 +404,8 @@ def upgrade(backend, cachepath):
 # backend/common.py as well as the legacy metadata handling in backends/s3c.py
 def update_obj_metadata(backend, db):
     '''Upgrade metadata of storage objects'''
+
+    # TODO: Don't forget the s3ql_passphrase object and (maybe one) backup!
 
     if not isinstance(backend, ComprencBackend):
         # Need to make sure that all plain metadata is using
