@@ -115,8 +115,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def _get_conn(self):
         '''Return connection to server'''
 
-        return HTTPConnection(self.hostname, self.port, proxy=self.proxy,
-                              ssl_context=self.ssl_context)
+        conn =  HTTPConnection(self.hostname, self.port, proxy=self.proxy,
+                               ssl_context=self.ssl_context)
+        conn.timeout = 30
+        return conn
 
     @copy_ancestor_docstring
     def is_temp_failure(self, exc): #IGNORE:W0613
