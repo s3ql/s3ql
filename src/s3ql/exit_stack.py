@@ -1,7 +1,7 @@
 '''
 exit_stack.py - this file is part of S3QL (http://s3ql.googlecode.com)
 
-Copyright © 2013 Nikolaus Rath <Nikolaus.org>
+Copyright © 2013 Nikolaus Rath <Nikolaus@rath.org>
 Copyright © 2013 the Python Software Foundation.
 
 This module provides the ExitStack class.
