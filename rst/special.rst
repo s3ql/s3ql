@@ -37,6 +37,17 @@ You can get more information about a mounted S3QL file system with the
 
   s3qlstat [options] <mountpoint>
 
+This will print out something like this ::
+
+  Directory entries:    1488068
+  Inodes:               1482991
+  Data blocks:          87948
+  Total data size:      400 GiB
+  After de-duplication: 51 GiB (12.98% of total)
+  After compression:    43 GiB (10.85% of total, 83.60% of de-duplicated)
+  Database size:        172 MiB (uncompressed)
+  (some values do not take into account not-yet-uploaded dirty blocks in cache)
+
 Probably the most interesting numbers are the total size of your data,
 the total size after duplication, and the final size after
 de-duplication and compression.
