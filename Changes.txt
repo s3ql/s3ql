@@ -41,6 +41,8 @@ UNRELEASED, S3QL tip
     the storage server and actually attempts to download the objects
     one by one.
 
+  * S3QL now requires version 3.2 or newer of the dugong module.
+
 2014-06-28, S3QL 2.9
 
   * Fix crash when using swift backend and server uses an
