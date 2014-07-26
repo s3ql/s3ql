@@ -53,7 +53,7 @@ nitpicky = True
 
 # General information about the project.
 project = u'S3QL'
-copyright = u'2008-2013, Nikolaus Rath'
+copyright = u'© 2008 Nikolaus Rath <Nikolaus@rath.org>'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
