@@ -224,8 +224,19 @@ class AbstractBackend(object, metaclass=ABCMeta):
         error (as defined by `is_temp_failure`) occurs during opening, closing
         or execution of *fn*, the operation is retried.
         '''
-        with self.open_read(key) as fh:
-            return fn(fh)
+
+        fh = self.open_read(key)
+        try:
+            res = fn(fh)
+        except Exception as exc:
+            # If this is a temporary failure, we now that the call will be
+            # retried, so we don't need to warn that the object was not read
+            # completely.
+            fh.close(checksum_warning=not self.is_temp_failure(exc))
+            raise
+        else:
+            fh.close()
+            return res
 
     @retry
     def perform_write(self, fn, key, metadata=None, is_compressed=False):
@@ -483,4 +494,3 @@ class ChecksumError(Exception):
 
     def __str__(self):
         return self.str
-

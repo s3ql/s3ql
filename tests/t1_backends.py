@@ -12,10 +12,10 @@ if __name__ == '__main__':
     import sys
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
+from s3ql.logging import logging
 import mock_server
 from dugong import ConnectionClosed
 from s3ql import backends, BUFSIZE
-from s3ql.logging import logging
 from s3ql.backends.local import Backend as LocalBackend
 from s3ql.backends import s3c
 from s3ql.backends.gs import Backend as GSBackend
@@ -1192,6 +1192,33 @@ def test_expired_token(backend, backend_wrapper, monkeypatch):
     token_refreshed = False
     assert backend[key] == data
     assert token_refreshed
+
+@require_backend_wrapper(MockBackendWrapper)
+def test_conn_abort(backend, backend_wrapper, monkeypatch):
+    '''Close connection while sending data'''
+
+    data = b'hello there, let us see whats going on'
+    key = 'borg'
+    backend[key] = data
+
+    # Monkeypatch request handler
+    handler_class = backend_wrapper.server.RequestHandlerClass
+    def send_data(self, data, count=[0]):
+        count[0] += 1
+        if count[0] >= 3:
+            self.wfile.write(data)
+        else:
+            self.wfile.write(data[:len(data)//2])
+            self.close_connection = True
+    monkeypatch.setattr(handler_class, 'send_data', send_data)
+
+    with pytest.raises(ConnectionClosed):
+        with catch_logmsg("^Object closed prematurely, can't check MD5",
+                          count=1, level=logging.WARNING):
+            backend.fetch(key)
+
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
+    assert backend[key] == data
 
 def test_s3_url_parsing():
     parse = backends.s3.Backend._parse_storage_url

@@ -206,6 +206,9 @@ class S3RequestHandler(BaseHTTPRequestHandler):
         md5.update(data)
         self.send_header('ETag', '"%s"' % md5.hexdigest())
         self.end_headers()
+        self.send_data(data)
+
+    def send_data(self, data):
         self.wfile.write(data)
 
     def do_list(self, q):
