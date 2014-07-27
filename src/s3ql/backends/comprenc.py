@@ -565,8 +565,8 @@ class DecompressFilter(InputFilter):
 
         return buf
 
-    def close(self):
-        self.fh.close()
+    def close(self, *a, **kw):
+        self.fh.close(*a, **kw)
 
     def __enter__(self):
         return self
@@ -757,8 +757,8 @@ class DecryptFilter(InputFilter):
 
         return outbuf
 
-    def close(self):
-        self.fh.close()
+    def close(self, *a, **kw):
+        self.fh.close(*a, **kw)
 
     def __enter__(self):
         return self
@@ -843,8 +843,8 @@ class LegacyDecryptDecompressFilter(io.RawIOBase):
         self.hmac.update(buf)
         return buf
 
-    def close(self):
-        self.fh.close()
+    def close(self, *a, **kw):
+        self.fh.close(*a, **kw)
 
     def __enter__(self):
         return self
