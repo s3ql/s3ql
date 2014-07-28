@@ -177,6 +177,7 @@ def main():
                          's3qllock = s3ql.lock:main',
                          's3qlrm = s3ql.remove:main',
                          's3ql_oauth_client = s3ql.oauth_client:main',
+                         's3ql_verify = s3ql.verify:main',
                          ]
                           },
           install_requires=required_pkgs,
