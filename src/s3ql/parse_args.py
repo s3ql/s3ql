@@ -150,9 +150,10 @@ class ArgumentParser(argparse.ArgumentParser):
                                "OpenSSL library are used.")
 
     def add_debug(self):
-        self.add_argument("--debug-modules", metavar='<module1>[,<module2>,...]',
+        self.add_argument("--debug-modules", metavar='<modules>',
                           type=lambda s: s.split(','), dest='debug',
-                          help="Activate debugging output from specified modules.")
+                          help="Activate debugging output from specified modules "
+                               "(use commas to separate multiple modules).")
         self.add_argument("--debug", action='append_const', const='s3ql',
                           help="Activate debugging output from all S3QL modules.")
 
