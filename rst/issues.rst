@@ -85,12 +85,6 @@ Known Issues
   error when it later turns out that the cache can not be committed to
   the backend.
 
-* A malicious backend server can easily execute denial of service
-  attacks against a client running S3QL. This is a result of S3QL
-  using Python's ElementTree XML parser, which is `vulnerable to
-  entity expansion attacks
-  <http://docs.python.org/3/library/xml.html#xml-vulnerabilities>`_.
-
 * S3QL currently supports only CONNECT-style proxying. Therefore,
   there may be compatibility issues with some proxy servers when using
   plain HTTP (i.e., when using the :cmdopt:`--no-ssl` option). A
