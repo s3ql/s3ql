@@ -1,5 +1,15 @@
 UNRELEASED, S3QL tip
 
+  * The internal file system revision has changed. File systems
+    created with S3QL 2.10 or newer are not compatible with prior S3QL
+    versions. To update an existing file system to the newest
+    revision, use the 's3qladm upgrade' command.
+
+    It is strongly recommended to run the (new) s3ql_verify command
+    with the --data option at shortly after the upgrade. This is
+    necessary to ensure that the upgrade to the next (2.11) S3QL
+    release will run smoothly.
+
   * The User's Guide now contains a description of the possible
     failure modes of mount.s3ql.
 
@@ -21,13 +31,15 @@ UNRELEASED, S3QL tip
 
     Fixes https://bitbucket.org/nikratio/s3ql/issue/52/.
 
-  * The internal file system revision has changed. File systems
-    created with S3QL 2.10 or newer are not compatible with prior S3QL
-    versions. To update an existing file system to the newest
-    revision, use the 's3qladm upgrade' command.
-
   * S3QL now aborts immediately instead of retrying if the server
     storage server reports that the local clock is skewed.
+
+  * There is a new 's3ql_verify' command. This program retrieves and
+    checks every storage object to ensure that all objects are
+    available and have not been tampered with. In contrast to
+    fsck.s3ql, s3ql_verify does not trust the object list provided by
+    the storage server and actually attempts to download the objects
+    one by one.
 
 2014-06-28, S3QL 2.9
 

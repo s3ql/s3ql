@@ -398,6 +398,12 @@ def upgrade(backend, cachepath):
     db.execute('ANALYZE')
     db.execute('VACUUM')
 
+    print(textwrap.dedent('''\
+        File system upgrade complete.
+
+        It is strongly recommended to run the s3ql_verify command with the
+        --data option as soon as possible. This is necessary to ensure that the
+        upgrade to the next (2.11) S3QL release will run smoothly.'''))
 
 # This should be used on the *next* fs revision update to ensure that all
 # objects conform to newest standards, so we can drop the legacy routines from

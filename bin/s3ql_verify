@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+'''
+s3ql_verify - this file is part of S3QL (http://s3ql.googlecode.com)
+
+Copyright © 2014 Nikolaus Rath <Nikolaus.org>
+
+This program can be distributed under the terms of the GNU GPLv3.
+'''
+
+import sys
+import os.path
+
+# We are running from the S3QL source directory, make sure
+# that we use modules from this directory
+basedir = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), '..'))
+if (os.path.exists(os.path.join(basedir, 'setup.py')) and
+    os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
+    sys.path = [os.path.join(basedir, 'src')] + sys.path
+
+# When running from HG repo, enable all warnings
+if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
+    import warnings
+    warnings.simplefilter('default')
+
+import s3ql.verify
+s3ql.verify.main(sys.argv[1:])

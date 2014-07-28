@@ -83,6 +83,16 @@ For a full list of available options, run :program:`expire_backups.py
 s3ql_upstart.conf
 =================
 
-``s3ql_upstart.conf`` is an example upstart job definition file. It
+:file:`s3ql_upstart.conf` is an example upstart job definition file. It
 defines a job that automatically mounts an S3QL file system on system
 start, and properly unmounts it when the system is shut down.
+
+
+.. _remove_objects:
+
+remove_objects.py
+=================
+
+:program:`remove_objects.py` is a program to remove a list of objects
+from a storage backend. Since it acts on the backend-level, the
+backend need not contain an S3QL file system.

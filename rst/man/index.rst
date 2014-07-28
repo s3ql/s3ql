@@ -20,5 +20,6 @@ here in the User's Guide.
    umount
    fsck
    oauth_client
+   verify
    pcp
    expire_backups

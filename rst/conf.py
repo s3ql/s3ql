@@ -241,4 +241,6 @@ man_pages = [
      None, 1),
     ('man/oauth_client', 's3ql_oauth_client', u'Obtain Google Storage OAuth2 tokens',
      None, 1),
+    ('man/verify', 's3ql_verify', u'Verify data in an S3QL file system',
+     None, 1),
 ]
