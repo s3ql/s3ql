@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2014-07-28, S3QL 2.10.1
 
   * 'setup.py install' now also installs the s3ql_verify command.
 
