@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2014-07-27, S3QL 2.10
 
   * The internal file system revision has changed. File systems
     created with S3QL 2.10 or newer are not compatible with prior S3QL
