@@ -168,6 +168,7 @@ class S3RequestHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('ETag', '"%s"' % md5.hexdigest())
             self.send_header('Content-Length', str(len(content)))
+            self.send_header("Content-Type", 'text/xml')
             self.end_headers()
             self.wfile.write(content)
         else:

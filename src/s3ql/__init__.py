@@ -6,7 +6,10 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging
+# We must not import s3ql.logging.logging as s3ql.logging,
+# otherwise future imports of s3ql.logging will incorrectly
+# use s3ql.logging.logging.
+from . import logging # Ensure use of custom logger class
 from llfuse import ROOT_INODE
 
 # False positives, pylint doesn't grok that these are module names
