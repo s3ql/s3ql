@@ -20,7 +20,7 @@ from s3ql.block_cache import BlockCache, QuitSentinel, NoWorkerThreads
 from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
-from common import AsyncFn, catch_logmsg
+from common import AsyncFn, catch_logmsg, safe_sleep
 import llfuse
 import errno
 import os
@@ -252,7 +252,7 @@ class cache_tests(unittest.TestCase):
         # Define the 4 most recently accessed ones
         most_recent = [7, 11, 10, 8]
         for i in most_recent:
-            time.sleep(0.2)
+            safe_sleep(0.2)
             with self.cache.get(inode, i) as fh:
                 fh.write(('%d' % i).encode())
 
@@ -429,7 +429,7 @@ class cache_tests(unittest.TestCase):
 
             # Release lock
             with llfuse.lock_released:
-                time.sleep(0.1)
+                safe_sleep(0.1)
                 self.cache._unlock_entry(inode, blockno)
                 t1.join_and_raise()
                 t2.join_and_raise()
@@ -469,7 +469,7 @@ class cache_tests(unittest.TestCase):
 
             # Release lock
             with llfuse.lock_released:
-                time.sleep(0.1)
+                safe_sleep(0.1)
                 self.cache._unlock_entry(inode, 0)
                 t1.join_and_raise()
                 t2.join_and_raise()

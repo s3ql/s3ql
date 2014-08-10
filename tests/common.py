@@ -32,6 +32,20 @@ def get_clock_granularity():
     return 2 * (stamp2 - stamp1)
 CLOCK_GRANULARITY = get_clock_granularity()
 
+def safe_sleep(secs):
+    '''Like time.sleep(), but sleep for at least *secs*
+
+    `time.sleep` may sleep less than the given period if a signal is
+    received. This function ensures that we sleep for at least the
+    desired time.
+    '''
+
+    now = time.time()
+    end = now + secs
+    while now < end:
+        time.sleep(max(end - now, CLOCK_GRANULARITY))
+        now = time.time()
+
 @contextmanager
 def catch_logmsg(pattern, level=logging.WARNING, count=None):
     '''Catch (and ignore) log messages matching *pattern*
