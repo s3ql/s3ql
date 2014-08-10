@@ -16,6 +16,7 @@ from dugong import CaseInsensitiveDict, HTTPConnection
 from urllib.parse import urlencode
 import re
 import json
+import threading
 import time
 
 # Pylint goes berserk with false positives
@@ -40,6 +41,7 @@ class Backend(s3c.Backend):
     # This class variable holds the mapping from refresh tokens to
     # access tokens.
     access_token = dict()
+    _refresh_lock = threading.Lock()
 
     def __init__(self, storage_url, gs_key, gs_secret, ssl_context=None, proxy=None):
         super().__init__(storage_url, gs_key, gs_secret, ssl_context=ssl_context,
@@ -168,7 +170,10 @@ class Backend(s3c.Backend):
         # If we use OAuth2 and don't have an access token, retrieve
         # one
         if self.use_oauth2 and self.password not in self.access_token:
-            self._get_access_token()
+            # Grab lock to prevent multiple threads from refreshing the token
+            with self._refresh_lock:
+                if self.password not in self.access_token:
+                    self._get_access_token()
 
         # Try request. If we are using OAuth2 and this fails, propagate
         # the error (because we have just refreshed the access token)
