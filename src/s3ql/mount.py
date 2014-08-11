@@ -40,6 +40,11 @@ import time
 import shutil
 import atexit
 
+try:
+    import systemd.daemon.notify as sd_notify
+except ImportError:
+    sd_notify = None
+
 log = logging.getLogger(__name__)
 
 def install_thread_excepthook():
@@ -199,6 +204,9 @@ def main(args=None):
 
         if options.upstart:
             os.kill(os.getpid(), signal.SIGSTOP)
+        if sd_notify is not None:
+            sd_notify('READY=1')
+            sd_notify('MAINPID=%d' % os.getpid())
 
         exc_info = setup_exchook()
         if options.profile:

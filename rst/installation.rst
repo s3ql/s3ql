@@ -88,6 +88,12 @@ that is not the case.
   print(dugong.__version__)'`. This should print a version number. You
   need at least version 3.2.
 
+* If your system is using `systemd`_, make sure that the ``systemd``
+  Python module is available for Python 3. To check this, try to run
+  ``python3 -c 'import systemd.daemon'``.
+
+.. _systemd: http://www.freedesktop.org/wiki/Software/systemd/
+
 .. _inst-s3ql:
 
 Installing S3QL
