@@ -94,6 +94,7 @@ class fs_api_tests(unittest.TestCase):
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.backend_dir)
         os.unlink(self.dbfile.name)
+        self.dbfile.close()
 
     @staticmethod
     def random_data(len_):
