@@ -1,3 +1,8 @@
+UNRELEASED, S3QL tip
+
+  * Fixed a crash when using Google OAuth2 and the first request after
+    the access token has expired is a write request.
+
 2014-07-28, S3QL 2.10.1
 
   * 'setup.py install' now also installs the s3ql_verify command.

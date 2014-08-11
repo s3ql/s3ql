@@ -162,6 +162,10 @@ class Backend(s3c.Backend):
             except S3Error as exc:
                 if exc.code != 'AuthenticationRequired':
                     raise
+
+            if body and not isinstance(body, (bytes, bytearray, memoryview)):
+                body.seek(0)
+
             try:
                 del self.access_token[self.password]
             except KeyError: # Mind multithreading..

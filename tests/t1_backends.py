@@ -1160,7 +1160,7 @@ def test_issue58_b(backend, backend_wrapper, monkeypatch):
 # Require mock server *and* google storage backend
 @require_wrapper(lambda x: isinstance(x, MockBackendWrapper)
                  and isinstance(x.backend, GSBackend))
-def test_expired_token(backend, backend_wrapper, monkeypatch):
+def test_expired_token_get(backend, backend_wrapper, monkeypatch):
     '''Test handling of expired OAuth token'''
 
 
@@ -1191,6 +1191,39 @@ def test_expired_token(backend, backend_wrapper, monkeypatch):
 
     token_refreshed = False
     assert backend[key] == data
+    assert token_refreshed
+
+# Require mock server *and* google storage backend
+@require_wrapper(lambda x: isinstance(x, MockBackendWrapper)
+                 and isinstance(x.backend, GSBackend))
+def test_expired_token_put(backend, backend_wrapper, monkeypatch):
+    '''Test handling of expired OAuth token'''
+
+    key = 'borg'
+    data = b'hello there, let us see whats going on'
+
+    # Monkeypatch backend class to check if token is refreshed
+    token_refreshed = False
+    def _get_access_token(self):
+        nonlocal token_refreshed
+        token_refreshed = True
+        self.access_token[self.password] = 'foobar'
+    monkeypatch.setattr(GSBackend, '_get_access_token',
+                        _get_access_token)
+
+    # Monkeypatch request handler to produce error
+    handler_class = backend_wrapper.server.RequestHandlerClass
+    def do_PUT(self, real=handler_class.do_PUT, count=[0]):
+        count[0] += 1
+        if count[0] > 1:
+            return real(self)
+        else:
+            self.rfile.read(int(self.headers['Content-Length']))
+            self.send_error(401, code='AuthenticationRequired')
+    monkeypatch.setattr(handler_class, 'do_PUT', do_PUT)
+
+    token_refreshed = False
+    backend[key] = data
     assert token_refreshed
 
 @require_backend_wrapper(MockBackendWrapper)
