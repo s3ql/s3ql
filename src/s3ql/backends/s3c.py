@@ -376,8 +376,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     headers=None, body=None):
         '''Send request, read and return response object'''
 
-        log.debug('_do_request(): start with parameters (%r, %r, %r, %r, %r, %r)',
-                  method, path, subres, query_string, headers, body)
+        log.debug('preparing %s %s?%s, qs=%s', method, path, subres, query_string)
 
         if headers is None:
             headers = CaseInsensitiveDict()
