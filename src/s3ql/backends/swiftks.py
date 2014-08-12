@@ -129,10 +129,10 @@ class Backend(swift.Backend):
                                       ssl_context=self.ssl_context)
 
         if len(avail_regions) < 10:
-            raise DanglingStorageURLError(
+            raise DanglingStorageURLError(self.container_name,
                 'No accessible object storage service found in region %s'
                 ' (available regions: %s)' % (self.region, ', '.join(avail_regions)))
         else:
-            raise DanglingStorageURLError(
+            raise DanglingStorageURLError(self.container_name,
                 'No accessible object storage service found in region %s'
                 % self.region)
