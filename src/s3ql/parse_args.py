@@ -150,12 +150,16 @@ class ArgumentParser(argparse.ArgumentParser):
                                "OpenSSL library are used.")
 
     def add_debug(self):
+        destnote = ('Debug messages will be written to the target '
+                    'specified by the ``--log`` option.')
         self.add_argument("--debug-modules", metavar='<modules>',
                           type=lambda s: s.split(','), dest='debug',
                           help="Activate debugging output from specified modules "
-                               "(use commas to separate multiple modules).")
+                               "(use commas to separate multiple modules). "
+                               + destnote)
         self.add_argument("--debug", action='append_const', const='s3ql',
-                          help="Activate debugging output from all S3QL modules.")
+                          help="Activate debugging output from all S3QL modules. "
+                               + destnote)
 
     def add_authfile(self):
         self.add_argument("--authfile", type=str, metavar='<path>',
@@ -170,9 +174,11 @@ class ArgumentParser(argparse.ArgumentParser):
 
     def add_log(self, default=None):
         self.add_argument("--log", type=str_or_None_type, metavar='<target>', default=default,
-                      help='Write logging info into this file. File will be rotated when '
-                           'it reaches 1 MiB, and at most 5 old log files will be kept. '
-                           'Specify ``none`` to disable logging. Default: ``%(default)s``')
+                      help='Destination for log messages. Specify ``none`` for standard '
+                          'output or ``syslog`` for the system logging daemon. '
+                          'Anything else will be interpreted as a file name. Log files '
+                          'will be rotated when they reach 1 MiB, and at most 5 old log '
+                          'files will be kept. Default: ``%(default)s``')
 
     def add_fatal_warnings(self):
         # Make all log messages of severity warning or higher raise
