@@ -17,6 +17,7 @@ import t4_fuse
 import s3ql.ctrl
 import pytest
 import errno
+import time
 from common import get_remote_test_info, NoTestSection
 from s3ql.backends import gs
 from argparse import Namespace
@@ -125,10 +126,13 @@ class NewerMetadataTest(t4_fuse.fuse_tests):
         # Try to upload metadata
         s3ql.ctrl.main(['upload-meta', self.mnt_dir])
 
-        # Try to write
+        # Try to write. We repeat a few times, since the metadata upload
+        # happens asynchronously.
         with pytest.raises(PermissionError):
-            with open(fname + 'barz', 'w') as fh:
-                fh.write('foobar')
+            for _ in range(10):
+                with open(fname + 'barz', 'w') as fh:
+                    fh.write('foobar')
+                time.sleep(1)
 
         self.umount()
 

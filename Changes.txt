@@ -10,6 +10,9 @@ UNRELEASED, S3QL tip
     This feature has not been tested, if you use it or encounter
     problems, please report back.
 
+  * Fixed a race condition that could cause tests/t5_failsafe.py to
+    fail.
+
 2014-07-28, S3QL 2.10.1
 
   * 'setup.py install' now also installs the s3ql_verify command.
