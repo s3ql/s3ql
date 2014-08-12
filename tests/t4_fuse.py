@@ -74,7 +74,7 @@ class fuse_tests(unittest.TestCase):
 
     def mount(self, fatal_warnings=True, expect_fail=None):
         cmd = (self.s3ql_cmd_argv('mount.s3ql') +
-               ["--fg", '--cachedir', self.cache_dir, '--log', 'none',
+               ['--cachedir', self.cache_dir, '--log', 'none',
                 '--compress', 'zlib', '--quiet', self.storage_url, self.mnt_dir,
                 '--authfile', '/dev/null' ])
         if fatal_warnings:

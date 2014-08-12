@@ -13,6 +13,11 @@ UNRELEASED, S3QL tip
   * Fixed a race condition that could cause tests/t5_failsafe.py to
     fail.
 
+  * mount.s3ql no longer daemonizes on its own. With a modern init
+    system this should no longer be necessary, and when running
+    mount.s3ql from the command line the shell can be used to put the
+    process into background.
+
 2014-07-28, S3QL 2.10.1
 
   * 'setup.py install' now also installs the s3ql_verify command.

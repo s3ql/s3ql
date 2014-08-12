@@ -15,7 +15,6 @@ from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2, stream_
 from .backends.comprenc import ComprencBackend
 from .backends.common import ChecksumError
 from .adm import upgrade_monkeypatch
-from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
 from .metadata import cycle_metadata, dump_metadata, restore_metadata
@@ -78,11 +77,11 @@ def main(args=None):
 
     if args is None:
         args = sys.argv[1:]
-
     options = parse_args(args)
+    setup_logging(options)
 
-    # Save handler so that we can remove it when daemonizing
-    stdout_log_handler = setup_logging(options)
+    faulthandler.enable()
+    faulthandler.register(signal.SIGUSR1)
 
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.', exitcode=36)
@@ -176,18 +175,6 @@ def main(args=None):
             with llfuse.lock:
                 llfuse.close(unmount=unmount_clean)
         cm.callback(unmount)
-
-        if options.fg:
-            faulthandler.enable()
-            faulthandler.register(signal.SIGUSR1)
-        else:
-            if stdout_log_handler:
-                logging.getLogger().removeHandler(stdout_log_handler)
-            global crit_log_fh
-            crit_log_fh = open(os.path.join(options.cachedir, 'mount.s3ql_crit.log'), 'a')
-            faulthandler.enable(crit_log_fh)
-            faulthandler.register(signal.SIGUSR1, file=crit_log_fh)
-            daemonize(options.cachedir)
 
         mark_metadata_dirty(backend, cachepath, param)
 
@@ -573,14 +560,13 @@ def parse_args(args):
     parser.add_argument("--allow-root", action="store_true", default=False,
                       help='Like `--allow-other`, but restrict access to the mounting '
                            'user and the root user.')
-    parser.add_argument("--fg", action="store_true", default=False,
-                      help="Do not daemonize, stay in foreground")
+    parser.add_argument("--fg", action='store_true', default=True,
+                        help=argparse.SUPPRESS)
     parser.add_argument("--single", action="store_true", default=False,
                       help="Run in single threaded mode. If you don't understand this, "
                            "then you don't need it.")
     parser.add_argument("--upstart", action="store_true", default=False,
-                      help="Stay in foreground and raise SIGSTOP once mountpoint "
-                           "is up.")
+                      help="Raise SIGSTOP once mountpoint is up.")
     parser.add_argument("--profile", action="store_true", default=False,
                       help="Create profiling information. If you don't understand this, "
                            "then you don't need it.")
@@ -606,14 +592,8 @@ def parse_args(args):
     if options.allow_other and options.allow_root:
         parser.error("--allow-other and --allow-root are mutually exclusive.")
 
-    if not options.log and not options.fg:
-        parser.error("Please activate logging to a file or syslog, or use the --fg option.")
-
     if options.profile:
         options.single = True
-
-    if options.upstart:
-        options.fg = True
 
     if options.metadata_upload_interval == 0:
         options.metadata_upload_interval = None
