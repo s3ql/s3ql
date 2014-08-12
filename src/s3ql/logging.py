@@ -60,8 +60,8 @@ def create_handler(target):
     if target.lower() == 'syslog':
         handler = logging.handlers.SysLogHandler('/dev/log')
         formatter = logging.Formatter(os.path.basename(sys.argv[0])
-                                       + '[%(process)s] %(threadName)s: '
-                                       + '[%(name)s] %(message)s')
+                                       + '[%(process)s:%(threadName)s] '
+                                       + '%(name)s.%(funcName)s: %(message)s')
 
     else:
         fullpath = os.path.expanduser(target)
@@ -80,9 +80,8 @@ def create_handler(target):
             raise QuietError('No permission to write log file %s' % fullpath,
                              exitcode=10)
 
-        formatter = logging.Formatter('%(asctime)s.%(msecs)03d [pid=%(process)r, '
-                                      'thread=%(threadName)r, module=%(name)r, '
-                                      'fn=%(funcName)r, line=%(lineno)r]: %(message)s',
+        formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(process)s:%(threadName)s '
+                                      '(name)s.%(funcName)s: %(message)s',
                                       datefmt="%Y-%m-%d %H:%M:%S")
 
     handler.setFormatter(formatter)
