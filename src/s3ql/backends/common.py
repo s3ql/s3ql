@@ -456,12 +456,16 @@ class NoSuchObject(Exception):
 class DanglingStorageURLError(Exception):
     '''Raised if the backend can't store data at the given location'''
 
-    def __init__(self, loc):
+    def __init__(self, loc, msg=None):
         super().__init__()
         self.loc = loc
+        self.msg = msg
 
     def __str__(self):
-        return '%r does not exist' % self.loc
+        if self.msg is None:
+            return '%r does not exist' % self.loc
+        else:
+            return self.msg
 
 class AuthorizationError(Exception):
     '''Raised if the credentials don't give access to the requested backend'''
