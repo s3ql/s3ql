@@ -201,53 +201,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         elif subres:
             path += '?%s' % subres
 
-        # We can probably remove the assertions at some point and
-        # call self.conn.read_response() directly
-        def read_response():
-            resp = self.conn.read_response()
-            assert resp.method == method
-            assert resp.path == path
-            return resp
-
         headers['X-Auth-Token'] = self.auth_token
         try:
-            resp = None
-            log.debug('_send_request(): %s %s', method, path)
-            if body is None or isinstance(body, (bytes, bytearray, memoryview)):
-                self.conn.send_request(method, path, body=body, headers=headers)
-            else:
-                body_len = os.fstat(body.fileno()).st_size
-                self.conn.send_request(method, path, expect100=self.use_expect_100c,
-                                       headers=headers, body=BodyFollowing(body_len))
-
-                if self.use_expect_100c:
-                    resp = read_response()
-                    if resp.status == 100:
-                        resp = None
-                    # Otherwise fall through below
-
-                try:
-                    shutil.copyfileobj(body, self.conn, BUFSIZE)
-                except ConnectionClosed:
-                    # Server closed connection while we were writing body data -
-                    # but we may still be able to read an error response
-                    try:
-                        resp = read_response()
-                    except ConnectionClosed: # No server response available
-                        pass
-                    else:
-                        if resp.status < 400:
-                            log.warning('Server broke connection during upload, but signaled '
-                                        '%d %s', resp.status, resp.reason)
-                            resp = None
-
-                    # Re-raise original error
-                    if resp is None:
-                        raise
-
-            if resp is None:
-                resp = read_response()
-
+            resp = self._do_request_inner(method, path, body=body, headers=headers)
         except Exception as exc:
             if is_temp_network_error(exc):
                 # We probably can't use the connection anymore
@@ -275,6 +231,48 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         else:
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
+    # Including this code directly in _do_request would be very messy since
+    # we can't `return` the response early, thus the separate method
+    def _do_request_inner(self, method, path, body, headers):
+        '''The guts of the _do_request method'''
+
+        log.debug('_do_request_inner(): %s %s', method, path)
+
+        if body is None or isinstance(body, (bytes, bytearray, memoryview)):
+            self.conn.send_request(method, path, body=body, headers=headers)
+        else:
+            body_len = os.fstat(body.fileno()).st_size
+            self.conn.send_request(method, path, expect100=self.use_expect_100c,
+                                   headers=headers, body=BodyFollowing(body_len))
+
+        if self.use_expect_100c:
+            log.debug('waiting for 100-continue')
+            resp = self.conn.read_response()
+            if resp.status != 100:
+                return resp
+
+        log.debug('writing body data')
+        try:
+            shutil.copyfileobj(body, self.conn, BUFSIZE)
+        except ConnectionClosed:
+            log.debug('interrupted write, server closed connection')
+            # Server closed connection while we were writing body data -
+            # but we may still be able to read an error response
+            try:
+                resp = self.conn.read_response()
+            except ConnectionClosed: # No server response available
+                log.debug('no response available in  buffer')
+                pass
+            else:
+                if resp.status >= 400: # error response
+                    return resp
+                log.warning('Server broke connection during upload, but signaled '
+                            '%d %s', resp.status, resp.reason)
+
+            # Re-raise original error
+            raise
+
+        return self.conn.read_response()
 
     def _assert_empty_response(self, resp):
         '''Assert that current response body is empty'''
