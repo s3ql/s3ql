@@ -407,9 +407,11 @@ def get_backend_factory(options, plain=False):
     else:
         proxy = None
 
-    backend = backend_class(options.storage_url, backend_login, backend_passphrase,
-                            ssl_context, proxy=proxy)
+    backend = None
     try:
+        backend = backend_class(options.storage_url, backend_login, backend_passphrase,
+                                ssl_context, proxy=proxy)
+
         # Do not use backend.lookup(), this would use a HEAD request and
         # not provide any useful error messages if something goes wrong
         # (e.g. wrong credentials)
@@ -437,7 +439,8 @@ def get_backend_factory(options, plain=False):
         encrypted = True
 
     finally:
-        backend.close()
+        if backend is not None:
+            backend.close()
 
     if plain:
         return lambda: backend_class(options.storage_url, backend_login, backend_passphrase,
