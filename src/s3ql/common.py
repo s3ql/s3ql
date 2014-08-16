@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, QuietError, LOG_ONCE # Ensure use of custom logger class
+from .logging import logging, QuietError # Ensure use of custom logger class
 from . import BUFSIZE, CTRL_NAME, ROOT_INODE
 from .backends import prefix_map
 from .backends.common import (ChecksumError, NoSuchObject, AuthenticationError,

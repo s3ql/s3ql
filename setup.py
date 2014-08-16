@@ -23,7 +23,6 @@ from setuptools import Extension
 from distutils.version import LooseVersion
 import os
 import subprocess
-import logging.handlers
 import warnings
 import shutil
 from glob import glob

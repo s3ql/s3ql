@@ -6,8 +6,6 @@
 # This file does not contain any S3QL documentation itself.
 #
 
-import sys, os
-
 # Add a custom role for command line options that does not try to
 # reference anything.
 def add_literal_role(rolename):
