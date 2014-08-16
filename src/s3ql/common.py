@@ -379,33 +379,7 @@ def get_backend_factory(options, plain=False):
             backend_passphrase = sys.stdin.readline().rstrip()
 
     ssl_context = get_ssl_context(options)
-    if ssl_context is None:
-        proxy_env = 'http_proxy'
-    else:
-        proxy_env = 'https_proxy'
-
-    if proxy_env in os.environ:
-        proxy = os.environ[proxy_env]
-        hit = re.match(r'^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?/?$', proxy)
-        if not hit:
-            raise QuietError('Unable to parse proxy setting %s=%r' %
-                             (proxy_env, proxy), exitcode=13)
-
-        if hit.group(1) == 'https://':
-            log.warning('HTTPS connection to proxy is probably pointless and not supported, '
-                        'will use standard HTTP', extra=LOG_ONCE)
-
-        if hit.group(3):
-            proxy_port = int(hit.group(3)[1:])
-        else:
-            proxy_port = 80
-
-        proxy_host = hit.group(2)
-        log.info('Using CONNECT proxy %s:%d', proxy_host, proxy_port,
-                 extra=LOG_ONCE)
-        proxy = (proxy_host, proxy_port)
-    else:
-        proxy = None
+    proxy = get_proxy(ssl_context is not None)
 
     backend = None
     try:
@@ -501,3 +475,41 @@ def pretty_print_size(i):
 
     i >>= 10
     return '%d TB' % i
+
+def get_proxy(ssl):
+    '''Read system proxy settings
+
+    Returns either `None`, or a tuple ``(host, port)``.
+
+    This function may raise `QuietError`.
+    '''
+
+    if ssl:
+        proxy_env = 'https_proxy'
+    else:
+        proxy_env = 'http_proxy'
+
+    if proxy_env in os.environ:
+        proxy = os.environ[proxy_env]
+        hit = re.match(r'^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?/?$', proxy)
+        if not hit:
+            raise QuietError('Unable to parse proxy setting %s=%r' %
+                             (proxy_env, proxy), exitcode=13)
+
+        if hit.group(1) == 'https://':
+            log.warning('HTTPS connection to proxy is probably pointless and not supported, '
+                        'will use standard HTTP', extra=LOG_ONCE)
+
+        if hit.group(3):
+            proxy_port = int(hit.group(3)[1:])
+        else:
+            proxy_port = 80
+
+        proxy_host = hit.group(2)
+        log.info('Using CONNECT proxy %s:%d', proxy_host, proxy_port,
+                 extra=LOG_ONCE)
+        proxy = (proxy_host, proxy_port)
+    else:
+        proxy = None
+
+    return proxy
