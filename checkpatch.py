@@ -169,7 +169,7 @@ found_problems = False
 if not check_imports():
     found_problems = True
 
-hg_out = subprocess.check_output(['hg', 'status', '--clean', '--modified', '--added',
+hg_out = subprocess.check_output(['hg', 'status', '--modified', '--added',
                                   '--no-status', '--print0'])
 for b_name in hg_out.split(b'\0'):
     if not b_name:
