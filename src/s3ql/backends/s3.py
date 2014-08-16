@@ -32,10 +32,8 @@ class Backend(s3c.Backend):
     may or may not be available and can be queried for with instance methods.
     """
 
-    def __init__(self, storage_url, login, password, ssl_context=None,
-                 proxy=None):
-        super().__init__(storage_url, login, password, proxy=proxy,
-                         ssl_context=ssl_context)
+    def __init__(self, storage_url, login, password, options):
+        super().__init__(storage_url, login, password, options)
 
     @staticmethod
     def _parse_storage_url(storage_url, ssl_context):

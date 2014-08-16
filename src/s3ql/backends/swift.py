@@ -9,7 +9,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 from ..logging import logging, QuietError # Ensure use of custom logger class
 from .. import BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
-    DanglingStorageURLError, retry_generator)
+                     DanglingStorageURLError, retry_generator, get_proxy,
+                     get_ssl_context)
 from .s3c import HTTPError, ObjectR, ObjectW, md5sum_b64, BadDigestError
 from . import s3c
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
@@ -40,30 +41,30 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     use_expect_100c = True
     hdr_prefix = 'X-Object-'
+    known_options = {'no-ssl', 'ssl-ca-path'}
 
     _add_meta_headers = s3c.Backend._add_meta_headers
     _extractmeta = s3c.Backend._extractmeta
 
-    def __init__(self, storage_url, login, password, ssl_context=None, proxy=None):
-        # Unused argument
-        #pylint: disable=W0613
-
+    def __init__(self, storage_url, login, password, options):
         super().__init__()
-
-        (host, port, container_name, prefix) = self._parse_storage_url(storage_url, ssl_context)
-
-        self.hostname = host
-        self.port = port
-        self.container_name = container_name
-        self.prefix = prefix
-        self.password = password
-        self.login = login
+        self.hostname = None
+        self.port = None
+        self.container_name = None
+        self.prefix = None
         self.auth_token = None
         self.auth_prefix = None
         self.conn = None
-        self.proxy = proxy
-        self.ssl_context = ssl_context
+        self.password = password
+        self.login = login
 
+        if 'no-ssl' in options:
+            self.ssl_context = None
+        else:
+            self.ssl_context = get_ssl_context(options.get('ssl-ca-path', None))
+
+        self._parse_storage_url(storage_url, self.ssl_context)
+        self.proxy = get_proxy(self.ssl_context is not None)
         self._container_exists()
 
     def __str__(self):
@@ -86,12 +87,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 raise DanglingStorageURLError(self.container_name)
             raise
 
-    @staticmethod
-    def _parse_storage_url(storage_url, ssl_context):
-        '''Extract information from storage URL
-
-        Return a tuple *(host, port, container_name, prefix)* .
-        '''
+    def _parse_storage_url(self, storage_url, ssl_context):
+        '''Init instance variables from storage url'''
 
         hit = re.match(r'^[a-zA-Z0-9]+://' # Backend
                        r'([^/:]+)' # Hostname
@@ -112,7 +109,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         containername = hit.group(3)
         prefix = hit.group(4) or ''
 
-        return (hostname, port, containername, prefix)
+        self.hostname = hostname
+        self.port = port
+        self.container_name = containername
+        self.prefix = prefix
 
     @copy_ancestor_docstring
     def is_temp_failure(self, exc): #IGNORE:W0613

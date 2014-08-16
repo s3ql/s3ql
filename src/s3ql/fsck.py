@@ -1052,7 +1052,7 @@ def parse_args(args):
     parser.add_authfile()
     parser.add_debug()
     parser.add_quiet()
-    parser.add_ssl()
+    parser.add_backend_options()
     parser.add_version()
     parser.add_storage_url()
     parser.add_fatal_warnings()

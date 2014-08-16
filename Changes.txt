@@ -18,6 +18,15 @@ UNRELEASED, S3QL tip
     mount.s3ql from the command line the shell can be used to put the
     process into background.
 
+  * There is a new --backend-options parameter that can be used to
+    pass backend-specific options to any S3QL command that accepts a
+    storage url.
+
+  * The --no-ssl and --ssl-ca-path parameters have been removed. For
+    those backends were these parameters make sense, you can use the
+    backend options of the same name instead (e.g. instead of
+    `--no-ssl` use `--backend-options no-ssl`).
+
 2014-07-28, S3QL 2.10.1
 
   * 'setup.py install' now also installs the s3ql_verify command.

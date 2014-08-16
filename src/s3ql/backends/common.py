@@ -6,12 +6,15 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging # Ensure use of custom logger class
+from ..logging import logging, QuietError, LOG_ONCE # Ensure use of custom logger class
 from abc import abstractmethod, ABCMeta
 from functools import wraps
 import time
 import textwrap
 import inspect
+import ssl
+import os
+import re
 
 log = logging.getLogger(__name__)
 
@@ -498,3 +501,61 @@ class ChecksumError(Exception):
 
     def __str__(self):
         return self.str
+
+def get_ssl_context(path):
+    '''Construct SSLContext object'''
+
+    # Best practice according to http://docs.python.org/3/library/ssl.html#protocol-versions
+    context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+    context.options |= ssl.OP_NO_SSLv2
+    context.verify_mode = ssl.CERT_REQUIRED
+
+    if path is None:
+        log.debug('Reading default CA certificates.')
+        context.set_default_verify_paths()
+    elif os.path.isfile(path):
+        log.debug('Reading CA certificates from file %s', path)
+        context.load_verify_locations(cafile=path)
+    else:
+        log.debug('Reading CA certificates from directory %s', path)
+        context.load_verify_locations(capath=path)
+
+    return context
+
+def get_proxy(ssl):
+    '''Read system proxy settings
+
+    Returns either `None`, or a tuple ``(host, port)``.
+
+    This function may raise `QuietError`.
+    '''
+
+    if ssl:
+        proxy_env = 'https_proxy'
+    else:
+        proxy_env = 'http_proxy'
+
+    if proxy_env in os.environ:
+        proxy = os.environ[proxy_env]
+        hit = re.match(r'^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?/?$', proxy)
+        if not hit:
+            raise QuietError('Unable to parse proxy setting %s=%r' %
+                             (proxy_env, proxy), exitcode=13)
+
+        if hit.group(1) == 'https://':
+            log.warning('HTTPS connection to proxy is probably pointless and not supported, '
+                        'will use standard HTTP', extra=LOG_ONCE)
+
+        if hit.group(3):
+            proxy_port = int(hit.group(3)[1:])
+        else:
+            proxy_port = 80
+
+        proxy_host = hit.group(2)
+        log.info('Using CONNECT proxy %s:%d', proxy_host, proxy_port,
+                 extra=LOG_ONCE)
+        proxy = (proxy_host, proxy_port)
+    else:
+        proxy = None
+
+    return proxy

@@ -25,7 +25,6 @@ import errno
 import hashlib
 import llfuse
 import posixpath
-import ssl
 
 log = logging.getLogger(__name__)
 
@@ -279,34 +278,6 @@ def assert_s3ql_mountpoint(mountpoint):
 
     return ctrlfile
 
-def get_ssl_context(options):
-    '''Construct SSLContext object from *options*
-
-    If SSL is disabled, return None.
-    '''
-
-    if options.no_ssl:
-        return None
-
-    # Best practice according to http://docs.python.org/3/library/ssl.html#protocol-versions
-    context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-    context.options |= ssl.OP_NO_SSLv2
-    context.verify_mode = ssl.CERT_REQUIRED
-
-    path = options.ssl_ca_path
-    if path is None:
-        log.debug('Reading default CA certificates.')
-        context.set_default_verify_paths()
-    elif os.path.isfile(path):
-        log.debug('Reading CA certificates from file %s', path)
-        context.load_verify_locations(cafile=path)
-    else:
-        log.debug('Reading CA certificates from directory %s', path)
-        context.load_verify_locations(capath=path)
-
-    return context
-
-
 def get_backend(options, plain=False):
     '''Return backend for given storage-url
 
@@ -333,6 +304,12 @@ def get_backend_factory(options, plain=False):
         backend_class = prefix_map[backend]
     except KeyError:
         raise QuietError('No such backend: %s' % backend, exitcode=11)
+
+    # Validate backend options
+    for opt in options.backend_options.keys():
+        if opt not in backend_class.known_options:
+            raise QuietError('Unknown backend option: %s' % opt,
+                             exitcode=3)
 
     # Read authfile
     config = configparser.ConfigParser()
@@ -378,13 +355,10 @@ def get_backend_factory(options, plain=False):
         else:
             backend_passphrase = sys.stdin.readline().rstrip()
 
-    ssl_context = get_ssl_context(options)
-    proxy = get_proxy(ssl_context is not None)
-
     backend = None
     try:
         backend = backend_class(options.storage_url, backend_login, backend_passphrase,
-                                ssl_context, proxy=proxy)
+                                options.backend_options)
 
         # Do not use backend.lookup(), this would use a HEAD request and
         # not provide any useful error messages if something goes wrong
@@ -418,7 +392,7 @@ def get_backend_factory(options, plain=False):
 
     if plain:
         return lambda: backend_class(options.storage_url, backend_login, backend_passphrase,
-                                     ssl_context, proxy=proxy)
+                                     options.backend_options)
 
     if encrypted and not fs_passphrase:
         if sys.stdin.isatty():
@@ -439,8 +413,7 @@ def get_backend_factory(options, plain=False):
     if not encrypted:
         return lambda: ComprencBackend(None, compress,
                                     backend_class(options.storage_url, backend_login,
-                                                  backend_passphrase, ssl_context=ssl_context,
-                                                  proxy=proxy))
+                                                  options.backend_options))
 
     tmp_backend = ComprencBackend(fs_passphrase, compress, backend)
 
@@ -453,8 +426,7 @@ def get_backend_factory(options, plain=False):
 
     return lambda: ComprencBackend(data_pw, compress,
                                  backend_class(options.storage_url, backend_login,
-                                               backend_passphrase, ssl_context=ssl_context,
-                                               proxy=proxy))
+                                               backend_passphrase, options.backend_options))
 def pretty_print_size(i):
     '''Return *i* as string with appropriate suffix (MiB, GiB, etc)'''
 
@@ -476,40 +448,3 @@ def pretty_print_size(i):
     i >>= 10
     return '%d TB' % i
 
-def get_proxy(ssl):
-    '''Read system proxy settings
-
-    Returns either `None`, or a tuple ``(host, port)``.
-
-    This function may raise `QuietError`.
-    '''
-
-    if ssl:
-        proxy_env = 'https_proxy'
-    else:
-        proxy_env = 'http_proxy'
-
-    if proxy_env in os.environ:
-        proxy = os.environ[proxy_env]
-        hit = re.match(r'^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?/?$', proxy)
-        if not hit:
-            raise QuietError('Unable to parse proxy setting %s=%r' %
-                             (proxy_env, proxy), exitcode=13)
-
-        if hit.group(1) == 'https://':
-            log.warning('HTTPS connection to proxy is probably pointless and not supported, '
-                        'will use standard HTTP', extra=LOG_ONCE)
-
-        if hit.group(3):
-            proxy_port = int(hit.group(3)[1:])
-        else:
-            proxy_port = 80
-
-        proxy_host = hit.group(2)
-        log.info('Using CONNECT proxy %s:%d', proxy_host, proxy_port,
-                 extra=LOG_ONCE)
-        proxy = (proxy_host, proxy_port)
-    else:
-        proxy = None
-
-    return proxy

@@ -12,17 +12,25 @@ backend together with some backend-specific information and uniquely
 identifies an S3QL file system. The form of the storage url depends on
 the backend and is described for every backend below.
 
+Furthermore, every S3QL commands that accepts a storage url also
+accepts a :cmdopt:`--backend-options` parameter than can be used to
+pass backend-specific options to the backend module. The available
+options are documented with the respective backends below.
+
 All storage backends respect the :envvar:`!http_proxy` (for plain HTTP
 connections) and :envvar:`!https_proxy` (for SSL connections)
 environment variables. However, S3QL currently supports only
 CONNECT-style proxying. Therefore, there may be compatibility issues
 with some proxy servers when using plain HTTP (i.e., when using the
-:cmdopt:`--no-ssl` option). A workaround for this case is to either
-use SSL connections (for which proxying is fully supported) or to use
-a direct connection without proxy.
+:cmdopt:`no-ssl` backend option). A workaround for this case is to
+either use SSL connections (for which proxying is fully supported) or
+to use a direct connection without proxy.
+
 
 Google Storage
 ==============
+
+.. program:: gs_backend
 
 `Google Storage <http://code.google.com/apis/storage/>`_ is an online
 storage service offered by Google. To use the Google Storage backend,
@@ -63,10 +71,26 @@ arbitrary prefix that will be prepended to all object names used by
 S3QL. This allows you to store several S3QL file systems in the same
 Google Storage bucket.
 
+The Google Storage backend accepts the following backend options:
+
+.. option:: no-ssl
+
+   Disable encrypted (https) connections and use plain HTTP instead.
+
+.. option:: ssl-ca-path=<path>
+
+   Instead of using the system's default certificate store, validate
+   the server certificate against the specified CA
+   certificates. :var:`<path>` may be either a file containing
+   multiple certificates, or a directory containing one certificate
+   per file.
+
 .. _`Google Storage Manager`: https://sandbox.google.com/storage/
 
 Amazon S3
 =========
+
+.. program:: s3_backend
 
 `Amazon S3 <http://aws.amazon.com/s3>`_ is the online storage service
 offered by `Amazon Web Services (AWS) <http://aws.amazon.com/>`_. To
@@ -94,6 +118,21 @@ the *AWS access key id* and *AWS secret access key* shown under `My
 Account/Access Identifiers
 <https://aws-portal.amazon.com/gp/aws/developer/account/index.html?ie=UTF8&action=access-key>`_.
 
+The Amazon S3 backend accepts the following backend options:
+
+.. option:: no-ssl
+
+   Disable encrypted (https) connections and use plain HTTP instead.
+
+.. option:: ssl-ca-path=<path>
+
+   Instead of using the system's default certificate store, validate
+   the server certificate against the specified CA
+   certificates. :var:`<path>` may be either a file containing
+   multiple certificates, or a directory containing one certificate
+   per file.
+
+
 
 Reduced Redundancy Storage (RRS)
 --------------------------------
@@ -118,8 +157,12 @@ combination of three factors:
   :ref:`backend_reliability` for details).
 
 
+.. _openstack_backend:
+
 OpenStack/Swift
 ===============
+
+.. program:: swift_backend
 
 OpenStack_ is an open-source cloud server application suite. Swift_ is
 the cloud storage module of OpenStack. Swift/OpenStack storage is
@@ -153,6 +196,20 @@ username and tenant name in the form `<tenant>:<user>`. If no tenant
 is required, the OpenStack username alone may be used as backend
 login.
 
+The OpenStack backend accepts the following backend options:
+
+.. option:: no-ssl
+
+   Disable encrypted (https) connections and use plain HTTP instead.
+
+.. option:: ssl-ca-path=<path>
+
+   Instead of using the system's default certificate store, validate
+   the server certificate against the specified CA
+   certificates. :var:`<path>` may be either a file containing
+   multiple certificates, or a directory containing one certificate
+   per file.
+
 .. _OpenStack: http://www.openstack.org/
 .. _Swift: http://openstack.org/projects/storage/
 
@@ -177,6 +234,8 @@ You can create a storage container for S3QL using the `Cloud Control
 Panel <https://mycloud.rackspace.com/>`_ (click on *Files* in the
 topmost menu bar).
 
+The Rackspace backend accepts the same backend options as the
+:ref:`OpenStack backend <openstack_backend>`.
 
 .. NOTE::
 
@@ -197,6 +256,8 @@ topmost menu bar).
 S3 compatible
 =============
 
+.. program:: s3c_backend
+
 The S3 compatible backend allows S3QL to access any storage service
 that uses the same protocol as Amazon S3. The storage URL has the form ::
 
@@ -206,6 +267,20 @@ Here *bucketname* is the name of an (existing) bucket, and *prefix*
 can be an arbitrary prefix that will be prepended to all object names
 used by S3QL. This allows you to store several S3QL file systems in
 the same bucket.
+
+The S3 compatible backend accepts the following backend options:
+
+.. option:: no-ssl
+
+   Disable encrypted (https) connections and use plain HTTP instead.
+
+.. option:: ssl-ca-path=<path>
+
+   Instead of using the system's default certificate store, validate
+   the server certificate against the specified CA
+   certificates. :var:`<path>` may be either a file containing
+   multiple certificates, or a directory containing one certificate
+   per file.
 
 
 Local
@@ -230,5 +305,6 @@ file (see :ref:`authinfo`) is read, i.e. if you are in the
 corresponding section in the authentication file must match the
 storage url `local:///home/john/s3ql`.
 
+The local backend does not accept any backend options.
 
 .. _sshfs: http://fuse.sourceforge.net/sshfs.html

@@ -24,11 +24,9 @@ from s3ql.backends.common import (NoSuchObject, AuthenticationError, Authorizati
 from s3ql.backends.comprenc import (ComprencBackend, ObjectNotEncrypted,
                                     MalformedObjectError)
 from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, S3Error
-from s3ql.common import get_ssl_context
 from contextlib import ExitStack
 from common import get_remote_test_info, NoTestSection, catch_logmsg, CLOCK_GRANULARITY
 import s3ql.backends.common
-from argparse import Namespace
 import tempfile
 import re
 import functools
@@ -102,7 +100,7 @@ class MockBackendWrapper(BackendWrapper):
         self.thread.start()
         storage_url = self.storage_url % { 'host': self.server.server_address[0],
                                            'port': self.server.server_address[1] }
-        backend = self.backend_class(storage_url, 'joe', 'swordfish')
+        backend = self.backend_class(storage_url, 'joe', 'swordfish', { 'no-ssl': True })
 
         # Enable OAuth when using Google Backend
         if isinstance(backend, GSBackend):
@@ -129,17 +127,15 @@ class MockBackendWrapper(BackendWrapper):
 
 class RemoteBackendWrapper(BackendWrapper):
 
-    def __init__(self, backend_name, backend_class, ssl_context):
+    def __init__(self, backend_name, backend_class):
         self.class_ = backend_class
-        self.ssl_context = ssl_context
         super().__init__(backend_name, retry_time=600)
 
     def _init(self):
         # May raise NoTestSection
         (login, password, storage_url) = get_remote_test_info(self.name + '-test')
 
-        backend = self.class_(storage_url, login, password,
-                              ssl_context=self.ssl_context)
+        backend = self.class_(storage_url, login, password, {})
         try:
             backend.fetch('empty_object')
         except DanglingStorageURLError:
@@ -172,16 +168,12 @@ def _init_wrappers():
         _backend_wrappers.append(MockBackendWrapper(request_handler, storage_url))
 
     # Backends talking to actual remote servers (if available)
-    options = Namespace()
-    options.no_ssl = False
-    options.ssl_ca_path = None
-    ssl_context = get_ssl_context(options)
     for (backend_name, backend_class) in backends.prefix_map.items():
          if backend_name == 'local': # local backend has already been handled
              continue
 
          try:
-             bw = RemoteBackendWrapper(backend_name, backend_class, ssl_context)
+             bw = RemoteBackendWrapper(backend_name, backend_class)
          except NoTestSection as exc:
              log.info('Not doing remote tests for %s backend: %s',
                       backend_name, exc.reason)
@@ -1252,27 +1244,3 @@ def test_conn_abort(backend, backend_wrapper, monkeypatch):
 
     monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     assert backend[key] == data
-
-def test_s3_url_parsing():
-    parse = backends.s3.Backend._parse_storage_url
-    assert parse('s3://name', ssl_context=None)[2:] == ('name', '')
-    assert parse('s3://name/', ssl_context=None)[2:] == ('name', '')
-    assert parse('s3://name/pref/', ssl_context=None)[2:] == ('name', 'pref/')
-    assert parse('s3://name//pref/', ssl_context=None)[2:] == ('name', '/pref/')
-
-def test_gs_url_parsing():
-    parse = backends.gs.Backend._parse_storage_url
-    assert parse('gs://name', ssl_context=None)[2:] == ('name', '')
-    assert parse('gs://name/', ssl_context=None)[2:] == ('name', '')
-    assert parse('gs://name/pref/', ssl_context=None)[2:] == ('name', 'pref/')
-    assert parse('gs://name//pref/', ssl_context=None)[2:] == ('name', '/pref/')
-
-def test_s3c_url_parsing():
-    parse = backends.s3c.Backend._parse_storage_url
-    assert parse('s3c://host.org/name', ssl_context=None) == ('host.org', 80, 'name', '')
-    assert parse('s3c://host.org:23/name', ssl_context=None) == ('host.org', 23, 'name', '')
-    assert parse('s3c://host.org/name/', ssl_context=None) == ('host.org', 80, 'name', '')
-    assert parse('s3c://host.org/name/pref',
-                 ssl_context=None) == ('host.org', 80, 'name', 'pref')
-    assert parse('s3c://host.org:17/name/pref/',
-                 ssl_context=None) == ('host.org', 17, 'name', 'pref/')

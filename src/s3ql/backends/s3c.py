@@ -9,7 +9,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 from ..logging import logging, QuietError # Ensure use of custom logger class
 from .. import PICKLE_PROTOCOL, BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
-    AuthenticationError, DanglingStorageURLError, retry_generator)
+                     AuthenticationError, DanglingStorageURLError, retry_generator,
+                     get_proxy, get_ssl_context)
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from io import BytesIO
@@ -50,9 +51,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     use_expect_100c = True
     xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
     hdr_prefix = 'x-amz-'
+    known_options = {'no-ssl', 'ssl-ca-path'}
 
-    def __init__(self, storage_url, login, password, ssl_context=None,
-                 proxy=None):
+    def __init__(self, storage_url, login, password, options):
         '''Initialize backend object
 
         *ssl_context* may be a `ssl.SSLContext` instance or *None*.
@@ -60,16 +61,20 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         super().__init__()
 
-        (host, port, bucket_name, prefix) = self._parse_storage_url(storage_url, ssl_context)
+        if 'no-ssl' in options:
+            self.ssl_context = None
+        else:
+            self.ssl_context = get_ssl_context(options.get('ssl-ca-path', None))
+
+        (host, port, bucket_name, prefix) = self._parse_storage_url(storage_url,
+                                                                    self.ssl_context)
 
         self.bucket_name = bucket_name
         self.prefix = prefix
         self.hostname = host
         self.port = port
-        self.ssl_context = ssl_context
-        self.proxy = proxy
+        self.proxy = get_proxy(self.ssl_context is not None)
         self.conn = self._get_conn()
-
         self.password = password
         self.login = login
 

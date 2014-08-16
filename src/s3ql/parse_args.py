@@ -139,15 +139,11 @@ class ArgumentParser(argparse.ArgumentParser):
         self.add_argument("--quiet", action="store_true", default=False,
                           help="be really quiet")
 
-    def add_ssl(self):
-        self.add_argument("--no-ssl", action="store_true", default=False,
-                          help="Do not use secure (ssl) connections when connecting "
-                               "to remote servers.")
-
-        self.add_argument("--ssl-ca-path", metavar='path', default=None, type=str,
-                          help="File or directory or containing the trusted CA certificates. "
-                               "If not specified, the defaults compiled into the system's "
-                               "OpenSSL library are used.")
+    def add_backend_options(self):
+        self.add_argument("--backend-options", default={}, type=suboptions_type,
+                          metavar='<options>',
+                          help="Backend specific options (separate by commas). See "
+                               "backend documentation for available options.")
 
     def add_debug(self):
         destnote = ('Debug messages will be written to the target '
@@ -166,6 +162,7 @@ class ArgumentParser(argparse.ArgumentParser):
                       default=os.path.expanduser("~/.s3ql/authinfo2"),
                       help='Read authentication credentials from this file '
                            '(default: `~/.s3ql/authinfo2)`')
+
     def add_cachedir(self):
         self.add_argument("--cachedir", type=str, metavar='<path>',
                       default=os.path.expanduser("~/.s3ql"),
@@ -231,3 +228,23 @@ def str_or_None_type(s):
     if s.lower() == 'none':
         return None
     return s
+
+def suboptions_type(s):
+    '''An argument converter for suboptions
+
+    A suboption takes a comma separated list of additional
+    options, e.g. --backend-options ssl,timeout=42,sse
+    '''
+
+    assert isinstance(s, str)
+
+    opts = dict()
+    for opt in s.split(','):
+        if '=' in opt:
+            (key, val) = opt.split('=', 1)
+        else:
+            key = opt
+            val = True
+        opts[key] = val
+
+    return opts

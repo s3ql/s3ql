@@ -44,6 +44,9 @@ Exit Codes
 
 .. include:: ../include/exitcodes.rst
 
+:3:
+   Invalid backend option.
+
 :11:
    No such backend.
 

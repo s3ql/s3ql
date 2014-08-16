@@ -43,9 +43,8 @@ class Backend(s3c.Backend):
     access_token = dict()
     _refresh_lock = threading.Lock()
 
-    def __init__(self, storage_url, gs_key, gs_secret, ssl_context=None, proxy=None):
-        super().__init__(storage_url, gs_key, gs_secret, ssl_context=ssl_context,
-                         proxy=proxy)
+    def __init__(self, storage_url, gs_key, gs_secret, options):
+        super().__init__(storage_url, gs_key, gs_secret, options)
 
         self.use_oauth2 = (gs_key == 'oauth2')
 

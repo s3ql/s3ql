@@ -16,9 +16,8 @@ log = logging.getLogger(__name__)
 class Backend(swiftks.Backend):
     """A backend to store data in Rackspace CloudFiles"""
 
-    @staticmethod
     @copy_ancestor_docstring
-    def _parse_storage_url(storage_url, ssl_context):
+    def _parse_storage_url(self, storage_url, ssl_context):
 
         hit = re.match(r'^rackspace://' # Backend
                        r'([^/:]+)' # Region
@@ -37,4 +36,8 @@ class Backend(swiftks.Backend):
         else:
             port = 80
 
-        return ('auth.api.rackspacecloud.com', port, region, containername, prefix)
+        self.hostname = 'auth.api.rackspacecloud.com'
+        self.port = port
+        self.container_name = containername
+        self.prefix = prefix
+        self.region = region

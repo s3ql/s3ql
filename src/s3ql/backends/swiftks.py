@@ -21,31 +21,12 @@ log = logging.getLogger(__name__)
 
 class Backend(swift.Backend):
 
-    def __init__(self, storage_url, login, password, ssl_context=None, proxy=None):
-        # Unused argument
-        #pylint: disable=W0613
+    def __init__(self, storage_url, login, password, options):
+        self.region = None
+        super().__init__(storage_url, login, password, options)
 
-        (host, port, region,
-         container_name, prefix) = self._parse_storage_url(storage_url, ssl_context)
-
-        self.hostname = host
-        self.port = port
-        self.region = region
-        self.container_name = container_name
-        self.prefix = prefix
-        self.proxy = proxy
-        self.password = password
-        self.login = login
-        self.auth_token = None
-        self.auth_prefix = None
-        self.conn = None
-        self.ssl_context = ssl_context
-
-        self._container_exists()
-
-    @staticmethod
     @copy_ancestor_docstring
-    def _parse_storage_url(storage_url, ssl_context):
+    def _parse_storage_url(self, storage_url, ssl_context):
 
         hit = re.match(r'^[a-zA-Z0-9]+://' # Backend
                        r'([^/:]+)' # Hostname
@@ -68,7 +49,11 @@ class Backend(swift.Backend):
         containername = hit.group(4)
         prefix = hit.group(5) or ''
 
-        return (hostname, port, region, containername, prefix)
+        self.hostname = hostname
+        self.port = port
+        self.container_name = containername
+        self.prefix = prefix
+        self.region = region
 
     @retry
     def _get_conn(self):
