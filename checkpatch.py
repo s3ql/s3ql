@@ -149,6 +149,9 @@ def check_imports():
 
     return found_problems
 
+def check_pyflakes(name):
+    return subprocess.call(['pyflakes3', name]) == 1
+
 def parse_args():
     parser = ArgumentParser(
         description="Check if tracked files are ready for commit")
@@ -173,6 +176,9 @@ for b_name in hg_out.split(b'\0'):
         continue
     name = b_name.decode('utf-8', errors='surrogatescape')
     if check_whitespace(name, correct=options.fix_whitespace):
+        found_problems = True
+
+    if name.endswith('.py') and check_pyflakes(name):
         found_problems = True
 
 if found_problems:
