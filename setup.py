@@ -29,11 +29,6 @@ from glob import glob
 import faulthandler
 faulthandler.enable()
 
-# Work around setuptools bug
-# http://bitbucket.org/tarek/distribute/issue/152/
-#pylint: disable=W0611
-import multiprocessing
-
 # When running from HG repo, enable all warnings
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
 if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
