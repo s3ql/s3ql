@@ -85,6 +85,12 @@ The Google Storage backend accepts the following backend options:
    multiple certificates, or a directory containing one certificate
    per file.
 
+.. option:: tcp-timeout
+
+   Specifies the timeout used for TCP connections. If no data can be
+   exchanged with the remote server for longer than this period, the
+   TCP connection is closed and re-established.
+
 .. _`Google Storage Manager`: https://sandbox.google.com/storage/
 
 Amazon S3
@@ -132,6 +138,11 @@ The Amazon S3 backend accepts the following backend options:
    multiple certificates, or a directory containing one certificate
    per file.
 
+.. option:: tcp-timeout
+
+   Specifies the timeout used for TCP connections. If no data can be
+   exchanged with the remote server for longer than this period, the
+   TCP connection is closed and re-established.
 
 
 Reduced Redundancy Storage (RRS)
@@ -210,6 +221,12 @@ The OpenStack backend accepts the following backend options:
    multiple certificates, or a directory containing one certificate
    per file.
 
+.. option:: tcp-timeout
+
+   Specifies the timeout used for TCP connections. If no data can be
+   exchanged with the remote server for longer than this period, the
+   TCP connection is closed and re-established.
+
 .. _OpenStack: http://www.openstack.org/
 .. _Swift: http://openstack.org/projects/storage/
 
@@ -281,6 +298,12 @@ The S3 compatible backend accepts the following backend options:
    certificates. :var:`<path>` may be either a file containing
    multiple certificates, or a directory containing one certificate
    per file.
+
+.. option:: tcp-timeout
+
+   Specifies the timeout used for TCP connections. If no data can be
+   exchanged with the remote server for longer than this period, the
+   TCP connection is closed and re-established.
 
 
 Local

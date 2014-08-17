@@ -41,13 +41,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     use_expect_100c = True
     hdr_prefix = 'X-Object-'
-    known_options = {'no-ssl', 'ssl-ca-path'}
+    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout'}
 
     _add_meta_headers = s3c.Backend._add_meta_headers
     _extractmeta = s3c.Backend._extractmeta
 
     def __init__(self, storage_url, login, password, options):
         super().__init__()
+        self.options = options
         self.hostname = None
         self.port = None
         self.container_name = None
@@ -135,6 +136,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         conn = HTTPConnection(self.hostname, self.port, proxy=self.proxy,
                               ssl_context=self.ssl_context)
+        conn.timeout = self.options.get('tcp-timeout', 10)
 
         headers = CaseInsensitiveDict()
         headers['X-Auth-User'] = self.login
@@ -165,8 +167,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self.auth_prefix = urllib.parse.unquote(o.path)
             conn.disconnect()
 
-            return HTTPConnection(o.hostname, o.port, proxy=self.proxy,
+            conn =  HTTPConnection(o.hostname, o.port, proxy=self.proxy,
                                   ssl_context=self.ssl_context)
+            conn.timeout = self.options.get('tcp-timeout', 10)
+            return conn
 
         raise RuntimeError('No valid authentication path found')
 

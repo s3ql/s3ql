@@ -63,6 +63,7 @@ class Backend(swift.Backend):
 
         conn = HTTPConnection(self.hostname, port=self.port, proxy=self.proxy,
                               ssl_context=self.ssl_context)
+        conn.timeout = self.options.get('tcp-timeout', 10)
 
         headers = CaseInsensitiveDict()
         headers['Content-Type'] = 'application/json'
@@ -110,8 +111,10 @@ class Backend(swift.Backend):
                 self.auth_prefix = urllib.parse.unquote(o.path)
                 conn.disconnect()
 
-                return HTTPConnection(o.hostname, o.port,  proxy=self.proxy,
+                conn = HTTPConnection(o.hostname, o.port,  proxy=self.proxy,
                                       ssl_context=self.ssl_context)
+                conn.timeout = self.options.get('tcp-timeout', 10)
+                return conn
 
         if len(avail_regions) < 10:
             raise DanglingStorageURLError(self.container_name,

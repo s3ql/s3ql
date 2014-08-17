@@ -27,6 +27,10 @@ UNRELEASED, S3QL tip
     backend options of the same name instead (e.g. instead of
     `--no-ssl` use `--backend-options no-ssl`).
 
+  * Several backends now accept a `tcp-timeout` option. If S3QL is
+    unable to communicate with the remote server for longer than this
+    period, the TCP/IP connection is re-established.
+
 2014-07-28, S3QL 2.10.1
 
   * 'setup.py install' now also installs the s3ql_verify command.

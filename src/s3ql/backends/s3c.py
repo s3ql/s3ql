@@ -51,7 +51,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     use_expect_100c = True
     xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
     hdr_prefix = 'x-amz-'
-    known_options = {'no-ssl', 'ssl-ca-path'}
+    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout'}
 
     def __init__(self, storage_url, login, password, options):
         '''Initialize backend object
@@ -69,6 +69,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         (host, port, bucket_name, prefix) = self._parse_storage_url(storage_url,
                                                                     self.ssl_context)
 
+        self.options = options
         self.bucket_name = bucket_name
         self.prefix = prefix
         self.hostname = host
@@ -122,7 +123,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         conn =  HTTPConnection(self.hostname, self.port, proxy=self.proxy,
                                ssl_context=self.ssl_context)
-        conn.timeout = 30
+        conn.timeout = self.options.get('tcp-timeout', 10)
         return conn
 
     @copy_ancestor_docstring
