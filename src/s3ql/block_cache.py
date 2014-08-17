@@ -434,7 +434,8 @@ class BlockCache(object):
                 self.db.execute('UPDATE objects SET size=? WHERE id=?', (obj_size, obj_id))
                 el.dirty = False
 
-        except:
+        except Exception as exc:
+            log.debug('upload of %d failed: %s', obj_id, exc)
             # At this point we have to remove references to this storage object
             # from the objects and blocks table to prevent future cache elements
             # to be de-duplicated against this (missing) one. However, this may
@@ -627,7 +628,8 @@ class BlockCache(object):
         log.debug('removing block %d', block_id)
         obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (block_id,))
         self.db.execute('DELETE FROM blocks WHERE id=?', (block_id,))
-        refcount = self.db.get_val('SELECT refcount FROM objects WHERE id=?', (obj_id,))
+        (refcount, size) = self.db.get_row('SELECT refcount, size FROM objects WHERE id=?',
+                                           (obj_id,))
         if refcount > 1:
             log.debug('decreased refcount for obj: %d', obj_id)
             self.db.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
@@ -645,6 +647,14 @@ class BlockCache(object):
         with lock_released:
             self._lock_obj(obj_id)
             self._unlock_obj(obj_id)
+
+            if size == -1:
+                # size == -1 indicates that object has not yet been uploaded.
+                # However, since we just acquired a lock on the object, we know
+                # that the upload must have failed. Therefore, trying to remove
+                # this object would just give us another error.
+                return
+
             self._queue_removal(obj_id)
 
 

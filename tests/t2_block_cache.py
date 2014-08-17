@@ -112,9 +112,9 @@ class cache_tests(unittest.TestCase):
         shutil.rmtree(self.backend_dir)
         os.unlink(self.dbfile.name)
 
-    def test_destroy_deadlock(self):
-        # Make sure that we don't deadlock if some upload threads
-        # terminate prematurely
+    def test_thread_hang(self):
+        # Make sure that we don't deadlock if uploads threads or removal
+        # threads have died and we try to expire or terminate
 
         # Monkeypatch to avoid error messages about uncaught exceptions
         # in other threads
@@ -129,96 +129,52 @@ class cache_tests(unittest.TestCase):
         def _removal_loop(*a, fn=self.cache._removal_loop):
             try:
                 return fn(*a)
-            except (NotADirectoryError, NoSuchObject):
+            except NotADirectoryError:
                 nonlocal removal_exc
                 removal_exc = True
         self.cache._upload_loop = _upload_loop
         self.cache._removal_loop = _removal_loop
 
         # Start threads
-        self.cache.init(threads=5)
+        self.cache.init(threads=3)
+
+        # Create first object (we'll try to remove that)
+        with self.cache.get(self.inode, 0) as fh:
+            fh.write(b'bar wurfz!')
+        self.cache.commit()
+        self.cache.wait()
 
         # Make sure that upload and removal will fail
         os.rename(self.backend_dir, self.backend_dir + '-tmp')
         open(self.backend_dir, 'w').close()
 
-        # Create another object
+        # Create second object (we'll try to upload that)
         with self.cache.get(self.inode, 1) as fh:
-            fh.seek(0)
-            fh.write(b'bar wurfz!')
+            fh.write(b'bar wurfz number two!')
 
-        # Remove something
+        # Schedule a removal
         self.cache.remove(self.inode, 0)
 
-        # Shutdown threads
-        llfuse.lock.release()
         try:
-            with catch_logmsg('Unable to flush cache, no upload threads left alive',
-                              level=logging.ERROR):
+            # Try to clean-up (implicitly calls expire)
+            with llfuse.lock_released, \
+                catch_logmsg('Unable to flush cache, no upload threads left alive',
+                              level=logging.ERROR, count=1):
                 with pytest.raises(OSError) as exc_info:
-                    self.cache.destroy()
+                     self.cache.destroy()
                 assert exc_info.value.errno == errno.ENOTEMPTY
+            assert upload_exc
+            assert removal_exc
         finally:
-            # Fix backend dir and make second destroy call into no-op
+            # Fix backend dir
             os.unlink(self.backend_dir)
             os.rename(self.backend_dir + '-tmp', self.backend_dir)
+
+            # Remove objects from cache and make final destroy
+            # call into no-op.
+            self.cache.remove(self.inode, 1)
             self.cache.destroy = lambda: None
 
-            # Remove elements from cache, or we get a warning from
-            # BlockCache.__del__
-            for key in self.cache.cache.keys():
-                self.cache.cache.remove(key)
-
-            llfuse.lock.acquire()
-
-        assert removal_exc
-        assert upload_exc
-
-    def test_expire_deadlock(self):
-        # Make sure that we don't deadlock if uploads threads
-        # are gone and we try to expire
-
-        # Monkeypatch to avoid error messages about uncaught exceptinons
-        # in other threads
-        upload_exc = False
-        def _upload_loop(*a, fn=self.cache._upload_loop):
-            try:
-                return fn(*a)
-            except NotADirectoryError:
-                nonlocal upload_exc
-                upload_exc = True
-        self.cache._upload_loop = _upload_loop
-
-        # There will also be exceptions from trying to remove the
-        # objects whose upload previously failed.
-        def _removal_loop(*a, fn=self.cache._removal_loop):
-            try:
-                return fn(*a)
-            except (NoSuchObject, NotADirectoryError):
-                pass
-        self.cache._removal_loop = _removal_loop
-
-        # Start threads
-        self.cache.init(threads=3)
-
-        # Make sure that upload will fail
-        os.rename(self.backend_dir, self.backend_dir + '-tmp')
-        open(self.backend_dir, 'w').close()
-
-        # Create object
-        with self.cache.get(self.inode, 0) as fh:
-            fh.write(b'bar wurfz!')
-
-        # Expire
-        with pytest.raises(NoWorkerThreads):
-            self.cache.clear()
-
-        # Fix backend dir and remove object
-        os.unlink(self.backend_dir)
-        os.rename(self.backend_dir + '-tmp', self.backend_dir)
-        self.cache.remove(self.inode, 0)
-
-        assert upload_exc
 
     @staticmethod
     def random_data(len_):

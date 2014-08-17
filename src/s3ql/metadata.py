@@ -152,6 +152,7 @@ def dump_metadata(db, fh):
 def create_tables(conn):
     # Table of storage objects
     # Refcount is included for performance reasons
+    # size == -1 indicates block has not been uploaded yet
     conn.execute("""
     CREATE TABLE objects (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
