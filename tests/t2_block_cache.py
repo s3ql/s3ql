@@ -110,6 +110,7 @@ class cache_tests(unittest.TestCase):
         self.cache.destroy()
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.backend_dir)
+        self.dbfile.close()
         os.unlink(self.dbfile.name)
 
     def test_thread_hang(self):
