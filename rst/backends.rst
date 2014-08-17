@@ -144,6 +144,11 @@ The Amazon S3 backend accepts the following backend options:
    exchanged with the remote server for longer than this period, the
    TCP connection is closed and re-established.
 
+.. option:: sse
+
+    Enable server side encryption. Both costs & benefits of S3 server
+    side encryption are probably rather small, and this option does
+    *not* affect any client side encryption performed by S3QL itself.
 
 Reduced Redundancy Storage (RRS)
 --------------------------------
