@@ -413,7 +413,7 @@ def get_backend_factory(options, plain=False):
     if not encrypted:
         return lambda: ComprencBackend(None, compress,
                                     backend_class(options.storage_url, backend_login,
-                                                  options.backend_options))
+                                                  backend_passphrase, options.backend_options))
 
     tmp_backend = ComprencBackend(fs_passphrase, compress, backend)
 
