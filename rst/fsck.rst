@@ -41,6 +41,8 @@ This command accepts the following options:
    :start-after: show this help message and exit
 
 
+.. _s3ql_verify:
+
 Detecting and handling backend data corruption
 ----------------------------------------------
 

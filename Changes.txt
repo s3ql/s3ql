@@ -36,6 +36,9 @@ UNRELEASED, S3QL tip
     encryption are probably very small, and this option does *not*
     affect any client side encryption performed by S3QL itself.
 
+  * The Amazon S3 backend now accepts a 'rrs' option to enable reduced
+    redundancy storage for any newly created objects.
+
 2014-07-28, S3QL 2.10.1
 
   * 'setup.py install' now also installs the s3ql_verify command.

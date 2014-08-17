@@ -150,27 +150,15 @@ The Amazon S3 backend accepts the following backend options:
     side encryption are probably rather small, and this option does
     *not* affect any client side encryption performed by S3QL itself.
 
-Reduced Redundancy Storage (RRS)
---------------------------------
+.. option:: rrs
 
-S3QL does not allow the use of `reduced redundancy storage
-<http://aws.amazon.com/s3/#protecting>`_. The reason for that is a
-combination of three factors:
+   Enable reduced redundancy storage for newly created objects.
 
-* RRS has a relatively low reliability, on average you lose one
-  out of every ten-thousand objects a year. So you can expect to
-  occasionally lose some data.
-
-* When `fsck.s3ql` asks S3 for a list of the stored objects, this list
-  includes even those objects that have been lost. Therefore
-  `fsck.s3ql` *can not detect lost objects* and lost data will only
-  become apparent when you try to actually read from a file whose data
-  has been lost. This is a (very unfortunate) peculiarity of Amazon
-  S3.
-
-* Due to the data de-duplication feature of S3QL, unnoticed lost
-  objects may cause subsequent data loss later in time (see
-  :ref:`backend_reliability` for details).
+   When enabling this option, it is strongly recommended to
+   periodically run :ref:`s3ql_verify <s3ql_verify>`, because objects
+   that are lost by the storage backend may cause subsequent data loss
+   even later in time due to the data de-duplication feature of S3QL (see
+   :ref:`backend_reliability` for details).
 
 
 .. _openstack_backend:
