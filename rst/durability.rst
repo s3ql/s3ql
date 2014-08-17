@@ -45,7 +45,7 @@ To avoid losing your data, obey the following rules:
    should choose a respectable provider instead.
 
 #. When mounting the same file system on different computers (or on
-   the same computer but with different ``--cachedir`` directories),
+   the same computer but with different :cmdopt:`--cachedir` directories),
    the time that passes between the first and second of invocation of
    :program:`mount.s3ql` must be at least as long as your storage
    service's consistency window. If your storage service offers
@@ -60,7 +60,6 @@ The rest of this section explains the above rules and the reasons for
 them in more detail. It also contains a list of the consistency
 windows for a number of larger storage providers.
 
-
 Consistency Window List
 =======================
 
@@ -71,13 +70,13 @@ not included, or if you need more reliable information, check with
 your storage provider.
 
 =======================================   ===================
-Storage Provider                          Consistency
+Storage Provider                          Consistency Window
 =======================================   ===================
-Amazon S3 in the US standard region       Eventual
+Amazon S3 in the US standard region       No guarantees
 Amazon S3 in other regions                Immediate
 Google Storage                            Immediate
-RackSpace CloudFiles                      Eventual
 =======================================   ===================
+
 
 
 Data Consistency
@@ -221,27 +220,20 @@ missing or broken when the object actually needs to be retrieved. In
 this case, :program:`fsck.s3ql` will not learn anything by just
 querying the list of objects.
 
-In the future, :program:`fsck.s3ql` will have an additional
-"full-check" mode, in which it attempts to retrieve every single
-object. However, this is expected to be rather time consuming and
-expensive. Therefore, it is generally a better choice to choose a
-storage service where the expected data durability is so high that the
-possibility of a lost object (and thus the need to run any full
-checks) can be neglected over long periods of time.
+This effect can be mitigated to some degree by using the
+:program:`s3ql_verify` command in additon to
+:program:`fsck.s3ql`. :program:`s3ql_verify` asks the storage service
+to look up every stored object and may therefore take much longer than
+running :program:`fsck.s3ql`, but can also offer a much stronger
+assurance that no data has been lost by the storage service. To
+"recover" from damaged storage objects in the backend, the damaged
+objects found by :program:`s3ql_verify` have to be explicitly deleted
+(so that a successive :program:`fsck.s3ql` is able detect them as
+missing, correct the file system metadata, and move any affected files
+to :file:`lost+found`). This procedure is currently not automated, so
+it is generally a good idea to choose a storage service where the
+expected data durability is high enough so that the possibility of a
+lost object (and thus the need to run any full checks) can be
+neglected over long periods of time.
 
-To some degree, :program:`fsck.s3ql` can mitigate this effect. When
-used with the ``--full-check`` option, :program:`fsck.s3ql` asks the
-storage service to look up every stored object. This way, S3QL learns
-about any missing and, depending on the storage service, corrupted
-objects. It can then mark the damaged files and prevent the problem
-from spreading forwards in time. Figuratively speaking, this
-establishes a "checkpoint": data loss that occurred before running
-:program:`fsck.s3ql` with ``--full-check`` can not affect any file
-system operations that are performed after the check.
 
-Unfortunately, a full check is rather time consuming and expensive
-because of the need to check every single stored object. It is
-generally a better choice to choose a storage service where the
-expected data durability is so high that the possibility of a lost
-object (and thus the need to run any full checks) can be neglected
-over long periods of time.

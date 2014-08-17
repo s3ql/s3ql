@@ -19,7 +19,7 @@ In contrast to that, the :program:`s3ql_verify` command is intended to
 check the consistency of the storage backend. It assumes that the
 internal file system data is correct, and verifies that all data can
 actually be retrieved from the backend. Running :program:`s3ql_verify`
-therefore may take much longer than running :program:`fsck.s3ql`.
+may therefore take much longer than running :program:`fsck.s3ql`.
 
 
 Checking and repairing internal file system errors
