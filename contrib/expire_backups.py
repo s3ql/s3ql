@@ -12,7 +12,7 @@ import os
 import re
 import textwrap
 import shutil
-import pickle as pickle
+import pickle
 from datetime import datetime, timedelta
 from collections import defaultdict
 
@@ -98,13 +98,15 @@ def main(args=None):
         state = upgrade_to_state(backup_list)
         if not options.n:
             log.info('Saving reconstructed state..')
-            pickle.dump(state, open(options.state, 'wb'), PICKLE_PROTOCOL)
+            with open(options.state, 'wb') as fh:
+                pickle.dump(state, fh, PICKLE_PROTOCOL)
     elif not os.path.exists(options.state):
         log.warning('Creating state file..')
         state = dict()
     else:
         log.info('Reading state...')
-        state = pickle.load(open(options.state, 'rb'))
+        with open(options.state, 'rb') as fh:
+            state = pickle.load(fh)
 
     to_delete = process_backups(backup_list, state, options.cycles)
 
@@ -120,7 +122,8 @@ def main(args=None):
         log.info('Dry run, not saving state.')
     else:
         log.info('Saving state..')
-        pickle.dump(state, open(options.state, 'wb'), PICKLE_PROTOCOL)
+        with open(options.state, 'wb') as fh:
+            pickle.dump(state, fh, PICKLE_PROTOCOL)
 
 def upgrade_to_state(backup_list):
     log.info('Several existing backups detected, trying to convert absolute ages to cycles')
