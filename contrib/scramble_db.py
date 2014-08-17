@@ -68,7 +68,8 @@ def main(args=None):
     if not os.path.exists(cachepath + '.params'):
         raise QuietError("No local metadata found.")
 
-    param = pickle.load(open(cachepath + '.params', 'rb'))
+    with open(cachepath + '.params', 'rb') as fh:
+        param = pickle.load(fh)
 
     # Check revision
     if param['revision'] < CURRENT_FS_REV:
