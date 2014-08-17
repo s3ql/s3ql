@@ -299,7 +299,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return ObjectR(key, resp, self, meta)
 
     @prepend_ancestor_docstring
-    def open_write(self, key, metadata=None, is_compressed=False):
+    def open_write(self, key, metadata=None, is_compressed=False, extra_headers=None):
         """
         The returned object will buffer all data and only start the upload
         when its `close` method is called.
@@ -313,6 +313,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
 
         headers = CaseInsensitiveDict()
+        if extra_headers is not None:
+            headers.update(extra_headers)
         self._add_meta_headers(headers, metadata)
 
         return ObjectW(key, self, headers)
@@ -336,13 +338,15 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @retry
     @copy_ancestor_docstring
-    def copy(self, src, dest, metadata=None):
+    def copy(self, src, dest, metadata=None, extra_headers=None):
         log.debug('copy(%s, %s): start', src, dest)
 
         if not (metadata is None or isinstance(metadata, dict)):
             raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
 
         headers = CaseInsensitiveDict()
+        if extra_headers is not None:
+            headers.update(extra_headers)
         headers[self.hdr_prefix + 'copy-source'] = \
             '/%s/%s%s' % (self.bucket_name, self.prefix, src)
 
