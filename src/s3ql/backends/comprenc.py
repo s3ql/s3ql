@@ -96,6 +96,10 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         if not isinstance(metadata, dict):
             raise CorruptedObjectError('metadata should be dict, not %s' % type(metadata))
 
+        format_version = metadata.get('format_version', 0)
+        if not 0 < format_version <= 2:
+            raise CorruptedObjectError('format_version %s unsupported' % format_version)
+
         for mkey in ('encryption', 'compression', 'data'):
             if mkey not in metadata:
                 raise CorruptedObjectError('meta key %s is missing' % mkey)
