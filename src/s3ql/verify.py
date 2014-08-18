@@ -58,11 +58,11 @@ def parse_args(args):
     parser.add_backend_options()
     parser.add_storage_url()
 
-    parser.add_argument("--missing-file", type=_new_file_type,
+    parser.add_argument("--missing-file", type=_new_file_type, metavar='<name>',
                         default='missing_objects.txt',
                         help="File to store keys of missing objects.")
 
-    parser.add_argument("--corrupted-file", type=_new_file_type,
+    parser.add_argument("--corrupted-file", type=_new_file_type, metavar='<name>',
                         default='corrupted_objects.txt',
                         help="File to store keys of corrupted objects.")
 
