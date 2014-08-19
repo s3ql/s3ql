@@ -17,10 +17,12 @@ import logging
 import os
 import pydoc
 import stat
+import cPickle as pickle
 import sys
 import warnings
 import types
 import errno
+from io import BytesIO
 
 # Buffer size when writing objects
 BUFSIZE = 256 * 1024
@@ -387,3 +389,11 @@ def sha256_fh(fh):
 
     return sha.digest()
 
+
+def safe_unpickle(buf):
+    return safe_unpickle_fh(BytesIO(buf))
+
+def safe_unpickle_fh(fh):
+    up = pickle.Unpickler(fh)
+    up.find_global = None
+    return up.load()

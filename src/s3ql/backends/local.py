@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from __future__ import division, print_function, absolute_import
 
 from .common import AbstractBackend, DanglingStorageURLError, NoSuchObject, ChecksumError
-from ..common import BUFSIZE
+from ..common import BUFSIZE, safe_unpickle_fh
 import shutil
 import logging
 import cPickle as pickle
@@ -58,7 +58,7 @@ class Backend(AbstractBackend):
         path = self._key_to_path(key)
         try:
             with open(path, 'rb') as src:
-                return pickle.load(src)
+                return safe_unpickle_fh(src)
         except IOError as exc:
             if exc.errno == errno.ENOENT:
                 raise NoSuchObject(key)
@@ -93,7 +93,7 @@ class Backend(AbstractBackend):
                 raise
 
         try:
-            fh.metadata = pickle.load(fh)
+            fh.metadata = safe_unpickle_fh(fh)
         except pickle.UnpicklingError as exc:
             if (isinstance(exc.args[0], str)
                 and exc.args[0].startswith('invalid load key')):

@@ -1,3 +1,18 @@
+UNRELEASED, S3QL tip
+
+  * SECURITY UPDATE. Fixed a remote code execution vulnerability.
+
+    For non-encrypted file systems, an attacker with control over the
+    communication with the storage backend or the ability to
+    manipulate the data stored in the backend was able to trigger
+    execution of arbitrary code by mount.s3ql.
+
+    Encrypted file systems were protected against this if the attacker
+    did not know the file system passphrase. Mounting an encrypted
+    file system prepared by an attacker (which is possible if the
+    attacker shares the file system passphrase) thus allowed the
+    attacker to execute arbitrary code even when using encryption.
+
 2014-04-28, S3QL 1.18.1
 
   * No changes in S3QL itself.

@@ -7,7 +7,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from __future__ import division, print_function, absolute_import
-from ..common import QuietError, BUFSIZE
+from ..common import QuietError, BUFSIZE, safe_unpickle
 from abc import ABCMeta, abstractmethod
 from base64 import b64decode, b64encode
 from cStringIO import StringIO
@@ -468,7 +468,7 @@ class BetterBackend(AbstractBackend):
             buf = decrypt(buf, self.passphrase)
 
         try:
-            metadata = pickle.loads(buf)
+            metadata = safe_unpickle(buf)
         except pickle.UnpicklingError as exc:
             if (isinstance(exc.args[0], str)
                 and exc.args[0].startswith('invalid load key')):
