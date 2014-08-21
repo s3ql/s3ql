@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from ..logging import logging # Ensure use of custom logger class
 from .. import BUFSIZE, PICKLE_PROTOCOL
-from .common import AbstractBackend, ChecksumError
+from .common import AbstractBackend, ChecksumError, safe_unpickle
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from Crypto.Cipher import AES
@@ -112,7 +112,7 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
         if not encrypted:
             try:
-                return (None, pickle.loads(buf, encoding='latin1'))
+                return (None, safe_unpickle(buf, encoding='latin1'))
             except pickle.UnpicklingError:
                 raise ChecksumError('Invalid metadata')
 
@@ -134,8 +134,8 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
                                 % (stored_key, key))
 
         buf = b64decode(metadata['data'])
-        return (nonce, pickle.loads(aes_cipher(meta_key).decrypt(buf),
-                                    encoding='latin1'))
+        return (nonce, safe_unpickle(aes_cipher(meta_key).decrypt(buf),
+                                     encoding='latin1'))
 
     @prepend_ancestor_docstring
     def open_read(self, key):

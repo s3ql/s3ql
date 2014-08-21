@@ -9,7 +9,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 from ..logging import logging # Ensure use of custom logger class
 from .. import BUFSIZE, PICKLE_PROTOCOL
 from ..inherit_docstrings import (copy_ancestor_docstring, ABCDocstMeta)
-from .common import AbstractBackend, DanglingStorageURLError, NoSuchObject, ChecksumError
+from .common import (AbstractBackend, DanglingStorageURLError, NoSuchObject,
+                     ChecksumError, safe_unpickle_fh)
 import _thread
 import io
 import os
@@ -58,14 +59,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         path = self._key_to_path(key)
         try:
             with open(path, 'rb') as src:
-                return pickle.load(src, encoding='latin1')
+                return safe_unpickle_fh(src, encoding='latin1')
         except FileNotFoundError:
             raise NoSuchObject(key)
         except pickle.UnpicklingError as exc:
-            if (isinstance(exc.args[0], str)
-                and exc.args[0].startswith('invalid load key')):
-                raise ChecksumError('Invalid metadata')
-            raise
+            raise ChecksumError('Invalid metadata, pickle says: %s' % exc)
 
     @copy_ancestor_docstring
     def get_size(self, key):
@@ -80,12 +78,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise NoSuchObject(key)
 
         try:
-            fh.metadata = pickle.load(fh, encoding='latin1')
+            fh.metadata = safe_unpickle_fh(fh, encoding='latin1')
         except pickle.UnpicklingError as exc:
-            if (isinstance(exc.args[0], str)
-                and exc.args[0].startswith('invalid load key')):
-                raise ChecksumError('Invalid metadata')
-            raise
+            raise ChecksumError('Invalid metadata, pickle says: %s' % exc)
         return fh
 
     @copy_ancestor_docstring
@@ -192,9 +187,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
             if metadata is not None:
                 try:
-                    pickle.load(src, encoding='latin1')
-                except pickle.UnpicklingError:
-                    raise ChecksumError('Invalid metadata')
+                    safe_unpickle_fh(src, encoding='latin1')
+                except pickle.UnpicklingError as exc:
+                    raise ChecksumError('Invalid metadata, pickle says: %s' % exc)
                 pickle.dump(metadata, dest, PICKLE_PROTOCOL)
             shutil.copyfileobj(src, dest, BUFSIZE)
         except:

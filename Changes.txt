@@ -1,5 +1,15 @@
 UNRELEASED, S3QL tip
 
+  * SECURITY UPDATE (CVE-2014-0485).
+
+    A remote code execution vulnerability was fixed.
+
+    An attacker with control over the communication with the storage
+    backend or the ability to manipulate the data stored in the
+    backend was able to trigger execution of arbitrary code by
+    mount.s3ql, fsck.s3ql, mkfs.s3ql, s3qladm and s3ql_verify. Both
+    encrypted and unencrypted file systems were vulnerable.
+
   * Fixed a crash when using Google OAuth2 and the first request after
     the access token has expired is a write request.
 

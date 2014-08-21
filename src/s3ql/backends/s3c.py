@@ -10,7 +10,7 @@ from ..logging import logging, QuietError # Ensure use of custom logger class
 from .. import PICKLE_PROTOCOL, BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
                      AuthenticationError, DanglingStorageURLError, retry_generator,
-                     get_proxy, get_ssl_context)
+                     get_proxy, get_ssl_context, ChecksumError, safe_unpickle)
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from io import BytesIO
@@ -698,7 +698,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 log.warning('MD5 mismatch in metadata for %s', key)
                 raise BadDigestError('BadDigest',
                                      'Meta MD5 for %s does not match' % key)
-            return pickle.loads(b64decode(buf), encoding='latin1')
+            try:
+                return safe_unpickle(b64decode(buf), encoding='latin1')
+            except pickle.UnpicklingError as exc:
+                raise ChecksumError('Corrupted metadata, pickle says: %s' % exc)
         elif format_ == 'raw': # No MD5 available
             return meta
         else:
