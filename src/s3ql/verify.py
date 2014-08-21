@@ -140,6 +140,7 @@ def retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
         stamp1 = None
 
     sql = 'SELECT id, size FROM objects ORDER BY id'
+    i = 0 # Make sure this is set if there are zero objects
     try:
         for (i, (obj_id, size)) in enumerate(db.query(sql)):
             stamp2 = time.time()

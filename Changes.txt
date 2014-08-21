@@ -10,6 +10,8 @@ UNRELEASED, S3QL tip
     mount.s3ql, fsck.s3ql, mkfs.s3ql, s3qladm and s3ql_verify. Both
     encrypted and unencrypted file systems were vulnerable.
 
+  * s3ql_verify no longer crashes when checking an empty file system.
+
   * Fixed a crash when using Google OAuth2 and the first request after
     the access token has expired is a write request.
 
