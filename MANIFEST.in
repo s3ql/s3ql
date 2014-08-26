@@ -11,6 +11,7 @@ include README.txt
 include CREDITS.txt
 include LICENSE
 exclude MANIFEST.in
+exclude runtests.py
 prune doc/doctrees
 prune src/dugong
 prune doc/man/.doctrees
