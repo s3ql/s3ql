@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2014-08-25, S3QL 1.19
 
   * SECURITY UPDATE. Fixed a remote code execution vulnerability.
 
