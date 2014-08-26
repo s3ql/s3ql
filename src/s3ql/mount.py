@@ -13,7 +13,7 @@ from .block_cache import BlockCache
 from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2, stream_read_bz2,
                      get_backend_factory, pretty_print_size)
 from .backends.comprenc import ComprencBackend
-from .backends.common import ChecksumError
+from .backends.common import CorruptedObjectError
 from .adm import upgrade_monkeypatch
 from .database import Connection
 from .inode_cache import InodeCache
@@ -379,7 +379,7 @@ def get_metadata(backend, cachepath):
     else:
         try:
             param = backend.lookup('s3ql_metadata')
-        except ChecksumError:
+        except CorruptedObjectError:
             if not isinstance(backend, ComprencBackend):
                 raise
             # Temporary band-aid to identify old file system revision

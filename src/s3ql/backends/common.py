@@ -494,9 +494,12 @@ class AuthenticationError(Exception):
     def __str__(self):
         return 'Access denied. Server said: %s' % self.msg
 
-class ChecksumError(Exception):
+class CorruptedObjectError(Exception):
     """
-    Raised if there is a checksum error in the data that we received.
+    Raised if a storage object is corrupted.
+
+    Note that this is different from BadDigest error, which is raised
+    if a transmission error has been detected.
     """
 
     def __init__(self, str_):

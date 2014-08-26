@@ -9,7 +9,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 from .logging import logging, QuietError # Ensure use of custom logger class
 from . import BUFSIZE, CTRL_NAME, ROOT_INODE
 from .backends import prefix_map
-from .backends.common import (ChecksumError, NoSuchObject, AuthenticationError,
+from .backends.common import (CorruptedObjectError, NoSuchObject, AuthenticationError,
           DanglingStorageURLError, AuthorizationError)
 from .backends.comprenc import ComprencBackend
 from getpass import getpass
@@ -97,7 +97,7 @@ def stream_read_bz2(ifh, ofh):
             ofh.write(buf)
 
     if decompressor.unused_data or ifh.read(1) != b'':
-        raise ChecksumError('Data after end of bz2 stream')
+        raise CorruptedObjectError('Data after end of bz2 stream')
 
 def is_mounted(storage_url):
     '''Try to determine if *storage_url* is mounted
@@ -419,7 +419,7 @@ def get_backend_factory(options, plain=False):
 
     try:
         data_pw = tmp_backend['s3ql_passphrase']
-    except ChecksumError:
+    except CorruptedObjectError:
         raise QuietError('Wrong file system passphrase', exitcode=17)
     finally:
         tmp_backend.close()

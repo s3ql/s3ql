@@ -20,9 +20,8 @@ from s3ql.backends.local import Backend as LocalBackend
 from s3ql.backends import s3c
 from s3ql.backends.gs import Backend as GSBackend
 from s3ql.backends.common import (NoSuchObject, AuthenticationError, AuthorizationError,
-                                  DanglingStorageURLError, ChecksumError)
-from s3ql.backends.comprenc import (ComprencBackend, ObjectNotEncrypted,
-                                    MalformedObjectError)
+                                  DanglingStorageURLError, CorruptedObjectError)
+from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
 from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, S3Error
 from contextlib import ExitStack
 from common import get_remote_test_info, NoTestSection, catch_logmsg, CLOCK_GRANULARITY
@@ -706,7 +705,7 @@ def test_corruption(backend, retry_time):
     compr_value[-3:] = b'000'
     plain_backend.store(key, compr_value, meta)
 
-    with pytest.raises(ChecksumError) as exc:
+    with pytest.raises(CorruptedObjectError) as exc:
         fetch_object(backend, key, retry_time)
 
     if backend.passphrase is None: # compression only
@@ -733,7 +732,7 @@ def test_extra_data(backend, retry_time):
     compr_value += b'000'
     plain_backend.store(key, compr_value, meta)
 
-    with pytest.raises(ChecksumError) as exc:
+    with pytest.raises(CorruptedObjectError) as exc:
         fetch_object(backend, key, retry_time)
 
     if backend.passphrase is None: # compression only
@@ -788,17 +787,17 @@ def test_encryption(backend):
     backend.store('encrypted', b'testdata', { 'tag': True })
 
     assert plain_backend['encrypted'] != b'testdata'
-    assert_raises(MalformedObjectError, backend.fetch, 'plain')
-    assert_raises(MalformedObjectError, backend.lookup, 'plain')
+    assert_raises(CorruptedObjectError, backend.fetch, 'plain')
+    assert_raises(CorruptedObjectError, backend.lookup, 'plain')
 
     backend.passphrase = None
     backend.store('not-encrypted', b'testdata2395', { 'tag': False })
-    assert_raises(ChecksumError, backend.fetch, 'encrypted')
-    assert_raises(ChecksumError, backend.lookup, 'encrypted')
+    assert_raises(CorruptedObjectError, backend.fetch, 'encrypted')
+    assert_raises(CorruptedObjectError, backend.lookup, 'encrypted')
 
     backend.passphrase = b'jobzrul'
-    assert_raises(ChecksumError, backend.fetch, 'encrypted')
-    assert_raises(ChecksumError, backend.lookup, 'encrypted')
+    assert_raises(CorruptedObjectError, backend.fetch, 'encrypted')
+    assert_raises(CorruptedObjectError, backend.lookup, 'encrypted')
     assert_raises(ObjectNotEncrypted, backend.fetch, 'not-encrypted')
     assert_raises(ObjectNotEncrypted, backend.lookup, 'not-encrypted')
 
@@ -819,7 +818,7 @@ def test_replay(backend, retry_time):
     # Copy into new object
     plain_backend.store(key2, compr_value, meta)
 
-    assert_raises(ChecksumError, fetch_object, backend, key2, retry_time)
+    assert_raises(CorruptedObjectError, fetch_object, backend, key2, retry_time)
 
 @require_backend_wrapper(MockBackendWrapper)
 def test_corrupted_get(backend, backend_wrapper, monkeypatch):

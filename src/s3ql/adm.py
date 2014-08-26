@@ -228,7 +228,7 @@ def upgrade_monkeypatch(backend):
     '''Monkeypatch ComprencBackend instance *backend* for upgrade
 
     Monkeypatch *backend*, so that we can read the current
-    s3ql_metadata object without getting a ChecksumError. This would
+    s3ql_metadata object without getting a CorruptedObjectError. This would
     happen because previous S3QL versions don't update the object
     key stored in the object on rename, and the metadata object is
     created as s3ql_metadata_new``.

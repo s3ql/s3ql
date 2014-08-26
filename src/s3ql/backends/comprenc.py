@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from ..logging import logging # Ensure use of custom logger class
 from .. import BUFSIZE, PICKLE_PROTOCOL
-from .common import AbstractBackend, ChecksumError, safe_unpickle
+from .common import AbstractBackend, CorruptedObjectError, safe_unpickle
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from Crypto.Cipher import AES
@@ -94,16 +94,17 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         '''
 
         if not isinstance(metadata, dict):
-            raise MalformedObjectError()
+            raise CorruptedObjectError('metadata should be dict, not %s' % type(metadata))
+
         for mkey in ('encryption', 'compression', 'data'):
             if mkey not in metadata:
-                raise MalformedObjectError()
+                raise CorruptedObjectError('meta key %s is missing' % mkey)
 
         encr_alg = metadata['encryption']
         encrypted = (encr_alg != 'None')
 
         if encrypted and self.passphrase is None:
-            raise ChecksumError('Encrypted object and no passphrase supplied')
+            raise CorruptedObjectError('Encrypted object and no passphrase supplied')
 
         elif not encrypted and self.passphrase is not None:
             raise ObjectNotEncrypted()
@@ -114,24 +115,24 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             try:
                 return (None, safe_unpickle(buf, encoding='latin1'))
             except pickle.UnpicklingError:
-                raise ChecksumError('Invalid metadata')
+                raise CorruptedObjectError('Invalid metadata')
 
         # Encrypted
         for mkey in ('nonce', 'signature', 'object_id'):
             if mkey not in metadata:
-                raise MalformedObjectError()
+                raise CorruptedObjectError('meta key %s is missing' % mkey)
 
         nonce = b64decode(metadata['nonce'])
         meta_key = sha256(self.passphrase + nonce + b'meta')
         meta_sig = compute_metadata_signature(meta_key, metadata)
         if not hmac.compare_digest(b64decode(metadata['signature']),
                                    meta_sig):
-            raise ChecksumError('HMAC mismatch')
+            raise CorruptedObjectError('HMAC mismatch')
 
         stored_key = b64decode(metadata['object_id']).decode('utf-8')
         if stored_key != key:
-            raise ChecksumError('Object content does not match its key (%s vs %s)'
-                                % (stored_key, key))
+            raise CorruptedObjectError('Object content does not match its key (%s vs %s)'
+                                       % (stored_key, key))
 
         buf = b64decode(metadata['data'])
         return (nonce, safe_unpickle(aes_cipher(meta_key).decrypt(buf),
@@ -375,7 +376,7 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             try:
                 meta_new['data'] = meta['data']
             except KeyError:
-                raise MalformedObjectError()
+                raise CorruptedObjectError('meta key data is missing')
 
         if not self.passphrase:
             return meta_new
@@ -400,7 +401,7 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         hash_ = cipher.decrypt(hash_)
 
         if not hmac.compare_digest(hash_, hmac_.digest()):
-            raise ChecksumError('HMAC mismatch')
+            raise CorruptedObjectError('HMAC mismatch')
 
         obj_id = nonce[TIME_BYTES:].decode('utf-8')
         meta_key = sha256(self.passphrase + nonce + b'meta')
@@ -549,15 +550,15 @@ class DecompressFilter(InputFilter):
             buf = self.fh.read(size)
             if not buf:
                 if not self.decomp.eof:
-                    raise ChecksumError('Premature end of stream.')
+                    raise CorruptedObjectError('Premature end of stream.')
                 if self.decomp.unused_data:
-                    raise ChecksumError('Data after end of compressed stream')
+                    raise CorruptedObjectError('Data after end of compressed stream')
 
                 return b''
 
             try:
                 buf = decompress(self.decomp, buf)
-            except ChecksumError:
+            except CorruptedObjectError:
                 # Read rest of stream, so that we raise HMAC or MD5 error instead
                 # if problem is on lower layer
                 self.discard_input()
@@ -674,7 +675,7 @@ class DecryptFilter(InputFilter):
 
         buf = self.fh.read(size)
         if not buf:
-            raise ChecksumError('Premature end of stream.')
+            raise CorruptedObjectError('Premature end of stream.')
 
         # Work around https://bugs.launchpad.net/pycrypto/+bug/1256172
         # cipher.decrypt refuses to work with anything but bytes
@@ -747,10 +748,10 @@ class DecryptFilter(InputFilter):
                     # Read rest of stream, so that we raise MD5 error instead
                     # if problem is on lower layer
                     self.discard_input()
-                    raise ChecksumError('Extraneous data at end of object')
+                    raise CorruptedObjectError('Extraneous data at end of object')
 
                 if not hmac.compare_digest(inbuf, self.hmac.digest()):
-                    raise ChecksumError('HMAC mismatch')
+                    raise CorruptedObjectError('HMAC mismatch')
 
                 self.hmac_checked = True
                 break
@@ -825,9 +826,9 @@ class LegacyDecryptDecompressFilter(io.RawIOBase):
             if not buf and not self.hmac_checked:
                 if not hmac.compare_digest(self._decrypt(self.hash),
                                            self.hmac.digest()):
-                    raise ChecksumError('HMAC mismatch')
+                    raise CorruptedObjectError('HMAC mismatch')
                 elif self.decomp and self.decomp.unused_data:
-                    raise ChecksumError('Data after end of compressed stream')
+                    raise CorruptedObjectError('Data after end of compressed stream')
                 else:
                     self.hmac_checked = True
                     return b''
@@ -865,16 +866,16 @@ def decompress(decomp, buf):
         return decomp.decompress(buf)
     except IOError as exc:
         if exc.args[0].lower().startswith('invalid data stream'):
-            raise ChecksumError('Invalid compressed stream')
+            raise CorruptedObjectError('Invalid compressed stream')
         raise
     except lzma.LZMAError as exc:
         if (exc.args[0].lower().startswith('corrupt input data')
             or exc.args[0].startswith('Input format not supported')):
-            raise ChecksumError('Invalid compressed stream')
+            raise CorruptedObjectError('Invalid compressed stream')
         raise
     except zlib.error as exc:
         if exc.args[0].lower().startswith('error -3 while decompressing'):
-            raise ChecksumError('Invalid compressed stream')
+            raise CorruptedObjectError('Invalid compressed stream')
         raise
 
 class ObjectNotEncrypted(Exception):
@@ -885,16 +886,6 @@ class ObjectNotEncrypted(Exception):
     We do not want to simply return the uncrypted object, because the
     caller may rely on the objects integrity being cryptographically
     verified.
-    '''
-
-    pass
-
-
-class MalformedObjectError(Exception):
-    '''
-    Raised by ComprencBackend when trying to access an object that
-    wasn't stored by ComprencBackend, i.e. has no information about
-    encryption or compression.
     '''
 
     pass

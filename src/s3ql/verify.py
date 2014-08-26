@@ -11,7 +11,7 @@ from .mount import get_metadata
 from . import BUFSIZE
 from .common import get_backend_factory, get_backend_cachedir, pretty_print_size
 from .backends.pool import BackendPool
-from .backends.common import NoSuchObject, ChecksumError
+from .backends.common import NoSuchObject, CorruptedObjectError
 from .parse_args import ArgumentParser
 from queue import Queue
 from threading import Thread
@@ -203,7 +203,7 @@ def _retrieve_loop(queue, backend, corrupted_fh, missing_fh, full=False):
         except NoSuchObject:
             log.warning('Backend seems to have lost object %d', obj_id)
             print(key, file=missing_fh)
-        except ChecksumError:
+        except CorruptedObjectError:
             log.warning('Object %d is corrupted', obj_id)
             print(key, file=corrupted_fh)
 

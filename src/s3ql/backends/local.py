@@ -10,7 +10,7 @@ from ..logging import logging # Ensure use of custom logger class
 from .. import BUFSIZE, PICKLE_PROTOCOL
 from ..inherit_docstrings import (copy_ancestor_docstring, ABCDocstMeta)
 from .common import (AbstractBackend, DanglingStorageURLError, NoSuchObject,
-                     ChecksumError, safe_unpickle_fh)
+                     CorruptedObjectError, safe_unpickle_fh)
 import _thread
 import io
 import os
@@ -63,7 +63,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         except FileNotFoundError:
             raise NoSuchObject(key)
         except pickle.UnpicklingError as exc:
-            raise ChecksumError('Invalid metadata, pickle says: %s' % exc)
+            raise CorruptedObjectError('Invalid metadata, pickle says: %s' % exc)
 
     @copy_ancestor_docstring
     def get_size(self, key):
@@ -80,7 +80,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         try:
             fh.metadata = safe_unpickle_fh(fh, encoding='latin1')
         except pickle.UnpicklingError as exc:
-            raise ChecksumError('Invalid metadata, pickle says: %s' % exc)
+            raise CorruptedObjectError('Invalid metadata, pickle says: %s' % exc)
         return fh
 
     @copy_ancestor_docstring
@@ -189,7 +189,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 try:
                     safe_unpickle_fh(src, encoding='latin1')
                 except pickle.UnpicklingError as exc:
-                    raise ChecksumError('Invalid metadata, pickle says: %s' % exc)
+                    raise CorruptedObjectError('Invalid metadata, pickle says: %s' % exc)
                 pickle.dump(metadata, dest, PICKLE_PROTOCOL)
             shutil.copyfileobj(src, dest, BUFSIZE)
         except:

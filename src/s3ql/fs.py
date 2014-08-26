@@ -8,7 +8,7 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging
 from . import deltadump, CTRL_NAME, CTRL_INODE, PICKLE_PROTOCOL
-from .backends.common import NoSuchObject, ChecksumError
+from .backends.common import NoSuchObject, CorruptedObjectError
 from .common import get_path
 from .database import NoSuchRowError
 from .inode_cache import OutOfInodesError
@@ -819,7 +819,7 @@ class Operations(llfuse.Operations):
                              last_block, id_, exc.key)
                     raise
 
-                except ChecksumError as exc:
+                except CorruptedObjectError as exc:
                     log.warning('Backend returned malformed data for block %d of inode %d (%s)',
                                 last_block, id_, exc)
                     self.failsafe = True
@@ -1106,7 +1106,7 @@ class Operations(llfuse.Operations):
             self.broken_blocks[id_].add(blockno)
             raise FUSEError(errno.EIO)
 
-        except ChecksumError as exc:
+        except CorruptedObjectError as exc:
             log.error('Backend returned malformed data for block %d of inode %d (%s)',
                       blockno, id_, exc)
             self.failsafe = True
