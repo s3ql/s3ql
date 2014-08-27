@@ -127,6 +127,9 @@ def cycle_metadata(backend, keep=10):
     backend.copy("s3ql_metadata", "s3ql_metadata_bak_0")
     cycle_fn("s3ql_metadata_new", "s3ql_metadata")
 
+    if cycle_fn is backend.copy:
+        backend.delete('s3ql_metadata_new')
+
 def dump_metadata(db, fh):
     '''Dump metadata into fh
 
