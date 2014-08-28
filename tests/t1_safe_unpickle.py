@@ -58,7 +58,7 @@ def test_python2():
                 'b"more bytes", u"more unicode"], 2))')
     try:
         buf = subprocess.check_output(['python', '-c', py2_prog])
-    except subprocess.CalledProcessError:
+    except FileNotFoundError:
         pytest.skip('failed to execute python2')
 
     assert safe_unpickle(buf, encoding='latin1') == \
