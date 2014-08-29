@@ -57,17 +57,21 @@ class fuse_tests(unittest.TestCase):
         self.name_cnt = 0
 
     def mkfs(self, max_obj_size=500):
-        proc = subprocess.Popen(self.s3ql_cmd_argv('mkfs.s3ql') +
-                                [ '-L', 'test fs', '--max-obj-size', str(max_obj_size),
-                                  '--fatal-warnings', '--cachedir', self.cache_dir, '--quiet',
-                                  '--authfile', '/dev/null', self.storage_url ],
-                                stdin=subprocess.PIPE, universal_newlines=True)
+        argv = (self.s3ql_cmd_argv('mkfs.s3ql') +
+                [ '-L', 'test fs', '--max-obj-size', str(max_obj_size),
+                  '--fatal-warnings', '--cachedir', self.cache_dir, '--quiet',
+                  '--authfile', '/dev/null', self.storage_url ])
+        if self.passphrase is None:
+            argv.append('--plain')
+
+        proc = subprocess.Popen(argv, stdin=subprocess.PIPE, universal_newlines=True)
 
         if self.backend_login is not None:
             print(self.backend_login, file=proc.stdin)
             print(self.backend_passphrase, file=proc.stdin)
-        print(self.passphrase, file=proc.stdin)
-        print(self.passphrase, file=proc.stdin)
+        if self.passphrase is not None:
+            print(self.passphrase, file=proc.stdin)
+            print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
 
         self.assertEqual(proc.wait(), 0)
@@ -84,7 +88,8 @@ class fuse_tests(unittest.TestCase):
         if self.backend_login is not None:
             print(self.backend_login, file=self.mount_process.stdin)
             print(self.backend_passphrase, file=self.mount_process.stdin)
-        print(self.passphrase, file=self.mount_process.stdin)
+        if self.passphrase is not None:
+            print(self.passphrase, file=self.mount_process.stdin)
         self.mount_process.stdin.close()
 
         if expect_fail:
