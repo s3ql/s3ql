@@ -3,6 +3,9 @@ UNRELEASED, S3QL tip
   * Un-encrypted file systems (created with mkfs.s3ql --plain) can now
     be upgraded to the newest revision.
 
+  * S3QL now automatically retries a request if a backend server
+    reports a 408 (Request Timeout) status code.
+
 2014-08-27, S3QL 2.11
 
   * SECURITY UPDATE (CVE-2014-0485).
