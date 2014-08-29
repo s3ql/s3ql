@@ -52,13 +52,16 @@ class UpgradeTest(t4_fuse.fuse_tests):
                   '--authfile', '/dev/null', self.storage_url ]
         if force:
             argv.append('--force')
+        if self.passphrase is None:
+            argv.append('--plain')
         proc = subprocess.Popen(argv, stdin=subprocess.PIPE, universal_newlines=True)
 
         if self.backend_login is not None:
             print(self.backend_login, file=proc.stdin)
             print(self.backend_passphrase, file=proc.stdin)
-        print(self.passphrase, file=proc.stdin)
-        print(self.passphrase, file=proc.stdin)
+        if self.passphrase is not None:
+            print(self.passphrase, file=proc.stdin)
+            print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
         self.assertEqual(proc.wait(), 0)
 
@@ -71,7 +74,8 @@ class UpgradeTest(t4_fuse.fuse_tests):
         if self.backend_login is not None:
             print(self.backend_login, file=self.mount_process.stdin)
             print(self.backend_passphrase, file=self.mount_process.stdin)
-        print(self.passphrase, file=self.mount_process.stdin)
+        if self.passphrase is not None:
+            print(self.passphrase, file=self.mount_process.stdin)
         self.mount_process.stdin.close()
         def poll():
             if os.path.ismount(self.mnt_dir):
@@ -101,7 +105,8 @@ class UpgradeTest(t4_fuse.fuse_tests):
         if self.backend_login is not None:
             print(self.backend_login, file=proc.stdin)
             print(self.backend_passphrase, file=proc.stdin)
-        print(self.passphrase, file=proc.stdin)
+        if self.passphrase is not None:
+            print(self.passphrase, file=proc.stdin)
         print('yes', file=proc.stdin)
         proc.stdin.close()
 
@@ -159,6 +164,11 @@ class UpgradeTest(t4_fuse.fuse_tests):
         self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.upgrade()
         self.compare()
+
+class PlainUpgradeTest(UpgradeTest):
+    def setUp(self):
+        super().setUp()
+        self.passphrase = None
 
 class RemoteUpgradeTest:
     def setUp(self, name):

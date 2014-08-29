@@ -237,7 +237,8 @@ def upgrade_monkeypatch(backend):
 
     verify_meta_orig = backend._verify_meta
     def _verify_meta_new(key, metadata):
-        if key == 's3ql_metadata':
+        if (metadata['encryption'] != 'None'
+            and key == 's3ql_metadata'):
             stored_key = b64decode(metadata['object_id']).decode('utf-8')
             if stored_key == 's3ql_metadata_new':
                 key = stored_key
