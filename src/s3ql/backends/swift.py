@@ -120,7 +120,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if isinstance(exc, AuthenticationExpired):
             return True
 
-        elif isinstance(exc, HTTPError) and exc.status >= 500 and exc.status <= 599:
+        # In doubt, we retry on 5xx (Server error). However, there are some
+        # codes where retry is definitely not desired.
+        elif (isinstance(exc, HTTPError)
+              and (500 <= exc.status <= 599
+                   and exc.status not in (501,505,508,510,511,523))):
             return True
 
         elif is_temp_network_error(exc):
