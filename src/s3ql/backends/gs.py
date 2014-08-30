@@ -104,6 +104,17 @@ class Backend(s3c.Backend):
                               now.tm_year, now.tm_hour,
                               now.tm_min, now.tm_sec))
 
+    # This method performs a different kind of HTTP request than the methods
+    # decorated with `retry` that it is called by, so in theory it should do its
+    # own retry handling (perhaps with a new `retry_on` decorator that allows to
+    # specify a custom `is_temp_failure` function instead of calling the
+    # instance method). However, in practice there is currently no difference in
+    # the set of exceptions that are considered temporary when retrieving an
+    # access token, and the set of exceptions checked for in the
+    # `_is_temp_failure` method. Therefore, for now we avoid the additional
+    # complexity of custom retry handling and rely on the @retry decorator of
+    # the caller to handle temporary errors. This should be kept in mind
+    # when modifying either method.
     def _get_access_token(self):
         log.info('Requesting new access token')
 
@@ -123,22 +134,34 @@ class Backend(s3c.Backend):
                               body=body.encode('utf-8'))
             resp = conn.read_response()
 
-            resp_json = None
-            if 'Content-Type' in resp.headers:
+            if resp.status > 299 or resp.status < 200:
+                raise HTTPError(resp.status, resp.reason, resp.headers)
+
+            content_type = resp.headers.get('Content-Type', None)
+            if content_type:
                 hit = re.match(r'application/json(?:; charset="(.+)")?$',
                                resp.headers['Content-Type'], re.IGNORECASE)
-                if hit:
-                    charset = hit.group(1) or 'utf-8'
-                    body = conn.readall().decode(charset)
-                    resp_json = json.loads(body)
+            else:
+                hit = None
+
+            if not hit:
+                log.error('Unexpected server reply when refreshing access token:\n%s',
+                          self._dump_response(resp))
+                raise RuntimeError('Unable to parse server response')
+
+            charset = hit.group(1) or 'utf-8'
+            body = conn.readall().decode(charset)
+            resp_json = json.loads(body)
+
+            if not isinstance(resp_json, dict):
+                log.error('Invalid json server response. Expected dict, got:\n%s', body)
+                raise RuntimeError('Unable to parse server response')
 
             if 'error' in resp_json:
                 raise AuthenticationError(resp_json['error'])
 
-            if resp.status > 299 or resp.status < 200:
-                raise HTTPError(resp.status, resp.reason, resp.headers)
-
             if 'access_token' not in resp_json:
+                log.error('Unable to find access token in server response:\n%s', body)
                 raise RuntimeError('Unable to parse server response')
 
             self.access_token[self.password] = resp_json['access_token']

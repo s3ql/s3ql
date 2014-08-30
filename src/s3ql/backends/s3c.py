@@ -126,6 +126,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         conn.timeout = self.options.get('tcp-timeout', 10)
         return conn
 
+    # This method is also used implicitly for the retry handling of
+    # `gs.Backend._get_access_token`. When modifying this method, do not forget
+    # to check if this makes it unsuitable for use by `_get_access_token` (in
+    # that case we will have to implement a custom retry logic there).
     @copy_ancestor_docstring
     def is_temp_failure(self, exc): #IGNORE:W0613
         if isinstance(exc, (InternalError, BadDigestError, IncompleteBodyError,

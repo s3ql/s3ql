@@ -6,6 +6,9 @@ UNRELEASED, S3QL tip
   * S3QL now automatically retries a request if a backend server
     reports a 408 (Request Timeout) status code.
 
+  * The Google Storage backend now copes better with server errors
+    when refreshing an OAuth2 access token.
+
 2014-08-27, S3QL 2.11
 
   * SECURITY UPDATE (CVE-2014-0485).
