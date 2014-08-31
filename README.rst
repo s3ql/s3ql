@@ -81,6 +81,17 @@ Features
   parts of a file are read or written.
 
 
+Development Status
+==================
+
+S3QL is considered stable and suitable for production use. However,
+upgrades from one minor version to the next (e.g. *2.x* to *2.x+1*)
+may change the public interface (e.g. different command line options),
+or require the file system structure to be upgraded (so that the file
+system can no longer be accessed by older releases). Therefore, it is
+strongly recommended to read the changelog (`Changes.txt` in the S3QL
+tarball) before upgrading.
+
 
 Which Version Should I Download?
 ================================
