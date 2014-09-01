@@ -1,5 +1,8 @@
 UNRELEASED, S3QL tip
 
+  * By popular demand, mount.s3ql is now able to daemonize again
+    and also does so by default.
+
   * Un-encrypted file systems (created with mkfs.s3ql --plain) can now
     be upgraded to the newest revision.
 
