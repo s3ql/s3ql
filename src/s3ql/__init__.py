@@ -22,7 +22,7 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'common', 'calc_mro',
             'REV_VER_MAP', 'RELEASE', 'BUFSIZE', 'PICKLE_PROTOCOL',
             'CTRL_NAME', 'CTRL_INODE' ]
 
-VERSION = '2.11'
+VERSION = '2.11.1'
 RELEASE = '%s' % VERSION
 
 CURRENT_FS_REV = 21

@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2014-09-04, S3QL 2.11.1
 
   * By popular demand, mount.s3ql is now able to daemonize again
     and also does so by default.
