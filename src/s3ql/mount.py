@@ -129,9 +129,9 @@ def main(args=None):
     with backend_pool() as backend:
         (param, db) = get_metadata(backend, cachepath)
 
-    if param['max_obj_size'] < options.min_obj_size:
-        raise QuietError('Maximum object size must be bigger than minimum object size.',
-                         exitcode=2)
+    #if param['max_obj_size'] < options.min_obj_size:
+    #    raise QuietError('Maximum object size must be bigger than minimum object size.',
+    #                     exitcode=2)
 
     # Handle --cachesize
     rec_cachesize = options.max_cache_entries * param['max_obj_size'] / 2
@@ -559,11 +559,6 @@ def parse_args(args):
                       'this number you have to make sure that your process file descriptor '
                       'limit (as set with `ulimit -n`) is high enough (at least the number '
                       'of cache entries + 100).')
-    parser.add_argument("--min-obj-size", type=int, default=512, metavar='<size>',
-                        help=argparse.SUPPRESS)
-#                      help="Minimum size of storage objects in KiB. Files smaller than this "
-#                           "may be combined into groups that are stored as single objects "
-#                           "in the storage backend. Default: %(default)d KB.")
     parser.add_argument("--allow-other", action="store_true", default=False, help=
                       'Normally, only the user who called `mount.s3ql` can access the mount '
                       'point. This user then also has full access to it, independent of '
@@ -575,15 +570,9 @@ def parse_args(args):
                            'user and the root user.')
     parser.add_argument("--fg", action="store_true", default=False,
                       help="Do not daemonize, stay in foreground")
-    parser.add_argument("--single", action="store_true", default=False,
-                      help="Run in single threaded mode. If you don't understand this, "
-                           "then you don't need it.")
     parser.add_argument("--upstart", action="store_true", default=False,
                       help="Stay in foreground and raise SIGSTOP once mountpoint "
                            "is up.")
-    parser.add_argument("--profile", action="store_true", default=False,
-                      help="Create profiling information. If you don't understand this, "
-                           "then you don't need it.")
     parser.add_argument("--compress", action="store", default='lzma-6',
                         metavar='<algorithm-lvl>', type=compression_type,
                         help="Compression algorithm and compression level to use when "
@@ -600,6 +589,17 @@ def parse_args(args):
     parser.add_argument("--nfs", action="store_true", default=False,
                       help='Enable some optimizations for exporting the file system '
                            'over NFS. (default: %(default)s)')
+    parser.add_argument("--single", action="store_true", default=False,
+                        help=argparse.SUPPRESS)
+    parser.add_argument("--profile", action="store_true", default=False,
+                        help=argparse.SUPPRESS)
+
+    # Not yet implemented. When implementing this, don't forget to
+    # uncomment check against param['max_obj_size'] in main().
+    #parser.add_argument("--min-obj-size", type=int, default=512, metavar='<size>',
+    #                    help="Minimum size of storage objects in KiB. Files smaller than this "
+    #                    "may be combined into groups that are stored as single objects "
+    #                    "in the storage backend. Default: %(default)d KB.")
 
     options = parser.parse_args(args)
 
