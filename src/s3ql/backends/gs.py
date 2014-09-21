@@ -35,6 +35,7 @@ class Backend(s3c.Backend):
 
     use_expect_100c = False
     xml_ns_prefix = '{http://doc.s3.amazonaws.com/2006-03-01}'
+    known_options = s3c.Backend.known_options - {'dumb-copy'}
 
     # We don't want to request an access token for each instance,
     # because there is a limit on the total number of valid tokens.

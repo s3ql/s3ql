@@ -51,7 +51,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     use_expect_100c = True
     xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
     hdr_prefix = 'x-amz-'
-    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout'}
+    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout',
+                     'dumb-copy'}
 
     def __init__(self, storage_url, login, password, options):
         '''Initialize backend object
@@ -372,6 +373,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # When copying, S3 may return error despite a 200 OK status
         # http://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectCOPY.html
         # https://doc.s3.amazonaws.com/proposals/copy.html
+        if self.options.get('dumb-copy', False):
+            self.conn.discard()
+            return
         body = self.conn.readall()
         root = self._parse_xml_response(resp, body)
         if root.tag == self.xml_ns_prefix + 'CopyObjectResult':

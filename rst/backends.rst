@@ -298,6 +298,22 @@ The S3 compatible backend accepts the following backend options:
    exchanged with the remote server for longer than this period, the
    TCP connection is closed and re-established.
 
+.. option:: dumb-copy
+
+   If this option is specified, S3QL assumes that a COPY request to
+   the storage server has succeeded as soon as the server returns a
+   ``200 OK`` status. The `S3 COPY API`_ specifies that the
+   storage server may still return an error in the request body (see
+   the `copy proposal`__ for the rationale), so this
+   option should only be used if you are certain that your storage
+   server only returns ``200 OK`` when the copy operation has been
+   completely and successfully carried out. Using this option may be
+   neccessary if your storage server does not return a valid response
+   body for a succesfull copy operation.
+
+.. _`S3 COPY API`: http://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectCOPY.html
+.. __: https://doc.s3.amazonaws.com/proposals/copy.html
+
 
 Local
 =====

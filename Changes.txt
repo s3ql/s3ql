@@ -1,3 +1,10 @@
+UNRELEASED, S3QL tip
+
+  * The s3c backend has a new 'dumb-copy' option. If this option
+    is enabled, copy operations are assumed to have succeeded
+    as soon as the server returns a '200 OK' status, without
+    checking the contents of the response body.
+
 2014-09-04, S3QL 2.11.1
 
   * By popular demand, mount.s3ql is now able to daemonize again

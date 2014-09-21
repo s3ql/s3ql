@@ -32,7 +32,8 @@ class Backend(s3c.Backend):
     may or may not be available and can be queried for with instance methods.
     """
 
-    known_options = s3c.Backend.known_options | { 'sse', 'rrs' }
+    known_options = ((s3c.Backend.known_options | { 'sse', 'rrs' })
+                     - {'dumb-copy'})
 
     def __init__(self, storage_url, login, password, options):
         super().__init__(storage_url, login, password, options)
