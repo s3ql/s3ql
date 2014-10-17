@@ -137,9 +137,8 @@ Need Help?
 
 The following resources are available:
 
-* The `S3QL User's Guide`_
-* The `S3QL Wiki`_
-* The `S3QL FAQ`_
+* The `S3QL User's Guide`_.
+* The `S3QL Wiki`_, which also contains the `S3QL FAQ`_.
 * The `S3QL Mailing List`_. You can subscribe by sending a mail to
   `s3ql+subscribe@googlegroups.com
   <mailto:s3ql+subscribe@googlegroups.com>`_.
