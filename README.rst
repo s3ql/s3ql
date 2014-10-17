@@ -131,9 +131,24 @@ S3. When you are done, the file system has to be unmounted with ::
 
    umount.s3ql /mnt/s3ql
 
-Please refer to the `Installation Instructions`_ on the `S3QL wiki`_
-and the `User's Guide`_ for more information.
 
-.. _`User's Guide`: http://www.rath.org/s3ql-docs/index.html
-.. _`S3QL wiki`: https://bitbucket.org/nikratio/s3ql/wiki/
+Need Help?
+==========
+
+The following resources are available:
+
+* The `S3QL User's Guide`_
+* The `S3QL Wiki`_
+* The `S3QL FAQ`_
+* The `S3QL Mailing List`_. You can subscribe by sending a mail to
+  `s3ql+subscribe@googlegroups.com
+  <mailto:s3ql+subscribe@googlegroups.com>`_.
+
+Please report any bugs you may encounter in the `Issue Tracker`_.
+
+.. _`S3QL User's Guide`: http://www.rath.org/s3ql-docs/index.html
+.. _`S3QL Wiki`: https://bitbucket.org/nikratio/s3ql/wiki/
 .. _`Installation Instructions`: https://bitbucket.org/nikratio/s3ql/wiki/Installation
+.. _`S3QL FAQ`: https://bitbucket.org/nikratio/s3ql/wiki/FAQ
+.. _`S3QL Mailing List`: http://groups.google.com/group/s3ql
+.. _`Issue Tracker`: https://bitbucket.org/nikratio/s3ql/issues
