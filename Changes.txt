@@ -11,6 +11,8 @@ UNRELEASED, S3QL tip
     HTTP 1.1 support, but may decrease performance as object data will
     be transmitted to the server more than once in some circumstances.
 
+  * contrib/benchmark.py is now working again.
+
 2014-09-04, S3QL 2.11.1
 
   * By popular demand, mount.s3ql is now able to daemonize again
