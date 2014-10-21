@@ -81,7 +81,7 @@ def create_handler(target):
                              exitcode=10)
 
         formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(process)s:%(threadName)s '
-                                      '(name)s.%(funcName)s: %(message)s',
+                                      '%(name)s.%(funcName)s: %(message)s',
                                       datefmt="%Y-%m-%d %H:%M:%S")
 
     handler.setFormatter(formatter)
