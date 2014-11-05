@@ -33,7 +33,7 @@ class Backend(s3c.Backend):
     """
 
     known_options = ((s3c.Backend.known_options | { 'sse', 'rrs' })
-                     - {'dumb-copy'})
+                     - {'dumb-copy', 'disable-expect100'})
 
     def __init__(self, storage_url, login, password, options):
         super().__init__(storage_url, login, password, options)

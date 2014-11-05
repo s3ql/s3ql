@@ -33,9 +33,9 @@ class Backend(s3c.Backend):
     consistency.
     """
 
-    use_expect_100c = False
     xml_ns_prefix = '{http://doc.s3.amazonaws.com/2006-03-01}'
-    known_options = s3c.Backend.known_options - {'dumb-copy'}
+    known_options = (s3c.Backend.known_options
+                     - {'dumb-copy', 'disable-expect100' })
 
     # We don't want to request an access token for each instance,
     # because there is a limit on the total number of valid tokens.
@@ -49,6 +49,7 @@ class Backend(s3c.Backend):
 
         self.use_oauth2 = (gs_key == 'oauth2')
 
+        self.options['disable-expect100'] = True
         if self.use_oauth2:
             self.hdr_prefix = 'x-goog-'
 

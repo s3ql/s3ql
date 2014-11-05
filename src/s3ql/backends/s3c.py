@@ -40,19 +40,13 @@ log = logging.getLogger(__name__)
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """A backend to stored data in some S3 compatible storage service.
 
-    This class uses standard HTTP connections to connect to GS.
-
     The backend guarantees only immediate get after create consistency.
-
-    If the *expect_100c* class variable is True, the 'Expect: 100-continue'
-    header is used to check for error codes before uploading payload data.
     """
 
-    use_expect_100c = True
     xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
     hdr_prefix = 'x-amz-'
     known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout',
-                     'dumb-copy'}
+                     'dumb-copy', 'disable-expect100'}
 
     def __init__(self, storage_url, login, password, options):
         '''Initialize backend object
@@ -636,16 +630,17 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             assert resp.path == path
             return resp
 
+        use_expect_100c = not self.options.get('disable-expect100', False)
         try:
             log.debug('_send_request(): %s %s', method, path)
             if body is None or isinstance(body, (bytes, bytearray, memoryview)):
                 self.conn.send_request(method, path, body=body, headers=headers)
             else:
                 body_len = os.fstat(body.fileno()).st_size
-                self.conn.send_request(method, path, expect100=self.use_expect_100c,
+                self.conn.send_request(method, path, expect100=use_expect_100c,
                                        headers=headers, body=BodyFollowing(body_len))
 
-                if self.use_expect_100c:
+                if use_expect_100c:
                     resp = read_response()
                     if resp.status != 100: # Error
                         return resp

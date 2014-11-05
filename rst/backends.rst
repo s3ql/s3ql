@@ -220,6 +220,16 @@ The OpenStack backend accepts the following backend options:
    exchanged with the remote server for longer than this period, the
    TCP connection is closed and re-established.
 
+.. option:: disable-expect100
+
+   If this option is specified, S3QL does not use the ``Expect:
+   continue`` header (cf. `RFC2616, section 8.2.3`__) when uploading
+   data to the server. This can be used to work around broken storage
+   servers that don't fully support HTTP 1.1, but may decrease
+   performance as object data will be transmitted to the server more
+   than once in some circumstances.
+
+.. __: http://tools.ietf.org/html/rfc2616#section-8.2.3
 .. _OpenStack: http://www.openstack.org/
 .. _Swift: http://openstack.org/projects/storage/
 
@@ -297,6 +307,17 @@ The S3 compatible backend accepts the following backend options:
    Specifies the timeout used for TCP connections. If no data can be
    exchanged with the remote server for longer than this period, the
    TCP connection is closed and re-established.
+
+.. option:: disable-expect100
+
+   If this option is specified, S3QL does not use the ``Expect:
+   continue`` header (cf. `RFC2616, section 8.2.3`__) when uploading
+   data to the server. This can be used to work around broken storage
+   servers that don't fully support HTTP 1.1, but may decrease
+   performance as object data will be transmitted to the server more
+   than once in some circumstances.
+
+.. __: http://tools.ietf.org/html/rfc2616#section-8.2.3
 
 .. option:: dumb-copy
 

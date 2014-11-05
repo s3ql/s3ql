@@ -34,14 +34,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     The backend guarantees get after create consistency, i.e. a newly created
     object will be immediately retrievable.
-
-    If the *expect_100c* attribute is True, the 'Expect: 100-continue' header is
-    used to check for error codes before uploading payload data.
     """
 
-    use_expect_100c = True
     hdr_prefix = 'X-Object-'
-    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout'}
+    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout', 'disable-expect100'}
 
     _add_meta_headers = s3c.Backend._add_meta_headers
     _extractmeta = s3c.Backend._extractmeta
@@ -249,15 +245,16 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         '''The guts of the _do_request method'''
 
         log.debug('_do_request_inner(): %s %s', method, path)
+        use_expect_100c = not self.options.get('disable-expect100', False)
 
         if body is None or isinstance(body, (bytes, bytearray, memoryview)):
             self.conn.send_request(method, path, body=body, headers=headers)
         else:
             body_len = os.fstat(body.fileno()).st_size
-            self.conn.send_request(method, path, expect100=self.use_expect_100c,
+            self.conn.send_request(method, path, expect100=use_expect_100c,
                                    headers=headers, body=BodyFollowing(body_len))
 
-        if self.use_expect_100c:
+        if use_expect_100c:
             log.debug('waiting for 100-continue')
             resp = self.conn.read_response()
             if resp.status != 100:

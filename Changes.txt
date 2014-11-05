@@ -5,6 +5,12 @@ UNRELEASED, S3QL tip
     as soon as the server returns a '200 OK' status, without
     checking the contents of the response body.
 
+  * The swift and s3c backends have a new 'disable-expect100' to
+    disable support for the 'Expect: continue' header. Using this
+    option allows S3QL to work with storage servers without proper
+    HTTP 1.1 support, but may decrease performance as object data will
+    be transmitted to the server more than once in some circumstances.
+
 2014-09-04, S3QL 2.11.1
 
   * By popular demand, mount.s3ql is now able to daemonize again
