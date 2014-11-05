@@ -63,7 +63,7 @@ class Backend(swift.Backend):
 
         conn = HTTPConnection(self.hostname, port=self.port, proxy=self.proxy,
                               ssl_context=self.ssl_context)
-        conn.timeout = self.options.get('tcp-timeout', 10)
+        conn.timeout = int(self.options.get('tcp-timeout', 10))
 
         headers = CaseInsensitiveDict()
         headers['Content-Type'] = 'application/json'
@@ -113,7 +113,7 @@ class Backend(swift.Backend):
 
                 conn = HTTPConnection(o.hostname, o.port,  proxy=self.proxy,
                                       ssl_context=self.ssl_context)
-                conn.timeout = self.options.get('tcp-timeout', 10)
+                conn.timeout = int(self.options.get('tcp-timeout', 10))
                 return conn
 
         if len(avail_regions) < 10:

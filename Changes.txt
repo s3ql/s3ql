@@ -13,6 +13,9 @@ UNRELEASED, S3QL tip
 
   * contrib/benchmark.py is now working again.
 
+  * The `tcp-timeout` backend option is now actually working
+    instead of resulting in a "TypeError".
+
 2014-09-04, S3QL 2.11.1
 
   * By popular demand, mount.s3ql is now able to daemonize again
