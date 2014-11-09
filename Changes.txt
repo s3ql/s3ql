@@ -16,6 +16,9 @@ UNRELEASED, S3QL tip
   * The `tcp-timeout` backend option is now actually working
     instead of resulting in a "TypeError".
 
+  * Fixed a problem where saving metadata would fail with
+    "ValueError: Can't dump NULL values".
+
 2014-09-04, S3QL 2.11.1
 
   * By popular demand, mount.s3ql is now able to daemonize again

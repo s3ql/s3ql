@@ -19,6 +19,7 @@ from os.path import basename
 import apsw
 import os
 import pickle
+import hashlib
 import re
 import shutil
 import stat
@@ -87,6 +88,7 @@ class Fsck(object):
 
             self.check_blocks_obj_id()
             self.check_blocks_refcount()
+            self.check_blocks_checksum()
 
             self.check_inode_blocks_block_id()
             self.check_inode_blocks_inode()
@@ -110,7 +112,9 @@ class Fsck(object):
     def log_error(self, *a, **kw):
         '''Log file system error if not expected'''
 
-        if not self.expect_errors:
+        if self.expect_errors:
+            return log.debug(*a, **kw)
+        else:
             return log.warning(*a, **kw)
 
     def check_foreign_keys(self):
@@ -632,6 +636,32 @@ class Fsck(object):
             self.conn.execute('DROP TABLE refcounts')
             self.conn.execute('DROP TABLE IF EXISTS wrong_refcounts')
 
+    def check_blocks_checksum(self):
+        """Check blocks.hash"""
+
+        log.info('Checking blocks (checksums)...')
+
+        for (block_id, obj_id) in self.conn.query('SELECT id, obj_id FROM blocks '
+                                                  'WHERE hash IS NULL'):
+            self.found_errors = True
+            self.log_error("No cached checksum for block %d, recomputing...", block_id)
+
+            # At the moment, we support only one block per object
+            assert self.conn.get_val('SELECT refcount FROM objects WHERE id=?',
+                                     (obj_id,)) == 1
+
+            def do_read(fh):
+                sha = hashlib.sha256()
+                while True:
+                    buf = fh.read(BUFSIZE)
+                    if not buf:
+                        break
+                    sha.update(buf)
+                return sha.digest()
+            hash_ = self.backend.perform_read(do_read, "s3ql_data_%d" % obj_id)
+
+            self.conn.execute('UPDATE blocks SET hash=? WHERE id=?',
+                              (hash_, block_id))
 
     def create_inode(self, mode, uid=os.getuid(), gid=os.getgid(),
                      mtime=None, atime=None, ctime=None, refcount=None,
@@ -1010,6 +1040,7 @@ class ROFsck(Fsck):
 
             self.check_blocks_obj_id()
             self.check_blocks_refcount()
+            self.check_blocks_checksum()
 
             self.check_inode_blocks_block_id()
             self.check_inode_blocks_inode()
@@ -1030,6 +1061,15 @@ class ROFsck(Fsck):
             log.info('Dropping temporary indices...')
             self.conn.execute('ROLLBACK')
 
+    def check_blocks_checksum(self):
+        """Check blocks.hash"""
+
+        log.info('Checking blocks (checksums)...')
+
+        for (block_id,) in self.conn.query('SELECT id FROM blocks WHERE hash IS NULL'):
+            self.found_errors = True
+            self.log_error("No cached checksum for block %d!", block_id)
+
     def check_objects_size(self):
         """Check objects.size"""
 
@@ -1037,10 +1077,7 @@ class ROFsck(Fsck):
 
         for (obj_id,) in self.conn.query('SELECT id FROM objects WHERE size IS NULL'):
             self.found_errors = True
-            self.log_error("Object %d has no size information, setting to zero...", obj_id)
-
-            self.conn.execute('UPDATE objects SET size=? WHERE id=?', (0, obj_id))
-
+            self.log_error("Object %d has no size information!", obj_id)
 
 def parse_args(args):
 

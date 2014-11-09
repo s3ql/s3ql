@@ -20,11 +20,15 @@ from s3ql.database import Connection, NoSuchRowError
 from s3ql.fsck import Fsck
 import os
 import shutil
+import hashlib
 import stat
 import tempfile
 import time
 import unittest
 
+
+def sha256(s):
+    return hashlib.sha256(s).digest()
 
 class fsck_tests(unittest.TestCase):
 
@@ -214,8 +218,8 @@ class fsck_tests(unittest.TestCase):
         self._link(b'test-entry', id_)
 
         obj_id = self.db.rowid('INSERT INTO objects (refcount,size) VALUES(?,?)', (1, 36))
-        block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
-                                 (1, obj_id, 512))
+        block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size, hash) '
+                                 'VALUES(?,?,?,?)', (1, obj_id, 512, sha256(b'foo')))
         self.backend['s3ql_data_%d' % obj_id] = b'foo'
 
         # Case 1
@@ -250,6 +254,26 @@ class fsck_tests(unittest.TestCase):
         self.db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)', (34, 1, 27))
         self.assert_fsck(self.fsck.check_objects_id)
 
+    def test_blocks_checksum(self):
+        id_ = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
+                            "VALUES (?,?,?,?,?,?,?,?)",
+                            (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
+                             0, 0, time.time(), time.time(), time.time(), 1, 8))
+        self._link(b'test-entry', id_)
+        
+        # Assume that due to a crash we did not write the hash for the block
+        self.backend['s3ql_data_4364'] = b'Testdata'
+        self.db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
+                        (4364, 1, 8))
+        block_id = self.db.execute('INSERT INTO blocks (obj_id, refcount, size) VALUES(?, ?, ?)',
+                                   (4364, 1, 8))
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
+                        (id_, 0, block_id))
+        self.assert_fsck(self.fsck.check_blocks_checksum)
+
+        assert (self.db.get_val('SELECT hash FROM blocks WHERE id=?', (block_id,))
+                    == sha256(b'Testdata'))
+        
     def test_blocks_obj_id(self):
 
         block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
@@ -360,11 +384,11 @@ class fsck_tests(unittest.TestCase):
     def test_obj_refcounts(self):
 
         obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 42)')
-        block_id_1 = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
-                                 (1, obj_id, 0))
-        block_id_2 = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
-                                   (1, obj_id, 0))
-        self.backend['s3ql_data_%d' % obj_id] = b'foo'
+        block_id_1 = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size, hash) '
+                                   'VALUES(?,?,?,?)', (1, obj_id, 0, sha256(b'foo')))
+        block_id_2 = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size, hash) '
+                                   'VALUES(?,?,?,?)', (1, obj_id, 0, sha256(b'bar')))
+        self.backend['s3ql_data_%d' % obj_id] = b'foo and bar'
 
         inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
                               "VALUES (?,?,?,?,?,?,?,?)",
@@ -388,8 +412,8 @@ class fsck_tests(unittest.TestCase):
 
         obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 23)')
         self.backend['s3ql_data_%d' % obj_id] = b'foo'
-        block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
-                                 (1, obj_id, 0))
+        block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size, hash) '
+                                 'VALUES(?,?,?,?)', (1, obj_id, 0, sha256(b'')))
 
         inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount,size) "
                               "VALUES (?,?,?,?,?,?,?,?)",
@@ -408,8 +432,8 @@ class fsck_tests(unittest.TestCase):
 
         obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 24)')
         self.backend['s3ql_data_%d' % obj_id] = b'foo'
-        self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
-                      (1, obj_id, 3))
+        self.db.rowid('INSERT INTO blocks (refcount, obj_id, size, hash) VALUES(?,?,?,?)',
+                      (1, obj_id, 3, sha256(b'xyz')))
         self.assert_fsck(self.fsck.check_blocks_refcount)
 
     def test_unix_size(self):
