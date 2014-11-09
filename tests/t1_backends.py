@@ -1007,7 +1007,9 @@ def test_httperror(backend, backend_wrapper, monkeypatch):
     monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
     backend.delete(key)
 
-@require_backend_wrapper(MockBackendWrapper)
+# Require mock backend with expect100 support
+@require_wrapper(lambda x: isinstance(x, MockBackendWrapper)
+                 and 'disable-expect100' in x.backend.known_options)
 def test_put_s3error_early(backend, backend_wrapper, monkeypatch):
     '''Fail after expect-100'''
 
