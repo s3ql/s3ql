@@ -80,6 +80,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         try:
             fh.metadata = safe_unpickle_fh(fh, encoding='latin1')
         except pickle.UnpicklingError as exc:
+            fh.close()
             raise CorruptedObjectError('Invalid metadata, pickle says: %s' % exc)
         return fh
 
