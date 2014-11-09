@@ -927,7 +927,20 @@ class BlockCache(object):
 
         log.debug('clear: end')
 
+    def get_usage(self):
+        '''Return cache size and dirty cache size
 
+        This method is O(n) in the number of cache entries.
+        '''
+
+        used = self.cache.size
+        dirty = 0
+        for el in self.cache.values():
+            if el.dirty:
+                dirty += el.size
+
+        return (used, dirty)
+    
     def __del__(self):
         if len(self.cache) > 0:
             raise RuntimeError("BlockManager instance was destroyed without calling destroy()!")

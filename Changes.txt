@@ -19,6 +19,8 @@ UNRELEASED, S3QL tip
   * Fixed a problem where saving metadata would fail with
     "ValueError: Can't dump NULL values".
 
+  * s3qlstat now also gives information about cache usage.
+  
 2014-09-04, S3QL 2.11.1
 
   * By popular demand, mount.s3ql is now able to daemonize again

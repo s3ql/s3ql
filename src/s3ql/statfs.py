@@ -49,7 +49,7 @@ def main(args=None):
     buf = llfuse.getxattr(ctrlfile, 's3qlstat', size_guess=256)
 
     (entries, blocks, inodes, fs_size, dedup_size,
-     compr_size, db_size) = struct.unpack('QQQQQQQ', buf)
+     compr_size, db_size, cache_used, cache_dirty) = struct.unpack('QQQQQQQQQ', buf)
     p_dedup = dedup_size * 100 / fs_size if fs_size else 0
     p_compr_1 = compr_size * 100 / fs_size if fs_size else 0
     p_compr_2 = compr_size * 100 / dedup_size if dedup_size else 0
@@ -62,7 +62,8 @@ def main(args=None):
            'After compression:    %s (%.2f%% of total, %.2f%% of de-duplicated)'
              % (pretty_print_size(compr_size), p_compr_1, p_compr_2),
            'Database size:        %s (uncompressed)' % pretty_print_size(db_size),
-           '(some values do not take into account not-yet-uploaded dirty blocks in cache)',
+           'Cache usage:          %s (dirty: %s)' % (pretty_print_size(cache_used),
+                                                     pretty_print_size(cache_dirty)),
            sep='\n')
 
 
