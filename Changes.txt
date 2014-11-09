@@ -1,4 +1,8 @@
-2014-11-09, S3QL tip
+UNRELEASED, S3QL tip
+
+  *
+
+2014-11-09, S3QL 2.12
 
   * The s3c backend has a new 'dumb-copy' option. If this option
     is enabled, copy operations are assumed to have succeeded
