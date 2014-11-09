@@ -608,9 +608,12 @@ def safe_unpickle_fh(fh, fix_imports=True, encoding="ASCII",
     pos = fh.tell()
 
     # First make sure that we know all used opcodes
-    for (opcode, arg, _) in pickletools.genops(fh):
-        if opcode.proto > 2 or opcode.name not in SAFE_UNPICKLE_OPCODES:
-            raise pickle.UnpicklingError('opcode %s is unsafe' % opcode.name)
+    try:
+        for (opcode, arg, _) in pickletools.genops(fh):
+            if opcode.proto > 2 or opcode.name not in SAFE_UNPICKLE_OPCODES:
+                raise pickle.UnpicklingError('opcode %s is unsafe' % opcode.name)
+    except (ValueError, EOFError):
+        raise pickle.UnpicklingError('corrupted data')
 
     fh.seek(pos)
 
