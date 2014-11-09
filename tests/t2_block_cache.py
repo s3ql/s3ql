@@ -20,7 +20,8 @@ from s3ql.block_cache import BlockCache, QuitSentinel
 from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
-from common import AsyncFn, catch_logmsg, safe_sleep
+from s3ql.common import AsyncFn
+from common import catch_logmsg, safe_sleep
 import llfuse
 import errno
 import os

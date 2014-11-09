@@ -12,10 +12,7 @@ This module contains common functions used by multiple unit tests.
 from contextlib import contextmanager
 from functools import wraps
 import re
-import threading
 import time
-import traceback
-import sys
 import os
 import subprocess
 import stat
@@ -78,69 +75,6 @@ def catch_logmsg(pattern, level=logging.WARNING, count=None):
         if count is not None and caught[0] != count:
             raise AssertionError('Expected to catch %d log messages, but got only %d'
                                  % (count, caught[0]))
-
-class ExceptionStoringThread(threading.Thread):
-    def __init__(self):
-        super().__init__()
-        self._exc_info = None
-        self._joined = False
-
-    def run_protected(self):
-        pass
-
-    def run(self):
-        try:
-            self.run_protected()
-        except:
-            # This creates a circular reference chain
-            self._exc_info = sys.exc_info()
-
-    def join_get_exc(self):
-        self._joined = True
-        self.join()
-        return self._exc_info
-
-    def join_and_raise(self):
-        '''Wait for the thread to finish, raise any occurred exceptions'''
-
-        self._joined = True
-        if self.is_alive():
-            self.join()
-
-        if self._exc_info is not None:
-            # Break reference chain
-            exc_info = self._exc_info
-            self._exc_info = None
-            raise EmbeddedException(exc_info, self.name)
-
-    def __del__(self):
-        if not self._joined:
-            raise RuntimeError("ExceptionStoringThread instance was destroyed "
-                               "without calling join_and_raise()!")
-
-class EmbeddedException(Exception):
-    '''Encapsulates an exception that happened in a different thread
-    '''
-
-    def __init__(self, exc_info, threadname):
-        super().__init__()
-        self.exc_info = exc_info
-        self.threadname = threadname
-
-    def __str__(self):
-        return ''.join(['caused by an exception in thread %s.\n' % self.threadname,
-                       'Original/inner traceback (most recent call last): \n' ] +
-                       traceback.format_exception(*self.exc_info))
-
-class AsyncFn(ExceptionStoringThread):
-    def __init__(self, fn, *args, **kwargs):
-        super().__init__()
-        self.target = fn
-        self.args = args
-        self.kwargs = kwargs
-
-    def run_protected(self):
-        self.target(*self.args, **self.kwargs)
 
 def retry(timeout, fn, *a, **kw):
     """Wait for fn(*a, **kw) to return True.
