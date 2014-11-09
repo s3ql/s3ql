@@ -9,12 +9,12 @@ This program can be distributed under the terms of the GNU GPLv3.
 from .logging import logging, setup_logging
 from .mount import get_metadata
 from . import BUFSIZE
-from .common import get_backend_factory, get_backend_cachedir, pretty_print_size
+from .common import (get_backend_factory, get_backend_cachedir, pretty_print_size,
+                     AsyncFn)
 from .backends.pool import BackendPool
 from .backends.common import NoSuchObject, CorruptedObjectError
 from .parse_args import ArgumentParser
 from queue import Queue
-from threading import Thread
 import os
 import argparse
 import time
@@ -124,12 +124,13 @@ def retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
     backends = []
     for _ in range(thread_count):
         b = backend_factory()
-        t = Thread(target=_retrieve_loop, daemon=True,
-                   args=(queue, b, corrupted_fh, missing_fh, full))
+        t = AsyncFn(_retrieve_loop, queue, b, corrupted_fh, missing_fh, full)
+        # Don't wait for worker threads, gives deadlock if main thread
+        # terminates with exception
+        t.daemon = True
         t.start()
         threads.append(t)
         backends.append(b)
-
 
     total_size = db.get_val('SELECT SUM(size) FROM objects')
     total_count = db.get_val('SELECT COUNT(id) FROM objects')
@@ -152,6 +153,12 @@ def retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
                     progress += ' / %s (%.2f%%)' % (s, size_acc / total_size * 100)
                 sys.stdout.write('\r..processed %s so far..' % progress)
                 sys.stdout.flush()
+
+                # Terminate early if any thread failed with an exception
+                for t in threads:
+                    if not t.is_alive():
+                        t.join_and_raise()
+                        
             size_acc += size
             if i < offset:
                 continue
@@ -160,11 +167,12 @@ def retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
         if sys.stdout.isatty():
             sys.stdout.write('\n')
 
+    queue.maxsize += len(threads)
     for t in threads:
         queue.put(None)
 
     for t in threads:
-        t.join()
+        t.join_and_raise()
 
     for backend in backends:
         backend.close()
