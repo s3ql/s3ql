@@ -13,8 +13,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 import os
 import sys
 import tempfile
+import time
 from queue import Queue
-from threading import Thread
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
@@ -24,7 +24,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
 from s3ql.logging import logging, setup_logging, QuietError
-from s3ql.common import get_backend
+from s3ql.common import get_backend, AsyncFn
 from s3ql.backends.common import DanglingStorageURLError
 from s3ql import BUFSIZE
 from s3ql.parse_args import ArgumentParser, storage_url_type
@@ -115,21 +115,36 @@ def main(args=None):
     queue = Queue(maxsize=options.threads)
     threads = []
     for (src_backend, dst_backend) in zip(src_backends, dst_backends):
-        t = Thread(target=copy_loop, args=(queue, src_backend, dst_backend))
+        t = AsyncFn(copy_loop, queue, src_backend, dst_backend)
+        # Don't wait for worker threads, gives deadlock if main thread
+        # terminates with exception
+        t.daemon = True
         t.start()
         threads.append(t)
 
+    if sys.stdout.isatty():
+        stamp1 = time.time()
+    else:
+        stamp1 = None
     for (i, key) in enumerate(src_backends[-1]):
-        if i % 500 == 0 and sys.stdout.isatty():
+        stamp2 = time.time()
+        if stamp1 is not None and stamp2 - stamp1 > 1:
+            stamp1 = stamp2
             sys.stdout.write('\rCopied %d objects so far...' % i)
             sys.stdout.flush()
+
+            # Terminate early if any thread failed with an exception
+            for t in threads:
+                if not t.is_alive():
+                    t.join_and_raise()
         queue.put(key)
 
+    queue.maxsize += len(threads)
     for t in threads:
         queue.put(None)
 
     for t in threads:
-        t.join()
+        t.join_and_raise()
 
     if sys.stdout.isatty():
         sys.stdout.write('\n')
