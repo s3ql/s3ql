@@ -24,6 +24,7 @@ import hashlib
 import stat
 import tempfile
 import time
+import _thread
 import unittest
 
 
@@ -380,6 +381,18 @@ class fsck_tests(unittest.TestCase):
             last = inode
 
         self.assert_fsck(self.fsck.check_loops)
+
+    def test_tmpfile(self):
+        # Ensure that path exists
+        objname = 's3ql_data_38375'
+        self.backend[objname] = b'bla'
+        del self.backend[objname]
+        path = self.backend._key_to_path(objname)
+        tmpname = '%s#%d-%d.tmp' % (path, os.getpid(), _thread.get_ident())
+        with open(tmpname, 'wb') as fh:
+            fh.write(b'Hello, world')
+
+        self.assert_fsck(self.fsck.check_objects_temp)
 
     def test_obj_refcounts(self):
 

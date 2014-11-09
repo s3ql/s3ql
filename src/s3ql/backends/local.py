@@ -94,7 +94,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # By renaming, we make sure that there are no
         # conflicts between parallel reads, the last one wins
-        tmpname = '%s#%d-%d' % (path, os.getpid(), _thread.get_ident())
+        tmpname = '%s#%d-%d.tmp' % (path, os.getpid(), _thread.get_ident())
 
         dest = ObjectW(tmpname)
         os.rename(tmpname, path)
@@ -154,6 +154,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 dirnames[:] = dirs_to_walk
 
             for name in filenames:
+                # Skip temporary files
+                if '#' in name:
+                    continue
+                
                 key = unescape(name)
 
                 if not prefix or key.startswith(prefix):
@@ -182,7 +186,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         try:
             # By renaming, we make sure that there are no conflicts between
             # parallel writes, the last one wins
-            tmpname = '%s#%d-%d' % (path_dest, os.getpid(), _thread.get_ident())
+            tmpname = '%s#%d-%d.tmp' % (path_dest, os.getpid(), _thread.get_ident())
             dest = ObjectW(tmpname)
 
             if metadata is not None:

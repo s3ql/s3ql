@@ -9,6 +9,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 from .logging import logging, setup_logging, QuietError
 from . import CURRENT_FS_REV, BUFSIZE, CTRL_INODE, PICKLE_PROTOCOL, ROOT_INODE
 from .backends.common import NoSuchObject
+from .backends.comprenc import ComprencBackend
+from .backends.local import Backend as LocalBackend
 from .common import (inode_for_path, sha256_fh, get_path, get_backend_cachedir,
                      get_seq_no, stream_write_bz2, stream_read_bz2, is_mounted,
                      get_backend, pretty_print_size)
@@ -82,6 +84,7 @@ class Fsck(object):
             self.check_contents_inode()
             self.check_contents_parent_inode()
 
+            self.check_objects_temp()
             self.check_objects_refcount()
             self.check_objects_id()
             self.check_objects_size()
@@ -851,6 +854,32 @@ class Fsck(object):
         self.conn.execute("DELETE FROM objects WHERE refcount = 0")
 
 
+    def check_objects_temp(self):
+        """Remove temporary objects"""
+
+        # Tests may provide a plain backend directly, but in regular operation
+        # we'll always work with a ComprencBackend (even if there is neiter
+        # compression nor encryption)
+        if isinstance(self.backend, ComprencBackend):
+            plain_backend = self.backend.backend
+        else:
+            assert isinstance(self.backend, LocalBackend)
+            plain_backend = self.backend
+
+        if not isinstance(plain_backend, LocalBackend):
+            return
+
+        log.info('Checking for temporary objects (backend)...')
+
+        for (path, dirnames, filenames) in os.walk(plain_backend.prefix, topdown=True):
+            for name in filenames:
+                if not re.search(r'^[^#]+#[0-9]+-[0-9]+\.tmp$', name):
+                    continue
+
+                self.found_errors = True
+                self.log_error("removing temporary file %s", name)
+                os.unlink(os.path.join(path, name))
+        
     def check_objects_id(self):
         """Check objects.id"""
 
