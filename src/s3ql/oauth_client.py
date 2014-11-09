@@ -69,6 +69,8 @@ def main(args=None):
 
     cli = requests.Session()
 
+    # We need full control in order to be able to update metadata
+    # cf. https://stackoverflow.com/questions/24718787
     r = cli.post('https://accounts.google.com/o/oauth2/device/code',
                  data={ 'client_id': CLIENT_ID,
                         'scope': 'https://www.googleapis.com/auth/devstorage.full_control' },
