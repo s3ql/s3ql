@@ -873,7 +873,7 @@ class Fsck(object):
 
         for (path, dirnames, filenames) in os.walk(plain_backend.prefix, topdown=True):
             for name in filenames:
-                if not re.search(r'^[^#]+#[0-9]+-[0-9]+\.tmp$', name):
+                if not re.search(r'^[^#]+#[0-9]+--?[0-9]+\.tmp$', name):
                     continue
 
                 self.found_errors = True
