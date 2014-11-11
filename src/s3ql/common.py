@@ -432,19 +432,19 @@ def get_backend_factory(options, plain=False):
 def pretty_print_size(i):
     '''Return *i* as string with appropriate suffix (MiB, GiB, etc)'''
 
-    if i < 1000:
+    if i < 1024:
         return '%d bytes' % i
 
     i >>= 10
-    if i < 1000:
+    if i < 1024:
         return '%d KiB' % i
 
     i >>= 10
-    if i < 1000:
+    if i < 1024:
         return '%d MiB' % i
 
     i >>= 10
-    if i < 1000:
+    if i < 1024:
         return '%d GiB' % i
 
     i >>= 10
