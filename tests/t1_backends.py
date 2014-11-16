@@ -414,6 +414,25 @@ def test_read_write(backend, retry_time):
     assert metadata == metadata2
     assert lookup_object(backend, key, retry_time) == metadata
 
+def test_complex_meta(backend, retry_time):
+    key = newname()
+    value = newvalue()
+
+    metadata = { 'com\nplex: key': 42,
+                 'farp_': False, 'non-farp': True,
+                 'blu%rz': 23.283475,
+                 'görp': b'heelo',
+                 'sch.al': 'gorroobalp\nfurrö!',
+                 'lo-ng': 'foobarz' * 80 }
+
+    assert key not in backend
+    backend.store(key, value, metadata)
+    (value2, metadata2) = fetch_object(backend, key, retry_time)
+
+    assert value == value2
+    assert metadata == metadata2
+    assert lookup_object(backend, key, retry_time) == metadata
+
 def test_list(backend, retry_time):
     keys = ([ 'prefixa' + newname() for dummy in range(6) ]
             + [ 'prefixb' + newname() for dummy in range(6) ])
