@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+'''
+t1_serialization.py - this file is part of S3QL (http://s3ql.googlecode.com)
+
+Copyright © 2014 Nikolaus Rath <Nikolaus@rath.org>
+
+This program can be distributed under the terms of the GNU GPLv3.
+'''
+
+if __name__ == '__main__':
+    import pytest
+    import sys
+    sys.exit(pytest.main([__file__] + sys.argv[1:]))
+
+from s3ql.backends.common import (freeze_basic_mapping, thaw_basic_mapping,
+                                  ThawError)
+import pytest
+from collections import OrderedDict
+
+
+def test_simple():
+    d = { 'hello': 42,
+          'world': True,
+          'data': b'fooxyz',
+          'str': 'nice' }
+
+    assert thaw_basic_mapping(freeze_basic_mapping(d)) == d
+
+def test_wrong_key():
+    d = { 'hello': 42,
+          True: False }
+
+    with pytest.raises(ValueError):
+        freeze_basic_mapping(d)
+
+def test_cmplx_value():
+    d = { 'hello': [1,2] }
+
+    with pytest.raises(ValueError):
+        freeze_basic_mapping(d)
+
+def test_order():
+    d1 = OrderedDict()
+    d2 = OrderedDict()
+
+    d1['foo'] = 1
+    d1['bar'] = None
+
+    d2['bar'] = None
+    d2['foo'] = 1
+
+    assert list(d1.keys()) != list(d2.keys())
+    assert freeze_basic_mapping(d1) == freeze_basic_mapping(d2)
+
+def test_thaw_errors():
+    buf = freeze_basic_mapping({ 'hello': 'world' })
+
+    for s in (buf[1:], buf[:-1],
+              b'"foo"[2]', b'open("/dev/null", "r")',
+              b'"foo".__class__'):
+        with pytest.raises(ThawError):
+            thaw_basic_mapping(s)
+
