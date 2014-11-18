@@ -277,8 +277,9 @@ class AbstractBackend(object, metaclass=ABCMeta):
     def store(self, key, val, metadata=None):
         """Store data under `key`.
 
-        `metadata` can be a dict of additional attributes to store with the
-        object.
+        `metadata` can be mapping with additional attributes to store with the
+        object. Keys have to be of type `str`, values have to be of elementary
+        type (`str`, `bytes`, `int`, `float` or `bool`).
 
         If no metadata is required, one can simply assign to the subscripted
         backend instead of using this function: ``backend[key] = val`` is
@@ -322,8 +323,9 @@ class AbstractBackend(object, metaclass=ABCMeta):
         """Open object for reading
 
         Return a file-like object. Data can be read using the `read`
-        method. metadata is stored in its *metadata* attribute and can be
-        modified by the caller at will. The object must be closed explicitly.
+        method. Metadata is returned in the file-like object's *metadata*
+        attribute and can be modified by the caller at will. The object must be
+        closed explicitly.
         """
 
         pass
@@ -332,8 +334,11 @@ class AbstractBackend(object, metaclass=ABCMeta):
     def open_write(self, key, metadata=None, is_compressed=False):
         """Open object for writing
 
-        `metadata` can be an additional (pickle-able) `dict` object to store with
-        the data. Returns a file- like object. The object must be closed closed
+        `metadata` can be mapping with additional attributes to store with the
+        object. Keys have to be of type `str`, values have to be of elementary
+        type (`str`, `bytes`, `int`, `float` or `bool`).
+
+        Returns a file- like object. The object must be closed closed
         explicitly. After closing, the *get_obj_size* may be used to retrieve
         the size of the stored object (which may differ from the size of the
         written data).
@@ -410,8 +415,7 @@ class AbstractBackend(object, metaclass=ABCMeta):
 
         If `dest` already exists, it will be overwritten. If *metadata* is
         `None` metadata will be copied from the source as well, otherwise
-        *metadata* becomes the metadata for the new object and must be
-        a pickle-able `dict` instance.
+        *metadata* becomes the metadata for the new object.
 
         Copying will be done on the remote side without retrieving object data.
         """
@@ -432,8 +436,7 @@ class AbstractBackend(object, metaclass=ABCMeta):
 
         If `dest` already exists, it will be overwritten. If *metadata* is
         `None` metadata will be preserved, otherwise *metadata* becomes the
-        metadata for the renamed object and must be a pickle-able `dict`
-        instance.
+        metadata for the renamed object.
 
         Rename done remotely without retrieving object data.
         """
