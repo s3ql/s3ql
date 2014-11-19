@@ -127,10 +127,10 @@ class SimpleEvent(object):
         finally:
             self.__cond.release()
 
-    def wait(self):
+    def wait(self, timeout=None):
         self.__cond.acquire()
         try:
-            self.__cond.wait()
+            return self.__cond.wait(timeout)
         finally:
             self.__cond.release()
 
