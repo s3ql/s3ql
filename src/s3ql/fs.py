@@ -882,7 +882,7 @@ class Operations(llfuse.Operations):
         dedup_size = self.db.get_val('SELECT SUM(size) FROM blocks') or 0
         compr_size = self.db.get_val('SELECT SUM(size) FROM objects') or 0
         (cache_used, cache_dirty) = self.cache.get_usage()
-        
+
         return struct.pack('QQQQQQQQQ', entries, blocks, inodes, fs_size, dedup_size,
                            compr_size, self.db.get_size(), cache_used, cache_dirty)
 

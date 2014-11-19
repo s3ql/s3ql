@@ -879,7 +879,7 @@ class Fsck(object):
                 self.found_errors = True
                 self.log_error("removing temporary file %s", name)
                 os.unlink(os.path.join(path, name))
-        
+
     def check_objects_id(self):
         """Check objects.id"""
 

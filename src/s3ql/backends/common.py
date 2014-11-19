@@ -651,7 +651,7 @@ def checksum_basic_mapping(metadata, key=None):
 
     Keys of *d* must be strings. Values of *d* must be of elementary type (i.e.,
     `str`, `bytes`, `int`, `float`, `complex`, `bool` or None).
-    
+
     If *key* is None, compute MD5. Otherwise compute HMAC using *key*.
     '''
 

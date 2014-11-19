@@ -62,5 +62,5 @@ def test_checksum():
     assert checksum_basic_mapping(d1) == checksum_basic_mapping(d2)
 
     d2['foo'] += 1
-    
+
     assert checksum_basic_mapping(d1) != checksum_basic_mapping(d2)

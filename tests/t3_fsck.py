@@ -261,7 +261,7 @@ class fsck_tests(unittest.TestCase):
                             (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                              0, 0, time.time(), time.time(), time.time(), 1, 8))
         self._link(b'test-entry', id_)
-        
+
         # Assume that due to a crash we did not write the hash for the block
         self.backend['s3ql_data_4364'] = b'Testdata'
         self.db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
@@ -274,7 +274,7 @@ class fsck_tests(unittest.TestCase):
 
         assert (self.db.get_val('SELECT hash FROM blocks WHERE id=?', (block_id,))
                     == sha256(b'Testdata'))
-        
+
     def test_blocks_obj_id(self):
 
         block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',

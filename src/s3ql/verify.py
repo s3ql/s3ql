@@ -158,7 +158,7 @@ def retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
                 for t in threads:
                     if not t.is_alive():
                         t.join_and_raise()
-                        
+
             size_acc += size
             if i < offset:
                 continue
