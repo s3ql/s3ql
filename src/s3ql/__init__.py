@@ -22,10 +22,10 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'common', 'calc_mro',
             'REV_VER_MAP', 'RELEASE', 'BUFSIZE', 'PICKLE_PROTOCOL',
             'CTRL_NAME', 'CTRL_INODE' ]
 
-VERSION = '2.12'
+VERSION = '2.13pre'
 RELEASE = '%s' % VERSION
 
-CURRENT_FS_REV = 21
+CURRENT_FS_REV = 22
 
 # Buffer size when writing objects
 BUFSIZE = 64 * 1024
@@ -41,6 +41,7 @@ CTRL_INODE = 2
 # Maps file system revisions to the last S3QL version that
 # supported this revision.
 REV_VER_MAP = {
+    21: '2.12',
     20: '2.9',
     16: '1.15',
     15: '1.10',

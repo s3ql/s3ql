@@ -623,7 +623,7 @@ def freeze_basic_mapping(d):
     els = []
     for k in sorted(d.keys()):
         v = d[k]
-        if (not isinstance(v, (str, bytes, int, float, complex, bool))
+        if (not isinstance(v, (str, bytes, bytearray, int, float, complex, bool))
             and v is not None):
             raise ValueError('value for key %s (%s) is not elementary' % (k, v))
 

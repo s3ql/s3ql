@@ -7,11 +7,13 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging # Ensure use of custom logger class
-from .. import BUFSIZE, PICKLE_PROTOCOL
+from .. import BUFSIZE
 from ..inherit_docstrings import (copy_ancestor_docstring, ABCDocstMeta)
 from .common import (AbstractBackend, DanglingStorageURLError, NoSuchObject,
-                     CorruptedObjectError, safe_unpickle_fh)
+                     CorruptedObjectError, safe_unpickle_fh, ThawError,
+                     freeze_basic_mapping, thaw_basic_mapping)
 import _thread
+import struct
 import io
 import os
 import pickle
@@ -59,11 +61,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         path = self._key_to_path(key)
         try:
             with open(path, 'rb') as src:
-                return safe_unpickle_fh(src, encoding='latin1')
+                return _read_meta(src)
         except FileNotFoundError:
             raise NoSuchObject(key)
-        except pickle.UnpicklingError as exc:
-            raise CorruptedObjectError('Invalid metadata, pickle says: %s' % exc)
 
     @copy_ancestor_docstring
     def get_size(self, key):
@@ -78,10 +78,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise NoSuchObject(key)
 
         try:
-            fh.metadata = safe_unpickle_fh(fh, encoding='latin1')
-        except pickle.UnpicklingError as exc:
+            fh.metadata = _read_meta(fh)
+        except ThawError:
             fh.close()
-            raise CorruptedObjectError('Invalid metadata, pickle says: %s' % exc)
+            raise CorruptedObjectError('Invalid metadata')
         return fh
 
     @copy_ancestor_docstring
@@ -92,6 +92,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
 
         path = self._key_to_path(key)
+        buf = freeze_basic_mapping(metadata)
+        if len(buf).bit_length() > 16:
+            raise ValueError('Metadata too large')
 
         # By renaming, we make sure that there are no
         # conflicts between parallel reads, the last one wins
@@ -100,7 +103,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         dest = ObjectW(tmpname)
         os.rename(tmpname, path)
 
-        pickle.dump(metadata, dest, PICKLE_PROTOCOL)
+        dest.write(b's3ql_1\n')
+        dest.write(struct.pack('<H', len(buf)))
+        dest.write(buf)
+
         return dest
 
     @copy_ancestor_docstring
@@ -158,7 +164,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 # Skip temporary files
                 if '#' in name:
                     continue
-                
+
                 key = unescape(name)
 
                 if not prefix or key.startswith(prefix):
@@ -174,6 +180,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def copy(self, src, dest, metadata=None):
         if not (metadata is None or isinstance(metadata, dict)):
             raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
+        elif metadata is not None:
+            buf = freeze_basic_mapping(metadata)
+            if len(buf).bit_length() > 16:
+                raise ValueError('Metadata too large')
 
         path_src = self._key_to_path(src)
         path_dest = self._key_to_path(dest)
@@ -192,10 +202,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
             if metadata is not None:
                 try:
-                    safe_unpickle_fh(src, encoding='latin1')
-                except pickle.UnpicklingError as exc:
-                    raise CorruptedObjectError('Invalid metadata, pickle says: %s' % exc)
-                pickle.dump(metadata, dest, PICKLE_PROTOCOL)
+                    _read_meta(src)
+                except ThawError:
+                    raise CorruptedObjectError('Invalid metadata')
+                dest.write(b's3ql_1\n')
+                dest.write(struct.pack('<H', len(buf)))
+                dest.write(buf)
             shutil.copyfileobj(src, dest, BUFSIZE)
         except:
             if dest:
@@ -226,6 +238,22 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         path.append(key)
 
         return os.path.join(*path)
+
+def _read_meta(fh):
+    buf = fh.read(9)
+    if buf.startswith(b's3ql_1\n'):
+        len_ = struct.unpack('<H', buf[-2:])[0]
+        try:
+            return thaw_basic_mapping(fh.read(len_))
+        except ThawError:
+            raise CorruptedObjectError('Invalid metadata')
+    else:
+        fh.seek(0)
+        try:
+            return safe_unpickle_fh(fh, encoding='latin1')
+        except pickle.UnpicklingError as exc:
+            raise CorruptedObjectError('Invalid metadata, pickle says: %s' % exc)
+
 
 def escape(s):
     '''Escape '/', '=' and '.' in s'''
