@@ -7,10 +7,11 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from ..logging import logging, QuietError # Ensure use of custom logger class
-from .. import PICKLE_PROTOCOL, BUFSIZE
+from .. import BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
                      AuthenticationError, DanglingStorageURLError, retry_generator,
-                     get_proxy, get_ssl_context, CorruptedObjectError, safe_unpickle)
+                     get_proxy, get_ssl_context, CorruptedObjectError, safe_unpickle,
+                     checksum_basic_mapping)
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from io import BytesIO
@@ -19,10 +20,13 @@ from dugong import (HTTPConnection, is_temp_network_error, BodyFollowing, CaseIn
                     UnsupportedResponse, ConnectionClosed)
 from base64 import b64encode, b64decode
 from email.utils import parsedate_tz, mktime_tz
-from urllib.parse import urlsplit
+from ast import literal_eval
+from urllib.parse import urlsplit, quote, unquote
 import defusedxml.cElementTree as ElementTree
+from itertools import count
 import hashlib
 import os
+import binascii
 import hmac
 import re
 import tempfile
@@ -290,7 +294,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         try:
             meta = self._extractmeta(resp, key)
-        except BadDigestError:
+        except (BadDigestError, CorruptedObjectError):
             # If there's less than 64 kb of data, read and throw
             # away. Otherwise re-establish connection.
             if resp.length is not None and resp.length < 64*1024:
@@ -310,42 +314,59 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         log.debug('open_write(%s): start', key)
 
-        if metadata is None:
-            metadata = dict()
-        elif not isinstance(metadata, dict):
-            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
-
         headers = CaseInsensitiveDict()
         if extra_headers is not None:
             headers.update(extra_headers)
+        if metadata is None:
+            metadata = dict()
         self._add_meta_headers(headers, metadata)
 
         return ObjectW(key, self, headers)
 
-    # Note! This function is also used by the swift backend.
+    # NOTE: ! This function is also used by the swift backend. !
     def _add_meta_headers(self, headers, metadata, chunksize=255):
 
-        # We don't store the metadata keys directly, because HTTP headers
-        # are case insensitive (so the server may change capitalization)
-        # and we may run into length restrictions.
-        meta_buf = b64encode(pickle.dumps(metadata, PICKLE_PROTOCOL))
+        hdr_count = 0
+        length = 0
+        for key in metadata.keys():
+            if not isinstance(key, str):
+                raise ValueError('dict keys must be str, not %s' % type(key))
+            val = metadata[key]
+            if (not isinstance(val, (str, bytes, int, float, complex, bool))
+                and val is not None):
+                raise ValueError('value for key %s (%s) is not elementary' % (key, val))
 
-        headers[self.hdr_prefix + 'meta-format'] = 'pickle'
-        headers[self.hdr_prefix + 'meta-md5'] = md5sum_b64(meta_buf)
+            if isinstance(val, (bytes, bytearray)):
+                val = b64encode(val)
 
-        i = 0
-        while i*chunksize < len(meta_buf):
-            p = meta_buf[i*chunksize:(i+1)*chunksize].decode('us-ascii')
-            headers[self.hdr_prefix + 'meta-data-%02d' % i] = p
-            i += 1
+            buf = ('%s: %s,' % (repr(key), repr(val)))
+            buf = quote(buf, safe='!@#$^*()=+/?-_\'"><\\| `.,;:~')
+            if len(buf) < chunksize:
+                headers['%smeta-%03d' % (self.hdr_prefix, hdr_count)] = buf
+                hdr_count += 1
+                length += 4 + len(buf)
+            else:
+                i = 0
+                while i*chunksize < len(buf):
+                    k = '%smeta-%03d' % (self.hdr_prefix, hdr_count)
+                    v = buf[i*chunksize:(i+1)*chunksize]
+                    headers[k] = v
+                    i += 1
+                    hdr_count += 1
+                    length += 4 + len(buf)
+
+            if length > 2048:
+                raise ValueError('Metadata too large')
+
+        assert hdr_count <= 999
+        md5 = b64encode(checksum_basic_mapping(metadata)).decode('ascii')
+        headers[self.hdr_prefix + 'meta-format'] = 'raw2'
+        headers[self.hdr_prefix + 'meta-md5'] = md5
 
     @retry
     @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None, extra_headers=None):
         log.debug('copy(%s, %s): start', src, dest)
-
-        if not (metadata is None or isinstance(metadata, dict)):
-            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
 
         headers = CaseInsensitiveDict()
         if extra_headers is not None:
@@ -384,8 +405,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def update_meta(self, key, metadata):
-        if not isinstance(metadata, dict):
-            raise TypeError('*metadata*: expected dict, got %s' % type(metadata))
         self.copy(key, key, metadata)
 
     def _do_request(self, method, path, subres=None, query_string=None,
@@ -675,44 +694,67 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def close(self):
         self.conn.disconnect()
 
-    # Note! This function is also used by the swift backend.
-    def _extractmeta(self, resp, key):
+    # NOTE: ! This function is also used by the swift backend !
+    def _extractmeta(self, resp, obj_key):
         '''Extract metadata from HTTP response object'''
 
-        meta = dict()
-        pattern = re.compile(r'^%smeta-(.+)$' % re.escape(self.hdr_prefix),
-                             re.IGNORECASE)
-        format_ = 'raw'
-        for (name, val) in resp.headers.items():
-            # HTTP headers are case-insensitive and pre 2.x S3QL versions metadata
-            # names verbatim (and thus loose capitalization info), so we force lower
-            # case (since we know that this is the original capitalization).
-            name = name.lower()
+        format_ = resp.headers.get('%smeta-format' % self.hdr_prefix, 'raw')
+        if format_ in ('raw', 'pickle'):
+            meta = CaseInsensitiveDict()
+            pattern = re.compile(r'^%smeta-(.+)$' % re.escape(self.hdr_prefix),
+                                 re.IGNORECASE)
+            for fname in resp.headers:
+                hit = pattern.search(fname)
+                if hit:
+                    meta[hit.group(1)] = resp.headers[fname]
 
-            hit = pattern.search(name)
-            if not hit:
-                continue
+            if format_ == 'raw':
+                return meta
 
-            if hit.group(1) == 'format':
-                format_ = val
-            else:
-                meta[hit.group(1)] = val
-
-        if format_ == 'pickle':
-            buf = ''.join(meta[x] for x in sorted(meta)
-                          if x.startswith('data-'))
+            # format_ == pickle
+            buf = ''.join(meta[x] for x in sorted(meta) if x.startswith('data-'))
             if 'md5' in meta and md5sum_b64(buf.encode('us-ascii')) != meta['md5']:
-                log.warning('MD5 mismatch in metadata for %s', key)
-                raise BadDigestError('BadDigest',
-                                     'Meta MD5 for %s does not match' % key)
+                log.warning('MD5 mismatch in metadata for %s', obj_key)
+                raise BadDigestError('BadDigest', 'Meta MD5 for %s does not match' % obj_key)
             try:
                 return safe_unpickle(b64decode(buf), encoding='latin1')
+            except binascii.Error:
+                raise CorruptedObjectError('Corrupted metadata, b64decode failed')
             except pickle.UnpicklingError as exc:
                 raise CorruptedObjectError('Corrupted metadata, pickle says: %s' % exc)
-        elif format_ == 'raw': # No MD5 available
-            return meta
-        else:
-            raise RuntimeError('Unknown metadata format: %s' % format_)
+
+        elif format_ != 'raw2': # Current
+            raise RuntimeError('Unknown metadata format %s for key %s'
+                               % (format_, obj_key))
+
+        parts = []
+        for i in count():
+            # Headers is an email.message object, so indexing it
+            # would also give None instead of KeyError
+            part = resp.headers.get('%smeta-%03d' % (self.hdr_prefix, i), None)
+            if part is None:
+                break
+            parts.append(part)
+        buf = unquote(''.join(parts))
+        meta = literal_eval('{ %s }' % buf)
+
+        # Decode bytes values
+        for (k,v) in meta.items():
+            if not isinstance(v, bytes):
+                continue
+            try:
+                meta[k] = b64decode(v)
+            except binascii.Error:
+                # This should trigger a MD5 mismatch below
+                meta[k] = None
+
+        # Check MD5
+        md5 = b64encode(checksum_basic_mapping(meta)).decode('ascii')
+        if md5 != resp.headers.get('%smeta-md5' % self.hdr_prefix, None):
+            log.warning('MD5 mismatch in metadata for %s', obj_key)
+            raise BadDigestError('BadDigest', 'Meta MD5 for %s does not match' % obj_key)
+
+        return meta
 
 class ObjectR(object):
     '''An S3 object open for reading'''
@@ -888,12 +930,10 @@ def get_S3Error(code, msg, headers=None):
 
     return class_(code, msg, headers)
 
-
 def md5sum_b64(buf):
     '''Return base64 encoded MD5 sum'''
 
     return b64encode(hashlib.md5(buf).digest()).decode('ascii')
-
 
 def _parse_retry_after(header):
     '''Parse headers for Retry-After value'''

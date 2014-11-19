@@ -423,7 +423,7 @@ def test_complex_meta(backend, retry_time):
                  'blu%rz': 23.283475,
                  'görp': b'heelo',
                  'sch.al': 'gorroobalp\nfurrö!',
-                 'lo-ng': 'foobarz' * 80 }
+                 'lo-ng': 'foobarz' * 40 }
 
     assert key not in backend
     backend.store(key, value, metadata)

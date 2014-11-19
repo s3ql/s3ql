@@ -392,12 +392,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
 
+        headers = CaseInsensitiveDict()
         if metadata is None:
             metadata = dict()
-        elif not isinstance(metadata, dict):
-            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
-
-        headers = CaseInsensitiveDict()
         self._add_meta_headers(headers, metadata)
 
         return ObjectW(key, self, headers)
@@ -437,8 +434,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         log.debug('copy(%s, %s): start', src, dest)
         if dest.endswith(TEMP_SUFFIX) or src.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
-        if not (metadata is None or isinstance(metadata, dict)):
-            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
 
         headers = CaseInsensitiveDict()
         headers['X-Copy-From'] = '/%s/%s%s' % (self.container_name, self.prefix, src)
@@ -478,9 +473,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def update_meta(self, key, metadata):
         log.debug('start for %s', key)
-        if not isinstance(metadata, dict):
-            raise TypeError('*metadata*: expected dict, got %s' % type(metadata))
-
         headers = CaseInsensitiveDict()
         self._add_meta_headers(headers, metadata)
         self._do_request('POST', '/%s%s' % (self.prefix, key), headers=headers)
