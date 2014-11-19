@@ -477,11 +477,15 @@ class BlockCache(object):
         releases the global lock.
         '''
 
-        if not self.transfer_in_progress():
-            return
+        # Loop to avoid the race condition of a transfer terminating
+        # between the call to transfer_in_progress() and wait().
+        while True:
+            if not self.transfer_in_progress():
+                return
 
-        with lock_released:
-            self.transfer_completed.wait()
+            with lock_released:
+                if self.transfer_completed.wait(timeout=5):
+                    return
 
     def upload(self, el):
         '''Upload cache entry `el` asynchronously
@@ -940,7 +944,7 @@ class BlockCache(object):
                 dirty += el.size
 
         return (used, dirty)
-    
+
     def __del__(self):
         if len(self.cache) > 0:
             raise RuntimeError("BlockManager instance was destroyed without calling destroy()!")

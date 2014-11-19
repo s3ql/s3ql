@@ -1,6 +1,7 @@
 UNRELEASED, S3QL tip
 
-  *
+  * Fixed a race condition that could lead to a hanging mount.s3ql
+    process and hanging test_thread_hang() unit test.
 
 2014-11-09, S3QL 2.12
 
