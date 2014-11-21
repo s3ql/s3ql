@@ -21,14 +21,12 @@ import t4_fuse
 import tempfile
 import pytest
 
-
-@pytest.mark.usefixtures('s3ql_cmd_argv')
-class FullTest(t4_fuse.fuse_tests):
+class TestFull(t4_fuse.TestFuse):
 
     def populate_dir(self, path):
         populate_dir(path)
 
-    def runTest(self):
+    def test(self):
         skip_without_rsync()
 
         ref_dir = tempfile.mkdtemp(prefix='s3ql-ref-')
@@ -53,9 +51,9 @@ class FullTest(t4_fuse.fuse_tests):
                                     ref_dir + '/', self.mnt_dir + '/'], universal_newlines=True,
                                   stderr=subprocess.STDOUT)
             except CalledProcessError as exc:
-                self.fail('rsync failed with ' + exc.output)
+                pytest.fail('rsync failed with ' + exc.output)
             if out:
-                self.fail('Copy not equal to original, rsync says:\n' + out)
+                pytest.fail('Copy not equal to original, rsync says:\n' + out)
 
             self.umount()
 
@@ -70,21 +68,21 @@ class FullTest(t4_fuse.fuse_tests):
 
 
 class RemoteTest:
-    def setUp(self, name):
-        super().setUp()
+    def setup_method(self, method, name):
+        super().setup_method(method)
         try:
             (backend_login, backend_pw,
              self.storage_url) = get_remote_test_info(name)
         except NoTestSection as exc:
-            self.skipTest(exc.reason)
+            pytest.skip(exc.reason)
         self.backend_login = backend_login
         self.backend_passphrase = backend_pw
 
     def populate_dir(self, path):
         populate_dir(path, entries=50, size=5*1024*1024)
 
-    def tearDown(self):
-        super().tearDown()
+    def teardown_method(self, method):
+        super().teardown_method(method)
 
         proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') +
                                 [ '--quiet', '--authfile', '/dev/null', '--fatal-warnings',
@@ -96,16 +94,16 @@ class RemoteTest:
         print('yes', file=proc.stdin)
         proc.stdin.close()
 
-        self.assertEqual(proc.wait(), 0)
+        assert proc.wait() == 0
 
 
 # Dynamically generate tests for other backends
 for backend_name in backends.prefix_map:
     if backend_name == 'local':
         continue
-    def setUp(self, backend_name=backend_name):
-        RemoteTest.setUp(self, backend_name + '-test')
-    test_class_name = backend_name + 'FullTests'
+    def setup_method(self, method, backend_name=backend_name):
+        RemoteTest.setup_method(self, method, backend_name + '-test')
+    test_class_name = 'TestFull' + backend_name
     globals()[test_class_name] = type(test_class_name,
-                                      (RemoteTest, FullTest),
-                                      { 'setUp': setUp })
+                                      (RemoteTest, TestFull),
+                                      { 'setup_method': setup_method })

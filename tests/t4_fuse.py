@@ -25,17 +25,16 @@ import platform
 import stat
 import subprocess
 import tempfile
-import unittest
 import pytest
+from pytest import raises as assert_raises
 
 # For debugging
 USE_VALGRIND = False
 
-
 @pytest.mark.usefixtures('s3ql_cmd_argv')
-class fuse_tests(unittest.TestCase):
+class TestFuse:
 
-    def setUp(self):
+    def setup_method(self, method):
         if platform.system() != 'Darwin':
             skip_if_no_fusermount()
 
@@ -74,7 +73,7 @@ class fuse_tests(unittest.TestCase):
             print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
 
-        self.assertEqual(proc.wait(), 0)
+        assert proc.wait() == 0
 
     def mount(self, fatal_warnings=True, expect_fail=None):
         cmd = (self.s3ql_cmd_argv('mount.s3ql') +
@@ -99,7 +98,7 @@ class fuse_tests(unittest.TestCase):
             def poll():
                 if os.path.ismount(self.mnt_dir):
                     return True
-                self.assertIsNone(self.mount_process.poll())
+                assert self.mount_process.poll() is None
             retry(30, poll)
 
     def umount(self):
@@ -110,10 +109,10 @@ class fuse_tests(unittest.TestCase):
         proc = subprocess.Popen(self.s3ql_cmd_argv('umount.s3ql') +
                                 ['--quiet', self.mnt_dir])
         retry(90, lambda : proc.poll() is not None)
-        self.assertEqual(proc.wait(), 0)
+        assert proc.wait() == 0
 
-        self.assertEqual(self.mount_process.poll(), 0)
-        self.assertFalse(os.path.ismount(self.mnt_dir))
+        assert self.mount_process.poll() == 0
+        assert not os.path.ismount(self.mnt_dir)
 
     def fsck(self):
         # Use fsck to test authinfo reading
@@ -138,9 +137,9 @@ class fuse_tests(unittest.TestCase):
                                       authinfo_fh.name, self.storage_url ],
                                     stdin=subprocess.PIPE, universal_newlines=True)
             proc.stdin.close()
-            self.assertEqual(proc.wait(), 0)
+            assert proc.wait() == 0
 
-    def tearDown(self):
+    def teardown_method(self, method):
         with open('/dev/null', 'wb') as devnull:
             if platform.system() == 'Darwin':
                 subprocess.call(['umount', '-l', self.mnt_dir], stderr=devnull)
@@ -160,12 +159,7 @@ class fuse_tests(unittest.TestCase):
         shutil.rmtree(self.cache_dir)
         shutil.rmtree(self.backend_dir)
 
-
-    def test_all(self):
-        # Workaround py.test not calling runTest
-        return self.runTest()
-
-    def runTest(self):
+    def test(self):
         # Run all tests in same environment, mounting and umounting
         # just takes too long otherwise
 
@@ -194,39 +188,39 @@ class fuse_tests(unittest.TestCase):
         fullname = self.mnt_dir + "/" + dirname
         os.mkdir(fullname)
         fstat = os.stat(fullname)
-        self.assertTrue(stat.S_ISDIR(fstat.st_mode))
-        self.assertEqual(llfuse.listdir(fullname), [])
-        self.assertEqual(fstat.st_nlink, 1)
-        self.assertTrue(dirname in llfuse.listdir(self.mnt_dir))
+        assert stat.S_ISDIR(fstat.st_mode)
+        assert llfuse.listdir(fullname) ==  []
+        assert fstat.st_nlink == 1
+        assert dirname in llfuse.listdir(self.mnt_dir)
         os.rmdir(fullname)
-        self.assertRaises(FileNotFoundError, os.stat, fullname)
-        self.assertTrue(dirname not in llfuse.listdir(self.mnt_dir))
+        assert_raises(FileNotFoundError, os.stat, fullname)
+        assert dirname not in llfuse.listdir(self.mnt_dir)
 
     def tst_symlink(self):
         linkname = self.newname()
         fullname = self.mnt_dir + "/" + linkname
         os.symlink("/imaginary/dest", fullname)
         fstat = os.lstat(fullname)
-        self.assertTrue(stat.S_ISLNK(fstat.st_mode))
-        self.assertEqual(os.readlink(fullname), "/imaginary/dest")
-        self.assertEqual(fstat.st_nlink, 1)
-        self.assertTrue(linkname in llfuse.listdir(self.mnt_dir))
+        assert stat.S_ISLNK(fstat.st_mode)
+        assert os.readlink(fullname) == "/imaginary/dest"
+        assert fstat.st_nlink == 1
+        assert linkname in llfuse.listdir(self.mnt_dir)
         os.unlink(fullname)
-        self.assertRaises(FileNotFoundError, os.lstat, fullname)
-        self.assertTrue(linkname not in llfuse.listdir(self.mnt_dir))
+        assert_raises(FileNotFoundError, os.lstat, fullname)
+        assert linkname not in llfuse.listdir(self.mnt_dir)
 
     def tst_mknod(self):
         filename = os.path.join(self.mnt_dir, self.newname())
         src = self.src
         shutil.copyfile(src, filename)
         fstat = os.lstat(filename)
-        self.assertTrue(stat.S_ISREG(fstat.st_mode))
-        self.assertEqual(fstat.st_nlink, 1)
-        self.assertTrue(basename(filename) in llfuse.listdir(self.mnt_dir))
-        self.assertTrue(filecmp.cmp(src, filename, False))
+        assert stat.S_ISREG(fstat.st_mode)
+        assert fstat.st_nlink == 1
+        assert basename(filename) in llfuse.listdir(self.mnt_dir)
+        assert filecmp.cmp(src, filename, False)
         os.unlink(filename)
-        self.assertRaises(FileNotFoundError, os.stat, filename)
-        self.assertTrue(basename(filename) not in llfuse.listdir(self.mnt_dir))
+        assert_raises(FileNotFoundError, os.stat, filename)
+        assert basename(filename) not in llfuse.listdir(self.mnt_dir)
 
     def tst_chown(self):
         filename = os.path.join(self.mnt_dir, self.newname())
@@ -238,25 +232,24 @@ class fuse_tests(unittest.TestCase):
         uid_new = uid + 1
         os.chown(filename, uid_new, -1)
         fstat = os.lstat(filename)
-        self.assertEqual(fstat.st_uid, uid_new)
-        self.assertEqual(fstat.st_gid, gid)
+        assert fstat.st_uid == uid_new
+        assert fstat.st_gid == gid
 
         gid_new = gid + 1
         os.chown(filename, -1, gid_new)
         fstat = os.lstat(filename)
-        self.assertEqual(fstat.st_uid, uid_new)
-        self.assertEqual(fstat.st_gid, gid_new)
+        assert fstat.st_uid == uid_new
+        assert fstat.st_gid == gid_new
 
         os.rmdir(filename)
-        self.assertRaises(FileNotFoundError, os.stat, filename)
-        self.assertTrue(basename(filename) not in llfuse.listdir(self.mnt_dir))
-
+        assert_raises(FileNotFoundError, os.stat, filename)
+        assert basename(filename) not in llfuse.listdir(self.mnt_dir)
 
     def tst_write(self):
         name = os.path.join(self.mnt_dir, self.newname())
         src = self.src
         shutil.copyfile(src, name)
-        self.assertTrue(filecmp.cmp(name, src, False))
+        assert filecmp.cmp(name, src, False)
 
         # Don't unlink file, we want to see if cache flushing
         # works
@@ -269,20 +262,20 @@ class fuse_tests(unittest.TestCase):
         name2 = os.path.join(self.mnt_dir, self.newname())
         src = self.src
         shutil.copyfile(src, name1)
-        self.assertTrue(filecmp.cmp(name1, src, False))
+        assert filecmp.cmp(name1, src, False)
         os.link(name1, name2)
 
         fstat1 = os.lstat(name1)
         fstat2 = os.lstat(name2)
 
-        self.assertEqual(fstat1, fstat2)
-        self.assertEqual(fstat1.st_nlink, 2)
+        assert fstat1 == fstat2
+        assert fstat1.st_nlink == 2
 
-        self.assertTrue(basename(name2) in llfuse.listdir(self.mnt_dir))
-        self.assertTrue(filecmp.cmp(name1, name2, False))
+        assert basename(name2) in llfuse.listdir(self.mnt_dir)
+        assert filecmp.cmp(name1, name2, False)
         os.unlink(name2)
         fstat1 = os.lstat(name1)
-        self.assertEqual(fstat1.st_nlink, 1)
+        assert fstat1.st_nlink == 1
         os.unlink(name1)
 
     def tst_readdir(self):
@@ -301,7 +294,7 @@ class fuse_tests(unittest.TestCase):
         listdir_is.sort()
         listdir_should = [ basename(file_), basename(subdir) ]
         listdir_should.sort()
-        self.assertEqual(listdir_is, listdir_should)
+        assert listdir_is == listdir_should
 
         os.unlink(file_)
         os.unlink(subfile)
@@ -312,16 +305,16 @@ class fuse_tests(unittest.TestCase):
         filename = os.path.join(self.mnt_dir, self.newname())
         src = self.src
         shutil.copyfile(src, filename)
-        self.assertTrue(filecmp.cmp(filename, src, False))
+        assert filecmp.cmp(filename, src, False)
         fstat = os.stat(filename)
         size = fstat.st_size
         fd = os.open(filename, os.O_RDWR)
 
         os.ftruncate(fd, size + 1024) # add > 1 block
-        self.assertEqual(os.stat(filename).st_size, size + 1024)
+        assert os.stat(filename).st_size == size + 1024
 
         os.ftruncate(fd, size - 1024) # Truncate > 1 block
-        self.assertEqual(os.stat(filename).st_size, size - 1024)
+        assert os.stat(filename).st_size == size - 1024
 
         os.close(fd)
         os.unlink(filename)
@@ -330,7 +323,7 @@ class fuse_tests(unittest.TestCase):
         filename = os.path.join(self.mnt_dir, self.newname())
         src = self.src
         shutil.copyfile(src, filename)
-        self.assertTrue(filecmp.cmp(filename, src, False))
+        assert filecmp.cmp(filename, src, False)
         fstat = os.stat(filename)
         size = fstat.st_size
 
@@ -340,10 +333,10 @@ class fuse_tests(unittest.TestCase):
         fd = os.open(filename, os.O_RDWR)
 
         os.ftruncate(fd, size + 1024) # add > 1 block
-        self.assertEqual(os.stat(filename).st_size, size + 1024)
+        assert os.stat(filename).st_size == size + 1024
 
         os.ftruncate(fd, size - 1024) # Truncate > 1 block
-        self.assertEqual(os.stat(filename).st_size, size - 1024)
+        assert os.stat(filename).st_size == size - 1024
 
         os.close(fd)
         os.unlink(filename)
@@ -352,10 +345,10 @@ class fuse_tests(unittest.TestCase):
         dirname = self.newname()
         fullname = self.mnt_dir + "/" + dirname
         os.mkdir(fullname)
-        self.assertTrue(stat.S_ISDIR(os.stat(fullname).st_mode))
-        self.assertTrue(dirname in llfuse.listdir(self.mnt_dir))
+        assert stat.S_ISDIR(os.stat(fullname).st_mode)
+        assert dirname in llfuse.listdir(self.mnt_dir)
         llfuse.setxattr('%s/%s' % (self.mnt_dir, CTRL_NAME),
                         'rmtree', pickle.dumps((llfuse.ROOT_INODE, path2bytes(dirname)),
                                                PICKLE_PROTOCOL))
-        self.assertRaises(FileNotFoundError, os.stat, fullname)
-        self.assertTrue(dirname not in llfuse.listdir(self.mnt_dir))
+        assert_raises(FileNotFoundError, os.stat, fullname)
+        assert dirname not in llfuse.listdir(self.mnt_dir)

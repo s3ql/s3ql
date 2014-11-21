@@ -24,10 +24,9 @@ import os
 import unittest
 import pytest
 
-@pytest.mark.usefixtures('s3ql_cmd_argv')
-class UpgradeTest(t4_fuse.fuse_tests):
+class TestUpgrade(t4_fuse.TestFuse):
 
-    def setUp(self):
+    def setup_method(self, method):
         skip_without_rsync()
 
         basedir_old = os.path.abspath(os.path.join(os.path.dirname(__file__),
@@ -35,13 +34,13 @@ class UpgradeTest(t4_fuse.fuse_tests):
         if not os.path.exists(os.path.join(basedir_old, 'bin', 'mkfs.s3ql')):
             raise unittest.SkipTest('no previous S3QL version found')
 
-        super().setUp()
+        super().setup_method(method)
         self.ref_dir = tempfile.mkdtemp(prefix='s3ql-ref-')
         self.bak_dir = tempfile.mkdtemp(prefix='s3ql-bak-')
         self.basedir_old = basedir_old
 
-    def tearDown(self):
-        super().tearDown()
+    def teardown_method(self, method):
+        super().teardown_method(method)
         shutil.rmtree(self.ref_dir)
         shutil.rmtree(self.bak_dir)
 
@@ -63,7 +62,7 @@ class UpgradeTest(t4_fuse.fuse_tests):
             print(self.passphrase, file=proc.stdin)
             print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
-        self.assertEqual(proc.wait(), 0)
+        assert proc.wait() == 0
 
     def mount_old(self):
         self.mount_process = subprocess.Popen([os.path.join(self.basedir_old, 'bin', 'mount.s3ql'),
@@ -80,7 +79,7 @@ class UpgradeTest(t4_fuse.fuse_tests):
         def poll():
             if os.path.ismount(self.mnt_dir):
                 return True
-            self.assertIsNone(self.mount_process.poll())
+            assert self.mount_process.poll() is None
         retry(30, poll)
 
     def umount_old(self):
@@ -91,10 +90,10 @@ class UpgradeTest(t4_fuse.fuse_tests):
         proc = subprocess.Popen([os.path.join(self.basedir_old, 'bin', 'umount.s3ql'),
                                  '--quiet', self.mnt_dir])
         retry(90, lambda : proc.poll() is not None)
-        self.assertEqual(proc.wait(), 0)
+        assert proc.wait() == 0
 
-        self.assertEqual(self.mount_process.poll(), 0)
-        self.assertFalse(os.path.ismount(self.mnt_dir))
+        assert self.mount_process.poll() == 0
+        assert not os.path.ismount(self.mnt_dir)
 
     def upgrade(self):
         proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') +
@@ -110,7 +109,7 @@ class UpgradeTest(t4_fuse.fuse_tests):
         print('yes', file=proc.stdin)
         proc.stdin.close()
 
-        self.assertEqual(proc.wait(), 0)
+        assert proc.wait() == 0
 
     def compare(self):
 
@@ -122,16 +121,17 @@ class UpgradeTest(t4_fuse.fuse_tests):
                                self.ref_dir + '/', self.mnt_dir + '/'], universal_newlines=True,
                               stderr=subprocess.STDOUT)
         except CalledProcessError as exc:
-            self.fail('rsync failed with ' + exc.output)
+            pytest.fail('rsync failed with ' + exc.output)
         if out:
-            self.fail('Copy not equal to original, rsync says:\n' + out)
+            pytest.fail('Copy not equal to original, rsync says:\n' + out)
 
         self.umount()
 
     def populate(self):
         populate_dir(self.ref_dir)
 
-    def runTest(self):
+    @pytest.mark.parametrize("with_cache", (True, False))
+    def test(self, with_cache):
         self.populate()
 
         # Create and mount using previous S3QL version
@@ -141,51 +141,39 @@ class UpgradeTest(t4_fuse.fuse_tests):
         self.umount_old()
 
         # Try to access with new version (should fail)
+        if not with_cache:
+            shutil.rmtree(self.cache_dir)
+            self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.mount(expect_fail=32)
 
         # Upgrade and compare with cache
+        if not with_cache:
+            shutil.rmtree(self.cache_dir)
+            self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.upgrade()
         self.compare()
 
-        # Now do the same thing again, but without cached db
-        shutil.rmtree(self.cache_dir)
-        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
-        self.mkfs_old(force=True)
-        self.mount_old()
-        subprocess.check_call(['rsync', '-aHAX', self.ref_dir + '/', self.mnt_dir + '/'])
-        self.umount_old()
-
-        # There does not seem a way to avoid the checksum error when
-        # upgrading from rev 20 to rev 21.
-        shutil.rmtree(self.cache_dir)
-        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
-        self.mount(expect_fail=32)
-        shutil.rmtree(self.cache_dir)
-        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
-        self.upgrade()
-        self.compare()
-
-class PlainUpgradeTest(UpgradeTest):
-    def setUp(self):
-        super().setUp()
+class TestPlainUpgrade(TestUpgrade):
+    def setup_method(self, method):
+        super().setup_method(method)
         self.passphrase = None
 
 class RemoteUpgradeTest:
-    def setUp(self, name):
-        super().setUp()
+    def setup_method(self, method, name):
+        super().setup_method(method)
         try:
             (backend_login, backend_pw,
              self.storage_url) = get_remote_test_info(name)
         except NoTestSection as exc:
-            self.skipTest(exc.reason)
+            pytest.skip(exc.reason)
         self.backend_login = backend_login
         self.backend_passphrase = backend_pw
 
     def populate(self):
         populate_dir(self.ref_dir, entries=50, size=5*1024*1024)
 
-    def tearDown(self):
-        super().tearDown()
+    def teardown_method(self, method):
+        super().teardown_method(method)
 
         proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') +
                                 [ '--quiet', '--authfile', '/dev/null', '--fatal-warnings',
@@ -197,15 +185,15 @@ class RemoteUpgradeTest:
         print('yes', file=proc.stdin)
         proc.stdin.close()
 
-        self.assertEqual(proc.wait(), 0)
+        assert proc.wait() == 0
 
 # Dynamically generate tests for other backends
 for backend_name in backends.prefix_map:
     if backend_name == 'local':
         continue
-    def setUp(self, backend_name=backend_name):
-        RemoteUpgradeTest.setUp(self, backend_name + '-test')
-    test_class_name = backend_name + 'UpgradeTests'
+    def setup_method(self, method, backend_name=backend_name):
+        RemoteUpgradeTest.setup_method(self, method, backend_name + '-test')
+    test_class_name = 'Test' + backend_name + 'Upgrade'
     globals()[test_class_name] = type(test_class_name,
-                                      (RemoteUpgradeTest, UpgradeTest),
-                                      { 'setUp': setUp })
+                                      (RemoteUpgradeTest, TestUpgrade),
+                                      { 'setup_method': setup_method })

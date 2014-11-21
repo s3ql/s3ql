@@ -17,11 +17,13 @@ import os.path
 import s3ql.lock
 import s3ql.remove
 import sys
+from pytest import raises as assert_raises
+import pytest
 import t4_fuse
 
-class LockRemoveTests(t4_fuse.fuse_tests):
+class TestLockRemove(t4_fuse.TestFuse):
 
-    def runTest(self):
+    def test(self):
         self.mkfs()
         self.mount()
         self.tst_lock_rm()
@@ -42,13 +44,13 @@ class LockRemoveTests(t4_fuse.fuse_tests):
             s3ql.lock.main([tempdir])
         except:
             sys.excepthook(*sys.exc_info())
-            self.fail("s3qllock raised exception")
+            pytest.fail("s3qllock raised exception")
 
         # Try to delete
-        self.assertRaises(PermissionError, os.unlink, filename)
+        assert_raises(PermissionError, os.unlink, filename)
 
         # Try to write
-        with self.assertRaises(PermissionError):
+        with pytest.raises(PermissionError):
             open(filename, 'w+').write('Hello')
 
         # delete properly
@@ -56,6 +58,6 @@ class LockRemoveTests(t4_fuse.fuse_tests):
             s3ql.remove.main([tempdir])
         except:
             sys.excepthook(*sys.exc_info())
-            self.fail("s3qlrm raised exception")
+            pytest.fail("s3qlrm raised exception")
 
-        self.assertTrue('lock_dir' not in llfuse.listdir(self.mnt_dir))
+        assert 'lock_dir' not in llfuse.listdir(self.mnt_dir)

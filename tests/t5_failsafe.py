@@ -24,7 +24,7 @@ from s3ql.backends.local import Backend as LocalBackend
 from s3ql.common import get_seq_no
 from s3ql import BUFSIZE
 
-class FailsafeTest(t4_fuse.fuse_tests):
+class TestFailsafe(t4_fuse.TestFuse):
     '''
     Test behavior with corrupted backend. In contrast to the tests
     in t3_fs_api, here we also make sure that remote connections
@@ -34,20 +34,20 @@ class FailsafeTest(t4_fuse.fuse_tests):
     propagation delays.
     '''
 
-    def setUp(self):
-        super().setUp()
+    def setup_method(self, method):
+        super().setup_method(method)
         try:
             (backend_login, backend_pw,
              self.storage_url) = get_remote_test_info('gs-test')
         except NoTestSection as exc:
-            self.skipTest(exc.reason)
+            pytest.skip(exc.reason)
 
         self.backend_login = backend_login
         self.backend_passphrase = backend_pw
 
         self.backend = gs.Backend(self.storage_url, backend_login, backend_pw, {})
 
-    def runTest(self):
+    def test(self):
         self.mkfs(max_obj_size=10*1024**2)
         self.mount()
 
@@ -89,14 +89,13 @@ class FailsafeTest(t4_fuse.fuse_tests):
             open(fname2, 'wb')
 
 
-
-class NewerMetadataTest(t4_fuse.fuse_tests):
+class TestNewerMetadata(t4_fuse.TestFuse):
     '''
     Make sure that we turn on failsafe mode and don't overwrite
     remote metadata if it suddenly becomes newer than local.
     '''
 
-    def runTest(self):
+    def test(self):
         self.mkfs()
 
         # Get backend instance

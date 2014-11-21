@@ -21,9 +21,9 @@ from subprocess import check_output, CalledProcessError
 import t4_fuse
 import tempfile
 
-class FsckTests(t4_fuse.fuse_tests):
+class TestFsck(t4_fuse.TestFuse):
 
-    def runTest(self):
+    def test(self):
         skip_without_rsync()
         ref_dir = tempfile.mkdtemp(prefix='s3ql-ref-')
         try:
@@ -44,8 +44,9 @@ class FsckTests(t4_fuse.fuse_tests):
 
             # Check that inode watermark is high
             db = Connection(get_backend_cachedir(self.storage_url, self.cache_dir) + '.db')
-            self.assertGreater(db.get_val('SELECT seq FROM sqlite_sequence WHERE name=?', ('inodes',)), 2 ** 31 + 10)
-            self.assertGreater(db.get_val('SELECT MAX(id) FROM inodes'), 2 ** 31 + 10)
+            assert db.get_val('SELECT seq FROM sqlite_sequence WHERE name=?',
+                              ('inodes',)) > 2 ** 31 + 10
+            assert db.get_val('SELECT MAX(id) FROM inodes') > 2 ** 31 + 10
             db.close()
 
             # Renumber inodes
@@ -53,8 +54,9 @@ class FsckTests(t4_fuse.fuse_tests):
 
             # Check if renumbering was done
             db = Connection(get_backend_cachedir(self.storage_url, self.cache_dir) + '.db')
-            self.assertLess(db.get_val('SELECT seq FROM sqlite_sequence WHERE name=?', ('inodes',)), 2 ** 31)
-            self.assertLess(db.get_val('SELECT MAX(id) FROM inodes'), 2 ** 31)
+            assert db.get_val('SELECT seq FROM sqlite_sequence WHERE name=?',
+                               ('inodes',)) < 2 ** 31
+            assert db.get_val('SELECT MAX(id) FROM inodes') < 2 ** 31
             db.close()
 
             # Compare
@@ -64,9 +66,9 @@ class FsckTests(t4_fuse.fuse_tests):
                                    ref_dir + '/', self.mnt_dir + '/'], universal_newlines=True,
                                   stderr=subprocess.STDOUT)
             except CalledProcessError as exc:
-                self.fail('rsync failed with ' + exc.output)
+                pytest.fail('rsync failed with ' + exc.output)
             if out:
-                self.fail('Copy not equal to original, rsync says:\n' + out)
+                pytest.fail('Copy not equal to original, rsync says:\n' + out)
 
             self.umount()
         finally:

@@ -16,9 +16,9 @@ import s3ql.ctrl
 import sys
 import t4_fuse
 
-class CtrlTests(t4_fuse.fuse_tests):
+class TestCtrl(t4_fuse.TestFuse):
 
-    def runTest(self):
+    def test(self):
         self.mkfs()
         self.mount()
         self.tst_ctrl_flush()
@@ -31,4 +31,4 @@ class CtrlTests(t4_fuse.fuse_tests):
             s3ql.ctrl.main(['flushcache', self.mnt_dir])
         except:
             sys.excepthook(*sys.exc_info())
-            self.fail("s3qlctrl raised exception")
+            pytest.fail("s3qlctrl raised exception")

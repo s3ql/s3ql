@@ -21,11 +21,9 @@ import t4_fuse
 import tempfile
 import pytest
 
+class TestCp(t4_fuse.TestFuse):
 
-@pytest.mark.usefixtures('s3ql_cmd_argv')
-class cpTests(t4_fuse.fuse_tests):
-
-    def runTest(self):
+    def test(self):
         skip_without_rsync()
         self.mkfs()
         self.mount()
@@ -54,10 +52,10 @@ class cpTests(t4_fuse.fuse_tests):
                                     os.path.join(self.mnt_dir, 'copy') + '/'],
                                    universal_newlines=True, stderr=subprocess.STDOUT)
             except CalledProcessError as exc:
-                self.fail('rsync failed with ' + exc.output)
+                pytest.fail('rsync failed with ' + exc.output)
 
             if out:
-                self.fail('Copy not equal to original, rsync says:\n' + out)
+                pytest.fail('Copy not equal to original, rsync says:\n' + out)
 
         finally:
             shutil.rmtree(tempdir)
