@@ -3,6 +3,11 @@ UNRELEASED, S3QL tip
   * Fixed a race condition that could lead to a hanging mount.s3ql
     process and hanging test_thread_hang() unit test.
 
+  * Updated internal metadata storage and checksum format. The old
+    format was difficult to secure against malicious backend data and
+    could have resulted in false-positive checksum mismatches with
+    future or different Python interpreters.
+
 2014-11-09, S3QL 2.12
 
   * The s3c backend has a new 'dumb-copy' option. If this option

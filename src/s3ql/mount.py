@@ -12,9 +12,6 @@ from .backends.pool import BackendPool
 from .block_cache import BlockCache
 from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2, stream_read_bz2,
                      get_backend_factory, pretty_print_size)
-from .backends.comprenc import ComprencBackend
-from .backends.common import CorruptedObjectError
-from .adm import upgrade_monkeypatch
 from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
@@ -390,22 +387,7 @@ def get_metadata(backend, cachepath):
             log.info('Using cached metadata.')
             db = Connection(cachepath + '.db')
     else:
-        try:
-            param = backend.lookup('s3ql_metadata')
-        except CorruptedObjectError:
-            if not isinstance(backend, ComprencBackend):
-                raise
-            # Temporary band-aid to identify old file system revision
-            upgrade_monkeypatch(backend)
-            try:
-                param = backend.lookup('s3ql_metadata')
-            except:
-                pass
-            else:
-                if param['revision'] >= CURRENT_FS_REV:
-                    raise
-            finally:
-                del backend._verify_meta
+        param = backend.lookup('s3ql_metadata')
 
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:

@@ -8,7 +8,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, QuietError, setup_logging
 from . import CURRENT_FS_REV, REV_VER_MAP, PICKLE_PROTOCOL
-from .backends.common import NoSuchObject
 from .backends.comprenc import ComprencBackend
 from .database import Connection
 from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2,
@@ -224,51 +223,14 @@ def get_old_rev_msg(rev, prog):
         ''' % { 'version': REV_VER_MAP[rev],
                 'prog': prog })
 
-def upgrade_monkeypatch(backend):
-    '''Monkeypatch ComprencBackend instance *backend* for upgrade
-
-    Monkeypatch *backend*, so that we can read the current
-    s3ql_metadata object without getting a CorruptedObjectError. This would
-    happen because previous S3QL versions don't update the object
-    key stored in the object on rename, and the metadata object is
-    created as s3ql_metadata_new``.
-    '''
-    from base64 import b64decode
-
-    verify_meta_orig = backend._verify_meta
-    def _verify_meta_new(key, metadata):
-        if (metadata['encryption'] != 'None'
-            and key == 's3ql_metadata'):
-            stored_key = b64decode(metadata['object_id']).decode('utf-8')
-            if stored_key == 's3ql_metadata_new':
-                key = stored_key
-        return verify_meta_orig(key, metadata)
-    backend._verify_meta = _verify_meta_new
-
 def upgrade(backend, cachepath):
     '''Upgrade file system to newest revision'''
 
     log.info('Getting file system parameters..')
 
-    upgrade_monkeypatch(backend)
-
-    # Get sequence number and check for *really* old S3QL version
-    seq_nos = list(backend.list('s3ql_seq_no_'))
-    if (seq_nos[0].endswith('.meta')
-        or seq_nos[0].endswith('.dat')):
-        print(textwrap.dedent('''
-            File system revision too old to upgrade!
-
-            You need to use an older S3QL version to upgrade to a more recent
-            revision before you can use this version to upgrade to the newest
-            revision.
-            '''))
-        print(get_old_rev_msg(11 + 1, 's3qladm'))
-        raise QuietError()
-    seq_no = get_seq_no(backend)
-
     # Check for cached metadata
     db = None
+    seq_no = get_seq_no(backend)
     if os.path.exists(cachepath + '.params'):
         with open(cachepath + '.params', 'rb') as fh:
             param = pickle.load(fh)
@@ -359,19 +321,7 @@ def upgrade(backend, cachepath):
     param['seq_no'] += 1
 
     # In this update, we have added a new metadata format. Old objects can still
-    # be read, so we don't need to do any conversion work. However, accessing
-    # (including renaming) encrypted metadata backups will fail because the
-    # embedded object key does not agree with the key under which the object is
-    # stored. Therefore, we need to make sure that we don't try to touch them at
-    # all.
-    if isinstance(backend, ComprencBackend) and backend.passphrase:
-        plain_backend = backend.backend
-        for i in range(10)[::-1]:
-            try:
-                plain_backend.rename("s3ql_metadata_bak_%d" % i,
-                                     "s3ql_metadata_bak_%d_pre21" % i)
-            except NoSuchObject:
-                continue
+    # be read, so we don't need to do any conversion work.
 
     log.info('Dumping metadata...')
     with tempfile.TemporaryFile() as fh:
@@ -399,12 +349,7 @@ def upgrade(backend, cachepath):
     db.execute('ANALYZE')
     db.execute('VACUUM')
 
-    print(textwrap.dedent('''\
-        File system upgrade complete.
-
-        It is strongly recommended to run the s3ql_verify command with the
-        --data option as soon as possible. This is necessary to ensure that the
-        upgrade to the next (2.11) S3QL release will run smoothly.'''))
+    print('File system upgrade complete.')
 
 # This should be used on the *next* fs revision update to ensure that all
 # objects conform to newest standards, so we can drop the legacy routines from
@@ -412,12 +357,8 @@ def upgrade(backend, cachepath):
 def update_obj_metadata(backend, db):
     '''Upgrade metadata of storage objects'''
 
-    # TODO: Don't forget the s3ql_passphrase object and (maybe one) backup!
-
-    if not isinstance(backend, ComprencBackend):
-        # Need to make sure that all plain metadata is using
-        # pickle format
-        raise RuntimeError('not implemented yet')
+    # TODO: Don't forget the s3ql_passphrase object and backups
+    # (we need to be able to load the metadata when renaming them)
 
     plain_backend = backend.backend
     for (obj_id,) in db.query('SELECT id FROM obj_ids'):
