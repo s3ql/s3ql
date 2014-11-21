@@ -8,12 +8,15 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from ..logging import logging # Ensure use of custom logger class
 from .. import BUFSIZE, PICKLE_PROTOCOL
-from .common import AbstractBackend, CorruptedObjectError, safe_unpickle
+from .common import (AbstractBackend, CorruptedObjectError, safe_unpickle,
+                     freeze_basic_mapping, thaw_basic_mapping, ThawError,
+                     checksum_basic_mapping)
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from Crypto.Cipher import AES
 from Crypto.Util import Counter
 from base64 import b64decode, b64encode
+import binascii
 import bz2
 import hashlib
 import hmac
@@ -68,7 +71,7 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def lookup(self, key):
         meta_raw = self.backend.lookup(key)
-        if 'format_version' not in meta_raw:
+        if meta_raw.get('format_version', 0) < 2:
             meta_raw = self._convert_legacy_metadata(meta_raw)
         return self._verify_meta(key, meta_raw)[1]
 
@@ -97,7 +100,7 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             raise CorruptedObjectError('metadata should be dict, not %s' % type(metadata))
 
         format_version = metadata.get('format_version', 0)
-        if not 0 < format_version <= 2:
+        if format_version != 2:
             raise CorruptedObjectError('format_version %s unsupported' % format_version)
 
         for mkey in ('encryption', 'compression', 'data'):
@@ -113,12 +116,11 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         elif not encrypted and self.passphrase is not None:
             raise ObjectNotEncrypted()
 
-        buf = b64decode(metadata['data'])
-
+        meta_buf = metadata['data']
         if not encrypted:
             try:
-                return (None, safe_unpickle(buf, encoding='latin1'))
-            except pickle.UnpicklingError:
+                return (None, thaw_basic_mapping(meta_buf))
+            except ThawError:
                 raise CorruptedObjectError('Invalid metadata')
 
         # Encrypted
@@ -126,21 +128,22 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             if mkey not in metadata:
                 raise CorruptedObjectError('meta key %s is missing' % mkey)
 
-        nonce = b64decode(metadata['nonce'])
+        nonce = metadata['nonce']
+        stored_key = metadata['object_id']
         meta_key = sha256(self.passphrase + nonce + b'meta')
-        meta_sig = compute_metadata_signature(meta_key, metadata)
-        if not hmac.compare_digest(b64decode(metadata['signature']),
-                                   meta_sig):
+        meta_sig = checksum_basic_mapping(metadata, meta_key)
+        if not hmac.compare_digest(metadata['signature'], meta_sig):
             raise CorruptedObjectError('HMAC mismatch')
 
-        stored_key = b64decode(metadata['object_id']).decode('utf-8')
         if stored_key != key:
             raise CorruptedObjectError('Object content does not match its key (%s vs %s)'
                                        % (stored_key, key))
 
-        buf = b64decode(metadata['data'])
-        return (nonce, safe_unpickle(aes_cipher(meta_key).decrypt(buf),
-                                     encoding='latin1'))
+        buf = aes_cipher(meta_key).decrypt(meta_buf)
+        try:
+            return (nonce, thaw_basic_mapping(buf))
+        except ThawError:
+            raise CorruptedObjectError('Invalid metadata')
 
     @prepend_ancestor_docstring
     def open_read(self, key):
@@ -152,10 +155,10 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         fh = self.backend.open_read(key)
         checksum_warning = False
         try:
-            if 'format_version' in fh.metadata:
-                meta_raw = fh.metadata
-            else:
+            if fh.metadata.get('format_version', 0) < 2:
                 meta_raw = self._convert_legacy_metadata(fh.metadata)
+            else:
+                meta_raw = fh.metadata
 
             # Also checks if this is a BetterBucket storage object
             (nonce, meta) = self._verify_meta(key, meta_raw)
@@ -216,8 +219,8 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         elif not isinstance(metadata, dict):
             raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
 
-        meta_buf = pickle.dumps(metadata, PICKLE_PROTOCOL)
-        meta_raw = dict(format_version=1)
+        meta_buf = freeze_basic_mapping(metadata)
+        meta_raw = dict(format_version=2)
 
         if is_compressed or self.compression[0] is None:
             compr = None
@@ -237,14 +240,13 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             meta_key = sha256(self.passphrase + nonce + b'meta')
             data_key = sha256(self.passphrase + nonce)
             meta_raw['encryption'] = 'AES_v2'
-            meta_raw['nonce'] = b64encode(nonce)
-            meta_raw['data'] = b64encode(aes_cipher(meta_key).encrypt(meta_buf))
-            meta_raw['object_id'] = b64encode(key.encode('utf-8'))
-            meta_sig = compute_metadata_signature(meta_key, meta_raw)
-            meta_raw['signature'] = b64encode(meta_sig)
+            meta_raw['nonce'] = nonce
+            meta_raw['data'] = aes_cipher(meta_key).encrypt(meta_buf)
+            meta_raw['object_id'] = key
+            meta_raw['signature'] = checksum_basic_mapping(meta_raw, meta_key)
         else:
             meta_raw['encryption'] = 'None'
-            meta_raw['data'] = b64encode(meta_buf)
+            meta_raw['data'] = meta_buf
 
         fh = self.backend.open_write(key, meta_raw)
 
@@ -254,7 +256,6 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             fh = CompressFilter(fh, compr)
 
         return fh
-
 
     @copy_ancestor_docstring
     def clear(self):
@@ -297,23 +298,24 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
     def _copy_or_rename(self, src, dest, rename, metadata=None):
         meta_raw = self.backend.lookup(src)
-        if 'format_version' not in meta_raw:
+        if meta_raw.get('format_version', 0) < 2:
             meta_raw = self._convert_legacy_metadata(meta_raw)
         (nonce, meta_old) = self._verify_meta(src, meta_raw)
 
         if nonce:
             meta_key = sha256(self.passphrase + nonce + b'meta')
-            if metadata is not None:
-                meta_buf = pickle.dumps(metadata, PICKLE_PROTOCOL)
-                meta_raw['data'] = b64encode(aes_cipher(meta_key).encrypt(meta_buf))
-            meta_raw['object_id'] = b64encode(dest.encode('utf-8'))
-            meta_raw['signature'] = b64encode(compute_metadata_signature(meta_key, meta_raw))
+            if metadata is None:
+                meta_buf = freeze_basic_mapping(meta_old)
+            else:
+                meta_buf = freeze_basic_mapping(metadata)
+            meta_raw['data'] = aes_cipher(meta_key).encrypt(meta_buf)
+            meta_raw['object_id'] = dest
+            meta_raw['signature'] = checksum_basic_mapping(meta_raw, meta_key)
         elif metadata is None:
             # Just copy old metadata
             meta_raw = None
         else:
-            meta_buf = pickle.dumps(metadata, PICKLE_PROTOCOL)
-            meta_raw['data'] = b64encode(meta_buf)
+            meta_raw['data'] = freeze_basic_mapping(metadata)
 
         if src == dest: # metadata update only
             self.backend.update_meta(src, meta_raw)
@@ -326,16 +328,26 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
     def close(self):
         self.backend.close()
 
-    def _convert_legacy_metadata(self, meta,
-                                 LEN_BYTES = struct.calcsize(b'<B'),
-                                 TIME_BYTES = struct.calcsize(b'<f')):
+    def _convert_legacy_metadata(self, meta):
         '''Convert metadata to newest format
 
         This method ensures that we can read objects written
         by older S3QL versions.
         '''
 
-        meta_new = dict(format_version=1)
+        format_version= meta.get('format_version', 0)
+
+        if format_version == 0:
+            return self._convert_legacy_metadata0(meta)
+        elif format_version == 1:
+            return self._convert_legacy_metadata1(meta)
+
+        assert False
+
+    def _convert_legacy_metadata0(self, meta,
+                                 LEN_BYTES = struct.calcsize(b'<B'),
+                                 TIME_BYTES = struct.calcsize(b'<f')):
+        meta_new = dict(format_version=2)
 
         if ('encryption' in meta and
             'compression' in meta):
@@ -409,19 +421,76 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
         obj_id = nonce[TIME_BYTES:].decode('utf-8')
         meta_key = sha256(self.passphrase + nonce + b'meta')
-        meta_new['nonce'] = b64encode(nonce)
+        meta_new['nonce'] = nonce
         meta_new['payload_offset'] = LEN_BYTES + len(nonce)
-        meta_new['data'] = b64encode(aes_cipher(meta_key).encrypt(meta_buf_plain))
-        meta_new['object_id'] = b64encode(obj_id.encode('utf-8'))
-        signature = compute_metadata_signature(meta_key, meta_new)
-        meta_new['signature'] = b64encode(signature)
+        meta_new['data'] = aes_cipher(meta_key).encrypt(meta_buf_plain)
+        meta_new['object_id'] = obj_id
+        meta_new['signature'] = checksum_basic_mapping(meta_new, meta_key)
 
         return meta_new
 
-def compute_metadata_signature(key, metadata):
-    '''Compute HMAC for metadata dictionary'''
+    def _convert_legacy_metadata1(self, metadata):
+        if not isinstance(metadata, dict):
+            raise CorruptedObjectError('metadata should be dict, not %s' % type(metadata))
 
-    hmac_ = hmac.new(key, digestmod=hashlib.sha256)
+        for mkey in ('encryption', 'compression', 'data'):
+            if mkey not in metadata:
+                raise CorruptedObjectError('meta key %s is missing' % mkey)
+
+        encr_alg = metadata['encryption']
+        encrypted = (encr_alg != 'None')
+
+        if encrypted and self.passphrase is None:
+            raise CorruptedObjectError('Encrypted object and no passphrase supplied')
+
+        elif not encrypted and self.passphrase is not None:
+            raise ObjectNotEncrypted()
+
+        try:
+            meta_buf = b64decode(metadata['data'])
+        except binascii.Error:
+            raise CorruptedObjectError('Invalid metadata, b64decode failed')
+
+        if not encrypted:
+            try:
+                meta2 = safe_unpickle(meta_buf, encoding='latin1')
+            except pickle.UnpicklingError as exc:
+                raise CorruptedObjectError('Invalid metadata, pickle says: %s' % exc)
+            metadata['data'] = freeze_basic_mapping(meta2)
+            metadata['format_version'] = 2
+            return metadata
+
+        # Encrypted
+        for mkey in ('nonce', 'signature', 'object_id'):
+            if mkey not in metadata:
+                raise CorruptedObjectError('meta key %s is missing' % mkey)
+
+        nonce = b64decode(metadata['nonce'])
+        meta_key = sha256(self.passphrase + nonce + b'meta')
+        meta_sig = calc_legacy_meta_checksum(metadata, meta_key)
+        if not hmac.compare_digest(metadata['signature'], meta_sig):
+            raise CorruptedObjectError('HMAC mismatch')
+
+        buf = aes_cipher(meta_key).decrypt(meta_buf)
+        try:
+            meta2 = safe_unpickle(buf, encoding='latin1')
+        except pickle.UnpicklingError as exc:
+            raise CorruptedObjectError('Invalid metadata, pickle says: %s' % exc)
+
+        meta_buf = freeze_basic_mapping(meta2)
+        metadata['nonce'] = nonce
+        metadata['object_id'] = b64decode(metadata['object_id']).decode('utf-8')
+        metadata['data'] = aes_cipher(meta_key).encrypt(meta_buf)
+        metadata['format_version'] = 2
+        metadata['signature'] = checksum_basic_mapping(metadata, meta_key)
+
+        return metadata
+
+def calc_legacy_meta_checksum(metadata, key):
+    # This works most of the time, so we still try to validate the
+    # signature. But in general, the pickle output is not unique so this is
+    # not a good way to compute a checksum.
+    chk = hmac.new(key, digestmod=hashlib.sha256)
     for mkey in sorted(metadata.keys()):
         assert isinstance(mkey, str)
         if mkey == 'signature':
@@ -431,8 +500,8 @@ def compute_metadata_signature(key, metadata):
             val = val.encode('utf-8')
         elif not isinstance(val, (bytes, bytearray)):
             val = pickle.dumps(val, PICKLE_PROTOCOL)
-        hmac_.update(mkey.encode('utf-8') + val)
-    return hmac_.digest()
+        chk.update(mkey.encode('utf-8') + val)
+    return b64encode(chk.digest())
 
 class CompressFilter(object):
     '''Compress data while writing'''
