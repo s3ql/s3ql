@@ -435,20 +435,31 @@ def pretty_print_size(i):
     if i < 1024:
         return '%d bytes' % i
 
-    i >>= 10
-    if i < 1024:
-        return '%d KiB' % i
+    if i < 1024**2:
+        unit = 'KiB'
+        i /= 1024
 
-    i >>= 10
-    if i < 1024:
-        return '%d MiB' % i
+    elif i < 1024**3:
+        unit = 'MiB'
+        i /= 1024**2
 
-    i >>= 10
-    if i < 1024:
-        return '%d GiB' % i
+    elif i < 1024**4:
+        unit = 'GiB'
+        i /= 1024**3
 
-    i >>= 10
-    return '%d TB' % i
+    else:
+        unit = 'TB'
+        i /= 1024**4
+
+    if i < 10:
+        form = '%.2f %s'
+    elif i < 100:
+        form = '%.1f %s'
+    else:
+        form = '%d %s'
+
+    return form % (i, unit)
+
 
 class ExceptionStoringThread(threading.Thread):
     def __init__(self):

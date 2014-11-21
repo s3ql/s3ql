@@ -8,6 +8,9 @@ UNRELEASED, S3QL tip
     could have resulted in false-positive checksum mismatches with
     future or different Python interpreters.
 
+  * Sizes (e.g. in the s3qlstat output) are now always reported
+    with three significant digits.
+
 2014-11-09, S3QL 2.12
 
   * The s3c backend has a new 'dumb-copy' option. If this option
