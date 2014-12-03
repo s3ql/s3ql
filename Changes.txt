@@ -12,7 +12,7 @@ UNRELEASED, S3QL tip
     with three significant digits.
 
   * Fixed a bug that caused fsck.s3ql to either abort with a
-    "apsw.ConstraintError" or to incorrectly consider report storage
+    "apsw.ConstraintError" or to incorrectly consider storage
     objects as missing when the connection to remote server is
     interrupted while retrieving the object list.
 
