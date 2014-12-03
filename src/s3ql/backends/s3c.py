@@ -208,7 +208,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         log.debug('list(%s, %s): start', prefix, start_after)
 
         keys_remaining = True
-        marker = start_after
+        marker = self.prefix + start_after
         prefix = self.prefix + prefix
         ns_p = self.xml_ns_prefix
 

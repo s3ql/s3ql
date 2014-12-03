@@ -222,7 +222,7 @@ class S3RequestHandler(BaseHTTPRequestHandler):
                 '<IsTruncated>false</IsTruncated>' ]
 
         count = 0
-        for key in self.server.data:
+        for key in sorted(self.server.data):
             if not key.startswith(prefix):
                 continue
             if marker and key <= marker:

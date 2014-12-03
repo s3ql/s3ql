@@ -11,6 +11,11 @@ UNRELEASED, S3QL tip
   * Sizes (e.g. in the s3qlstat output) are now always reported
     with three significant digits.
 
+  * Fixed a bug that caused fsck.s3ql to either abort with a
+    "apsw.ConstraintError" or to incorrectly consider report storage
+    objects as missing when the connection to remote server is
+    interrupted while retrieving the object list.
+
 2014-11-09, S3QL 2.12
 
   * The s3c backend has a new 'dumb-copy' option. If this option

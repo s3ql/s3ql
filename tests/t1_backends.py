@@ -840,6 +840,35 @@ def test_replay(backend, retry_time):
     assert_raises(CorruptedObjectError, fetch_object, backend, key2, retry_time)
 
 @require_backend_wrapper(MockBackendWrapper)
+def test_list_bug(backend, backend_wrapper, monkeypatch):
+    keys = ([ 'prefixa' + newname() for dummy in range(6) ]
+            + [ 'prefixb' + newname() for dummy in range(6) ])
+    values = [ newvalue() for dummy in range(12) ]
+
+    assert set(backend.list()) == empty_set
+    for i in range(12):
+        backend[keys[i]] = values[i]
+    assert_in_index(backend, keys, 0)
+
+    # Force reconnect during list
+    handler_class = backend_wrapper.server.RequestHandlerClass
+    bak = handler_class.do_list
+    def do_list(self, q, _real=handler_class.do_list):
+        q.params['max_keys'] = [ '3' ]
+        self.close_connection = True
+        return _real(self, q)
+    monkeypatch.setattr(handler_class, 'do_list', do_list)
+
+    monkeypatch.setattr(backend_wrapper, 'may_temp_fail', True)
+    assert set(backend.list()) == set(keys)
+
+    # Do one more request to ensure that the connection is re-established (or
+    # the next test using this backend will fail). This is a very dirty hack,
+    # and really should be fixed properly by disconnecting at the end of a test.
+    backend.lookup(keys[0])
+    
+    
+@require_backend_wrapper(MockBackendWrapper)
 def test_corrupted_get(backend, backend_wrapper, monkeypatch):
     key = 'brafasel'
     value = b'hello there, let us see whats going on'
