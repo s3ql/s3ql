@@ -748,7 +748,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 # This should trigger a MD5 mismatch below
                 meta[k] = None
 
-        # Check MD5
+        # Check MD5. There is a case to be made for treating a mismatch as a
+        # `CorruptedObjectError` rather than a `BadDigestError`, because the MD5
+        # sum is not calculated on-the-fly by the server but stored with the
+        # object, and therefore does not actually verify what the server has
+        # sent over the wire. However, it seems more likely for the data to get
+        # accidentally corrupted in transit than to get accidentally corrupted
+        # on the server (which hopefully checksums its storage devices).
         md5 = b64encode(checksum_basic_mapping(meta)).decode('ascii')
         if md5 != resp.headers.get('%smeta-md5' % self.hdr_prefix, None):
             log.warning('MD5 mismatch in metadata for %s', obj_key)
