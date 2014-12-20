@@ -61,7 +61,7 @@ def parse_url(path):
 
     return p
 
-class S3RequestHandler(BaseHTTPRequestHandler):
+class S3CRequestHandler(BaseHTTPRequestHandler):
     '''A request handler implementing a subset of the AWS S3 Interface
 
     Bucket names are ignored, all keys share the same global
@@ -284,7 +284,7 @@ class S3RequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(content)
 
 
-class GSRequestHandler(S3RequestHandler):
+class GSRequestHandler(S3CRequestHandler):
     '''A request handler implementing a subset of the Google Storage API.
 
     Bucket names are ignored, all keys share the same global namespace.
@@ -297,7 +297,7 @@ class GSRequestHandler(S3RequestHandler):
 
 #: A list of the available mock request handlers with
 #: corresponding storage urls
-handler_list = [ (S3RequestHandler, 's3c://%(host)s:%(port)d/s3ql_test'),
+handler_list = [ (S3CRequestHandler, 's3c://%(host)s:%(port)d/s3ql_test'),
 
                  # Special syntax only for testing against mock server
                  (GSRequestHandler, 'gs://!unittest!%(host)s:%(port)d/s3ql_test') ]
