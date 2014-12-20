@@ -28,8 +28,14 @@ import signal
 def check_test_output(request, capfd):
     request.capfd = capfd
     def raise_on_exception_in_out():
-        # Peek at captured output
-        (stdout, stderr) = capfd.readouterr()
+        # Ensure that capturing has been set up (this may not be the case if one
+        # of the test fixtures raises an exception)
+        try:
+            (stdout, stderr) = capfd.readouterr()
+        except AttributeError:
+            return
+
+        # Write back what we've read (so that it will still be printed.
         sys.stdout.write(stdout)
         sys.stderr.write(stderr)
 
@@ -38,7 +44,6 @@ def check_test_output(request, capfd):
             raise AssertionError('Suspicious output to stderr')
 
     request.addfinalizer(raise_on_exception_in_out)
-
 
 @pytest.fixture(scope="class")
 def s3ql_cmd_argv(request):
