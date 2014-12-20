@@ -24,6 +24,7 @@ import pickle
 import hashlib
 import re
 import shutil
+import itertools
 import stat
 import sys
 import tempfile
@@ -1205,6 +1206,17 @@ def main(args=None):
 
         param['seq_no'] = seq_no
         param['needs_fsck'] = True
+
+    if not db and os.path.exists(cachepath + '-cache'):
+        for i in itertools.count():
+            bak_name = '%s-cache.bak%d' % (cachepath, i)
+            if not os.path.exists(bak_name):
+                break
+        log.warning('Found outdated cache directory (%s), renaming to .bak%d',
+                    cachepath + '-cache', i)
+        log.warning('You should delete this directory once you are sure that '
+                    'everything is in order.')
+        os.rename(cachepath + '-cache', bak_name)
 
     if (not param['needs_fsck']
         and param['max_inode'] < 2 ** 31

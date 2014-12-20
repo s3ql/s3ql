@@ -25,6 +25,12 @@ UNRELEASED, S3QL tip
     s3://foo/bar and s3://foo/bar/ refer to different locations in the
     bucket, and thus correctly use different cache directories).
 
+  * Fixed a problem where mount.s3ql would crash when unmouting the
+    file system because it could not delete the cache directory. This
+    could happen when the file system was not unmounted cleanly, but
+    fsck.s3ql was then run on a different system (or using a different
+    cache directory).
+
 2014-11-09, S3QL 2.12
 
   * The s3c backend has a new 'dumb-copy' option. If this option

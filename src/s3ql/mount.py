@@ -23,6 +23,7 @@ import _thread
 import argparse
 import faulthandler
 import llfuse
+import itertools
 import os
 import platform
 import subprocess
@@ -415,6 +416,17 @@ def get_metadata(backend, cachepath):
                          exitcode=34)
     elif param['max_inode'] > 2 ** 31:
         log.warning('Few free inodes remaining, running fsck is recommended')
+
+    if os.path.exists(cachepath + '-cache'):
+        for i in itertools.count():
+            bak_name = '%s-cache.bak%d' % (cachepath, i)
+            if not os.path.exists(bak_name):
+                break
+        log.warning('Found outdated cache directory (%s), renaming to .bak%d',
+                    cachepath + '-cache', i)
+        log.warning('You should delete this directory once you are sure that '
+                    'everything is in order.')
+        os.rename(cachepath + '-cache', bak_name)
 
     # Download metadata
     if not db:
