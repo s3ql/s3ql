@@ -222,6 +222,18 @@ def storage_url_type(s):
     if s.startswith('local://'):
         return 'local://%s' % os.path.abspath(s[len('local://'):])
 
+    # If there is no prefix specified, then e.g. s3://foo and s3://foo/ point to
+    # the same location (even though s3://foo/bar and s3://foo/bar/ are pointing
+    # to *different* locations). However, the first two storage urls would
+    # nevertheless get different cache directories, which is undesired.
+    # Therefore, we handle these special cases right when parsing the command
+    # line. In retrospect, it would have been better to always add an implicit
+    # slash (even when using a prefix), but we can't do that now because it
+    # would make file systems created without trailing slash inaccessible.
+    if (re.match(r'^(s3|gs)://[^/]+$', s)
+        or re.match(r'^(s3c|swift(ks)?|rackspace)://[^/]+/[^/]+$', s)):
+        s += '/'
+
     return s
 
 def str_or_None_type(s):

@@ -16,6 +16,15 @@ UNRELEASED, S3QL tip
     objects as missing when the connection to remote server is
     interrupted while retrieving the object list.
 
+  * Storage urls without any prefix (e.g. s3://foo, but also
+    s3://foo/) are now using the same local cache
+    directory. Previously they would use different directories,
+    despite pointing to the same file system.
+
+    (Note that this does not affect storage urls with a prefix,
+    s3://foo/bar and s3://foo/bar/ refer to different locations in the
+    bucket, and thus correctly use different cache directories).
+
 2014-11-09, S3QL 2.12
 
   * The s3c backend has a new 'dumb-copy' option. If this option
