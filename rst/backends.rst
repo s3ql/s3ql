@@ -19,12 +19,7 @@ options are documented with the respective backends below.
 
 All storage backends respect the :envvar:`!http_proxy` (for plain HTTP
 connections) and :envvar:`!https_proxy` (for SSL connections)
-environment variables. However, S3QL currently supports only
-CONNECT-style proxying. Therefore, there may be compatibility issues
-with some proxy servers when using plain HTTP (i.e., when using the
-:cmdopt:`no-ssl` backend option). A workaround for this case is to
-either use SSL connections (for which proxying is fully supported) or
-to use a direct connection without proxy.
+environment variables. 
 
 
 Google Storage

@@ -85,8 +85,7 @@ Known Issues
   error when it later turns out that the cache can not be committed to
   the backend.
 
-* S3QL currently supports only CONNECT-style proxying. Therefore,
-  there may be compatibility issues with some proxy servers when using
-  plain HTTP (i.e., when using the :cmdopt:`--no-ssl` option). A
-  workaround for this case is to either use SSL connections (for which
-  proxying is fully supported) or to use a direct connection.
+* When using python-dugong versions 3.3 or earlier, S3QL supports only
+  CONNECT-style proxying, which may cause issues with some proxy
+  servers when using plain HTTP. Upgrading to python-dugong 3.4 or
+  newer removes this limitation.
