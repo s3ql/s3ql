@@ -249,10 +249,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         if body is None or isinstance(body, (bytes, bytearray, memoryview)):
             self.conn.send_request(method, path, body=body, headers=headers)
-        else:
-            body_len = os.fstat(body.fileno()).st_size
-            self.conn.send_request(method, path, expect100=use_expect_100c,
-                                   headers=headers, body=BodyFollowing(body_len))
+            return self.conn.read_response()
+
+        body_len = os.fstat(body.fileno()).st_size
+        self.conn.send_request(method, path, expect100=use_expect_100c,
+                               headers=headers, body=BodyFollowing(body_len))
 
         if use_expect_100c:
             log.debug('waiting for 100-continue')

@@ -359,6 +359,14 @@ def test_read_write(backend):
     assert metadata == metadata2
     assert lookup_object(backend, key) == metadata
 
+@pytest.mark.with_backend('swift/raw')
+def test_issue114(backend, monkeypatch):
+    key = newname()
+    value = newvalue()
+    monkeypatch.setitem(backend.options, 'disable-expect100', True)
+    backend[key] = value
+    assert_in_index(backend, [key])
+
 @pytest.mark.with_backend('*/raw', 'local/{plain,aes,zlib}')
 def test_complex_meta(backend):
     key = newname()

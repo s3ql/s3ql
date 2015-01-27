@@ -1,4 +1,8 @@
 UNRELEASED, S3QL tip
+
+  * Fixed a crash when using the "disable-expect100" swift backend
+    option.
+
   * Fixed a race condition that could lead to a "KeyError" crash
     when refreshing a Google Storage OAuth2 access token.
 
