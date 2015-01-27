@@ -718,7 +718,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 return meta
 
             # format_ == pickle
-            buf = ''.join(meta[x] for x in sorted(meta) if x.startswith('data-'))
+            buf = ''.join(meta[x] for x in sorted(meta) if x.lower().startswith('data-'))
             if 'md5' in meta and md5sum_b64(buf.encode('us-ascii')) != meta['md5']:
                 log.warning('MD5 mismatch in metadata for %s', obj_key)
                 raise BadDigestError('BadDigest', 'Meta MD5 for %s does not match' % obj_key)
