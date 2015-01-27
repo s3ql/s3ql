@@ -224,10 +224,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 raise RuntimeError('unexpected content type: %s' %
                                    resp.headers['Content-Type'])
 
-            itree = iter(ElementTree.iterparse(self.conn, events=("start", "end")))
-            (event, root) = next(itree)
-
             try:
+                itree = iter(ElementTree.iterparse(self.conn, events=("start", "end")))
+                (event, root) = next(itree)
+
                 for (event, el) in itree:
                     if event != 'end':
                         continue
@@ -239,6 +239,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                         marker = el.findtext(ns_p + 'Key')
                         yield marker[len(self.prefix):]
                         root.clear()
+
+            except Exception as exc:
+                if is_temp_network_error(exc):
+                    # We probably can't use the connection anymore
+                    self.conn.disconnect()
+                raise
 
             except GeneratorExit:
                 # Need to read rest of response
@@ -792,6 +798,10 @@ class ObjectR(object):
         if size == 0:
             return b''
 
+        # This may raise an exception, in which case we probably can't
+        # re-use the connection. However, we rely on the caller
+        # to still close the file-like object, so that we can do
+        # cleanup in close().
         buf = self.backend.conn.read(size)
         self.md5.update(buf)
 
