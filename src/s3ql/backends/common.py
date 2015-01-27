@@ -618,15 +618,11 @@ def freeze_basic_mapping(d):
     `checksum_basic_mapping` if you need a deterministic bytestream.
     '''
 
-    # Check that all keys are str so we can sort on them
-    for k in d.keys():
+    els = []
+    for (k,v) in d.items():
         if not isinstance(k, str):
             raise ValueError('key %s must be str, not %s' % (k, type(k)))
 
-    # Sort by key to make output deterministic
-    els = []
-    for k in sorted(d.keys()):
-        v = d[k]
         if (not isinstance(v, (str, bytes, bytearray, int, float, complex, bool))
             and v is not None):
             raise ValueError('value for key %s (%s) is not elementary' % (k, v))
