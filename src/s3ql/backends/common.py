@@ -649,8 +649,10 @@ def freeze_basic_mapping(d):
 def checksum_basic_mapping(metadata, key=None):
     '''Compute checksum for mapping of elementary types
 
-    Keys of *d* must be strings. Values of *d* must be of elementary type (i.e.,
-    `str`, `bytes`, `int`, `float`, `complex`, `bool` or None).
+    Keys of *d* must be strings. Values of *d* must be of elementary
+    type (i.e., `str`, `bytes`, `int`, `float`, `complex`, `bool` or
+    None). If there is a key named ``signature``, then it is excluded
+    from the checksum computation.
 
     If *key* is None, compute MD5. Otherwise compute HMAC using *key*.
     '''
