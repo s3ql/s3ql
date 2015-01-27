@@ -174,9 +174,14 @@ class Backend(s3c.Backend):
     def _do_request(self, method, path, subres=None, query_string=None,
                     headers=None, body=None):
 
-        # When using OAuth2 and we have an access token, try to use
-        # it (and invalidate if expired)
-        if self.use_oauth2 and self.password in self.access_token:
+        # When not using OAuth2, fall-through.
+        if not self.use_oauth2:
+            return super()._do_request(method, path, subres=subres, headers=headers,
+                                       query_string=query_string, body=body)
+
+        # If we have an access token, try to use it.
+        token = self.access_token.get(self.password, None)
+        if token is not None:
             try:
                 return super()._do_request(method, path, subres=subres, headers=headers,
                                            query_string=query_string, body=body)
@@ -187,24 +192,23 @@ class Backend(s3c.Backend):
                 if exc.code != 'AuthenticationRequired':
                     raise
 
-            if body and not isinstance(body, (bytes, bytearray, memoryview)):
-                body.seek(0)
+        # If we reach this point, then the access token must have
+        # expired, so we try to get a new one. We use a lock to prevent
+        # multiple threads from refreshing the token simultaneously.
+        with self._refresh_lock:
+            # Don't refresh if another thread has already done so while
+            # we waited for the lock.
+            if token is None or self.access_token.get(self.password, None) == token:
+                self._get_access_token()
 
-            try:
-                del self.access_token[self.password]
-            except KeyError: # Mind multithreading..
-                pass
+        # Reset body, so we can resend the request with the new access token
+        if body and not isinstance(body, (bytes, bytearray, memoryview)):
+            body.seek(0)
 
-        # If we use OAuth2 and don't have an access token, retrieve
-        # one
-        if self.use_oauth2 and self.password not in self.access_token:
-            # Grab lock to prevent multiple threads from refreshing the token
-            with self._refresh_lock:
-                if self.password not in self.access_token:
-                    self._get_access_token()
-
-        # Try request. If we are using OAuth2 and this fails, propagate
-        # the error (because we have just refreshed the access token)
+        # Try request again. If this still fails, propagate the error
+        # (because we have just refreshed the access token).
+        # FIXME: We can't rely on this if e.g. the system hibernated
+        # after refreshing the token, but before reaching this line.
         return super()._do_request(method, path, subres=subres, headers=headers,
                                    query_string=query_string, body=body)
 

@@ -1,4 +1,6 @@
 UNRELEASED, S3QL tip
+  * Fixed a race condition that could lead to a "KeyError" crash
+    when refreshing a Google Storage OAuth2 access token.
 
   * Fixed a race condition that could lead to a hanging mount.s3ql
     process and hanging test_thread_hang() unit test.
