@@ -14,7 +14,7 @@ import os
 import sys
 import tempfile
 import time
-from queue import Queue
+from queue import Queue, Full as QueueFull
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
@@ -122,13 +122,10 @@ def main(args=None):
         t.start()
         threads.append(t)
 
-    if sys.stdout.isatty():
-        stamp1 = time.time()
-    else:
-        stamp1 = None
+    stamp1 = 0
     for (i, key) in enumerate(src_backends[-1]):
         stamp2 = time.time()
-        if stamp1 is not None and stamp2 - stamp1 > 1:
+        if stamp2 - stamp1 > 1:
             stamp1 = stamp2
             sys.stdout.write('\rCopied %d objects so far...' % i)
             sys.stdout.flush()
@@ -137,7 +134,19 @@ def main(args=None):
             for t in threads:
                 if not t.is_alive():
                     t.join_and_raise()
-        queue.put(key)
+
+        # Avoid blocking if all threads terminated
+        while True:
+            try:
+                queue.put(key, timeout=1)
+            except QueueFull:
+                pass
+            else:
+                break
+            for t in threads:
+                if not t.is_alive():
+                    t.join_and_raise()
+    sys.stdout.write('\n')
 
     queue.maxsize += len(threads)
     for t in threads:
@@ -146,8 +155,6 @@ def main(args=None):
     for t in threads:
         t.join_and_raise()
 
-    if sys.stdout.isatty():
-        sys.stdout.write('\n')
 
 if __name__ == '__main__':
     main(sys.argv[1:])

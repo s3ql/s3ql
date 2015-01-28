@@ -14,7 +14,7 @@ from .common import (get_backend_factory, get_backend_cachedir, pretty_print_siz
 from .backends.pool import BackendPool
 from .backends.common import NoSuchObject, CorruptedObjectError
 from .parse_args import ArgumentParser
-from queue import Queue
+from queue import Queue, Full as QueueFull
 import os
 import argparse
 import time
@@ -135,17 +135,14 @@ def retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
     total_size = db.get_val('SELECT SUM(size) FROM objects')
     total_count = db.get_val('SELECT COUNT(id) FROM objects')
     size_acc = 0
-    if sys.stdout.isatty():
-        stamp1 = time.time()
-    else:
-        stamp1 = None
 
     sql = 'SELECT id, size FROM objects ORDER BY id'
     i = 0 # Make sure this is set if there are zero objects
+    stamp1 = 0
     try:
         for (i, (obj_id, size)) in enumerate(db.query(sql)):
             stamp2 = time.time()
-            if stamp1 is not None and stamp2 - stamp1 > 1:
+            if stamp2 - stamp1 > 1:
                 stamp1 = stamp2
                 progress = '%d objects (%.2f%%)' % (i, i/total_count * 100)
                 if full:
@@ -162,10 +159,21 @@ def retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
             size_acc += size
             if i < offset:
                 continue
-            queue.put(obj_id)
+
+            # Avoid blocking if all threads terminated
+            while True:
+                try:
+                    queue.put(obj_id, timeout=1)
+                except QueueFull:
+                    pass
+                else:
+                    break
+                for t in threads:
+                    if not t.is_alive():
+                        t.join_and_raise()
+
     finally:
-        if sys.stdout.isatty():
-            sys.stdout.write('\n')
+        sys.stdout.write('\n')
 
     queue.maxsize += len(threads)
     for t in threads:
