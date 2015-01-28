@@ -335,19 +335,16 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         by older S3QL versions.
         '''
 
-        format_version= meta.get('format_version', 0)
-
+        format_version = meta.get('format_version', 0)
+        assert format_version in (0,1)
         if format_version == 0:
-            return self._convert_legacy_metadata0(meta)
-        elif format_version == 1:
-            return self._convert_legacy_metadata1(meta)
-
-        assert False
+            meta = self._convert_legacy_metadata0(meta)
+        return self._convert_legacy_metadata1(meta)
 
     def _convert_legacy_metadata0(self, meta,
                                  LEN_BYTES = struct.calcsize(b'<B'),
                                  TIME_BYTES = struct.calcsize(b'<f')):
-        meta_new = dict(format_version=2)
+        meta_new = dict(format_version=1)
 
         if ('encryption' in meta and
             'compression' in meta):
@@ -421,11 +418,11 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
         obj_id = nonce[TIME_BYTES:].decode('utf-8')
         meta_key = sha256(self.passphrase + nonce + b'meta')
-        meta_new['nonce'] = nonce
+        meta_new['nonce'] = b64encode(nonce)
         meta_new['payload_offset'] = LEN_BYTES + len(nonce)
-        meta_new['data'] = aes_cipher(meta_key).encrypt(meta_buf_plain)
-        meta_new['object_id'] = obj_id
-        meta_new['signature'] = checksum_basic_mapping(meta_new, meta_key)
+        meta_new['data'] = b64encode(aes_cipher(meta_key).encrypt(meta_buf_plain))
+        meta_new['object_id'] = b64encode(obj_id.encode('utf-8'))
+        meta_new['signature'] = calc_legacy_meta_checksum(meta_new, meta_key)
 
         return meta_new
 
@@ -456,6 +453,8 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
                 meta2 = safe_unpickle(meta_buf, encoding='latin1')
             except pickle.UnpicklingError as exc:
                 raise CorruptedObjectError('Invalid metadata, pickle says: %s' % exc)
+            if meta2 is None:
+                meta2 = dict()
             metadata['data'] = freeze_basic_mapping(meta2)
             metadata['format_version'] = 2
             return metadata
@@ -476,6 +475,8 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             meta2 = safe_unpickle(buf, encoding='latin1')
         except pickle.UnpicklingError as exc:
             raise CorruptedObjectError('Invalid metadata, pickle says: %s' % exc)
+        if meta2 is None:
+            meta2 = dict()
 
         meta_buf = freeze_basic_mapping(meta2)
         metadata['nonce'] = nonce
