@@ -168,10 +168,6 @@ def main(args=None):
     param['last_fsck'] = time.time()
     param['last-modified'] = time.time()
 
-    # This indicates that the convert_legacy_metadata() stuff
-    # in ComprencBackend is not required for this file system.
-    param['backend_revision'] = 1
-
     log.info('Dumping metadata...')
     with tempfile.TemporaryFile() as fh:
         dump_metadata(db, fh)
