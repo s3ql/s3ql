@@ -126,7 +126,7 @@ def main(args=None):
 
         # Generate data encryption passphrase
         log.info('Generating random encryption key...')
-        fh = open('/dev/urandom', "rb", 0) # No buffering
+        fh = open('/dev/random', "rb", 0) # No buffering
         data_pw = fh.read(32)
         fh.close()
 
