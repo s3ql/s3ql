@@ -24,7 +24,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
 from s3ql.logging import logging, setup_logging, QuietError
-from s3ql.common import get_backend, AsyncFn
+from s3ql.common import get_backend_factory, AsyncFn
 from s3ql.backends.common import DanglingStorageURLError
 from s3ql import BUFSIZE
 from s3ql.parse_args import ArgumentParser, storage_url_type
@@ -98,19 +98,17 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    src_backends = []
-    dst_backends = []
-
     try:
         options.storage_url = options.src_storage_url
-        for _ in range(options.threads+1):
-            src_backends.append(get_backend(options, plain=True))
+        src_backend_factory = get_backend_factory(options, plain=True)
 
         options.storage_url = options.dst_storage_url
-        for _ in range(options.threads):
-            dst_backends.append(get_backend(options, plain=True))
+        dst_backend_factory = get_backend_factory(options, plain=True)
     except DanglingStorageURLError as exc:
         raise QuietError(str(exc)) from None
+
+    src_backends = [ src_backend_factory() for _ in range(options.threads) ]
+    dst_backends = [ dst_backend_factory() for _ in range(options.threads) ]
 
     queue = Queue(maxsize=options.threads)
     threads = []
