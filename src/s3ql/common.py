@@ -27,6 +27,8 @@ import errno
 import hashlib
 import llfuse
 import posixpath
+import functools
+import contextlib
 
 log = logging.getLogger(__name__)
 
@@ -536,3 +538,13 @@ def split_by_n(seq, n):
     while seq:
         yield seq[:n]
         seq = seq[n:]
+        
+def handle_on_return(fn):
+    '''Provide fresh ExitStack instance in `on_return` argument'''
+    @functools.wraps(fn)
+    def wrapper(*a, **kw):
+        assert 'on_return' not in kw
+        with contextlib.ExitStack() as on_return:
+            kw['on_return'] = on_return
+            return fn(*a, **kw)
+    return wrapper
