@@ -204,6 +204,13 @@ class AbstractBackend(object, metaclass=ABCMeta):
     def  __contains__(self, key):
         return self.contains(key)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        self.close()
+        return False
+
     def iteritems(self):
         for key in self.list():
             yield (key, self[key])
