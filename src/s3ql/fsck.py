@@ -890,13 +890,18 @@ class Fsck(object):
                                    "WHERE name=? AND parent_inode=?", (b"lost+found", ROOT_INODE))
 
         # We use this table to keep track of the objects that we have seen
+        if sys.stdout.isatty():
+            stamp1 = 0
+        else:
+            stamp1 = float('inf')
         self.conn.execute("CREATE TEMP TABLE obj_ids (id INTEGER PRIMARY KEY)")
         try:
             for (i, obj_name) in enumerate(self.backend.list('s3ql_data_')):
-
-                if i % 500 == 0 and sys.stdout.isatty():
+                stamp2 = time.time()
+                if stamp2 - stamp1 > 1:
                     sys.stdout.write('\r..processed %d objects so far..' % i)
                     sys.stdout.flush()
+                    stamp1 = stamp2
 
                 # We only bother with data objects
                 try:
