@@ -13,7 +13,7 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 from s3ql.backends.common import (freeze_basic_mapping, thaw_basic_mapping,
-                                  ThawError)
+                                  ThawError, checksum_basic_mapping)
 import pytest
 from collections import OrderedDict
 
@@ -39,7 +39,16 @@ def test_cmplx_value():
     with pytest.raises(ValueError):
         freeze_basic_mapping(d)
 
-def test_order():
+def test_thaw_errors():
+    buf = freeze_basic_mapping({ 'hello': 'world' })
+
+    for s in (buf[1:], buf[:-1],
+              b'"foo"[2]', b'open("/dev/null", "r")',
+              b'"foo".__class__'):
+        with pytest.raises(ThawError):
+            thaw_basic_mapping(s)
+
+def test_checksum():
     d1 = OrderedDict()
     d2 = OrderedDict()
 
@@ -50,14 +59,8 @@ def test_order():
     d2['foo'] = 1
 
     assert list(d1.keys()) != list(d2.keys())
-    assert freeze_basic_mapping(d1) == freeze_basic_mapping(d2)
+    assert checksum_basic_mapping(d1) == checksum_basic_mapping(d2)
 
-def test_thaw_errors():
-    buf = freeze_basic_mapping({ 'hello': 'world' })
-
-    for s in (buf[1:], buf[:-1],
-              b'"foo"[2]', b'open("/dev/null", "r")',
-              b'"foo".__class__'):
-        with pytest.raises(ThawError):
-            thaw_basic_mapping(s)
-
+    d2['foo'] += 1
+    
+    assert checksum_basic_mapping(d1) != checksum_basic_mapping(d2)

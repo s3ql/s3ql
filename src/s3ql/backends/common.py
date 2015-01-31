@@ -13,6 +13,9 @@ import time
 import codecs
 import io
 import textwrap
+import hashlib
+import struct
+import hmac
 import inspect
 from base64 import b64decode, b64encode
 import binascii
@@ -610,8 +613,9 @@ def freeze_basic_mapping(d):
     Keys of *d* must be strings. Values of *d* must be of elementary type (i.e.,
     `str`, `bytes`, `int`, `float`, `complex`, `bool` or None).
 
-    The output is a deterministic bytestream that can be used to calculate
-    checksums or reconstruct the mapping.
+    The output is a bytestream that can be used to reconstruct the mapping. The
+    bytestream is not guaranteed to be deterministic. Look at
+    `checksum_basic_mapping` if you need a deterministic bytestream.
     '''
 
     # Check that all keys are str so we can sort on them
@@ -641,6 +645,51 @@ def freeze_basic_mapping(d):
 
     buf = '{ %s }' % ', '.join(els)
     return buf.encode('utf-8')
+
+def checksum_basic_mapping(metadata, key=None):
+    '''Compute checksum for mapping of elementary types
+
+    Keys of *d* must be strings. Values of *d* must be of elementary type (i.e.,
+    `str`, `bytes`, `int`, `float`, `complex`, `bool` or None).
+    
+    If *key* is None, compute MD5. Otherwise compute HMAC using *key*.
+    '''
+
+    # In order to compute a safe checksum, we need to convert each object to a
+    # unique representation (i.e, we can't use repr(), as it's output may change
+    # in the future). Furthermore, we have to make sure that the representation
+    # is theoretically reversible, or there is a potential for collision
+    # attacks.
+
+    if key is None:
+        chk = hashlib.md5()
+    else:
+        chk = hmac.new(key, digestmod=hashlib.sha256)
+
+    for mkey in sorted(metadata.keys()):
+        assert isinstance(mkey, str)
+        if mkey == 'signature':
+            continue
+        chk.update(mkey.encode('utf-8'))
+        val = metadata[mkey]
+        if isinstance(val, str):
+            val = b'\0s' + val.encode('utf-8') + b'\0'
+        elif val is None:
+            val = b'\0n'
+        elif isinstance(val, int):
+            val = b'\0i' + ('%d' % val).encode() + b'\0'
+        elif isinstance(val, bool):
+            val = b'\0t' if val else b'\0f'
+        elif isinstance(val, float):
+            val = b'\0d' + struct.pack('<d', val)
+        elif isinstance(val, (bytes, bytearray)):
+            assert len(val).bit_length() <= 32
+            val = b'\0b' + struct.pack('<I', len(val))
+        else:
+            raise ValueError("Don't know how to checksum %s instances" % type(val))
+        chk.update(val)
+
+    return chk.digest()
 
 
 SAFE_UNPICKLE_OPCODES = {'BININT', 'BININT1', 'BININT2', 'LONG1', 'LONG4',
