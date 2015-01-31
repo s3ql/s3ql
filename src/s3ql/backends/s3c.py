@@ -83,6 +83,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def has_native_rename(self):
         return False
 
+    # NOTE: ! This function is also used by the swift backend !
     @copy_ancestor_docstring
     def reset(self):
         if self.conn.response_pending() or self.conn._out_remaining:
@@ -151,6 +152,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return False
 
+    # NOTE: ! This function is also used by the swift backend. !
     def _dump_response(self, resp, body=None):
         '''Return string representation of server response
 
@@ -174,6 +176,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                                     '\n'.join('%s: %s' % x for x in resp.headers.items()),
                                     body.decode('utf-8', errors='backslashreplace'))
 
+    # NOTE: ! This function is also used by the swift backend. !
     def _assert_empty_response(self, resp):
         '''Assert that current response body is empty'''
 
@@ -563,6 +566,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return tree
 
+    # NOTE: ! This function is also used by the swift backend. !
     @prepend_ancestor_docstring
     def clear(self):
         """

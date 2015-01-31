@@ -41,6 +41,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     _add_meta_headers = s3c.Backend._add_meta_headers
     _extractmeta = s3c.Backend._extractmeta
+    _assert_empty_response = s3c.Backend._assert_empty_response
+    _dump_response = s3c.Backend._dump_response
+    clear = s3c.Backend.clear
+    reset = s3c.Backend.reset
 
     def __init__(self, storage_url, login, password, options):
         super().__init__()
@@ -283,40 +287,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return self.conn.read_response()
 
-    def _assert_empty_response(self, resp):
-        '''Assert that current response body is empty'''
-
-        buf = self.conn.read(2048)
-        if not buf:
-            return # expected
-
-        # Log the problem
-        self.conn.discard()
-        log.error('Unexpected server response. Expected nothing, got:\n'
-                  '%d %s\n%s\n\n%s', resp.status, resp.reason,
-                  '\n'.join('%s: %s' % x for x in resp.headers.items()),
-                  buf)
-        raise RuntimeError('Unexpected server response')
-
-
-    def _dump_response(self, resp, body=None):
-        '''Return string representation of server response
-
-        Only the beginning of the response body is read, so this is
-        mostly useful for debugging.
-        '''
-
-        if body is None:
-            body = self.conn.read(2048)
-            if body:
-                self.conn.discard()
-        else:
-            body = body[:2048]
-
-        return '%d %s\n%s\n\n%s' % (resp.status, resp.reason,
-                                    '\n'.join('%s: %s' % x for x in resp.headers.items()),
-                                    body.decode('utf-8', errors='backslashreplace'))
-
     @retry
     @copy_ancestor_docstring
     def lookup(self, key):
@@ -398,20 +368,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self._add_meta_headers(headers, metadata)
 
         return ObjectW(key, self, headers)
-
-    @copy_ancestor_docstring
-    def clear(self):
-
-        # We have to cache keys, because otherwise we can't use the
-        # http connection to delete keys.
-        for (no, s3key) in enumerate(list(self)):
-            if no != 0 and no % 1000 == 0:
-                log.info('clear(): deleted %d objects so far..', no)
-
-            log.debug('clear(): deleting key %s', s3key)
-
-            # Ignore missing objects when clearing backend
-            self.delete(s3key, True)
 
     @retry
     @copy_ancestor_docstring
@@ -532,12 +488,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def close(self):
         self.conn.disconnect()
-
-    @copy_ancestor_docstring
-    def reset(self):
-        if self.conn.response_pending() or self.conn._out_remaining:
-            log.debug('Resetting state of http connection %d', id(self.conn))
-            self.conn.disconnect()
 
 class AuthenticationExpired(Exception):
     '''Raised if the provided Authentication Token has expired'''
