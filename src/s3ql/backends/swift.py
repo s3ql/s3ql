@@ -384,7 +384,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             elif exc.status != 404:
                 raise
 
+    # Temporary hack. I promise to make this nicer by the next
+    # release :-).
     @retry
+    def _copy_helper(self, method, path, headers):
+        self._do_request(method, path, headers=headers)
+        self.conn.discard()
+
     @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None):
         log.debug('copy(%s, %s): start', src, dest)
@@ -404,8 +410,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             headers['X-Delete-After'] = '600'
 
         try:
-            self._do_request('PUT', '/%s%s' % (self.prefix, dest), headers=headers)
-            self.conn.discard()
+            self._copy_helper('PUT', '/%s%s' % (self.prefix, dest), headers)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(src)
@@ -417,14 +422,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # Update metadata
         headers = CaseInsensitiveDict()
         self._add_meta_headers(headers, metadata)
-        self._do_request('POST', '/%s%s' % (self.prefix, dest), headers=headers)
-        self.conn.discard()
+        self._copy_helper('POST', '/%s%s' % (self.prefix, dest), headers)
 
         # Rename object
         headers = CaseInsensitiveDict()
         headers['X-Copy-From'] = '/%s/%s%s' % (self.container_name, self.prefix, dest)
-        self._do_request('PUT', '/%s%s' % (self.prefix, final_dest), headers=headers)
-        self.conn.discard()
+        self._copy_helper('PUT', '/%s%s' % (self.prefix, final_dest), headers)
 
     @retry
     @copy_ancestor_docstring
