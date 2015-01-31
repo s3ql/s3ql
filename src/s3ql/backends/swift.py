@@ -470,6 +470,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self._do_request('PUT', '/%s%s' % (self.prefix, final_dest), headers=headers)
         self.conn.discard()
 
+    @retry
     @copy_ancestor_docstring
     def update_meta(self, key, metadata):
         log.debug('start for %s', key)
