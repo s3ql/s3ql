@@ -199,7 +199,10 @@ The OpenStack backend accepts the following backend options:
 
 .. option:: no-ssl
 
-   Disable encrypted (https) connections and use plain HTTP instead.
+   Use plain HTTP to connect to the authentication server. This option
+   does not directly affect the connection to the storage
+   server. Whether HTTPS or plain HTTP is used to connect to the
+   storage server is determined by the authentication server.
 
 .. option:: ssl-ca-path=<path>
 

@@ -59,10 +59,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.password = password
         self.login = login
 
-        if 'no-ssl' in options:
-            self.ssl_context = None
-        else:
-            self.ssl_context = get_ssl_context(options.get('ssl-ca-path', None))
+        # We may need the context even if no-ssl has been specified,
+        # because no-ssl applies only to the authentication URL.
+        self.ssl_context = get_ssl_context(options.get('ssl-ca-path', None))
 
         self._parse_storage_url(storage_url, self.ssl_context)
         self.proxy = get_proxy(self.ssl_context is not None)
@@ -141,45 +140,54 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         log.debug('_get_conn(): start')
 
-        conn = HTTPConnection(self.hostname, self.port, proxy=self.proxy,
-                              ssl_context=self.ssl_context)
-        conn.timeout = int(self.options.get('tcp-timeout', 10))
+        if 'no-ssl' in self.options:
+            ssl_context = None
+        else:
+            ssl_context = self.ssl_context
 
         headers = CaseInsensitiveDict()
         headers['X-Auth-User'] = self.login
         headers['X-Auth-Key'] = self.password
 
-        for auth_path in ('/v1.0', '/auth/v1.0'):
-            log.debug('_get_conn(): GET %s', auth_path)
-            conn.send_request('GET', auth_path, headers=headers)
-            resp = conn.read_response()
-
-            if resp.status in (404, 412):
-                log.debug('_refresh_auth(): auth to %s failed, trying next path', auth_path)
-                conn.discard()
-                continue
-
-            elif resp.status == 401:
-                conn.disconnect()
-                raise AuthorizationError(resp.reason)
-
-            elif resp.status > 299 or resp.status < 200:
-                conn.disconnect()
-                raise HTTPError(resp.status, resp.reason, resp.headers)
-
-            # Pylint can't infer SplitResult Types
-            #pylint: disable=E1103
-            self.auth_token = resp.headers['X-Auth-Token']
-            o = urlsplit(resp.headers['X-Storage-Url'])
-            self.auth_prefix = urllib.parse.unquote(o.path)
-            conn.disconnect()
-
-            conn =  HTTPConnection(o.hostname, o.port, proxy=self.proxy,
-                                  ssl_context=self.ssl_context)
+        with HTTPConnection(self.hostname, self.port, proxy=self.proxy,
+                              ssl_context=ssl_context) as conn:
             conn.timeout = int(self.options.get('tcp-timeout', 10))
-            return conn
 
-        raise RuntimeError('No valid authentication path found')
+            for auth_path in ('/v1.0', '/auth/v1.0'):
+                log.debug('GET %s', auth_path)
+                conn.send_request('GET', auth_path, headers=headers)
+                resp = conn.read_response()
+
+                if resp.status in (404, 412):
+                    log.debug('auth to %s failed, trying next path', auth_path)
+                    conn.discard()
+                    continue
+
+                elif resp.status == 401:
+                    raise AuthorizationError(resp.reason)
+
+                elif resp.status > 299 or resp.status < 200:
+                    raise HTTPError(resp.status, resp.reason, resp.headers)
+
+                # Pylint can't infer SplitResult Types
+                #pylint: disable=E1103
+                self.auth_token = resp.headers['X-Auth-Token']
+                o = urlsplit(resp.headers['X-Storage-Url'])
+                self.auth_prefix = urllib.parse.unquote(o.path)
+                if o.scheme == 'https':
+                    ssl_context = self.ssl_context
+                elif o.scheme == 'http':
+                    ssl_context = None
+                else:
+                    # fall through to scheme used for authentication
+                    pass
+
+                conn =  HTTPConnection(o.hostname, o.port, proxy=self.proxy,
+                                       ssl_context=ssl_context)
+                conn.timeout = int(self.options.get('tcp-timeout', 10))
+                return conn
+
+            raise RuntimeError('No valid authentication path found')
 
     def _do_request(self, method, path, subres=None, query_string=None,
                     headers=None, body=None):

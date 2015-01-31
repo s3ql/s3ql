@@ -61,9 +61,10 @@ class Backend(swift.Backend):
 
         log.debug('_get_conn(): start')
 
-        conn = HTTPConnection(self.hostname, port=self.port, proxy=self.proxy,
-                              ssl_context=self.ssl_context)
-        conn.timeout = int(self.options.get('tcp-timeout', 10))
+        if 'no-ssl' in self.options:
+            ssl_context = None
+        else:
+            ssl_context = self.ssl_context
 
         headers = CaseInsensitiveDict()
         headers['Content-Type'] = 'application/json'
@@ -82,20 +83,22 @@ class Backend(swift.Backend):
         if tenant:
             auth_body['auth']['tenantName'] = tenant
 
-        conn.send_request('POST', '/v2.0/tokens', body=json.dumps(auth_body).encode('utf-8'),
-                          headers=headers)
-        resp = conn.read_response()
+        with HTTPConnection(self.hostname, port=self.port, proxy=self.proxy,
+                            ssl_context=ssl_context) as conn:
+            conn.timeout = int(self.options.get('tcp-timeout', 10))
 
-        if resp.status == 401:
-            self.conn.discard()
-            raise AuthorizationError(resp.reason)
+            conn.send_request('POST', '/v2.0/tokens', headers=headers,
+                              body=json.dumps(auth_body).encode('utf-8'))
+            resp = conn.read_response()
 
-        elif resp.status > 299 or resp.status < 200:
-            self.conn.discard()
-            raise HTTPError(resp.status, resp.reason, resp.headers)
+            if resp.status == 401:
+                raise AuthorizationError(resp.reason)
 
-        cat = json.loads(conn.read().decode('utf-8'))
-        self.auth_token = cat['access']['token']['id']
+            elif resp.status > 299 or resp.status < 200:
+                raise HTTPError(resp.status, resp.reason, resp.headers)
+
+            cat = json.loads(conn.read().decode('utf-8'))
+            self.auth_token = cat['access']['token']['id']
 
         avail_regions = []
         for service in cat['access']['serviceCatalog']:
@@ -109,10 +112,16 @@ class Backend(swift.Backend):
 
                 o = urlsplit(endpoint['publicURL'])
                 self.auth_prefix = urllib.parse.unquote(o.path)
-                conn.disconnect()
+                if o.scheme == 'https':
+                    ssl_context = self.ssl_context
+                elif o.scheme == 'http':
+                    ssl_context = None
+                else:
+                    # fall through to scheme used for authentication
+                    pass
 
                 conn = HTTPConnection(o.hostname, o.port,  proxy=self.proxy,
-                                      ssl_context=self.ssl_context)
+                                      ssl_context=ssl_context)
                 conn.timeout = int(self.options.get('tcp-timeout', 10))
                 return conn
 

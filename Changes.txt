@@ -28,6 +28,11 @@ UNRELEASED, S3QL tip
     reading /dev/random rather than /dev/urandom to ensure sufficient
     entropy.
 
+  * The 'no-ssl' option for the swift backend is now used only when
+    connecting to the authentication server. Whether SSL is used when
+    connecting to the storage server is determined by the
+    authentication server.
+
   * Fixed a crash when using the "disable-expect100" swift backend
     option.
 
