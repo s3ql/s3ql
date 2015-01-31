@@ -195,7 +195,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @retry
     @copy_ancestor_docstring
     def delete(self, key, force=False):
-        log.debug('delete(%s)', key)
+        log.debug('started with %s', key)
         try:
             resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
             self._assert_empty_response(resp)
@@ -208,7 +208,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @retry_generator
     @copy_ancestor_docstring
     def list(self, prefix='', start_after=''):
-        log.debug('list(%s, %s): start', prefix, start_after)
+        log.debug('started with %s, %s', prefix, start_after)
 
         keys_remaining = True
         marker = self.prefix + start_after
@@ -216,7 +216,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         ns_p = self.xml_ns_prefix
 
         while keys_remaining:
-            log.debug('list(%s): requesting with marker=%s', prefix, marker)
+            log.debug('requesting with marker=%s', marker)
 
             keys_remaining = None
             resp = self._do_request('GET', '/', query_string={ 'prefix': prefix,
@@ -260,7 +260,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @retry
     @copy_ancestor_docstring
     def lookup(self, key):
-        log.debug('lookup(%s)', key)
+        log.debug('started with %s', key)
 
         try:
             resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
@@ -276,7 +276,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @retry
     @copy_ancestor_docstring
     def get_size(self, key):
-        log.debug('get_size(%s)', key)
+        log.debug('started with %s', key)
 
         try:
             resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
@@ -321,7 +321,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         when its `close` method is called.
         """
 
-        log.debug('open_write(%s): start', key)
+        log.debug('started with %s', key)
 
         headers = CaseInsensitiveDict()
         if extra_headers is not None:
@@ -375,7 +375,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @retry
     @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None, extra_headers=None):
-        log.debug('copy(%s, %s): start', src, dest)
+        log.debug('started with %s, %s', src, dest)
 
         headers = CaseInsensitiveDict()
         if extra_headers is not None:
@@ -420,7 +420,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     headers=None, body=None):
         '''Send request, read and return response object'''
 
-        log.debug('preparing %s %s?%s, qs=%s', method, path, subres, query_string)
+        log.debug('started with %s %s?%s, qs=%s', method, path, subres, query_string)
 
         if headers is None:
             headers = CaseInsensitiveDict()
@@ -580,7 +580,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if no != 0 and no % 1000 == 0:
                 log.info('clear(): deleted %d objects so far..', no)
 
-            log.debug('clear(): deleting key %s', s3key)
+            log.debug('started with %s', s3key)
 
             # Ignore missing objects when clearing bucket
             self.delete(s3key, True)
@@ -661,7 +661,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         use_expect_100c = not self.options.get('disable-expect100', False)
         try:
-            log.debug('_send_request(): %s %s', method, path)
+            log.debug('sending %s %s', method, path)
             if body is None or isinstance(body, (bytes, bytearray, memoryview)):
                 self.conn.send_request(method, path, body=body, headers=headers)
             else:
@@ -893,7 +893,7 @@ class ObjectW(object):
         # Access to protected member ok
         #pylint: disable=W0212
 
-        log.debug('ObjectW(%s).close(): start', self.key)
+        log.debug('started with %s', self.key)
 
         if self.closed:
             # still call fh.close, may have generated an error before

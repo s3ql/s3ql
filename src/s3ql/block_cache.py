@@ -424,8 +424,8 @@ class BlockCache(object):
                                                      % obj_id).get_obj_size()
                     time_ = time.time() - time_
                     rate = el.size / (1024 ** 2 * time_) if time_ != 0 else 0
-                    log.debug('_do_upload(%s): uploaded %d bytes in %.3f seconds, %.2f MiB/s',
-                              obj_id, el.size, time_, rate)
+                    log.debug('uploaded %d bytes in %.3f seconds, %.2f MiB/s',
+                              el.size, time_, rate)
                 else:
                     obj_size = backend.perform_write(do_write, 's3ql_data_%d'
                                                      % obj_id).get_obj_size()
@@ -493,7 +493,7 @@ class BlockCache(object):
         This method releases the global lock.
         '''
 
-        log.debug('upload(%s): start', el)
+        log.debug('started with %s', el)
 
         # Calculate checksum
         with lock_released:
@@ -501,7 +501,7 @@ class BlockCache(object):
                 self._lock_entry(el.inode, el.blockno)
                 assert el not in self.in_transit
                 if not el.dirty:
-                    log.debug('upload(%s): not dirty, returning', el)
+                    log.debug('not dirty, returning')
                     self._unlock_entry(el.inode, el.blockno)
                     return
                 if (el.inode, el.blockno) not in self.cache:
@@ -537,11 +537,11 @@ class BlockCache(object):
             # No block with same hash
             except NoSuchRowError:
                 obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, -1)')
-                log.debug('upload(%s): created new object %d', el, obj_id)
+                log.debug('created new object %d', obj_id)
                 block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, hash, size) '
                                          'VALUES(?,?,?,?)', (1, obj_id, hash_, el.size))
-                log.debug('upload(%s): created new block %d', el, block_id)
-                log.debug('upload(%s): adding to upload queue', el)
+                log.debug('created new block %d', block_id)
+                log.debug('adding to upload queue')
 
                 # Note: we must finish all db transactions before adding to
                 # in_transit, otherwise commit() may return before all blocks
@@ -556,7 +556,7 @@ class BlockCache(object):
             # There is a block with the same hash
             else:
                 if old_block_id != block_id:
-                    log.debug('upload(%s): (re)linking to %d', el, block_id)
+                    log.debug('(re)linking to %d', block_id)
                     self.db.execute('UPDATE blocks SET refcount=refcount+1 WHERE id=?',
                                     (block_id,))
                     self.db.execute('INSERT OR REPLACE INTO inode_blocks (block_id, inode, blockno) '
@@ -567,7 +567,7 @@ class BlockCache(object):
                 self._unlock_entry(el.inode, el.blockno, release_global=True)
 
                 if old_block_id == block_id:
-                    log.debug('upload(%s): unchanged, block_id=%d', el, block_id)
+                    log.debug('unchanged, block_id=%d', block_id)
                     return
 
         except:
@@ -579,7 +579,7 @@ class BlockCache(object):
 
         # Check if we have to remove an old block
         if not old_block_id:
-            log.debug('upload(%s): no old block, returning', el)
+            log.debug('no old block, returning')
             return
 
         self._deref_block(old_block_id)
@@ -708,7 +708,7 @@ class BlockCache(object):
         passed to `remove` for deletion will not be deleted.
         """
 
-        #log.debug('get(inode=%d, block=%d): start', inode, blockno)
+        #log.debug('started with %d, %d', inode, blockno)
 
         if self.cache.is_full():
             self.expire()
@@ -727,7 +727,7 @@ class BlockCache(object):
         finally:
             self._unlock_entry(inode, blockno, release_global=True)
 
-        #log.debug('get(inode=%d, block=%d): end', inode, blockno)
+        #log.debug('finished')
 
     def _get_entry(self, inode, blockno):
         '''Get cache entry for `blockno` of `inode`
@@ -735,6 +735,7 @@ class BlockCache(object):
         Assume that cache entry lock has been acquired.
         '''
 
+        log.debug('started with %d, %d', inode, blockno)
         try:
             el = self.cache[(inode, blockno)]
 
@@ -747,15 +748,14 @@ class BlockCache(object):
 
             # No corresponding object
             except NoSuchRowError:
-                log.debug('_get_entry(inode=%d, block=%d): creating new block', inode, blockno)
+                log.debug('creating new block')
                 el = CacheEntry(inode, blockno, filename)
                 self.cache[(inode, blockno)] = el
                 return el
 
             # Need to download corresponding object
             obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (block_id,))
-            log.debug('_get_entry(inode=%d, block=%d): downloading object %d..',
-                      inode, blockno, obj_id)
+            log.debug('downloading object %d..', obj_id)
             el = CacheEntry(inode, blockno, filename)
             try:
                 def do_read(fh):
@@ -784,7 +784,7 @@ class BlockCache(object):
 
         # In Cache
         else:
-            #log.debug('_get_entry(inode=%d, block=%d): in cache', inode, blockno)
+            #log.debug('in cache')
             self.cache.move_to_end((inode, blockno), last=True) # move to head
 
         return el
@@ -798,7 +798,7 @@ class BlockCache(object):
         # Note that we have to make sure that the cache entry is written into
         # the database before we remove it from the cache!
 
-        log.debug('expire: start')
+        log.debug('started')
 
         while True:
             need_size = self.cache.size - self.cache.max_size
@@ -820,7 +820,7 @@ class BlockCache(object):
 
                 if el.dirty:
                     if el not in self.in_transit:
-                        log.debug('expire: uploading %s..', el)
+                        log.debug('uploading %s..', el)
                         self.upload(el) # Releases global lock
                     sth_in_transit = True
                     continue
@@ -840,10 +840,10 @@ class BlockCache(object):
                     self._unlock_entry(el.inode, el.blockno, release_global=True)
 
             if sth_in_transit:
-                log.debug('expire: waiting for transfer threads..')
+                log.debug('waiting for transfer threads..')
                 self.wait() # Releases global lock
 
-        log.debug('expire: end')
+        log.debug('finished')
 
 
     def remove(self, inode, start_no, end_no=None):
@@ -856,7 +856,7 @@ class BlockCache(object):
         This method releases the global lock.
         """
 
-        log.debug('remove(inode=%d, start=%d, end=%s): start', inode, start_no, end_no)
+        log.debug('started with %d, %d, %d', inode, start_no, end_no)
 
         if end_no is None:
             end_no = start_no + 1
@@ -865,15 +865,14 @@ class BlockCache(object):
             self._lock_entry(inode, blockno, release_global=True)
             try:
                 if (inode, blockno) in self.cache:
-                    log.debug('remove(inode=%d, blockno=%d): removing from cache',
-                              inode, blockno)
+                    log.debug('removing from cache')
                     self.cache.remove((inode, blockno))
 
                 try:
                     block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
                                                'WHERE inode=? AND blockno=?', (inode, blockno))
                 except NoSuchRowError:
-                    log.debug('remove(inode=%d, blockno=%d): block not in db', inode, blockno)
+                    log.debug('block not in db')
                     continue
 
                 # Detach inode from block
@@ -886,7 +885,7 @@ class BlockCache(object):
             # Decrease block refcount
             self._deref_block(block_id)
 
-        log.debug('remove(inode=%d, start=%d, end=%s): end', inode, start_no, end_no)
+        log.debug('finished')
 
     def flush(self, inode, blockno):
         """Flush buffers for given block"""
@@ -923,13 +922,12 @@ class BlockCache(object):
         This method releases the global lock.
         """
 
-        log.debug('clear: start')
+        log.debug('started')
         bak = self.cache.max_entries
         self.cache.max_entries = 0
         self.expire() # Releases global lock
         self.cache.max_entries = bak
-
-        log.debug('clear: end')
+        log.debug('finished')
 
     def get_usage(self):
         '''Return cache size and dirty cache size

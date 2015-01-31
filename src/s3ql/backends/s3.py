@@ -74,7 +74,7 @@ class Backend(s3c.Backend):
 
     @copy_ancestor_docstring
     def delete_multi(self, keys, force=False):
-        log.debug('delete_multi(%s)', keys)
+        log.debug('started with %s', keys)
 
         while len(keys) > 0:
             tmp = keys[:MAX_KEYS]

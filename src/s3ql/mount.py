@@ -641,7 +641,7 @@ class MetadataUploadThread(Thread):
         self.fs = None
 
     def run(self):
-        log.debug('MetadataUploadThread: start')
+        log.debug('started')
 
         assert self.fs is not None
 
@@ -698,12 +698,12 @@ class MetadataUploadThread(Thread):
         # Break reference loop
         self.fs = None
 
-        log.debug('MetadataUploadThread: end')
+        log.debug('finished')
 
     def stop(self):
         '''Signal thread to terminate'''
 
-        log.debug('MetadataUploadThread: stop() called')
+        log.debug('started')
         self.quit = True
         self.event.set()
 
@@ -759,7 +759,7 @@ class CommitThread(Thread):
         self.name = 'CommitThread'
 
     def run(self):
-        log.debug('CommitThread: start')
+        log.debug('started')
 
         while not self.stop_event.is_set():
             did_sth = False
@@ -792,14 +792,13 @@ class CommitThread(Thread):
             if not did_sth:
                 self.stop_event.wait(5)
 
-        log.debug('CommitThread: end')
+        log.debug('finished')
 
     def stop(self):
         '''Signal thread to terminate'''
 
-        log.debug('CommitThread: stop() called')
+        log.debug('started')
         self.stop_event.set()
-
 
 if __name__ == '__main__':
     main(sys.argv[1:])

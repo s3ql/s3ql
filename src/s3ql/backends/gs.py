@@ -217,7 +217,7 @@ class Backend(s3c.Backend):
     @retry
     @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None):
-        log.debug('copy(%s, %s): start', src, dest)
+        log.debug('started with %s, %s', src, dest)
 
         if not (metadata is None or isinstance(metadata, dict)):
             raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))

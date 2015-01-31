@@ -123,7 +123,7 @@ class Operations(llfuse.Operations):
         self.inodes.destroy()
 
     def lookup(self, id_p, name):
-        log.debug('lookup(%d, %r): start', id_p, name)
+        log.debug('started with %d, %r', id_p, name)
 
         if name == CTRL_NAME:
             inode = self.inodes[CTRL_INODE]
@@ -153,7 +153,7 @@ class Operations(llfuse.Operations):
         return inode
 
     def getattr(self, id_):
-        log.debug('getattr(%d): start', id_)
+        log.debug('started with %d', id_)
         if id_ == CTRL_INODE:
             # Make sure the control file is only writable by the user
             # who mounted the file system (but don't mark inode as dirty)
@@ -165,7 +165,7 @@ class Operations(llfuse.Operations):
         return self.inodes[id_]
 
     def readlink(self, id_):
-        log.debug('readlink(%d): start', id_)
+        log.debug('started with %d', id_)
         timestamp = time.time()
         inode = self.inodes[id_]
         if inode.atime < inode.ctime or inode.atime < inode.mtime:
@@ -177,7 +177,7 @@ class Operations(llfuse.Operations):
             raise FUSEError(errno.EINVAL)
 
     def opendir(self, id_):
-        log.debug('opendir(%d): start', id_)
+        log.debug('started with %d', id_)
         return id_
 
     def check_args(self, args):
@@ -188,7 +188,7 @@ class Operations(llfuse.Operations):
         args.append('no_remote_lock')
 
     def readdir(self, id_, off):
-        log.debug('readdir(%d, %d): start', id_, off)
+        log.debug('started with %d, %d', id_, off)
         if off == 0:
             off = -1
 
@@ -203,7 +203,7 @@ class Operations(llfuse.Operations):
                 yield (name, self.inodes[cid_], next_)
 
     def getxattr(self, id_, name):
-        log.debug('getxattr(%d, %r): start', id_, name)
+        log.debug('started with %d, %r', id_, name)
         # Handle S3QL commands
         if id_ == CTRL_INODE:
             if name == b's3ql_pid?':
@@ -228,7 +228,7 @@ class Operations(llfuse.Operations):
             return value
 
     def listxattr(self, id_):
-        log.debug('listxattr(%d): start', id_)
+        log.debug('started with %d', id_)
         names = list()
         with self.db.query('SELECT name FROM ext_attributes_v WHERE inode=?', (id_,)) as res:
             for (name,) in res:
@@ -236,7 +236,7 @@ class Operations(llfuse.Operations):
         return names
 
     def setxattr(self, id_, name, value):
-        log.debug('setxattr(%d, %r, %r): start', id_, name, value)
+        log.debug('started with %d, %r, %r', id_, name, value)
 
         # Handle S3QL commands
         if id_ == CTRL_INODE:
@@ -277,7 +277,7 @@ class Operations(llfuse.Operations):
             self.inodes[id_].ctime = time.time()
 
     def removexattr(self, id_, name):
-        log.debug('removexattr(%d, %r): start', id_, name)
+        log.debug('started with %d, %r', id_, name)
 
         if self.failsafe or self.inodes[id_].locked:
             raise FUSEError(errno.EPERM)
@@ -300,7 +300,7 @@ class Operations(llfuse.Operations):
         if self.failsafe:
             raise FUSEError(errno.EPERM)
 
-        log.debug('lock_tree(%d): start', id0)
+        log.debug('started with %d', id0)
         queue = [ id0 ]
         self.inodes[id0].locked = True
         processed = 0 # Number of steps since last GIL release
@@ -323,14 +323,13 @@ class Operations(llfuse.Operations):
             if processed > gil_step:
                 dt = time.time() - stamp
                 gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 250)
-                log.debug('lock_tree(%d): Adjusting gil_step to %d',
-                          id0, gil_step)
+                log.debug('Adjusting gil_step to %d', gil_step)
                 processed = 0
                 llfuse.lock.yield_(100)
-                log.debug('lock_tree(%d): re-acquired lock', id0)
+                log.debug('re-acquired lock')
                 stamp = time.time()
 
-        log.debug('lock_tree(%d): end', id0)
+        log.debug('finished')
 
     def remove_tree(self, id_p0, name0):
         '''Remove directory tree'''
@@ -338,7 +337,7 @@ class Operations(llfuse.Operations):
         if self.failsafe:
             raise FUSEError(errno.EPERM)
 
-        log.debug('remove_tree(%d, %s): start', id_p0, name0)
+        log.debug('started with %d, %s', id_p0, name0)
 
         if self.inodes[id_p0].locked:
             raise FUSEError(errno.EPERM)
@@ -383,22 +382,20 @@ class Operations(llfuse.Operations):
             if processed > gil_step:
                 dt = time.time() - stamp
                 gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 250)
-                log.debug('remove_tree(%d, %s): Adjusting gil_step to %d and yielding',
-                          id_p0, name0, gil_step)
+                log.debug('Adjusting gil_step to %d and yielding', gil_step)
                 processed = 0
                 llfuse.lock.yield_(100)
-                log.debug('remove_tree(%d, %s): re-acquired lock', id_p0, name0)
+                log.debug('re-acquired lock')
                 stamp = time.time()
 
 
         if id_p0 in self.open_inodes:
-            log.debug('remove_tree(%d, %s): invalidate_entry(%d, %r)',
-                      id_p0, name0, id_p0, name0)
+            log.debug('invalidate_entry(%d, %r)', id_p0, name0)
             llfuse.invalidate_entry(id_p0, name0)
         self._remove(id_p0, name0, id0, force=True)
 
         self.forget([(id0, 1)])
-        log.debug('remove_tree(%d, %s): end', id_p0, name0)
+        log.debug('finished')
 
 
     def copy_tree(self, src_id, target_id):
@@ -407,7 +404,7 @@ class Operations(llfuse.Operations):
         if self.failsafe:
             raise FUSEError(errno.EPERM)
 
-        log.debug('copy_tree(%d, %d): start', src_id, target_id)
+        log.debug('started with %d, %d', src_id, target_id)
 
         # To avoid lookups and make code tidier
         make_inode = self.inodes.create_inode
@@ -415,7 +412,7 @@ class Operations(llfuse.Operations):
 
         # First we make sure that all blocks are in the database
         self.cache.commit()
-        log.debug('copy_tree(%d, %d): committed cache', src_id, target_id)
+        log.debug('committed cache')
 
         # Copy target attributes
         # These come from setxattr, so they may have been deleted
@@ -441,8 +438,7 @@ class Operations(llfuse.Operations):
         gil_step = 250 # Approx. number of steps between GIL releases
         while queue:
             (src_id, target_id, off) = queue.pop()
-            log.debug('copy_tree(%d, %d): Processing directory (%d, %d, %d)',
-                      src_inode.id, target_inode.id, src_id, target_id, off)
+            log.debug('Processing directory (%d, %d, %d)', src_id, target_id, off)
             with db.query('SELECT name_id, inode FROM contents WHERE parent_inode=? '
                           'AND name_id > ? ORDER BY name_id', (src_id, off)) as res:
                 for (name_id, id_) in res:
@@ -496,20 +492,18 @@ class Operations(llfuse.Operations):
                     processed += 1
 
                     if processed > gil_step:
-                        log.debug('copy_tree(%d, %d): Requeueing (%d, %d, %d) to yield lock',
-                                  src_inode.id, target_inode.id, src_id, target_id, name_id)
+                        log.debug('Requeueing (%d, %d, %d) to yield lock',
+                                  src_id, target_id, name_id)
                         queue.append((src_id, target_id, name_id))
                         break
 
             if processed > gil_step:
                 dt = time.time() - stamp
                 gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 250)
-                log.debug('copy_tree(%d, %d): Adjusting gil_step to %d and yielding',
-                          src_inode.id, target_inode.id, gil_step)
+                log.debug('Adjusting gil_step to %d and yielding', gil_step)
                 processed = 0
                 llfuse.lock.yield_(100)
-                log.debug('copy_tree(%d, %d): re-acquired lock',
-                          src_inode.id, target_inode.id)
+                log.debug('re-acquired lock')
                 stamp = time.time()
 
         # Make replication visible
@@ -518,10 +512,10 @@ class Operations(llfuse.Operations):
         del self.inodes[tmp.id]
         llfuse.invalidate_inode(target_inode.id)
 
-        log.debug('copy_tree(%d, %d): end', src_inode.id, target_inode.id)
+        log.debug('finished')
 
     def unlink(self, id_p, name):
-        log.debug('unlink(%d, %r): start', id_p, name)
+        log.debug('started with %d, %r', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
 
@@ -535,7 +529,7 @@ class Operations(llfuse.Operations):
         self.forget([(inode.id, 1)])
 
     def rmdir(self, id_p, name):
-        log.debug('rmdir(%d, %r): start', id_p, name)
+        log.debug('started with %d, %r', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
 
@@ -560,7 +554,7 @@ class Operations(llfuse.Operations):
         This method releases the global lock.
         '''
 
-        log.debug('_remove(%d, %s): start', id_p, name)
+        log.debug('started with %d, %r', id_p, name)
 
         timestamp = time.time()
 
@@ -586,7 +580,7 @@ class Operations(llfuse.Operations):
         inode_p.ctime = timestamp
 
         if inode.refcount == 0 and id_ not in self.open_inodes:
-            log.debug('_remove(%d, %s): removing from cache', id_p, name)
+            log.debug('removing from cache')
             self.cache.remove(id_, 0, int(math.ceil(inode.size / self.max_obj_size)))
             # Since the inode is not open, it's not possible that new blocks
             # get created at this point and we can safely delete the inode
@@ -600,10 +594,10 @@ class Operations(llfuse.Operations):
             self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_,))
             del self.inodes[id_]
 
-        log.debug('_remove(%d, %s): end', id_p, name)
+        log.debug('finished')
 
     def symlink(self, id_p, name, target, ctx):
-        log.debug('symlink(%d, %r, %r): start', id_p, name, target)
+        log.debug('started with %d, %r, %r', id_p, name, target)
 
         if self.failsafe:
             raise FUSEError(errno.EPERM)
@@ -624,7 +618,7 @@ class Operations(llfuse.Operations):
         return inode
 
     def rename(self, id_p_old, name_old, id_p_new, name_new):
-        log.debug('rename(%d, %r, %d, %r): start', id_p_old, name_old, id_p_new, name_new)
+        log.debug('started with %d, %r, %d, %r', id_p_old, name_old, id_p_new, name_new)
         if name_new == CTRL_NAME or name_old == CTRL_NAME:
             log.warning('Attempted to rename s3ql control file (%s -> %s)',
                       get_path(id_p_old, self.db, name_old),
@@ -751,7 +745,7 @@ class Operations(llfuse.Operations):
 
 
     def link(self, id_, new_id_p, new_name):
-        log.debug('link(%d, %d, %r): start', id_, new_id_p, new_name)
+        log.debug('started with %d, %d, %r', id_, new_id_p, new_name)
 
         if new_name == CTRL_NAME or id_ == CTRL_INODE:
             log.warning('Attempted to create s3ql control file at %s',
@@ -784,7 +778,7 @@ class Operations(llfuse.Operations):
     def setattr(self, id_, attr):
         """Handles FUSE setattr() requests"""
         if log.isEnabledFor(logging.DEBUG):
-            log.debug('setattr(%d, %s): start', id_,
+            log.debug('started with %d, %s', id_,
                       ', '.join('%s=%r' % (x, getattr(attr, x))
                                 for x in dir(attr)
                                 if x.startswith('st_') and getattr(attr, x) is not None ))
@@ -852,7 +846,7 @@ class Operations(llfuse.Operations):
         return inode
 
     def mknod(self, id_p, name, mode, rdev, ctx):
-        log.debug('mknod(%d, %r): start', id_p, name)
+        log.debug('started with %d, %r', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
         inode = self._create(id_p, name, mode, ctx, rdev=rdev)
@@ -860,7 +854,7 @@ class Operations(llfuse.Operations):
         return inode
 
     def mkdir(self, id_p, name, mode, ctx):
-        log.debug('mkdir(%d, %r): start', id_p, name)
+        log.debug('started with %d, %r', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
         inode = self._create(id_p, name, mode, ctx)
@@ -870,7 +864,7 @@ class Operations(llfuse.Operations):
     def extstat(self):
         '''Return extended file system statistics'''
 
-        log.debug('extstat(%d): start')
+        log.debug('started')
 
         # Flush inode cache to get better estimate of total fs size
         self.inodes.flush()
@@ -888,7 +882,7 @@ class Operations(llfuse.Operations):
 
 
     def statfs(self):
-        log.debug('statfs(): start')
+        log.debug('started')
 
         stat_ = llfuse.StatvfsData
 
@@ -928,7 +922,7 @@ class Operations(llfuse.Operations):
         return stat_
 
     def open(self, id_, flags):
-        log.debug('open(%d): start', id_)
+        log.debug('started with %d', id_)
         if ((flags & os.O_RDWR or flags & os.O_WRONLY)
             and (self.failsafe or self.inodes[id_].locked)):
             raise FUSEError(errno.EPERM)
@@ -945,11 +939,11 @@ class Operations(llfuse.Operations):
         # Yeah, could be a function and has unused arguments
         #pylint: disable=R0201,W0613
 
-        log.debug('access(%d): executed', id_)
+        log.debug('started with %d', id_)
         return True
 
     def create(self, id_p, name, mode, flags, ctx):
-        log.debug('create(id_p=%d, %s): started', id_p, name)
+        log.debug('started with id_p=%d, %s', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
 
@@ -1005,7 +999,7 @@ class Operations(llfuse.Operations):
 
         This method releases the global lock while it is running.
         '''
-        log.debug('read(%d, %d, %d): start', fh, offset, length)
+        #log.debug('started with %d, %d, %d', fh, offset, length)
         buf = BytesIO()
         inode = self.inodes[fh]
 
@@ -1035,7 +1029,7 @@ class Operations(llfuse.Operations):
 
         This method releases the global lock while it is running.
         '''
-        log.debug('write(%d, %d, datalen=%d): start', fh, offset, len(buf))
+        #log.debug('started with %d, %d, datalen=%d', fh, offset, len(buf))
 
         if self.failsafe or self.inodes[fh].locked:
             raise FUSEError(errno.EPERM)
@@ -1123,7 +1117,7 @@ class Operations(llfuse.Operations):
             return buf + b"\0" * (length - len(buf))
 
     def fsync(self, fh, datasync):
-        log.debug('fsync(%d, %s): start', fh, datasync)
+        log.debug('started with %d, %s', fh, datasync)
         if not datasync:
             self.inodes.flush_id(fh)
 
@@ -1131,7 +1125,7 @@ class Operations(llfuse.Operations):
             self.cache.flush(fh, blockno)
 
     def forget(self, forget_list):
-        log.debug('forget(%s): start', forget_list)
+        log.debug('started with %s', forget_list)
 
         for (id_, nlookup) in forget_list:
             self.open_inodes[id_] -= nlookup
@@ -1143,7 +1137,7 @@ class Operations(llfuse.Operations):
 
                 inode = self.inodes[id_]
                 if inode.refcount == 0:
-                    log.debug('_forget(%s): removing %d from cache', forget_list, id_)
+                    log.debug('removing %d from cache', id_)
                     self.cache.remove(id_, 0, inode.size // self.max_obj_size + 1)
                     # Since the inode is not open, it's not possible that new blocks
                     # get created at this point and we can safely delete the inode
@@ -1159,18 +1153,18 @@ class Operations(llfuse.Operations):
 
 
     def fsyncdir(self, fh, datasync):
-        log.debug('fsyncdir(%d, %s): start', fh, datasync)
+        log.debug('started with %d, %s', fh, datasync)
         if not datasync:
             self.inodes.flush_id(fh)
 
     def releasedir(self, fh):
-        log.debug('releasedir(%d): start', fh)
+        log.debug('started with %d', fh)
 
     def release(self, fh):
-        log.debug('release(%d): start', fh)
+        log.debug('started with %d', fh)
 
     def flush(self, fh):
-        log.debug('flush(%d): start', fh)
+        log.debug('started with %d', fh)
 
 
 def update_logging(level, modules):

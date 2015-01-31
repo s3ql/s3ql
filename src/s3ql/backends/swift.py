@@ -138,7 +138,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def _get_conn(self):
         '''Obtain connection to server and authentication token'''
 
-        log.debug('_get_conn(): start')
+        log.debug('started')
 
         if 'no-ssl' in self.options:
             ssl_context = None
@@ -196,7 +196,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         This method modifies the *headers* dictionary.
         '''
 
-        log.debug('called with (%r, %r, %r, %r, %r, %r)',
+        log.debug('started with %r, %r, %r, %r, %r, %r',
                   method, path, subres, query_string, headers, body)
 
         if headers is None:
@@ -255,7 +255,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def _do_request_inner(self, method, path, body, headers):
         '''The guts of the _do_request method'''
 
-        log.debug('called with %s %s', method, path)
+        log.debug('started with %s %s', method, path)
         use_expect_100c = not self.options.get('disable-expect100', False)
 
         if body is None or isinstance(body, (bytes, bytearray, memoryview)):
@@ -298,7 +298,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @retry
     @copy_ancestor_docstring
     def lookup(self, key):
-        log.debug('lookup(%s)', key)
+        log.debug('started with %s', key)
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
 
@@ -318,7 +318,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def get_size(self, key):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
-        log.debug('get_size(%s)', key)
+        log.debug('started with %s', key)
 
         try:
             resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
@@ -365,7 +365,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         The returned object will buffer all data and only start the upload
         when its `close` method is called.
         """
-        log.debug('open_write(%s): start', key)
+        log.debug('started with %s', key)
 
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
@@ -382,7 +382,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def delete(self, key, force=False):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
-        log.debug('delete(%s)', key)
+        log.debug('started with %s', key)
         try:
             resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
             self._assert_empty_response(resp)
@@ -401,7 +401,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None):
-        log.debug('copy(%s, %s): start', src, dest)
+        log.debug('started with %s, %s', src, dest)
         if dest.endswith(TEMP_SUFFIX) or src.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
 
@@ -440,7 +440,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @retry
     @copy_ancestor_docstring
     def update_meta(self, key, metadata):
-        log.debug('start for %s', key)
+        log.debug('started with %s', key)
         headers = CaseInsensitiveDict()
         self._add_meta_headers(headers, metadata)
         self._do_request('POST', '/%s%s' % (self.prefix, key), headers=headers)
@@ -449,14 +449,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @retry_generator
     @copy_ancestor_docstring
     def list(self, prefix='', start_after='', batch_size=5000):
-        log.debug('list(%s, %s): start', prefix, start_after)
+        log.debug('started with %s, %s', prefix, start_after)
 
         keys_remaining = True
         marker = self.prefix + start_after
         prefix = self.prefix + prefix
 
         while keys_remaining:
-            log.debug('list(%s): requesting with marker=%s', prefix, marker)
+            log.debug('requesting with marker=%s', marker)
 
             try:
                 resp = self._do_request('GET', '/', query_string={'prefix': prefix,

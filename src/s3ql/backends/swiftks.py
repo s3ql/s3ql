@@ -59,7 +59,7 @@ class Backend(swift.Backend):
     def _get_conn(self):
         '''Obtain connection to server and authentication token'''
 
-        log.debug('_get_conn(): start')
+        log.debug('started')
 
         if 'no-ssl' in self.options:
             ssl_context = None
