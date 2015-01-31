@@ -188,7 +188,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         This method modifies the *headers* dictionary.
         '''
 
-        log.debug('_do_request(): start with parameters (%r, %r, %r, %r, %r, %r)',
+        log.debug('called with (%r, %r, %r, %r, %r, %r)',
                   method, path, subres, query_string, headers, body)
 
         if headers is None:
@@ -198,7 +198,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             headers['Content-MD5'] = md5sum_b64(body)
 
         if self.conn is None:
-            log.debug('_do_request(): no active connection, calling _get_conn()')
+            log.debug('no active connection, calling _get_conn()')
             self.conn =  self._get_conn()
 
         # Construct full path
@@ -247,7 +247,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def _do_request_inner(self, method, path, body, headers):
         '''The guts of the _do_request method'''
 
-        log.debug('_do_request_inner(): %s %s', method, path)
+        log.debug('called with %s %s', method, path)
         use_expect_100c = not self.options.get('disable-expect100', False)
 
         if body is None or isinstance(body, (bytes, bytearray, memoryview)):
