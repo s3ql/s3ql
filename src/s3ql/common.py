@@ -417,18 +417,23 @@ def get_backend_factory(options, plain=False):
                                     backend_class(options.storage_url, backend_login,
                                                   backend_passphrase, options.backend_options))
 
-    tmp_backend = ComprencBackend(fs_passphrase, compress, backend)
+    with ComprencBackend(fs_passphrase, compress, backend) as tmp_backend:
+        try:
+            data_pw = tmp_backend['s3ql_passphrase']
+        except CorruptedObjectError:
+            raise QuietError('Wrong file system passphrase', exitcode=17)
 
-    try:
-        data_pw = tmp_backend['s3ql_passphrase']
-    except CorruptedObjectError:
-        raise QuietError('Wrong file system passphrase', exitcode=17)
-    finally:
-        tmp_backend.close()
+    # To support upgrade, temporarily store the backend
+    # passphrase in every backend object.
+    def factory():
+        b = ComprencBackend(data_pw, compress,
+                            backend_class(options.storage_url, backend_login,
+                                          backend_passphrase, options.backend_options))
+        b.fs_passphrase = fs_passphrase
+        return b
 
-    return lambda: ComprencBackend(data_pw, compress,
-                                 backend_class(options.storage_url, backend_login,
-                                               backend_passphrase, options.backend_options))
+    return factory
+
 def pretty_print_size(i):
     '''Return *i* as string with appropriate suffix (MiB, GiB, etc)'''
 
@@ -525,3 +530,9 @@ class AsyncFn(ExceptionStoringThread):
     def run_protected(self):
         self.target(*self.args, **self.kwargs)
 
+def split_by_n(seq, n):
+    '''Yield elements in iterable *seq* in groups of *n*'''
+
+    while seq:
+        yield seq[:n]
+        seq = seq[n:]

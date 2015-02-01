@@ -11,11 +11,13 @@ from . import CURRENT_FS_REV, REV_VER_MAP, PICKLE_PROTOCOL
 from .backends.comprenc import ComprencBackend
 from .database import Connection
 from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2,
-                     stream_read_bz2, is_mounted, get_backend, pretty_print_size)
+                     stream_read_bz2, is_mounted, get_backend,
+                     pretty_print_size, split_by_n)
 from .metadata import restore_metadata, cycle_metadata, dump_metadata
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
 from getpass import getpass
+from base64 import b64encode
 import os
 import pickle
 import shutil
@@ -320,8 +322,18 @@ def upgrade(backend, cachepath):
     param['last-modified'] = time.time()
     param['seq_no'] += 1
 
-    # In this update, we have added a new metadata format. Old objects can still
-    # be read, so we don't need to do any conversion work.
+    # Ensure that there are backups of the master key
+    if backend.passphrase is not None:
+        data_pw = backend.passphrase
+        backend.passphrase = backend.fs_passphrase
+        for i in range(1,4):
+            obj_id = 's3ql_passphrase_bak%d' % i
+            if obj_id not in backend:
+                backend[obj_id] = data_pw
+        backend.passphrase = data_pw
+
+    # We have also added a new metadata format, but old objects can still
+    # be read so we don't need to do any other conversion work.
 
     log.info('Dumping metadata...')
     with tempfile.TemporaryFile() as fh:
@@ -350,6 +362,15 @@ def upgrade(backend, cachepath):
     db.execute('VACUUM')
 
     print('File system upgrade complete.')
+
+    if backend.passphrase is not None:
+        print('Please store the following master key in a safe location. It allows ',
+              'decryption of the S3QL file system in case the storage objects holding ',
+              'this information get corrupted:',
+              '---BEGIN MASTER KEY---',
+              ' '.join(split_by_n(b64encode(backend.passphrase).decode(), 4)),
+              '---END MASTER KEY---',
+              sep='\n')
 
 # This should be used on the *next* fs revision update to ensure that all
 # objects conform to newest standards, so we can drop the legacy routines from

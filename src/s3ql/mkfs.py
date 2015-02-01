@@ -11,11 +11,12 @@ from . import CURRENT_FS_REV, CTRL_INODE, PICKLE_PROTOCOL, ROOT_INODE
 from .backends.comprenc import ComprencBackend
 from .backends import s3
 from .common import (get_backend_cachedir, stream_write_bz2, get_backend,
-                     pretty_print_size)
+                     pretty_print_size, split_by_n)
 from .database import Connection
 from .metadata import dump_metadata, create_tables
 from .parse_args import ArgumentParser
 from getpass import getpass
+from base64 import b64encode
 import os
 import pickle
 import shutil
@@ -187,6 +188,14 @@ def main(args=None):
     with open(cachepath + '.params', 'wb') as fh:
         pickle.dump(param, fh, PICKLE_PROTOCOL)
 
+    if data_pw is not None:
+        print('Please store the following master key in a safe location. It allows ',
+              'decryption of the S3QL file system in case the storage objects holding ',
+              'this information get corrupted:',
+              '---BEGIN MASTER KEY---',
+              ' '.join(split_by_n(b64encode(data_pw).decode(), 4)),
+              '---END MASTER KEY---',
+              sep='\n')
 
 if __name__ == '__main__':
     main(sys.argv[1:])
