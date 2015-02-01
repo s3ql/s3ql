@@ -22,7 +22,7 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'common', 'calc_mro',
             'REV_VER_MAP', 'RELEASE', 'BUFSIZE', 'PICKLE_PROTOCOL',
             'CTRL_NAME', 'CTRL_INODE' ]
 
-VERSION = '2.13pre'
+VERSION = '2.13'
 RELEASE = '%s' % VERSION
 
 CURRENT_FS_REV = 22
@@ -36,7 +36,6 @@ PICKLE_PROTOCOL = 2
 # Name and inode of the special s3ql control file
 CTRL_NAME = '.__s3ql__ctrl__'
 CTRL_INODE = 2
-
 
 # Maps file system revisions to the last S3QL version that
 # supported this revision.
