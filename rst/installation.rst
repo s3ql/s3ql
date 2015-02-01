@@ -84,9 +84,9 @@ that is not the case.
 
 * The `Python dugong module
   <https://bitbucket.org/nikratio/python-dugong/>`_. To check if this
-  module is installed, try to execute `python3 -c 'import dugong';
+  module is installed, try to execute `python3 -c 'import dugong;
   print(dugong.__version__)'`. This should print a version number. You
-  need at least version 3.2.
+  need at least version 3.4.
 
 * If your system is using `systemd`_, make sure that the ``systemd``
   Python module is available for Python 3. To check this, try to run

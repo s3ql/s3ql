@@ -12,10 +12,10 @@ from .backends import prefix_map
 from .backends.common import (CorruptedObjectError, NoSuchObject, AuthenticationError,
           DanglingStorageURLError, AuthorizationError)
 from .backends.comprenc import ComprencBackend
+from dugong import HostnameNotResolvable
 from getpass import getpass
 import configparser
 import re
-import socket
 import stat
 import threading
 import traceback
@@ -375,7 +375,7 @@ def get_backend_factory(options, plain=False):
         raise QuietError('No permission to access backend.',
                          exitcode=15)
 
-    except (socket.gaierror, socket.herror):
+    except HostnameNotResolvable:
         raise QuietError("Can't connect to backend: unable to resolve hostname",
                          exitcode=19)
 

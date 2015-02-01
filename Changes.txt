@@ -54,6 +54,9 @@ UNRELEASED, S3QL tip
     fsck.s3ql was then run on a different system (or using a different
     cache directory).
 
+  * S3QL now requires at least version 3.4 of the dugong Python
+    module.
+
 2014-11-09, S3QL 2.12
 
   * The s3c backend has a new 'dumb-copy' option. If this option
