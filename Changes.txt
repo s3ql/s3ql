@@ -1,5 +1,16 @@
 UNRELEASED, S3QL tip
 
+  * The internal file system revision has changed. File systems
+    created with S3QL 2.13 or newer are not compatible with prior S3QL
+    versions.
+
+    To update an existing file system to the newest revision, use the
+    's3qladm upgrade' command. During the upgrade, all storage objects
+    that were created by S3QL 1.1 or earlier will be downloaded and
+    re-uploaded. For objects created by S3QL 1.1.2 or later, the
+    upgrade will only affect the storage object's metadata (so no
+    contents need to be transferred).
+
   * SECURITY ADVISORY: Previous mkfs.s3ql versions used /dev/urandom
     to generate the master key when creating a new encrypted file
     system. However, /dev/urandom is not guaranteed to provide the
