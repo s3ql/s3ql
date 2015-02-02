@@ -14,6 +14,7 @@ from .backends.common import (CorruptedObjectError, NoSuchObject, Authentication
 from .backends.comprenc import ComprencBackend
 from dugong import HostnameNotResolvable
 from getpass import getpass
+from ast import literal_eval
 import configparser
 import re
 import stat
@@ -546,3 +547,35 @@ def handle_on_return(fn):
             kw['on_return'] = on_return
             return fn(*a, **kw)
     return wrapper
+
+def parse_literal(buf, type_spec):
+    '''Try to parse *buf* as *type_spec*
+
+    Raise `ValueError` if *buf* does not contain a valid
+    Python literal, or if the literal does not correspond
+    to *type_spec*.
+
+    Example use::
+
+      buf = b'[1, 'a', 3]'
+      parse_literal(buf, [int, str, int])
+
+    '''
+
+    try:
+        obj = literal_eval(buf.decode())
+    except UnicodeDecodeError:
+        raise ValueError('unable to decode as utf-8')
+    except (ValueError, SyntaxError):
+        raise ValueError('unable to parse as python literal')
+
+    if (isinstance(type_spec, list) and type(obj) == list
+        and [ type(x) for x in obj ] == type_spec):
+        return obj
+    elif (isinstance(type_spec, tuple) and type(obj) == tuple
+        and [ type(x) for x in obj ] == list(type_spec)):
+        return obj
+    elif type(obj) == type_spec:
+        return obj
+
+    raise ValueError('literal has wrong type')
