@@ -92,7 +92,7 @@ def main(args=None):
 
     if options.action == 'upgrade':
         return upgrade(options)
-    
+
     with get_backend(options) as backend:
         if options.action == 'passphrase':
             return change_passphrase(backend)

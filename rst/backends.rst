@@ -19,7 +19,7 @@ options are documented with the respective backends below.
 
 All storage backends respect the :envvar:`!http_proxy` (for plain HTTP
 connections) and :envvar:`!https_proxy` (for SSL connections)
-environment variables. 
+environment variables.
 
 
 Google Storage

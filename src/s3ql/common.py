@@ -538,7 +538,7 @@ def split_by_n(seq, n):
     while seq:
         yield seq[:n]
         seq = seq[n:]
-        
+
 def handle_on_return(fn):
     '''Provide fresh ExitStack instance in `on_return` argument'''
     @functools.wraps(fn)
