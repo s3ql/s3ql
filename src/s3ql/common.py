@@ -48,11 +48,6 @@ def get_seq_no(backend):
         # Maybe list result is outdated
         seq_nos = [ 's3ql_seq_no_1' ]
 
-    if (seq_nos[0].endswith('.meta')
-        or seq_nos[0].endswith('.dat')):
-        raise QuietError('Old file system revision, please run `s3qladm upgrade` first.',
-                         exitcode=32)
-
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in seq_nos ]
     seq_no = max(seq_nos)
 
@@ -354,10 +349,6 @@ def get_backend_factory(storage_url, backend_options, authfile,
         backend_login = getopt('backend-login') or backend_login
         backend_passphrase = getopt('backend-password') or backend_passphrase
         fs_passphrase = getopt('fs-passphrase') or fs_passphrase
-        if getopt('fs-passphrase') is None and getopt('bucket-passphrase') is not None:
-            fs_passphrase = getopt('bucket-passphrase')
-            log.warning("Warning: the 'bucket-passphrase' configuration option has been "
-                        "renamed to 'fs-passphrase'! Please update your authinfo file.")
 
     if not backend_login and backend_class.needs_login:
         if sys.stdin.isatty():
