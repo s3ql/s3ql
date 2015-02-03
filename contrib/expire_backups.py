@@ -24,7 +24,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
 from s3ql.logging import setup_logging, QuietError, logging
-from s3ql import PICKLE_PROTOCOL
+from s3ql.common import thaw_basic_mapping, freeze_basic_mapping
 from s3ql.parse_args import ArgumentParser
 from s3ql.remove import main as s3qlrm
 
@@ -99,14 +99,20 @@ def main(args=None):
         if not options.n:
             log.info('Saving reconstructed state..')
             with open(options.state, 'wb') as fh:
-                pickle.dump(state, fh, PICKLE_PROTOCOL)
+                fh.write(freeze_basic_mapping(state))
     elif not os.path.exists(options.state):
         log.warning('Creating state file..')
         state = dict()
     else:
         log.info('Reading state...')
+        # Older versions used pickle to store state...
         with open(options.state, 'rb') as fh:
-            state = pickle.load(fh)
+            proto = fh.read(2)
+            fh.seek(0)
+            if proto == b'\x80\x02':
+                state = pickle.load(fh)
+            else:
+                state = thaw_basic_mapping(fh.read())
 
     to_delete = process_backups(backup_list, state, options.cycles)
 
@@ -123,7 +129,7 @@ def main(args=None):
     else:
         log.info('Saving state..')
         with open(options.state, 'wb') as fh:
-            pickle.dump(state, fh, PICKLE_PROTOCOL)
+            fh.write(freeze_basic_mapping(state))
 
 def upgrade_to_state(backup_list):
     log.info('Several existing backups detected, trying to convert absolute ages to cycles')
