@@ -7,9 +7,9 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from .logging import logging
-from . import deltadump, CTRL_NAME, CTRL_INODE, PICKLE_PROTOCOL
+from . import deltadump, CTRL_NAME, CTRL_INODE
 from .backends.common import NoSuchObject, CorruptedObjectError
-from .common import get_path
+from .common import get_path, parse_literal
 from .database import NoSuchRowError
 from .inode_cache import OutOfInodesError
 from io import BytesIO
@@ -19,7 +19,6 @@ import errno
 import llfuse
 import math
 import os
-import pickle
 import stat
 import struct
 import time
@@ -207,7 +206,7 @@ class Operations(llfuse.Operations):
         # Handle S3QL commands
         if id_ == CTRL_INODE:
             if name == b's3ql_pid?':
-                return pickle.dumps(os.getpid(), PICKLE_PROTOCOL)
+                return ('%d' % os.getpid()).encode()
 
             elif name == b's3qlstat':
                 return self.extstat()
@@ -242,22 +241,55 @@ class Operations(llfuse.Operations):
         if id_ == CTRL_INODE:
             if name == b's3ql_flushcache!':
                 self.cache.clear()
+
             elif name == b'copy':
-                self.copy_tree(*pickle.loads(value))
+                try:
+                    tup = parse_literal(value, (int, int))
+                except ValueError:
+                    log.warning('Received malformed command via control inode')
+                    raise FUSEError.EINVAL()
+                self.copy_tree(*tup)
+
             elif name == b'upload-meta':
                 if self.upload_event is not None:
                     self.upload_event.set()
                 else:
                     raise llfuse.FUSEError(errno.ENOTTY)
+
             elif name == b'lock':
-                self.lock_tree(*pickle.loads(value))
+                try:
+                    id_ = parse_literal(value, int)
+                except ValueError:
+                    log.warning('Received malformed command via control inode')
+                    raise FUSEError.EINVAL()
+                self.lock_tree(id_)
+
             elif name == b'rmtree':
-                self.remove_tree(*pickle.loads(value))
+                try:
+                    tup = parse_literal(value, (int, bytes))
+                except ValueError:
+                    log.warning('Received malformed command via control inode')
+                    raise FUSEError.EINVAL()
+                self.remove_tree(*tup)
+
             elif name == b'logging':
-                update_logging(*pickle.loads(value))
+                try:
+                    (lvl, modules)= parse_literal(value, (str, str))
+                    lvl = logging._levelNames[lvl.upper()]
+                except (ValueError, KeyError):
+                    log.warning('Received malformed command via control inode')
+                    raise FUSEError.EINVAL()
+                update_logging(lvl, modules.split(',') if modules else None)
+
             elif name == b'cachesize':
-                self.cache.max_size = pickle.loads(value)
+                try:
+                    self.cache.max_size = parse_literal(value, int)
+                except ValueError:
+                    log.warning('Received malformed command via control inode')
+                    raise FUSEError.EINVAL()
+
             else:
+                log.warning('Received unknown command via control inode')
                 raise llfuse.FUSEError(errno.EINVAL)
 
         # http://code.google.com/p/s3ql/issues/detail?id=385

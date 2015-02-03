@@ -13,10 +13,9 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 from os.path import basename
-from s3ql import CTRL_NAME, PICKLE_PROTOCOL
+from s3ql import CTRL_NAME
 from s3ql.common import path2bytes
 from common import retry, skip_if_no_fusermount
-import pickle
 import filecmp
 import llfuse
 import os.path
@@ -347,8 +346,7 @@ class TestFuse:
         os.mkdir(fullname)
         assert stat.S_ISDIR(os.stat(fullname).st_mode)
         assert dirname in llfuse.listdir(self.mnt_dir)
-        llfuse.setxattr('%s/%s' % (self.mnt_dir, CTRL_NAME),
-                        'rmtree', pickle.dumps((llfuse.ROOT_INODE, path2bytes(dirname)),
-                                               PICKLE_PROTOCOL))
+        cmd = ('(%d, %r)' % (llfuse.ROOT_INODE, path2bytes(dirname))).encode()
+        llfuse.setxattr('%s/%s' % (self.mnt_dir, CTRL_NAME), 'rmtree', cmd)
         assert_raises(FileNotFoundError, os.stat, fullname)
         assert dirname not in llfuse.listdir(self.mnt_dir)

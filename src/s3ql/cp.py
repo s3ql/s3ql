@@ -8,11 +8,9 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, setup_logging, QuietError
 from .common import assert_fs_owner
-from . import PICKLE_PROTOCOL
 from .parse_args import ArgumentParser
 import llfuse
 import os
-import pickle
 import stat
 import sys
 import textwrap
@@ -88,9 +86,8 @@ def main(args=None):
         raise QuietError('No permission to create target directory')
 
     fstat_t = os.stat(options.target)
-    llfuse.setxattr(ctrlfile, 'copy', pickle.dumps((fstat_s.st_ino, fstat_t.st_ino),
-                                                    PICKLE_PROTOCOL))
-
+    llfuse.setxattr(ctrlfile, 'copy',
+                    ('(%d, %d)' % (fstat_s.st_ino, fstat_t.st_ino)).encode())
 
 if __name__ == '__main__':
     main(sys.argv[1:])

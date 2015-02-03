@@ -8,11 +8,10 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, setup_logging
 from . import CTRL_NAME
-from .common import assert_s3ql_mountpoint
+from .common import assert_s3ql_mountpoint, parse_literal
 from .parse_args import ArgumentParser
 import llfuse
 import os
-import pickle
 import subprocess
 import platform
 import sys
@@ -120,7 +119,7 @@ def blocking_umount(mountpoint):
 
     # Get pid
     log.debug('Trying to get pid')
-    pid = pickle.loads(llfuse.getxattr(ctrlfile, 's3ql_pid?'))
+    pid = parse_literal(llfuse.getxattr(ctrlfile, 's3ql_pid?'), int)
     log.debug('PID is %d', pid)
 
     # Get command line to make race conditions less-likely

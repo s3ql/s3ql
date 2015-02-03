@@ -8,10 +8,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, setup_logging
 from .common import assert_fs_owner
-from . import PICKLE_PROTOCOL
 from .parse_args import ArgumentParser
 import llfuse
-import pickle
 import sys
 import textwrap
 
@@ -69,13 +67,7 @@ def parse_args(args):
         if not options.modules:
             options.modules = [ 'all' ]
 
-        if options.level:
-            # Protected member ok, hopefully this won't break
-            #pylint: disable=W0212
-            options.level = logging._levelNames[options.level.upper()]
-
     return options
-
 
 def main(args=None):
     '''Control a mounted S3QL File System.'''
@@ -97,15 +89,11 @@ def main(args=None):
         llfuse.setxattr(ctrlfile, 'upload-meta', b'dummy')
 
     elif options.action == 'log':
-        llfuse.setxattr(ctrlfile, 'logging',
-                      pickle.dumps((options.level, options.modules),
-                                   PICKLE_PROTOCOL))
+        cmd = ('(%r, %r)' % (options.level, ','.join(options.modules))).encode()
+        llfuse.setxattr(ctrlfile, 'logging', cmd)
 
     elif options.action == 'cachesize':
-        llfuse.setxattr(ctrlfile, 'cachesize',
-                        pickle.dumps(options.cachesize * 1024, PICKLE_PROTOCOL))
-
-
+        llfuse.setxattr(ctrlfile, 'cachesize', ('%d' % options.cachesize * 1024).encode())
 
 if __name__ == '__main__':
     main(sys.argv[1:])

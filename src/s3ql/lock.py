@@ -8,11 +8,9 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, setup_logging, QuietError
 from .common import assert_fs_owner
-from . import PICKLE_PROTOCOL
 from .parse_args import ArgumentParser
 import llfuse
 import os
-import pickle
 import sys
 import textwrap
 
@@ -54,7 +52,7 @@ def main(args=None):
             raise QuietError('%s is a mount point.' % name)
         ctrlfile = assert_fs_owner(name)
         fstat = os.stat(name)
-        llfuse.setxattr(ctrlfile, 'lock', pickle.dumps((fstat.st_ino,), PICKLE_PROTOCOL))
+        llfuse.setxattr(ctrlfile, 'lock', ('%d' % fstat.st_ino).encode())
 
 if __name__ == '__main__':
     main(sys.argv[1:])
