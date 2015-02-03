@@ -376,9 +376,7 @@ def upgrade(options, on_return):
               '---END MASTER KEY---',
               sep='\n')
 
-@handle_on_return
-def update_obj_metadata(backend, backend_factory, db,
-                        thread_count, on_return):
+def update_obj_metadata(backend, backend_factory, db, thread_count):
     '''Upgrade metadata of storage objects'''
 
     plain_backend = backend.backend
@@ -407,7 +405,7 @@ def update_obj_metadata(backend, backend_factory, db,
     queue = Queue(maxsize=thread_count)
     threads = []
     for _ in range(thread_count):
-        t = AsyncFn(upgrade_loop, queue, on_return.push(backend_factory()))
+        t = AsyncFn(upgrade_loop, queue, backend_factory)
         # Don't wait for worker threads, gives deadlock if main thread
         # terminates with exception
         t.daemon = True
@@ -454,38 +452,39 @@ def update_obj_metadata(backend, backend_factory, db,
 
     sys.stdout.write('\n')
 
-def upgrade_loop(queue, backend):
-    plain_backend = backend.backend
+def upgrade_loop(queue, backend_factory):
 
-    while True:
-        obj_id = queue.get()
-        if obj_id is None:
-            break
+    with backend_factory() as backend:
+        plain_backend = backend.backend
+        while True:
+            obj_id = queue.get()
+            if obj_id is None:
+                break
 
-        meta = plain_backend.lookup(obj_id)
-        if meta.get('format_version', 0) == 2:
-            continue
+            meta = plain_backend.lookup(obj_id)
+            if meta.get('format_version', 0) == 2:
+                continue
 
-        # For important objects, we make a copy first (just to be safe)
-        if not obj_id.startswith('s3ql_data'):
-            plain_backend.copy(obj_id, 's3ql_pre2.13' + obj_id[4:])
+            # For important objects, we make a copy first (just to be safe)
+            if not obj_id.startswith('s3ql_data'):
+                plain_backend.copy(obj_id, 's3ql_pre2.13' + obj_id[4:])
 
-        # When reading passphrase objects, we have to use the
-        # "outer" password
-        if obj_id.startswith('s3ql_passphrase'):
-            data_pw = backend.passphrase
-            backend.passphrase = backend.fs_passphrase
+            # When reading passphrase objects, we have to use the
+            # "outer" password
+            if obj_id.startswith('s3ql_passphrase'):
+                data_pw = backend.passphrase
+                backend.passphrase = backend.fs_passphrase
 
-        meta = backend._convert_legacy_metadata(meta)
-        if meta['encryption'] == 'AES':
-            # Two statements to reduce likelihood of update races
-            size = rewrite_legacy_object(backend, obj_id)
-            queue.rewrote_size += size
-        else:
-            plain_backend.update_meta(obj_id, meta)
+            meta = backend._convert_legacy_metadata(meta)
+            if meta['encryption'] == 'AES':
+                # Two statements to reduce likelihood of update races
+                size = rewrite_legacy_object(backend, obj_id)
+                queue.rewrote_size += size
+            else:
+                plain_backend.update_meta(obj_id, meta)
 
-        if obj_id.startswith('s3ql_passphrase'):
-            backend.passphrase = data_pw
+            if obj_id.startswith('s3ql_passphrase'):
+                backend.passphrase = data_pw
 
 def rewrite_legacy_object(backend, obj_id):
     with tempfile.TemporaryFile() as tmpfh:
