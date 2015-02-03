@@ -7,11 +7,12 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from .logging import logging, setup_logging, QuietError
-from . import fs, CURRENT_FS_REV, PICKLE_PROTOCOL
+from . import fs, CURRENT_FS_REV
 from .backends.pool import BackendPool
 from .block_cache import BlockCache
 from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2, stream_read_bz2,
-                     get_backend_factory, pretty_print_size)
+                     get_backend_factory, pretty_print_size, load_params,
+                     freeze_basic_mapping)
 from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
@@ -27,7 +28,6 @@ import itertools
 import os
 import platform
 import subprocess
-import pickle
 import re
 import signal
 import resource
@@ -243,7 +243,7 @@ def main(args=None):
             del backend['s3ql_seq_no_%d' % param['seq_no']]
             param['seq_no'] -= 1
             with open(cachepath + '.params', 'wb') as fh:
-                pickle.dump(param, fh, PICKLE_PROTOCOL)
+                fh.write(freeze_basic_mapping(param))
         elif seq_no == param['seq_no']:
             param['last-modified'] = time.time()
 
@@ -262,7 +262,7 @@ def main(args=None):
             log.info('Cycling metadata backups...')
             cycle_metadata(backend)
             with open(cachepath + '.params', 'wb') as fh:
-                pickle.dump(param, fh, PICKLE_PROTOCOL)
+                fh.write(freeze_basic_mapping(param))
         else:
             log.error('Remote metadata is newer than local (%d vs %d), '
                       'refusing to overwrite!', seq_no, param['seq_no'])
@@ -377,8 +377,7 @@ def get_metadata(backend, cachepath):
     # Check for cached metadata
     db = None
     if os.path.exists(cachepath + '.params'):
-        with open(cachepath + '.params', 'rb') as fh:
-            param = pickle.load(fh)
+        param = load_params(cachepath + '.params')
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
             param = backend.lookup('s3ql_metadata')
@@ -445,7 +444,7 @@ def get_metadata(backend, cachepath):
             db = restore_metadata(tmpfh, cachepath + '.db')
 
     with open(cachepath + '.params', 'wb') as fh:
-        pickle.dump(param, fh, PICKLE_PROTOCOL)
+        fh.write(freeze_basic_mapping(param))
 
     return (param, db)
 
@@ -455,7 +454,7 @@ def mark_metadata_dirty(backend, cachepath, param):
     param['seq_no'] += 1
     param['needs_fsck'] = True
     with open(cachepath + '.params', 'wb') as fh:
-        pickle.dump(param, fh, PICKLE_PROTOCOL)
+        fh.write(freeze_basic_mapping(param))
 
         # Fsync to make sure that the updated sequence number is committed to
         # disk. Otherwise, a crash immediately after mount could result in both

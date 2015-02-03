@@ -7,18 +7,17 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from .logging import logging, setup_logging, QuietError
-from . import CURRENT_FS_REV, CTRL_INODE, PICKLE_PROTOCOL, ROOT_INODE
+from . import CURRENT_FS_REV, CTRL_INODE, ROOT_INODE
 from .backends.comprenc import ComprencBackend
 from .backends import s3
 from .common import (get_backend_cachedir, stream_write_bz2, get_backend,
-                     pretty_print_size, split_by_n)
+                     pretty_print_size, split_by_n, freeze_basic_mapping)
 from .database import Connection
 from .metadata import dump_metadata, create_tables
 from .parse_args import ArgumentParser
 from getpass import getpass
 from base64 import b64encode
 import os
-import pickle
 import shutil
 import stat
 import sys
@@ -186,7 +185,7 @@ def main(args=None):
 
     log.info('Wrote %s of compressed metadata.', pretty_print_size(obj_fh.get_obj_size()))
     with open(cachepath + '.params', 'wb') as fh:
-        pickle.dump(param, fh, PICKLE_PROTOCOL)
+        fh.write(freeze_basic_mapping(param))
 
     if data_pw is not None:
         print('Please store the following master key in a safe location. It allows ',

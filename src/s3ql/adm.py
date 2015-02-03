@@ -7,13 +7,13 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from .logging import logging, QuietError, setup_logging
-from . import CURRENT_FS_REV, REV_VER_MAP, PICKLE_PROTOCOL, BUFSIZE
+from . import CURRENT_FS_REV, REV_VER_MAP, BUFSIZE
 from .backends.comprenc import ComprencBackend
 from .database import Connection
 from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2,
                      stream_read_bz2, is_mounted, AsyncFn, get_backend,
                      get_backend_factory, pretty_print_size, split_by_n,
-                     handle_on_return)
+                     handle_on_return, freeze_basic_mapping, load_params)
 from .metadata import restore_metadata, cycle_metadata, dump_metadata
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
@@ -21,7 +21,6 @@ from getpass import getpass
 from base64 import b64encode
 from queue import Queue, Full as QueueFull
 import os
-import pickle
 import shutil
 import sys
 import tempfile
@@ -157,7 +156,7 @@ def download_metadata(backend, storage_url):
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in backend.list('s3ql_seq_no_') ]
     param['seq_no'] = max(seq_nos) + 1
     with open(cachepath + '.params', 'wb') as fh:
-        pickle.dump(param, fh, PICKLE_PROTOCOL)
+        fh.write(freeze_basic_mapping(param))
 
 def change_passphrase(backend):
     '''Change file system passphrase'''
@@ -237,8 +236,7 @@ def upgrade(options, on_return):
     db = None
     seq_no = get_seq_no(backend)
     if os.path.exists(cachepath + '.params'):
-        with open(cachepath + '.params', 'rb') as fh:
-            param = pickle.load(fh)
+        param = load_params(cachepath + '.params')
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
             param = backend.lookup('s3ql_metadata')
@@ -359,7 +357,7 @@ def upgrade(options, on_return):
     backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
 
     with open(cachepath + '.params', 'wb') as fh:
-        pickle.dump(param, fh, PICKLE_PROTOCOL)
+        fh.write(freeze_basic_mapping(param))
 
     log.info('Cleaning up local metadata...')
     db.execute('ANALYZE')

@@ -7,20 +7,19 @@ This program can be distributed under the terms of the GNU GPLv3.
 '''
 
 from .logging import logging, setup_logging, QuietError
-from . import CURRENT_FS_REV, BUFSIZE, CTRL_INODE, PICKLE_PROTOCOL, ROOT_INODE
+from . import CURRENT_FS_REV, BUFSIZE, CTRL_INODE, ROOT_INODE
 from .backends.common import NoSuchObject
 from .backends.comprenc import ComprencBackend
 from .backends.local import Backend as LocalBackend
 from .common import (inode_for_path, sha256_fh, get_path, get_backend_cachedir,
                      get_seq_no, stream_write_bz2, stream_read_bz2, is_mounted,
-                     get_backend, pretty_print_size)
+                     get_backend, pretty_print_size, load_params, freeze_basic_mapping)
 from .database import NoSuchRowError, Connection
 from .metadata import restore_metadata, cycle_metadata, dump_metadata, create_tables
 from .parse_args import ArgumentParser
 from os.path import basename
 import apsw
 import os
-import pickle
 import hashlib
 import re
 import shutil
@@ -1046,8 +1045,7 @@ class ROFsck(Fsck):
         db = Connection(path + '.db')
         db.execute('PRAGMA journal_mode = WAL')
 
-        with open(path + '.params', 'rb') as fh:
-            param = pickle.load(fh)
+        param = load_params(path + '.params')
         super().__init__(None, None, param, db)
 
     def check(self):
@@ -1161,8 +1159,7 @@ def main(args=None):
 
     if os.path.exists(cachepath + '.params'):
         assert os.path.exists(cachepath + '.db')
-        with open(cachepath + '.params', 'rb') as fh:
-            param = pickle.load(fh)
+        param = load_params(cachepath + '.params')
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
             param = backend.lookup('s3ql_metadata')
@@ -1266,7 +1263,7 @@ def main(args=None):
     param['needs_fsck'] = True
     backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
     with open(cachepath + '.params', 'wb') as fh:
-        pickle.dump(param, fh, PICKLE_PROTOCOL)
+        fh.write(freeze_basic_mapping(param))
 
     fsck = Fsck(cachepath + '-cache', backend, param, db)
     fsck.check()
@@ -1306,7 +1303,7 @@ def main(args=None):
     log.info('Cycling metadata backups...')
     cycle_metadata(backend)
     with open(cachepath + '.params', 'wb') as fh:
-        pickle.dump(param, fh, PICKLE_PROTOCOL)
+        fh.write(freeze_basic_mapping(param))
 
     log.info('Cleaning up local metadata...')
     db.execute('ANALYZE')

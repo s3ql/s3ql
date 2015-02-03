@@ -25,6 +25,8 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'common', 'calc_mro',
 VERSION = '2.13'
 RELEASE = '%s' % VERSION
 
+# TODO: On next upgrade, remove pickle support from
+# common.py:load_params().
 CURRENT_FS_REV = 22
 
 # Buffer size when writing objects

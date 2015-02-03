@@ -12,7 +12,6 @@ This program can be distributed under the terms of the GNU GPLv3.
 #from s3ql.database import Connection
 #restore_metadata(open('s3ql_metadata.dat', 'rb+'), 'data.sqlite')
 
-import pickle
 import os
 import shutil
 import sys
@@ -28,7 +27,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
 
 from s3ql.logging import logging, setup_logging, QuietError
 from s3ql import CURRENT_FS_REV
-from s3ql.common import get_backend_cachedir
+from s3ql.common import get_backend_cachedir, load_params
 from s3ql.database import Connection
 from s3ql.metadata import dump_metadata
 from s3ql.parse_args import ArgumentParser
@@ -68,8 +67,7 @@ def main(args=None):
     if not os.path.exists(cachepath + '.params'):
         raise QuietError("No local metadata found.")
 
-    with open(cachepath + '.params', 'rb') as fh:
-        param = pickle.load(fh)
+    param = load_params(cachepath + '.params')
 
     # Check revision
     if param['revision'] < CURRENT_FS_REV:
