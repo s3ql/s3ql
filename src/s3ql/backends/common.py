@@ -436,7 +436,8 @@ class AbstractBackend(object, metaclass=ABCMeta):
     def update_meta(self, key, metadata):
         """Replace metadata of *key* with *metadata*
 
-        Metadata must be `dict` instance and pickle-able.
+        `metadata` must be a mapping with keys of type `str`, and values of an
+        elementary type (`str`, `bytes`, `int`, `float` or `bool`).
         """
 
         pass
