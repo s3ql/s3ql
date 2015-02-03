@@ -16,10 +16,10 @@ import time
 import os
 import subprocess
 import stat
-import unittest
 import random
 import configparser
 import logging
+import pytest
 
 def get_clock_granularity():
     stamp1 = time.time()
@@ -111,22 +111,22 @@ def skip_if_no_fusermount():
         fusermount_path = which.communicate()[0].strip()
 
     if not fusermount_path or which.returncode != 0:
-        raise unittest.SkipTest("Can't find fusermount executable")
+        pytest.skip("Can't find fusermount executable")
 
     if not os.path.exists('/dev/fuse'):
-        raise unittest.SkipTest("FUSE kernel module does not seem to be loaded")
+        pytest.skip("FUSE kernel module does not seem to be loaded")
 
     if os.getuid() == 0:
         return
 
     mode = os.stat(fusermount_path).st_mode
     if mode & stat.S_ISUID == 0:
-        raise unittest.SkipTest('fusermount executable not setuid, and we are not root.')
+        pytest.skip('fusermount executable not setuid, and we are not root.')
 
     try:
         fd = os.open('/dev/fuse', os.O_RDWR)
     except OSError as exc:
-        raise unittest.SkipTest('Unable to open /dev/fuse: %s' % exc.strerror)
+        pytest.skip('Unable to open /dev/fuse: %s' % exc.strerror)
     else:
         os.close(fd)
 
@@ -136,7 +136,7 @@ def skip_without_rsync():
             subprocess.call(['rsync', '--version'], stdout=null,
                             stderr=subprocess.STDOUT,)
     except FileNotFoundError:
-        raise unittest.SkipTest('rsync not installed') from None
+        pytest.skip('rsync not installed')
 
 def populate_dir(path, entries=1000, size=20*1024*1024,
                  pooldir='/usr/bin', seed=None):

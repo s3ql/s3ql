@@ -21,7 +21,6 @@ from subprocess import check_output, CalledProcessError
 import t4_fuse
 import tempfile
 import os
-import unittest
 import pytest
 
 class TestUpgrade(t4_fuse.TestFuse):
@@ -32,7 +31,7 @@ class TestUpgrade(t4_fuse.TestFuse):
         basedir_old = os.path.abspath(os.path.join(os.path.dirname(__file__),
                                                    '..', 's3ql.old'))
         if not os.path.exists(os.path.join(basedir_old, 'bin', 'mkfs.s3ql')):
-            raise unittest.SkipTest('no previous S3QL version found')
+            pytest.skip('no previous S3QL version found')
 
         super().setup_method(method)
         self.ref_dir = tempfile.mkdtemp(prefix='s3ql-ref-')
