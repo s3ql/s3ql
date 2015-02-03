@@ -24,7 +24,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
 from s3ql.logging import logging, setup_logging, QuietError
-from s3ql.common import get_backend_factory, AsyncFn
+from s3ql.common import get_backend_factory, AsyncFn, handle_on_return
 from s3ql.backends.common import DanglingStorageURLError
 from s3ql import BUFSIZE
 from s3ql.parse_args import ArgumentParser, storage_url_type
@@ -57,13 +57,16 @@ def parse_args(args):
     return parser.parse_args(args)
 
 
-def copy_loop(queue, src_backend, dst_backend):
+@handle_on_return
+def copy_loop(queue, src_backend_factory, dst_backend_factory, on_return):
     '''Copy keys arriving in *queue* from *src_backend* to *dst_backend*
 
     Terminate when None is received.
     '''
 
-    tmpfh = tempfile.TemporaryFile()
+    src_backend = on_return.enter_context(src_backend_factory())
+    dst_backend = on_return.enter_context(dst_backend_factory())
+    tmpfh = on_return.enter_context(tempfile.TemporaryFile())
     while True:
         key = queue.get()
         if key is None:
@@ -92,9 +95,6 @@ def copy_loop(queue, src_backend, dst_backend):
         dst_backend.perform_write(do_write, key, metadata)
 
 def main(args=None):
-    if args is None:
-        args = sys.argv[1:]
-
     options = parse_args(args)
     setup_logging(options)
 
@@ -111,43 +111,42 @@ def main(args=None):
     except DanglingStorageURLError as exc:
         raise QuietError(str(exc)) from None
 
-    src_backends = [ src_backend_factory() for _ in range(options.threads) ]
-    dst_backends = [ dst_backend_factory() for _ in range(options.threads) ]
-
     queue = Queue(maxsize=options.threads)
     threads = []
-    for (src_backend, dst_backend) in zip(src_backends, dst_backends):
-        t = AsyncFn(copy_loop, queue, src_backend, dst_backend)
+    for _ in range(options.threads):
+        t = AsyncFn(copy_loop, queue, src_backend_factory,
+                    dst_backend_factory)
         # Don't wait for worker threads, gives deadlock if main thread
         # terminates with exception
         t.daemon = True
         t.start()
         threads.append(t)
 
-    stamp1 = 0
-    for (i, key) in enumerate(src_backends[-1]):
-        stamp2 = time.time()
-        if stamp2 - stamp1 > 1:
-            stamp1 = stamp2
-            sys.stdout.write('\rCopied %d objects so far...' % i)
-            sys.stdout.flush()
+    with src_backend_factory() as backend:
+        stamp1 = 0
+        for (i, key) in enumerate(backend):
+            stamp2 = time.time()
+            if stamp2 - stamp1 > 1:
+                stamp1 = stamp2
+                sys.stdout.write('\rCopied %d objects so far...' % i)
+                sys.stdout.flush()
 
-            # Terminate early if any thread failed with an exception
-            for t in threads:
-                if not t.is_alive():
-                    t.join_and_raise()
+                # Terminate early if any thread failed with an exception
+                for t in threads:
+                    if not t.is_alive():
+                        t.join_and_raise()
 
-        # Avoid blocking if all threads terminated
-        while True:
-            try:
-                queue.put(key, timeout=1)
-            except QueueFull:
-                pass
-            else:
-                break
-            for t in threads:
-                if not t.is_alive():
-                    t.join_and_raise()
+            # Avoid blocking if all threads terminated
+            while True:
+                try:
+                    queue.put(key, timeout=1)
+                except QueueFull:
+                    pass
+                else:
+                    break
+                for t in threads:
+                    if not t.is_alive():
+                        t.join_and_raise()
     sys.stdout.write('\n')
 
     queue.maxsize += len(threads)
@@ -156,7 +155,6 @@ def main(args=None):
 
     for t in threads:
         t.join_and_raise()
-
 
 if __name__ == '__main__':
     main(sys.argv[1:])

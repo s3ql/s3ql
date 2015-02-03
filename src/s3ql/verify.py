@@ -119,16 +119,14 @@ def retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
 
     queue = Queue(thread_count)
     threads = []
-    backends = []
     for _ in range(thread_count):
-        b = backend_factory()
-        t = AsyncFn(_retrieve_loop, queue, b, corrupted_fh, missing_fh, full)
+        t = AsyncFn(_retrieve_loop, queue, backend_factory, corrupted_fh,
+                    missing_fh, full)
         # Don't wait for worker threads, gives deadlock if main thread
         # terminates with exception
         t.daemon = True
         t.start()
         threads.append(t)
-        backends.append(b)
 
     total_size = db.get_val('SELECT SUM(size) FROM objects')
     total_count = db.get_val('SELECT COUNT(id) FROM objects')
@@ -180,12 +178,9 @@ def retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
     for t in threads:
         t.join_and_raise()
 
-    for backend in backends:
-        backend.close()
-
     log.info('Verified all %d storage objects.', i)
 
-def _retrieve_loop(queue, backend, corrupted_fh, missing_fh, full=False):
+def _retrieve_loop(queue, backend_factory, corrupted_fh, missing_fh, full=False):
     '''Retrieve object ids arriving in *queue* from *backend*
 
     If *full* is False, lookup and read metadata. If *full* is True,
@@ -197,30 +192,31 @@ def _retrieve_loop(queue, backend, corrupted_fh, missing_fh, full=False):
     Terminate when None is received.
     '''
 
-    while True:
-        obj_id = queue.get()
-        if obj_id is None:
-            break
+    with backend_factory() as backend:
+        while True:
+            obj_id = queue.get()
+            if obj_id is None:
+                break
 
-        log.debug('reading object %s', obj_id)
-        def do_read(fh):
-            while True:
-                buf = fh.read(BUFSIZE)
-                if not buf:
-                    break
+            log.debug('reading object %s', obj_id)
+            def do_read(fh):
+                while True:
+                    buf = fh.read(BUFSIZE)
+                    if not buf:
+                        break
 
-        key = 's3ql_data_%d' % obj_id
-        try:
-            if full:
-                backend.perform_read(do_read, key)
-            else:
-                backend.lookup(key)
-        except NoSuchObject:
-            log.warning('Backend seems to have lost object %d', obj_id)
-            print(key, file=missing_fh)
-        except CorruptedObjectError:
-            log.warning('Object %d is corrupted', obj_id)
-            print(key, file=corrupted_fh)
+            key = 's3ql_data_%d' % obj_id
+            try:
+                if full:
+                    backend.perform_read(do_read, key)
+                else:
+                    backend.lookup(key)
+            except NoSuchObject:
+                log.warning('Backend seems to have lost object %d', obj_id)
+                print(key, file=missing_fh)
+            except CorruptedObjectError:
+                log.warning('Object %d is corrupted', obj_id)
+                print(key, file=corrupted_fh)
 
 if __name__ == '__main__':
     main(sys.argv[1:])
