@@ -9,8 +9,8 @@ This program can be distributed under the terms of the GNU GPLv3.
 from ..logging import logging # Ensure use of custom logger class
 from .. import BUFSIZE, PICKLE_PROTOCOL
 from .common import (AbstractBackend, CorruptedObjectError, safe_unpickle,
-                     freeze_basic_mapping, thaw_basic_mapping, ThawError,
                      checksum_basic_mapping)
+from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from Crypto.Cipher import AES

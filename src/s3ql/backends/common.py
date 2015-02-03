@@ -17,9 +17,6 @@ import hashlib
 import struct
 import hmac
 import inspect
-from base64 import b64decode, b64encode
-import binascii
-from ast import literal_eval
 import ssl
 import os
 import re
@@ -583,72 +580,6 @@ def get_proxy(ssl):
         proxy = None
 
     return proxy
-
-
-class ThawError(Exception):
-    def __str__(self):
-        return 'Malformed serialization data'
-
-def thaw_basic_mapping(buf):
-    '''Reconstruct dict from serialized representation
-
-    *buf* must be a bytes-like object as created by
-    `freeze_basic_mapping`. Raises `ThawError` if *buf* is not a valid
-    representation.
-
-    This procedure is safe even if *buf* comes from an untrusted source.
-    '''
-
-    try:
-        d = literal_eval(buf.decode('utf-8'))
-    except (UnicodeDecodeError, SyntaxError, ValueError):
-        raise ThawError()
-
-    # Decode bytes values
-    for (k,v) in d.items():
-        if not isinstance(v, bytes):
-            continue
-        try:
-            d[k] = b64decode(v)
-        except binascii.Error:
-            raise ThawError()
-
-    return d
-
-def freeze_basic_mapping(d):
-    '''Serialize mapping of elementary types
-
-    Keys of *d* must be strings. Values of *d* must be of elementary type (i.e.,
-    `str`, `bytes`, `int`, `float`, `complex`, `bool` or None).
-
-    The output is a bytestream that can be used to reconstruct the mapping. The
-    bytestream is not guaranteed to be deterministic. Look at
-    `checksum_basic_mapping` if you need a deterministic bytestream.
-    '''
-
-    els = []
-    for (k,v) in d.items():
-        if not isinstance(k, str):
-            raise ValueError('key %s must be str, not %s' % (k, type(k)))
-
-        if (not isinstance(v, (str, bytes, bytearray, int, float, complex, bool))
-            and v is not None):
-            raise ValueError('value for key %s (%s) is not elementary' % (k, v))
-
-        # To avoid wasting space, we b64encode non-ascii byte values.
-        if isinstance(v, (bytes, bytearray)):
-            v = b64encode(v)
-
-        # This should be a pretty safe assumption for elementary types, but we
-        # add an assert just to be safe (Python docs just say that repr makes
-        # "best effort" to produce something parseable)
-        (k_repr, v_repr)  = (repr(k), repr(v))
-        assert (literal_eval(k_repr), literal_eval(v_repr)) == (k, v)
-
-        els.append(('%s: %s' % (k_repr, v_repr)))
-
-    buf = '{ %s }' % ', '.join(els)
-    return buf.encode('utf-8')
 
 def checksum_basic_mapping(metadata, key=None):
     '''Compute checksum for mapping of elementary types

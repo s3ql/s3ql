@@ -12,8 +12,8 @@ if __name__ == '__main__':
     import sys
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from s3ql.backends.common import (freeze_basic_mapping, thaw_basic_mapping,
-                                  ThawError, checksum_basic_mapping)
+from s3ql.common import ThawError, freeze_basic_mapping, thaw_basic_mapping
+from s3ql.backends.common import checksum_basic_mapping
 import pytest
 from collections import OrderedDict
 

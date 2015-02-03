@@ -10,8 +10,8 @@ from ..logging import logging # Ensure use of custom logger class
 from .. import BUFSIZE
 from ..inherit_docstrings import (copy_ancestor_docstring, ABCDocstMeta)
 from .common import (AbstractBackend, DanglingStorageURLError, NoSuchObject,
-                     CorruptedObjectError, safe_unpickle_fh, ThawError,
-                     freeze_basic_mapping, thaw_basic_mapping)
+                     CorruptedObjectError, safe_unpickle_fh)
+from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
 import _thread
 import struct
 import io
