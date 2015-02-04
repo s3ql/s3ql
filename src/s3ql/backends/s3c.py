@@ -10,7 +10,7 @@ from ..logging import logging, QuietError # Ensure use of custom logger class
 from .. import BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
                      AuthenticationError, DanglingStorageURLError, retry_generator,
-                     get_proxy, get_ssl_context, CorruptedObjectError, safe_unpickle,
+                     get_proxy, get_ssl_context, CorruptedObjectError,
                      checksum_basic_mapping)
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
@@ -32,7 +32,6 @@ import re
 import tempfile
 import time
 import urllib.parse
-import pickle
 
 C_DAY_NAMES = [ 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ]
 C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ]
@@ -709,33 +708,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         '''Extract metadata from HTTP response object'''
 
         format_ = resp.headers.get('%smeta-format' % self.hdr_prefix, 'raw')
-        if format_ in ('raw', 'pickle'):
-            meta = CaseInsensitiveDict()
-            pattern = re.compile(r'^%smeta-(.+)$' % re.escape(self.hdr_prefix),
-                                 re.IGNORECASE)
-            for fname in resp.headers:
-                hit = pattern.search(fname)
-                if hit:
-                    meta[hit.group(1)] = resp.headers[fname]
-
-            if format_ == 'raw':
-                return meta
-
-            # format_ == pickle
-            buf = ''.join(meta[x] for x in sorted(meta) if x.lower().startswith('data-'))
-            if 'md5' in meta and md5sum_b64(buf.encode('us-ascii')) != meta['md5']:
-                log.warning('MD5 mismatch in metadata for %s', obj_key)
-                raise BadDigestError('BadDigest', 'Meta MD5 for %s does not match' % obj_key)
-            try:
-                return safe_unpickle(b64decode(buf), encoding='latin1')
-            except binascii.Error:
-                raise CorruptedObjectError('Corrupted metadata, b64decode failed')
-            except pickle.UnpicklingError as exc:
-                raise CorruptedObjectError('Corrupted metadata, pickle says: %s' % exc)
-
-        elif format_ != 'raw2': # Current
-            raise RuntimeError('Unknown metadata format %s for key %s'
-                               % (format_, obj_key))
+        if format_ != 'raw2': # Current
+            raise CorruptedObjectError('Invalid metadata format: %s' % format_)
 
         parts = []
         for i in count():

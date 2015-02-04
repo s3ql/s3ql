@@ -10,8 +10,6 @@ from ..logging import logging, QuietError, LOG_ONCE # Ensure use of custom logge
 from abc import abstractmethod, ABCMeta
 from functools import wraps
 import time
-import codecs
-import io
 import textwrap
 import hashlib
 import struct
@@ -20,8 +18,6 @@ import inspect
 import ssl
 import os
 import re
-import pickletools
-import pickle
 
 log = logging.getLogger(__name__)
 
@@ -627,67 +623,3 @@ def checksum_basic_mapping(metadata, key=None):
         chk.update(val)
 
     return chk.digest()
-
-
-SAFE_UNPICKLE_OPCODES = {'BININT', 'BININT1', 'BININT2', 'LONG1', 'LONG4',
-                         'BINSTRING', 'SHORT_BINSTRING', 'GLOBAL',
-                         'NONE', 'NEWTRUE', 'NEWFALSE', 'BINUNICODE',
-                         'BINFLOAT', 'EMPTY_LIST', 'APPEND', 'APPENDS',
-                         'LIST', 'EMPTY_TUPLE', 'TUPLE', 'TUPLE1', 'TUPLE2',
-                         'TUPLE3', 'EMPTY_DICT', 'DICT', 'SETITEM',
-                         'SETITEMS', 'POP', 'DUP', 'MARK', 'POP_MARK',
-                         'BINGET', 'LONG_BINGET', 'BINPUT', 'LONG_BINPUT',
-                         'PROTO', 'STOP', 'REDUCE'}
-
-SAFE_UNPICKLE_GLOBAL_NAMES = { ('__builtin__', 'bytearray'),
-                               ('__builtin__', 'set'),
-                               ('__builtin__', 'frozenset'),
-                               ('_codecs', 'encode') }
-SAFE_UNPICKLE_GLOBAL_OBJS = { bytearray, set, frozenset, codecs.encode }
-
-class SafeUnpickler(pickle.Unpickler):
-    def find_class(self, module, name):
-        if (module, name) not in SAFE_UNPICKLE_GLOBAL_NAMES:
-            raise pickle.UnpicklingError("global '%s.%s' is unsafe" %
-                                         (module, name))
-        ret = super().find_class(module, name)
-        if ret not in SAFE_UNPICKLE_GLOBAL_OBJS:
-            raise pickle.UnpicklingError("global '%s.%s' is unsafe" %
-                                         (module, name))
-        return ret
-
-
-def safe_unpickle_fh(fh, fix_imports=True, encoding="ASCII",
-                  errors="strict"):
-    '''Safely unpickle untrusted data from *fh*
-
-    *fh* must be seekable.
-    '''
-
-    if not fh.seekable():
-        raise TypeError('*fh* must be seekable')
-    pos = fh.tell()
-
-    # First make sure that we know all used opcodes
-    try:
-        for (opcode, arg, _) in pickletools.genops(fh):
-            if opcode.proto > 2 or opcode.name not in SAFE_UNPICKLE_OPCODES:
-                raise pickle.UnpicklingError('opcode %s is unsafe' % opcode.name)
-    except (ValueError, EOFError):
-        raise pickle.UnpicklingError('corrupted data')
-
-    fh.seek(pos)
-
-    # Then use a custom Unpickler to ensure that we only give access to
-    # specific, whitelisted globals. Note that with the above opcodes, there is
-    # no way to trigger attribute access, so "brachiating" from a white listed
-    # object to __builtins__ is not possible.
-    return SafeUnpickler(fh, fix_imports=fix_imports,
-                         encoding=encoding, errors=errors).load()
-
-def safe_unpickle(buf, fix_imports=True, encoding="ASCII",
-                  errors="strict"):
-    '''Safely unpickle untrusted data in *buf*'''
-
-    return safe_unpickle_fh(io.BytesIO(buf), fix_imports=fix_imports,
-                            encoding=encoding, errors=errors)

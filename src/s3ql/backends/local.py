@@ -10,13 +10,12 @@ from ..logging import logging # Ensure use of custom logger class
 from .. import BUFSIZE
 from ..inherit_docstrings import (copy_ancestor_docstring, ABCDocstMeta)
 from .common import (AbstractBackend, DanglingStorageURLError, NoSuchObject,
-                     CorruptedObjectError, safe_unpickle_fh)
+                     CorruptedObjectError)
 from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
 import _thread
 import struct
 import io
 import os
-import pickle
 import shutil
 
 log = logging.getLogger(__name__)
@@ -241,19 +240,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
 def _read_meta(fh):
     buf = fh.read(9)
-    if buf.startswith(b's3ql_1\n'):
-        len_ = struct.unpack('<H', buf[-2:])[0]
-        try:
-            return thaw_basic_mapping(fh.read(len_))
-        except ThawError:
-            raise CorruptedObjectError('Invalid metadata')
-    else:
-        fh.seek(0)
-        try:
-            return safe_unpickle_fh(fh, encoding='latin1')
-        except pickle.UnpicklingError as exc:
-            raise CorruptedObjectError('Invalid metadata, pickle says: %s' % exc)
+    if not buf.startswith(b's3ql_1\n'):
+        raise CorruptedObjectError('Invalid object header: %r' % buf)
 
+    len_ = struct.unpack('<H', buf[-2:])[0]
+    try:
+        return thaw_basic_mapping(fh.read(len_))
+    except ThawError:
+        raise CorruptedObjectError('Invalid metadata')
 
 def escape(s):
     '''Escape '/', '=' and '.' in s'''

@@ -19,7 +19,7 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'common', 'calc_mro',
             'fsck', 'inherit_docstrings', 'inode_cache', 'lock',
             'logging', 'metadata', 'mkfs', 'mount', 'parse_args',
             'remove', 'statfs', 'umount', 'VERSION', 'CURRENT_FS_REV',
-            'REV_VER_MAP', 'RELEASE', 'BUFSIZE', 'PICKLE_PROTOCOL',
+            'REV_VER_MAP', 'RELEASE', 'BUFSIZE',
             'CTRL_NAME', 'CTRL_INODE' ]
 
 VERSION = '2.13'
@@ -32,9 +32,6 @@ CURRENT_FS_REV = 22
 # Buffer size when writing objects
 BUFSIZE = 64 * 1024
 
-# Pickle protocol version to use.
-PICKLE_PROTOCOL = 2
-
 # Name and inode of the special s3ql control file
 CTRL_NAME = '.__s3ql__ctrl__'
 CTRL_INODE = 2
@@ -42,7 +39,7 @@ CTRL_INODE = 2
 # Maps file system revisions to the last S3QL version that
 # supported this revision.
 REV_VER_MAP = {
-    21: '2.12',
+    21: '2.13',
     20: '2.9',
     16: '1.15',
     15: '1.10',
