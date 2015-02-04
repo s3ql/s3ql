@@ -95,7 +95,7 @@ def main(args=None):
         log.warning('Warning: maximum object sizes less than 1 MiB will seriously degrade '
                  'performance.', extra={ 'force_log': True })
 
-    plain_backend = get_backend(options, plain=True)
+    plain_backend = get_backend(options, raw=True)
     atexit.register(plain_backend.close)
 
     log.info("Before using S3QL, make sure to read the user's guide, especially\n"

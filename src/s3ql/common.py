@@ -282,25 +282,28 @@ def assert_s3ql_mountpoint(mountpoint):
 
     return ctrlfile
 
-def get_backend(options, plain=False):
+def get_backend(options, raw=False):
     '''Return backend for given storage-url
 
-    If *plain* is true, don't attempt to unlock and don't wrap into
+    If *raw* is true, don't attempt to unlock and don't wrap into
     ComprencBackend.
     '''
 
-    return get_backend_factory(options, plain)()
+    return get_backend_factory(options.storage_url, options.backend_options,
+                               options.authfile,
+                               getattr(options, 'compress', ('lzma', 2)), raw)()
 
-def get_backend_factory(options, plain=False):
+def get_backend_factory(storage_url, backend_options, authfile,
+                        compress=('lzma', 2), raw=False):
     '''Return factory producing backend objects for given storage-url
 
-    If *plain* is true, don't attempt to unlock and don't wrap into
+    If *raw* is true, don't attempt to unlock and don't wrap into
     ComprencBackend.
     '''
 
-    hit = re.match(r'^([a-zA-Z0-9]+)://', options.storage_url)
+    hit = re.match(r'^([a-zA-Z0-9]+)://', storage_url)
     if not hit:
-        raise QuietError('Unable to parse storage url "%s"' % options.storage_url,
+        raise QuietError('Unable to parse storage url "%s"' % storage_url,
                          exitcode=2)
 
     backend = hit.group(1)
@@ -310,19 +313,19 @@ def get_backend_factory(options, plain=False):
         raise QuietError('No such backend: %s' % backend, exitcode=11)
 
     # Validate backend options
-    for opt in options.backend_options.keys():
+    for opt in backend_options.keys():
         if opt not in backend_class.known_options:
             raise QuietError('Unknown backend option: %s' % opt,
                              exitcode=3)
 
     # Read authfile
     config = configparser.ConfigParser()
-    if os.path.isfile(options.authfile):
-        mode = os.stat(options.authfile).st_mode
+    if os.path.isfile(authfile):
+        mode = os.stat(authfile).st_mode
         if mode & (stat.S_IRGRP | stat.S_IROTH):
-            raise QuietError("%s has insecure permissions, aborting." % options.authfile,
+            raise QuietError("%s has insecure permissions, aborting." % authfile,
                              exitcode=12)
-        config.read(options.authfile)
+        config.read(authfile)
 
     backend_login = None
     backend_passphrase = None
@@ -336,7 +339,7 @@ def get_backend_factory(options, plain=False):
 
         pattern = getopt('storage-url')
 
-        if not pattern or not options.storage_url.startswith(pattern):
+        if not pattern or not storage_url.startswith(pattern):
             continue
 
         backend_login = getopt('backend-login') or backend_login
@@ -361,8 +364,8 @@ def get_backend_factory(options, plain=False):
 
     backend = None
     try:
-        backend = backend_class(options.storage_url, backend_login, backend_passphrase,
-                                options.backend_options)
+        backend = backend_class(storage_url, backend_login, backend_passphrase,
+                                backend_options)
 
         # Do not use backend.lookup(), this would use a HEAD request and
         # not provide any useful error messages if something goes wrong
@@ -394,9 +397,9 @@ def get_backend_factory(options, plain=False):
         if backend is not None:
             backend.close()
 
-    if plain:
-        return lambda: backend_class(options.storage_url, backend_login, backend_passphrase,
-                                     options.backend_options)
+    if raw:
+        return lambda: backend_class(storage_url, backend_login, backend_passphrase,
+                                     backend_options)
 
     if encrypted and not fs_passphrase:
         if sys.stdin.isatty():
@@ -409,15 +412,10 @@ def get_backend_factory(options, plain=False):
     if fs_passphrase is not None:
         fs_passphrase = fs_passphrase.encode('utf-8')
 
-    if hasattr(options, 'compress'):
-        compress = options.compress
-    else:
-        compress = ('lzma', 2)
-
     if not encrypted:
         return lambda: ComprencBackend(None, compress,
-                                    backend_class(options.storage_url, backend_login,
-                                                  backend_passphrase, options.backend_options))
+                                    backend_class(storage_url, backend_login,
+                                                  backend_passphrase, backend_options))
 
     with ComprencBackend(fs_passphrase, compress, backend) as tmp_backend:
         try:
@@ -429,8 +427,8 @@ def get_backend_factory(options, plain=False):
     # passphrase in every backend object.
     def factory():
         b = ComprencBackend(data_pw, compress,
-                            backend_class(options.storage_url, backend_login,
-                                          backend_passphrase, options.backend_options))
+                            backend_class(storage_url, backend_login,
+                                          backend_passphrase, backend_options))
         b.fs_passphrase = fs_passphrase
         return b
 

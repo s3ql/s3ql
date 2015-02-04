@@ -100,10 +100,14 @@ def main(args=None):
 
     try:
         options.storage_url = options.src_storage_url
-        src_backend_factory = get_backend_factory(options, plain=True)
+        src_backend_factory = get_backend_factory(options.src_storage_url,
+                                                  options.backend_options,
+                                                  options.authfile, raw=True)
 
         options.storage_url = options.dst_storage_url
-        dst_backend_factory = get_backend_factory(options, plain=True)
+        dst_backend_factory = get_backend_factory(options.dst_storage_url,
+                                                  options.backend_options,
+                                                  options.authfile, raw=True)
     except DanglingStorageURLError as exc:
         raise QuietError(str(exc)) from None
 

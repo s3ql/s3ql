@@ -11,7 +11,6 @@ from .mount import get_metadata
 from . import BUFSIZE
 from .common import (get_backend_factory, get_backend_cachedir, pretty_print_size,
                      AsyncFn)
-from .backends.pool import BackendPool
 from .backends.common import NoSuchObject, CorruptedObjectError
 from .parse_args import ArgumentParser
 from queue import Queue, Full as QueueFull
@@ -91,15 +90,14 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    backend_factory = get_backend_factory(options)
-    backend_pool = BackendPool(backend_factory)
-    atexit.register(backend_pool.flush)
+    backend_factory = get_backend_factory(options.storage_url, options.backend_options,
+                                          options.authfile)
 
     # Get paths
     cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
 
     # Retrieve metadata
-    with backend_pool() as backend:
+    with backend_factory() as backend:
         (param, db) = get_metadata(backend, cachepath)
 
     retrieve_objects(db, backend_factory, options.corrupted_file,

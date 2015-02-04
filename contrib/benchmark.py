@@ -126,7 +126,7 @@ def main(args=None):
     # on the network layer
     log.info('Measuring raw backend throughput..')
     try:
-        backend = get_backend(options, plain=True)
+        backend = get_backend(options, raw=True)
     except DanglingStorageURLError as exc:
         raise QuietError(str(exc)) from None
 

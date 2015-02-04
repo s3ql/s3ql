@@ -116,7 +116,8 @@ def main(args=None):
         import pstats
         prof = cProfile.Profile()
 
-    backend_factory = get_backend_factory(options)
+    backend_factory = get_backend_factory(options.storage_url, options.backend_options,
+                                          options.authfile, options.compress)
     backend_pool = BackendPool(backend_factory)
     atexit.register(backend_pool.flush)
 

@@ -52,7 +52,7 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    backend = get_backend(options, plain=True)
+    backend = get_backend(options, raw=True)
     atexit.register(backend.close)
 
     for line in options.file:

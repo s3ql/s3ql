@@ -87,7 +87,7 @@ def main(args=None):
         raise QuietError('Can not work on mounted file system.')
 
     if options.action == 'clear':
-        with get_backend(options, plain=True) as backend:
+        with get_backend(options, raw=True) as backend:
             return clear(backend, options)
 
     if options.action == 'upgrade':
@@ -229,7 +229,8 @@ def upgrade(options, on_return):
     log.info('Getting file system parameters..')
     cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
 
-    backend_factory = get_backend_factory(options)
+    backend_factory = get_backend_factory(options.storage_url, options.backend_options,
+                                          options.authfile)
     backend = on_return.enter_context(backend_factory())
 
     # Check for cached metadata
