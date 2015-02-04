@@ -392,8 +392,15 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             elif exc.status != 404:
                 raise
 
-    # Temporary hack. I promise to make this nicer by the next
-    # release :-).
+    # We cannot wrap the entire copy() method into a retry() decorator, because
+    # copy() issues multiple requests. If the server happens to regularly close
+    # the connection after a request (even though it was processed correctly),
+    # we'd never make any progress if we always restart from the first request.
+    # We experimented with adding a retry(fn, args, kwargs) function to wrap
+    # individual calls, but this doesn't really improve the code because we
+    # typically also have to wrap e.g. a discard() or assert_empty() call, so we
+    # end up with having to create an additional function anyway. Having
+    # anonymous blocks in Python would be very nice here.
     @retry
     def _copy_helper(self, method, path, headers):
         self._do_request(method, path, headers=headers)
