@@ -18,11 +18,66 @@ import inspect
 import ssl
 import os
 import re
+import threading
 
 log = logging.getLogger(__name__)
 
+class RateTracker:
+    '''
+    Maintain an average occurence rate for events over a configurable time
+    window. The rate is computed with one second resolution.
+    '''
+
+    def __init__(self, window_length):
+        if not isinstance(window_length, int):
+            raise ValueError('only integer window lengths are supported')
+
+        self.buckets = [0] * window_length
+        self.window_length = window_length
+        self.last_update = int(time.monotonic())
+        self.lock = threading.Lock()
+
+    def register(self, _not_really=False):
+        '''Register occurence of an event.
+
+        The keyword argument is for class-internal use only.
+        '''
+
+        buckets = self.buckets
+        bucket_count = len(self.buckets)
+        now = int(time.monotonic())
+
+        elapsed =  min(now - self.last_update, bucket_count)
+        for i in range(elapsed):
+            buckets[(now - i) % bucket_count] = 0
+
+        if _not_really:
+            return
+
+        with self.lock:
+            buckets[now % bucket_count] += 1
+            self.last_update = now
+
+    def get_rate(self):
+        '''Return average rate of event occurance'''
+
+        self.register(_not_really=True)
+        return sum(self.buckets) / len(self.buckets)
+
+    def get_count(self):
+        '''Return total number of events in window'''
+
+        self.register(_not_really=True)
+        return sum(self.buckets)
+
+
+# We maintain a (global) running average of temporary errors, so
+# that we can log a warning if this number becomes large. We
+# use a relatively large window to prevent bogus spikes if
+# multiple threads all have to retry after a long period of
+# inactivity.
 RETRY_TIMEOUT = 60 * 60 * 24
-def retry(method):
+def retry(method, _tracker=RateTracker(60)):
     '''Wrap *method* for retrying on some exceptions
 
     If *method* raises an exception for which the instance's
@@ -48,6 +103,16 @@ def retry(method):
                 #pylint: disable=W0212
                 if not self.is_temp_failure(exc):
                     raise
+
+                _tracker.register()
+                rate = _tracker.get_rate()
+                if  rate > 5:
+                    log.warning('Had to retry %d times over the last %d seconds, '
+                                'server or network problem?',
+                                rate * _tracker.window_length, _tracker.window_length)
+                else:
+                    log.debug('Average retry rate: %.2f Hz', rate)
+
                 if waited > RETRY_TIMEOUT:
                     log.error('%s.%s(*): Timeout exceeded, re-raising %r exception',
                             self.__class__.__name__, method.__name__, exc)
@@ -61,8 +126,9 @@ def retry(method):
                 else:
                     log_fn = log.warning
 
-                log_fn('Encountered %s exception (%s), retrying call to %s.%s for the %d-th time...',
-                       type(exc).__name__, exc, self.__class__.__name__, method.__name__, retries)
+                log_fn('Encountered %s (%s), retrying %s.%s (attempt %d)...',
+                       type(exc).__name__, exc, self.__class__.__name__, method.__name__,
+                       retries)
 
                 if hasattr(exc, 'retry_after') and exc.retry_after:
                     log.debug('retry_after is %.2f seconds', exc.retry_after)
