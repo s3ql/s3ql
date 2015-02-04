@@ -10,13 +10,13 @@ from .logging import logging, setup_logging, QuietError
 from . import fs, CURRENT_FS_REV
 from .backends.pool import BackendPool
 from .block_cache import BlockCache
-from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2, stream_read_bz2,
-                     get_backend_factory, pretty_print_size, load_params,
-                     freeze_basic_mapping)
+from .common import (get_backend_cachedir, get_seq_no, get_backend_factory,
+                     load_params, freeze_basic_mapping)
 from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
-from .metadata import cycle_metadata, dump_metadata, restore_metadata
+from .metadata import (download_metadata, upload_metadata, dump_and_upload_metadata,
+                       dump_metadata)
 from .parse_args import ArgumentParser
 from .exit_stack import ExitStack
 from threading import Thread
@@ -246,21 +246,7 @@ def main(args=None):
                 fh.write(freeze_basic_mapping(param))
         elif seq_no == param['seq_no']:
             param['last-modified'] = time.time()
-
-            log.info('Dumping metadata...')
-            with tempfile.TemporaryFile() as fh:
-                dump_metadata(db, fh)
-                def do_write(obj_fh):
-                    fh.seek(0)
-                    stream_write_bz2(fh, obj_fh)
-                    return obj_fh
-
-                log.info("Compressing and uploading metadata...")
-                obj_fh = backend.perform_write(do_write, "s3ql_metadata_new",
-                                               metadata=param, is_compressed=True)
-            log.info('Wrote %s of compressed metadata.', pretty_print_size(obj_fh.get_obj_size()))
-            log.info('Cycling metadata backups...')
-            cycle_metadata(backend)
+            dump_and_upload_metadata(backend, db, param)
             with open(cachepath + '.params', 'wb') as fh:
                 fh.write(freeze_basic_mapping(param))
         else:
@@ -430,18 +416,7 @@ def get_metadata(backend, cachepath):
 
     # Download metadata
     if not db:
-        with tempfile.TemporaryFile() as tmpfh:
-            def do_read(fh):
-                tmpfh.seek(0)
-                tmpfh.truncate()
-                stream_read_bz2(fh, tmpfh)
-
-            log.info('Downloading and decompressing metadata...')
-            backend.perform_read(do_read, "s3ql_metadata")
-
-            log.info("Reading metadata...")
-            tmpfh.seek(0)
-            db = restore_metadata(tmpfh, cachepath + '.db')
+        db = download_metadata(backend, cachepath + '.db')
 
     with open(cachepath + '.params', 'wb') as fh:
         fh.write(freeze_basic_mapping(param))
@@ -679,17 +654,7 @@ class MetadataUploadThread(Thread):
 
                 # Temporarily decrease sequence no, this is not the final upload
                 self.param['seq_no'] -= 1
-                def do_write(obj_fh):
-                    fh.seek(0)
-                    stream_write_bz2(fh, obj_fh)
-                    return obj_fh
-                log.info("Compressing and uploading metadata...")
-                obj_fh = backend.perform_write(do_write, "s3ql_metadata_new",
-                                               metadata=self.param, is_compressed=True)
-                log.info('Wrote %s of compressed metadata.',
-                         pretty_print_size(obj_fh.get_obj_size()))
-                log.info('Cycling metadata backups...')
-                cycle_metadata(backend)
+                upload_metadata(backend, fh, self.param)
                 self.param['seq_no'] += 1
 
                 fh.close()

@@ -22,7 +22,6 @@ import sys
 import os
 import subprocess
 import pickle
-import bz2
 import errno
 import hashlib
 import llfuse
@@ -69,38 +68,6 @@ def get_seq_no(backend):
             pass # Key list may not be up to date
 
     return seq_no
-
-def stream_write_bz2(ifh, ofh):
-    '''Compress *ifh* into *ofh* using bz2 compression'''
-
-    compr = bz2.BZ2Compressor(9)
-    while True:
-        buf = ifh.read(BUFSIZE)
-        if not buf:
-            break
-        buf = compr.compress(buf)
-        if buf:
-            ofh.write(buf)
-    buf = compr.flush()
-    if buf:
-        ofh.write(buf)
-
-def stream_read_bz2(ifh, ofh):
-    '''Uncompress bz2 compressed *ifh* into *ofh*'''
-
-    from .backends.common import CorruptedObjectError
-
-    decompressor = bz2.BZ2Decompressor()
-    while True:
-        buf = ifh.read(BUFSIZE)
-        if not buf:
-            break
-        buf = decompressor.decompress(buf)
-        if buf:
-            ofh.write(buf)
-
-    if decompressor.unused_data or ifh.read(1) != b'':
-        raise CorruptedObjectError('Data after end of bz2 stream')
 
 def is_mounted(storage_url):
     '''Try to determine if *storage_url* is mounted

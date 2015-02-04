@@ -10,10 +10,10 @@ from .logging import logging, setup_logging, QuietError
 from . import CURRENT_FS_REV, CTRL_INODE, ROOT_INODE
 from .backends.comprenc import ComprencBackend
 from .backends import s3
-from .common import (get_backend_cachedir, stream_write_bz2, get_backend,
-                     pretty_print_size, split_by_n, freeze_basic_mapping)
+from .common import (get_backend_cachedir, get_backend, split_by_n,
+                     freeze_basic_mapping)
 from .database import Connection
-from .metadata import dump_metadata, create_tables
+from .metadata import dump_and_upload_metadata, create_tables
 from .parse_args import ArgumentParser
 from getpass import getpass
 from base64 import b64encode
@@ -21,7 +21,6 @@ import os
 import shutil
 import stat
 import sys
-import tempfile
 import time
 import atexit
 
@@ -169,21 +168,8 @@ def main(args=None):
     param['last-modified'] = time.time()
 
     log.info('Dumping metadata...')
-    with tempfile.TemporaryFile() as fh:
-        dump_metadata(db, fh)
-        def do_write(obj_fh):
-            fh.seek(0)
-            stream_write_bz2(fh, obj_fh)
-            return obj_fh
-
-        # Store metadata first, and seq_no second so that if mkfs
-        # is interrupted, fsck won't see a file system at all.
-        log.info("Compressing and uploading metadata...")
-        obj_fh = backend.perform_write(do_write, "s3ql_metadata", metadata=param,
-                                      is_compressed=True)
-        backend.store('s3ql_seq_no_%d' % param['seq_no'], b'Empty')
-
-    log.info('Wrote %s of compressed metadata.', pretty_print_size(obj_fh.get_obj_size()))
+    dump_and_upload_metadata(backend, db, param)
+    backend.store('s3ql_seq_no_%d' % param['seq_no'], b'Empty')
     with open(cachepath + '.params', 'wb') as fh:
         fh.write(freeze_basic_mapping(param))
 

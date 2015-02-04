@@ -12,10 +12,10 @@ from .backends.common import NoSuchObject
 from .backends.comprenc import ComprencBackend
 from .backends.local import Backend as LocalBackend
 from .common import (inode_for_path, sha256_fh, get_path, get_backend_cachedir,
-                     get_seq_no, stream_write_bz2, stream_read_bz2, is_mounted,
-                     get_backend, pretty_print_size, load_params, freeze_basic_mapping)
+                     get_seq_no, is_mounted, get_backend, load_params,
+                     freeze_basic_mapping)
 from .database import NoSuchRowError, Connection
-from .metadata import restore_metadata, cycle_metadata, dump_metadata, create_tables
+from .metadata import create_tables, dump_and_upload_metadata, download_metadata
 from .parse_args import ArgumentParser
 from os.path import basename
 import apsw
@@ -26,7 +26,6 @@ import shutil
 import itertools
 import stat
 import sys
-import tempfile
 import textwrap
 import time
 import atexit
@@ -1245,18 +1244,7 @@ def main(args=None):
                              + cachepath + '.db (corrupted)\n'
                              + cachepath + '.param (intact)', exitcode=43)
     else:
-        with tempfile.TemporaryFile() as tmpfh:
-            def do_read(fh):
-                tmpfh.seek(0)
-                tmpfh.truncate()
-                stream_read_bz2(fh, tmpfh)
-
-            log.info('Downloading and decompressing metadata...')
-            backend.perform_read(do_read, "s3ql_metadata")
-
-            log.info("Reading metadata...")
-            tmpfh.seek(0)
-            db = restore_metadata(tmpfh, cachepath + '.db')
+        db = download_metadata(backend, cachepath + '.db')
 
     # Increase metadata sequence no
     param['seq_no'] += 1
@@ -1288,20 +1276,7 @@ def main(args=None):
     param['last_fsck'] = time.time()
     param['last-modified'] = time.time()
 
-    log.info('Dumping metadata...')
-    with tempfile.TemporaryFile() as fh:
-        dump_metadata(db, fh)
-        def do_write(obj_fh):
-            fh.seek(0)
-            stream_write_bz2(fh, obj_fh)
-            return obj_fh
-
-        log.info("Compressing and uploading metadata...")
-        obj_fh = backend.perform_write(do_write, "s3ql_metadata_new", metadata=param,
-                                      is_compressed=True)
-    log.info('Wrote %s of compressed metadata.', pretty_print_size(obj_fh.get_obj_size()))
-    log.info('Cycling metadata backups...')
-    cycle_metadata(backend)
+    dump_and_upload_metadata(backend, db, param)
     with open(cachepath + '.params', 'wb') as fh:
         fh.write(freeze_basic_mapping(param))
 

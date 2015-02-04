@@ -8,9 +8,13 @@ This program can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging # Ensure use of custom logger class
 from .database import Connection
+from . import BUFSIZE
+from .common import pretty_print_size
 from .deltadump import INTEGER, BLOB, TIME, dump_table, load_table
-from .backends.common import NoSuchObject
+from .backends.common import NoSuchObject, CorruptedObjectError
 import os
+import tempfile
+import bz2
 import stat
 
 log = logging.getLogger(__name__)
@@ -124,7 +128,11 @@ def cycle_metadata(backend, keep=10):
 
     # However, the current metadata object should always be copied,
     # so that even if there's a crash we don't end up without it
-    backend.copy("s3ql_metadata", "s3ql_metadata_bak_0")
+    try:
+        backend.copy("s3ql_metadata", "s3ql_metadata_bak_0")
+    except NoSuchObject:
+        # In case of mkfs, there may be no metadata object yet
+        pass
     cycle_fn("s3ql_metadata_new", "s3ql_metadata")
 
     if cycle_fn is backend.copy:
@@ -252,3 +260,67 @@ def create_tables(conn):
     CREATE VIEW ext_attributes_v AS
     SELECT * FROM ext_attributes JOIN names ON names.id = name_id
     """)
+
+def stream_write_bz2(ifh, ofh):
+    '''Compress *ifh* into *ofh* using bz2 compression'''
+
+    compr = bz2.BZ2Compressor(9)
+    while True:
+        buf = ifh.read(BUFSIZE)
+        if not buf:
+            break
+        buf = compr.compress(buf)
+        if buf:
+            ofh.write(buf)
+    buf = compr.flush()
+    if buf:
+        ofh.write(buf)
+
+def stream_read_bz2(ifh, ofh):
+    '''Uncompress bz2 compressed *ifh* into *ofh*'''
+
+    decompressor = bz2.BZ2Decompressor()
+    while True:
+        buf = ifh.read(BUFSIZE)
+        if not buf:
+            break
+        buf = decompressor.decompress(buf)
+        if buf:
+            ofh.write(buf)
+
+    if decompressor.unused_data or ifh.read(1) != b'':
+        raise CorruptedObjectError('Data after end of bz2 stream')
+
+def download_metadata(backend, db_file, name='s3ql_metadata'):
+    with tempfile.TemporaryFile() as tmpfh:
+        def do_read(fh):
+            tmpfh.seek(0)
+            tmpfh.truncate()
+            stream_read_bz2(fh, tmpfh)
+
+        log.info('Downloading and decompressing metadata...')
+        backend.perform_read(do_read, name)
+
+        log.info("Reading metadata...")
+        tmpfh.seek(0)
+        return restore_metadata(tmpfh, db_file)
+
+def dump_and_upload_metadata(backend, db, param):
+    with tempfile.TemporaryFile() as fh:
+        log.info('Dumping metadata...')
+        dump_metadata(db, fh)
+        upload_metadata(backend, fh, param)
+
+def upload_metadata(backend, fh, param):
+    log.info("Compressing and uploading metadata...")
+    def do_write(obj_fh):
+        fh.seek(0)
+        stream_write_bz2(fh, obj_fh)
+        return obj_fh
+    obj_fh = backend.perform_write(do_write, "s3ql_metadata_new",
+                                   metadata=param, is_compressed=True)
+    log.info('Wrote %s of compressed metadata.',
+             pretty_print_size(obj_fh.get_obj_size()))
+
+    log.info('Cycling metadata backups...')
+    cycle_metadata(backend)

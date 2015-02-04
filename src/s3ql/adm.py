@@ -10,17 +10,15 @@ from .logging import logging, QuietError, setup_logging
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.comprenc import ComprencBackend
 from .database import Connection
-from .common import (get_backend_cachedir, get_seq_no, stream_write_bz2,
-                     stream_read_bz2, is_mounted, get_backend,
-                     pretty_print_size, freeze_basic_mapping, load_params)
-from .metadata import restore_metadata, cycle_metadata, dump_metadata
+from .common import (get_backend_cachedir, get_seq_no, is_mounted, get_backend,
+                     freeze_basic_mapping, load_params)
+from .metadata import dump_and_upload_metadata, download_metadata
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
 from getpass import getpass
 import os
 import shutil
 import sys
-import tempfile
 import textwrap
 import time
 
@@ -94,9 +92,9 @@ def main(args=None):
             return change_passphrase(backend)
 
         elif options.action == 'download-metadata':
-            return download_metadata(backend, options.storage_url)
+            return download_metadata_cmd(backend, options.storage_url)
 
-def download_metadata(backend, storage_url):
+def download_metadata_cmd(backend, storage_url):
     '''Download old metadata backups'''
 
     backups = sorted(backend.list('s3ql_metadata'))
@@ -135,18 +133,7 @@ def download_metadata(backend, storage_url):
             raise QuietError('%s already exists, aborting.' % cachepath + i)
 
     param = backend.lookup(name)
-    with tempfile.TemporaryFile() as tmpfh:
-        def do_read(fh):
-            tmpfh.seek(0)
-            tmpfh.truncate()
-            stream_read_bz2(fh, tmpfh)
-
-        log.info('Downloading and decompressing %s...', name)
-        backend.perform_read(do_read, name)
-
-        log.info("Reading metadata...")
-        tmpfh.seek(0)
-        restore_metadata(tmpfh, cachepath + '.db')
+    download_metadata(backend, cachepath + ".db", name)
 
     # Raise sequence number so that fsck.s3ql actually uses the
     # downloaded backup
@@ -297,18 +284,7 @@ def upgrade(backend, cachepath):
 
     if not db:
         # Need to download metadata
-        with tempfile.TemporaryFile() as tmpfh:
-            def do_read(fh):
-                tmpfh.seek(0)
-                tmpfh.truncate()
-                stream_read_bz2(fh, tmpfh)
-
-            log.info("Downloading & uncompressing metadata...")
-            backend.perform_read(do_read, "s3ql_metadata")
-
-            log.info("Reading metadata...")
-            tmpfh.seek(0)
-            db = restore_metadata(tmpfh, cachepath + '.db')
+        db = download_metadata(backend, cachepath + '.db')
 
     log.info('Upgrading from revision %d to %d...', param['revision'], CURRENT_FS_REV)
 
@@ -318,22 +294,7 @@ def upgrade(backend, cachepath):
 
     # Upgrade code goes here
 
-    log.info('Dumping metadata...')
-    with tempfile.TemporaryFile() as fh:
-        dump_metadata(db, fh)
-        def do_write(obj_fh):
-            fh.seek(0)
-            stream_write_bz2(fh, obj_fh)
-            return obj_fh
-
-        log.info("Compressing and uploading metadata...")
-        backend.store('s3ql_seq_no_%d' % param['seq_no'], b'Empty')
-        obj_fh = backend.perform_write(do_write, "s3ql_metadata_new", metadata=param,
-                                      is_compressed=True)
-
-    log.info('Wrote %s of compressed metadata.', pretty_print_size(obj_fh.get_obj_size()))
-    log.info('Cycling metadata backups...')
-    cycle_metadata(backend)
+    dump_and_upload_metadata(backend, db, param)
 
     backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
 
