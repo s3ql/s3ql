@@ -23,6 +23,7 @@ import os.path
 import pytest
 import faulthandler
 import signal
+import gc
 
 # Converted to autouse fixture below if capture is activated
 def check_test_output(request, capfd):
@@ -131,3 +132,9 @@ def pytest_configure(config):
 
     # Make errors and warnings fatal
     s3ql.logging.EXCEPTION_SEVERITY = logging.WARNING
+
+
+# Run gc.collect() at the end of every test, so that we get ResourceWarnings
+# as early as possible.
+def pytest_runtest_teardown(item, nextitem):
+    gc.collect()
