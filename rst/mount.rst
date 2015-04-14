@@ -147,13 +147,6 @@ If you want to mount and umount an S3QL file system automatically at
 system startup and shutdown, you should do so with one dedicated S3QL
 init script for each S3QL file system.
 
-If your system is using upstart, an appropriate job can be defined
-as follows (and should be placed in `/etc/init/`):
-
-.. literalinclude:: ../contrib/s3ql_upstart.conf
-   :linenos:
-   :lines: 5-
-
 .. NOTE::
 
    In principle, it is also possible to automatically mount an S3QL
