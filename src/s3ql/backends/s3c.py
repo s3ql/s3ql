@@ -521,7 +521,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
         # If not XML, do the best we can
-        if not XML_CONTENT_RE.match(content_type):
+        if not XML_CONTENT_RE.match(content_type) or resp.length == 0:
             self.conn.discard()
             raise HTTPError(resp.status, resp.reason, resp.headers)
 

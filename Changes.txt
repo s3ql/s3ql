@@ -1,3 +1,8 @@
+UNRELEASED, S3QL tip
+
+  * S3QL now longer crashes when the server sends a zero-length
+    response that claims to be XML.
+
 2015-01-31, S3QL 2.13
 
   * The internal file system revision has changed. File systems
