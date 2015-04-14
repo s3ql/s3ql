@@ -43,6 +43,8 @@ that is not the case.
   so under Linux you should actually use *2.6.26 or newer whenever
   possible*.
 
+* The `psmisc <http://psmisc.sf.net/>`_ utilities.
+
 * `Python <http://www.python.org/>`_ 3.3.0 or newer. Make sure to also
   install the development headers.
 
