@@ -77,10 +77,9 @@ that is not the case.
   The printed version number should be at least 3.7.0.
 
 * The `Python LLFUSE module
-  <http://code.google.com/p/python-llfuse/>`_. To check if this module
-  is installed, execute `python3 -c 'import llfuse;
-  print(llfuse.__version__)'`. This should print a version number. You
-  need at least version 0.39.
+  <https://pypi.python.org/pypi/llfuse/>`_. To check if this module is
+  installed, execute `python3 -c 'import llfuse'`. You need at least
+  version 0.39.
 
 * The `Python dugong module
   <https://bitbucket.org/nikratio/python-dugong/>`_. To check if this
