@@ -989,13 +989,15 @@ class Fsck(object):
 
         if not isinstance(path, bytes):
             raise TypeError('path must be of type bytes')
+        if not isinstance(name, bytes):
+            raise TypeError('name must be of type bytes')
 
         inode_p = inode_for_path(path, self.conn)
 
         # Debugging http://code.google.com/p/s3ql/issues/detail?id=217
         # and http://code.google.com/p/s3ql/issues/detail?id=261
         if len(name) > 255 - 4:
-            name = '%s ... %s' % (name[0:120], name[-120:])
+            name = b'%s ... %s' % (name[0:120], name[-120:])
 
         i = 0
         newname = name
