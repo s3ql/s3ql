@@ -265,7 +265,7 @@ class Fsck(object):
             (id_p_new, newname) = self.resolve_free(b"/lost+found", newname)
 
             self.log_error('Content entry for inode %d refers to non-existing name with id %d, '
-                           'moving to /lost+found/%s', inode, name_id, newname)
+                           'moving to /lost+found/%s', inode, name_id, to_str(newname))
 
             self.conn.execute('UPDATE contents SET name_id=?, parent_inode=? WHERE rowid=?',
                               (self._add_name(newname), id_p_new, rowid))
@@ -285,7 +285,8 @@ class Fsck(object):
             (id_p_new, newname) = self.resolve_free(b"/lost+found",
                                                     ('[%d]-%s' % (inode_p, name)).encode())
 
-            self.log_error('Parent inode %d for "%s" vanished, moving to /lost+found', inode_p, name)
+            self.log_error('Parent inode %d for "%s" vanished, moving to /lost+found',
+                           inode_p, to_str(name))
             self._del_name(name_id)
             self.conn.execute('UPDATE contents SET name_id=?, parent_inode=? WHERE rowid=?',
                               (self._add_name(newname), id_p_new, rowid))
@@ -306,7 +307,7 @@ class Fsck(object):
             except NoSuchRowError:
                 path = '[inode %d, parent %d]' % (inode, inode_p)
 
-            self.log_error('Inode for %s vanished, deleting', path)
+            self.log_error('Inode for %s vanished, deleting', to_str(path))
             self._del_name(name_id)
             to_delete.append(rowid)
 
@@ -327,7 +328,7 @@ class Fsck(object):
                                                 'FROM contents_v WHERE inode=?', (inode,)):
                 path = get_path(id_p, self.conn, name)
                 self.log_error('Extended attribute %d of %s refers to non-existing name %d, renaming..',
-                               rowid, path, name_id)
+                               rowid, to_str(path), name_id)
 
             while True:
                 name_id = self._add_name('lost+found_%d' % rowid)
@@ -402,7 +403,7 @@ class Fsck(object):
             (id_p, name) = self.resolve_free(b"/lost+found", name)
 
             self.log_error("Found unreachable filesystem entries, re-anchoring %s [%d] "
-                           "in /lost+found", name, inode)
+                           "in /lost+found", to_str(name), inode)
             self.conn.execute('UPDATE contents SET parent_inode=?, name_id=? '
                               'WHERE inode=? AND name_id=?',
                               (id_p, self._add_name(name), inode, name_id))
@@ -439,7 +440,7 @@ class Fsck(object):
                 self.found_errors = True
                 self.log_error("Size of inode %d (%s) does not agree with number of blocks, "
                                "setting from %d to %d",
-                               id_, get_path(id_, self.conn), size_old, size)
+                               id_, to_str(get_path(id_, self.conn)), size_old, size)
                 self.conn.execute("UPDATE inodes SET size=? WHERE id=?", (size, id_))
         finally:
             self.conn.execute('DROP TABLE min_sizes')
@@ -471,14 +472,15 @@ class Fsck(object):
                 self.found_errors = True
                 if cnt is None:
                     (id_p, name) = self.resolve_free(b"/lost+found", ("inode-%d" % id_).encode())
-                    self.log_error("Inode %d not referenced, adding as /lost+found/%s", id_, name)
+                    self.log_error("Inode %d not referenced, adding as /lost+found/%s",
+                                   id_, to_str(name))
                     self.conn.execute("INSERT INTO contents (name_id, inode, parent_inode) "
                                       "VALUES (?,?,?)", (self._add_name(basename(name)), id_, id_p))
                     self.conn.execute("UPDATE inodes SET refcount=? WHERE id=?", (1, id_))
 
                 else:
                     self.log_error("Inode %d (%s) has wrong reference count, setting from %d to %d",
-                              id_, get_path(id_, self.conn), cnt_old, cnt)
+                              id_, to_str(get_path(id_, self.conn)), cnt_old, cnt)
                     self.conn.execute("UPDATE inodes SET refcount=? WHERE id=?", (cnt, id_))
         finally:
             self.conn.execute('DROP TABLE refcounts')
@@ -502,7 +504,7 @@ class Fsck(object):
                 for (name, name_id, id_p) in self.conn.query('SELECT name, name_id, parent_inode '
                                                              'FROM contents_v WHERE inode=?', (inode,)):
                     path = get_path(id_p, self.conn, name)
-                    self.log_error("File may lack data, moved to /lost+found: %s", path)
+                    self.log_error("File may lack data, moved to /lost+found: %s", to_str(path))
                     (lof_id, newname) = self.resolve_free(b"/lost+found", escape(path))
 
                     self.conn.execute('UPDATE contents SET name_id=?, parent_inode=? '
@@ -553,7 +555,7 @@ class Fsck(object):
             for (name, name_id, id_p) in self.conn.query('SELECT name, name_id, parent_inode '
                                                          'FROM contents_v WHERE inode=?', (inode,)):
                 path = get_path(id_p, self.conn, name)
-                self.log_error("File may lack data, moved to /lost+found: %s", path)
+                self.log_error("File may lack data, moved to /lost+found: %s", to_str(path))
                 (lof_id, newname) = self.resolve_free(b"/lost+found", escape(path))
 
                 self.conn.execute('UPDATE contents SET name_id=?, parent_inode=? '
@@ -617,7 +619,8 @@ class Fsck(object):
                 elif cnt is None:
                     self.found_errors = True
                     (id_p, name) = self.resolve_free(b"/lost+found", ("block-%d" % id_).encode())
-                    self.log_error("Block %d not referenced, adding as /lost+found/%s", id_, name)
+                    self.log_error("Block %d not referenced, adding as /lost+found/%s",
+                                   id_, to_str(name))
                     timestamp = time.time()
                     size = self.conn.get_val('SELECT size FROM blocks WHERE id=?', (id_,))
                     inode = self.create_inode(mode=stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
@@ -749,20 +752,20 @@ class Fsck(object):
 
                 self.found_errors = True
                 self.log_error('Inode %d (%s): directory entry has no type, changed '
-                               'to %s.', inode, get_path(inode, self.conn), made_to)
+                               'to %s.', inode, to_str(get_path(inode, self.conn)), made_to)
                 self.conn.execute('UPDATE inodes SET mode=? WHERE id=?', (mode, inode))
 
             if stat.S_ISLNK(mode) and target is None:
                 self.found_errors = True
                 self.log_error('Inode %d (%s): symlink does not have target. '
                                'This is probably going to confuse your system!',
-                               inode, get_path(inode, self.conn))
+                               inode, to_str(get_path(inode, self.conn)))
 
             if stat.S_ISLNK(mode) and target is not None and size != len(target):
                 self.found_errors = True
                 self.log_error('Inode %d (%s): symlink size (%d) does not agree with target '
                                'length (%d). This is probably going to confuse your system!',
-                               inode, get_path(inode, self.conn), size, len(target))
+                               inode, to_str(get_path(inode, self.conn)), size, len(target))
 
             if size != 0 and (not stat.S_ISREG(mode)
                               and not stat.S_ISLNK(mode)
@@ -770,33 +773,33 @@ class Fsck(object):
                 self.found_errors = True
                 self.log_error('Inode %d (%s) is not regular file but has non-zero size. '
                                'This is may confuse your system!',
-                               inode, get_path(inode, self.conn))
+                               inode, to_str(get_path(inode, self.conn)))
 
             if target is not None and not stat.S_ISLNK(mode):
                 self.found_errors = True
                 self.log_error('Inode %d (%s) is not symlink but has symlink target. '
                                'This is probably going to confuse your system!',
-                               inode, get_path(inode, self.conn))
+                               inode, to_str(get_path(inode, self.conn)))
 
             if rdev != 0 and not (stat.S_ISBLK(mode) or stat.S_ISCHR(mode)):
                 self.found_errors = True
                 self.log_error('Inode %d (%s) is not device but has device number. '
                                'This is probably going to confuse your system!',
-                               inode, get_path(inode, self.conn))
+                               inode, to_str(get_path(inode, self.conn)))
 
 
             if has_children and not stat.S_ISDIR(mode):
                 self.found_errors = True
                 self.log_error('Inode %d (%s) is not a directory but has child entries. '
                                'This is probably going to confuse your system!',
-                               inode, get_path(inode, self.conn))
+                               inode, to_str(get_path(inode, self.conn)))
 
             if (not stat.S_ISREG(mode) and
                 self.conn.has_val('SELECT 1 FROM inode_blocks WHERE inode=?', (inode,))):
                 self.found_errors = True
                 self.log_error('Inode %d (%s) is not a regular file but has data blocks. '
                                'This is probably going to confuse your system!',
-                               inode, get_path(inode, self.conn))
+                               inode, to_str(get_path(inode, self.conn)))
 
 
 
@@ -806,7 +809,8 @@ class Fsck(object):
                                             'WHERE LENGTH(name) > 255'):
             path = get_path(id_p, self.conn, name)
             self.log_error('Entry name %s... in %s has more than 255 characters, '
-                           'this could cause problems', name[:40], path[:-len(name)])
+                           'this could cause problems', to_str(name[:40]),
+                           to_str(path[:-len(name)]))
             self.found_errors = True
 
     def check_objects_refcount(self):
@@ -945,7 +949,7 @@ class Fsck(object):
                     for (name, name_id, id_p) in self.conn.query('SELECT name, name_id, parent_inode '
                                                                  'FROM contents_v WHERE inode=?', (id_,)):
                         path = get_path(id_p, self.conn, name)
-                        self.log_error("File may lack data, moved to /lost+found: %s", path)
+                        self.log_error("File may lack data, moved to /lost+found: %s", to_str(path))
                         (_, newname) = self.resolve_free(b"/lost+found", escape(path))
 
                         self.conn.execute('UPDATE contents SET name_id=?, parent_inode=? '
@@ -1354,6 +1358,11 @@ def escape(path):
     '''Escape slashes in path so that is usable as a file name'''
 
     return path[1:].replace(b'_', b'__').replace(b'/', b'_')
+
+def to_str(name):
+    '''Decode path name for printing'''
+
+    return str(name, encoding='utf-8', errors='replace')
 
 if __name__ == '__main__':
     main(sys.argv[1:])
