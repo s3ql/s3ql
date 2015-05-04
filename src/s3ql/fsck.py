@@ -997,7 +997,7 @@ class Fsck(object):
         # Debugging http://code.google.com/p/s3ql/issues/detail?id=217
         # and http://code.google.com/p/s3ql/issues/detail?id=261
         if len(name) > 255 - 4:
-            name = b'%s ... %s' % (name[0:120], name[-120:])
+            name = b''.join((name[0:120], b' ... ', name[-120:]))
 
         i = 0
         newname = name
