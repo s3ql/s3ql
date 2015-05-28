@@ -20,11 +20,12 @@ recommendation for compression algorithm and number of upload threads
 to achieve maximum performance.
 
 
-s3_copy.py
+clone_fs.py
 ==========
 
-This program physically duplicates Amazon S3 bucket. It can be used to
-migrate buckets to a different storage region or storage class
+This program physically clones an S3QL file system from one backend
+into another, without recompressing or reencrypting.  It can be used to
+migrate S3 buckets to a different storage region or storage class
 (standard or reduced redundancy).
 
 .. _pcp:
@@ -45,14 +46,14 @@ you would execute ::
   pcp.py -a --processes=8 /mnt/home-backup/ /home/joe
 
 
-s3_backup.sh
+s3ql_backup.sh
 ============
 
 This is an example script that demonstrates how to set up a simple but
 powerful backup solution using S3QL and `rsync
 <http://samba.org/rsync>`_.
 
-The `s3_backup.sh` script automates the following steps:
+The `s3ql_backup.sh` script automates the following steps:
 
 #. Mount the file system
 #. Replicate the previous backup with :ref:`s3qlcp <s3qlcp>`
