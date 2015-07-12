@@ -61,6 +61,6 @@ def test_retry_generator():
 
 def test_logging():
     inst = NthAttempt(6)
-    with catch_logmsg('^Encountered %s exception',
+    with catch_logmsg(r'^Encountered %s \(%s\), retrying ',
                       count=2, level=logging.WARNING):
         inst.do_stuff()

@@ -85,7 +85,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     # NOTE: ! This function is also used by the swift backend !
     @copy_ancestor_docstring
     def reset(self):
-        if self.conn.response_pending() or self.conn._out_remaining:
+        if (self.conn is not None and
+            (self.conn.response_pending() or self.conn._out_remaining)):
             log.debug('Resetting state of http connection %d', id(self.conn))
             self.conn.disconnect()
 
