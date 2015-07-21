@@ -123,7 +123,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         conn =  HTTPConnection(self.hostname, self.port, proxy=self.proxy,
                                ssl_context=self.ssl_context)
-        conn.timeout = int(self.options.get('tcp-timeout', 10))
+        conn.timeout = int(self.options.get('tcp-timeout', 20))
         return conn
 
     # This method is also used implicitly for the retry handling of

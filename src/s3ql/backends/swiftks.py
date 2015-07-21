@@ -85,7 +85,7 @@ class Backend(swift.Backend):
 
         with HTTPConnection(self.hostname, port=self.port, proxy=self.proxy,
                             ssl_context=ssl_context) as conn:
-            conn.timeout = int(self.options.get('tcp-timeout', 10))
+            conn.timeout = int(self.options.get('tcp-timeout', 20))
 
             conn.send_request('POST', '/v2.0/tokens', headers=headers,
                               body=json.dumps(auth_body).encode('utf-8'))
@@ -122,7 +122,7 @@ class Backend(swift.Backend):
 
                 conn = HTTPConnection(o.hostname, o.port,  proxy=self.proxy,
                                       ssl_context=ssl_context)
-                conn.timeout = int(self.options.get('tcp-timeout', 10))
+                conn.timeout = int(self.options.get('tcp-timeout', 20))
                 return conn
 
         if len(avail_regions) < 10:

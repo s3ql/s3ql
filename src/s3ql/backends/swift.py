@@ -151,7 +151,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         with HTTPConnection(self.hostname, self.port, proxy=self.proxy,
                               ssl_context=ssl_context) as conn:
-            conn.timeout = int(self.options.get('tcp-timeout', 10))
+            conn.timeout = int(self.options.get('tcp-timeout', 20))
 
             for auth_path in ('/v1.0', '/auth/v1.0'):
                 log.debug('GET %s', auth_path)
@@ -184,7 +184,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
                 conn =  HTTPConnection(o.hostname, o.port, proxy=self.proxy,
                                        ssl_context=ssl_context)
-                conn.timeout = int(self.options.get('tcp-timeout', 10))
+                conn.timeout = int(self.options.get('tcp-timeout', 20))
                 return conn
 
             raise RuntimeError('No valid authentication path found')

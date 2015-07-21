@@ -84,7 +84,7 @@ The Google Storage backend accepts the following backend options:
 
    Specifies the timeout used for TCP connections. If no data can be
    exchanged with the remote server for longer than this period, the
-   TCP connection is closed and re-established.
+   TCP connection is closed and re-established (default: 20 seconds).
 
 .. _`Google Storage Manager`: https://sandbox.google.com/storage/
 
@@ -137,7 +137,7 @@ The Amazon S3 backend accepts the following backend options:
 
    Specifies the timeout used for TCP connections. If no data can be
    exchanged with the remote server for longer than this period, the
-   TCP connection is closed and re-established.
+   TCP connection is closed and re-established (default: 20 seconds).
 
 .. option:: sse
 
@@ -216,7 +216,7 @@ The OpenStack backend accepts the following backend options:
 
    Specifies the timeout used for TCP connections. If no data can be
    exchanged with the remote server for longer than this period, the
-   TCP connection is closed and re-established.
+   TCP connection is closed and re-established (default: 20 seconds).
 
 .. option:: disable-expect100
 
@@ -304,7 +304,7 @@ The S3 compatible backend accepts the following backend options:
 
    Specifies the timeout used for TCP connections. If no data can be
    exchanged with the remote server for longer than this period, the
-   TCP connection is closed and re-established.
+   TCP connection is closed and re-established (default: 20 seconds).
 
 .. option:: disable-expect100
 
