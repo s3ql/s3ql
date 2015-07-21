@@ -50,6 +50,14 @@ class NthAttempt:
 
             yield i
 
+    @retry
+    def test_is_retry(self, is_retry=False):
+        assert is_retry == (self.count != 0)
+        if self.count == self.succeed_on:
+            return True
+        self.count += 1
+        raise TemporaryProblem()
+
 def test_retry():
     inst = NthAttempt(3)
 
@@ -58,6 +66,10 @@ def test_retry():
 def test_retry_generator():
     inst = NthAttempt(3)
     assert list(inst.list_stuff(10)) == list(range(10))
+
+def test_is_retry():
+    inst = NthAttempt(3)
+    assert inst.test_is_retry()
 
 def test_logging():
     inst = NthAttempt(6)

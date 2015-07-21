@@ -81,13 +81,18 @@ def retry(method, _tracker=RateTracker(60)):
     '''Wrap *method* for retrying on some exceptions
 
     If *method* raises an exception for which the instance's
-    `is_temp_failure(exc)` method is true, the *method* is called again
-    at increasing intervals. If this persists for more than `RETRY_TIMEOUT`
-    seconds, the most-recently caught exception is re-raised.
+    `is_temp_failure(exc)` method is true, the *method* is called again at
+    increasing intervals. If this persists for more than `RETRY_TIMEOUT`
+    seconds, the most-recently caught exception is re-raised. If the
+    method defines a keyword parameter *is_retry*, then this parameter
+    will be set to True whenever the function is retried.
     '''
 
     if inspect.isgeneratorfunction(method):
         raise TypeError('Wrapping a generator function is pointless')
+
+    sig = inspect.signature(method)
+    has_is_retry = 'is_retry' in sig.parameters
 
     @wraps(method)
     def wrapped(*a, **kw):
@@ -96,6 +101,8 @@ def retry(method, _tracker=RateTracker(60)):
         waited = 0
         retries = 0
         while True:
+            if has_is_retry:
+                kw['is_retry'] = (retries > 0)
             try:
                 return method(*a, **kw)
             except Exception as exc:
