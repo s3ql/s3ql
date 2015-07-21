@@ -379,7 +379,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @retry
     @copy_ancestor_docstring
-    def delete(self, key, force=False):
+    def delete(self, key, force=False, is_retry=False):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
         log.debug('started with %s', key)
@@ -387,7 +387,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
             self._assert_empty_response(resp)
         except HTTPError as exc:
-            if exc.status == 404 and not force:
+            # Server may have deleted the object even though we did not
+            # receive the response.
+            if exc.status == 404 and not (force or is_retry):
                 raise NoSuchObject(key)
             elif exc.status != 404:
                 raise

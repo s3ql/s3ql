@@ -194,13 +194,15 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @retry
     @copy_ancestor_docstring
-    def delete(self, key, force=False):
+    def delete(self, key, force=False, is_retry=False):
         log.debug('started with %s', key)
         try:
             resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
             self._assert_empty_response(resp)
         except NoSuchKeyError:
-            if force:
+            # Server may have deleted the object even though we did not
+            # receive the response.
+            if force or is_retry:
                 pass
             else:
                 raise NoSuchObject(key)
