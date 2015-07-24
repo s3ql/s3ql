@@ -283,7 +283,7 @@ class Operations(llfuse.Operations):
 
             elif name == b'cachesize':
                 try:
-                    self.cache.max_size = parse_literal(value, int)
+                    self.cache.cache.max_size = parse_literal(value, int)
                 except ValueError:
                     log.warning('Received malformed command via control inode')
                     raise FUSEError.EINVAL()
