@@ -53,8 +53,8 @@ following backups available:
   they would all be deleted! Specifying age ranges in terms of backup
   cycles avoids these sort of problems.
 
-:program:`expire_backups` usage is simple. It requires backups to have
-names of the forms ``year-month-day_hour:minute:seconds``
+:program:`expire_backups` usage is simple. It requires backups to be
+stored in directories of the form ``year-month-day_hour:minute:seconds``
 (``YYYY-MM-DD_HH:mm:ss``) and works on all backups in the current
 directory. So for the above backup strategy, the correct invocation
 would be::
