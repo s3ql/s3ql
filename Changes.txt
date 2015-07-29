@@ -22,6 +22,9 @@ UNRELEASED, S3QL tip
     likely they mean that the server actually received and executed
     the previous try.
 
+  * Fixed an issue with fsck.s3ql crashing when trying to create a
+    file with a very long name in /lost+found.
+
 2015-01-31, S3QL 2.13
 
   * The internal file system revision has changed. File systems
