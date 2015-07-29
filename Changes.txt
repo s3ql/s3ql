@@ -9,6 +9,11 @@ UNRELEASED, S3QL tip
   * Fixed test failures when FUSE is not available, tests should now
     again be skipped.
 
+  * S3QL now tracks the frequency of server errors and logs warnings
+    if they occur more often than 5 times per second over a period of
+    at least 60 seconds. Previously, retries would only be logged
+    if the same request has been retried more than 3 times.
+
 2015-01-31, S3QL 2.13
 
   * The internal file system revision has changed. File systems
