@@ -14,6 +14,10 @@ UNRELEASED, S3QL tip
     at least 60 seconds. Previously, retries would only be logged
     if the same request has been retried more than 3 times.
 
+  * The "s3qlctrl cachesize" command is now working again (previously
+    it would appear to succeed, but not actually change the cache
+    size).
+
 2015-01-31, S3QL 2.13
 
   * The internal file system revision has changed. File systems
