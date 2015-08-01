@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2015-07-31, S3QL 2.14
 
   * S3QL now longer crashes when the server sends a zero-length
     response that claims to be XML.
