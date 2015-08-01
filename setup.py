@@ -25,13 +25,16 @@ import os
 import subprocess
 import warnings
 import shutil
+import re
 from glob import glob
 import faulthandler
 faulthandler.enable()
 
 # When running from HG repo, enable all warnings
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
-if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
+DEVELOPER_MODE = os.path.exists(os.path.join(basedir, 'MANIFEST.in'))
+if DEVELOPER_MODE:
+    print('MANIFEST.in exists, compiling with developer options')
     warnings.simplefilter('default')
 
 # Add S3QL sources
@@ -117,8 +120,7 @@ def main():
     # (because compilation with newer compiler may fail if additional
     # warnings are added, and compilation with older compiler may fail
     # if it doesn't know about a newer -Wno-* option).
-    if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
-        print('MANIFEST.in exists, compiling with developer options')
+    if DEVELOPER_MODE:
         compile_args += [ '-Werror', '-Wextra' ]
 
     required_pkgs = ['apsw >= 3.7.0',
@@ -197,24 +199,22 @@ class build_cython(setuptools.Command):
 
     def run(self):
         try:
-            import Cython
-            from Cython.Compiler.Main import compile as cython_compile
-            from Cython.Compiler.Options import extra_warnings
-        except ImportError:
+            version = subprocess.check_output(['cython', '--version'],
+                                              universal_newlines=True, stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError:
             raise SystemExit('Cython needs to be installed for this command') from None
 
-        if LooseVersion(Cython.__version__) < "0.17":
-            raise SystemExit('Found Cython %s, but need 0.17 or newer'
-                             % (Cython.__version__,))
+        hit = re.match('^Cython version (.+)$', version)
+        if not hit or LooseVersion(hit.group(1)) < "0.17":
+            raise SystemExit('Need Cython 0.17 or newer, found ' + version)
 
-        directives = dict(extra_warnings)
-        directives['embedsignature'] = True
-        directives['language_level'] = 3
-        options = { 'recursive': False, 'verbose': True, 'timestamps': False,
-                   'compiler_directives': directives, 'warning_errors': True }
+        cmd = ['cython', '-Wextra', '-f', '-3',
+               '-X', 'embedsignature=True' ]
+        if DEVELOPER_MODE:
+            cmd.append('-Werror')
 
-        # http://trac.cython.org/cython_trac/ticket/714
-        options['compiler_directives']['warn.maybe_uninitialized'] = False
+        # Work around http://trac.cython.org/cython_trac/ticket/714
+        cmd += ['-X', 'warn.maybe_uninitialized=False' ]
 
         for extension in self.extensions:
             for file_ in extension.sources:
@@ -224,12 +224,7 @@ class build_cython(setuptools.Command):
                     continue
                 if os.path.exists(path + '.pyx'):
                     print('compiling %s to %s' % (file_ + '.pyx', file_ + ext))
-                    res = cython_compile(path + '.pyx', full_module_name=extension.name,
-                                         **options)
-                    if res.num_errors != 0:
-                        raise SystemExit('Cython encountered errors.')
-                else:
-                    print('%s is up to date' % (file_ + ext,))
+                    subprocess.check_call(cmd + [path + '.pyx'])
 
 class upload_docs(setuptools.Command):
     user_options = []
