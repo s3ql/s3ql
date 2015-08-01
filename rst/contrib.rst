@@ -21,7 +21,7 @@ to achieve maximum performance.
 
 
 clone_fs.py
-==========
+===========
 
 This program physically clones an S3QL file system from one backend
 into another, without recompressing or reencrypting.  It can be used to
@@ -47,7 +47,7 @@ you would execute ::
 
 
 s3ql_backup.sh
-============
+==============
 
 This is an example script that demonstrates how to set up a simple but
 powerful backup solution using S3QL and `rsync
