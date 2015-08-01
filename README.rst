@@ -145,9 +145,17 @@ The following resources are available:
 
 Please report any bugs you may encounter in the `Bitbucket Issue Tracker`_.
 
+Contributing
+============
+
+The S3QL source code is available both on GitHub_ and BitBucket_.
+
+
 .. _`S3QL User's Guide`: http://www.rath.org/s3ql-docs/index.html
 .. _`S3QL Wiki`: https://bitbucket.org/nikratio/s3ql/wiki/
 .. _`Installation Instructions`: https://bitbucket.org/nikratio/s3ql/wiki/Installation
 .. _`S3QL FAQ`: https://bitbucket.org/nikratio/s3ql/wiki/FAQ
 .. _`S3QL Mailing List`: http://groups.google.com/group/s3ql
 .. _`Bitbucket Issue Tracker`: https://bitbucket.org/nikratio/s3ql/issues
+.. _BitBucket: https://bitbucket.org/nikratio/s3ql/
+.. _GitHub: https://github.com/s3ql/main
