@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 '''
-t5_lock_rm.py - this file is part of S3QL (http://s3ql.googlecode.com)
+t5_lock_rm.py - this file is part of S3QL.
 
 Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 
-This program can be distributed under the terms of the GNU GPLv3.
+This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 if __name__ == '__main__':

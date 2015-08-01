@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 '''
-benchmark.py - this file is part of S3QL (http://s3ql.googlecode.com)
+benchmark.py - this file is part of S3QL.
 
 Benchmark compression and upload performance and recommend compression
 algorithm that maximizes throughput.
@@ -8,7 +8,7 @@ algorithm that maximizes throughput.
 ---
 Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 
-This program can be distributed under the terms of the GNU GPLv3.
+This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 import argparse

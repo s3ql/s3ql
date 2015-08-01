@@ -1,5 +1,5 @@
 '''
-exit_stack.py - this file is part of S3QL (http://s3ql.googlecode.com)
+exit_stack.py - this file is part of S3QL.
 
 Copyright © 2013 Nikolaus Rath <Nikolaus@rath.org>
 Copyright © 2013 the Python Software Foundation.
@@ -13,7 +13,7 @@ For Python 3.3.0 - 3.3.2, it provides a derived class that overwrites the
 __exit__ method with the version from CPython revision 423736775f6b to fix
 Python issue 19092 (cf. http://bugs.python.org/issue19092).
 
-This program can be distributed under the terms of the GNU GPLv3.
+This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 import sys

@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 '''
-daemonize.py - this file is part of S3QL (http://s3ql.googlecode.com)
+daemonize.py - this file is part of S3QL.
 
 Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 
-This program can be distributed under the terms of the GNU GPLv3.
+This work can be distributed under the terms of the GNU GPLv3.
 
 The functions in this file are based on the python-daemon module by Ben Finney
 <ben+python@benfinney.id.au>.

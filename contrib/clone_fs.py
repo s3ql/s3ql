@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 '''
-clone_fs.py - this file is part of S3QL (http://s3ql.googlecode.com)
+clone_fs.py - this file is part of S3QL.
 
 Clone an S3QL file system from one backend into another, without
 recompressing or reencrypting.
 
 Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 
-This program can be distributed under the terms of the GNU GPLv3.
+This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 import os

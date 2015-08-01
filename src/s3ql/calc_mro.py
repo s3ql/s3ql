@@ -1,5 +1,5 @@
 '''
-calc_mro.py - this file is part of S3QL (http://s3ql.googlecode.com)
+calc_mro.py - this file is part of S3QL.
 
 Copyright © 2011 Steven D'Aprano
 
