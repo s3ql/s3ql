@@ -131,6 +131,7 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
                             code='UnexpectedContent')
             return
         elif src:
+            src = urllib.parse.unquote(src)
             hit = re.match('^/([a-z0-9._-]+)/(.+)$', src)
             if not hit:
                 self.send_error(400, message='Cannot parse copy-source',

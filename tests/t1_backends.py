@@ -545,6 +545,27 @@ def test_copy(backend):
     assert value == value2
     assert metadata == metadata2
 
+@pytest.mark.with_backend('*/raw')
+def test_copy_special(backend):
+    key1 = 'with_+_char/orig'
+    key2 = 'with_+_char/dest'
+    value = b'Just a couple of random bytes'
+
+    backend.store(key1, value)
+
+    assert_not_in_index(backend, [key2])
+    assert_not_readable(backend, key2)
+
+    # Wait for object to become visible
+    assert_in_index(backend, [key1])
+    fetch_object(backend, key1)
+
+    backend.copy(key1, key2)
+
+    assert_in_index(backend, [key2])
+    value2 = backend[key2]
+    assert value == value2
+
 @pytest.mark.with_backend('*/raw', 'local/{aes,zlib}')
 def test_copy_newmeta(backend):
     key1 = newname()

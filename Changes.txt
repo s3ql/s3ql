@@ -1,3 +1,10 @@
+UNRELEASED, S3QL tip
+
+  * S3QL now supports using special characters in the prefix
+    for S3 buckets. Previously, characters that would need to
+    be percent-encoded when part of an URL (like + or %) would
+    result in a crash.
+
 2015-07-31, S3QL 2.14
 
   * S3QL now longer crashes when the server sends a zero-length

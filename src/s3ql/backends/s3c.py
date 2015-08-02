@@ -383,7 +383,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if extra_headers is not None:
             headers.update(extra_headers)
         headers[self.hdr_prefix + 'copy-source'] = \
-            '/%s/%s%s' % (self.bucket_name, self.prefix, src)
+            urllib.parse.quote('/%s/%s%s' % (self.bucket_name, self.prefix, src))
 
         if metadata is None:
             headers[self.hdr_prefix + 'metadata-directive'] = 'COPY'
