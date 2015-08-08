@@ -144,8 +144,9 @@ Automatic Mounting
 ==================
 
 If you want to mount and umount an S3QL file system automatically at
-system startup and shutdown, you should do so with one dedicated S3QL
-init script for each S3QL file system.
+system startup and shutdown, you should do so with a dedicated S3QL
+init job (instead of using :file:`/etc/fstab`. When using systemd,
+:program:`mount.s3ql` can be run as a service of type ``notify``.
 
 .. NOTE::
 
@@ -153,16 +154,16 @@ init script for each S3QL file system.
    file system with an appropriate entry in `/etc/fstab`. However,
    this is not recommended for several reasons:
 
-   * file systems mounted in `/etc/fstab` will be unmounted with the
-     `umount` command, so your system will not wait until all data has
+   * file systems mounted in :file:`/etc/fstab` will be unmounted with the
+     :program:`umount` command, so your system will not wait until all data has
      been uploaded but shutdown (or restart) immediately (this is a
      FUSE limitation, see `issue #1
      <https://bitbucket.org/nikratio/s3ql/issue/1/blocking-fusermount-and-umount>`_).
 
    * There is no way to tell the system that mounting S3QL requires a
      Python interpreter to be available, so it may attempt to run
-     `mount.s3ql` before it has mounted the volume containing the
-     Python interpreter.
+     :program:`mount.s3ql` before it has mounted the volume containing
+     the Python interpreter.
 
    * There is no standard way to tell the system that internet
      connection has to be up before the S3QL file system can be
