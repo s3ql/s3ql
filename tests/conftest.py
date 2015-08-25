@@ -93,6 +93,7 @@ def pytest_configure(config):
         warnings.simplefilter('error')
 
     # Enable faulthandler
+    global faultlog_fh
     faultlog_fh = open(os.path.join(basedir, 'tests', 'test_crit.log'), 'a')
     faulthandler.enable(faultlog_fh)
     faulthandler.register(signal.SIGUSR1, file=faultlog_fh)
