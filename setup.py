@@ -204,7 +204,7 @@ class build_cython(setuptools.Command):
         try:
             version = subprocess.check_output(['cython', '--version'],
                                               universal_newlines=True, stderr=subprocess.STDOUT)
-        except subprocess.CalledProcessError:
+        except FileNotFoundError:
             raise SystemExit('Cython needs to be installed for this command') from None
 
         hit = re.match('^Cython version (.+)$', version)
