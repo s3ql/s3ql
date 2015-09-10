@@ -227,7 +227,8 @@ class build_cython(setuptools.Command):
                     continue
                 if os.path.exists(path + '.pyx'):
                     print('compiling %s to %s' % (file_ + '.pyx', file_ + ext))
-                    subprocess.check_call(cmd + [path + '.pyx'])
+                    if subprocess.call(cmd + [path + '.pyx']) != 0:
+                        raise SystemExit('Cython compilation failed')
 
 class upload_docs(setuptools.Command):
     user_options = []
