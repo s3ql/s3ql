@@ -154,6 +154,7 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
                     self.server.metadata[q.key] = meta
             except KeyError:
                 self.send_error(404, code='NoSuchKey', resource=src)
+                return
         else:
             data = self.rfile.read(len_)
             self.server.metadata[q.key] = meta
