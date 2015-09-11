@@ -437,7 +437,7 @@ class fs_api_tests(unittest.TestCase):
         attr = llfuse.EntryAttributes()
         attr.st_mode = self.file_mode()
         attr.st_uid = randint(0, 2 ** 32)
-        attr.st_gid = randint(0, 2 ** 32)
+        attr.st_gid = None
         attr.st_atime = randint(0, 2 ** 32) / 10 ** 6
         attr.st_mtime = randint(0, 2 ** 32) / 10 ** 6
 
@@ -447,9 +447,12 @@ class fs_api_tests(unittest.TestCase):
         self.assertGreater(inode_new.ctime, inode_old.ctime)
 
         for key in attr.__slots__:
-            if getattr(attr, key) is not None:
+            if key in ('st_mode', 'st_uid', 'st_atime', 'st_mtime'):
                 self.assertEqual(getattr(attr, key),
-                                  getattr(inode_new, key))
+                                 getattr(inode_new, key), '%s mismatch' % key)
+            elif key != 'st_ctime':
+                self.assertEqual(getattr(inode_old, key),
+                                 getattr(inode_new, key), '%s mismatch' % key)
 
         self.server.forget([(inode.id, 1)])
         self.fsck()

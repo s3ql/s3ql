@@ -861,19 +861,13 @@ class Operations(llfuse.Operations):
         if attr.st_gid is not None:
             inode.gid = attr.st_gid
 
-        if attr.st_rdev is not None:
-            inode.rdev = attr.st_rdev
-
         if attr.st_atime is not None:
             inode.atime = attr.st_atime
 
         if attr.st_mtime is not None:
             inode.mtime = attr.st_mtime
 
-        if attr.st_ctime is not None:
-            inode.ctime = attr.st_ctime
-        else:
-            inode.ctime = timestamp
+        inode.ctime = timestamp
 
         return inode
 
