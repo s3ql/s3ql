@@ -24,9 +24,10 @@ cdef extern from *:
     object PyUnicode_FromString(const_char *u)
 
 cdef extern from 'stdint.h' nogil:
-    enum: UINT8_MAX
-    enum: UINT16_MAX
-    enum: UINT32_MAX
+    int UINT8_MAX
+    int UINT16_MAX
+    int UINT32_MAX
+    int INT_MAX
 
 cdef extern from 'stdio.h' nogil:
     FILE * fdopen(int fd, const_char * mode)
@@ -112,15 +113,14 @@ cdef inline int fwrite(const_void * buf, size_t len_, FILE * fp) except -1:
 
     if fwrite_c(buf, len_, 1, fp) != 1:
         raise_from_errno(IOError)
-
-    return len_
+    return 0
 
 cdef inline int fread(void * buf, size_t len_, FILE * fp) except -1:
     '''Call libc's fread() and raise exception on failure'''
 
     if fread_c(buf, len_, 1, fp) != 1:
         raise_from_errno(IOError)
-    return len_
+    return 0
 
 cdef free(void * ptr):
     '''Call libc.free()
@@ -193,11 +193,11 @@ cdef int prep_columns(columns, int** col_types_p, int** col_args_p) except -1:
     Both arrays are allocated dynamically, caller has to ensure
     that they're freed again.
     '''
-    cdef int col_count
+    cdef size_t col_count
     cdef int *col_types
     cdef int *col_args
 
-    col_count = len(columns)
+    col_count = <size_t> len(columns) # guaranteed positive
     col_types = < int *> calloc(col_count, sizeof(int))
     col_args = < int *> calloc(col_count, sizeof(int))
 
@@ -214,7 +214,9 @@ cdef int prep_columns(columns, int** col_types_p, int** col_args_p) except -1:
 
     col_types_p[0] = col_types
     col_args_p[0] = col_args
-    return col_count
+
+    # We can safely assume that this fits into an int
+    return <int> col_count
 
 cdef FILE* dup_to_fp(fh, const_char* mode) except NULL:
     '''Duplicate fd from *fh* and open as FILE*'''
@@ -304,7 +306,8 @@ def dump_table(table, order, columns, db, fh):
     cdef sqlite3_stmt *stmt
     cdef int *col_types
     cdef int *col_args
-    cdef int col_count, rc, i, len_
+    cdef int col_count, rc, i
+    cdef size_t len_
     cdef int64_t *int64_prev
     cdef int64_t int64, tmp
     cdef FILE *fp
@@ -336,7 +339,7 @@ def dump_table(table, order, columns, db, fh):
         cm.callback(lambda: free(col_types))
 
         # Allocate int64_prev
-        int64_prev = < int64_t *> calloc(len(columns), sizeof(int64_t))
+        int64_prev = <int64_t*> calloc(<size_t> len(columns), sizeof(int64_t))
         cm.callback(lambda: free(int64_prev))
 
         # Prepare statement
@@ -371,7 +374,7 @@ def dump_table(table, order, columns, db, fh):
                     write_integer(int64, fp)
 
                 elif col_types[i] == _TIME:
-                    int64 = < int64_t > (sqlite3_column_double(stmt, i) * time_scale)
+                    int64 = <int64_t> (sqlite3_column_double(stmt, i) * time_scale)
                     tmp = int64
                     int64 -= int64_prev[i] + col_args[i]
                     int64_prev[i] = tmp
@@ -379,14 +382,16 @@ def dump_table(table, order, columns, db, fh):
 
                 elif col_types[i] == _BLOB:
                     buf = sqlite3_column_blob(stmt, i)
-                    len_ = sqlite3_column_bytes(stmt, i)
-                    if len_ > MAX_BLOB_SIZE:
+                    rc = sqlite3_column_bytes(stmt, i)
+                    if rc > MAX_BLOB_SIZE:
                             raise ValueError('Can not dump BLOB of size %d (max: %d)',
-                                             len_, MAX_BLOB_SIZE)
+                                             rc, MAX_BLOB_SIZE)
+                    # Safe to cast now
+                    len_ = <size_t> rc
                     if col_args[i] == 0:
-                        write_integer(len_ - int64_prev[i], fp)
-                        int64_prev[i] = len_
-                    elif len_ != col_args[i]:
+                        write_integer(rc - int64_prev[i], fp)
+                        int64_prev[i] = rc
+                    elif rc != col_args[i]:
                         raise ValueError("Length %d != %d in column %d" % (len_, col_args[i], i))
 
                     if len_ != 0:
@@ -420,7 +425,7 @@ def load_table(table, columns, db, fh, trx_rows=5000):
     cdef int64_t *int64_prev
     cdef FILE *fp
     cdef void *buf
-    cdef int64_t row_count, int64
+    cdef int64_t row_count, int64, tmp
 
     if db.file == ':memory:':
         raise ValueError("Can't access in-memory databases")
@@ -461,7 +466,7 @@ def load_table(table, columns, db, fh, trx_rows=5000):
         cm.callback(lambda: free(col_types))
 
         # Allocate int64_prev
-        int64_prev = < int64_t *> calloc(len(columns), sizeof(int64_t))
+        int64_prev = <int64_t*> calloc(<size_t> len(columns), sizeof(int64_t))
         cm.callback(lambda: free(int64_prev))
 
         # Prepare INSERT statement
@@ -519,16 +524,19 @@ def load_table(table, columns, db, fh, trx_rows=5000):
                 elif col_types[j] == _BLOB:
                     if col_args[j] == 0:
                         read_integer(&int64, fp)
-                        len_ = int64_prev[j] + int64
-                        int64_prev[j] = len_
+                        tmp = int64_prev[j] + int64
+                        if tmp < 0 or tmp > INT_MAX:
+                            raise RuntimeError('Corrupted input')
+                        len_ = <int> tmp
+                        int64_prev[j] = tmp
                     else:
                         len_ = col_args[j]
 
                     if len_ > MAX_BLOB_SIZE:
                         raise RuntimeError('BLOB too large to read (%d vs %d)', len_, MAX_BLOB_SIZE)
 
-                    if len_ != 0:
-                        fread(buf, len_, fp)
+                    if len_ > 0:
+                        fread(buf, <unsigned> len_, fp)
 
                     SQLITE_CHECK_RC(sqlite3_bind_blob(stmt, j + 1, buf, len_, SQLITE_TRANSIENT),
                                     SQLITE_OK, sqlite3_db)
@@ -546,27 +554,32 @@ def load_table(table, columns, db, fh, trx_rows=5000):
                 SQLITE_CHECK_RC(sqlite3_reset(commit_stmt), SQLITE_OK, sqlite3_db)
                 SQLITE_CHECK_RC(sqlite3_reset(begin_stmt), SQLITE_OK, sqlite3_db)
 
-
 cdef inline int write_integer(int64_t int64, FILE * fp) except -1:
     '''Write *int64* into *fp*, using as little space as possible
 
     Return the number of bytes written, or -1 on error.
     '''
 
-    cdef uint8_t int8
+    # This is meant to be a `uint8_t`. However, due to integer promotion
+    # any expression always has at least type `int`. So we would need an
+    # explicit cast for every assignment to this value. It's easier to
+    # declare it as `int` instead, and just cast once at the end. See also
+    # https://stackoverflow.com/questions/32574514/
+    cdef unsigned int8
+    cdef uint8_t int8_real
     cdef size_t len_
     cdef uint64_t uint64
 
     if int64 < 0:
-        uint64 = < uint64_t > -int64
-        int8 = < uint8_t > 0x80 # Highest bit set
+        uint64 = <uint64_t> -int64
+        int8 = 0x80 # Highest bit set
     else:
-        uint64 = < uint64_t > int64
+        uint64 = <uint64_t> int64
         int8 = 0
 
     if uint64 < 0x80 and uint64 not in (INT8, INT16, INT32, INT64):
         len_ = 0
-        int8 += < uint8_t > uint64
+        int8 += <uint8_t> uint64
     elif uint64 < UINT8_MAX:
         len_ = 1
         int8 += INT8
@@ -580,12 +593,15 @@ cdef inline int write_integer(int64_t int64, FILE * fp) except -1:
         len_ = 8
         int8 += INT64
 
-    fwrite(&int8, 1, fp)
+    # Cast
+    int8_real = <uint8_t> int8
+    fwrite(&int8_real, 1, fp)
     if len_ != 0:
         uint64 = htole64(uint64)
         fwrite(&uint64, len_, fp)
 
-    return len_ + 1
+    # len <= 8, safe to cast
+    return <int> len_ + 1
 
 cdef inline int read_integer(int64_t * out, FILE * fp) except -1:
     '''Read integer written using `write_integer` from *fp*
@@ -602,7 +618,8 @@ cdef inline int read_integer(int64_t * out, FILE * fp) except -1:
 
     if int8 & 0x80 != 0:
         negative = 1
-        int8 = int8 & (~0x80)
+        # Need to cast again due to integer promotion
+        int8 = <uint8_t> (int8 & (~ 0x80))
     else:
         negative = 0
 
@@ -628,4 +645,5 @@ cdef inline int read_integer(int64_t * out, FILE * fp) except -1:
     else:
         out[0] = < int64_t > uint64
 
-    return len_ + 1
+    # len <= 8, safe to cast
+    return <int> len_ + 1
