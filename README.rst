@@ -43,7 +43,7 @@ Features
 * **Compression.** Before storage, all data may compressed with the
   LZMA, bzip2 or deflate (gzip) algorithm.
 
-* **Encryption.** After compression (but before upload), all data can
+* **Encryption.** After compression (but before upload), all data can be
   AES encrypted with a 256 bit key. An additional SHA256 HMAC checksum
   is used to protect the data against manipulation.
 
