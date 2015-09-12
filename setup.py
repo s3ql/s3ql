@@ -243,9 +243,9 @@ class upload_docs(setuptools.Command):
 
     def run(self):
         subprocess.check_call(['rsync', '-aHv', '--del', os.path.join(basedir, 'doc', 'html') + '/',
-                               'ebox.rath.org:/srv/www.rath.org/public_html/s3ql-docs/'])
+                               'ebox.rath.org:/srv/www.rath.org/s3ql-docs/'])
         subprocess.check_call(['rsync', '-aHv', '--del', os.path.join(basedir, 'doc', 'manual.pdf'),
-                               'ebox.rath.org:/srv/www.rath.org/public_html/s3ql-docs/'])
+                               'ebox.rath.org:/srv/www.rath.org/s3ql-docs/'])
 
 class make_testscript(setuptools.Command):
     user_options = []
