@@ -1,5 +1,8 @@
 UNRELEASED, S3QL tip
 
+  * Fixed a compatibility problem with recent versions of
+    Python-LLFUSE (0.41 and newer).
+
   * S3QL now supports using special characters in the prefix
     for S3 buckets. Previously, characters that would need to
     be percent-encoded when part of an URL (like + or %) would
