@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2015-09-18, S3QL 2.15
 
   * Fixed a compatibility problem with recent versions of
     Python-LLFUSE (0.41 and newer).
