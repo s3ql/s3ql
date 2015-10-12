@@ -151,7 +151,7 @@ def main():
           url='https://bitbucket.org/nikratio/s3ql/',
           download_url='https://bitbucket.org/nikratio/s3ql/downloads',
           license='GPLv3',
-          classifiers=['Development Status :: 4 - Beta',
+          classifiers=['Development Status :: 5 - Production/Stable',
                        'Environment :: No Input/Output (Daemon)',
                        'Environment :: Console',
                        'License :: OSI Approved :: GNU Library or Lesser General Public License (GPLv3)',
