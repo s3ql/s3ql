@@ -161,7 +161,7 @@ def main(args=None):
     metadata_upload_thread.fs = operations
 
     with ExitStack() as cm:
-        log.info('Mounting filesystem...')
+        log.info('Mounting %s at %s...', options.storage_url, options.mountpoint)
         try:
             llfuse.init(operations, options.mountpoint, get_fuse_opts(options))
         except RuntimeError as exc:
