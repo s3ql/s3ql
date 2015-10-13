@@ -3,6 +3,10 @@ UNRELEASED, S3QL tip
   * S3QL now retries when receiving a "ServiceUnavailable" error from
     an S3 (or compatible) backend.
 
+  * When retrying network requests, the back-off time now includes a
+    random factor to avoid accidentally flooding the server with too
+    many simultanuous requests.
+
 2015-09-18, S3QL 2.15
 
   * Fixed a compatibility problem with recent versions of

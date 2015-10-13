@@ -14,6 +14,7 @@ import textwrap
 import hashlib
 import struct
 import hmac
+import random
 import inspect
 import ssl
 import os
@@ -141,7 +142,9 @@ def retry(method, _tracker=RateTracker(60)):
                     log.debug('retry_after is %.2f seconds', exc.retry_after)
                     interval = exc.retry_after
 
-            time.sleep(interval)
+            # Add some random variation to prevent flooding the
+            # server with too many concurrent requests.
+            time.sleep(interval * random.uniform(0.9, 1.1))
             waited += interval
             interval = min(5*60, 2*interval)
 
