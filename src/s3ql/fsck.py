@@ -646,27 +646,23 @@ class Fsck(object):
 
         log.info('Checking blocks (checksums)...')
 
-        for (block_id, obj_id) in self.conn.query('SELECT id, obj_id FROM blocks '
-                                                  'WHERE hash IS NULL'):
+        for (block_id, obj_id) in list(self.conn.query('SELECT id, obj_id FROM blocks '
+                                                       'WHERE hash IS NULL')):
             self.found_errors = True
-            self.log_error("No cached checksum for block %d, recomputing...", block_id)
+
+            # This should only happen when there was an error during upload,
+            # so the object must not have been stored correctly. We cannot
+            # just recalculate the hash for the block, because then we may
+            # be modifying the contents of the inode that refers to this
+            # block.
+            self.log_error("No checksum for block %d, removing from table...", block_id)
 
             # At the moment, we support only one block per object
             assert self.conn.get_val('SELECT refcount FROM objects WHERE id=?',
                                      (obj_id,)) == 1
 
-            def do_read(fh):
-                sha = hashlib.sha256()
-                while True:
-                    buf = fh.read(BUFSIZE)
-                    if not buf:
-                        break
-                    sha.update(buf)
-                return sha.digest()
-            hash_ = self.backend.perform_read(do_read, "s3ql_data_%d" % obj_id)
-
-            self.conn.execute('UPDATE blocks SET hash=? WHERE id=?',
-                              (hash_, block_id))
+            self.conn.execute('DELETE FROM blocks WHERE id=?', (block_id,))
+            self.conn.execute('DELETE FROM objects WHERE id=?', (obj_id,))
 
     def create_inode(self, mode, uid=os.getuid(), gid=os.getgid(),
                      mtime=None, atime=None, ctime=None, refcount=None,

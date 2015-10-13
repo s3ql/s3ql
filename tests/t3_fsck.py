@@ -270,10 +270,32 @@ class fsck_tests(unittest.TestCase):
                                    (4364, 1, 8))
         self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
                         (id_, 0, block_id))
-        self.assert_fsck(self.fsck.check_blocks_checksum)
 
-        assert (self.db.get_val('SELECT hash FROM blocks WHERE id=?', (block_id,))
-                    == sha256(b'Testdata'))
+
+        # Should pick up wrong hash and delete objects
+        self.fsck.found_errors = False
+        self.fsck.check_blocks_checksum()
+        assert self.fsck.found_errors
+        self.fsck.found_errors = False
+        self.fsck.check_blocks_checksum()
+        assert not self.fsck.found_errors
+
+        # Should save files in lost+found
+        self.fsck.found_errors = False
+        self.fsck.check()
+        assert self.fsck.found_errors
+
+        # Now everything should be good
+        self.fsck.found_errors = False
+        self.fsck.check()
+        assert not self.fsck.found_errors
+
+        assert not self.db.has_val('SELECT block_id FROM inode_blocks WHERE inode=?',
+                                   (id_,))
+        inode_p = self.db.get_val('SELECT parent_inode FROM contents_v WHERE inode=?', (id_,))
+        lof_id = self.db.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
+                                 (b"lost+found", ROOT_INODE))
+        assert inode_p == lof_id
 
     def test_blocks_obj_id(self):
 

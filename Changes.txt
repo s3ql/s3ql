@@ -7,6 +7,9 @@ UNRELEASED, S3QL tip
     random factor to avoid accidentally flooding the server with too
     many simultanuous requests.
 
+  * Fixed a problem with fsck.s3ql aborting with a "ConstraintError"
+    in some situations.
+
 2015-09-18, S3QL 2.15
 
   * Fixed a compatibility problem with recent versions of
