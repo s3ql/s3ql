@@ -133,7 +133,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def is_temp_failure(self, exc): #IGNORE:W0613
         if isinstance(exc, (InternalError, BadDigestError, IncompleteBodyError,
-                            RequestTimeoutError, OperationAbortedError, SlowDownError)):
+                            RequestTimeoutError, OperationAbortedError,
+                            SlowDownError, ServiceUnavailableError)):
             return True
 
         elif is_temp_network_error(exc):
@@ -1002,5 +1003,6 @@ class SignatureDoesNotMatchError(S3Error, AuthenticationError): pass
 class OperationAbortedError(S3Error): pass
 class RequestTimeoutError(S3Error): pass
 class SlowDownError(S3Error): pass
+class ServiceUnavailableError(S3Error): pass
 class RequestTimeTooSkewedError(S3Error): pass
 class NoSuchBucketError(S3Error, DanglingStorageURLError): pass
