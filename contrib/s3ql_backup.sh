@@ -17,7 +17,7 @@ mount.s3ql "$storage_url" "$mountpoint"
 # Make sure the file system is unmounted when we are done
 # Note that this overwrites the earlier trap, so we
 # also delete the lock file here.
-trap "cd /; umount.s3ql '$mountpoint'; rmdir '$mountpoint'; rm '$lock'" EXIT
+trap "cd /; umount.s3ql '$mountpoint'; rmdir '$mountpoint'" EXIT
 
 # Figure out the most recent backup
 cd "$mountpoint"
@@ -26,7 +26,7 @@ import os
 import re
 backups=sorted(x for x in os.listdir('.') if re.match(r'^[\\d-]{10}_[\\d:]{8}$', x))
 if backups:
-    print backups[-1]
+    print(backups[-1])
 EOF`
 
 # Duplicate the most recent backup unless this is the first backup
