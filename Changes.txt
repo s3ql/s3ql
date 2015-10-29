@@ -10,6 +10,9 @@ UNRELEASED, S3QL tip
   * Fixed a problem with fsck.s3ql aborting with a "ConstraintError"
     in some situations.
 
+  * Fixed a problem with fsck.s3ql repeatedly renaming a file in
+    /lost+found because it may lack data.
+
 2015-09-18, S3QL 2.15
 
   * Fixed a compatibility problem with recent versions of

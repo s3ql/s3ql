@@ -501,8 +501,9 @@ class Fsck(object):
                     continue
                 self.moved_inodes.add(inode)
 
-                for (name, name_id, id_p) in self.conn.query('SELECT name, name_id, parent_inode '
-                                                             'FROM contents_v WHERE inode=?', (inode,)):
+                affected_entries = list(self.conn.query('SELECT name, name_id, parent_inode '
+                                                        'FROM contents_v WHERE inode=?', (inode,)))
+                for (name, name_id, id_p) in affected_entries:
                     path = get_path(id_p, self.conn, name)
                     self.log_error("File may lack data, moved to /lost+found: %s", to_str(path))
                     (lof_id, newname) = self.resolve_free(b"/lost+found", escape(path))
@@ -552,8 +553,9 @@ class Fsck(object):
                 continue
             self.moved_inodes.add(inode)
 
-            for (name, name_id, id_p) in self.conn.query('SELECT name, name_id, parent_inode '
-                                                         'FROM contents_v WHERE inode=?', (inode,)):
+            affected_entries = list(self.conn.query('SELECT name, name_id, parent_inode '
+                                                    'FROM contents_v WHERE inode=?', (inode,)))
+            for (name, name_id, id_p) in affected_entries:
                 path = get_path(id_p, self.conn, name)
                 self.log_error("File may lack data, moved to /lost+found: %s", to_str(path))
                 (lof_id, newname) = self.resolve_free(b"/lost+found", escape(path))
@@ -942,8 +944,11 @@ class Fsck(object):
                         continue
                     self.moved_inodes.add(id_)
 
-                    for (name, name_id, id_p) in self.conn.query('SELECT name, name_id, parent_inode '
-                                                                 'FROM contents_v WHERE inode=?', (id_,)):
+                    # Copy the list, or we may pick up the same entry again and again
+                    # (first from the original location, then from lost+found)
+                    affected_entries = list(self.conn.query('SELECT name, name_id, parent_inode '
+                                                            'FROM contents_v WHERE inode=?', (id_,)))
+                    for (name, name_id, id_p) in affected_entries:
                         path = get_path(id_p, self.conn, name)
                         self.log_error("File may lack data, moved to /lost+found: %s", to_str(path))
                         (_, newname) = self.resolve_free(b"/lost+found", escape(path))
