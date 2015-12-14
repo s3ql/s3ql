@@ -9,8 +9,7 @@
 S3QL is a file system that stores all its data online using storage
 services like `Google Storage`_, `Amazon S3`_, or OpenStack_. S3QL
 effectively provides a hard disk of dynamic, infinite capacity that
-can be accessed from any computer with internet access running Linux,
-FreeBSD or OS-X.
+can be accessed from any computer with internet access.
 
 S3QL is a standard conforming, full featured UNIX file system that is
 conceptually indistinguishable from any local file system.
@@ -91,6 +90,16 @@ or require the file system structure to be upgraded (so that the file
 system can no longer be accessed by older releases). Therefore, it is
 strongly recommended to read the changelog (`Changes.txt` in the S3QL
 tarball) before upgrading.
+
+Supported Platforms
+===================
+
+S3QL is developed and tested under Linux. Users have also reported
+running S3QL successfully on OS-X, FreeBSD and NetBSD. We try to
+maintain compatibility with these systems, but (due to lack of
+pre-release testers) we cannot guarantee that every release will run
+on all non-Linux systems. Please report any bugs you find, and we will
+try to fix them.
 
 
 Which Version Should I Download?
