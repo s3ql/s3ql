@@ -1203,13 +1203,18 @@ def main(args=None):
               In the later case, waiting for a while should fix the problem, in the former case you
               should try to run fsck on the computer where the file system has been mounted most
               recently.
+
+              You may also continue and use whatever metadata is available in the backend.
+              However, in that case YOU MAY LOOSE ALL DATA THAT HAS BEEN UPLOADED OR MODIFIED
+              SINCE THE LAST SUCCESSFULL METADATA UPLOAD. Moreover, files and directories that
+              you have deleted since then MAY REAPPEAR WITH SOME OF THEIR CONTENT LOST.
               ''')))
 
-        print('Enter "continue" to use the outdated data anyway:',
+        print('Enter "continue, I know what I am doing" to use the outdated data anyway:',
               '> ', sep='\n', end='')
         if options.batch:
             raise QuietError('(in batch mode, exiting)', exitcode=41)
-        if sys.stdin.readline().strip() != 'continue':
+        if sys.stdin.readline().strip() != 'continue, I know what I am doing':
             raise QuietError(exitcode=42)
 
         param['seq_no'] = seq_no
