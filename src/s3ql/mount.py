@@ -39,7 +39,7 @@ import shutil
 import atexit
 
 try:
-    import systemd.daemon.notify as sd_notify
+    from systemd.daemon import notify as sd_notify
 except ImportError:
     sd_notify = None
 
