@@ -38,7 +38,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         #pylint: disable=W0613
 
         super().__init__()
-        self.prefix = storage_url[len('local://'):]
+        self.prefix = storage_url[len('local://'):].rstrip('/')
 
         if not os.path.exists(self.prefix):
             raise DanglingStorageURLError(self.prefix)

@@ -13,6 +13,9 @@ UNRELEASED, S3QL tip
   * Fixed a problem with fsck.s3ql repeatedly renaming a file in
     /lost+found because it may lack data.
 
+  * In the authinfo2 file, storage urls for the local backend may now
+    be specified with a trailing slash.
+
 2015-09-18, S3QL 2.15
 
   * Fixed a compatibility problem with recent versions of

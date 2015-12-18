@@ -220,7 +220,9 @@ def storage_url_type(s):
         raise ArgumentTypeError('%s is not a valid storage url.' % s)
 
     if s.startswith('local://'):
-        return 'local://%s' % os.path.abspath(s[len('local://'):])
+        # Append trailing slash so that we can match patterns with
+        # trailing slash in authinfo2 file.
+        return 'local://%s/' % os.path.abspath(s[len('local://'):])
 
     # If there is no prefix specified, then e.g. s3://foo and s3://foo/ point to
     # the same location (even though s3://foo/bar and s3://foo/bar/ are pointing
