@@ -68,6 +68,10 @@ that is not the case.
   <https://pypi.python.org/pypi/requests/>`_. To check if this module
   is installed, try to execute `python3 -c 'import requests'`.
 
+* If you want to use systemd integration, you need the `Python systemd
+  module <https://github.com/systemd/python-systemd>`_. To check if
+  this module is installed, try to execute `python3 -c 'import systemd'`.
+  
 * `SQLite <http://www.sqlite.org/>`_ version 3.7.0 or newer. SQLite
   has to be installed as a *shared library* with development headers.
 
