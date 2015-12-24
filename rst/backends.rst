@@ -24,11 +24,11 @@ environment variables.
 .. note::
 
    Storage backends are not necessarily compatible. Don't expect that
-   you can e.g. the data stored by the local backend into Amazon S3
-   and then access it with the S3 backend. If you want to copy file
-   systems from one backend to another, you need to use the
-   :file:`clone_fs.py` script (from the :file:`contrib` directory in
-   the S3QL tarball).
+   you can e.g. copy the data stored by the local backend into Amazon
+   S3 using some non-S3QL tool and then access it with S3QL's S3
+   backend. If you want to copy file systems from one backend to
+   another, you need to use the :file:`clone_fs.py` script (from the
+   :file:`contrib` directory in the S3QL tarball).
 
 Google Storage
 ==============
