@@ -1,0 +1,4 @@
+build/
+src/s3ql.egg-info/
+src/s3ql/__pycache__/
+src/s3ql/deltadump.c
