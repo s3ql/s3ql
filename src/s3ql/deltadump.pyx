@@ -518,7 +518,7 @@ def load_table(table, columns, db, fh, trx_rows=5000):
                     read_integer(&int64, fp)
                     int64 += col_args[j] + int64_prev[j]
                     int64_prev[j] = int64
-                    SQLITE_CHECK_RC(sqlite3_bind_double(stmt, j + 1, int64 / time_scale),
+                    SQLITE_CHECK_RC(sqlite3_bind_double(stmt, j + 1, <double> int64 / time_scale),
                                     SQLITE_OK, sqlite3_db)
 
                 elif col_types[j] == _BLOB:
