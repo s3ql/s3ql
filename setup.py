@@ -132,6 +132,7 @@ def main():
     if DEVELOPER_MODE:
         compile_args.append('-Werror')
         compile_args.append('-Wfatal-errors')
+        compile_args.append('-Wno-unused-function')
 
     required_pkgs = ['apsw >= 3.7.0',
                      'pycrypto',
