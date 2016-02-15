@@ -15,6 +15,7 @@ import httplib2
 import io
 import json
 import oauth2client.client
+import tempfile
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         path = storage_url[len('gdrive://'):].rstrip('/')
         self.folder = self._lookup_file(path)
         if self.folder is None or self.folder['mimeType'] != Backend.MIME_TYPE_FOLDER:
-            raise DanglingStorageURLError(self.path)
+            raise DanglingStorageURLError(path)
 
     def _get_credentials(self):
         credentials_filename = oauth2client.client._get_environment_variable_file()
@@ -143,18 +144,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # nothing found
         return None
 
-    def _delete_file(self, f):
-        '''Delete file'''
-        self.service.files().delete(fileId=f['id']).execute()
-
-    def _delete_other(self, f):
-        '''Delete other files with the same name'''
-        query = "name = '{0}'".format(self._escape_string(f['name']))
-        for _f in self._list_files(self.folder, "id", query):
-            if _f['id'] == f['id']:
-                continue
-            self._delete_file(_f)
-
     @staticmethod
     def _chunk_property(k, i):
         '''Make chunk property'''
@@ -226,7 +215,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def lookup(self, key):
-        log.debug("lookup {0}".format(key))
+        log.debug("key: {0}".format(key))
         f = self._lookup_file(key, self.folder)
         if f is None:
             raise NoSuchObject(key)
@@ -234,7 +223,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def get_size(self, key):
-        log.debug("get_size {0}".format(key))
+        log.debug("key: {0}".format(key))
         f = self._lookup_file(key, self.folder)
         if f is None:
             raise NoSuchObject(key)
@@ -242,7 +231,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def open_read(self, key):
-        log.debug("open_read {0}".format(key))
+        log.debug("key: {0}".format(key))
         f = self._lookup_file(key, self.folder)
         if f is None:
             raise NoSuchObject(key)
@@ -250,113 +239,206 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
-        log.debug("open_write {0}".format(key))
+        log.debug("key: {0}".format(key))
         if metadata is None:
             metadata = dict()
         elif not isinstance(metadata, dict):
             raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
 
-        body = {
-            'name': key,
-            'mimeType': Backend.MIME_TYPE_BINARY,
-            'parents': [ self.folder['id'] ],
-            'properties': self._encode_metadata(metadata),
-        }
-        log.debug("metadata: {0}, body: {1}".format(metadata, body))
-        f = self.service.files().create(body=body).execute()
-        self._delete_other(f)
+        f = self._lookup_file(key, self.folder)
+        if f is not None:
+            body = {
+                'properties': self._encode_metadata(metadata),
+            }
+            log.debug("metadata update: {0}, body: {1}".format(metadata, body))
+            f = self.service.files().update(fileId=f['id'], body=body).execute()
+        else:
+            body = {
+                'name': key,
+                'mimeType': Backend.MIME_TYPE_BINARY,
+                'parents': [ self.folder['id'] ],
+                'properties': self._encode_metadata(metadata),
+            }
+            log.debug("metadata: {0}, body: {1}".format(metadata, body))
+            f = self.service.files().create(body=body).execute()
         return ObjectW(self.service, f)
 
     @copy_ancestor_docstring
     def clear(self):
-        log.debug("clear")
+        log.debug("")
         for f in self._list_files(self.folder, "id"):
-            self._delete_file(f)
+            self.service.files().delete(fileId=f['id']).execute()
 
     @copy_ancestor_docstring
     def contains(self, key):
-        log.debug("contains {0}".format(key))
+        log.debug("key: {0}".format(key))
         f = self._lookup_file(key, self.folder)
         return f is not None
 
     @copy_ancestor_docstring
     def delete(self, key, force=False):
-        log.debug("delete {0}".format(key))
-        f = self._lookup_file(key, self.folder)
-        if f is not None:
-            self._delete_file(f)
-        elif not force:
+        log.debug("key: {0}".format(key))
+        query = "name = '{0}'".format(self._escape_string(key))
+        found = False
+        for f in self._list_files(self.folder, "id", query):
+            found = True
+            self.service.files().delete(fileId=f['id']).execute()
+        if not force and not found:
             raise NoSuchObject(key)
 
     @copy_ancestor_docstring
     def list(self, prefix=''):
-        log.debug("list {0}".format(prefix))
+        log.debug("prefix: {0}".format(prefix))
         # Google Drive "contains" operator does prefix match for "name"
         query = "name contains '{0}'".format(self._escape_string(prefix))
         yield from map(lambda f: f['name'], self._list_files(self.folder, "name", query))
 
     @copy_ancestor_docstring
     def update_meta(self, key, metadata):
-        log.debug("update_meta {0}: {1}".format(key, metadata))
+        log.debug("key: {0}, metadata: {1}".format(key, metadata))
         if not isinstance(metadata, dict):
             raise TypeError('*metadata*: expected dict, got %s' % type(metadata))
         self.copy(key, key, metadata)
 
     @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None):
-        log.debug("copy {0} -> {1}: {2}".format(src, dest, metadata))
+        log.debug("{0} -> {1}".format(src, dest))
         if not (metadata is None or isinstance(metadata, dict)):
             raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
 
         f = self._lookup_file(src, self.folder)
         if f is None:
             raise NoSuchObject(src)
-        body = {
-            'name': dest,
-            'mimeType': Backend.MIME_TYPE_BINARY,
-            'parents': [ self.folder['id'] ],
-            'properties': self._encode_metadata(metadata),
-        }
-        log.debug("metadata: {0}, body: {1}".format(metadata, body))
-        new_f = self.service.files().copy(fileId=f['id'], body=body).execute()
         if src == dest:
-            self._delete_other(new_f)
+            body = {
+                'properties': self._encode_metadata(metadata),
+            }
+            log.debug("metadata update: {0}, body: {1}".format(metadata, body))
+            self.service.files().update(fileId=f['id'], body=body).execute()
+        else:
+            body = {
+                'name': dest,
+                'mimeType': Backend.MIME_TYPE_BINARY,
+                'parents': [ self.folder['id'] ],
+                'properties': self._encode_metadata(metadata),
+            }
+            log.debug("metadata: {0}, body: {1}".format(metadata, body))
+            new_f = self.service.files().copy(fileId=f['id'], body=body).execute()
 
-class ObjectR(io.BytesIO):
+            # delete other files with the same name
+            query = "name = '{0}'".format(self._escape_string(new_f['name']))
+            for other_f in self._list_files(self.folder, "id", query):
+                if other_f['id'] == new_f['id']:
+                    continue
+                self.service.files().delete(fileId=other_f['id']).execute()
+
+
+class ObjectR(object):
     '''A Google Drive object opened for reading'''
 
     def __init__(self, service, f, metadata):
-        super().__init__()
+        self.service = service
+        self.f = f
         self.metadata = metadata
-        request = service.files().get_media(fileId=f['id'])
+
+        # check size - get_media fails for zero-sized files
         if int(f['size']) > 0:
-            d = apiclient.http.MediaIoBaseDownload(self, request)
-            while True:
-                download_progress, done = d.next_chunk()
-                if download_progress:
-                    log.debug('Download Progress: %d%%' % int(download_progress.progress() * 100))
-                if done:
-                    break
-        self.seek(0)
+            request = service.files().get_media(fileId=f['id'])
+            self.buf = io.BytesIO()     # current read buffer
+            self.buf.length = 0         # current read buffer length
+            self.done = False
+            self.download = apiclient.http.MediaIoBaseDownload(self.buf, request)
+        else:
+            self.download = None
+
+    def read(self, size=None):
+        '''Read up to *size* bytes of object data
+
+        For integrity checking to work, this method has to be called until
+        it returns an empty string, indicating that all data has been read
+        (and verified).
+        '''
+
+        if size == 0 or self.download is None:
+            return b''
+
+        if self.buf.tell() >= self.buf.length:
+            # try to read more data
+
+            if self.done:
+                # no more data to read
+                return b''
+
+            # read next chunk
+            self.buf.truncate(0)
+            self.buf.seek(0)
+            download_progress, self.done = self.download.next_chunk()
+            if download_progress:
+                log.debug('download progress: %d%%' % int(download_progress.progress() * 100))
+            self.buf.length = self.buf.tell()
+            self.buf.seek(0)
+
+        return self.buf.read(size)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        self.close()
+        return False
 
     def close(self, checksum_warning=True):
         '''Close object
 
         The *checksum_warning* parameter is ignored.
         '''
-        super().close()
+        pass
 
-class ObjectW(io.BytesIO):
+class ObjectW(object):
     '''A Google Drive object opened for writing'''
 
     def __init__(self, service, f):
-        super().__init__()
         self.service = service
         self.f = f
 
+        # According to http://docs.python.org/3/library/functions.html#open
+        # the buffer size is typically ~8 kB. We process data in much
+        # larger chunks, so buffering would only hurt performance.
+        self.fh = tempfile.TemporaryFile(buffering=0)
+        self.closed = False
+        self.obj_size = 0
+
+    def write(self, buf):
+        '''Write object data'''
+
+        self.fh.write(buf)
+        self.obj_size += len(buf)
+
     def close(self):
-        self.seek(0)
-        u = apiclient.http.MediaIoBaseUpload(self, Backend.MIME_TYPE_BINARY, resumable=True)
+        if self.closed:
+            # still call fh.close, may have generated an error before
+            self.fh.close()
+            return
+
+        # upload file
+        self.fh.seek(0)
+        u = apiclient.http.MediaIoBaseUpload(self.fh, Backend.MIME_TYPE_BINARY, resumable=True)
         self.service.files().update(fileId=self.f['id'], media_body=u).execute()
+
+        # close underlying file
+        self.closed = True
+        self.fh.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        self.close()
+        return False
+
+    def get_obj_size(self):
+        if not self.closed:
+            raise RuntimeError('Object must be closed first.')
+        return self.obj_size
 
 # vi: ts=4:sw=4:et:
