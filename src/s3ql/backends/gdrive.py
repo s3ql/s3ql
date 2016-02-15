@@ -73,16 +73,33 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             sub=self.login)
         return credentials
 
-    def _list_files(self, folder, fields):
-        # list folder children
+    @staticmethod
+    def _escape_string(name):
+        '''Escape string'''
+        return name.replace("\\", "\\\\").replace("'", "\\'")
+
+    def _list_files(self, folder, fields, query=None):
+        '''List folder contents
+
+        Arguments:
+        folder -- Google Drive folder to list files in
+        fields -- file properties to return
+        query -- files.list query (optional)
+        '''
+        # build query
+        if query is None:
+            query = ''
+        else:
+            query += ' and '
+        query += "'{0}' in parents".format(folder['id'])
+
+        # iterate over results
         page_token = None
         while True:
             results = self.service.files().list(
-                q="'{0}' in parents".format(folder['id']),
-                pageToken=page_token,
+                q=query, pageToken=page_token,
                 fields="nextPageToken, files(%s)" % fields).execute()
-            for f in results.get('files', []):
-                yield f
+            yield from results.get('files', [])
 
             # get next page
             page_token = results.get('nextPageToken', None)
@@ -90,6 +107,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 break
 
     def _lookup_file(self, name, folder=None):
+        '''Lookup file by name
+
+        Arguments:
+        name -- file name. May contain absolute or relative file name with '/' as path separator
+        folder -- folder to start lookup from (root folder if omitted)
+        '''
         if folder is None:
             folder = { 'id': 'root', 'path': '/', 'mimeType': Backend.MIME_TYPE_FOLDER }
 
@@ -103,16 +126,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             return folder
 
         # iterate over folder children
-        for f in self._list_files(folder, "id, name, mimeType, size, properties"):
+        query = "name = '{0}'".format(self._escape_string(n[0]))
+        for f in self._list_files(folder, "id, name, mimeType, size, properties", query):
             f['path'] = folder['path'] + f['name']
             if f['mimeType'] == Backend.MIME_TYPE_FOLDER:
                 f['path'] += '/'
 
-            #log.debug("{0} ({1}: {2})".format(f['path'], f['id'], f['mimeType']))
-            if f['name'] != n[0]:
-                continue
-
-            # found matching child
+            log.debug("{0} ({1}: {2})".format(f['path'], f['id'], f['mimeType']))
             if len(n) == 1:
                 return f
             elif f['mimeType'] == Backend.MIME_TYPE_FOLDER:
@@ -123,23 +143,21 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # nothing found
         return None
 
-    def _create_file(self, body):
-        return self.service.files().create(body=body).execute()
-
-    def _copy_file(self, f, body):
-        return self.service.files().copy(fileId=f['id'], body=body).execute()
-
     def _delete_file(self, f):
+        '''Delete file'''
         self.service.files().delete(fileId=f['id']).execute()
 
     def _delete_other(self, f):
-        for _f in self._list_files(self.folder, "id, name"):
-            if _f['id'] == f['id'] or _f['name'] != f['name']:
+        '''Delete other files with the same name'''
+        query = "name = '{0}'".format(self._escape_string(f['name']))
+        for _f in self._list_files(self.folder, "id", query):
+            if _f['id'] == f['id']:
                 continue
             self._delete_file(_f)
 
     @staticmethod
     def _chunk_property(k, i):
+        '''Make chunk property'''
         return 'ref({0}.{1})'.format(k, i)
 
     def _encode_metadata(self, metadata):
@@ -245,7 +263,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             'properties': self._encode_metadata(metadata),
         }
         log.debug("metadata: {0}, body: {1}".format(metadata, body))
-        f = self._create_file(body)
+        f = self.service.files().create(body=body).execute()
         self._delete_other(f)
         return ObjectW(self.service, f)
 
@@ -273,10 +291,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def list(self, prefix=''):
         log.debug("list {0}".format(prefix))
-        for f in self._list_files(self.folder, "id, name"):
-            name = f['name']
-            if not prefix or name.startswith(prefix):
-                yield name
+        # Google Drive "contains" operator does prefix match for "name"
+        query = "name contains '{0}'".format(self._escape_string(prefix))
+        yield from map(lambda f: f['name'], self._list_files(self.folder, "name", query))
 
     @copy_ancestor_docstring
     def update_meta(self, key, metadata):
@@ -301,7 +318,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             'properties': self._encode_metadata(metadata),
         }
         log.debug("metadata: {0}, body: {1}".format(metadata, body))
-        new_f = self._copy_file(f, body)
+        new_f = self.service.files().copy(fileId=f['id'], body=body).execute()
         if src == dest:
             self._delete_other(new_f)
 
