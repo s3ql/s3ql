@@ -910,7 +910,7 @@ class Operations(llfuse.Operations):
     def statfs(self):
         log.debug('started')
 
-        stat_ = llfuse.StatvfsData
+        stat_ = llfuse.StatvfsData()
 
         # Get number of blocks & inodes
         blocks = self.db.get_val("SELECT COUNT(id) FROM objects")
