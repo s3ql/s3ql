@@ -71,7 +71,7 @@ that is not the case.
 * If you want to use systemd integration, you need the `Python systemd
   module <https://github.com/systemd/python-systemd>`_. To check if
   this module is installed, try to execute `python3 -c 'import systemd'`.
-  
+
 * `SQLite <http://www.sqlite.org/>`_ version 3.7.0 or newer. SQLite
   has to be installed as a *shared library* with development headers.
 
@@ -83,9 +83,10 @@ that is not the case.
   The printed version number should be at least 3.7.0.
 
 * The `Python LLFUSE module
-  <https://pypi.python.org/pypi/llfuse/>`_. To check if this module is
-  installed, execute `python3 -c 'import llfuse'`. You need at least
-  version 0.39.
+  <https://pypi.python.org/pypi/llfuse/>`_. To check which (if any)
+  version of if this module is installed, execute `python3 -c 'import
+  llfuse; print(llfuse.__version__)'`. You must use any version
+  between 0.43 and 1.0.
 
 * The `Python dugong module
   <https://bitbucket.org/nikratio/python-dugong/>`_. To check if this

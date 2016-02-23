@@ -121,7 +121,10 @@ class Operations(llfuse.Operations):
         self.forget(list(self.open_inodes.items()))
         self.inodes.destroy()
 
-    def lookup(self, id_p, name):
+    def lookup(self, id_p, name, ctx):
+        return self._lookup(id_p, name, ctx).entry_attributes()
+
+    def _lookup(self, id_p, name, ctx):
         log.debug('started with %d, %r', id_p, name)
 
         if name == CTRL_NAME:
@@ -151,7 +154,7 @@ class Operations(llfuse.Operations):
         self.open_inodes[inode.id] += 1
         return inode
 
-    def getattr(self, id_):
+    def getattr(self, id_, ctx):
         log.debug('started with %d', id_)
         if id_ == CTRL_INODE:
             # Make sure the control file is only writable by the user
@@ -159,11 +162,11 @@ class Operations(llfuse.Operations):
             inode = self.inodes[CTRL_INODE]
             object.__setattr__(inode, 'uid', os.getuid())
             object.__setattr__(inode, 'gid', os.getgid())
-            return inode
+            return inode.entry_attributes()
 
-        return self.inodes[id_]
+        return self.inodes[id_].entry_attributes()
 
-    def readlink(self, id_):
+    def readlink(self, id_, ctx):
         log.debug('started with %d', id_)
         timestamp = time.time()
         inode = self.inodes[id_]
@@ -175,7 +178,7 @@ class Operations(llfuse.Operations):
             log.warning('Inode does not have symlink target: %d', id_)
             raise FUSEError(errno.EINVAL)
 
-    def opendir(self, id_):
+    def opendir(self, id_, ctx):
         log.debug('started with %d', id_)
         return id_
 
@@ -199,9 +202,9 @@ class Operations(llfuse.Operations):
                            'WHERE parent_inode=? AND name_id > ? ORDER BY name_id',
                            (id_, off)) as res:
             for (next_, name, cid_) in res:
-                yield (name, self.inodes[cid_], next_)
+                yield (name, self.inodes[cid_].entry_attributes(), next_)
 
-    def getxattr(self, id_, name):
+    def getxattr(self, id_, name, ctx):
         log.debug('started with %d, %r', id_, name)
         # Handle S3QL commands
         if id_ == CTRL_INODE:
@@ -226,7 +229,7 @@ class Operations(llfuse.Operations):
                 raise llfuse.FUSEError(llfuse.ENOATTR)
             return value
 
-    def listxattr(self, id_):
+    def listxattr(self, id_, ctx):
         log.debug('started with %d', id_)
         names = list()
         with self.db.query('SELECT name FROM ext_attributes_v WHERE inode=?', (id_,)) as res:
@@ -234,7 +237,7 @@ class Operations(llfuse.Operations):
                 names.append(name)
         return names
 
-    def setxattr(self, id_, name, value):
+    def setxattr(self, id_, name, value, ctx):
         log.debug('started with %d, %r, %r', id_, name, value)
 
         # Handle S3QL commands
@@ -308,7 +311,7 @@ class Operations(llfuse.Operations):
                             'VALUES(?, ?, ?)', (id_, self._add_name(name), value))
             self.inodes[id_].ctime = time.time()
 
-    def removexattr(self, id_, name):
+    def removexattr(self, id_, name, ctx):
         log.debug('started with %d, %r', id_, name)
 
         if self.failsafe or self.inodes[id_].locked:
@@ -374,7 +377,7 @@ class Operations(llfuse.Operations):
         if self.inodes[id_p0].locked:
             raise FUSEError(errno.EPERM)
 
-        id0 = self.lookup(id_p0, name0).id
+        id0 = self._lookup(id_p0, name0, ctx=None).id
         queue = [ id0 ] # Directories that we still need to delete
         processed = 0 # Number of steps since last GIL release
         stamp = time.time() # Time of last GIL release
@@ -546,12 +549,12 @@ class Operations(llfuse.Operations):
 
         log.debug('finished')
 
-    def unlink(self, id_p, name):
+    def unlink(self, id_p, name, ctx):
         log.debug('started with %d, %r', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
 
-        inode = self.lookup(id_p, name)
+        inode = self._lookup(id_p, name, ctx)
 
         if stat.S_ISDIR(inode.mode):
             raise llfuse.FUSEError(errno.EISDIR)
@@ -560,12 +563,12 @@ class Operations(llfuse.Operations):
 
         self.forget([(inode.id, 1)])
 
-    def rmdir(self, id_p, name):
+    def rmdir(self, id_p, name, ctx):
         log.debug('started with %d, %r', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
 
-        inode = self.lookup(id_p, name)
+        inode = self._lookup(id_p, name, ctx)
 
         if self.inodes[id_p].locked:
             raise FUSEError(errno.EPERM)
@@ -647,9 +650,9 @@ class Operations(llfuse.Operations):
         self.db.execute('INSERT INTO symlink_targets (inode, target) VALUES(?,?)',
                         (inode.id, target))
         self.open_inodes[inode.id] += 1
-        return inode
+        return inode.entry_attributes()
 
-    def rename(self, id_p_old, name_old, id_p_new, name_new):
+    def rename(self, id_p_old, name_old, id_p_new, name_new, ctx):
         log.debug('started with %d, %r, %d, %r', id_p_old, name_old, id_p_new, name_new)
         if name_new == CTRL_NAME or name_old == CTRL_NAME:
             log.warning('Attempted to rename s3ql control file (%s -> %s)',
@@ -662,10 +665,10 @@ class Operations(llfuse.Operations):
             or self.inodes[id_p_new].locked):
             raise FUSEError(errno.EPERM)
 
-        inode_old = self.lookup(id_p_old, name_old)
+        inode_old = self._lookup(id_p_old, name_old, ctx)
 
         try:
-            inode_new = self.lookup(id_p_new, name_new)
+            inode_new = self._lookup(id_p_new, name_new, ctx)
         except llfuse.FUSEError as exc:
             if exc.errno != errno.ENOENT:
                 raise
@@ -776,7 +779,7 @@ class Operations(llfuse.Operations):
             del self.inodes[id_new]
 
 
-    def link(self, id_, new_id_p, new_name):
+    def link(self, id_, new_id_p, new_name, ctx):
         log.debug('started with %d, %d, %r', id_, new_id_p, new_name)
 
         if new_name == CTRL_NAME or id_ == CTRL_INODE:
@@ -805,23 +808,19 @@ class Operations(llfuse.Operations):
         inode.ctime = timestamp
 
         self.open_inodes[inode.id] += 1
-        return inode
+        return inode.entry_attributes()
 
-    def setattr(self, id_, attr):
+    def setattr(self, id_, attr, fields, fh, ctx):
         """Handles FUSE setattr() requests"""
-        if log.isEnabledFor(logging.DEBUG):
-            log.debug('started with %d, %s', id_,
-                      ', '.join('%s=%r' % (x, getattr(attr, x))
-                                for x in dir(attr)
-                                if x.startswith('st_') and getattr(attr, x) is not None ))
-
         inode = self.inodes[id_]
+        if fh is not None:
+            assert fh == id_
         timestamp = time.time()
 
         if self.failsafe or inode.locked:
             raise FUSEError(errno.EPERM)
 
-        if attr.st_size is not None:
+        if fields.update_size:
             len_ = attr.st_size
 
             # Determine blocks to delete
@@ -852,24 +851,24 @@ class Operations(llfuse.Operations):
                     self.broken_blocks[id_].add(last_block)
                     raise FUSEError(errno.EIO)
 
-        if attr.st_mode is not None:
+        if fields.update_mode:
             inode.mode = attr.st_mode
 
-        if attr.st_uid is not None:
+        if fields.update_uid:
             inode.uid = attr.st_uid
 
-        if attr.st_gid is not None:
+        if fields.update_gid:
             inode.gid = attr.st_gid
 
-        if attr.st_atime is not None:
-            inode.atime = attr.st_atime
+        if fields.update_atime:
+            inode.atime = attr.st_atime_ns / 1e9
 
-        if attr.st_mtime is not None:
-            inode.mtime = attr.st_mtime
+        if fields.update_mtime:
+            inode.mtime = attr.st_mtime_ns / 1e9
 
         inode.ctime = timestamp
 
-        return inode
+        return inode.entry_attributes()
 
     def mknod(self, id_p, name, mode, rdev, ctx):
         log.debug('started with %d, %r', id_p, name)
@@ -877,7 +876,7 @@ class Operations(llfuse.Operations):
             raise FUSEError(errno.EPERM)
         inode = self._create(id_p, name, mode, ctx, rdev=rdev)
         self.open_inodes[inode.id] += 1
-        return inode
+        return inode.entry_attributes()
 
     def mkdir(self, id_p, name, mode, ctx):
         log.debug('started with %d, %r', id_p, name)
@@ -885,7 +884,7 @@ class Operations(llfuse.Operations):
             raise FUSEError(errno.EPERM)
         inode = self._create(id_p, name, mode, ctx)
         self.open_inodes[inode.id] += 1
-        return inode
+        return inode.entry_attributes()
 
     def extstat(self):
         '''Return extended file system statistics'''
@@ -907,7 +906,7 @@ class Operations(llfuse.Operations):
                            compr_size, self.db.get_size(), cache_used, cache_dirty)
 
 
-    def statfs(self):
+    def statfs(self, ctx):
         log.debug('started')
 
         stat_ = llfuse.StatvfsData()
@@ -947,7 +946,7 @@ class Operations(llfuse.Operations):
 
         return stat_
 
-    def open(self, id_, flags):
+    def open(self, id_, flags, ctx):
         log.debug('started with %d', id_)
         if ((flags & os.O_RDWR or flags & os.O_WRONLY)
             and (self.failsafe or self.inodes[id_].locked)):
@@ -979,11 +978,11 @@ class Operations(llfuse.Operations):
         except NoSuchRowError:
             inode = self._create(id_p, name, mode, ctx)
         else:
-            self.open(id_, flags)
+            self.open(id_, flags, ctx)
             inode = self.inodes[id_]
 
         self.open_inodes[inode.id] += 1
-        return (inode.id, inode)
+        return (inode.id, inode.entry_attributes())
 
     def _create(self, id_p, name, mode, ctx, rdev=0, size=0):
         if name == CTRL_NAME:

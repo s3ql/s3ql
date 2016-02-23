@@ -1,5 +1,8 @@
 UNRELEASED, S3QL tip
 
+  * S3QL now supports (and requires) Python-LLFUSE 0.43 or newer
+    (but not never than 1.0).
+
   * S3QL now retries when receiving a "ServiceUnavailable" error from
     an S3 (or compatible) backend.
 
