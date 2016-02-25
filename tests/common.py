@@ -20,16 +20,27 @@ import random
 import configparser
 import logging
 import pytest
+import functools
 
 def get_clock_granularity():
-    stamp1 = time.time()
-    stamp2 = stamp1
-    while stamp1 == stamp2:
-        stamp2 = time.time()
-    return 2 * (stamp2 - stamp1)
+    resolution = float('inf')
+    for i in range(50):
+        stamp1 = time.time()
+        stamp2 = stamp1
+        while stamp1 == stamp2:
+            stamp2 = time.time()
+        resolution = min(resolution, stamp2 - stamp1)
+        time.sleep(0.01)
+    return resolution
 CLOCK_GRANULARITY = get_clock_granularity()
 
-def safe_sleep(secs):
+# When testing, we want to make sure that we don't sleep for too short a time
+# (cause it may cause spurious test failures), and that the sleep interval
+# covers at least one timer update. We have to monkeypatch because we especially
+# want functions like s3ql.backends.common.retry to use the "safe" sleep
+# version.
+@functools.wraps(time.sleep)
+def safe_sleep(secs, _sleep_real=time.sleep):
     '''Like time.sleep(), but sleep for at least *secs*
 
     `time.sleep` may sleep less than the given period if a signal is
@@ -40,8 +51,12 @@ def safe_sleep(secs):
     now = time.time()
     end = now + secs
     while now < end:
-        time.sleep(max(end - now, CLOCK_GRANULARITY))
+        _sleep_real(max(end - now, CLOCK_GRANULARITY))
         now = time.time()
+
+@pytest.fixture(autouse=True, scope='session')
+def install_safe_sleep():
+    time.sleep = safe_sleep
 
 @contextmanager
 def catch_logmsg(pattern, level=logging.WARNING, count=None):

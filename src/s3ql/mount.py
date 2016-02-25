@@ -208,10 +208,12 @@ def main(args=None):
             sd_notify('MAINPID=%d' % os.getpid())
 
         exc_info = setup_exchook()
+        workers = 1 if options.single else None # use default
+
         if options.profile:
-            prof.runcall(llfuse.main, options.single)
+            prof.runcall(llfuse.main, workers)
         else:
-            llfuse.main(options.single)
+            llfuse.main(workers)
 
         # Allow operations to terminate while block_cache is still available
         # (destroy() will be called again when from llfuse.close(), but at that

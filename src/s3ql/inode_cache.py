@@ -8,6 +8,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging # Ensure use of custom logger class
 from .database import NoSuchRowError
+import llfuse
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ UPDATE_STR = ', '.join('%s=?' % x for x in UPDATE_ATTRS)
 
 MAX_INODE = 2 ** 32 - 1
 
-class _Inode(object):
+class _Inode:
     '''An inode with its attributes'''
 
     __slots__ = ATTRIBUTES + ('dirty', 'generation')
@@ -31,30 +32,32 @@ class _Inode(object):
         self.dirty = False
         self.generation = generation
 
-    # This allows access to all st_* attributes, even if they're
-    # not defined in the table
-    def __getattr__(self, key):
-        if key == 'st_nlink':
-            return self.refcount
-
-        elif key == 'st_blocks':
-            return (self.size + 511) // 512
-
-        elif key == 'st_ino':
-            return self.id
+    def entry_attributes(self):
+        attr = llfuse.EntryAttributes()
+        attr.st_nlink = self.refcount
+        attr.st_blocks = (self.size + 511) // 512
+        attr.st_ino = self.id
 
         # Timeout, can effectively be infinite since attribute changes
         # are only triggered by the kernel's own requests
-        elif key == 'attr_timeout' or key == 'entry_timeout':
-            return 3600
+        attr.attr_timeout = 3600
+        attr.entry_timeout = 3600
 
         # We want our blocksize for IO as large as possible to get large
         # write requests
-        elif key == 'st_blksize':
-            return 128 * 1024
+        attr.st_blksize = 128 * 1024
 
-        elif key.startswith('st_'):
-            return getattr(self, key[3:])
+        attr.st_mode = self.mode
+        attr.st_uid = self.uid
+        attr.st_gid = self.gid
+        attr.st_size = self.size
+        attr.st_rdev = self.rdev
+        attr.st_atime_ns = int(self.atime*1e9+0.5)
+        attr.st_mtime_ns = int(self.mtime*1e9+0.5)
+        attr.st_ctime_ns = int(self.ctime*1e9+0.5)
+        attr.generation = self.generation
+
+        return attr
 
     def __eq__(self, other):
         # Ill defined - should we compare the inode id or all the attributes?

@@ -144,7 +144,7 @@ def retry(method, _tracker=RateTracker(60)):
 
             # Add some random variation to prevent flooding the
             # server with too many concurrent requests.
-            time.sleep(interval * random.uniform(0.9, 1.1))
+            time.sleep(interval * random.uniform(1, 1.5))
             waited += interval
             interval = min(5*60, 2*interval)
 

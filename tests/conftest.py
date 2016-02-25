@@ -24,6 +24,7 @@ import pytest
 import faulthandler
 import signal
 import gc
+import time
 
 # Converted to autouse fixture below if capture is activated
 def check_test_output(request, capfd):
@@ -45,6 +46,21 @@ def check_test_output(request, capfd):
             raise AssertionError('Suspicious output to stderr')
 
     request.addfinalizer(raise_on_exception_in_out)
+
+
+# If a test fails, wait a moment before retrieving the captured
+# stdout/stderr. When using a server process (like in t4_fuse.py), this makes
+# sure that we capture any potential output of the server that comes *after* a
+# test has failed. For example, if a request handler raises an exception, the
+# server first signals an error to FUSE (causing the test to fail), and then
+# logs the exception. Without the extra delay, the exception will go into
+# nowhere.
+@pytest.mark.hookwrapper
+def pytest_pyfunc_call(pyfuncitem):
+    outcome = yield
+    failed = outcome.excinfo is not None
+    if failed:
+        time.sleep(0.1)
 
 @pytest.fixture(scope="class")
 def s3ql_cmd_argv(request):

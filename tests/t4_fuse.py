@@ -46,7 +46,7 @@ class TestFuse:
         self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
 
-        self.storage_url = 'local://' + self.backend_dir
+        self.storage_url = 'local://%s/' % (self.backend_dir,)
         self.passphrase = 'oeut3d'
         self.backend_login = None
         self.backend_passphrase = None
