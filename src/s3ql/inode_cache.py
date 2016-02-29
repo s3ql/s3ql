@@ -251,8 +251,17 @@ class InodeCache(object):
                     self.setattr(inode)
 
     def __del__(self):
-        if len(self.attrs) > 0:
+        if len(self.attrs) == 0:
+            return
+
+        # Force execution of sys.excepthook (exceptions raised
+        # by __del__ are ignored)
+        try:
             raise RuntimeError('InodeCache instance was destroyed without calling destroy()')
+        except RuntimeError:
+            exc_info = sys.exc_info()
+
+        sys.excepthook(*exc_info)
 
 
 

@@ -19,6 +19,7 @@ import hashlib
 import shutil
 import threading
 import time
+import sys
 
 # standard logger for this module
 log = logging.getLogger(__name__)
@@ -944,5 +945,15 @@ class BlockCache(object):
         return (used, dirty)
 
     def __del__(self):
-        if len(self.cache) > 0:
-            raise RuntimeError("BlockManager instance was destroyed without calling destroy()!")
+        if len(self.cache) == 0:
+            return
+
+        # Force execution of sys.excepthook (exceptions raised
+        # by __del__ are ignored)
+        try:
+            raise RuntimeError("BlockManager instance was destroyed without "
+                               "calling destroy()!")
+        except RuntimeError:
+            exc_info = sys.exc_info()
+
+        sys.excepthook(*exc_info)
