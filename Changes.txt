@@ -6,6 +6,9 @@ UNRELEASED, S3QL tip
     now documented. (It is unknown if the same problem exists when
     running under BSD or OS-X).
 
+  * S3QL now honors the setgid bit on directories (as opposed to just
+    storing them).
+
 2016-02-23, S3QL 2.16
 
   * S3QL now supports (and requires) Python-LLFUSE 0.43 or newer
