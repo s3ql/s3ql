@@ -30,6 +30,9 @@ def parse_args(args):
                         type=(lambda x: x.rstrip('/')),
                         help='Mount point of the file system to examine')
 
+    parser.add_argument("--raw", action="store_true", default=False,
+                          help="Do not pretty-print numbers")
+
     return parser.parse_args(args)
 
 def main(args=None):
@@ -40,6 +43,11 @@ def main(args=None):
 
     options = parse_args(args)
     setup_logging(options)
+
+    if options.raw:
+        pprint = lambda x: '%d bytes' % x
+    else:
+        pprint = pretty_print_size
 
     ctrlfile = assert_fs_owner(options.mountpoint, mountpoint=True)
 
@@ -56,14 +64,14 @@ def main(args=None):
     print ('Directory entries:    %d' % entries,
            'Inodes:               %d' % inodes,
            'Data blocks:          %d' % blocks,
-           'Total data size:      %s' % pretty_print_size(fs_size),
+           'Total data size:      %s' % pprint(fs_size),
            'After de-duplication: %s (%.2f%% of total)'
-             % (pretty_print_size(dedup_size), p_dedup),
+             % (pprint(dedup_size), p_dedup),
            'After compression:    %s (%.2f%% of total, %.2f%% of de-duplicated)'
-             % (pretty_print_size(compr_size), p_compr_1, p_compr_2),
-           'Database size:        %s (uncompressed)' % pretty_print_size(db_size),
-           'Cache usage:          %s (dirty: %s)' % (pretty_print_size(cache_used),
-                                                     pretty_print_size(cache_dirty)),
+             % (pprint(compr_size), p_compr_1, p_compr_2),
+           'Database size:        %s (uncompressed)' % pprint(db_size),
+           'Cache usage:          %s (dirty: %s)' % (pprint(cache_used),
+                                                     pprint(cache_dirty)),
            sep='\n')
 
 

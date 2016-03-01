@@ -9,6 +9,9 @@ UNRELEASED, S3QL tip
   * S3QL now honors the setgid bit on directories (as opposed to just
     storing them).
 
+  * The `s3qlstat` command now accepts a --raw option to inhibit
+    pretty-printing of sizes.
+
 2016-02-23, S3QL 2.16
 
   * S3QL now supports (and requires) Python-LLFUSE 0.43 or newer
