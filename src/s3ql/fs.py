@@ -1004,14 +1004,14 @@ class Operations(llfuse.Operations):
         inode_p.ctime = timestamp
 
         if inode_p.mode & stat.S_ISGID:
-            uid = inode_p.uid
+            gid = inode_p.gid
             if stat.S_ISDIR(mode):
                 mode |= stat.S_ISGID
         else:
-            uid = ctx.uid
+            gid = ctx.gid
         try:
             inode = self.inodes.create_inode(mtime=timestamp, ctime=timestamp, atime=timestamp,
-                                             uid=uid, gid=ctx.gid, mode=mode, refcount=1,
+                                             uid=ctx.uid, gid=gid, mode=mode, refcount=1,
                                              rdev=rdev, size=size)
         except OutOfInodesError:
             log.warning('Could not find a free inode')
