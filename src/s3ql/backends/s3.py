@@ -32,7 +32,7 @@ class Backend(s3c.Backend):
     may or may not be available and can be queried for with instance methods.
     """
 
-    known_options = ((s3c.Backend.known_options | { 'sse', 'rrs' })
+    known_options = ((s3c.Backend.known_options | { 'sse', 'rrs', 'ia' })
                      - {'dumb-copy', 'disable-expect100'})
 
     def __init__(self, storage_url, login, password, options):
@@ -83,23 +83,29 @@ class Backend(s3c.Backend):
             finally:
                 keys[:MAX_KEYS] = tmp
 
+    def _set_storage_options(self, headers):
+        if 'sse' in self.options:
+            headers['x-amz-server-side-encryption'] = 'AES256'
+
+        if 'ia' in self.options:
+            sc =  'STANDARD_IA'
+        elif 'rrs' in self.options:
+            sc = 'REDUCED_REDUNDANCY'
+        else:
+            sc = 'STANDARD'
+        headers['x-amz-storage-class'] = sc
+
     @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None):
         extra_headers = {}
-        if 'sse' in self.options:
-            extra_headers['x-amz-server-side-encryption'] = 'AES256'
-        if 'rrs' in self.options:
-            extra_headers['x-amz-storage-class'] = 'REDUCED_REDUNDANCY'
+        self._set_storage_options(extra_headers)
         return super().copy(src, dest, metadata=metadata,
                             extra_headers=extra_headers)
 
     @copy_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
         extra_headers = {}
-        if 'sse' in self.options:
-            extra_headers['x-amz-server-side-encryption'] = 'AES256'
-        if 'rrs' in self.options:
-            extra_headers['x-amz-storage-class'] = 'REDUCED_REDUNDANCY'
+        self._set_storage_options(extra_headers)
         return super().open_write(key, metadata=metadata, is_compressed=is_compressed,
                                   extra_headers=extra_headers)
 

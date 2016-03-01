@@ -153,9 +153,14 @@ The Amazon S3 backend accepts the following backend options:
     side encryption are probably rather small, and this option does
     *not* affect any client side encryption performed by S3QL itself.
 
+.. option:: ia
+
+   Use infrequent access storage class for new objects.
+
 .. option:: rrs
 
-   Enable reduced redundancy storage for newly created objects.
+   Enable reduced redundancy storage for newly created objects
+   (overwrites the *ia* option).
 
    When enabling this option, it is strongly recommended to
    periodically run :ref:`s3ql_verify <s3ql_verify>`, because objects

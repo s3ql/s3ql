@@ -16,6 +16,9 @@ UNRELEASED, S3QL tip
 
   * The `s3qlctrl cachesize` command is now working again.
 
+  * The s3 backend now supports the "infrequent access" storage class
+    (cf. https://aws.amazon.com/s3/storage-classes/)
+
 2016-02-23, S3QL 2.16
 
   * S3QL now supports (and requires) Python-LLFUSE 0.43 or newer
