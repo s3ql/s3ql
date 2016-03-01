@@ -27,7 +27,10 @@ This program can be distributed under the terms of the GNU GPLv3.
 #define be64toh(x) OSSwapBigToHostInt64(x)
 #define le64toh(x) OSSwapLittleToHostInt64(x)
 
-#else /* __APPLE__ */
+#elif __FreeBSD__
+#include <sys/endian.h>
+
+#else
 #include <endian.h>
 #endif
 
