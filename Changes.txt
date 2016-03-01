@@ -1,3 +1,11 @@
+UNRELEASED, S3QL tip
+
+  * Due to a bug in the FUSE kernel module
+    (cf. https://github.com/libfuse/libfuse/issues/23) S3QL does not
+    (and did not) honor the write restriction bit. This limitation is
+    now documented. (It is unknown if the same problem exists when
+    running under BSD or OS-X).
+
 2016-02-23, S3QL 2.16
 
   * S3QL now supports (and requires) Python-LLFUSE 0.43 or newer

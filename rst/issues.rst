@@ -23,6 +23,15 @@ Known Issues
   <https://bitbucket.org/nikratio/s3ql/issue/16/support-access-control-lists-acls>`_
   for more details.
 
+* As of Linux kernel 3.5 S3QL file systems do not implement the "write
+  protect" bit on directories. In other words, even if a directory has
+  the write protect bit set, the owner of the directory can delete any
+  files and (empty) subdirectories inside it. This is a bug in the
+  FUSE kernel module
+  (cf. https://github.com/libfuse/libfuse/issues/23) and needs to be
+  fixed in the kernel.  Unfortunately it does not look as if this is
+  going to be fixed anytime soon (as of 2016/2/28).
+
 * S3QL is rather slow when an application tries to write data in
   unreasonably small chunks. If a 1 MiB file is copied in chunks of 1
   KB, this will take more than 10 times as long as when it's copied
