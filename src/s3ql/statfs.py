@@ -52,12 +52,13 @@ def main(args=None):
     ctrlfile = assert_fs_owner(options.mountpoint, mountpoint=True)
 
     # Use a decent sized buffer, otherwise the statistics have to be
-    # calculated thee(!) times because we need to invoce getxattr
+    # calculated three(!) times because we need to invoke getxattr
     # three times.
     buf = llfuse.getxattr(ctrlfile, 's3qlstat', size_guess=256)
 
     (entries, blocks, inodes, fs_size, dedup_size,
-     compr_size, db_size, cache_used, cache_dirty) = struct.unpack('QQQQQQQQQ', buf)
+     compr_size, db_size, cache_cnt, cache_size, dirty_cnt,
+     dirty_size, removal_cnt) = struct.unpack('QQQQQQQQQQQQ', buf)
     p_dedup = dedup_size * 100 / fs_size if fs_size else 0
     p_compr_1 = compr_size * 100 / fs_size if fs_size else 0
     p_compr_2 = compr_size * 100 / dedup_size if dedup_size else 0
@@ -70,8 +71,9 @@ def main(args=None):
            'After compression:    %s (%.2f%% of total, %.2f%% of de-duplicated)'
              % (pprint(compr_size), p_compr_1, p_compr_2),
            'Database size:        %s (uncompressed)' % pprint(db_size),
-           'Cache usage:          %s (dirty: %s)' % (pprint(cache_used),
-                                                     pprint(cache_dirty)),
+           'Cache size:           %s, %d entries' % (pprint(cache_size), cache_cnt),
+           'Cache size (dirty):   %s, %d entries' % (pprint(dirty_size), dirty_cnt),
+           'Queued object removals: %d' % (removal_cnt,),
            sep='\n')
 
 

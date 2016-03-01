@@ -931,18 +931,34 @@ class BlockCache(object):
         log.debug('finished')
 
     def get_usage(self):
-        '''Return cache size and dirty cache size
+        '''Get cache usage information.
+
+        Return a tuple of
+
+        * cache entries
+        * cache size
+        * dirty cache entries
+        * dirty cache size
+        * pending removals
 
         This method is O(n) in the number of cache entries.
         '''
 
         used = self.cache.size
-        dirty = 0
+        dirty_size = 0
+        dirty_cnt = 0
         for el in self.cache.values():
             if el.dirty:
-                dirty += el.size
+                dirty_size += el.size
+                dirty_cnt += 1
 
-        return (used, dirty)
+        if self.to_remove is None:
+            remove_cnt = 0
+        else:
+            # This is an estimate which may be negative
+            remove_cnt = max(0, self.to_remove.qsize())
+
+        return (len(self.cache), used, dirty_cnt, dirty_size, remove_cnt)
 
     def __del__(self):
         if len(self.cache) == 0:
