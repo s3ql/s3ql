@@ -23,6 +23,17 @@ This command accepts the following options:
    :start-after: show this help message and exit
 
 
+Permission Checking
+===================
+
+If the file system is mounted with neither the :cmdopt:`allow-root`
+nor :cmdopt:`allow-other` option, the mounting user has full
+permissions on the S3QL file system (he is effectively root). If one
+(or both) of the options is used, standard unix permission checks
+apply, i.e. only the real root user has full access and all other
+users (including the mounting user) are subject to permission checks.
+
+
 Compression Algorithms
 ======================
 
