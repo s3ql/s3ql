@@ -170,10 +170,7 @@ def main(args=None):
         unmount_clean = False
         def unmount():
             log.info("Unmounting file system...")
-            # Acquire lock so that Operations.destroy() is called with the
-            # global lock like all other handlers
-            with llfuse.lock:
-                llfuse.close(unmount=unmount_clean)
+            llfuse.close(unmount=unmount_clean)
         cm.callback(unmount)
 
         if options.fg:

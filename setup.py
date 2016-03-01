@@ -139,7 +139,7 @@ def main():
                      'requests',
                      'defusedxml',
                      'dugong >= 3.4',
-                     'llfuse >= 0.43, < 1.0' ]
+                     'llfuse >= 1.0, < 2.0' ]
 
     setuptools.setup(
           name='s3ql',

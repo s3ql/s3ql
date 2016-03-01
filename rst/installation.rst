@@ -85,8 +85,8 @@ that is not the case.
 * The `Python LLFUSE module
   <https://pypi.python.org/pypi/llfuse/>`_. To check which (if any)
   version of if this module is installed, execute `python3 -c 'import
-  llfuse; print(llfuse.__version__)'`. You must use any version
-  between 0.43 and 1.0.
+  llfuse; print(llfuse.__version__)'`. Any version between 1.0
+  (inclusive) and 2.0 (exclusive) will do.
 
 * The `Python dugong module
   <https://bitbucket.org/nikratio/python-dugong/>`_. To check if this
