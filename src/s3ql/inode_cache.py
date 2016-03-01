@@ -9,6 +9,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 from .logging import logging # Ensure use of custom logger class
 from .database import NoSuchRowError
 import llfuse
+import sys
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +82,18 @@ class _Inode:
             object.__setattr__(self, 'dirty', True)
         object.__setattr__(self, name, value)
 
+    def __del__(self):
+        if not self.dirty:
+            return
+
+        # Force execution of sys.excepthook (exceptions raised
+        # by __del__ are ignored)
+        try:
+            raise RuntimeError('BUG ALERT: Dirty inode was destroyed!')
+        except RuntimeError:
+            exc_info = sys.exc_info()
+
+        sys.excepthook(*exc_info)
 
 class InodeCache(object):
     '''
@@ -136,10 +149,9 @@ class InodeCache(object):
     def __delitem__(self, inode):
         if self.db.execute('DELETE FROM inodes WHERE id=?', (inode,)) != 1:
             raise KeyError('No such inode')
-        try:
-            del self.attrs[inode]
-        except KeyError:
-            pass
+        inode = self.attrs.pop(inode, None)
+        if inode is not None:
+            inode.dirty = False
 
     def __getitem__(self, id_):
         try:
