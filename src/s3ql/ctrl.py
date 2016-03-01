@@ -94,7 +94,7 @@ def main(args=None):
         llfuse.setxattr(ctrlfile, 'logging', cmd)
 
     elif options.action == 'cachesize':
-        llfuse.setxattr(ctrlfile, 'cachesize', ('%d' % options.cachesize * 1024).encode())
+        llfuse.setxattr(ctrlfile, 'cachesize', ('%d' % (options.cachesize * 1024,)).encode())
 
 if __name__ == '__main__':
     main(sys.argv[1:])

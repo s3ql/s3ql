@@ -14,6 +14,8 @@ UNRELEASED, S3QL tip
 
   * The `s3qlctrl log` command is now working again.
 
+  * The `s3qlctrl cachesize` command is now working again.
+
 2016-02-23, S3QL 2.16
 
   * S3QL now supports (and requires) Python-LLFUSE 0.43 or newer

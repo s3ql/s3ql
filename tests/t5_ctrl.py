@@ -23,6 +23,7 @@ class TestCtrl(t4_fuse.TestFuse):
         self.mount()
         self.tst_ctrl_flush()
         self.tst_ctrl_log()
+        self.tst_ctrl_cachesize()
         self.umount()
         self.fsck()
 
@@ -38,6 +39,13 @@ class TestCtrl(t4_fuse.TestFuse):
             s3ql.ctrl.main(['log', self.mnt_dir, 'warn'])
             s3ql.ctrl.main(['log', self.mnt_dir, 'debug', 's3ql', 'dugong'])
             s3ql.ctrl.main(['log', self.mnt_dir, 'info'])
+        except:
+            sys.excepthook(*sys.exc_info())
+            pytest.fail("s3qlctrl raised exception")
+
+    def tst_ctrl_cachesize(self):
+        try:
+            s3ql.ctrl.main(['cachesize', self.mnt_dir, '10240'])
         except:
             sys.excepthook(*sys.exc_info())
             pytest.fail("s3qlctrl raised exception")

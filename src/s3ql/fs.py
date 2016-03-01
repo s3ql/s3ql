@@ -289,6 +289,7 @@ class Operations(llfuse.Operations):
                 except ValueError:
                     log.warning('Received malformed command via control inode')
                     raise FUSEError.EINVAL()
+                log.debug('updated cache size to %d bytes', self.cache.cache.max_size)
 
             else:
                 log.warning('Received unknown command via control inode')
