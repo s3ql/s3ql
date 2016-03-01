@@ -133,7 +133,7 @@ Development Version
 If you have checked out the unstable development version from the
 Mercurial repository, a bit more effort is required. You'll also need:
 
-* Version 0.17 or newer of the Cython_ compiler.
+* Version 0.24 or newer of the Cython_ compiler.
 
 * Version 1.2b1 or newer of the Sphinx_ document processor.
 
