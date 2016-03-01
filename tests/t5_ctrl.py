@@ -22,13 +22,22 @@ class TestCtrl(t4_fuse.TestFuse):
         self.mkfs()
         self.mount()
         self.tst_ctrl_flush()
+        self.tst_ctrl_log()
         self.umount()
         self.fsck()
 
     def tst_ctrl_flush(self):
-
         try:
             s3ql.ctrl.main(['flushcache', self.mnt_dir])
+        except:
+            sys.excepthook(*sys.exc_info())
+            pytest.fail("s3qlctrl raised exception")
+
+    def tst_ctrl_log(self):
+        try:
+            s3ql.ctrl.main(['log', self.mnt_dir, 'warn'])
+            s3ql.ctrl.main(['log', self.mnt_dir, 'debug', 's3ql', 'dugong'])
+            s3ql.ctrl.main(['log', self.mnt_dir, 'info'])
         except:
             sys.excepthook(*sys.exc_info())
             pytest.fail("s3qlctrl raised exception")

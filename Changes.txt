@@ -12,6 +12,8 @@ UNRELEASED, S3QL tip
   * The `s3qlstat` command now accepts a --raw option to inhibit
     pretty-printing of sizes.
 
+  * The `s3qlctrl log` command is now working again.
+
 2016-02-23, S3QL 2.16
 
   * S3QL now supports (and requires) Python-LLFUSE 0.43 or newer

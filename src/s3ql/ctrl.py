@@ -89,7 +89,8 @@ def main(args=None):
         llfuse.setxattr(ctrlfile, 'upload-meta', b'dummy')
 
     elif options.action == 'log':
-        cmd = ('(%r, %r)' % (options.level, ','.join(options.modules))).encode()
+        level = getattr(logging, options.level.upper())
+        cmd = ('(%r, %r)' % (level, ','.join(options.modules))).encode()
         llfuse.setxattr(ctrlfile, 'logging', cmd)
 
     elif options.action == 'cachesize':

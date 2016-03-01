@@ -277,8 +277,7 @@ class Operations(llfuse.Operations):
 
             elif name == b'logging':
                 try:
-                    (lvl, modules)= parse_literal(value, (str, str))
-                    lvl = logging._levelNames[lvl.upper()]
+                    (lvl, modules)= parse_literal(value, (int, str))
                 except (ValueError, KeyError):
                     log.warning('Received malformed command via control inode')
                     raise FUSEError.EINVAL()
