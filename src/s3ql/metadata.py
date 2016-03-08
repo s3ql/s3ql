@@ -10,7 +10,7 @@ from .logging import logging # Ensure use of custom logger class
 from .database import Connection
 from . import BUFSIZE
 from .common import pretty_print_size
-from .deltadump import INTEGER, BLOB, TIME, dump_table, load_table
+from .deltadump import INTEGER, BLOB, dump_table, load_table
 from .backends.common import NoSuchObject, CorruptedObjectError
 import os
 import tempfile
@@ -35,9 +35,9 @@ DUMP_SPEC = [
                                ('uid', INTEGER),
                                ('gid', INTEGER),
                                ('mode', INTEGER),
-                               ('mtime', TIME),
-                               ('atime', TIME),
-                               ('ctime', TIME),
+                               ('mtime_ns', INTEGER),
+                               ('atime_ns', INTEGER),
+                               ('ctime_ns', INTEGER),
                                ('size', INTEGER),
                                ('rdev', INTEGER),
                                ('locked', INTEGER),
@@ -78,8 +78,6 @@ def restore_metadata(fh, dbfile):
     *dbfile* will be created with 0600 permissions. Data is
     first written into a temporary file *dbfile* + '.tmp', and
     the file is renamed once all data has been loaded.
-
-
     '''
 
     tmpfile = dbfile + '.tmp'
@@ -195,9 +193,9 @@ def create_tables(conn):
         uid       INT NOT NULL,
         gid       INT NOT NULL,
         mode      INT NOT NULL,
-        mtime     REAL NOT NULL,
-        atime     REAL NOT NULL,
-        ctime     REAL NOT NULL,
+        mtime_ns  INT NOT NULL,
+        atime_ns  INT NOT NULL,
+        ctime_ns  INT NOT NULL,
         refcount  INT NOT NULL,
         size      INT NOT NULL DEFAULT 0,
         rdev      INT NOT NULL DEFAULT 0,

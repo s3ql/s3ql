@@ -20,6 +20,7 @@ import threading
 import traceback
 import sys
 import os
+import time
 import subprocess
 import errno
 import hashlib
@@ -623,3 +624,6 @@ def save_params(cachepath, param):
         # the local and remote metadata appearing to be out of date.
         fh.flush()
         os.fsync(fh.fileno())
+
+def time_ns():
+    return int(time.time() * 1e9)

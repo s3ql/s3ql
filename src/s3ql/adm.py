@@ -10,14 +10,18 @@ from .logging import logging, QuietError, setup_logging
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.comprenc import ComprencBackend
 from .database import Connection
+from .deltadump import TIME, INTEGER
 from .common import (get_backend_cachedir, get_seq_no, is_mounted, get_backend,
                      load_params, save_params)
 from .metadata import dump_and_upload_metadata, download_metadata
+from . import metadata
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
 from getpass import getpass
+from contextlib import contextmanager
 import os
 import shutil
+import functools
 import sys
 import textwrap
 import time
@@ -246,10 +250,7 @@ def upgrade(backend, cachepath):
         raise QuietError()
 
     # Check revision
-    # Upgrade from 21 to 22 is only possible with release 2.13,
-    # because we removed support for reading the old storage object
-    # format after 2.13.
-    if param['revision'] == 21 or param['revision'] < CURRENT_FS_REV-1:
+    if param['revision'] < CURRENT_FS_REV-1:
         print(textwrap.dedent('''
             File system revision too old to upgrade!
 
@@ -282,8 +283,8 @@ def upgrade(backend, cachepath):
         raise QuietError()
 
     if not db:
-        # Need to download metadata
-        db = download_metadata(backend, cachepath + '.db')
+        with monkeypatch_metadata_retrieval():
+            db = download_metadata(backend, cachepath + '.db')
 
     log.info('Upgrading from revision %d to %d...', param['revision'], CURRENT_FS_REV)
 
@@ -291,10 +292,15 @@ def upgrade(backend, cachepath):
     param['last-modified'] = time.time()
     param['seq_no'] += 1
 
-    # Upgrade code goes here
+    # Upgrade
+    db.execute('ALTER TABLE inodes ADD COLUMN atime_ns INT NOT NULL DEFAULT 0')
+    db.execute('ALTER TABLE inodes ADD COLUMN mtime_ns INT NOT NULL DEFAULT 0')
+    db.execute('ALTER TABLE inodes ADD COLUMN ctime_ns INT NOT NULL DEFAULT 0')
+    db.execute('UPDATE inodes SET atime_ns = atime * 1e9')
+    db.execute('UPDATE inodes SET mtime_ns = mtime * 1e9')
+    db.execute('UPDATE inodes SET ctime_ns = ctime * 1e9')
 
     dump_and_upload_metadata(backend, db, param)
-
     backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
     save_params(cachepath, param)
 
@@ -303,6 +309,51 @@ def upgrade(backend, cachepath):
     db.execute('VACUUM')
 
     print('File system upgrade complete.')
+
+
+@contextmanager
+def monkeypatch_metadata_retrieval():
+    DUMP_SPEC_bak = metadata.DUMP_SPEC
+    create_tables_bak = metadata.create_tables
+
+    @functools.wraps(metadata.create_tables)
+    def create_tables(conn):
+        create_tables_bak(conn)
+        conn.execute('DROP TABLE inodes')
+        conn.execute("""
+           CREATE TABLE inodes (
+           id        INTEGER PRIMARY KEY AUTOINCREMENT,
+           uid       INT NOT NULL,
+           gid       INT NOT NULL,
+           mode      INT NOT NULL,
+           mtime     REAL NOT NULL,
+           atime     REAL NOT NULL,
+           ctime     REAL NOT NULL,
+           refcount  INT NOT NULL,
+           size      INT NOT NULL DEFAULT 0,
+           rdev      INT NOT NULL DEFAULT 0,
+           locked    BOOLEAN NOT NULL DEFAULT 0
+        )""")
+    metadata.create_tables = create_tables
+
+    assert metadata.DUMP_SPEC[2][0] == 'inodes'
+    metadata.DUMP_SPEC[2] = ('inodes', 'id', (('id', INTEGER, 1),
+                                              ('uid', INTEGER),
+                                              ('gid', INTEGER),
+                                              ('mode', INTEGER),
+                                              ('mtime', TIME),
+                                              ('atime', TIME),
+                                              ('ctime', TIME),
+                                              ('size', INTEGER),
+                                              ('rdev', INTEGER),
+                                              ('locked', INTEGER),
+                                              ('refcount', INTEGER)))
+
+    try:
+        yield
+    finally:
+        metadata.DUMP_SPEC = DUMP_SPEC_bak
+        metadata.create_tables = create_tables_bak
 
 if __name__ == '__main__':
     main(sys.argv[1:])

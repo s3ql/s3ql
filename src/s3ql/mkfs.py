@@ -11,7 +11,7 @@ from . import CURRENT_FS_REV, CTRL_INODE, ROOT_INODE
 from .backends.comprenc import ComprencBackend
 from .backends import s3
 from .common import (get_backend_cachedir, get_backend, split_by_n,
-                     freeze_basic_mapping)
+                     freeze_basic_mapping, time_ns)
 from .database import Connection
 from .metadata import dump_and_upload_metadata, create_tables
 from .parse_args import ArgumentParser
@@ -57,24 +57,24 @@ def parse_args(args):
 
 def init_tables(conn):
     # Insert root directory
-    timestamp = time.time()
-    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
+    now_ns = time_ns()
+    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount) "
                  "VALUES (?,?,?,?,?,?,?,?)",
                    (ROOT_INODE, stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                    | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
-                    os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
+                    os.getuid(), os.getgid(), now_ns, now_ns, now_ns, 1))
 
     # Insert control inode, the actual values don't matter that much
-    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount) "
+    conn.execute("INSERT INTO inodes (id,mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount) "
                  "VALUES (?,?,?,?,?,?,?,?)",
                  (CTRL_INODE, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
-                  0, 0, timestamp, timestamp, timestamp, 42))
+                  0, 0, now_ns, now_ns, now_ns, 42))
 
     # Insert lost+found directory
-    inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,refcount) "
+    inode = conn.rowid("INSERT INTO inodes (mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount) "
                        "VALUES (?,?,?,?,?,?,?)",
                        (stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                        os.getuid(), os.getgid(), timestamp, timestamp, timestamp, 1))
+                        os.getuid(), os.getgid(), now_ns, now_ns, now_ns, 1))
     name_id = conn.rowid('INSERT INTO names (name, refcount) VALUES(?,?)',
                          (b'lost+found', 1))
     conn.execute("INSERT INTO contents (name_id, inode, parent_inode) VALUES(?,?,?)",

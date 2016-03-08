@@ -25,6 +25,9 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'common', 'calc_mro',
 VERSION = '2.16'
 RELEASE = '%s' % VERSION
 
+# TODO: On next revision bump, consider removing support for TIME
+# values from deltadump.pyx. It is only present to allow upgrades
+# from revisions <= 22.
 CURRENT_FS_REV = 23
 
 # Buffer size when writing objects

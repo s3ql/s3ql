@@ -13,7 +13,7 @@ from .backends.comprenc import ComprencBackend
 from .backends.local import Backend as LocalBackend
 from .common import (inode_for_path, sha256_fh, get_path, get_backend_cachedir,
                      get_seq_no, is_mounted, get_backend, load_params,
-                     save_params)
+                     save_params, time_ns)
 from .database import NoSuchRowError, Connection
 from .metadata import create_tables, dump_and_upload_metadata, download_metadata
 from .parse_args import ArgumentParser
@@ -217,7 +217,7 @@ class Fsck(object):
 
         log.info('Checking lost+found...')
 
-        timestamp = time.time()
+        now_ns = time_ns()
         try:
             (inode_l, name_id) = self.conn.get_row("SELECT inode, name_id FROM contents_v "
                                                    "WHERE name=? AND parent_inode=?", (b"lost+found", ROOT_INODE))
@@ -226,7 +226,7 @@ class Fsck(object):
             self.found_errors = True
             self.log_error("Recreating missing lost+found directory")
             inode_l = self.create_inode(mode=stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                                        atime=timestamp, ctime=timestamp, mtime=timestamp,
+                                        atime_ns=now_ns, ctime_ns=now_ns, mtime_ns=now_ns,
                                         refcount=1)
             self.conn.execute("INSERT INTO contents (name_id, inode, parent_inode) VALUES(?,?,?)",
                               (self._add_name(b"lost+found"), inode_l, ROOT_INODE))
@@ -240,7 +240,7 @@ class Fsck(object):
             # We leave the old inode unassociated, so that it will be added
             # to lost+found later on.
             inode_l = self.create_inode(mode=stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                                        atime=timestamp, ctime=timestamp, mtime=timestamp,
+                                        atime_ns=now_ns, ctime_ns=now_ns, mtime_ns=now_ns,
                                         refcount=1)
             self.conn.execute('UPDATE contents SET inode=? WHERE name_id=? AND parent_inode=?',
                               (inode_l, name_id, ROOT_INODE))
@@ -622,10 +622,10 @@ class Fsck(object):
                     (id_p, name) = self.resolve_free(b"/lost+found", ("block-%d" % id_).encode())
                     self.log_error("Block %d not referenced, adding as /lost+found/%s",
                                    id_, to_str(name))
-                    timestamp = time.time()
+                    now_ns = time_ns()
                     size = self.conn.get_val('SELECT size FROM blocks WHERE id=?', (id_,))
                     inode = self.create_inode(mode=stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                                              mtime=timestamp, atime=timestamp, ctime=timestamp,
+                                              mtime_ns=now_ns, atime_ns=now_ns, ctime_ns=now_ns,
                                               refcount=1, size=size)
                     self.conn.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
                                       (inode, 0, id_))
@@ -666,13 +666,13 @@ class Fsck(object):
             self.conn.execute('DELETE FROM objects WHERE id=?', (obj_id,))
 
     def create_inode(self, mode, uid=os.getuid(), gid=os.getgid(),
-                     mtime=None, atime=None, ctime=None, refcount=None,
+                     mtime_ns=None, atime_ns=None, ctime_ns=None, refcount=None,
                      size=0):
         '''Create inode'''
 
-        id_ = self.conn.rowid('INSERT INTO inodes (mode,uid,gid,mtime,atime,ctime,'
+        id_ = self.conn.rowid('INSERT INTO inodes (mode,uid,gid,mtime_ns,atime_ns,ctime_ns,'
                               'refcount,size) VALUES (?,?,?,?,?,?,?,?)',
-                              (mode, uid, gid, mtime, atime, ctime, refcount, size))
+                              (mode, uid, gid, mtime_ns, atime_ns, ctime_ns, refcount, size))
 
         return id_
 
@@ -1325,9 +1325,9 @@ def renumber_inodes(db):
                (CTRL_INODE,))
 
     log.info('..inodes..')
-    db.execute('INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,size,locked,rdev) '
+    db.execute('INSERT INTO inodes (id,mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size,locked,rdev) '
                'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = inodes_old.id), '
-               '       mode,uid,gid,mtime,atime,ctime,refcount,size,locked,rdev FROM inodes_old')
+               '       mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size,locked,rdev FROM inodes_old')
 
     log.info('..inode_blocks..')
     db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) '

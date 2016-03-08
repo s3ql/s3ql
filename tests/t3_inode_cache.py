@@ -14,10 +14,10 @@ if __name__ == '__main__':
 
 from s3ql import inode_cache
 from s3ql.mkfs import init_tables
+from s3ql.common import time_ns
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
 import unittest
-import time
 import tempfile
 import os
 
@@ -45,9 +45,9 @@ class cache_tests(unittest.TestCase):
                  'gid': 2,
                  'size': 34674,
                  'rdev': 11,
-                 'atime': time.time(),
-                 'ctime': time.time(),
-                 'mtime': time.time() }
+                 'atime_ns': time_ns(),
+                 'ctime_ns': time_ns(),
+                 'mtime_ns': time_ns() }
 
         inode = self.cache.create_inode(**attrs)
 
@@ -64,9 +64,9 @@ class cache_tests(unittest.TestCase):
                 'gid': 2,
                 'size': 34674,
                 'rdev': 11,
-                'atime': time.time(),
-                'ctime': time.time(),
-                'mtime': time.time() }
+                'atime_ns': time_ns(),
+                'ctime_ns': time_ns(),
+                'mtime_ns': time_ns() }
         inode = self.cache.create_inode(**attrs)
         del self.cache[inode.id]
         self.assertFalse(self.db.has_val('SELECT 1 FROM inodes WHERE id=?', (inode.id,)))
@@ -79,9 +79,9 @@ class cache_tests(unittest.TestCase):
                 'gid': 2,
                 'size': 34674,
                 'rdev': 11,
-                'atime': time.time(),
-                'ctime': time.time(),
-                'mtime': time.time() }
+                'atime_ns': time_ns(),
+                'ctime_ns': time_ns(),
+                'mtime_ns': time_ns() }
 
         inode = self.cache.create_inode(**attrs)
         for (key, val) in attrs.items():

@@ -9,7 +9,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 from .logging import logging
 from . import deltadump, CTRL_NAME, CTRL_INODE
 from .backends.common import NoSuchObject, CorruptedObjectError
-from .common import get_path, parse_literal
+from .common import get_path, parse_literal, time_ns
 from .database import NoSuchRowError
 from .inode_cache import OutOfInodesError
 from io import BytesIO
@@ -55,7 +55,6 @@ if not hasattr(errno, 'EOPNOTSUPP'):
     ACL_ERRNO = errno.ENOTSUP
 else:
     ACL_ERRNO = errno.EOPNOTSUPP
-
 
 class Operations(llfuse.Operations):
     """A full-featured file system for online data storage
@@ -168,10 +167,10 @@ class Operations(llfuse.Operations):
 
     def readlink(self, id_, ctx):
         log.debug('started with %d', id_)
-        timestamp = time.time()
+        now_ns = time_ns()
         inode = self.inodes[id_]
-        if inode.atime < inode.ctime or inode.atime < inode.mtime:
-            inode.atime = timestamp
+        if inode.atime_ns < inode.ctime_ns or inode.atime_ns < inode.mtime_ns:
+            inode.atime_ns = now_ns
         try:
             return self.db.get_val("SELECT target FROM symlink_targets WHERE inode=?", (id_,))
         except NoSuchRowError:
@@ -195,8 +194,8 @@ class Operations(llfuse.Operations):
             off = -1
 
         inode = self.inodes[id_]
-        if inode.atime < inode.ctime or inode.atime < inode.mtime:
-            inode.atime = time.time()
+        if inode.atime_ns < inode.ctime_ns or inode.atime_ns < inode.mtime_ns:
+            inode.atime_ns = time_ns()
 
         with self.db.query("SELECT name_id, name, inode FROM contents_v "
                            'WHERE parent_inode=? AND name_id > ? ORDER BY name_id',
@@ -309,7 +308,7 @@ class Operations(llfuse.Operations):
 
             self.db.execute('INSERT OR REPLACE INTO ext_attributes (inode, name_id, value) '
                             'VALUES(?, ?, ?)', (id_, self._add_name(name), value))
-            self.inodes[id_].ctime = time.time()
+            self.inodes[id_].ctime_ns = time_ns()
 
     def removexattr(self, id_, name, ctx):
         log.debug('started with %d, %r', id_, name)
@@ -327,7 +326,7 @@ class Operations(llfuse.Operations):
         if changes == 0:
             raise llfuse.FUSEError(llfuse.ENOATTR)
 
-        self.inodes[id_].ctime = time.time()
+        self.inodes[id_].ctime_ns = time_ns()
 
     def lock_tree(self, id0):
         '''Lock directory tree'''
@@ -339,7 +338,7 @@ class Operations(llfuse.Operations):
         queue = [ id0 ]
         self.inodes[id0].locked = True
         processed = 0 # Number of steps since last GIL release
-        stamp = time.time() # Time of last GIL release
+        stamp = time_ns() # Time of last GIL release
         gil_step = 250 # Approx. number of steps between GIL releases
         while True:
             id_p = queue.pop()
@@ -457,13 +456,13 @@ class Operations(llfuse.Operations):
             target_inode = self.inodes[target_id]
         except KeyError:
             raise FUSEError(errno.ENOENT)
-        for attr in ('atime', 'ctime', 'mtime', 'mode', 'uid', 'gid'):
+        for attr in ('atime_ns', 'ctime_ns', 'mtime_ns', 'mode', 'uid', 'gid'):
             setattr(target_inode, attr, getattr(src_inode, attr))
 
         # We first replicate into a dummy inode, so that we
         # need to invalidate only once.
-        timestamp = time.time()
-        tmp = make_inode(mtime=timestamp, ctime=timestamp, atime=timestamp,
+        now_ns = time_ns()
+        tmp = make_inode(mtime_ns=now_ns, ctime_ns=now_ns, atime_ns=now_ns,
                          uid=0, gid=0, mode=0, refcount=0)
 
         queue = [ (src_id, tmp.id, 0) ]
@@ -484,8 +483,8 @@ class Operations(llfuse.Operations):
                         try:
                             inode_new = make_inode(refcount=1, mode=inode.mode, size=inode.size,
                                                    uid=inode.uid, gid=inode.gid,
-                                                   mtime=inode.mtime, atime=inode.atime,
-                                                   ctime=inode.ctime, rdev=inode.rdev)
+                                                   mtime_ns=inode.mtime_ns, atime_ns=inode.atime_ns,
+                                                   ctime_ns=inode.ctime_ns, rdev=inode.rdev)
                         except OutOfInodesError:
                             log.warning('Could not find a free inode')
                             raise FUSEError(errno.ENOSPC)
@@ -591,7 +590,7 @@ class Operations(llfuse.Operations):
 
         log.debug('started with %d, %r', id_p, name)
 
-        timestamp = time.time()
+        now_ns = time_ns()
 
         # Check that there are no child entries
         if self.db.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (id_,)):
@@ -608,11 +607,11 @@ class Operations(llfuse.Operations):
 
         inode = self.inodes[id_]
         inode.refcount -= 1
-        inode.ctime = timestamp
+        inode.ctime_ns = now_ns
 
         inode_p = self.inodes[id_p]
-        inode_p.mtime = timestamp
-        inode_p.ctime = timestamp
+        inode_p.mtime_ns = now_ns
+        inode_p.ctime_ns = now_ns
 
         if inode.refcount == 0 and id_ not in self.open_inodes:
             log.debug('removing from cache')
@@ -717,7 +716,7 @@ class Operations(llfuse.Operations):
         return name_id
 
     def _rename(self, id_p_old, name_old, id_p_new, name_new):
-        timestamp = time.time()
+        now_ns = time_ns()
 
         name_id_new = self._add_name(name_new)
         name_id_old = self._del_name(name_old)
@@ -728,15 +727,15 @@ class Operations(llfuse.Operations):
 
         inode_p_old = self.inodes[id_p_old]
         inode_p_new = self.inodes[id_p_new]
-        inode_p_old.mtime = timestamp
-        inode_p_new.mtime = timestamp
-        inode_p_old.ctime = timestamp
-        inode_p_new.ctime = timestamp
+        inode_p_old.mtime_ns = now_ns
+        inode_p_new.mtime_ns = now_ns
+        inode_p_old.ctime_ns = now_ns
+        inode_p_new.ctime_ns = now_ns
 
     def _replace(self, id_p_old, name_old, id_p_new, name_new,
                  id_old, id_new):
 
-        timestamp = time.time()
+        now_ns = time_ns()
 
         if self.db.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (id_new,)):
             log.info("Attempted to overwrite entry with children: %s",
@@ -755,15 +754,15 @@ class Operations(llfuse.Operations):
 
         inode_new = self.inodes[id_new]
         inode_new.refcount -= 1
-        inode_new.ctime = timestamp
+        inode_new.ctime_ns = now_ns
 
         inode_p_old = self.inodes[id_p_old]
-        inode_p_old.ctime = timestamp
-        inode_p_old.mtime = timestamp
+        inode_p_old.ctime_ns = now_ns
+        inode_p_old.mtime_ns = now_ns
 
         inode_p_new = self.inodes[id_p_new]
-        inode_p_new.ctime = timestamp
-        inode_p_new.mtime = timestamp
+        inode_p_new.ctime_ns = now_ns
+        inode_p_new.mtime_ns = now_ns
 
         if inode_new.refcount == 0 and id_new not in self.open_inodes:
             self.cache.remove(id_new, 0,
@@ -787,7 +786,7 @@ class Operations(llfuse.Operations):
                       get_path(new_id_p, self.db, new_name))
             raise llfuse.FUSEError(errno.EACCES)
 
-        timestamp = time.time()
+        now_ns = time_ns()
         inode_p = self.inodes[new_id_p]
 
         if inode_p.refcount == 0:
@@ -798,14 +797,14 @@ class Operations(llfuse.Operations):
         if self.failsafe or inode_p.locked:
             raise FUSEError(errno.EPERM)
 
-        inode_p.ctime = timestamp
-        inode_p.mtime = timestamp
+        inode_p.ctime_ns = now_ns
+        inode_p.mtime_ns = now_ns
 
         self.db.execute("INSERT INTO contents (name_id, inode, parent_inode) VALUES(?,?,?)",
                         (self._add_name(new_name), id_, new_id_p))
         inode = self.inodes[id_]
         inode.refcount += 1
-        inode.ctime = timestamp
+        inode.ctime_ns = now_ns
 
         self.open_inodes[inode.id] += 1
         return inode.entry_attributes()
@@ -815,7 +814,7 @@ class Operations(llfuse.Operations):
         inode = self.inodes[id_]
         if fh is not None:
             assert fh == id_
-        timestamp = time.time()
+        now_ns = time_ns()
 
         if self.failsafe or inode.locked:
             raise FUSEError(errno.EPERM)
@@ -861,12 +860,12 @@ class Operations(llfuse.Operations):
             inode.gid = attr.st_gid
 
         if fields.update_atime:
-            inode.atime = attr.st_atime_ns / 1e9
+            inode.atime_ns = attr.st_atime_ns
 
         if fields.update_mtime:
-            inode.mtime = attr.st_mtime_ns / 1e9
+            inode.mtime_ns = attr.st_mtime_ns
 
-        inode.ctime = timestamp
+        inode.ctime_ns = now_ns
 
         return inode.entry_attributes()
 
@@ -988,7 +987,7 @@ class Operations(llfuse.Operations):
                      get_path(id_p, self.db, name))
             raise FUSEError(errno.EACCES)
 
-        timestamp = time.time()
+        now_ns = time_ns()
         inode_p = self.inodes[id_p]
 
         if inode_p.locked:
@@ -998,8 +997,8 @@ class Operations(llfuse.Operations):
             log.warning('Attempted to create entry %s with unlinked parent %d',
                      name, id_p)
             raise FUSEError(errno.EINVAL)
-        inode_p.mtime = timestamp
-        inode_p.ctime = timestamp
+        inode_p.mtime_ns = now_ns
+        inode_p.ctime_ns = now_ns
 
         if inode_p.mode & stat.S_ISGID:
             gid = inode_p.gid
@@ -1008,7 +1007,7 @@ class Operations(llfuse.Operations):
         else:
             gid = ctx.gid
         try:
-            inode = self.inodes.create_inode(mtime=timestamp, ctime=timestamp, atime=timestamp,
+            inode = self.inodes.create_inode(mtime_ns=now_ns, ctime_ns=now_ns, atime_ns=now_ns,
                                              uid=ctx.uid, gid=gid, mode=mode, refcount=1,
                                              rdev=rdev, size=size)
         except OutOfInodesError:
@@ -1047,8 +1046,8 @@ class Operations(llfuse.Operations):
         # Inode may have expired from cache
         inode = self.inodes[fh]
 
-        if inode.atime < inode.ctime or inode.atime < inode.mtime:
-            inode.atime = time.time()
+        if inode.atime_ns < inode.ctime_ns or inode.atime_ns < inode.mtime_ns:
+            inode.atime_ns = time_ns()
 
         return buf.getvalue()
 
@@ -1075,11 +1074,11 @@ class Operations(llfuse.Operations):
         # so we have to be careful not to undo a size extension made by
         # a concurrent write (because _readwrite() releases the global
         # lock).
-        timestamp = time.time()
+        now_ns = time_ns()
         inode = self.inodes[fh]
         inode.size = max(inode.size, minsize)
-        inode.mtime = timestamp
-        inode.ctime = timestamp
+        inode.mtime_ns = now_ns
+        inode.ctime_ns = now_ns
 
         return total
 

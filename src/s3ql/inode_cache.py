@@ -15,10 +15,10 @@ log = logging.getLogger(__name__)
 
 CACHE_SIZE = 100
 ATTRIBUTES = ('mode', 'refcount', 'uid', 'gid', 'size', 'locked',
-              'rdev', 'atime', 'mtime', 'ctime', 'id')
+              'rdev', 'atime_ns', 'mtime_ns', 'ctime_ns', 'id')
 ATTRIBUTE_STR = ', '.join(ATTRIBUTES)
 UPDATE_ATTRS = ('mode', 'refcount', 'uid', 'gid', 'size', 'locked',
-              'rdev', 'atime', 'mtime', 'ctime')
+              'rdev', 'atime_ns', 'mtime_ns', 'ctime_ns')
 UPDATE_STR = ', '.join('%s=?' % x for x in UPDATE_ATTRS)
 
 MAX_INODE = 2 ** 32 - 1
@@ -53,9 +53,9 @@ class _Inode:
         attr.st_gid = self.gid
         attr.st_size = self.size
         attr.st_rdev = self.rdev
-        attr.st_atime_ns = int(self.atime*1e9+0.5)
-        attr.st_mtime_ns = int(self.mtime*1e9+0.5)
-        attr.st_ctime_ns = int(self.ctime*1e9+0.5)
+        attr.st_atime_ns = self.atime_ns
+        attr.st_mtime_ns = self.mtime_ns
+        attr.st_ctime_ns = self.ctime_ns
         attr.generation = self.generation
 
         return attr

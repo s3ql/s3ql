@@ -20,7 +20,7 @@ from s3ql.block_cache import BlockCache, QuitSentinel
 from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
-from s3ql.common import AsyncFn
+from s3ql.common import AsyncFn, time_ns
 from common import catch_logmsg, safe_sleep
 import llfuse
 import errno
@@ -85,11 +85,12 @@ class cache_tests(unittest.TestCase):
 
         # Create an inode we can work with
         self.inode = 42
-        self.db.execute("INSERT INTO inodes (id,mode,uid,gid,mtime,atime,ctime,refcount,size) "
+        now_ns = time_ns()
+        self.db.execute("INSERT INTO inodes (id,mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size) "
                         "VALUES (?,?,?,?,?,?,?,?,?)",
                         (self.inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
                          | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
-                         os.getuid(), os.getgid(), time.time(), time.time(), time.time(), 1, 32))
+                         os.getuid(), os.getgid(), now_ns, now_ns, now_ns, 1, 32))
 
         cache = BlockCache(self.backend_pool, self.db, self.cachedir + "/cache",
                            self.max_obj_size * 100)
