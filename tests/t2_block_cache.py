@@ -61,6 +61,9 @@ class DummyQueue:
             self.obj = QuitSentinel
             return tmp
 
+    def qsize(self):
+        return 0
+
 class cache_tests(unittest.TestCase):
 
     def setUp(self):
