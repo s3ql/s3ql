@@ -11,7 +11,7 @@ from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.comprenc import ComprencBackend
 from .database import Connection
 from .common import (get_backend_cachedir, get_seq_no, is_mounted, get_backend,
-                     freeze_basic_mapping, load_params)
+                     load_params, save_params)
 from .metadata import dump_and_upload_metadata, download_metadata
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
@@ -139,8 +139,7 @@ def download_metadata_cmd(backend, storage_url):
     # downloaded backup
     seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in backend.list('s3ql_seq_no_') ]
     param['seq_no'] = max(seq_nos) + 1
-    with open(cachepath + '.params', 'wb') as fh:
-        fh.write(freeze_basic_mapping(param))
+    save_params(cachepath, param)
 
 def change_passphrase(backend):
     '''Change file system passphrase'''
@@ -213,7 +212,7 @@ def upgrade(backend, cachepath):
     db = None
     seq_no = get_seq_no(backend)
     if os.path.exists(cachepath + '.params'):
-        param = load_params(cachepath + '.params')
+        param = load_params(cachepath)
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
             param = backend.lookup('s3ql_metadata')
@@ -297,9 +296,7 @@ def upgrade(backend, cachepath):
     dump_and_upload_metadata(backend, db, param)
 
     backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
-
-    with open(cachepath + '.params', 'wb') as fh:
-        fh.write(freeze_basic_mapping(param))
+    save_params(cachepath, param)
 
     log.info('Cleaning up local metadata...')
     db.execute('ANALYZE')

@@ -67,7 +67,7 @@ def main(args=None):
     if not os.path.exists(cachepath + '.params'):
         raise QuietError("No local metadata found.")
 
-    param = load_params(cachepath + '.params')
+    param = load_params(cachepath)
 
     # Check revision
     if param['revision'] < CURRENT_FS_REV:

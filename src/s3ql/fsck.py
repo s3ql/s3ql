@@ -13,14 +13,13 @@ from .backends.comprenc import ComprencBackend
 from .backends.local import Backend as LocalBackend
 from .common import (inode_for_path, sha256_fh, get_path, get_backend_cachedir,
                      get_seq_no, is_mounted, get_backend, load_params,
-                     freeze_basic_mapping)
+                     save_params)
 from .database import NoSuchRowError, Connection
 from .metadata import create_tables, dump_and_upload_metadata, download_metadata
 from .parse_args import ArgumentParser
 from os.path import basename
 import apsw
 import os
-import hashlib
 import re
 import shutil
 import itertools
@@ -1051,7 +1050,7 @@ class ROFsck(Fsck):
         db = Connection(path + '.db')
         db.execute('PRAGMA journal_mode = WAL')
 
-        param = load_params(path + '.params')
+        param = load_params(path)
         super().__init__(None, None, param, db)
 
     def check(self):
@@ -1165,7 +1164,7 @@ def main(args=None):
 
     if os.path.exists(cachepath + '.params'):
         assert os.path.exists(cachepath + '.db')
-        param = load_params(cachepath + '.params')
+        param = load_params(cachepath)
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
             param = backend.lookup('s3ql_metadata')
@@ -1262,8 +1261,7 @@ def main(args=None):
     param['seq_no'] += 1
     param['needs_fsck'] = True
     backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
-    with open(cachepath + '.params', 'wb') as fh:
-        fh.write(freeze_basic_mapping(param))
+    save_params(cachepath, param)
 
     fsck = Fsck(cachepath + '-cache', backend, param, db)
     fsck.check()
@@ -1289,8 +1287,7 @@ def main(args=None):
     param['last-modified'] = time.time()
 
     dump_and_upload_metadata(backend, db, param)
-    with open(cachepath + '.params', 'wb') as fh:
-        fh.write(freeze_basic_mapping(param))
+    save_params(cachepath, param)
 
     log.info('Cleaning up local metadata...')
     db.execute('ANALYZE')

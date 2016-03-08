@@ -11,7 +11,7 @@ from . import fs, CURRENT_FS_REV
 from .backends.pool import BackendPool
 from .block_cache import BlockCache
 from .common import (get_backend_cachedir, get_seq_no, get_backend_factory,
-                     load_params, freeze_basic_mapping)
+                     load_params, save_params)
 from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
@@ -241,13 +241,11 @@ def main(args=None):
             log.info('File system unchanged, not uploading metadata.')
             del backend['s3ql_seq_no_%d' % param['seq_no']]
             param['seq_no'] -= 1
-            with open(cachepath + '.params', 'wb') as fh:
-                fh.write(freeze_basic_mapping(param))
+            save_params(cachepath, param)
         elif seq_no == param['seq_no']:
             param['last-modified'] = time.time()
             dump_and_upload_metadata(backend, db, param)
-            with open(cachepath + '.params', 'wb') as fh:
-                fh.write(freeze_basic_mapping(param))
+            save_params(cachepath, param)
         else:
             log.error('Remote metadata is newer than local (%d vs %d), '
                       'refusing to overwrite!', seq_no, param['seq_no'])
@@ -362,7 +360,7 @@ def get_metadata(backend, cachepath):
     # Check for cached metadata
     db = None
     if os.path.exists(cachepath + '.params'):
-        param = load_params(cachepath + '.params')
+        param = load_params(cachepath)
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
             param = backend.lookup('s3ql_metadata')
@@ -416,9 +414,7 @@ def get_metadata(backend, cachepath):
     # Download metadata
     if not db:
         db = download_metadata(backend, cachepath + '.db')
-
-    with open(cachepath + '.params', 'wb') as fh:
-        fh.write(freeze_basic_mapping(param))
+    save_params(cachepath, param)
 
     return (param, db)
 
@@ -427,14 +423,7 @@ def mark_metadata_dirty(backend, cachepath, param):
 
     param['seq_no'] += 1
     param['needs_fsck'] = True
-    with open(cachepath + '.params', 'wb') as fh:
-        fh.write(freeze_basic_mapping(param))
-
-        # Fsync to make sure that the updated sequence number is committed to
-        # disk. Otherwise, a crash immediately after mount could result in both
-        # the local and remote metadata appearing to be out of date.
-        fh.flush()
-        os.fsync(fh.fileno())
+    save_params(cachepath, param)
     backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
     param['needs_fsck'] = False
 

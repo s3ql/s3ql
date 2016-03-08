@@ -610,6 +610,16 @@ def freeze_basic_mapping(d):
     buf = '{ %s }' % ', '.join(els)
     return buf.encode('utf-8')
 
-def load_params(fname):
-    with open(fname, 'rb') as fh:
+def load_params(cachepath):
+    with open(cachepath + '.params' , 'rb') as fh:
         return thaw_basic_mapping(fh.read())
+
+def save_params(cachepath, param):
+    with open(cachepath + '.params', 'wb') as fh:
+        fh.write(freeze_basic_mapping(param))
+
+        # Fsync to make sure that the updated sequence number is committed to
+        # disk. Otherwise, a crash immediately after mount could result in both
+        # the local and remote metadata appearing to be out of date.
+        fh.flush()
+        os.fsync(fh.fileno())
