@@ -21,7 +21,6 @@ import traceback
 import sys
 import os
 import subprocess
-import pickle
 import errno
 import hashlib
 import llfuse
@@ -613,9 +612,4 @@ def freeze_basic_mapping(d):
 
 def load_params(fname):
     with open(fname, 'rb') as fh:
-        proto = fh.read(2)
-        fh.seek(0)
-        if proto == b'\x80\x02':
-            return pickle.load(fh)
-        else:
-            return thaw_basic_mapping(fh.read())
+        return thaw_basic_mapping(fh.read())

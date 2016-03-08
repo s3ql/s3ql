@@ -105,14 +105,8 @@ def main(args=None):
         state = dict()
     else:
         log.info('Reading state...')
-        # Older versions used pickle to store state...
         with open(options.state, 'rb') as fh:
-            proto = fh.read(2)
-            fh.seek(0)
-            if proto == b'\x80\x02':
-                state = pickle.load(fh)
-            else:
-                state = thaw_basic_mapping(fh.read())
+            state = thaw_basic_mapping(fh.read())
 
     to_delete = process_backups(backup_list, state, options.cycles)
 
