@@ -363,10 +363,10 @@ class fs_api_tests(unittest.TestCase):
                               'WHERE name=? AND parent_inode = ?', (newname, inode_p_new.st_ino))
         self.assertEqual(inode.st_ino, id_)
 
-        self.assertLess(inode_p_new_before.st_mtime_ns, inode_p_new_after.st_mtime_ns)
-        self.assertLess(inode_p_new_before.st_ctime_ns, inode_p_new_after.st_ctime_ns)
-        self.assertLess(inode_p_old_before.st_mtime_ns, inode_p_old_after.st_mtime_ns)
-        self.assertLess(inode_p_old_before.st_ctime_ns, inode_p_old_after.st_ctime_ns)
+        assert inode_p_new_before.st_mtime_ns < inode_p_new_after.st_mtime_ns
+        assert inode_p_new_before.st_ctime_ns < inode_p_new_after.st_ctime_ns
+        assert inode_p_old_before.st_mtime_ns < inode_p_old_after.st_mtime_ns
+        assert inode_p_old_before.st_ctime_ns < inode_p_old_after.st_ctime_ns
 
         self.server.forget([(inode.st_ino, 1), (inode_p_new.st_ino, 1)])
         self.fsck()
