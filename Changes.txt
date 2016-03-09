@@ -1,4 +1,9 @@
-UNRELEASED, S3QL tip
+2016-03-08, S3QL 2.17
+
+  * The internal file system revision has changed. File systems
+    created with S3QL 2.17 or newer are not compatible with prior S3QL
+    versions. To update an existing file system to the newest
+    revision, use the `s3qladm upgrade` command.
 
   * Due to a bug in the FUSE kernel module
     (cf. https://github.com/libfuse/libfuse/issues/23) S3QL does not
