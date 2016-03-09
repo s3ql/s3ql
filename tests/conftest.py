@@ -60,7 +60,7 @@ def pytest_pyfunc_call(pyfuncitem):
     outcome = yield
     failed = outcome.excinfo is not None
     if failed:
-        time.sleep(0.1)
+        time.sleep(1)
 
 @pytest.fixture(scope="class")
 def s3ql_cmd_argv(request):

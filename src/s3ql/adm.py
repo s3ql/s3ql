@@ -293,29 +293,26 @@ def upgrade(backend, cachepath):
     param['seq_no'] += 1
 
     # Upgrade
-    db.execute('ALTER TABLE inodes ADD COLUMN atime_ns INT NOT NULL DEFAULT 0')
-    db.execute('ALTER TABLE inodes ADD COLUMN mtime_ns INT NOT NULL DEFAULT 0')
-    db.execute('ALTER TABLE inodes ADD COLUMN ctime_ns INT NOT NULL DEFAULT 0')
-    db.execute('UPDATE inodes SET atime_ns = atime * 1e9')
-    db.execute('UPDATE inodes SET mtime_ns = mtime * 1e9')
-    db.execute('UPDATE inodes SET ctime_ns = ctime * 1e9')
+    for name in ('atime', 'mtime', 'ctime'):
+        db.execute('ALTER TABLE inodes ADD COLUMN {time}_ns '
+                   'INT NOT NULL DEFAULT 0'.format(time=name))
+        db.execute('UPDATE inodes SET {time}_ns = {time} * 1e9'.format(time=name))
 
     dump_and_upload_metadata(backend, db, param)
     backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
-    save_params(cachepath, param)
 
-    log.info('Cleaning up local metadata...')
-    db.execute('ANALYZE')
-    db.execute('VACUUM')
+    # Declare local metadata as outdated so that it won't be used. It still
+    # contains the old [acm]time columns which are NON NULL, and would prevent
+    # us from inserting new rows.
+    param['seq_no'] = 0
+    save_params(cachepath, param)
 
     print('File system upgrade complete.')
 
 
 @contextmanager
 def monkeypatch_metadata_retrieval():
-    DUMP_SPEC_bak = metadata.DUMP_SPEC
     create_tables_bak = metadata.create_tables
-
     @functools.wraps(metadata.create_tables)
     def create_tables(conn):
         create_tables_bak(conn)
@@ -336,7 +333,7 @@ def monkeypatch_metadata_retrieval():
         )""")
     metadata.create_tables = create_tables
 
-    assert metadata.DUMP_SPEC[2][0] == 'inodes'
+    DUMP_SPEC_bak = metadata.DUMP_SPEC[2]
     metadata.DUMP_SPEC[2] = ('inodes', 'id', (('id', INTEGER, 1),
                                               ('uid', INTEGER),
                                               ('gid', INTEGER),
@@ -352,7 +349,7 @@ def monkeypatch_metadata_retrieval():
     try:
         yield
     finally:
-        metadata.DUMP_SPEC = DUMP_SPEC_bak
+        metadata.DUMP_SPEC[2] = DUMP_SPEC_bak
         metadata.create_tables = create_tables_bak
 
 if __name__ == '__main__':

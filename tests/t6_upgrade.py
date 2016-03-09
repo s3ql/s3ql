@@ -111,10 +111,6 @@ class TestUpgrade(t4_fuse.TestFuse):
         assert proc.wait() == 0
 
     def compare(self):
-
-        # Compare
-        self.fsck()
-        self.mount()
         try:
             out = check_output(['rsync', '-anciHAX', '--delete', '--exclude', '/lost+found',
                                self.ref_dir + '/', self.mnt_dir + '/'], universal_newlines=True,
@@ -123,8 +119,6 @@ class TestUpgrade(t4_fuse.TestFuse):
             pytest.fail('rsync failed with ' + exc.output)
         if out:
             pytest.fail('Copy not equal to original, rsync says:\n' + out)
-
-        self.umount()
 
     def populate(self):
         populate_dir(self.ref_dir)
@@ -145,12 +139,26 @@ class TestUpgrade(t4_fuse.TestFuse):
             self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.mount(expect_fail=32)
 
-        # Upgrade and compare with cache
+        # Upgrade
         if not with_cache:
             shutil.rmtree(self.cache_dir)
             self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.upgrade()
+
+        # ...and test
+        if not with_cache:
+            shutil.rmtree(self.cache_dir)
+            self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
+        self.fsck()
+        self.mount()
         self.compare()
+
+        # Try if we can still write (we messed this up in the upgrade
+        # from 2.16 to 2.17).
+        with open('%s/some_new_file' % (self.mnt_dir,), 'w') as fh:
+            fh.write('hello, world')
+
+        self.umount()
 
 class TestPlainUpgrade(TestUpgrade):
     def setup_method(self, method):

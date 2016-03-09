@@ -1,3 +1,14 @@
+UNRELEASED, S3QL tip
+
+  * Fixed a bug in the upgrade procedure that prevented file system
+    modifications when successive commands used the local metadata
+    cache.
+
+  * Fixed a bug in the upgrade procedure that resulted in corrupted
+    file [acm]times when there was no cached metadata available for
+    both s3qladm and the first fsck.s3ql/mount.s3ql invocation after
+    the upgrade.
+
 2016-03-08, S3QL 2.17
 
   * The internal file system revision has changed. File systems
