@@ -113,7 +113,7 @@ class build_docs(setuptools.Command):
 
 def main():
 
-    with open(os.path.join(basedir, 'rst', 'about.rst'), 'r') as fh:
+    with open(os.path.join(basedir, 'README.rst'), 'r') as fh:
         long_desc = fh.read()
 
     compile_args = ['-Wall', '-Wextra', '-Wconversion', '-Wsign-compare']
