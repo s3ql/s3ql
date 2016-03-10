@@ -166,19 +166,14 @@ def setup_excepthook():
 
 
 def add_stdout_logging(quiet=False):
-    '''Add stdout logging handler to root logger
-
-    If *quiet* is True, logging is sent to stderr rather than stdout, and only
-    messages with severity WARNING are printed.
-    '''
+    '''Add stdout logging handler to root logger'''
 
     root_logger = logging.getLogger()
     formatter = logging.Formatter('%(message)s')
+    handler = logging.StreamHandler(sys.stderr)
     if quiet:
-        handler = logging.StreamHandler(sys.stderr)
         handler.setLevel(logging.WARNING)
     else:
-        handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(logging.INFO)
     handler.setFormatter(formatter)
     root_logger.addHandler(handler)
