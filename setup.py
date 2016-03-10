@@ -23,22 +23,15 @@ from setuptools import Extension
 from distutils.version import LooseVersion
 import os
 import subprocess
-import warnings
-import shutil
 import re
 from glob import glob
 import faulthandler
 faulthandler.enable()
 
-# When running from HG repo, enable all warnings
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
 DEVELOPER_MODE = os.path.exists(os.path.join(basedir, 'MANIFEST.in'))
 if DEVELOPER_MODE:
     print('MANIFEST.in exists, running in developer mode')
-    warnings.resetwarnings()
-    # We can't use `error`, because e.g. Sphinx triggers a
-    # DeprecationWarning.
-    warnings.simplefilter('default')
 
 # Add S3QL sources
 sys.path.insert(0, os.path.join(basedir, 'src'))
