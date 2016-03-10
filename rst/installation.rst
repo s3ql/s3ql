@@ -45,56 +45,33 @@ that is not the case.
 
 * The `psmisc <http://psmisc.sf.net/>`_ utilities.
 
-* `Python <http://www.python.org/>`_ 3.3.0 or newer. Make sure to also
-  install the development headers.
-
-* The `setuptools Python Module
-  <https://pypi.python.org/pypi/setuptools>`_, version 1.0 or newer.
-  To check if with version (if any) of this module is installed, try
-  to execute ::
-
-    python3 -c 'import setuptools; print(setuptools.__version__)'
-
-* The `PyCrypto Python Module
-  <https://www.dlitz.net/software/pycrypto/>`_. To check if this
-  module is installed, try to execute `python3 -c 'import Crypto'`.
-
-* The `Python defusedxml module
-  <https://pypi.python.org/pypi/defusedxml/>`_. To check if this
-  module is installed, try to execute `python3 -c 'import defusedxml'`.
-
-* If you want to use OAuth2 authentication with Google Storage, you
-  need the `Python requests module
-  <https://pypi.python.org/pypi/requests/>`_. To check if this module
-  is installed, try to execute `python3 -c 'import requests'`.
-
-* If you want to use systemd_ integration, you need the `Python systemd
-  module <https://github.com/systemd/python-systemd>`_. To check if
-  this module is installed, try to execute `python3 -c 'import systemd'`.
-
 * `SQLite <http://www.sqlite.org/>`_ version 3.7.0 or newer. SQLite
   has to be installed as a *shared library* with development headers.
 
-* The `APSW Python Module <http://code.google.com/p/apsw/>`_. To check
-  which (if any) version of APWS is installed, run the command ::
+* `Python <http://www.python.org/>`_ 3.3.0 or newer. Make sure to also
+  install the development headers.
 
-    python3 -c 'import apsw; print(apsw.apswversion())'
+* The following Python modules:
 
-  The printed version number should be at least 3.7.0.
+  * `setuptools <https://pypi.python.org/pypi/setuptools>`_, version 1.0 or newer.
+  * `pycrypto <https://www.dlitz.net/software/pycrypto/>`_
+  * `defusedxml <https://pypi.python.org/pypi/defusedxml/>`_
+  * `requests <https://pypi.python.org/pypi/requests/>`_ (optional,
+    required for OAuth2 authentication with Google Storage)
+  * `systemd <https://github.com/systemd/python-systemd>`_ (optional,
+    for enabling systemd support).
+  * `apsw <https://github.com/rogerbinns/apsw>`_, version 3.7.0 or
+    newer.
+  * `llfuse <https://bitbucket.org/nikratio/python-llfuse/>`_, any
+    version between 1.0 (inclusive) and 2.0 (exclusive)
+  * `dugong <https://bitbucket.org/nikratio/python-dugong/>`_, any
+    version between 3.4 (inclusive) and 4.0 (exclusive)
 
-* The `Python LLFUSE module
-  <https://pypi.python.org/pypi/llfuse/>`_. To check which (if any)
-  version of if this module is installed, execute `python3 -c 'import
-  llfuse; print(llfuse.__version__)'`. Any version between 1.0
-  (inclusive) and 2.0 (exclusive) will do.
-
-* The `Python dugong module
-  <https://bitbucket.org/nikratio/python-dugong/>`_. To check if this
-  module is installed, try to execute `python3 -c 'import dugong;
-  print(dugong.__version__)'`. This should print a version number. You
-  need at least version 3.4.
-
-.. _systemd: http://www.freedesktop.org/wiki/Software/systemd/
+  To check if a specific module :var:`<module>` is installed, execute
+  :samp:`python3 -c 'import {<module>};
+  print({<module>}.__version__)'`. This will result in an
+  `ImportError` if the module is not installed, and will print the
+  installed version if the module is installed.
 
 .. _inst-s3ql:
 
