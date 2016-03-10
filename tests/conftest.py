@@ -117,35 +117,17 @@ def pytest_configure(config):
     # Enable logging
     import s3ql.logging
     root_logger = logging.getLogger()
-    if root_logger.handlers:
-        root_logger.warning("Logging already initialized.")
+    if logdebug is not None:
+        logging.disable(logging.NOTSET)
+        if 'all' in logdebug:
+            root_logger.setLevel(logging.DEBUG)
+        else:
+            for module in logdebug:
+                logging.getLogger(module).setLevel(logging.DEBUG)
     else:
-        handler = logging.handlers.RotatingFileHandler(
-            os.path.join(basedir, 'tests', 'test.log'),
-            maxBytes=10 * 1024 ** 2, backupCount=0)
-        if logdebug is None:
-            formatter = logging.Formatter(
-                '%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
-                '[%(name)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
-        else:
-            formatter = logging.Formatter(
-                '%(asctime)s.%(msecs)03d [%(process)s] %(threadName)s: '
-                '[%(name)s.%(funcName)s] %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
-
-        handler.setFormatter(formatter)
-        root_logger.addHandler(handler)
-
-        if logdebug is not None:
-            if 'all' in logdebug:
-                root_logger.setLevel(logging.DEBUG)
-            else:
-                for module in logdebug:
-                    logging.getLogger(module).setLevel(logging.DEBUG)
-            logging.disable(logging.NOTSET)
-        else:
-            root_logger.setLevel(logging.WARNING)
-
-        logging.captureWarnings(capture=True)
+        root_logger.setLevel(logging.INFO)
+        logging.disable(logging.DEBUG)
+    logging.captureWarnings(capture=True)
 
     # Make errors and warnings fatal
     s3ql.logging.EXCEPTION_SEVERITY = logging.WARNING
