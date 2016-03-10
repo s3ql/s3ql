@@ -75,7 +75,7 @@ def create_handler(target):
 
         try:
             handler = logging.handlers.RotatingFileHandler(fullpath,
-                                                           maxBytes=1024 ** 2, backupCount=5)
+                                                           maxBytes=10 * 1024**2, backupCount=5)
         except PermissionError:
             raise QuietError('No permission to write log file %s' % fullpath,
                              exitcode=10)
