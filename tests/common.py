@@ -60,7 +60,7 @@ def install_safe_sleep():
 
 @contextmanager
 def catch_logmsg(pattern, level=logging.WARNING, count=None):
-    '''Catch (and ignore) log messages matching *pattern*
+    '''Catch log messages matching *pattern*
 
     *pattern* is matched against the *unformatted* log message, i.e. before any
     arguments are merged.
@@ -75,10 +75,11 @@ def catch_logmsg(pattern, level=logging.WARNING, count=None):
 
     @wraps(handle_orig)
     def handle_new(self, record):
-        if (record.levelno != level
-            or not re.search(pattern, record.msg)):
-            return handle_orig(self, record)
-        caught[0] += 1
+        if (record.levelno == level
+            and re.search(pattern, record.msg)):
+            caught[0] += 1
+            record.force_log = True
+        return handle_orig(self, record)
 
     logger_class.handle = handle_new
     try:
