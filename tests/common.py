@@ -78,7 +78,7 @@ def catch_logmsg(pattern, level=logging.WARNING, count=None):
         if (record.levelno == level
             and re.search(pattern, record.msg)):
             caught[0] += 1
-            record.force_log = True
+            record.caplog_ignore = True
         return handle_orig(self, record)
 
     logger_class.handle = handle_new

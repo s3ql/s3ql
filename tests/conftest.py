@@ -25,28 +25,7 @@ import faulthandler
 import signal
 import gc
 import time
-
-# Converted to autouse fixture below if capture is activated
-def check_test_output(request, capfd):
-    request.capfd = capfd
-    def raise_on_exception_in_out():
-        # Ensure that capturing has been set up (this may not be the case if one
-        # of the test fixtures raises an exception)
-        try:
-            (stdout, stderr) = capfd.readouterr()
-        except AttributeError:
-            return
-
-        # Write back what we've read (so that it will still be printed.
-        sys.stdout.write(stdout)
-        sys.stderr.write(stderr)
-
-        if ('exception' in stderr.lower()
-            or 'exception' in stdout.lower()):
-            raise AssertionError('Suspicious output to stderr')
-
-    request.addfinalizer(raise_on_exception_in_out)
-
+import re
 
 # If a test fails, wait a moment before retrieving the captured
 # stdout/stderr. When using a server process (like in t4_fuse.py), this makes
@@ -73,6 +52,60 @@ def s3ql_cmd_argv(request):
         request.cls.s3ql_cmd_argv = lambda self, cmd: [ sys.executable,
                                                         os.path.join(basedir, 'bin', cmd) ]
 
+# Fail tests if the result in log messages of severity WARNING or more.
+# Previously (as of Mercurial commit 192dd923daa8, 2016-03-10) we instead
+# installed a custom Logger class that would immediately raise an
+# exception. However, this solution seemed ugly because normally the logging
+# methods suppress any exceptions. Therefore, exception handlers (which are
+# especially likely to log warnings) may rely on that and an unexpected
+# exception may result in improper clean-up. Furthermore, the custom logger
+# class required a second hack to allow logging the "unexpected warning message"
+# exception itself from sys.excepthook. Checking the logs after execution has
+# the drawback that we abort later, and that the failure seems to come from the
+# teardown method, but seems like an overall better solution.
+def check_test_log(caplog):
+    for record in caplog.records():
+        if (record.levelno >= logging.WARNING and
+            not getattr(record, 'caplog_ignore', False)):
+            raise AssertionError('Logger received warning messages')
+
+def check_test_output(capfd):
+    (stdout, stderr) = capfd.readouterr()
+
+    # Write back what we've read (so that it will still be printed.
+    sys.stdout.write(stdout)
+    sys.stderr.write(stderr)
+
+    for pattern in ('exception',):
+        if (re.search(pattern, stderr, re.IGNORECASE)
+            or re.search(pattern, stdout, re.IGNORECASE)):
+            raise AssertionError('Suspicious output to stderr')
+
+# This is a terrible hack that allows us to access the fixtures from the
+# pytest_runtest_call hook. Among a lot of other hidden assumptions, it probably
+# relies on tests running sequential (i.e., don't dare to use e.g. the xdist
+# plugin)
+current_cap_fixtures = None
+@pytest.yield_fixture(autouse=True)
+def save_cap_fixtures(request, capfd, caplog):
+    global current_cap_fixtures
+    if request.config.getoption('capture') == 'no':
+        capfd = None
+    current_cap_fixtures = (capfd, caplog)
+    bak = current_cap_fixtures
+    yield
+    # Try to catch problems with this hack (e.g. when running
+    # tests simultaneously)
+    assert bak is current_cap_fixtures
+    current_cap_fixtures = None
+
+@pytest.hookimpl(trylast=True)
+def pytest_runtest_call(item):
+    (capfd, caplog) = current_cap_fixtures
+    check_test_log(caplog)
+    if capfd is not None:
+        check_test_output(capfd)
+
 def pytest_addoption(parser):
     group = parser.getgroup("terminal reporting")
     group._addoption("--logdebug", action="append", metavar='<module>',
@@ -84,16 +117,7 @@ def pytest_addoption(parser):
     group._addoption("--installed", action="store_true", default=False,
                      help="Test the installed package.")
 
-
 def pytest_configure(config):
-
-    # Enable stdout and stderr analysis, unless output capture is disabled
-    if config.getoption('capture') != 'no':
-        global check_test_output
-        check_test_output = pytest.fixture(autouse=True)(check_test_output)
-
-    logdebug = config.getoption('logdebug')
-
     # If we are running from the S3QL source directory, make sure that we
     # load modules from here
     basedir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -114,8 +138,9 @@ def pytest_configure(config):
     faulthandler.enable(faultlog_fh)
     faulthandler.register(signal.SIGUSR1, file=faultlog_fh)
 
-    # Enable logging
-    import s3ql.logging
+    # Configure logging. We don't set a default handler but rely on
+    # the catchlog pytest plugin.
+    logdebug = config.getoption('logdebug')
     root_logger = logging.getLogger()
     if logdebug is not None:
         logging.disable(logging.NOTSET)
@@ -128,10 +153,6 @@ def pytest_configure(config):
         root_logger.setLevel(logging.INFO)
         logging.disable(logging.DEBUG)
     logging.captureWarnings(capture=True)
-
-    # Make errors and warnings fatal
-    s3ql.logging.EXCEPTION_SEVERITY = logging.WARNING
-
 
 # Run gc.collect() at the end of every test, so that we get ResourceWarnings
 # as early as possible.
