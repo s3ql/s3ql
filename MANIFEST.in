@@ -9,7 +9,6 @@ include Changes.txt
 include INSTALL.txt
 include README.txt
 include LICENSE
-include runtests.py
 exclude MANIFEST.in
 prune tests/.cache
 prune doc/doctrees

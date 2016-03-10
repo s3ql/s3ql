@@ -1,3 +1,8 @@
+UNRELEASED, S3QL tip
+
+  * The `runtests.py` file has been dropped in favor of requiring
+    installation of py.test.
+
 2016-03-08, S3QL 2.17.1
 
   * Fixed a bug in the upgrade procedure that prevented file system

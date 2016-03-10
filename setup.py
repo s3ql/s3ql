@@ -189,7 +189,6 @@ def main():
                           },
           install_requires=required_pkgs,
           cmdclass={'upload_docs': upload_docs,
-                    'make_testscript': make_testscript,
                     'build_cython': build_cython,
                     'build_sphinx': build_docs },
           command_options={ 'sdist': { 'formats': ('setup.py', 'bztar') } },
@@ -259,32 +258,6 @@ class upload_docs(setuptools.Command):
                                'ebox.rath.org:/srv/www.rath.org/s3ql-docs/'])
         subprocess.check_call(['rsync', '-aHv', '--del', os.path.join(basedir, 'doc', 'manual.pdf'),
                                'ebox.rath.org:/srv/www.rath.org/s3ql-docs/'])
-
-class make_testscript(setuptools.Command):
-    user_options = []
-    boolean_options = []
-    description = "Generate standalone py.test script"
-
-    def initialize_options(self):
-        pass
-
-    def finalize_options(self):
-        pass
-
-    def run(self):
-        import pytest
-        pytest.main(['--genscript', 'runtests.py'])
-
-        # Fixup shebang
-        with open('runtests.py.tmp', 'wb') as ofh, \
-                open('runtests.py', 'rb') as ifh:
-            ofh.write(b'#!/usr/bin/env python3\n')
-            ifh.readline()
-            shutil.copyfileobj(ifh, ofh)
-        os.rename('runtests.py.tmp', 'runtests.py')
-
-        # Make executable
-        os.chmod('runtests.py', 0o755)
 
 def fix_docutils():
     '''Work around https://bitbucket.org/birkenfeld/sphinx/issue/1154/'''

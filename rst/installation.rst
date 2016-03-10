@@ -66,6 +66,9 @@ that is not the case.
     version between 1.0 (inclusive) and 2.0 (exclusive)
   * `dugong <https://bitbucket.org/nikratio/python-dugong/>`_, any
     version between 3.4 (inclusive) and 4.0 (exclusive)
+  * `pytest <http://pytest.org/>`_, version 2.3.3 or newer (optional, to run unit tests)
+  * `pytest-catchlog <https://github.com/eisensheng/pytest-catchlog>`_
+    (optional, to run unit tests)
 
   To check if a specific module :var:`<module>` is installed, execute
   :samp:`python3 -c 'import {<module>};
@@ -73,17 +76,18 @@ that is not the case.
   `ImportError` if the module is not installed, and will print the
   installed version if the module is installed.
 
+
 .. _inst-s3ql:
 
 Installing S3QL
 ===============
 
-To install S3QL itself, proceed as follows:
+To build and install S3QL itself, proceed as follows:
 
 1. Download S3QL from https://bitbucket.org/nikratio/s3ql/downloads
 2. Unpack it into a folder of your choice
 3. Run `python3 setup.py build_ext --inplace` to build S3QL.
-4. Run `python3 runtests.py tests` to run a self-test. If this fails, ask
+4. Run `python3 -m pytest tests/` to run a self-test. If this fails, ask
    for help on the `mailing list
    <http://groups.google.com/group/s3ql>`_ or report a bug in the
    `issue tracker <https://bitbucket.org/nikratio/s3ql/issues>`_.
@@ -110,24 +114,21 @@ Mercurial repository, a bit more effort is required. You'll also need:
 
 * Version 1.2b1 or newer of the Sphinx_ document processor.
 
-* The `py.test`_ testing tool, version 2.3.3 or newer.
-
 With these additional dependencies installed, S3QL can be build and
 tested with ::
 
   python3 setup.py build_cython
   python3 setup.py build_ext --inplace
-  py.test tests/
+  python3 -m pytest tests/
 
-Note that when building from the Mercurial repository, building and
-testing is done with several additional checks. This may cause
+Note that when building from the Mercurial or Git repository, building
+and testing is done with several additional checks. This may cause
 compilation and/or tests to fail even though there are no problems
-with functionality. For example, when building from the Mercurial
-repository, any use of functions that are scheduled for deprecation in
-future Python version will cause tests to fail. If you would rather
-just check for functionality, you can delete the :file:`MANIFEST.in`
-file. In that case, the build system will behave as it does for a
-regular release.
+with functionality. For example, any use of functions that are
+scheduled for deprecation in future Python version will cause tests to
+fail. If you would rather just check for functionality, you can delete
+the :file:`MANIFEST.in` file. In that case, the build system will
+behave as it does for a regular release.
 
 The HTML and PDF documentation can be generated with ::
 
@@ -141,12 +142,11 @@ and S3QL can be installed as usual with ::
 Running tests requiring remote servers
 ======================================
 
-By default, the `runtest.py` (or `py.test`) script skips all tests
-that require connection to a remote storage backend. If you would like
-to run these tests too (which is always a good idea), you have to
-create additional entries in your `~/.s3ql/authinfo2` file that tell
-S3QL what server and credentials to use for these tests. These entries
-have the following form::
+By default, tests requiring a connection to a remote storage backend
+are skipped. If you would like to run these tests too (which is always
+a good idea), you have to create additional entries in your
+`~/.s3ql/authinfo2` file that tell S3QL what server and credentials to
+use for these tests. These entries have the following form::
 
   [<BACKEND>-test]
   backend-login: <user>
@@ -177,4 +177,3 @@ being skipped by passing the :cmdopt:`-rs` argument to
 
 .. _Cython: http://www.cython.org/
 .. _Sphinx: http://sphinx.pocoo.org/
-.. _py.test: http://pytest.org/
