@@ -151,7 +151,7 @@ def setup_excepthook():
         root_logger = logging.getLogger()
         if isinstance(val, QuietError):
             # force_log attribute ensures that logging handler will
-            # not raise exception (if EXCEPTION_SEVERITY is set)
+            # not raise exception even if EXCEPTION_SEVERITY is set
             root_logger.error(val.msg, extra={ 'force_log': True })
             sys.exit(val.exitcode)
         else:
@@ -201,7 +201,7 @@ class Logger(logging.getLoggerClass()):
 
     def handle(self, record):
         if (record.levelno >= EXCEPTION_SEVERITY
-            and not hasattr(record, 'force_log')):
+            and not getattr(record, 'force_log', False)):
             raise LoggingError(record)
 
         if hasattr(record, 'log_once') and record.log_once:
