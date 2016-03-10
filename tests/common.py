@@ -88,8 +88,8 @@ def catch_logmsg(pattern, level=logging.WARNING, count=None):
         logger_class.handle = handle_orig
 
         if count is not None and caught[0] != count:
-            raise AssertionError('Expected to catch %d log messages, but got only %d'
-                                 % (count, caught[0]))
+            raise AssertionError('Expected to catch %d log %r messages, but got only %d'
+                                 % (count, pattern, caught[0]))
 
 def retry(timeout, fn, *a, **kw):
     """Wait for fn(*a, **kw) to return True.
