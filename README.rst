@@ -83,13 +83,12 @@ Features
 Development Status
 ==================
 
-S3QL is considered stable and suitable for production use. However,
-upgrades from one minor version to the next (e.g. *2.x* to *2.x+1*)
-may change the public interface (e.g. different command line options),
-or require the file system structure to be upgraded (so that the file
-system can no longer be accessed by older releases). Therefore, it is
-strongly recommended to read the changelog (`Changes.txt` in the S3QL
-tarball) before upgrading.
+S3QL is considered stable and suitable for production use.  Starting
+with version 2.17.1, S3QL uses semantic versioning. This means that
+backwards-incompatible versions (e.g., versions that require an
+upgrade of the file system revision) will be reflected in an increase
+of the major version number.
+
 
 Supported Platforms
 ===================
@@ -100,22 +99,6 @@ maintain compatibility with these systems, but (due to lack of
 pre-release testers) we cannot guarantee that every release will run
 on all non-Linux systems. Please report any bugs you find, and we will
 try to fix them.
-
-
-Which Version Should I Download?
-================================
-
-Short answer: if your system supports Python 3.3 or newer, download
-the most recent *2.x* version.
-
-Long answer: there are two supported branches of S3QL. Both branches
-are suitable for production use. The *maint-1.x* branch (version
-numbers *1.x*) is no longer actively developed and receives only
-selected high-impact bugfixes. It is provided for systems without
-Python 3 support. For systems with Python 3.3 or newer, it is
-recommended run the *default* S3QL branch (with version numbers
-*2.x*). This branch is actively developed and has a number of new
-features that are not available in the *1.x* versions.
 
 
 Typical Usage

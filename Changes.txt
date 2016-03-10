@@ -3,6 +3,12 @@ UNRELEASED, S3QL tip
   * The `runtests.py` file has been dropped in favor of requiring
     installation of py.test.
 
+  * S3QL now uses semantic versioning. This means that
+    backwards-incompatible versions (i.e., versions that require an
+    upgrade of the file system revision) will be reflected in an
+    increase of the major version number, i.e. the next
+    backwards-incompatible version will have version 3.0.
+
 2016-03-08, S3QL 2.17.1
 
   * Fixed a bug in the upgrade procedure that prevented file system
