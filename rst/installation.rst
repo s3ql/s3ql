@@ -68,7 +68,7 @@ that is not the case.
   <https://pypi.python.org/pypi/requests/>`_. To check if this module
   is installed, try to execute `python3 -c 'import requests'`.
 
-* If you want to use systemd integration, you need the `Python systemd
+* If you want to use systemd_ integration, you need the `Python systemd
   module <https://github.com/systemd/python-systemd>`_. To check if
   this module is installed, try to execute `python3 -c 'import systemd'`.
 
@@ -93,10 +93,6 @@ that is not the case.
   module is installed, try to execute `python3 -c 'import dugong;
   print(dugong.__version__)'`. This should print a version number. You
   need at least version 3.4.
-
-* If your system is using `systemd`_, make sure that the ``systemd``
-  Python module is available for Python 3. To check this, try to run
-  ``python3 -c 'import systemd.daemon'``.
 
 .. _systemd: http://www.freedesktop.org/wiki/Software/systemd/
 
