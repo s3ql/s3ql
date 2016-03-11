@@ -92,10 +92,12 @@ def check_test_output(capfd):
                     'fault', 'crash(?:ed)?', 'abort(?:ed)'):
         cp = re.compile(r'\b{}\b'.format(pattern), re.IGNORECASE | re.MULTILINE)
         hit = cp.search(stderr)
-        if hit is None:
-            hit = cp.search(stdout)
         if hit:
-            raise AssertionError('Suspicious output to stderr: %s' % hit.group(0))
+            raise AssertionError('Suspicious output to stderr (matched "%s")' % hit.group(0))
+        hit = cp.search(stdout)
+        if hit:
+            raise AssertionError('Suspicious output to stdout (matched "%s")' % hit.group(0))
+
 
 def register_output(self, pattern, count=1, flags=re.MULTILINE):
     '''Register *pattern* as false positive for output checking
@@ -163,7 +165,7 @@ def pytest_configure(config):
     if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
         import warnings
         warnings.resetwarnings()
-        warnings.simplefilter('error')
+        warnings.simplefilter('default')
 
     # Enable faulthandler
     global faultlog_fh
