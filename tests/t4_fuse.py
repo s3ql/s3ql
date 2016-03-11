@@ -30,7 +30,7 @@ from pytest import raises as assert_raises
 # For debugging
 USE_VALGRIND = False
 
-@pytest.mark.usefixtures('s3ql_cmd_argv')
+@pytest.mark.usefixtures('s3ql_cmd_argv', 'pass_capfd')
 class TestFuse:
 
     def setup_method(self, method):
@@ -73,6 +73,8 @@ class TestFuse:
         proc.stdin.close()
 
         assert proc.wait() == 0
+        self.capfd.register_output(r'^Warning: maximum object sizes less than 1 MiB '
+                                   'will seriously degrade performance\.$', count=1)
 
     def mount(self, fatal_warnings=True, expect_fail=None):
         cmd = (self.s3ql_cmd_argv('mount.s3ql') +

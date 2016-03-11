@@ -20,8 +20,7 @@ import unittest
 import subprocess
 import pytest
 
-
-@pytest.mark.usefixtures('s3ql_cmd_argv')
+@pytest.mark.usefixtures('s3ql_cmd_argv', 'pass_capfd')
 class AdmTests(unittest.TestCase):
 
     def setUp(self):
@@ -47,6 +46,8 @@ class AdmTests(unittest.TestCase):
         proc.stdin.close()
 
         self.assertEqual(proc.wait(), 0)
+        self.capfd.register_output(r'^Warning: maximum object sizes less than 1 MiB '
+                                   'will seriously degrade performance\.$', count=1)
 
     def test_passphrase(self):
         self.mkfs()

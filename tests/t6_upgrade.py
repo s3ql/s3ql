@@ -23,6 +23,7 @@ import tempfile
 import os
 import pytest
 
+@pytest.mark.usefixtures('pass_capfd')
 class TestUpgrade(t4_fuse.TestFuse):
 
     def setup_method(self, method):
@@ -62,6 +63,8 @@ class TestUpgrade(t4_fuse.TestFuse):
             print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
         assert proc.wait() == 0
+        self.capfd.register_output(r'^Warning: maximum object sizes less than 1 MiB '
+                                   'will seriously degrade performance\.$', count=1)
 
     def mount_old(self):
         self.mount_process = subprocess.Popen([os.path.join(self.basedir_old, 'bin', 'mount.s3ql'),

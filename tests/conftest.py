@@ -52,6 +52,11 @@ def s3ql_cmd_argv(request):
         request.cls.s3ql_cmd_argv = lambda self, cmd: [ sys.executable,
                                                         os.path.join(basedir, 'bin', cmd) ]
 
+@pytest.fixture()
+def pass_capfd(request, capfd):
+    '''Provide capfd object to UnitTest instances'''
+    request.instance.capfd = capfd
+
 # Fail tests if the result in log messages of severity WARNING or more.
 # Previously (as of Mercurial commit 192dd923daa8, 2016-03-10) we instead
 # installed a custom Logger class that would immediately raise an
@@ -76,10 +81,30 @@ def check_test_output(capfd):
     sys.stdout.write(stdout)
     sys.stderr.write(stderr)
 
-    for pattern in ('exception',):
-        if (re.search(pattern, stderr, re.IGNORECASE)
-            or re.search(pattern, stdout, re.IGNORECASE)):
-            raise AssertionError('Suspicious output to stderr')
+    # Strip out false positives
+    for (pattern, flags, count) in capfd.false_positives:
+        cp = re.compile(pattern, flags)
+        (stdout, cnt) = cp.subn('', stdout, count=count)
+        if count == 0 or count - cnt > 0:
+            stderr = cp.sub('', stderr, count=count - cnt)
+
+    for pattern in ('exception', 'error', 'warning', 'fatal',
+                    'fault', 'crash(?:ed)?', 'abort(?:ed)'):
+        cp = re.compile(r'\b{}\b'.format(pattern), re.IGNORECASE | re.MULTILINE)
+        hit = cp.search(stderr)
+        if hit is None:
+            hit = cp.search(stdout)
+        if hit:
+            raise AssertionError('Suspicious output to stderr: %s' % hit.group(0))
+
+def register_output(self, pattern, count=1, flags=re.MULTILINE):
+    '''Register *pattern* as false positive for output checking
+
+    This prevents the test from failing because the output otherwise
+    appears suspicious.
+    '''
+
+    self.false_positives.append((pattern, flags, count))
 
 # This is a terrible hack that allows us to access the fixtures from the
 # pytest_runtest_call hook. Among a lot of other hidden assumptions, it probably
@@ -89,6 +114,14 @@ current_cap_fixtures = None
 @pytest.yield_fixture(autouse=True)
 def save_cap_fixtures(request, capfd, caplog):
     global current_cap_fixtures
+    capfd.false_positives = []
+    type(capfd).register_output = register_output
+
+    # Ignore DeprecationWarnings when running unit tests.  They are
+    # unfortunately quite often a result of indirect imports via third party
+    # modules, so we can't actually fix them.
+    capfd.register_output(r'^(Pending)?DeprecationWarning: .+$', count=0)
+
     if request.config.getoption('capture') == 'no':
         capfd = None
     current_cap_fixtures = (capfd, caplog)
