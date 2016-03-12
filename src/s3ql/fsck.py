@@ -1130,7 +1130,6 @@ def parse_args(args):
     parser.add_backend_options()
     parser.add_version()
     parser.add_storage_url()
-    parser.add_fatal_warnings()
 
     parser.add_argument("--batch", action="store_true", default=False,
                       help="If user input is required, exit without prompting.")

@@ -139,7 +139,7 @@ def main(args=None):
         options.cachesize = min(rec_cachesize, 0.8 * avail_cache)
         log.info('Setting cache size to %d MB', options.cachesize / 1024)
     elif options.cachesize > avail_cache:
-        log.warning('Warning! Requested cache size %d MB, but only %d MB available',
+        log.warning('Requested cache size %d MB, but only %d MB available',
                     options.cachesize / 1024, avail_cache / 1024)
 
     if options.nfs:
@@ -342,8 +342,8 @@ def determine_threads(options):
         if threads > 0:
             log.info('Using %d upload threads (memory limited).', threads)
         else:
-            log.warning('Warning: compression will require %d MiB memory '
-                     '(%d%% of total system memory', mem_per_thread / 1024 ** 2,
+            log.warning('Compression will require %d MiB memory '
+                        '(%d%% of total system memory', mem_per_thread / 1024 ** 2,
                      mem_per_thread * 100 / memory)
             threads = 1
         return threads
@@ -504,7 +504,6 @@ def parse_args(args):
     parser.add_backend_options()
     parser.add_version()
     parser.add_storage_url()
-    parser.add_fatal_warnings()
 
     parser.add_argument("mountpoint", metavar='<mountpoint>', type=os.path.abspath,
                         help='Where to mount the file system')

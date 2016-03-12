@@ -85,7 +85,7 @@ class RemoteTest:
         super().teardown_method(method)
 
         proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') +
-                                [ '--quiet', '--authfile', '/dev/null', '--fatal-warnings',
+                                [ '--quiet', '--authfile', '/dev/null',
                                   'clear', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
         if self.backend_login is not None:

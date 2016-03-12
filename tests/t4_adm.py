@@ -36,7 +36,7 @@ class AdmTests(unittest.TestCase):
 
     def mkfs(self):
         proc = subprocess.Popen(self.s3ql_cmd_argv('mkfs.s3ql') +
-                                ['-L', 'test fs', '--max-obj-size', '500', '--fatal-warnings',
+                                ['-L', 'test fs', '--max-obj-size', '500',
                                  '--authfile', '/dev/null', '--cachedir', self.cache_dir,
                                  '--quiet', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
@@ -46,8 +46,8 @@ class AdmTests(unittest.TestCase):
         proc.stdin.close()
 
         self.assertEqual(proc.wait(), 0)
-        self.capfd.register_output(r'^Warning: maximum object sizes less than 1 MiB '
-                                   'will seriously degrade performance\.$', count=1)
+        self.capfd.register_output(r'^WARNING: Maximum object sizes less than '
+                                   '1 MiB will degrade performance\.$', count=1)
 
     def test_passphrase(self):
         self.mkfs()
@@ -55,7 +55,7 @@ class AdmTests(unittest.TestCase):
         passphrase_new = 'sd982jhd'
 
         proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') +
-                                [ '--quiet', '--fatal-warnings', '--log', 'none', '--authfile',
+                                [ '--quiet', '--log', 'none', '--authfile',
                                   '/dev/null', 'passphrase', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
 
@@ -87,7 +87,7 @@ class AdmTests(unittest.TestCase):
             fh.flush()
 
             proc = subprocess.Popen(self.s3ql_cmd_argv('fsck.s3ql') +
-                                    [ '--quiet', '--fatal-warnings', '--authfile', fh.name,
+                                    [ '--quiet', '--authfile', fh.name,
                                       '--cachedir', self.cache_dir, '--log', 'none', self.storage_url ],
                                     stdin=subprocess.PIPE, universal_newlines=True)
 

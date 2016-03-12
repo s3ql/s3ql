@@ -183,7 +183,7 @@ def process_backups(backup_list, state, cycles):
     # Missing backups
     missing_backups = set(state) - backup_list
     for x in missing_backups:
-        log.warning('Warning: backup %s is missing. Did you delete it manually?', x)
+        log.warning('backup %s is missing. Did you delete it manually?', x)
         del state[x]
 
     # Ranges

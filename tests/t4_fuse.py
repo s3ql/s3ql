@@ -57,7 +57,7 @@ class TestFuse:
     def mkfs(self, max_obj_size=500):
         argv = (self.s3ql_cmd_argv('mkfs.s3ql') +
                 [ '-L', 'test fs', '--max-obj-size', str(max_obj_size),
-                  '--fatal-warnings', '--cachedir', self.cache_dir, '--quiet',
+                  '--cachedir', self.cache_dir, '--quiet',
                   '--authfile', '/dev/null', self.storage_url ])
         if self.passphrase is None:
             argv.append('--plain')
@@ -73,16 +73,14 @@ class TestFuse:
         proc.stdin.close()
 
         assert proc.wait() == 0
-        self.capfd.register_output(r'^Warning: maximum object sizes less than 1 MiB '
-                                   'will seriously degrade performance\.$', count=1)
+        self.capfd.register_output(r'^WARNING: Maximum object sizes less than '
+                                   '1 MiB will degrade performance\.$', count=1)
 
-    def mount(self, fatal_warnings=True, expect_fail=None):
+    def mount(self, expect_fail=None):
         cmd = (self.s3ql_cmd_argv('mount.s3ql') +
                ["--fg", '--cachedir', self.cache_dir, '--log', 'none',
                 '--compress', 'zlib', '--quiet', self.storage_url, self.mnt_dir,
                 '--authfile', '/dev/null' ])
-        if fatal_warnings:
-            cmd.append('--fatal-warnings')
         self.mount_process = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                                               universal_newlines=True)
         if self.backend_login is not None:
@@ -134,7 +132,7 @@ class TestFuse:
 
             proc = subprocess.Popen(self.s3ql_cmd_argv('fsck.s3ql') +
                                     [ '--force', '--quiet', '--log', 'none', '--cachedir',
-                                      self.cache_dir, '--fatal-warnings', '--authfile',
+                                      self.cache_dir, '--authfile',
                                       authinfo_fh.name, self.storage_url ],
                                     stdin=subprocess.PIPE, universal_newlines=True)
             proc.stdin.close()

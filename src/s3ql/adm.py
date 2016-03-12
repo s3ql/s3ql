@@ -64,7 +64,6 @@ def parse_args(args):
     parser.add_backend_options()
     parser.add_cachedir()
     parser.add_version()
-    parser.add_fatal_warnings()
 
     options = parser.parse_args(args)
 

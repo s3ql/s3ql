@@ -38,7 +38,6 @@ def parse_args(args):
     parser.add_backend_options()
     parser.add_version()
     parser.add_storage_url()
-    parser.add_fatal_warnings()
 
     parser.add_argument("-L", default='', help="Filesystem label",
                       dest="label", metavar='<name>',)
@@ -90,8 +89,8 @@ def main(args=None):
 
     if options.max_obj_size < 1024:
         # This warning should never be converrted to an exception
-        log.warning('Warning: maximum object sizes less than 1 MiB will seriously degrade '
-                 'performance.', extra={ 'force_log': True })
+        log.warning('Maximum object sizes less than 1 MiB will degrade '
+                    'performance.', extra={ 'force_log': True })
 
     plain_backend = get_backend(options, raw=True)
     atexit.register(plain_backend.close)
@@ -100,10 +99,9 @@ def main(args=None):
              "the 'Important Rules to Avoid Loosing Data' section.")
 
     if isinstance(plain_backend, s3.Backend) and '.' in plain_backend.bucket_name:
-        log.warning('***Warning*** S3 Buckets with names containing dots cannot be '
-                    'accessed using SSL!')
-        log.warning('(cf. https://forums.aws.amazon.com/thread.jspa?threadID=130560)')
-
+        log.warning('S3 Buckets with names containing dots cannot be '
+                    'accessed using SSL!'
+                    '(cf. https://forums.aws.amazon.com/thread.jspa?threadID=130560)')
 
     if 's3ql_metadata' in plain_backend:
         if not options.force:

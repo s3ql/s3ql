@@ -35,7 +35,6 @@ def parse_args(args):
     parser.add_debug()
     parser.add_quiet()
     parser.add_version()
-    parser.add_fatal_warnings()
 
     parser.add_argument('source', help='source directory',
                         type=(lambda x: x.rstrip('/')))

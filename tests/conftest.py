@@ -122,7 +122,7 @@ def save_cap_fixtures(request, capfd, caplog):
     # Ignore DeprecationWarnings when running unit tests.  They are
     # unfortunately quite often a result of indirect imports via third party
     # modules, so we can't actually fix them.
-    capfd.register_output(r'^(Pending)?DeprecationWarning: .+$', count=0)
+    capfd.register_output(r'^(WARNING: )?(Pending)?DeprecationWarning: [^\n]+$', count=0)
 
     if request.config.getoption('capture') == 'no':
         capfd = None

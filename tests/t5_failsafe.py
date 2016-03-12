@@ -24,6 +24,7 @@ from s3ql.backends.local import Backend as LocalBackend
 from s3ql.common import get_seq_no
 from s3ql import BUFSIZE
 
+@pytest.mark.usefixtures('pass_capfd')
 class TestFailsafe(t4_fuse.TestFuse):
     '''
     Test behavior with corrupted backend. In contrast to the tests
@@ -74,11 +75,14 @@ class TestFailsafe(t4_fuse.TestFuse):
         self.backend.store('s3ql_data_1', val[:500] + b'oops' + val[500:], meta)
 
         # Try to read
-        self.mount(fatal_warnings=False)
+
+        self.mount()
         with pytest.raises(IOError) as exc_info:
             with open(fname1, 'rb') as fh:
                 fh.read()
         assert exc_info.value.errno == errno.EIO
+        self.capfd.register_output(r'^ERROR: Backend returned malformed data for '
+                                   'block 0 of inode \d+ .+$', count=1)
 
         # This should still work
         with open(fname2, 'rb') as fh:
@@ -87,8 +91,11 @@ class TestFailsafe(t4_fuse.TestFuse):
         # But this should not
         with pytest.raises(PermissionError):
             open(fname2, 'wb')
+        self.capfd.register_output(r'^ERROR: Backend returned malformed data for '
+                                   'block 0 of inode \d+ .+$', count=1)
 
 
+@pytest.mark.usefixtures('pass_capfd')
 class TestNewerMetadata(t4_fuse.TestFuse):
     '''
     Make sure that we turn on failsafe mode and don't overwrite
@@ -105,7 +112,7 @@ class TestNewerMetadata(t4_fuse.TestFuse):
         meta = plain_backend['s3ql_metadata']
 
         # Mount file system
-        self.mount(fatal_warnings=False)
+        self.mount()
 
         # Increase sequence number
         seq_no = get_seq_no(plain_backend)
@@ -126,7 +133,13 @@ class TestNewerMetadata(t4_fuse.TestFuse):
                 with open(fname + 'barz', 'w') as fh:
                     fh.write('foobar')
                 time.sleep(1)
-
+        self.capfd.register_output(r'^ERROR: Remote metadata is newer than local '
+                                   '\(\d+ vs \d+\), refusing to overwrite(?: and switching '
+                                   'to failsafe mode)?!$', count=2)
+        self.capfd.register_output(r'^WARNING: File system errors encountered, marking for '
+                                   'fsck\.$', count=1)
+        self.capfd.register_output(r'^ERROR: The locally cached metadata will be '
+                                   '\*lost\* the next .+$', count=1)
         self.umount()
 
         # Assert that remote metadata has not been overwritten

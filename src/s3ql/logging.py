@@ -12,27 +12,6 @@ import warnings
 import sys
 import os.path
 
-# Logging messages with severities larger or equal
-# than this value will raise exceptions.
-EXCEPTION_SEVERITY = logging.CRITICAL+1
-
-
-class LoggingError(Exception):
-    '''
-    Raised when a `Logger` instance is used to log a message with
-    a severity larger than its `exception_severity`.
-    '''
-
-    formatter = logging.Formatter('%(message)s')
-
-    def __init__(self, record):
-        super().__init__()
-        self.record = record
-
-    def __str__(self):
-        return 'Unexpected log message: ' + self.formatter.format(self.record)
-
-
 class QuietError(Exception):
     '''
     QuietError is the base class for exceptions that should not result
@@ -53,6 +32,14 @@ class QuietError(Exception):
     def __str__(self):
         return self.msg
 
+class MyFormatter(logging.Formatter):
+    '''Prepend severity to log message if it exceeds threshold'''
+
+    def format(self, record):
+        s = super().format(record)
+        if record.levelno > logging.INFO:
+            s = '%s: %s' % (record.levelname, s)
+        return s
 
 def create_handler(target):
     '''Create logging handler for given target'''
@@ -88,6 +75,12 @@ def create_handler(target):
     return handler
 
 def setup_logging(options):
+
+    # We want to be able to detect warnings and higher severities
+    # in the captured test output. 'critical' has too many potential
+    # false positives, so we rename this level to "FATAL".
+    logging.addLevelName(logging.CRITICAL, 'FATAL')
+
     root_logger = logging.getLogger()
     if root_logger.handlers:
         root_logger.debug("Logging already initialized.")
@@ -99,8 +92,8 @@ def setup_logging(options):
     elif options.debug and (not hasattr(options, 'log') or not options.log):
         # When we have debugging enabled but no separate log target,
         # make stdout logging more detailed.
-        formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(process)s %(threadName)s '
-                                      '%(name)s.%(funcName)s: %(message)s',
+        formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(process)s %(levelname)-8s '
+                                      '%(threadName)s %(name)s.%(funcName)s: %(message)s',
                                       datefmt="%Y-%m-%d %H:%M:%S")
         stdout_handler.setFormatter(formatter)
         stdout_handler.setLevel(logging.NOTSET)
@@ -119,24 +112,7 @@ def setup_logging(options):
     else:
         root_logger.setLevel(logging.INFO)
         logging.disable(logging.DEBUG)
-
-
-    if hasattr(options, 'fatal_warnings') and options.fatal_warnings:
-        global EXCEPTION_SEVERITY
-        EXCEPTION_SEVERITY = logging.WARNING
-
-        # When ResourceWarnings are emitted, any exceptions thrown
-        # by warning.showwarning() are lost (not even printed to stdout)
-        # so we cannot rely on our logging mechanism to turn these
-        # warnings into (visible) exceptions. Instead, we assume that
-        # --fatal-warnings implies that ResourceWarnings should be
-        # enabled and tell the warnings module to raise exceptions
-        # immediately (so that they're at least printed to stderr).
-        warnings.simplefilter('error', ResourceWarning)
-
-    else:
-        logging.captureWarnings(capture=True)
-
+    logging.captureWarnings(capture=True)
 
     return stdout_handler
 
@@ -150,26 +126,20 @@ def setup_excepthook():
     def excepthook(type_, val, tb):
         root_logger = logging.getLogger()
         if isinstance(val, QuietError):
-            # force_log attribute ensures that logging handler will
-            # not raise exception even if EXCEPTION_SEVERITY is set
-            root_logger.error(val.msg, extra={ 'force_log': True })
+            root_logger.error(val.msg)
             sys.exit(val.exitcode)
         else:
-            # force_log attribute ensures that logging handler will
-            # not raise exception (if EXCEPTION_SEVERITY is set)
             root_logger.error('Uncaught top-level exception:',
-                              exc_info=(type_, val, tb),
-                              extra={ 'force_log': True})
+                              exc_info=(type_, val, tb))
             sys.exit(1)
 
     sys.excepthook = excepthook
-
 
 def add_stdout_logging(quiet=False):
     '''Add stdout logging handler to root logger'''
 
     root_logger = logging.getLogger()
-    formatter = logging.Formatter('%(message)s')
+    formatter = MyFormatter('%(message)s')
     handler = logging.StreamHandler(sys.stderr)
     if quiet:
         handler.setLevel(logging.WARNING)
@@ -183,9 +153,6 @@ class Logger(logging.getLoggerClass()):
     '''
     This class has the following features in addition to `logging.Logger`:
 
-    * Loggers can automatically raise exceptions when a log message exceeds
-      a specified severity. This is useful when running unit tests.
-
     * Log messages that are emitted with an *log_once* attribute in the
       *extra* parameter are only emitted once per logger.
     '''
@@ -195,10 +162,6 @@ class Logger(logging.getLoggerClass()):
         self.log_cache = set()
 
     def handle(self, record):
-        if (record.levelno >= EXCEPTION_SEVERITY
-            and not getattr(record, 'force_log', False)):
-            raise LoggingError(record)
-
         if hasattr(record, 'log_once') and record.log_once:
             id_ = hash((record.name, record.levelno, record.msg,
                         record.args, record.exc_info))
@@ -206,28 +169,9 @@ class Logger(logging.getLoggerClass()):
                 return
             self.log_cache.add(id_)
 
-        # Do not call superclass method directly so that we can
-        # re-use this method when monkeypatching the root logger.
-        return self._handle_real(record)
-
-    def _handle_real(self, record):
         return super().handle(record)
-
+logging.setLoggerClass(Logger)
 
 # Convenience object for use in logging calls, e.g.
 # log.warning('This will be printed only once', extra=LOG_ONCE)
 LOG_ONCE = { 'log_once': True }
-
-# Ensure that no handlers have been created yet
-loggers = logging.Logger.manager.loggerDict
-if len(loggers) != 0:
-    raise ImportError('%s must be imported before loggers are created! '
-                      'Existing loggers: %s' % (__name__, loggers.keys()))
-
-# Monkeypatch the root logger
-#pylint: disable=W0212
-root_logger_class = type(logging.getLogger())
-root_logger_class._handle_real = root_logger_class.handle
-root_logger_class.handle = Logger.handle
-
-logging.setLoggerClass(Logger)

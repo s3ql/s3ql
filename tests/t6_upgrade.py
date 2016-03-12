@@ -47,7 +47,7 @@ class TestUpgrade(t4_fuse.TestFuse):
     def mkfs_old(self, force=False, max_obj_size=500):
         argv = [ os.path.join(self.basedir_old, 'bin', 'mkfs.s3ql'),
                  '-L', 'test fs', '--max-obj-size', str(max_obj_size),
-                 '--fatal-warnings', '--cachedir', self.cache_dir, '--quiet',
+                 '--cachedir', self.cache_dir, '--quiet',
                   '--authfile', '/dev/null', self.storage_url ]
         if force:
             argv.append('--force')
@@ -99,7 +99,7 @@ class TestUpgrade(t4_fuse.TestFuse):
 
     def upgrade(self):
         proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') +
-                                [ '--fatal-warnings', '--cachedir', self.cache_dir, '--authfile',
+                                [ '--cachedir', self.cache_dir, '--authfile',
                                   '/dev/null', '--quiet', 'upgrade', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
 
@@ -141,6 +141,8 @@ class TestUpgrade(t4_fuse.TestFuse):
             shutil.rmtree(self.cache_dir)
             self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.mount(expect_fail=32)
+        self.capfd.register_output(r'^ERROR: File system revision too old, please '
+                                   'run `s3qladm upgrade` first\.$', count=1)
 
         # Upgrade
         if not with_cache:
@@ -186,7 +188,7 @@ class RemoteUpgradeTest:
         super().teardown_method(method)
 
         proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') +
-                                [ '--quiet', '--authfile', '/dev/null', '--fatal-warnings',
+                                [ '--quiet', '--authfile', '/dev/null',
                                   'clear', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True)
         if self.backend_login is not None:
