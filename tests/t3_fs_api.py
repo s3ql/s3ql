@@ -26,7 +26,7 @@ from s3ql.database import Connection
 from s3ql.fsck import Fsck
 from s3ql.inode_cache import InodeCache
 from t2_block_cache import DummyQueue
-from common import catch_logmsg, CLOCK_GRANULARITY, safe_sleep
+from common import assert_logs, CLOCK_GRANULARITY, safe_sleep
 import errno
 import llfuse
 import os
@@ -725,7 +725,7 @@ class fs_api_tests(unittest.TestCase):
             rfh.seek(560)
             rfh.write(b'blrub!')
         with self.assertRaises(FUSEError) as cm:
-            with catch_logmsg('^Backend returned malformed data for',
+            with assert_logs('^Backend returned malformed data for',
                               count=1, level=logging.ERROR):
                 self.server.read(fh, 0, len_)
         self.assertEqual(cm.exception.errno, errno.EIO)
@@ -755,7 +755,7 @@ class fs_api_tests(unittest.TestCase):
         self.server.read(fh, 3, len_//2)
         self.server.cache.clear()
         with self.assertRaises(FUSEError) as cm:
-            with catch_logmsg('^Backend lost block',
+            with assert_logs('^Backend lost block',
                               count=1, level=logging.ERROR):
                 self.server.read(fh, 5, len_//2)
         self.assertEqual(cm.exception.errno, errno.EIO)

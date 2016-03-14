@@ -22,7 +22,7 @@ from s3ql.backends.common import (NoSuchObject, CorruptedObjectError)
 from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
 from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, S3Error
 from argparse import Namespace
-from common import get_remote_test_info, NoTestSection, catch_logmsg, CLOCK_GRANULARITY
+from common import get_remote_test_info, NoTestSection, assert_logs, CLOCK_GRANULARITY
 import s3ql.backends.common
 import tempfile
 import re
@@ -868,11 +868,11 @@ def test_corrupted_get(backend, monkeypatch):
         return send_header_real(self, keyword, value)
     monkeypatch.setattr(handler_class, 'send_header', send_header)
 
-    with catch_logmsg('^MD5 mismatch for', count=1, level=logging.WARNING):
+    with assert_logs('^MD5 mismatch for', count=1, level=logging.WARNING):
         assert_raises(BadDigestError, backend.fetch, key)
 
     enable_temp_fail(backend)
-    with catch_logmsg('^MD5 mismatch for', count=2, level=logging.WARNING):
+    with assert_logs('^MD5 mismatch for', count=2, level=logging.WARNING):
         assert backend[key] == value
 
 @pytest.mark.with_backend('s3c/{raw,aes+zlib}',
@@ -893,11 +893,11 @@ def test_corrupted_meta(backend, monkeypatch):
         return send_header_real(self, keyword, value)
     monkeypatch.setattr(handler_class, 'send_header', send_header)
 
-    with catch_logmsg('^MD5 mismatch in metadata for', count=1, level=logging.WARNING):
+    with assert_logs('^MD5 mismatch in metadata for', count=1, level=logging.WARNING):
         assert_raises(BadDigestError, backend.fetch, key)
 
     enable_temp_fail(backend)
-    with catch_logmsg('^MD5 mismatch in metadata for', count=2, level=logging.WARNING):
+    with assert_logs('^MD5 mismatch in metadata for', count=2, level=logging.WARNING):
         assert backend[key] == value
 
 @pytest.mark.with_backend('s3c/{raw,aes+zlib}',
@@ -1273,7 +1273,7 @@ def test_conn_abort(backend, monkeypatch):
     monkeypatch.setattr(handler_class, 'send_data', send_data)
 
     with pytest.raises(ConnectionClosed):
-        with catch_logmsg("^Object closed prematurely, can't check MD5",
+        with assert_logs("^Object closed prematurely, can't check MD5",
                           count=1, level=logging.WARNING):
             backend.fetch(key)
 

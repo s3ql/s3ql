@@ -58,39 +58,49 @@ def safe_sleep(secs, _sleep_real=time.sleep):
 def install_safe_sleep():
     time.sleep = safe_sleep
 
+class CountMessagesHandler(logging.Handler):
+    def __init__(self, level=logging.NOTSET):
+        super().__init__(level)
+        self.count = 0
+
+    def emit(self, record):
+        self.count += 1
+
 @contextmanager
-def catch_logmsg(pattern, level=logging.WARNING, count=None):
-    '''Catch log messages matching *pattern*
+def assert_logs(pattern, level=logging.WARNING, count=None):
+    '''Assert that suite emits specified log message
 
     *pattern* is matched against the *unformatted* log message, i.e. before any
     arguments are merged.
 
     If *count* is not None, raise an exception unless exactly *count* matching
     messages are caught.
+
+    Matched log records will also be flagged so that the caplog fixture
+    does not generate exceptions for them (no matter their severity).
     '''
 
-    logger_class = logging.getLoggerClass()
-    handle_orig = logger_class.handle
-    caught = [0]
-
-    @wraps(handle_orig)
-    def handle_new(self, record):
-        if (record.levelno == level
-            and re.search(pattern, record.msg)):
-            caught[0] += 1
+    def filter(record):
+        if (record.levelno == level and
+            re.search(pattern, record.msg)):
             record.caplog_ignore = True
-        return handle_orig(self, record)
+            return True
+        return False
 
-    logger_class.handle = handle_new
+    handler = CountMessagesHandler()
+    handler.setLevel(level)
+    handler.addFilter(filter)
+    logger = logging.getLogger()
+    logger.addHandler(handler)
     try:
         yield
 
     finally:
-        logger_class.handle = handle_orig
+        logger.removeHandler(handler)
 
-        if count is not None and caught[0] != count:
-            raise AssertionError('Expected to catch %d log %r messages, but got only %d'
-                                 % (count, pattern, caught[0]))
+        if count is not None and handler.count != count:
+            raise AssertionError('Expected to catch %d %r messages, but got only %d'
+                                 % (count, pattern, handler.count))
 
 def retry(timeout, fn, *a, **kw):
     """Wait for fn(*a, **kw) to return True.

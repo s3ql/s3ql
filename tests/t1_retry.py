@@ -13,7 +13,7 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 from s3ql.backends.common import retry, retry_generator
-from common import catch_logmsg
+from common import assert_logs
 import logging
 
 class TemporaryProblem(Exception):
@@ -73,6 +73,6 @@ def test_is_retry():
 
 def test_logging():
     inst = NthAttempt(6)
-    with catch_logmsg(r'^Encountered %s \(%s\), retrying ',
+    with assert_logs(r'^Encountered %s \(%s\), retrying ',
                       count=2, level=logging.WARNING):
         inst.do_stuff()

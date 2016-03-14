@@ -21,7 +21,7 @@ from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
 from s3ql.common import AsyncFn, time_ns
-from common import catch_logmsg, safe_sleep
+from common import assert_logs, safe_sleep
 import llfuse
 import errno
 import os
@@ -164,7 +164,7 @@ class cache_tests(unittest.TestCase):
         try:
             # Try to clean-up (implicitly calls expire)
             with llfuse.lock_released, \
-                catch_logmsg('Unable to flush cache, no upload threads left alive',
+                assert_logs('Unable to flush cache, no upload threads left alive',
                               level=logging.ERROR, count=1):
                 with pytest.raises(OSError) as exc_info:
                      self.cache.destroy()

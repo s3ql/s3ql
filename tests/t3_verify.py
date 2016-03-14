@@ -18,7 +18,7 @@ from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
 from s3ql import verify
-from common import catch_logmsg
+from common import assert_logs
 import io
 import logging
 import shutil
@@ -90,8 +90,8 @@ def test_retrieve(backend, db):
     missing_fh = io.StringIO()
     corrupted_fh = io.StringIO()
 
-    with catch_logmsg('^Backend seems to have lost', count=1, level=logging.WARNING), \
-         catch_logmsg('^Object %d is corrupted', count=1, level=logging.WARNING):
+    with assert_logs('^Backend seems to have lost', count=1, level=logging.WARNING), \
+         assert_logs('^Object %d is corrupted', count=1, level=logging.WARNING):
         verify.retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
                                 thread_count=1, full=False)
     assert missing_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[0]
@@ -99,8 +99,8 @@ def test_retrieve(backend, db):
 
     missing_fh = io.StringIO()
     corrupted_fh = io.StringIO()
-    with catch_logmsg('^Backend seems to have lost', count=1, level=logging.WARNING), \
-         catch_logmsg('^Object %d is corrupted', count=2, level=logging.WARNING):
+    with assert_logs('^Backend seems to have lost', count=1, level=logging.WARNING), \
+         assert_logs('^Object %d is corrupted', count=2, level=logging.WARNING):
         verify.retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
                                 thread_count=1, full=True)
     assert missing_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[0]
