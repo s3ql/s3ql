@@ -857,7 +857,7 @@ class BlockCache(object):
         This method releases the global lock.
         """
 
-        log.debug('started with %d, %d, %d', inode, start_no, end_no)
+        log.debug('started with %d, %d, %s', inode, start_no, end_no)
 
         if end_no is None:
             end_no = start_no + 1
