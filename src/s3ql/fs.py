@@ -181,13 +181,6 @@ class Operations(llfuse.Operations):
         log.debug('started with %d', id_)
         return id_
 
-    def check_args(self, args):
-        '''Check and/or supplement fuse mount options'''
-
-        args.append(b'big_writes')
-        args.append('max_write=131072')
-        args.append('no_remote_lock')
-
     def readdir(self, id_, off):
         log.debug('started with %d, %d', id_, off)
         if off == 0:

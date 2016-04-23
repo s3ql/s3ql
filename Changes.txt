@@ -9,6 +9,13 @@ UNRELEASED, S3QL tip
     increase of the major version number, i.e. the next
     backwards-incompatible version will have version 3.0.
 
+  * Enabled several FUSE optimizations (most importantly, the
+    ``big_writes`` feature) that got accidentally disabled at
+    some point in the past. This should result in significant
+    performance improvements.
+
+    Thanks to Simon Brown for the report!
+
 2016-03-08, S3QL 2.17.1
 
   * Fixed a bug in the upgrade procedure that prevented file system

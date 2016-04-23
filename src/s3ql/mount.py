@@ -431,7 +431,8 @@ def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
 
     fuse_opts = [ "nonempty", 'fsname=%s' % options.storage_url,
-                  'subtype=s3ql' ]
+                  'subtype=s3ql', 'big_writes', 'max_write=131072',
+                  'no_remote_lock' ]
 
     if platform.system() == 'Darwin':
         # FUSE4X and OSXFUSE claim to support nonempty, but
