@@ -628,7 +628,7 @@ class MetadataUploadThread(Thread):
 
             with self.backend_pool() as backend:
                 seq_no = get_seq_no(backend)
-                if seq_no != self.param['seq_no']:
+                if seq_no > self.param['seq_no']:
                     log.error('Remote metadata is newer than local (%d vs %d), '
                               'refusing to overwrite and switching to failsafe mode!',
                               seq_no, self.param['seq_no'])
