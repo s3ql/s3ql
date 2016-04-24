@@ -7,17 +7,19 @@
 
 S3QL depends on several other programs and libraries that have to be
 installed first. The best method to satisfy these dependencies depends
-on your distribution. In some cases S3QL and all its dependencies can
-be installed with as little as three commands, while in other cases more work
-may be required.
+on your distribution.
 
-The `S3QL Wiki <https://bitbucket.org/nikratio/s3ql/wiki/Home>`_
-contains installation instructions for quite a few different Linux
-distributions. You should only use the generic instructions in this
-manual if your distribution is not included in the
-`distribution-specific installation instructions
-<https://bitbucket.org/nikratio/s3ql/wiki/Installation>`_ on the wiki.
 
+The following instructions are for S3QL |version| and should be
+applicable to any system. The `S3QL Wiki
+<https://bitbucket.org/nikratio/s3ql/wiki/Home>`_ contains `additional
+help <https://bitbucket.org/nikratio/s3ql/wiki/Installation>`_ help
+for specific distributions and operating systems. Note, however, that
+S3QL wiki is editable by anyone. The information there has thus not
+been vetted by the S3QL maintainers, and may be wrong, out-of-date, or
+even dangerous. Generally, you should only follow steps from the Wiki
+that you fully understand yourself, and fall back on the instructions
+below when in doubt.
 
 Note that there are two branches of S3QL. The *maint-1.x* branch
 (version numbers *1.x*) is no longer actively developed and receives
