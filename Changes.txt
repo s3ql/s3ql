@@ -16,6 +16,8 @@ UNRELEASED, S3QL tip
 
     Thanks to Simon Brown for the report!
 
+  * Fixed a crash with "BUG ALERT: Dirty inode was destroyed".
+
 2016-03-08, S3QL 2.17.1
 
   * Fixed a bug in the upgrade procedure that prevented file system
