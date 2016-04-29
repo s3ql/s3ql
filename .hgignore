@@ -15,5 +15,4 @@ syntax: regexp
 ^tests/test.log$
 ^tests/test_crit.log$
 ^tests/.cache/
-^runtests.py$
 ^s3ql.old$
