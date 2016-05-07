@@ -909,7 +909,10 @@ class Fsck(object):
                     log.warning("Ignoring unexpected object %r", obj_name)
                     continue
 
-                self.conn.execute('INSERT INTO obj_ids VALUES(?)', (obj_id,))
+                try:
+                    self.conn.execute('INSERT INTO obj_ids VALUES(?)', (obj_id,))
+                except apsw.ConstraintError:
+                    log.warning("Ignoring duplicated object with ID %r", obj_id)
 
             for (obj_id,) in self.conn.query('SELECT id FROM obj_ids '
                                              'EXCEPT SELECT id FROM objects'):
