@@ -1,3 +1,8 @@
+UNRELEASED, S3QL tip
+
+  * Fixed a crash when running s3qlstat on an almost empty
+    file system.
+
 2016-04-29, S3QL 2.18
 
   * The `runtests.py` file has been dropped in favor of requiring
