@@ -18,7 +18,7 @@ from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
 from s3ql import verify
-from common import assert_logs
+from pytest_checklogs import assert_logs
 import io
 import logging
 import shutil

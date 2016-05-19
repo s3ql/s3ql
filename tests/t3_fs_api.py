@@ -26,7 +26,8 @@ from s3ql.database import Connection
 from s3ql.fsck import Fsck
 from s3ql.inode_cache import InodeCache
 from t2_block_cache import DummyQueue
-from common import assert_logs, CLOCK_GRANULARITY, safe_sleep
+from common import CLOCK_GRANULARITY, safe_sleep
+from pytest_checklogs import assert_logs
 import errno
 import llfuse
 import os

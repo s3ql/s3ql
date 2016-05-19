@@ -13,7 +13,7 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 from s3ql.backends.common import retry, retry_generator
-from common import assert_logs
+from pytest_checklogs import assert_logs
 import logging
 
 class TemporaryProblem(Exception):

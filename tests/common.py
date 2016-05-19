@@ -58,50 +58,6 @@ def safe_sleep(secs, _sleep_real=time.sleep):
 def install_safe_sleep():
     time.sleep = safe_sleep
 
-class CountMessagesHandler(logging.Handler):
-    def __init__(self, level=logging.NOTSET):
-        super().__init__(level)
-        self.count = 0
-
-    def emit(self, record):
-        self.count += 1
-
-@contextmanager
-def assert_logs(pattern, level=logging.WARNING, count=None):
-    '''Assert that suite emits specified log message
-
-    *pattern* is matched against the *unformatted* log message, i.e. before any
-    arguments are merged.
-
-    If *count* is not None, raise an exception unless exactly *count* matching
-    messages are caught.
-
-    Matched log records will also be flagged so that the caplog fixture
-    does not generate exceptions for them (no matter their severity).
-    '''
-
-    def filter(record):
-        if (record.levelno == level and
-            re.search(pattern, record.msg)):
-            record.caplog_ignore = True
-            return True
-        return False
-
-    handler = CountMessagesHandler()
-    handler.setLevel(level)
-    handler.addFilter(filter)
-    logger = logging.getLogger()
-    logger.addHandler(handler)
-    try:
-        yield
-
-    finally:
-        logger.removeHandler(handler)
-
-        if count is not None and handler.count != count:
-            raise AssertionError('Expected to catch %d %r messages, but got only %d'
-                                 % (count, pattern, handler.count))
-
 def retry(timeout, fn, *a, **kw):
     """Wait for fn(*a, **kw) to return True.
 

@@ -21,7 +21,8 @@ from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
 from s3ql.common import AsyncFn, time_ns
-from common import assert_logs, safe_sleep
+from common import safe_sleep
+from pytest_checklogs import assert_logs
 import llfuse
 import errno
 import os
@@ -30,7 +31,6 @@ import shutil
 import stat
 import tempfile
 import threading
-import time
 import unittest
 import queue
 import pytest

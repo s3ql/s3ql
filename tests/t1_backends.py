@@ -22,7 +22,8 @@ from s3ql.backends.common import (NoSuchObject, CorruptedObjectError)
 from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
 from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, S3Error
 from argparse import Namespace
-from common import get_remote_test_info, NoTestSection, assert_logs, CLOCK_GRANULARITY
+from common import get_remote_test_info, NoTestSection, CLOCK_GRANULARITY
+from pytest_checklogs import assert_logs
 import s3ql.backends.common
 import tempfile
 import re

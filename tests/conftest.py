@@ -25,7 +25,6 @@ import faulthandler
 import signal
 import gc
 import time
-import re
 
 # If a test fails, wait a moment before retrieving the captured
 # stdout/stderr. When using a server process (like in t4_fuse.py), this makes
@@ -52,94 +51,20 @@ def s3ql_cmd_argv(request):
         request.cls.s3ql_cmd_argv = lambda self, cmd: [ sys.executable,
                                                         os.path.join(basedir, 'bin', cmd) ]
 
+# Enable output checks
+pytest_plugins = ('pytest_checklogs')
+
+# Ignore DeprecationWarnings when running unit tests.  They are
+# unfortunately quite often a result of indirect imports via third party
+# modules, so we can't actually fix them.
+@pytest.fixture(autouse=True)
+def ignore_depreciation_warnings(reg_output):
+    reg_output(r'(Pending)?DeprecationWarning', count=0)
+
 @pytest.fixture()
-def pass_capfd(request, capfd):
-    '''Provide capfd object to UnitTest instances'''
-    request.instance.capfd = capfd
-
-# Fail tests if the result in log messages of severity WARNING or more.
-# Previously (as of Mercurial commit 192dd923daa8, 2016-03-10) we instead
-# installed a custom Logger class that would immediately raise an
-# exception. However, this solution seemed ugly because normally the logging
-# methods suppress any exceptions. Therefore, exception handlers (which are
-# especially likely to log warnings) may rely on that and an unexpected
-# exception may result in improper clean-up. Furthermore, the custom logger
-# class required a second hack to allow logging the "unexpected warning message"
-# exception itself from sys.excepthook. Checking the logs after execution has
-# the drawback that we abort later, and that the failure seems to come from the
-# teardown method, but seems like an overall better solution.
-def check_test_log(caplog):
-    for record in caplog.records():
-        if (record.levelno >= logging.WARNING and
-            not getattr(record, 'caplog_ignore', False)):
-            raise AssertionError('Logger received warning messages')
-
-def check_test_output(capfd):
-    (stdout, stderr) = capfd.readouterr()
-
-    # Write back what we've read (so that it will still be printed.
-    sys.stdout.write(stdout)
-    sys.stderr.write(stderr)
-
-    # Strip out false positives
-    for (pattern, flags, count) in capfd.false_positives:
-        cp = re.compile(pattern, flags)
-        (stdout, cnt) = cp.subn('', stdout, count=count)
-        if count == 0 or count - cnt > 0:
-            stderr = cp.sub('', stderr, count=count - cnt)
-
-    for pattern in ('exception', 'error', 'warning', 'fatal', 'traceback',
-                    'fault', 'crash(?:ed)?', 'abort(?:ed)'):
-        cp = re.compile(r'\b{}\b'.format(pattern), re.IGNORECASE | re.MULTILINE)
-        hit = cp.search(stderr)
-        if hit:
-            raise AssertionError('Suspicious output to stderr (matched "%s")' % hit.group(0))
-        hit = cp.search(stdout)
-        if hit:
-            raise AssertionError('Suspicious output to stdout (matched "%s")' % hit.group(0))
-
-
-def register_output(self, pattern, count=1, flags=re.MULTILINE):
-    '''Register *pattern* as false positive for output checking
-
-    This prevents the test from failing because the output otherwise
-    appears suspicious.
-    '''
-
-    self.false_positives.append((pattern, flags, count))
-
-# This is a terrible hack that allows us to access the fixtures from the
-# pytest_runtest_call hook. Among a lot of other hidden assumptions, it probably
-# relies on tests running sequential (i.e., don't dare to use e.g. the xdist
-# plugin)
-current_cap_fixtures = None
-@pytest.yield_fixture(autouse=True)
-def save_cap_fixtures(request, capfd, caplog):
-    global current_cap_fixtures
-    capfd.false_positives = []
-    type(capfd).register_output = register_output
-
-    # Ignore DeprecationWarnings when running unit tests.  They are
-    # unfortunately quite often a result of indirect imports via third party
-    # modules, so we can't actually fix them.
-    capfd.register_output(r'^(WARNING: )?(Pending)?DeprecationWarning: [^\n]+$', count=0)
-
-    if request.config.getoption('capture') == 'no':
-        capfd = None
-    current_cap_fixtures = (capfd, caplog)
-    bak = current_cap_fixtures
-    yield
-    # Try to catch problems with this hack (e.g. when running
-    # tests simultaneously)
-    assert bak is current_cap_fixtures
-    current_cap_fixtures = None
-
-@pytest.hookimpl(trylast=True)
-def pytest_runtest_call(item):
-    (capfd, caplog) = current_cap_fixtures
-    check_test_log(caplog)
-    if capfd is not None:
-        check_test_output(capfd)
+def pass_reg_output(request, reg_output):
+    '''Provide reg_output function to UnitTest instances'''
+    request.instance.reg_output = reg_output
 
 def pytest_addoption(parser):
     group = parser.getgroup("terminal reporting")
