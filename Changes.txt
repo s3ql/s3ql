@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2016-06-27, S3QL 2.19
 
   * Fixed a crash when running s3qlstat on an almost empty
     file system.
