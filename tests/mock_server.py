@@ -13,6 +13,8 @@ import socketserver
 import logging
 import hashlib
 import urllib.parse
+import sys
+import traceback
 from xml.sax.saxutils import escape as xml_escape
 
 log = logging.getLogger(__name__)
@@ -43,6 +45,23 @@ class StorageServer(socketserver.TCPServer):
         self.metadata = dict()
         self.hostname = self.server_address[0]
         self.port = self.server_address[1]
+
+    def serve_forever(self):
+        # This is a hack to debug sporadic test failures due to exceptions in
+        # the mock server thread. So far, I have not managed to properly debug
+        # them because reproducing them is very difficult, and output capture
+        # for some reason only gets the first line of the traceback.  My current
+        # best theory is that these exceptions just happen at some point during
+        # cleanup (after the test has passed), and are therefore safe to ignore
+        # ( because any actual problems should also cause test failures in the
+        # main thread that runs the actual test). However, it's better to be
+        # safe than sorry
+        try:
+            super().serve_forever()
+        except Exception:
+            with open('mock_server.log', 'r+') as fh:
+                traceback.print_exc(file=fh)
+            raise
 
 class ParsedURL:
     __slots__ = [ 'bucket', 'key', 'params', 'fragment' ]
