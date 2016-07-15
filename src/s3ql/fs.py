@@ -190,11 +190,13 @@ class Operations(llfuse.Operations):
         if inode.atime_ns < inode.ctime_ns or inode.atime_ns < inode.mtime_ns:
             inode.atime_ns = time_ns()
 
+        # NFS treats offsets 1 and 2 special, so we have to exclude
+        # them.
         with self.db.query("SELECT name_id, name, inode FROM contents_v "
                            'WHERE parent_inode=? AND name_id > ? ORDER BY name_id',
-                           (id_, off)) as res:
+                           (id_, off-3)) as res:
             for (next_, name, cid_) in res:
-                yield (name, self.inodes[cid_].entry_attributes(), next_)
+                yield (name, self.inodes[cid_].entry_attributes(), next_+3)
 
     def getxattr(self, id_, name, ctx):
         log.debug('started with %d, %r', id_, name)
