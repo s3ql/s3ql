@@ -256,10 +256,10 @@ def get_backend(options, raw=False):
     '''
 
     return get_backend_factory(options.storage_url, options.backend_options,
-                               options.authfile,
+                               options.authfile, options.cachedir,
                                getattr(options, 'compress', ('lzma', 2)), raw)()
 
-def get_backend_factory(storage_url, backend_options, authfile,
+def get_backend_factory(storage_url, backend_options, authfile, cachedir,
                         compress=('lzma', 2), raw=False):
     '''Return factory producing backend objects for given storage-url
 
@@ -332,7 +332,7 @@ def get_backend_factory(storage_url, backend_options, authfile,
     backend = None
     try:
         backend = backend_class(storage_url, backend_login, backend_passphrase,
-                                backend_options)
+                                backend_options, cachedir)
 
         # Do not use backend.lookup(), this would use a HEAD request and
         # not provide any useful error messages if something goes wrong
@@ -366,7 +366,7 @@ def get_backend_factory(storage_url, backend_options, authfile,
 
     if raw:
         return lambda: backend_class(storage_url, backend_login, backend_passphrase,
-                                     backend_options)
+                                     backend_options, cachedir)
 
     if encrypted and not fs_passphrase:
         if sys.stdin.isatty():
@@ -382,7 +382,8 @@ def get_backend_factory(storage_url, backend_options, authfile,
     if not encrypted:
         return lambda: ComprencBackend(None, compress,
                                     backend_class(storage_url, backend_login,
-                                                  backend_passphrase, backend_options))
+                                                  backend_passphrase, backend_options,
+                                                  cachedir))
 
     with ComprencBackend(fs_passphrase, compress, backend) as tmp_backend:
         try:
@@ -395,7 +396,8 @@ def get_backend_factory(storage_url, backend_options, authfile,
     def factory():
         b = ComprencBackend(data_pw, compress,
                             backend_class(storage_url, backend_login,
-                                          backend_passphrase, backend_options))
+                                          backend_passphrase, backend_options,
+                                          cachedir))
         b.fs_passphrase = fs_passphrase
         return b
 
