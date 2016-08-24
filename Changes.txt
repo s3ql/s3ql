@@ -1,3 +1,8 @@
+2016-08-24, S3QL 2.20
+
+  * Fixed a problem with exporting S3QL file systems over NFS4,
+    where directory contents would appear in duplicate.
+
 2016-06-27, S3QL 2.19
 
   * Fixed a crash when running s3qlstat on an almost empty
