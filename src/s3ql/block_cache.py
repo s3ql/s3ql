@@ -524,6 +524,7 @@ class BlockCache(object):
                 self._unlock_entry(el.inode, el.blockno)
                 raise
 
+        obj_lock_taken = False
         try:
             try:
                 old_block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
@@ -552,6 +553,7 @@ class BlockCache(object):
 
                 with lock_released:
                     self._lock_obj(obj_id)
+                    obj_lock_taken = True
                     self._queue_upload((el, obj_id))
 
             # There is a block with the same hash
@@ -575,7 +577,8 @@ class BlockCache(object):
             self.in_transit.discard(el)
             with lock_released:
                 self._unlock_entry(el.inode, el.blockno, noerror=True)
-                self._unlock_obj(obj_id, noerror=True)
+                if obj_lock_taken:
+                    self._unlock_obj(obj_id)
             raise
 
         # Check if we have to remove an old block
