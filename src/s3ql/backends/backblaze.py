@@ -339,17 +339,15 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # URLencode filename
         filename = urllib.parse.quote(filename.encode('utf-8'), safe='/\\')
 
-        # DIRTY HACK :
-        # Backend does not support backslashes, we change them to pass test
-        filename = filename.replace("\\","__")
+        # escape backslashes as backend does not support them
+        filename = filename.replace("\\","=5C")
 
         return filename
 
     def _decode_key(self,filename):
 
-        # DIRTY HACK :
-        # Backend does not support backslashes, we change them to pass test
-        filename = filename.replace("__","\\")
+        # unescape backslashes as backend does not support them
+        filename = filename.replace("=5C","\\")
 
         # URLencode filename
         filename = urllib.parse.unquote(filename)
