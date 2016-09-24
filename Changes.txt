@@ -1,3 +1,10 @@
+UNRELEASED, S3QL tip
+
+  * Added workaround for an issue where S3QL crashes with an
+    "ssl.SSLError: [SSL: BAD_WRITE_RETRY]" exception. This problem has
+    to be fixed in Python, but we now work around it by closing and
+    re-opening the connection when it occurs.
+
 2016-08-24, S3QL 2.20
 
   * Fixed a problem with exporting S3QL file systems over NFS4,
