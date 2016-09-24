@@ -163,7 +163,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # Temporary workaround for https://bitbucket.org/nikratio/s3ql/issues/87.
         # We still need to find a proper string
-        elif (isinstance(exc, ssl.SSLErrror) and
+        elif (isinstance(exc, ssl.SSLError) and
               str(exc).startswith('[SSL: BAD_WRITE_RETRY]')):
             return True
 
@@ -248,7 +248,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             try:
                 itree = iter(ElementTree.iterparse(self.conn, events=("start", "end")))
                 (event, root) = next(itree)
-                
+
                 root_xmlns_uri = self._tag_xmlns_uri(root)
                 if root_xmlns_uri is None:
                     root_xmlns_prefix = ''

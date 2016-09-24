@@ -136,7 +136,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # Temporary workaround for https://bitbucket.org/nikratio/s3ql/issues/87.
         # We still need to find a proper string
-        elif (isinstance(exc, ssl.SSLErrror) and
+        elif (isinstance(exc, ssl.SSLError) and
               str(exc).startswith('[SSL: BAD_WRITE_RETRY]')):
             return True
 
