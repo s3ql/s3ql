@@ -23,6 +23,7 @@ import shutil
 import re
 import os
 import urllib.parse
+import ssl
 
 log = logging.getLogger(__name__)
 
@@ -131,6 +132,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             return True
 
         elif is_temp_network_error(exc):
+            return True
+
+        # Temporary workaround for https://bitbucket.org/nikratio/s3ql/issues/87.
+        # We still need to find a proper string
+        elif (isinstance(exc, ssl.SSLErrror) and
+              str(exc).startswith('[SSL: BAD_WRITE_RETRY]')):
             return True
 
         return False

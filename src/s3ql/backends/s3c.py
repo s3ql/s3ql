@@ -31,6 +31,7 @@ import hmac
 import re
 import tempfile
 import time
+import ssl
 import urllib.parse
 
 C_DAY_NAMES = [ 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ]
@@ -158,6 +159,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
               ((500 <= exc.status <= 599
                 and exc.status not in (501,505,508,510,511,523))
                or exc.status == 408)):
+            return True
+
+        # Temporary workaround for https://bitbucket.org/nikratio/s3ql/issues/87.
+        # We still need to find a proper string
+        elif (isinstance(exc, ssl.SSLErrror) and
+              str(exc).startswith('[SSL: BAD_WRITE_RETRY]')):
             return True
 
         return False
