@@ -27,7 +27,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     known_options = {'test-string', 'ssl-ca-path'}
 
     authorize_url = "/b2api/v1/b2_authorize_account"
-    authorize_hostname = "api.backblaze.com"
+    authorize_hostname = "api.backblazeb2.com"
     hdr_prefix = 'X-Bz-Info-'
 
     # no chunksize limit on backend, so we try to limit the number of meta headers
