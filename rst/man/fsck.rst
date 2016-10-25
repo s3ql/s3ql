@@ -34,9 +34,10 @@ The |command| command accepts the following options.
 Exit Codes
 ==========
 
-If |command| found any errors, the exit code will be 128 plus one of
-the codes listed below. If no errors were found, the following exit
-codes are used:
+If |command| found any file system errors (no matter if they were
+correct or not), the exit code will be 128 plus one of the codes
+listed below. If no errors were found, the following exit codes are
+used as-is:
 
 .. include:: ../include/exitcodes.rst
 
@@ -98,8 +99,9 @@ codes are used:
    Unable to access cache directory.
 
 :128:
-   This error code will be *added* to one of the codes above if
-   errors have been found.
+   This error code will be *added* to one of the codes above if any
+   file system errors have been found (no matter if they were
+   corrected or not).
 
 .. include:: ../include/postman.rst
 
