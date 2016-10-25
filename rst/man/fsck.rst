@@ -35,7 +35,7 @@ Exit Codes
 ==========
 
 If |command| found any file system errors (no matter if they were
-correct or not), the exit code will be 128 plus one of the codes
+corrected or not), the exit code will be 128 plus one of the codes
 listed below. If no errors were found, the following exit codes are
 used as-is:
 
