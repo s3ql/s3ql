@@ -430,7 +430,11 @@ def mark_metadata_dirty(backend, cachepath, param):
 def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
 
-    fuse_opts = [ "nonempty", 'fsname=%s' % options.storage_url,
+    fsname = options.storage_url
+    if (options.fsname != None):
+      fsname = options.fsname
+
+    fuse_opts = [ "nonempty", 'fsname=%s' % fsname,
                   'subtype=s3ql', 'big_writes', 'max_write=131072',
                   'no_remote_lock' ]
 
@@ -516,6 +520,8 @@ def parse_args(args):
                       'this number you have to make sure that your process file descriptor '
                       'limit (as set with `ulimit -n`) is high enough (at least the number '
                       'of cache entries + 100).')
+    parser.add_argument("--fsname", type=str, default=None, metavar='<NAME>',
+                        help="Name of the FUSE file system.")
     parser.add_argument("--allow-other", action="store_true", default=False, help=
                       'Normally, only the user who called `mount.s3ql` can access the mount '
                       'point. This user then also has full access to it, independent of '
