@@ -133,7 +133,7 @@ def cycle_metadata(backend, keep=10):
         pass
     cycle_fn("s3ql_metadata_new", "s3ql_metadata")
 
-    if cycle_fn is backend.copy:
+    if not backend.has_native_rename:
         backend.delete('s3ql_metadata_new')
 
 def dump_metadata(db, fh):
