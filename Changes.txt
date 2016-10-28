@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2016-10-28, S3QL 2.21
 
   * Added workaround for an issue where S3QL crashes with an
     "ssl.SSLError: [SSL: BAD_WRITE_RETRY]" exception. This problem has
