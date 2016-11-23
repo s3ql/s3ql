@@ -59,7 +59,7 @@ that is not the case.
     version between 1.0 (inclusive) and 2.0 (exclusive)
   * `dugong <https://bitbucket.org/nikratio/python-dugong/>`_, any
     version between 3.4 (inclusive) and 4.0 (exclusive)
-  * `pytest <http://pytest.org/>`_, version 2.3.3 or newer (optional, to run unit tests)
+  * `pytest <http://pytest.org/>`_, version 2.7 or newer (optional, to run unit tests)
   * `pytest-catchlog <https://github.com/eisensheng/pytest-catchlog>`_
     (optional, to run unit tests)
 
