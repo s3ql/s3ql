@@ -182,6 +182,12 @@ class ArgumentParser(argparse.ArgumentParser):
                           type=storage_url_type,
                           help='Storage URL of the backend that contains the file system')
 
+    def add_oauth(self):
+        self.add_argument("--oauth_type", metavar='<oauth_type>',default="google-storage",type=oauth_type,
+                                help="Generate Oauth2 Token for google-storage or google-drive")                                    
+        self.add_argument("--client_id", metavar='<client_id>',default="",help="Client ID used to generate access tokens")
+        self.add_argument("--client_secret", metavar='<client_secret>',default="",help="Client secret used to generate access tokens")
+
     def add_subparsers(self, **kw):
         '''Pass parent and set prog to default usage message'''
         kw.setdefault('parser_class', argparse.ArgumentParser)
@@ -205,6 +211,12 @@ class ArgumentParser(argparse.ArgumentParser):
             return super().parse_args(*args, **kwargs)
         except ArgumentError as exc:
             self.exit(str(exc))
+
+def oauth_type(s):  
+    '''Validate a valid oauth type'''
+    if s not in ['google-storage','google-drive']:
+        raise ArgumentTypeError('%s is not a valid oauth type.' % s)
+    return s
 
 def storage_url_type(s):
     '''Validate and canonicalize storage url'''

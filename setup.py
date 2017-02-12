@@ -132,7 +132,8 @@ def main():
                      'requests',
                      'defusedxml',
                      'dugong >= 3.4',
-                     'llfuse >= 1.0, < 2.0' ]
+                     'llfuse >= 1.0, < 2.0',
+                     'google-api-python-client >= 1.4.2', ]
 
     setuptools.setup(
           name='s3ql',
