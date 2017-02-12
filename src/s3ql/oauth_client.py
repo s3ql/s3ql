@@ -8,6 +8,9 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, setup_logging, QuietError
 from .parse_args import ArgumentParser
+from oauth2client.client import OAuth2WebServerFlow
+from oauth2client.client import AccessTokenCredentials
+from  oauth2client.client import OOB_CALLBACK_URN
 import sys
 import textwrap
 import requests
@@ -31,8 +34,14 @@ def parse_args(args):
     parser.add_debug()
     parser.add_quiet()
     parser.add_version()
+    parser.add_oauth()
 
-    return parser.parse_args(args)
+    options =  parser.parse_args(args)
+    if options.client_id == '':
+        options.client_id = CLIENT_ID
+    if options.client_secret == '':
+        options.client_secret = CLIENT_SECRET
+    return options
 
 def _log_response(r):
     '''Log server response'''
@@ -59,20 +68,32 @@ def _parse_response(r):
 
     return r.json()
 
-def main(args=None):
 
-    if args is None:
-        args = sys.argv[1:]
 
-    options = parse_args(args)
-    setup_logging(options)
+def googleDrive(options):
+    flow = OAuth2WebServerFlow(client_id=options.client_id,
+                           client_secret=options.client_secret,
+                           scope='https://www.googleapis.com/auth/drive',
+                           redirect_uri=OOB_CALLBACK_URN)
 
+    authorize_url = flow.step1_get_authorize_url()
+    print(textwrap.fill('Go to the following link in your browser: %s' % authorize_url))
+    code = input('Enter verification code: ').strip()
+    credentials = flow.step2_exchange(code)
+    print("your S3QL Credentials are:")
+    print("user: %s" % options.client_id)
+    print("password: %s:%s" % (options.client_secret,credentials.refresh_token))
+
+
+    
+
+def googleStorage(options):
     cli = requests.Session()
 
     # We need full control in order to be able to update metadata
     # cf. https://stackoverflow.com/questions/24718787
     r = cli.post('https://accounts.google.com/o/oauth2/device/code',
-                 data={ 'client_id': CLIENT_ID,
+                 data={ 'client_id': options.client_id,
                         'scope': 'https://www.googleapis.com/auth/devstorage.full_control' },
                  verify=True, allow_redirects=False, timeout=20)
     req_json = _parse_response(r)
@@ -86,8 +107,8 @@ def main(args=None):
         time.sleep(req_json['interval'])
 
         r = cli.post('https://accounts.google.com/o/oauth2/token',
-                     data={ 'client_id': CLIENT_ID,
-                            'client_secret': CLIENT_SECRET,
+                     data={ 'client_id': options.client_id,
+                            'client_secret': options.client_secret,
                             'code': req_json['device_code'],
                             'grant_type': 'http://oauth.net/grant_type/device/1.0' },
                      verify=True, allow_redirects=False, timeout=20)
@@ -104,3 +125,18 @@ def main(args=None):
 
     print('Success. Your refresh token is:\n',
           resp_json['refresh_token'])
+    
+    
+def main(args=None):
+
+    if args is None:
+        args = sys.argv[1:]
+
+    options = parse_args(args)
+    setup_logging(options)
+    if options.oauth_type == 'google-storage':
+        googleStorage(options)
+    elif options.oauth_type == 'google-drive':
+        googleDrive(options)
+    else:
+        raise QuietError('Invalid oauth type : ' + options.oauth_type)
