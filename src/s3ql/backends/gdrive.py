@@ -84,7 +84,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def is_temp_failure(self, exc): #IGNORE:W0613
         if isinstance(exc, apiclient.errors.HttpError):
             if exc.resp.status in [403,500]:
-                if exc.resp.reason in ["userRateLimitExceeded","rateLimitExceeded","backendError"]:
+                if exc.resp.reason in ["Forbidden","userRateLimitExceeded","rateLimitExceeded","backendError"]:
                     return True
         elif isinstance(exc,(BrokenPipeError)):
             return True
@@ -272,11 +272,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         for f in self._list_files(self.folder, "id"):
             self.service.files().delete(fileId=f['id']).execute()
 
-    @copy_ancestor_docstring
-    def contains(self, key):
-        log.debug("key: {0}".format(key))
-        f = self._lookup_file(key, self.folder)
-        return f is not None
+        
     @retry
     @copy_ancestor_docstring
     def delete(self, key, force=False, is_retry=False):
@@ -309,12 +305,16 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @retry
     @copy_ancestor_docstring
-    def rename(self, src, dest, metadata=None):
+    def rename(self, src, dest, metadata=None,is_retry=False):
         if not (metadata is None or isinstance(metadata, dict)):
             raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
 
         f = self._lookup_file(src, self.folder)
         if f is None:
+            if is_retry:
+                f = self._lookup_file(dest, self.folder)
+                if f!=None:
+                    return
             raise NoSuchObject(src)
         if metadata==None:
             metadata = self._decode_metadata(f)
@@ -465,6 +465,13 @@ class ObjectW(object):
     def is_temp_failure(self, exc):
         return self.backend.is_temp_failure(exc)
 
+    def rollbackUpload(self,message):
+            # delete may fail, but we don't want to loose the BadDigest exception
+        try:
+            self.backend.delete(self.key)
+        finally:
+            raise BadDigestError('BadDigest', message) 
+
     @retry
     def close(self):
         if self.closed:
@@ -474,21 +481,19 @@ class ObjectW(object):
         
         self.fh.seek(0)
         binaryData = apiclient.http.MediaIoBaseUpload(self.fh, Backend.MIME_TYPE_BINARY, resumable=True,chunksize=101*1024*1024)        
-        request = self.service.files().create(media_body=binaryData,body=self.metadata,fields='id,md5Checksum,name')
+        request = self.service.files().create(media_body=binaryData,body=self.metadata,fields='id,md5Checksum,name,properties')
         response = None
         while response is None:          
             status, response = request.next_chunk()       
 
+        if len(self.metadata['properties']) != len(response['properties']):
+            self.rollbackUpload('metadata is invalid %s (received: %s, sent: %s)' % (self.key, response['properties'], self.metadata['properties'])) 
         if response['md5Checksum'] != self.md5.hexdigest():
-            # delete may fail, but we don't want to loose the BadDigest exception
-            try:
-                self.backend.delete(self.key)
-            finally:
-                raise BadDigestError('BadDigest', 'MD5 mismatch for %s (received: %s, sent: %s)' % (self.key, checksumMD5, self.md5.hexdigest()))    
+            self.rollbackUpload('MD5 mismatch for %s (received: %s, sent: %s)' % (self.key, checksumMD5, self.md5.hexdigest()))            
         # close underlying file
         self.closed = True
-        self.fh.close()
-
+        self.fh.close()   
+    
     def __enter__(self):
         return self
 
