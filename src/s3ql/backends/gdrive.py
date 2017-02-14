@@ -83,9 +83,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def is_temp_failure(self, exc): #IGNORE:W0613
         if isinstance(exc, apiclient.errors.HttpError):
-            if exc.resp.status in [403,500]:
-                if exc.resp.reason in ["Forbidden","userRateLimitExceeded","rateLimitExceeded","backendError"]:
-                    return True
+            #handle only in case response are:
+            if exc.resp.status == 403 and exc.resp.reason in ["Forbidden","userRateLimitExceeded","rateLimitExceeded","backendError"]:                
+                return True
+            #Google best practice error says error 500 could be temporal
+            elif exc.resp.status == 500:
+                return True
         elif isinstance(exc,(BrokenPipeError,ConnectionResetError)):
             return True
         return False
