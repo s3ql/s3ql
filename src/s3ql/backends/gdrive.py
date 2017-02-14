@@ -87,7 +87,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if exc.resp.status == 403 and exc.resp.reason in ["Forbidden","userRateLimitExceeded","rateLimitExceeded","backendError"]:                
                 return True
             #Google best practice error says error 500 could be temporal
-            elif exc.resp.status == 500:
+            elif exc.resp.status >= 500:
                 return True
         elif isinstance(exc,(BrokenPipeError,ConnectionResetError)):
             return True
