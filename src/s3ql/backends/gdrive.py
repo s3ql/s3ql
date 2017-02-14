@@ -86,7 +86,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if exc.resp.status in [403,500]:
                 if exc.resp.reason in ["Forbidden","userRateLimitExceeded","rateLimitExceeded","backendError"]:
                     return True
-        elif isinstance(exc,(BrokenPipeError)):
+        elif isinstance(exc,(BrokenPipeError,ConnectionResetError)):
             return True
         return False
 
