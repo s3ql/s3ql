@@ -25,13 +25,16 @@ log = logging.getLogger(__name__)
 
 
 
+# Maximum number of keys that can be deleted at once
+MAX_KEYS = 1000
+credentials= None
+
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     '''
     A backend that stores data in Google Drive.
     '''
 
     known_options = set()
-
     MIME_TYPE_BINARY = 'application/octet-stream'
     MIME_TYPE_FOLDER = 'application/vnd.google-apps.folder'
     TOKEN_URI = 'https://accounts.google.com/o/oauth2/token'
@@ -41,6 +44,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     MAX_REF_CHUNK_SIZE = 100
     VALUE_BASE64 = 'b64:'
     VALUE_REF = 'ref:'
+    
 
     def __init__(self, storage_url, login, password, options):
         '''Initialize local backend
@@ -53,18 +57,21 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.login = login
         self.password = password
         client_secret_and_refresh_token = self.password.split(':')
-        log.info(len(client_secret_and_refresh_token))
+
         if len(client_secret_and_refresh_token) != 2:
             raise AuthenticationError("Invalid Password format, must be  secretApplication:refreshToken")
         self.client_secret = client_secret_and_refresh_token[0]
         self.refresh_token = client_secret_and_refresh_token[1]
         self.options = options
+        self.delete_map_state = dict()
 
         # get google drive service
-        credentials = self._get_credentials()
+        global credentials        
+        if credentials == None:
+            credentials = self._get_credentials()
         http = credentials.authorize(httplib2.Http())
 
-        self.service = apiclient.discovery.build('drive', 'v3', http=http)
+        self.service = apiclient.discovery.build('drive', 'v3', http=http,cache_discovery=False)
 
         # get gdrive folder
         folderPath = storage_url[len('gdrive://'):].rstrip('/')
@@ -111,6 +118,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         else:
             query += ' and '
         query += "'{0}' in parents".format(folder['id'])
+        query += " and trashed = false"
 
         # iterate over results
         page_token = None
@@ -274,8 +282,53 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         log.debug("")
         for f in self._list_files(self.folder, "id"):
             self.service.files().delete(fileId=f['id']).execute()
+    '''
+    @copy_ancestor_docstring
+    def delete_multi(self, keys, force=False):
+        log.debug('started with %s', keys)
 
+        while len(keys) > 0:
+            tmp = keys[:MAX_KEYS]
+            self._delete_multi(tmp, force=force)
+            keys[:MAX_KEYS] = tmp
+
+    def _delete_file_async(request_id, response, exception):
+        if exception is not None:
+            log.debug('Object %s deleted successfully',request_id)
+            delete_map_state[request_id]="ok"
+        else:
+            log.warning('an error occur trying to delete %s',key)
+            delete_map_state[request_id]=exception
         
+    def _is_batch_completed(self,dictionary):
+        ocurredException= None
+        for key, state in dictionary.items():
+            if state == "pending":
+                return False 
+            elif isinstance(state,Exception):                
+                ocurredException= state
+
+        #Only raise Exceptions when all request has been procesed
+        if ocurredException:
+            raise ocurredException
+
+    @retry
+    def _delete_multi(self, keys, force=False):
+        batch = self.service.new_batch_http_request(callback=_delete_file_async)
+        delete_map_state = dict()
+        for f in self._list_files(self.folder, "id,name"):
+            if name in keys:
+                delete_map_state[f[name]]="pending"
+                batch.add(request_id=name,request=self.service.files().delete(fileId=f["id"]))
+
+        batch.execute()
+        while self.is_batch_completed(deleteMapState)==False:
+            time.sleep(0.2)
+    '''
+    
+
+
+
     @retry
     @copy_ancestor_docstring
     def delete(self, key, force=False, is_retry=False):
@@ -332,6 +385,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         for other_f in self._list_files(self.folder, "id", query):
             if other_f['id'] == new_f['id']:
                 continue
+            log.info("RENAME-ERROR")
             self.service.files().delete(fileId=other_f['id']).execute()
 
     @retry
@@ -476,11 +530,19 @@ class ObjectW(object):
             raise BadDigestError('BadDigest', message) 
 
     @retry
-    def close(self):
+    def close(self, is_retry=False):
         if self.closed:
             # still call fh.close, may have generated an error before
             self.fh.close()
             return
+        
+        #we detected some times google throw an error 403 or 500 but anyway the file is uploaded correctly, in this case
+        #we are going to try to delete the file and reupload again
+        if is_retry:
+            try:
+                self.backend.delete(key)
+            except NoSuchObject:
+                pass
         
         self.fh.seek(0)
         binaryData = apiclient.http.MediaIoBaseUpload(self.fh, Backend.MIME_TYPE_BINARY, resumable=True,chunksize=101*1024*1024)        
@@ -489,7 +551,7 @@ class ObjectW(object):
         while response is None:          
             status, response = request.next_chunk()       
 
-        if len(self.metadata['properties']) != len(response['properties']):
+        if len(self.metadata['properties']) > 0 and len(self.metadata['properties']) != len(response['properties']):
             self.rollbackUpload('metadata is invalid %s (received: %s, sent: %s)' % (self.key, response['properties'], self.metadata['properties'])) 
         if response['md5Checksum'] != self.md5.hexdigest():
             self.rollbackUpload('MD5 mismatch for %s (received: %s, sent: %s)' % (self.key, checksumMD5, self.md5.hexdigest()))            
