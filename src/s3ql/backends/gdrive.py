@@ -122,10 +122,19 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # iterate over results
         page_token = None
+        #values = set()
         while True:
             results = self.service.files().list(
                 q=query, pageToken=page_token,pageSize=1000,
-                fields="nextPageToken, files(%s)" % fields).execute()
+                fields="nextPageToken, files(%s)" % fields).execute()            
+            #This code is for detect duplicated blocks, shoudn't be!!
+            '''
+            for file in results.get('files', []):
+                if 'name' in file:                    
+                    if file['name'] in values:
+                        log.info("duplicate %s --> %s " % (file['name'],file['id']))
+                    values.add(file['name'])
+            '''
             yield from results.get('files', [])
 
             # get next page
@@ -281,7 +290,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def clear(self):
         log.debug("")
         for f in self._list_files(self.folder, "id"):
-            self.service.files().delete(fileId=f['id']).execute()
+            self._delete_by_id(f['id'])            
     '''
     @copy_ancestor_docstring
     def delete_multi(self, keys, force=False):
@@ -336,8 +345,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         query = "name = '{0}'".format(self._escape_string(key))
         found = False
         for f in self._list_files(self.folder, "id", query):
-            found = True            
-            self.service.files().delete(fileId=f['id']).execute()
+            found = True
+            self._delete_by_id(f['id'])
         if not found:
             if force or is_retry:
                 pass
@@ -383,10 +392,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # delete other files with the same name
         query = "name = '{0}'".format(self._escape_string(new_f['name']))
         for other_f in self._list_files(self.folder, "id", query):
-            if other_f['id'] == new_f['id']:
-                continue
-            log.info("RENAME-ERROR")
-            self.service.files().delete(fileId=other_f['id']).execute()
+            if other_f['id'] != new_f['id']:
+                self._delete_by_id(other_f['id'])
 
     @retry
     @copy_ancestor_docstring
@@ -419,10 +426,18 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             # delete other files with the same name
             query = "name = '{0}'".format(self._escape_string(new_f['name']))
             for other_f in self._list_files(self.folder, "id", query):
-                if other_f['id'] == new_f['id']:
-                    continue
-                self.service.files().delete(fileId=other_f['id']).execute()
-
+                if other_f['id'] != new_f['id']:
+                    self._delete_by_id(other_f['id'])
+        
+    @retry
+    def _delete_by_id(self,id,is_retry=False):
+        try:
+            self.service.files().delete(fileId=id).execute()
+        except apiclient.errors.HttpError as exc:
+            if is_retry and exc.resp.status == 404:
+                pass
+            else:
+                raise exc
 
 class ObjectR(object):
     '''A Google Drive object opened for reading'''
@@ -461,7 +476,6 @@ class ObjectR(object):
 
             if self.done:
                 self.md5_checked = True
-                log.info(str(self.f))
                 if self.f['md5Checksum']!=self.md5.hexdigest():
                     log.warning('MD5 mismatch for %s: %s vs %s',self.f['title'], self.f['md5Checksum'], self.md5.hexdigest())
                     raise BadDigestError('BadDigest', 'MD5 mismatch for %s (received: %s, sent: %s)' % (self.f['title'], self.f['md5Checksum'], self.md5.hexdigest()))
@@ -540,7 +554,7 @@ class ObjectW(object):
         #we are going to try to delete the file and reupload again
         if is_retry:
             try:
-                self.backend.delete(key)
+                self.backend.delete(self.key)
             except NoSuchObject:
                 pass
         
