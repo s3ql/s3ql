@@ -16,12 +16,14 @@ import time
 import base64
 import hashlib
 import httplib2
+import socket
 import io
 import json
 import oauth2client.client
 import tempfile
 
 log = logging.getLogger(__name__)
+logging.getLogger("googleapiclient.discovery").setLevel(logging.WARNING)
 
 
 
@@ -57,7 +59,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.login = login
         self.password = password
         client_secret_and_refresh_token = self.password.split(':')
-
         if len(client_secret_and_refresh_token) != 2:
             raise AuthenticationError("Invalid Password format, must be  secretApplication:refreshToken")
         self.client_secret = client_secret_and_refresh_token[0]
@@ -69,7 +70,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         global credentials        
         if credentials == None:
             credentials = self._get_credentials()
-        http = credentials.authorize(httplib2.Http())
+        http = credentials.authorize(httplib2.Http())        
 
         self.service = apiclient.discovery.build('drive', 'v3', http=http,cache_discovery=False)
 
@@ -96,7 +97,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             #Google best practice error says error 500 could be temporal
             elif exc.resp.status >= 500:
                 return True
-        elif isinstance(exc,(BrokenPipeError,ConnectionResetError)):
+        elif isinstance(exc,(BrokenPipeError,ConnectionResetError,socket.gaierror)):
             return True
         return False
 
@@ -119,28 +120,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             query += ' and '
         query += "'{0}' in parents".format(folder['id'])
         query += " and trashed = false"
-
-        # iterate over results
-        page_token = None
-        #values = set()
-        while True:
-            results = self.service.files().list(
-                q=query, pageToken=page_token,pageSize=1000,
-                fields="nextPageToken, files(%s)" % fields).execute()            
-            #This code is for detect duplicated blocks, shoudn't be!!
-            '''
-            for file in results.get('files', []):
-                if 'name' in file:                    
-                    if file['name'] in values:
-                        log.info("duplicate %s --> %s " % (file['name'],file['id']))
-                    values.add(file['name'])
-            '''
+        request = self.service.files().list(q=query,pageSize=1000,fields="nextPageToken, files(%s)" % fields)
+        while request is not None:
+            results = request.execute()            
             yield from results.get('files', [])
-
-            # get next page
-            page_token = results.get('nextPageToken', None)
-            if page_token is None:
-                break
+            request = self.service.files().list_next(request,results)
 
     def _lookup_file(self, name, folder=None):
         '''Lookup file by name
@@ -263,7 +247,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @retry
     @copy_ancestor_docstring
     def open_read(self, key):
-        log.info("key: {0}".format(key))
+        log.debug("key: {0}".format(key))
         f = self._lookup_file(key, self.folder)
         if f is None:
             raise NoSuchObject(key)  
@@ -277,6 +261,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         elif not isinstance(metadata, dict):
             raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
 
+        f = self._lookup_file(key, self.folder)
+        if f is not None:
+            log.debug("Object {0} already exist!".format(key))
+            self._delete_by_id(f['id'])
         body = {
             'name': key,
             'mimeType': Backend.MIME_TYPE_BINARY,
@@ -430,11 +418,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     self._delete_by_id(other_f['id'])
         
     @retry
-    def _delete_by_id(self,id,is_retry=False):
+    def _delete_by_id(self,id):
         try:
             self.service.files().delete(fileId=id).execute()
         except apiclient.errors.HttpError as exc:
-            if is_retry and exc.resp.status == 404:
+            if exc.resp.status == 404:
                 pass
             else:
                 raise exc
