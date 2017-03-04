@@ -16,6 +16,7 @@ import time
 import base64
 import hashlib
 import httplib2
+import http
 import socket
 import io
 import json
@@ -97,7 +98,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             #Google best practice error says error 500 could be temporal
             elif exc.resp.status >= 500:
                 return True
-        elif isinstance(exc,(BrokenPipeError,ConnectionResetError,socket.gaierror)):
+        elif isinstance(exc,(BrokenPipeError,ConnectionResetError,socket.gaierror,http.client.IncompleteRead)):
             return True
         return False
 
