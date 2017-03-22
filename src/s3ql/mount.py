@@ -39,7 +39,7 @@ import shutil
 import atexit
 
 try:
-    from systemd.daemon import notify as sd_notify
+    from systemd.daemon import notify as sd_notify, Notification
 except ImportError:
     sd_notify = None
 
@@ -201,8 +201,8 @@ def main(args=None):
         if options.upstart:
             os.kill(os.getpid(), signal.SIGSTOP)
         if sd_notify is not None:
-            sd_notify('READY=1')
-            sd_notify('MAINPID=%d' % os.getpid())
+            sd_notify(Notification.READY)
+            sd_notify(Notification.STATUS, 'MAINPID=%d' % os.getpid())
 
         exc_info = setup_exchook()
         workers = 1 if options.single else None # use default
