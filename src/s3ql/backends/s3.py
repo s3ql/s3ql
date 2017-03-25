@@ -35,8 +35,8 @@ class Backend(s3c.Backend):
     known_options = ((s3c.Backend.known_options | { 'sse', 'rrs', 'ia' })
                      - {'dumb-copy', 'disable-expect100'})
 
-    def __init__(self, storage_url, login, password, options):
-        super().__init__(storage_url, login, password, options)
+    def __init__(self, storage_url, login, password, options, cachedir):
+        super().__init__(storage_url, login, password, options, cachedir)
 
     @staticmethod
     def _parse_storage_url(storage_url, ssl_context):

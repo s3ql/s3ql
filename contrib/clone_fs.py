@@ -54,6 +54,7 @@ def parse_args(args):
     parser.add_argument("--threads", type=int, default=3,
                         help='Number of threads to use')
 
+    parser.add_cachedir()
     return parser.parse_args(args)
 
 
@@ -102,12 +103,14 @@ def main(args=None):
         options.storage_url = options.src_storage_url
         src_backend_factory = get_backend_factory(options.src_storage_url,
                                                   options.backend_options,
-                                                  options.authfile, raw=True)
+                                                  options.authfile,
+                                                  options.cachedir, raw=True)
 
         options.storage_url = options.dst_storage_url
         dst_backend_factory = get_backend_factory(options.dst_storage_url,
                                                   options.backend_options,
-                                                  options.authfile, raw=True)
+                                                  options.authfile,
+                                                  options.cachedir, raw=True)
     except DanglingStorageURLError as exc:
         raise QuietError(str(exc)) from None
 

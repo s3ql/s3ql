@@ -91,7 +91,7 @@ def main(args=None):
     setup_logging(options)
 
     backend_factory = get_backend_factory(options.storage_url, options.backend_options,
-                                          options.authfile)
+                                          options.authfile, options.cachedir)
 
     # Get paths
     cachepath = get_backend_cachedir(options.storage_url, options.cachedir)

@@ -47,7 +47,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     clear = s3c.Backend.clear
     reset = s3c.Backend.reset
 
-    def __init__(self, storage_url, login, password, options):
+    def __init__(self, storage_url, login, password, options, cachedir):
         super().__init__()
         self.options = options
         self.hostname = None

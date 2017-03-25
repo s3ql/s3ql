@@ -42,6 +42,7 @@ def parse_args(args):
     parser.add_argument("file", type=argparse.FileType(mode='r', encoding='utf-8'),
                         help='File with newline separated object keys to delete')
 
+    parser.add_cachedir()
     return parser.parse_args(args)
 
 

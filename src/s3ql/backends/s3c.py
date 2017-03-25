@@ -52,7 +52,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout',
                      'dumb-copy', 'disable-expect100'}
 
-    def __init__(self, storage_url, login, password, options):
+    def __init__(self, storage_url, login, password, options, cachedir):
         '''Initialize backend object
 
         *ssl_context* may be a `ssl.SSLContext` instance or *None*.
