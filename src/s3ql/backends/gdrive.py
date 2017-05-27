@@ -16,6 +16,7 @@ import time
 import base64
 import hashlib
 import httplib2
+import ssl
 import http
 import socket
 import io
@@ -31,7 +32,7 @@ logging.getLogger("googleapiclient.discovery").setLevel(logging.WARNING)
 # Maximum number of keys that can be deleted at once
 MAX_KEYS = 1000
 credentials= None
-
+mainFolder= None
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     '''
     A backend that stores data in Google Drive.
@@ -69,6 +70,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # get google drive service
         global credentials        
+        global mainFolder
         if credentials == None:
             credentials = self._get_credentials()
         http = credentials.authorize(httplib2.Http())        
@@ -76,14 +78,17 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.service = apiclient.discovery.build('drive', 'v3', http=http,cache_discovery=False)
 
         # get gdrive folder
-        folderPath = storage_url[len('gdrive://'):].rstrip('/')
-        self.folder = self._lookup_file(folderPath)
-        if self.folder != None:
-            if self.folder['mimeType'] != Backend.MIME_TYPE_FOLDER:
-                raise DanglingStorageURLError(folderPath)
+        if mainFolder==None:
+            folderPath = storage_url[len('gdrive://'):].rstrip('/')
+            self.folder = self._lookup_file(folderPath)
+            if self.folder != None:
+                if self.folder['mimeType'] != Backend.MIME_TYPE_FOLDER:
+                    raise DanglingStorageURLError(folderPath)
+            else:
+                self.folder = self.service.files().create(body={'name' : folderPath,'mimeType' : Backend.MIME_TYPE_FOLDER},fields='id').execute()
+            mainFolder=self.folder
         else:
-            self.folder = self.service.files().create(body={'name' : folderPath,'mimeType' : Backend.MIME_TYPE_FOLDER},fields='id').execute()
-
+            self.folder = mainFolder
 
     def _get_credentials(self):
         return oauth2client.client.OAuth2Credentials(access_token="1234",client_id=self.login,client_secret=self.client_secret,
@@ -98,7 +103,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             #Google best practice error says error 500 could be temporal
             elif exc.resp.status >= 500:
                 return True
-        elif isinstance(exc,(BrokenPipeError,ConnectionResetError,socket.gaierror,http.client.IncompleteRead)):
+        elif isinstance(exc,(BrokenPipeError,ConnectionResetError,socket.gaierror,socket.herror,socket.timeout,http.client.IncompleteRead,
+        httplib2.ServerNotFoundError,ssl.SSLZeroReturnError, ssl.SSLEOFError,ssl.SSLSyscallError,ssl.SSLError)):
             return True
         return False
 
@@ -387,6 +393,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @retry
     @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None):
+        new_f = None
         log.debug("{0} -> {1}".format(src, dest))
         if not (metadata is None or isinstance(metadata, dict)):
             raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
@@ -399,7 +406,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 'properties': self._encode_metadata(metadata),
             }
             log.debug("metadata update: {0}, body: {1}".format(metadata, body))
-            self.service.files().update(fileId=f['id'], body=body).execute()
+            new_f = self.service.files().update(fileId=f['id'], body=body).execute()
         else:
             if metadata==None:
                 metadata = self._decode_metadata(f)
@@ -412,11 +419,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             log.debug("metadata: {0}, body: {1}".format(metadata, body))
             new_f = self.service.files().copy(fileId=f['id'], body=body).execute()
 
-            # delete other files with the same name
-            query = "name = '{0}'".format(self._escape_string(new_f['name']))
-            for other_f in self._list_files(self.folder, "id", query):
-                if other_f['id'] != new_f['id']:
-                    self._delete_by_id(other_f['id'])
+        # delete other files with the same name
+        query = "name = '{0}'".format(self._escape_string(new_f['name']))
+        for other_f in self._list_files(self.folder, "id", query):
+            if other_f['id'] != new_f['id']:
+                self._delete_by_id(other_f['id'])
         
     @retry
     def _delete_by_id(self,id):
