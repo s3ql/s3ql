@@ -220,8 +220,8 @@ def yield_mock_backend(bi):
         yield backend
     finally:
         backend.close()
-        server.server_close()
         server.shutdown()
+        server.server_close()
 
 def yield_remote_backend(bi, _ctr=[0]):
     # Add timestamp + ctr to prefix so we don't have to deal with cruft from
