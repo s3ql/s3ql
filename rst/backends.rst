@@ -114,12 +114,17 @@ geographically closest storage region, but not the US Standard region
 
 The storage URL for accessing S3 buckets in S3QL has the form ::
 
-    s3://<bucketname>/<prefix>
+    s3://<region>/<bucket>/<prefix>
 
-Here *bucketname* is the name of the bucket, and *prefix* can be an
-arbitrary prefix that will be prepended to all object names used by
-S3QL. This allows you to store several S3QL file systems in the same
-S3 bucket.
+*prefix* can be an arbitrary prefix that will be prepended to all
+object names used by S3QL. This allows you to store several S3QL file
+systems in the same S3 bucket. For example, the storage URL ::
+
+   s3://ap-south-1/foomart.net/data/s3ql_backup/
+
+refers to the *foomart.net* bucket in the *ap-south-1* region. All
+storage objects that S3QL stores in this bucket will be prefixed with
+*data/s3ql_backup/*.
 
 Note that the backend login and password for accessing S3 are not the
 user id and password that you use to log into the Amazon Webpage, but

@@ -1,3 +1,11 @@
+UNRELEASED CHANGES
+
+  * The storage URL for Amazon S3 buckets has changed. It now includes
+    the bucket's region.
+
+  * Added support for AWS v4 authentication. Thanks to ibbchina.com
+    for sponsoring this work!
+
 2016-10-28, S3QL 2.21
 
   * Added workaround for an issue where S3QL crashes with an
