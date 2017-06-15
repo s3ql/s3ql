@@ -58,8 +58,8 @@ class StorageServer(socketserver.TCPServer):
         # safe than sorry
         try:
             super().serve_forever()
-        except Exception:
-            with open('mock_server.log', 'r+') as fh:
+        except:
+            with open('mock_server.log', 'w') as fh:
                 traceback.print_exc(file=fh)
             raise
 
