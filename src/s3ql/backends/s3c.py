@@ -646,7 +646,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             auth_strs.append('%s:%s\n' % (hdr, val))
 
         # Always include bucket name in path for signing
-        sign_path = urllib.parse.quote('/%s%s' % (self.bucket_name, path))
+        if self.hostname.startswith(self.bucket_name):
+            path = '/%s%s' % (self.bucket_name, path)
+        sign_path = urllib.parse.quote(path)
         auth_strs.append(sign_path)
         if subres:
             auth_strs.append('?%s' % subres)
@@ -668,11 +670,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if not isinstance(headers, CaseInsensitiveDict):
             headers = CaseInsensitiveDict(headers)
 
-        self._authorize_request(method, path, headers, subres, query_string)
-
-        # Construct full path
         if not self.hostname.startswith(self.bucket_name):
             path = '/%s%s' % (self.bucket_name, path)
+        headers['host'] = self.hostname
+
+        self._authorize_request(method, path, headers, subres, query_string)
+
         path = urllib.parse.quote(path)
         if query_string:
             s = urllib.parse.urlencode(query_string, doseq=True)
