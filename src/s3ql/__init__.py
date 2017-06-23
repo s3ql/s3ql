@@ -22,7 +22,7 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'common', 'calc_mro',
             'REV_VER_MAP', 'RELEASE', 'BUFSIZE',
             'CTRL_NAME', 'CTRL_INODE' ]
 
-VERSION = '2.21'
+VERSION = '2.22'
 RELEASE = '%s' % VERSION
 
 # TODO: On next revision bump, consider removing support for TIME

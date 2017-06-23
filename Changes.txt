@@ -1,4 +1,4 @@
-UNRELEASED CHANGES
+2017-06-23, S3QL 2.22
 
   * The storage URL for Amazon S3 buckets has changed. It now includes
     the bucket's region.
