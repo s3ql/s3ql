@@ -137,6 +137,12 @@ The following resources are available:
 
 Please report any bugs you may encounter in the `Bitbucket Issue Tracker`_.
 
+Professional Support
+====================
+
+Professional support is available. Please contact Nikolaus Rath
+<Nikolaus@rath.org> for details.
+
 Contributing
 ============
 
