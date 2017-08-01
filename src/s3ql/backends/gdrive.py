@@ -100,8 +100,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             #handle only in case response are:
             if exc.resp.status == 403 and exc.resp.reason in ["Forbidden","userRateLimitExceeded","rateLimitExceeded","backendError"]:                
                 return True
-            #Google best practice error says error 500 could be temporal
-            elif exc.resp.status >= 500:
+            #Google best practice error says error 500 could be temporal, also We get some resumable errors with 400 Bad Request (Fully Random)
+            elif exc.resp.status >= 500 or exc.resp.status == 400:
                 return True
         elif isinstance(exc,(BrokenPipeError,ConnectionResetError,socket.gaierror,socket.herror,socket.timeout,http.client.IncompleteRead,
         httplib2.ServerNotFoundError,ssl.SSLZeroReturnError, ssl.SSLEOFError,ssl.SSLSyscallError,ssl.SSLError)):
