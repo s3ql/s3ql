@@ -37,6 +37,7 @@ def parse_args(args):
 
     subparsers = parser.add_subparsers(metavar='<action>', dest='action',
                                        help='may be either of')
+    subparsers.required = True
     subparsers.add_parser('flushcache', help='flush file system cache',
                           parents=[pparser])
     subparsers.add_parser('upload-meta', help='Upload metadata',
