@@ -282,7 +282,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                         root.clear()
 
             except Exception as exc:
-                if is_temp_network_error(exc):
+                if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
                     # We probably can't use the connection anymore
                     self.conn.disconnect()
                 raise
@@ -739,7 +739,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             return read_response()
 
         except Exception as exc:
-            if is_temp_network_error(exc):
+            if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
                 # We probably can't use the connection anymore
                 self.conn.disconnect()
             raise

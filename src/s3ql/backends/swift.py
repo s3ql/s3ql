@@ -234,7 +234,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         try:
             resp = self._do_request_inner(method, path, body=body, headers=headers)
         except Exception as exc:
-            if is_temp_network_error(exc):
+            if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
                 # We probably can't use the connection anymore
                 self.conn.disconnect()
             raise
