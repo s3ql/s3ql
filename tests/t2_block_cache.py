@@ -231,7 +231,7 @@ class cache_tests(unittest.TestCase):
 
         # We want to expire 4 entries, 2 of which are already flushed
         self.cache.cache.max_entries = 16
-        self.cache.backend_pool = TestBackendPool(self.backend_pool, no_write=2)
+        self.cache.backend_pool = MockBackendPool(self.backend_pool, no_write=2)
         self.cache.expire()
         self.cache.backend_pool.verify()
         self.assertEqual(len(self.cache.cache), 16)
@@ -254,7 +254,7 @@ class cache_tests(unittest.TestCase):
         data3 = self.random_data(datalen)
 
         # Case 1: create new object
-        self.cache.backend_pool = TestBackendPool(self.backend_pool, no_write=1)
+        self.cache.backend_pool = MockBackendPool(self.backend_pool, no_write=1)
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data1)
@@ -263,7 +263,7 @@ class cache_tests(unittest.TestCase):
         self.cache.backend_pool.verify()
 
         # Case 2: Link new object
-        self.cache.backend_pool = TestBackendPool(self.backend_pool)
+        self.cache.backend_pool = MockBackendPool(self.backend_pool)
         with self.cache.get(inode, blockno2) as fh:
             fh.seek(0)
             fh.write(data1)
@@ -272,7 +272,7 @@ class cache_tests(unittest.TestCase):
         self.cache.backend_pool.verify()
 
         # Case 3: Upload old object, still has references
-        self.cache.backend_pool = TestBackendPool(self.backend_pool, no_write=1)
+        self.cache.backend_pool = MockBackendPool(self.backend_pool, no_write=1)
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data2)
@@ -280,7 +280,7 @@ class cache_tests(unittest.TestCase):
         self.cache.backend_pool.verify()
 
         # Case 4: Upload old object, no references left
-        self.cache.backend_pool = TestBackendPool(self.backend_pool, no_del=1, no_write=1)
+        self.cache.backend_pool = MockBackendPool(self.backend_pool, no_del=1, no_write=1)
         with self.cache.get(inode, blockno2) as fh:
             fh.seek(0)
             fh.write(data3)
@@ -288,7 +288,7 @@ class cache_tests(unittest.TestCase):
         self.cache.backend_pool.verify()
 
         # Case 5: Link old object, no references left
-        self.cache.backend_pool = TestBackendPool(self.backend_pool, no_del=1)
+        self.cache.backend_pool = MockBackendPool(self.backend_pool, no_del=1)
         with self.cache.get(inode, blockno2) as fh:
             fh.seek(0)
             fh.write(data2)
@@ -297,7 +297,7 @@ class cache_tests(unittest.TestCase):
 
         # Case 6: Link old object, still has references
         # (Need to create another object first)
-        self.cache.backend_pool = TestBackendPool(self.backend_pool, no_write=1)
+        self.cache.backend_pool = MockBackendPool(self.backend_pool, no_write=1)
         with self.cache.get(inode, blockno3) as fh:
             fh.seek(0)
             fh.write(data1)
@@ -305,7 +305,7 @@ class cache_tests(unittest.TestCase):
         self.cache.upload(el3)
         self.cache.backend_pool.verify()
 
-        self.cache.backend_pool = TestBackendPool(self.backend_pool)
+        self.cache.backend_pool = MockBackendPool(self.backend_pool)
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data1)
@@ -320,7 +320,7 @@ class cache_tests(unittest.TestCase):
         blockno2 = 24
         data = self.random_data(datalen)
 
-        self.cache.backend_pool = TestBackendPool(self.backend_pool, no_write=1)
+        self.cache.backend_pool = MockBackendPool(self.backend_pool, no_write=1)
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data)
@@ -330,7 +330,7 @@ class cache_tests(unittest.TestCase):
         self.cache.clear()
         self.cache.backend_pool.verify()
 
-        self.cache.backend_pool = TestBackendPool(self.backend_pool)
+        self.cache.backend_pool = MockBackendPool(self.backend_pool)
         self.cache.remove(inode, blockno1)
         self.cache.backend_pool.verify()
 
@@ -450,10 +450,10 @@ class cache_tests(unittest.TestCase):
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
             fh.write(data1)
-        self.cache.backend_pool = TestBackendPool(self.backend_pool, no_write=1)
+        self.cache.backend_pool = MockBackendPool(self.backend_pool, no_write=1)
         commit(self.cache, inode)
         self.cache.backend_pool.verify()
-        self.cache.backend_pool = TestBackendPool(self.backend_pool, no_del=1)
+        self.cache.backend_pool = MockBackendPool(self.backend_pool, no_del=1)
         self.cache.remove(inode, 1)
         self.cache.backend_pool.verify()
 
@@ -470,10 +470,10 @@ class cache_tests(unittest.TestCase):
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
             fh.write(data1)
-        self.cache.backend_pool = TestBackendPool(self.backend_pool, no_write=1)
+        self.cache.backend_pool = MockBackendPool(self.backend_pool, no_write=1)
         self.cache.clear()
         self.cache.backend_pool.verify()
-        self.cache.backend_pool = TestBackendPool(self.backend_pool, no_del=1)
+        self.cache.backend_pool = MockBackendPool(self.backend_pool, no_del=1)
         self.cache.remove(inode, 1)
         self.cache.backend_pool.verify()
         with self.cache.get(inode, 1) as fh:
@@ -481,7 +481,7 @@ class cache_tests(unittest.TestCase):
             self.assertEqual(fh.read(42), b'')
 
 
-class TestBackendPool(AbstractBackend):
+class MockBackendPool(AbstractBackend):
     has_native_rename = False
 
     def __init__(self, backend_pool, no_read=0, no_write=0, no_del=0):
