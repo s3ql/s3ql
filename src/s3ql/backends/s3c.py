@@ -161,10 +161,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                or exc.status == 408)):
             return True
 
-        # Temporary workaround for https://bitbucket.org/nikratio/s3ql/issues/87.
-        # We still need to find a proper string
+        # Temporary workaround for
+        # https://bitbucket.org/nikratio/s3ql/issues/87 and
+        # https://bitbucket.org/nikratio/s3ql/issues/252
         elif (isinstance(exc, ssl.SSLError) and
-              str(exc).startswith('[SSL: BAD_WRITE_RETRY]')):
+              (str(exc).startswith('[SSL: BAD_WRITE_RETRY]') or
+               str(exc).startswith('[SSL: BAD_LENGTH]'))):
             return True
 
         return False
