@@ -56,7 +56,10 @@ class Backend(s3c.Backend):
         if not re.match('^[a-z0-9][a-z0-9.-]{1,60}[a-z0-9]$', bucket_name):
             raise QuietError('Invalid bucket name.', exitcode=2)
 
-        hostname = 's3-%s.amazonaws.com' % self.region
+        if self.region == 'us-east-1':
+            hostname = 's3.amazonaws.com'
+        else:
+            hostname = 's3-%s.amazonaws.com' % self.region
 
         prefix = hit.group(3) or ''
         port = 443 if ssl_context else 80

@@ -1,3 +1,7 @@
+UNRELEASED CHANGES
+
+  * Accessing the us-east-1 S3 storage region is now working again.
+
 2017-06-23, S3QL 2.22
 
   * The storage URL for Amazon S3 buckets has changed. It now includes
