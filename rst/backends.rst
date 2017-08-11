@@ -282,19 +282,6 @@ topmost menu bar).
 The Rackspace backend accepts the same backend options as the
 :ref:`OpenStack backend <openstack_backend>`.
 
-.. NOTE::
-
-   As of January 2012, Rackspace does not give any durability or
-   consistency guarantees (see :ref:`durability` for why this is
-   important).  However, Rackspace support agents seem prone to claim
-   very high guarantees.  Unless explicitly backed by their terms of
-   service, any such statement should thus be viewed with
-   suspicion. S3QL developers have also `repeatedly experienced
-   <http://www.rath.org/Tales%20from%20the%20Rackspace%20Support>`_
-   similar issues with the credibility and competence of the Rackspace
-   support.
-
-
 .. _Rackspace: http://www.rackspace.com/
 
 
