@@ -230,7 +230,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         log.debug('started with %s, %s', prefix, start_after)
 
         keys_remaining = True
-        marker = self.prefix + start_after
+
+        # Without this, a call to list('foo') would result
+        # in *prefix* being longer than *marker* - which causes
+        # trouble for some S3 implementions (minio).
+        if start_after:
+            marker = self.prefix + start_after
+        else:
+            marker = ''
         prefix = self.prefix + prefix
 
         while keys_remaining:
