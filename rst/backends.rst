@@ -249,6 +249,15 @@ The OpenStack backend accepts the following backend options:
 .. _OpenStack: http://www.openstack.org/
 .. _Swift: http://openstack.org/projects/storage/
 
+.. NOTE::
+
+   The Swift API unfortunately lacks a number of features that S3QL
+   normally makes use of. S3QL works around these deficiencies as much
+   as possible. However, this means that storing data using the Swift
+   backend generally requires more network round-trips and transfer
+   volume than the other backends. Also, S3QL requires Swift storage
+   servers to provide immediate consistency for newly created objects.
+
 
 Rackspace CloudFiles
 ====================
