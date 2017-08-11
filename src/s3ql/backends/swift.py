@@ -128,7 +128,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         elif (isinstance(exc, HTTPError) and
               ((500 <= exc.status <= 599
                 and exc.status not in (501,505,508,510,511,523))
-               or exc.status == 408)):
+               or exc.status == 408
+               or 'client disconnected' in exc.msg.lower())):
             return True
 
         elif is_temp_network_error(exc):
