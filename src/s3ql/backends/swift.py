@@ -409,10 +409,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             elif exc.status != 404:
                 raise
 
-    # We cannot wrap the entire copy() method into a retry() decorator, because
-    # copy() issues multiple requests. If the server happens to regularly close
-    # the connection after a request (even though it was processed correctly),
-    # we'd never make any progress if we always restart from the first request.
+    # We cannot wrap the entire _copy_via_put_post() method into a retry()
+    # decorator, because _copy_via_put_post() issues multiple requests.
+    # If the server happens to regularly close the connection after a request
+    # (even though it was processed correctly), we'd never make any progress
+    # if we always restart from the first request.
     # We experimented with adding a retry(fn, args, kwargs) function to wrap
     # individual calls, but this doesn't really improve the code because we
     # typically also have to wrap e.g. a discard() or assert_empty() call, so we
@@ -423,12 +424,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self._do_request(method, path, headers=headers)
         self.conn.discard()
 
-    @copy_ancestor_docstring
-    def copy(self, src, dest, metadata=None):
-        log.debug('started with %s, %s', src, dest)
-        if dest.endswith(TEMP_SUFFIX) or src.endswith(TEMP_SUFFIX):
-            raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
-
+    def _copy_via_put_post(self, src, dest, metadata=None):
+        """Fallback copy method for older Swift implementations."""
         headers = CaseInsensitiveDict()
         headers['X-Copy-From'] = '/%s/%s%s' % (self.container_name, self.prefix, src)
 
@@ -460,6 +457,29 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         headers = CaseInsensitiveDict()
         headers['X-Copy-From'] = '/%s/%s%s' % (self.container_name, self.prefix, dest)
         self._copy_helper('PUT', '/%s%s' % (self.prefix, final_dest), headers)
+
+    @retry
+    def _copy_via_copy(self, src, dest, metadata=None):
+        """Copy for more modern Swift implementations that know the
+        X-Fresh-Metadata option and the native COPY method."""
+        headers = CaseInsensitiveDict()
+        headers['Destination'] = '/%s/%s%s' % (self.container_name, self.prefix, dest)
+        if metadata is not None:
+            self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
+            headers['X-Fresh-Metadata'] = 'true'
+        resp = self._do_request('COPY', '/%s%s' % (self.prefix, src), headers=headers)
+        self._assert_empty_response(resp)
+
+    @copy_ancestor_docstring
+    def copy(self, src, dest, metadata=None):
+        log.debug('started with %s, %s', src, dest)
+        if dest.endswith(TEMP_SUFFIX) or src.endswith(TEMP_SUFFIX):
+            raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
+
+        if self.features.has_copy:
+            self._copy_via_copy(src, dest, metadata=metadata)
+        else:
+            self._copy_via_put_post(src, dest, metadata=metadata)
 
     @retry
     @copy_ancestor_docstring
