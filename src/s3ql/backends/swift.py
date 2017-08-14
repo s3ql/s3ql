@@ -409,6 +409,149 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             elif exc.status != 404:
                 raise
 
+    @retry
+    def _delete_multi(self, keys, force=False):
+        """Doing bulk delete of multiple objects at a time.
+
+        This is a feature of the configurable middleware "Bulk" so it can only
+        be used after the middleware was detected. (Introduced in Swift 1.8.0.rc1)
+
+        See https://docs.openstack.org/swift/latest/middleware.html#bulk-delete
+        and https://github.com/openstack/swift/blob/master/swift/common/middleware/bulk.py
+
+        A request example:
+        'POST /?bulk-delete
+        Content-type: text/plain; charset=utf-8
+        Accept: application/json
+
+        /container/prefix_key1
+        /container/prefix_key2'
+
+        A successful response:
+        'HTTP/1.1 200 OK
+        Content-Type: application/json
+
+        {"Number Not Found": 0,
+         "Response Status": "200 OK",
+         "Response Body": "",
+         "Errors": [],
+         "Number Deleted": 2}'
+
+        An error response:
+        'HTTP/1.1 200 OK
+        Content-Type: application/json
+
+        {"Number Not Found": 0,
+         "Response Status": "500 Internal Server Error",
+         "Response Body": "An error description",
+         "Errors": [
+            ['/container/prefix_key2', 'An error description']
+         ],
+         "Number Deleted": 1}'
+
+        Response when some objects where not found:
+        'HTTP/1.1 200 OK
+        Content-Type: application/json
+
+        {"Number Not Found": 1,
+         "Response Status": "400 Bad Request",
+         "Response Body": "Invalid bulk delete.",
+         "Errors": [],
+         "Number Deleted": 1}'
+        """
+
+        body = []
+        esc_prefix = "/%s/%s" % (urllib.parse.quote(self.container_name),
+                                 urllib.parse.quote(self.prefix))
+        for key in keys:
+            body.append('%s%s' % (esc_prefix, urllib.parse.quote(key)))
+        body = '\n'.join(body).encode('utf-8')
+        headers = {
+            'content-type': 'text/plain; charset=utf-8',
+            'accept': 'application/json'
+        }
+
+        resp = self._do_request('POST', '/', subres='bulk-delete', body=body, headers=headers)
+
+        # bulk deletes should always return 200
+        if resp.status is not 200:
+            raise HTTPError(resp.status, resp.reason, resp.headers)
+
+        hit = re.match('^application/json(;\s*charset="?(.+?)"?)?$',
+                       resp.headers['content-type'])
+        if not hit:
+            log.error('Unexpected server response. Expected json, got:\n%s',
+                      self._dump_response(resp))
+            raise RuntimeError('Unexpected server reply')
+
+        # there might be an arbitrary amount of whitespace before the
+        # JSON response (to keep the connection from timing out)
+        # but json.loads discards these whitespace characters automatically
+        resp_dict = json.loads(self.conn.readall().decode(hit.group(2) or 'utf-8'))
+
+        hit = re.match('^([0-9]{3})', resp_dict['Response Status'])
+        if not hit:
+            log.error('Unexpected server response. Expected valid Response Status, got:\n%s',
+                      resp_dict)
+            raise RuntimeError('Unexpected server reply')
+        resp_status = int(hit.group(1))
+
+        if resp_status is 200:
+            # No errors occured, everything has been deleted
+            del keys[:]
+            return
+
+        # Some errors occured, so we need to determine what has
+        # been deleted and what hasn't
+        failed_keys = []
+        offset = len(esc_prefix)
+        for error in resp_dict['Errors']:
+            fullkey = error[0]
+            # stangely the name is url encoded in JSON
+            assert fullkey.startswith(esc_prefix)
+            key = urllib.parse.unquote(fullkey[offset:])
+            failed_keys.append(key)
+            log.debug('Delete %s failed with %s', key, error[1])
+        for key in keys[:]:
+            if key not in failed_keys:
+                keys.remove(key)
+
+        # If *force*, just modify the passed list and return without
+        # raising an exception, otherwise raise exception for the first error
+        if force:
+            return
+
+        if resp_status in (400, 404) and len(resp_dict['Errors']) == 0:
+            # Swift returns 400 instead of 404 when files were not found.
+            # (but we also accept the correct status code 404 if Swift
+            # decides to correct this in the future)
+
+            # ensure that we actually have objects that were not found
+            # (otherwise there is a logic error that we need to know about)
+            assert(resp_dict['Number Not Found'] > 0)
+
+            # Unfortunately we cannot find out from the response which object
+            # was actually not found.
+            # Since AbstractBackend.delete_multi allows this, we just
+            # swallow this error even when *force* is False.
+            return
+
+        raise HTTPError(resp_status, resp_dict['Response Body'], {})
+
+    @copy_ancestor_docstring
+    def delete_multi(self, keys, force=False):
+        log.debug('started with %s', keys)
+
+        if self.features.has_bulk_delete:
+            while len(keys) > 0:
+                tmp = keys[:self.features.max_deletes]
+                try:
+                    self._delete_multi(tmp, force=force)
+                finally:
+                    keys[:self.features.max_deletes] = tmp
+        else:
+            super().delete_multi(keys, force=force)
+
     # We cannot wrap the entire _copy_via_put_post() method into a retry()
     # decorator, because _copy_via_put_post() issues multiple requests.
     # If the server happens to regularly close the connection after a request
