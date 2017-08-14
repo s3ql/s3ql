@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging, QuietError # Ensure use of custom logger class
+from ..logging import logging, QuietError, LOG_ONCE # Ensure use of custom logger class
 from .. import BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
                      DanglingStorageURLError, retry_generator, get_proxy,
@@ -24,6 +24,7 @@ import re
 import os
 import urllib.parse
 import ssl
+from distutils.version import LooseVersion
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +39,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """
 
     hdr_prefix = 'X-Object-'
-    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout', 'disable-expect100'}
+    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout',
+                     'disable-expect100', 'no-feature-detection'}
 
     _add_meta_headers = s3c.Backend._add_meta_headers
     _extractmeta = s3c.Backend._extractmeta
@@ -59,6 +61,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.conn = None
         self.password = password
         self.login = login
+        self.features = Features()
 
         # We may need the context even if no-ssl has been specified,
         # because no-ssl applies only to the authentication URL.
@@ -191,6 +194,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 else:
                     # fall through to scheme used for authentication
                     pass
+
+                self._detect_features(o.hostname, o.port)
 
                 conn =  HTTPConnection(o.hostname, o.port, proxy=self.proxy,
                                        ssl_context=ssl_context)
@@ -519,6 +524,82 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def close(self):
         self.conn.disconnect()
 
+    def _detect_features(self, hostname, port):
+        '''Try to figure out the Swift version and supported features by
+        examining the /info endpoint of the storage server.
+
+        See https://docs.openstack.org/swift/latest/middleware.html#discoverability
+        '''
+
+        if 'no-feature-detection' in self.options:
+            log.debug('Skip feature detection')
+            return
+
+        ssl_context = self.ssl_context
+        if 'no-ssl' in self.options:
+            ssl_context = None
+
+        if not port:
+            port = 443 if ssl_context else 80
+
+        detected_features = Features()
+
+        with HTTPConnection(hostname, port, proxy=self.proxy,
+                            ssl_context=ssl_context) as conn:
+            conn.timeout = int(self.options.get('tcp-timeout', 20))
+
+            log.debug('GET /info')
+            conn.send_request('GET', '/info')
+            resp = conn.read_response()
+
+            # 200, 401, 403 and 404 are all OK since the /info endpoint
+            # may not be accessible (misconfiguration) or may not
+            # exist (old Swift version).
+            if resp.status not in (200, 401, 403, 404):
+                log.error("Wrong server response.\n%s",
+                          self._dump_response(resp, body=conn.read(2048)))
+                raise HTTPError(resp.status, resp.reason, resp.headers)
+
+            if resp.status is 200:
+                hit = re.match('^application/json(;\s*charset="?(.+?)"?)?$',
+                resp.headers['content-type'])
+                if not hit:
+                    log.error("Wrong server response. Expected json. Got: \n%s",
+                              self._dump_response(resp, body=conn.read(2048)))
+                    raise RuntimeError('Unexpected server reply')
+
+                info = json.loads(conn.readall().decode(hit.group(2) or 'utf-8'))
+                swift_info = info.get('swift', {})
+
+                log.debug('%s:%s/info returns %s', hostname, port, info)
+
+                swift_version_string = swift_info.get('version', None)
+                if swift_version_string and \
+                    LooseVersion(swift_version_string) >= LooseVersion('2.8'):
+                    detected_features.has_copy = True
+
+                # Default metadata value length constrain is 256 bytes
+                # but the provider could configure another value.
+                # We only decrease the chunk size since 255 is a big enough chunk size.
+                max_meta_len = swift_info.get('max_meta_value_length', None)
+                if isinstance(max_meta_len, int) and max_meta_len < 256:
+                    detected_features.max_meta_len = max_meta_len
+
+                if info.get('bulk_delete', False):
+                    detected_features.has_bulk_delete = True
+                    # The block cache removal queue has a capacity of 1000.
+                    # We do not need bigger values than that (the default maximum is 10000).
+                    detected_features.max_deletes = max(1, min(1000,
+                        int(info['bulk_delete'].get('max_deletes_per_request', 1000))))
+
+                log.info('Detected Swift features for %s:%s: %s',
+                         hostname, port, detected_features, extra=LOG_ONCE)
+            else:
+                log.debug('%s:%s/info not found or not accessible. Skip feature detection.',
+                          hostname, port)
+
+        self.features = detected_features
+
 class AuthenticationExpired(Exception):
     '''Raised if the provided Authentication Token has expired'''
 
@@ -528,3 +609,43 @@ class AuthenticationExpired(Exception):
 
     def __str__(self):
         return 'Auth token expired. Server said: %s' % self.msg
+
+class Features:
+    """Set of configurable features for Swift servers.
+
+    Swift is deployed in many different versions and configurations.
+    To be able to use advanced features like bulk delete we need to
+    make sure that the Swift server we are using can handle them.
+
+    This is a value object."""
+
+    __slots__ = ['has_copy', 'has_bulk_delete', 'max_deletes', 'max_meta_len']
+
+    def __init__(self, has_copy=False, has_bulk_delete=False, max_deletes=1000,
+                 max_meta_len=255):
+        self.has_copy = has_copy
+        self.has_bulk_delete = has_bulk_delete
+        self.max_deletes = max_deletes
+        self.max_meta_len = max_meta_len
+
+    def __str__(self):
+        features = []
+        if self.has_copy:
+            features.append('copy via COPY')
+        if self.has_bulk_delete:
+            features.append('Bulk delete %d keys at a time' % self.max_deletes)
+        features.append('maximum meta value length is %d bytes' % self.max_meta_len)
+        return ', '.join(features)
+
+    def __repr__(self):
+        init_kwargs = [p + '=' + repr(getattr(self, p)) for p in self.__slots__]
+        return 'Features(%s)' % ', '.join(init_kwargs)
+
+    def __hash__(self):
+        return hash(repr(self))
+
+    def __eq__(self, other):
+        return repr(self) == repr(other)
+
+    def __ne__(self, other):
+        return repr(self) != repr(other)
