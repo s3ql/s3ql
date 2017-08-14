@@ -388,7 +388,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         headers = CaseInsensitiveDict()
         if metadata is None:
             metadata = dict()
-        self._add_meta_headers(headers, metadata)
+        self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
 
         return ObjectW(key, self, headers)
 
@@ -453,7 +453,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # Update metadata
         headers = CaseInsensitiveDict()
-        self._add_meta_headers(headers, metadata)
+        self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
         self._copy_helper('POST', '/%s%s' % (self.prefix, dest), headers)
 
         # Rename object
@@ -466,7 +466,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def update_meta(self, key, metadata):
         log.debug('started with %s', key)
         headers = CaseInsensitiveDict()
-        self._add_meta_headers(headers, metadata)
+        self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
         self._do_request('POST', '/%s%s' % (self.prefix, key), headers=headers)
         self.conn.discard()
 
