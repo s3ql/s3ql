@@ -5,6 +5,12 @@ UNRELEASED CHANGES
   * Retry for some additional SSL Errors. Unfortunately we're playing
     whack-a-mole here.
 
+  * The swift backend now dynamically detects the features supported
+    by the backend server.
+
+  * The swift backend now supports optimized object copy and bulk
+    deletion (if supported by the server).
+
 2017-06-23, S3QL 2.22
 
   * The storage URL for Amazon S3 buckets has changed. It now includes
