@@ -191,11 +191,11 @@ authentication, the storage URL is ::
 
    swift://<hostname>[:<port>]/<container>[/<prefix>]
 
-for keystore (v2) authentication, the storage URL is ::
+for Keystone (v2) authentication, the storage URL is ::
 
    swiftks://<hostname>[:<port>]/<region>:<container>[/<prefix>]
 
-Note that when using keystore authentication, you can (and have to)
+Note that when using Keystone authentication, you can (and have to)
 specify the storage region of the container as well.
 
 In both cases, *hostname* name should be the name of the
@@ -207,7 +207,7 @@ to store multiple S3QL file systems in the same container.
 
 When using legacy authentication, the backend login and password
 correspond to the OpenStack username and API Access Key. When using
-keystore authentication, the backend password is your regular
+Keystone authentication, the backend password is your regular
 OpenStack password and the backend login combines you OpenStack
 username and tenant name in the form `<tenant>:<user>`. If no tenant
 is required, the OpenStack username alone may be used as backend
