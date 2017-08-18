@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging, QuietError # Ensure use of custom logger class
+from ..logging import logging, QuietError, LOG_ONCE # Ensure use of custom logger class
 from .. import BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
                      DanglingStorageURLError, retry_generator, get_proxy,
@@ -24,6 +24,7 @@ import re
 import os
 import urllib.parse
 import ssl
+from distutils.version import LooseVersion
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +39,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """
 
     hdr_prefix = 'X-Object-'
-    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout', 'disable-expect100'}
+    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout',
+                     'disable-expect100', 'no-feature-detection'}
 
     _add_meta_headers = s3c.Backend._add_meta_headers
     _extractmeta = s3c.Backend._extractmeta
@@ -59,6 +61,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.conn = None
         self.password = password
         self.login = login
+        self.features = Features()
 
         # We may need the context even if no-ssl has been specified,
         # because no-ssl applies only to the authentication URL.
@@ -191,6 +194,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 else:
                     # fall through to scheme used for authentication
                     pass
+
+                self._detect_features(o.hostname, o.port)
 
                 conn =  HTTPConnection(o.hostname, o.port, proxy=self.proxy,
                                        ssl_context=ssl_context)
@@ -383,7 +388,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         headers = CaseInsensitiveDict()
         if metadata is None:
             metadata = dict()
-        self._add_meta_headers(headers, metadata)
+        self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
 
         return ObjectW(key, self, headers)
 
@@ -404,10 +409,154 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             elif exc.status != 404:
                 raise
 
-    # We cannot wrap the entire copy() method into a retry() decorator, because
-    # copy() issues multiple requests. If the server happens to regularly close
-    # the connection after a request (even though it was processed correctly),
-    # we'd never make any progress if we always restart from the first request.
+    @retry
+    def _delete_multi(self, keys, force=False):
+        """Doing bulk delete of multiple objects at a time.
+
+        This is a feature of the configurable middleware "Bulk" so it can only
+        be used after the middleware was detected. (Introduced in Swift 1.8.0.rc1)
+
+        See https://docs.openstack.org/swift/latest/middleware.html#bulk-delete
+        and https://github.com/openstack/swift/blob/master/swift/common/middleware/bulk.py
+
+        A request example:
+        'POST /?bulk-delete
+        Content-type: text/plain; charset=utf-8
+        Accept: application/json
+
+        /container/prefix_key1
+        /container/prefix_key2'
+
+        A successful response:
+        'HTTP/1.1 200 OK
+        Content-Type: application/json
+
+        {"Number Not Found": 0,
+         "Response Status": "200 OK",
+         "Response Body": "",
+         "Errors": [],
+         "Number Deleted": 2}'
+
+        An error response:
+        'HTTP/1.1 200 OK
+        Content-Type: application/json
+
+        {"Number Not Found": 0,
+         "Response Status": "500 Internal Server Error",
+         "Response Body": "An error description",
+         "Errors": [
+            ['/container/prefix_key2', 'An error description']
+         ],
+         "Number Deleted": 1}'
+
+        Response when some objects where not found:
+        'HTTP/1.1 200 OK
+        Content-Type: application/json
+
+        {"Number Not Found": 1,
+         "Response Status": "400 Bad Request",
+         "Response Body": "Invalid bulk delete.",
+         "Errors": [],
+         "Number Deleted": 1}'
+        """
+
+        body = []
+        esc_prefix = "/%s/%s" % (urllib.parse.quote(self.container_name),
+                                 urllib.parse.quote(self.prefix))
+        for key in keys:
+            body.append('%s%s' % (esc_prefix, urllib.parse.quote(key)))
+        body = '\n'.join(body).encode('utf-8')
+        headers = {
+            'content-type': 'text/plain; charset=utf-8',
+            'accept': 'application/json'
+        }
+
+        resp = self._do_request('POST', '/', subres='bulk-delete', body=body, headers=headers)
+
+        # bulk deletes should always return 200
+        if resp.status is not 200:
+            raise HTTPError(resp.status, resp.reason, resp.headers)
+
+        hit = re.match('^application/json(;\s*charset="?(.+?)"?)?$',
+                       resp.headers['content-type'])
+        if not hit:
+            log.error('Unexpected server response. Expected json, got:\n%s',
+                      self._dump_response(resp))
+            raise RuntimeError('Unexpected server reply')
+
+        # there might be an arbitrary amount of whitespace before the
+        # JSON response (to keep the connection from timing out)
+        # but json.loads discards these whitespace characters automatically
+        resp_dict = json.loads(self.conn.readall().decode(hit.group(2) or 'utf-8'))
+
+        hit = re.match('^([0-9]{3})', resp_dict['Response Status'])
+        if not hit:
+            log.error('Unexpected server response. Expected valid Response Status, got:\n%s',
+                      resp_dict)
+            raise RuntimeError('Unexpected server reply')
+        resp_status = int(hit.group(1))
+
+        if resp_status is 200:
+            # No errors occured, everything has been deleted
+            del keys[:]
+            return
+
+        # Some errors occured, so we need to determine what has
+        # been deleted and what hasn't
+        failed_keys = []
+        offset = len(esc_prefix)
+        for error in resp_dict['Errors']:
+            fullkey = error[0]
+            # stangely the name is url encoded in JSON
+            assert fullkey.startswith(esc_prefix)
+            key = urllib.parse.unquote(fullkey[offset:])
+            failed_keys.append(key)
+            log.debug('Delete %s failed with %s', key, error[1])
+        for key in keys[:]:
+            if key not in failed_keys:
+                keys.remove(key)
+
+        # If *force*, just modify the passed list and return without
+        # raising an exception, otherwise raise exception for the first error
+        if force:
+            return
+
+        if resp_status in (400, 404) and len(resp_dict['Errors']) == 0:
+            # Swift returns 400 instead of 404 when files were not found.
+            # (but we also accept the correct status code 404 if Swift
+            # decides to correct this in the future)
+
+            # ensure that we actually have objects that were not found
+            # (otherwise there is a logic error that we need to know about)
+            assert(resp_dict['Number Not Found'] > 0)
+
+            # Unfortunately we cannot find out from the response which object
+            # was actually not found.
+            # Since AbstractBackend.delete_multi allows this, we just
+            # swallow this error even when *force* is False.
+            return
+
+        raise HTTPError(resp_status, resp_dict['Response Body'], {})
+
+    @copy_ancestor_docstring
+    def delete_multi(self, keys, force=False):
+        log.debug('started with %s', keys)
+
+        if self.features.has_bulk_delete:
+            while len(keys) > 0:
+                tmp = keys[:self.features.max_deletes]
+                try:
+                    self._delete_multi(tmp, force=force)
+                finally:
+                    keys[:self.features.max_deletes] = tmp
+        else:
+            super().delete_multi(keys, force=force)
+
+    # We cannot wrap the entire _copy_via_put_post() method into a retry()
+    # decorator, because _copy_via_put_post() issues multiple requests.
+    # If the server happens to regularly close the connection after a request
+    # (even though it was processed correctly), we'd never make any progress
+    # if we always restart from the first request.
     # We experimented with adding a retry(fn, args, kwargs) function to wrap
     # individual calls, but this doesn't really improve the code because we
     # typically also have to wrap e.g. a discard() or assert_empty() call, so we
@@ -418,12 +567,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self._do_request(method, path, headers=headers)
         self.conn.discard()
 
-    @copy_ancestor_docstring
-    def copy(self, src, dest, metadata=None):
-        log.debug('started with %s, %s', src, dest)
-        if dest.endswith(TEMP_SUFFIX) or src.endswith(TEMP_SUFFIX):
-            raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
-
+    def _copy_via_put_post(self, src, dest, metadata=None):
+        """Fallback copy method for older Swift implementations."""
         headers = CaseInsensitiveDict()
         headers['X-Copy-From'] = '/%s/%s%s' % (self.container_name, self.prefix, src)
 
@@ -448,7 +593,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # Update metadata
         headers = CaseInsensitiveDict()
-        self._add_meta_headers(headers, metadata)
+        self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
         self._copy_helper('POST', '/%s%s' % (self.prefix, dest), headers)
 
         # Rename object
@@ -457,11 +602,34 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self._copy_helper('PUT', '/%s%s' % (self.prefix, final_dest), headers)
 
     @retry
+    def _copy_via_copy(self, src, dest, metadata=None):
+        """Copy for more modern Swift implementations that know the
+        X-Fresh-Metadata option and the native COPY method."""
+        headers = CaseInsensitiveDict()
+        headers['Destination'] = '/%s/%s%s' % (self.container_name, self.prefix, dest)
+        if metadata is not None:
+            self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
+            headers['X-Fresh-Metadata'] = 'true'
+        resp = self._do_request('COPY', '/%s%s' % (self.prefix, src), headers=headers)
+        self._assert_empty_response(resp)
+
+    @copy_ancestor_docstring
+    def copy(self, src, dest, metadata=None):
+        log.debug('started with %s, %s', src, dest)
+        if dest.endswith(TEMP_SUFFIX) or src.endswith(TEMP_SUFFIX):
+            raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
+
+        if self.features.has_copy:
+            self._copy_via_copy(src, dest, metadata=metadata)
+        else:
+            self._copy_via_put_post(src, dest, metadata=metadata)
+
+    @retry
     @copy_ancestor_docstring
     def update_meta(self, key, metadata):
         log.debug('started with %s', key)
         headers = CaseInsensitiveDict()
-        self._add_meta_headers(headers, metadata)
+        self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
         self._do_request('POST', '/%s%s' % (self.prefix, key), headers=headers)
         self.conn.discard()
 
@@ -519,6 +687,82 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def close(self):
         self.conn.disconnect()
 
+    def _detect_features(self, hostname, port):
+        '''Try to figure out the Swift version and supported features by
+        examining the /info endpoint of the storage server.
+
+        See https://docs.openstack.org/swift/latest/middleware.html#discoverability
+        '''
+
+        if 'no-feature-detection' in self.options:
+            log.debug('Skip feature detection')
+            return
+
+        ssl_context = self.ssl_context
+        if 'no-ssl' in self.options:
+            ssl_context = None
+
+        if not port:
+            port = 443 if ssl_context else 80
+
+        detected_features = Features()
+
+        with HTTPConnection(hostname, port, proxy=self.proxy,
+                            ssl_context=ssl_context) as conn:
+            conn.timeout = int(self.options.get('tcp-timeout', 20))
+
+            log.debug('GET /info')
+            conn.send_request('GET', '/info')
+            resp = conn.read_response()
+
+            # 200, 401, 403 and 404 are all OK since the /info endpoint
+            # may not be accessible (misconfiguration) or may not
+            # exist (old Swift version).
+            if resp.status not in (200, 401, 403, 404):
+                log.error("Wrong server response.\n%s",
+                          self._dump_response(resp, body=conn.read(2048)))
+                raise HTTPError(resp.status, resp.reason, resp.headers)
+
+            if resp.status is 200:
+                hit = re.match('^application/json(;\s*charset="?(.+?)"?)?$',
+                resp.headers['content-type'])
+                if not hit:
+                    log.error("Wrong server response. Expected json. Got: \n%s",
+                              self._dump_response(resp, body=conn.read(2048)))
+                    raise RuntimeError('Unexpected server reply')
+
+                info = json.loads(conn.readall().decode(hit.group(2) or 'utf-8'))
+                swift_info = info.get('swift', {})
+
+                log.debug('%s:%s/info returns %s', hostname, port, info)
+
+                swift_version_string = swift_info.get('version', None)
+                if swift_version_string and \
+                    LooseVersion(swift_version_string) >= LooseVersion('2.8'):
+                    detected_features.has_copy = True
+
+                # Default metadata value length constrain is 256 bytes
+                # but the provider could configure another value.
+                # We only decrease the chunk size since 255 is a big enough chunk size.
+                max_meta_len = swift_info.get('max_meta_value_length', None)
+                if isinstance(max_meta_len, int) and max_meta_len < 256:
+                    detected_features.max_meta_len = max_meta_len
+
+                if info.get('bulk_delete', False):
+                    detected_features.has_bulk_delete = True
+                    # The block cache removal queue has a capacity of 1000.
+                    # We do not need bigger values than that (the default maximum is 10000).
+                    detected_features.max_deletes = max(1, min(1000,
+                        int(info['bulk_delete'].get('max_deletes_per_request', 1000))))
+
+                log.info('Detected Swift features for %s:%s: %s',
+                         hostname, port, detected_features, extra=LOG_ONCE)
+            else:
+                log.debug('%s:%s/info not found or not accessible. Skip feature detection.',
+                          hostname, port)
+
+        self.features = detected_features
+
 class AuthenticationExpired(Exception):
     '''Raised if the provided Authentication Token has expired'''
 
@@ -528,3 +772,43 @@ class AuthenticationExpired(Exception):
 
     def __str__(self):
         return 'Auth token expired. Server said: %s' % self.msg
+
+class Features:
+    """Set of configurable features for Swift servers.
+
+    Swift is deployed in many different versions and configurations.
+    To be able to use advanced features like bulk delete we need to
+    make sure that the Swift server we are using can handle them.
+
+    This is a value object."""
+
+    __slots__ = ['has_copy', 'has_bulk_delete', 'max_deletes', 'max_meta_len']
+
+    def __init__(self, has_copy=False, has_bulk_delete=False, max_deletes=1000,
+                 max_meta_len=255):
+        self.has_copy = has_copy
+        self.has_bulk_delete = has_bulk_delete
+        self.max_deletes = max_deletes
+        self.max_meta_len = max_meta_len
+
+    def __str__(self):
+        features = []
+        if self.has_copy:
+            features.append('copy via COPY')
+        if self.has_bulk_delete:
+            features.append('Bulk delete %d keys at a time' % self.max_deletes)
+        features.append('maximum meta value length is %d bytes' % self.max_meta_len)
+        return ', '.join(features)
+
+    def __repr__(self):
+        init_kwargs = [p + '=' + repr(getattr(self, p)) for p in self.__slots__]
+        return 'Features(%s)' % ', '.join(init_kwargs)
+
+    def __hash__(self):
+        return hash(repr(self))
+
+    def __eq__(self, other):
+        return repr(self) == repr(other)
+
+    def __ne__(self, other):
+        return repr(self) != repr(other)

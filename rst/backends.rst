@@ -245,6 +245,13 @@ The OpenStack backend accepts the following backend options:
    performance as object data will be transmitted to the server more
    than once in some circumstances.
 
+.. option:: no-feature-detection
+
+   If this option is specified, S3QL does not try to dynamically detect
+   advanced features of the Swift backend. In this case S3QL can only
+   use the least common denominator of supported Swift versions and
+   configurations.
+
 .. __: http://tools.ietf.org/html/rfc2616#section-8.2.3
 .. _OpenStack: http://www.openstack.org/
 .. _Swift: http://openstack.org/projects/storage/

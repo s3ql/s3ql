@@ -120,6 +120,8 @@ class Backend(swift.Backend):
                     # fall through to scheme used for authentication
                     pass
 
+                self._detect_features(o.hostname, o.port)
+
                 conn = HTTPConnection(o.hostname, o.port,  proxy=self.proxy,
                                       ssl_context=ssl_context)
                 conn.timeout = int(self.options.get('tcp-timeout', 20))
