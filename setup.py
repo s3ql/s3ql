@@ -123,7 +123,8 @@ def main():
     # (otherwise we break forward compatibility because compilation with newer
     # compiler may fail if additional warnings are added)
     if DEVELOPER_MODE:
-        compile_args.append('-Werror')
+        if os.environ.get('CI') != 'true':
+            compile_args.append('-Werror')
         compile_args.append('-Wfatal-errors')
         compile_args.append('-Wno-unused-function')
 
