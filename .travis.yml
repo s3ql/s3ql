@@ -9,6 +9,7 @@ python:
   - "3.6"
   - "nightly"
   - "pypy3"
+cache: pip
 
 before_install:
   - sudo apt-get update -qq
