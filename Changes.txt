@@ -1,4 +1,4 @@
-UNRELEASED CHANGES
+2017-08-18, S3QL 2.23
 
   * Accessing the us-east-1 S3 storage region is now working again.
 
