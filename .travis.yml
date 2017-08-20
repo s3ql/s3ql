@@ -1,0 +1,28 @@
+dist: trusty
+sudo: enabled
+
+language: python
+python:
+  - "3.3"
+  - "3.4"
+  - "3.5"
+  - "3.6"
+  - "nightly"
+cache: pip
+
+before_install:
+  - sudo apt-get update -qq
+  - sudo apt-get install -y fuse psmisc pkg-config libattr1-dev libfuse-dev libsqlite3-dev libjs-sphinxdoc texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-generic-extra texlive-fonts-recommended
+  - "printf 'Current libsqlite3-dev version: %s' $(dpkg-query --show --showformat='${Version}' libsqlite3-dev)"
+
+install:
+  - pip install https://github.com/rogerbinns/apsw/releases/download/3.8.2-r1/apsw-3.8.2-r1.zip
+  - pip install cython==0.24.1 sphinx pycrypto defusedxml requests "llfuse >= 1.0, < 2.0" "dugong >= 3.4, < 4.0" "pytest >= 2.7" pytest-catchlog
+
+script:
+  - |
+    python setup.py build_cython \
+    && python setup.py build_ext --inplace \
+    && python -m pytest tests/ \
+    && python setup.py build_sphinx \
+    && sudo python setup.py install
