@@ -10,8 +10,9 @@ python:
 cache: pip
 
 before_install:
+  - sudo add-apt-repository ppa:jonathonf/texlive-2016
   - sudo apt-get update -qq
-  - sudo apt-get install -y fuse psmisc pkg-config libattr1-dev libfuse-dev libsqlite3-dev libjs-sphinxdoc sphinx-doc texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-generic-extra texlive-fonts-recommended
+  - sudo apt-get install -y fuse psmisc pkg-config libattr1-dev libfuse-dev libsqlite3-dev libjs-sphinxdoc texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-generic-extra texlive-fonts-recommended
   - "printf 'Current libsqlite3-dev version: %s' $(dpkg-query --show --showformat='${Version}' libsqlite3-dev)"
 
 install:
