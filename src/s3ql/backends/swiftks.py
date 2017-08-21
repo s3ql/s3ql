@@ -120,7 +120,7 @@ class Backend(swift.Backend):
                     # fall through to scheme used for authentication
                     pass
 
-                self._detect_features(o.hostname, o.port)
+                self._detect_features(o.hostname, o.port, ssl_context)
 
                 conn = HTTPConnection(o.hostname, o.port,  proxy=self.proxy,
                                       ssl_context=ssl_context)

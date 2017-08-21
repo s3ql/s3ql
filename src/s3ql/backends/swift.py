@@ -195,7 +195,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     # fall through to scheme used for authentication
                     pass
 
-                self._detect_features(o.hostname, o.port)
+                self._detect_features(o.hostname, o.port, ssl_context)
 
                 conn =  HTTPConnection(o.hostname, o.port, proxy=self.proxy,
                                        ssl_context=ssl_context)
@@ -687,7 +687,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def close(self):
         self.conn.disconnect()
 
-    def _detect_features(self, hostname, port):
+    def _detect_features(self, hostname, port, ssl_context):
         '''Try to figure out the Swift version and supported features by
         examining the /info endpoint of the storage server.
 
@@ -697,10 +697,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if 'no-feature-detection' in self.options:
             log.debug('Skip feature detection')
             return
-
-        ssl_context = self.ssl_context
-        if 'no-ssl' in self.options:
-            ssl_context = None
 
         if not port:
             port = 443 if ssl_context else 80
