@@ -195,6 +195,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     # fall through to scheme used for authentication
                     pass
 
+                # mock server can only handle one connection at a time
+                # so we explicitly disconnect this connection before
+                # opening the feature detection connection
+                # (mock server handles both - storage and authentication)
+                conn.disconnect()
+
                 self._detect_features(o.hostname, o.port, ssl_context)
 
                 conn = HTTPConnection(o.hostname, o.port, proxy=self.proxy,
