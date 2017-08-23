@@ -48,20 +48,6 @@ class StorageServer(socketserver.TCPServer):
 class ParsedURL:
     __slots__ = [ 'bucket', 'key', 'params', 'fragment' ]
 
-def parse_url(path):
-    p = ParsedURL()
-    q = urllib.parse.urlsplit(path)
-
-    path = urllib.parse.unquote(q.path)
-
-    assert path[0] == '/'
-    (p.bucket, p.key) = path[1:].split('/', maxsplit=1)
-
-    p.params = urllib.parse.parse_qs(q.query)
-    p.fragment = q.fragment
-
-    return p
-
 class S3CRequestHandler(BaseHTTPRequestHandler):
     '''A request handler implementing a subset of the AWS S3 Interface
 
@@ -75,6 +61,20 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
                                 re.IGNORECASE)
     hdr_prefix = 'X-AMZ-'
     xml_ns = 'http://s3.amazonaws.com/doc/2006-03-01/'
+
+    def parse_url(self, path):
+        p = ParsedURL()
+        q = urllib.parse.urlsplit(path)
+
+        path = urllib.parse.unquote(q.path)
+
+        assert path[0] == '/'
+        (p.bucket, p.key) = path[1:].split('/', maxsplit=1)
+
+        p.params = urllib.parse.parse_qs(q.query)
+        p.fragment = q.fragment
+
+        return p
 
     def log_message(self, format, *args):
         log.debug(format, *args)
@@ -93,7 +93,7 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
             pass
 
     def do_DELETE(self):
-        q = parse_url(self.path)
+        q = self.parse_url(self.path)
         try:
             del self.server.data[q.key]
             del self.server.metadata[q.key]
@@ -117,14 +117,18 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
 
         return int(self.headers['Content-Length'])
 
-    def do_PUT(self):
-        len_ = self._check_encoding()
-        q = parse_url(self.path)
+    def _get_meta(self):
         meta = dict()
         for (name, value) in self.headers.items():
             hit = self.meta_header_re.search(name)
             if hit:
                 meta[hit.group(1)] = value
+        return meta
+
+    def do_PUT(self):
+        len_ = self._check_encoding()
+        q = self.parse_url(self.path)
+        meta = self._get_meta()
 
         src = self.headers.get(self.hdr_prefix + 'copy-source')
         if src and len_:
@@ -189,7 +193,7 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self):
-        q = parse_url(self.path)
+        q = self.parse_url(self.path)
         if not q.key:
             return self.do_list(q)
 
@@ -246,7 +250,7 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_HEAD(self):
-        q = parse_url(self.path)
+        q = self.parse_url(self.path)
         try:
             meta = self.server.metadata[q.key]
             data = self.server.data[q.key]
