@@ -4,6 +4,8 @@ UNRELEASED CHANGES
     no-ssl backend option (which is intended only for connections to 
     the authentication server).
 
+  * Accessing the cn-north-1 S3 storage region is now working.
+
 2017-08-18, S3QL 2.23
 
   * Accessing the us-east-1 S3 storage region is now working again.

@@ -58,6 +58,8 @@ class Backend(s3c.Backend):
 
         if self.region == 'us-east-1':
             hostname = 's3.amazonaws.com'
+        elif self.region.startswith('cn-'):
+            hostname = 's3.%s.amazonaws.com.cn' % self.region
         else:
             hostname = 's3-%s.amazonaws.com' % self.region
 
