@@ -197,8 +197,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
                 self._detect_features(o.hostname, o.port, ssl_context)
 
-                conn =  HTTPConnection(o.hostname, o.port, proxy=self.proxy,
-                                       ssl_context=ssl_context)
+                conn = HTTPConnection(o.hostname, o.port, proxy=self.proxy,
+                                      ssl_context=ssl_context)
                 conn.timeout = int(self.options.get('tcp-timeout', 20))
                 return conn
 
