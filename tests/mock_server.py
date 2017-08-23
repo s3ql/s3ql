@@ -15,6 +15,7 @@ import hashlib
 import urllib.parse
 import traceback
 from xml.sax.saxutils import escape as xml_escape
+import json
 
 log = logging.getLogger(__name__)
 
@@ -302,9 +303,283 @@ class GSRequestHandler(S3CRequestHandler):
     hdr_prefix = 'x-goog-'
     xml_ns = 'http://doc.s3.amazonaws.com/2006-03-01'
 
+class BasicSwiftRequestHandler(S3CRequestHandler):
+    '''A request handler implementing a subset of the OpenStack Swift Interface
+
+    Container and AUTH_* prefix are ignored, all keys share the same global
+    namespace.
+
+    To keep it simple, this handler is both storage server and authentication
+    server in one.
+    '''
+
+    meta_header_re = re.compile(r'X-Object-Meta-([a-z0-9_.-]+)$',
+                                re.IGNORECASE)
+    hdr_prefix = 'X-Object-'
+
+    SWIFT_INFO = {
+      "swift": {
+        "max_meta_count": 90,
+        "max_meta_value_length": 256,
+        "container_listing_limit": 10000,
+        "extra_header_count": 0,
+        "max_meta_overall_size": 4096,
+        "version": "2.0.0", # < 2.8
+        "max_meta_name_length": 128,
+        "max_header_size": 16384
+      }
+    }
+
+    def parse_url(self, path):
+        p = ParsedURL()
+        q = urllib.parse.urlsplit(path)
+
+        path = urllib.parse.unquote(q.path)
+
+        assert path[0:4] == '/v1/'
+        (_, p.bucket, p.key) = path[4:].split('/', maxsplit=2)
+
+        p.params = urllib.parse.parse_qs(q.query, True)
+        p.fragment = q.fragment
+
+        return p
+
+    def do_PUT(self):
+        len_ = self._check_encoding()
+        q = self.parse_url(self.path)
+        meta = self._get_meta()
+
+        src = self.headers.get('x-copy-from')
+        if src and len_:
+            self.send_error(400, message='Upload and copy are mutually exclusive',
+                            code='UnexpectedContent')
+            return
+        elif src:
+            src = urllib.parse.unquote(src)
+            hit = re.match('^/([a-z0-9._-]+)/(.+)$', src)
+            if not hit:
+                self.send_error(400, message='Cannot parse x-copy-from',
+                                code='InvalidArgument')
+                return
+
+            src = hit.group(2)
+            try:
+                data = self.server.data[src]
+                self.server.data[q.key] = data
+                if 'x-fresh-metadata' in self.headers:
+                    self.server.metadata[q.key] = meta
+                else:
+                    self.server.metadata[q.key] = self.server.metadata[src].copy()
+                    self.server.metadata[q.key].update(meta)
+            except KeyError:
+                self.send_error(404, code='NoSuchKey', resource=src)
+                return
+        else:
+            data = self.rfile.read(len_)
+            self.server.metadata[q.key] = meta
+            self.server.data[q.key] = data
+
+        md5 = hashlib.md5()
+        md5.update(data)
+
+        if src:
+            self.send_response(202)
+            self.send_header('X-Copied-From', self.headers['x-copy-from'])
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+        else:
+            self.send_response(201)
+            self.send_header('ETag', '"%s"' % md5.hexdigest())
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+
+    def do_POST(self):
+        q = self.parse_url(self.path)
+        meta = self._get_meta()
+
+        if q.key not in self.server.metadata:
+            self.send_error(404, code='NoSuchKey', resource=q.key)
+            return
+
+        self.server.metadata[q.key] = meta
+
+        self.send_response(204)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
+    def do_GET(self):
+        if self.path in ('/v1.0', '/auth/v1.0'):
+            self.send_response(200)
+            self.send_header('X-Storage-Url',
+                             'http://%s:%d/v1/AUTH_xyz' % (self.server.hostname, self.server.port))
+            self.send_header('X-Auth-Token', 'static')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+        elif self.path == '/info':
+            content = json.dumps(self.SWIFT_INFO).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(content)))
+            self.send_header("Content-Type", 'application/json; charset="utf-8"')
+            self.end_headers()
+            self.wfile.write(content)
+        else:
+            return super().do_GET()
+
+    def do_list(self, q):
+        marker = q.params['marker'][0] if 'marker' in q.params else None
+        max_keys = int(q.params['limit'][0]) if 'limit' in q.params else 10000
+        prefix = q.params['prefix'][0] if 'prefix' in q.params else ''
+
+        resp = []
+
+        count = 0
+        for key in sorted(self.server.data):
+            if not key.startswith(prefix):
+                continue
+            if marker and key <= marker:
+                continue
+            resp.append({'name': key})
+            count += 1
+            if count == max_keys:
+                break
+
+        body = json.dumps(resp).encode('utf-8')
+
+        self.send_response(200)
+        self.send_header("Content-Type", 'application/json; charset="utf-8"')
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+class CopySwiftRequestHandler(BasicSwiftRequestHandler):
+    '''OpenStack Swift handler that emulates Copy middleware.'''
+
+    SWIFT_INFO = {
+        "swift": {
+            "max_meta_count": 90,
+            "max_meta_value_length": 256,
+            "container_listing_limit": 10000,
+            "extra_header_count": 0,
+            "max_meta_overall_size": 4096,
+            "version": "2.9.0", # >= 2.8
+            "max_meta_name_length": 128,
+            "max_header_size": 16384
+        }
+    }
+
+    def do_COPY(self):
+        src = self.parse_url(self.path)
+        meta = self._get_meta()
+
+        try:
+            dst = self.headers['destination']
+            assert dst[0] == '/'
+            (_, dst) = dst[1:].split('/', maxsplit=1)
+        except KeyError:
+            self.send_error(400, message='No Destination provided',
+                            code='InvalidArgument')
+            return
+
+        if src.key not in self.server.metadata:
+            self.send_error(404, code='NoSuchKey', resource=src)
+            return
+
+        if 'x-fresh-metadata' in self.headers:
+            self.server.metadata[dst] = meta
+        else:
+            self.server.metadata[dst] = self.server.metadata[src.key].copy()
+            self.server.metadata[dst].update(meta)
+
+        self.server.data[dst] = self.server.data[src.key]
+
+        self.send_response(202)
+        self.send_header('X-Copied-From', '%s/%s' % (src.bucket, src.key))
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
+class BulkDeleteSwiftRequestHandler(BasicSwiftRequestHandler):
+    '''OpenStack Swift handler that emulates bulk middleware (the delete part).'''
+
+    MAX_DELETES = 8 # test deletes 16 objects, so needs two requests
+    SWIFT_INFO = {
+        "bulk_delete": {
+            "max_failed_deletes": 5,
+            "max_deletes_per_request": MAX_DELETES
+        },
+        "swift": {
+            "max_meta_count": 90,
+            "max_meta_value_length": 256,
+            "container_listing_limit": 10000,
+            "extra_header_count": 0,
+            "max_meta_overall_size": 4096,
+            "version": "2.0.0", # < 2.8
+            "max_meta_name_length": 128,
+            "max_header_size": 16384
+        }
+    }
+
+    def do_POST(self):
+        q = self.parse_url(self.path)
+        if not 'bulk-delete' in q.params:
+            return super().do_POST()
+
+        response = { 'Response Status': '200 OK',
+                     'Response Body': '',
+                     'Number Deleted': 0,
+                     'Number Not Found': 0,
+                     'Errors': [] }
+
+        def send_response(status_int):
+            content = json.dumps(response).encode('utf-8')
+            self.send_response(status_int)
+            self.send_header('Content-Length', str(len(content)))
+            self.send_header("Content-Type", 'application/json; charset="utf-8"')
+            self.end_headers()
+            self.wfile.write(content)
+
+        def error(reason):
+            response['Response Status'] = '502 Internal Server Error'
+            response['Response Body'] = reason
+            send_response(502)
+
+        def inline_error(http_status, body):
+            '''bail out when processing begun. Always HTTP 200 Ok.'''
+            response['Response Status'] = http_status
+            response['Response Body'] = body
+            send_response(200)
+
+        len_ = self._check_encoding()
+        lines = self.rfile.read(len_).decode('utf-8').split("\n")
+        for index, to_delete in enumerate(lines):
+            if index >= self.MAX_DELETES:
+                return inline_error('413 Request entity too large',
+                                    'Maximum Bulk Deletes: %d per request' %
+                                    self.MAX_DELETES)
+            to_delete = urllib.parse.unquote(to_delete.strip())
+            assert to_delete[0] == '/'
+            to_delete = to_delete[1:].split('/', maxsplit=1)
+            if len(to_delete) < 2:
+                return error("deleting containers is not supported")
+            to_delete = to_delete[1]
+            try:
+                del self.server.data[to_delete]
+                del self.server.metadata[to_delete]
+            except KeyError:
+                response['Number Not Found'] += 1
+            else:
+                response['Number Deleted'] += 1
+
+        if not (response['Number Deleted'] or
+                response['Number Not Found']):
+            return inline_error('400 Bad Request', 'Invalid bulk delete.')
+        send_response(200)
+
 #: A list of the available mock request handlers with
 #: corresponding storage urls
 handler_list = [ (S3CRequestHandler, 's3c://%(host)s:%(port)d/s3ql_test'),
 
                  # Special syntax only for testing against mock server
-                 (GSRequestHandler, 'gs://!unittest!%(host)s:%(port)d/s3ql_test') ]
+                 (GSRequestHandler, 'gs://!unittest!%(host)s:%(port)d/s3ql_test'),
+                 (BasicSwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
+                 (CopySwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
+                 (BulkDeleteSwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test') ]
