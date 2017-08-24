@@ -495,6 +495,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # but json.loads discards these whitespace characters automatically
         resp_dict = json.loads(self.conn.readall().decode(hit.group(2) or 'utf-8'))
 
+        log.debug('Response %s', resp_dict)
+
         hit = re.match('^([0-9]{3})', resp_dict['Response Status'])
         if not hit:
             log.error('Unexpected server response. Expected valid Response Status, got:\n%s',
@@ -522,11 +524,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if key not in failed_keys:
                 keys.remove(key)
 
-        # If *force*, just modify the passed list and return without
-        # raising an exception, otherwise raise exception for the first error
-        if force:
-            return
-
         if resp_status in (400, 404) and len(resp_dict['Errors']) == 0:
             # Swift returns 400 instead of 404 when files were not found.
             # (but we also accept the correct status code 404 if Swift
@@ -534,12 +531,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
             # ensure that we actually have objects that were not found
             # (otherwise there is a logic error that we need to know about)
-            assert(resp_dict['Number Not Found'] > 0)
+            assert resp_dict['Number Not Found'] > 0
 
-            # Unfortunately we cannot find out from the response which object
-            # was actually not found.
             # Since AbstractBackend.delete_multi allows this, we just
             # swallow this error even when *force* is False.
+            # N.B.: We removed even the keys from *keys* that are not found.
+            # This is because Swift only returns a counter of deleted
+            # objects, not the list of deleted objects (as S3 does).
             return
 
         raise HTTPError(resp_status, resp_dict['Response Body'], {})
