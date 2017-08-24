@@ -161,10 +161,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                or exc.status == 408)):
             return True
 
-        # Temporary workaround for https://bitbucket.org/nikratio/s3ql/issues/87.
-        # We still need to find a proper string
+        # Temporary workaround for
+        # https://bitbucket.org/nikratio/s3ql/issues/87 and
+        # https://bitbucket.org/nikratio/s3ql/issues/252
         elif (isinstance(exc, ssl.SSLError) and
-              str(exc).startswith('[SSL: BAD_WRITE_RETRY]')):
+              (str(exc).startswith('[SSL: BAD_WRITE_RETRY]') or
+               str(exc).startswith('[SSL: BAD_LENGTH]'))):
             return True
 
         return False
@@ -230,7 +232,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         log.debug('started with %s, %s', prefix, start_after)
 
         keys_remaining = True
-        marker = self.prefix + start_after
+
+        # Without this, a call to list('foo') would result
+        # in *prefix* being longer than *marker* - which causes
+        # trouble for some S3 implementions (minio).
+        if start_after:
+            marker = self.prefix + start_after
+        else:
+            marker = ''
         prefix = self.prefix + prefix
 
         while keys_remaining:
@@ -273,7 +282,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                         root.clear()
 
             except Exception as exc:
-                if is_temp_network_error(exc):
+                if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
                     # We probably can't use the connection anymore
                     self.conn.disconnect()
                 raise
@@ -620,7 +629,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def __str__(self):
         return 's3c://%s/%s/%s' % (self.hostname, self.bucket_name, self.prefix)
 
-    def _authorize_request(self, method, path, headers, subres):
+    def _authorize_request(self, method, path, headers, subres, query_string):
         '''Add authorization information to *headers*'''
 
         # See http://docs.amazonwebservices.com/AmazonS3/latest/dev/RESTAuthentication.html
@@ -646,7 +655,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             auth_strs.append('%s:%s\n' % (hdr, val))
 
         # Always include bucket name in path for signing
-        sign_path = urllib.parse.quote('/%s%s' % (self.bucket_name, path))
+        if self.hostname.startswith(self.bucket_name):
+            path = '/%s%s' % (self.bucket_name, path)
+        sign_path = urllib.parse.quote(path)
         auth_strs.append(sign_path)
         if subres:
             auth_strs.append('?%s' % subres)
@@ -668,11 +679,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if not isinstance(headers, CaseInsensitiveDict):
             headers = CaseInsensitiveDict(headers)
 
-        self._authorize_request(method, path, headers, subres)
-
-        # Construct full path
         if not self.hostname.startswith(self.bucket_name):
             path = '/%s%s' % (self.bucket_name, path)
+        headers['host'] = self.hostname
+
+        self._authorize_request(method, path, headers, subres, query_string)
+
         path = urllib.parse.quote(path)
         if query_string:
             s = urllib.parse.urlencode(query_string, doseq=True)
@@ -727,7 +739,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             return read_response()
 
         except Exception as exc:
-            if is_temp_network_error(exc):
+            if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
                 # We probably can't use the connection anymore
                 self.conn.disconnect()
             raise

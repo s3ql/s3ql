@@ -158,6 +158,7 @@ def main(args=None):
     operations = fs.Operations(block_cache, db, max_obj_size=param['max_obj_size'],
                                inode_cache=InodeCache(db, param['inode_gen']),
                                upload_event=metadata_upload_thread.event)
+    block_cache.fs = operations
     metadata_upload_thread.fs = operations
 
     with ExitStack() as cm:

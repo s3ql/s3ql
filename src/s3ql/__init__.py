@@ -22,7 +22,7 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'common', 'calc_mro',
             'REV_VER_MAP', 'RELEASE', 'BUFSIZE',
             'CTRL_NAME', 'CTRL_INODE' ]
 
-VERSION = '2.21'
+VERSION = '2.23'
 RELEASE = '%s' % VERSION
 
 # TODO: On next revision bump, consider removing support for TIME
@@ -40,6 +40,7 @@ CTRL_INODE = 2
 # Maps file system revisions to the last S3QL version that
 # supported this revision.
 REV_VER_MAP = {
+    22: '2.16',
     21: '2.13',
     20: '2.9',
     16: '1.15',

@@ -47,7 +47,8 @@ blocks and from blocks to objects is stored in the database.
 While the file system is mounted, blocks are cached locally.
 
 Blocks can also be compressed and encrypted before they are stored in
-the storage backend.
+the storage backend. This happens during upload, i.e. the cached data
+is unencrypted and uncompressed.
 
 If some files have blocks with identical contents, the blocks will be
 stored in the same backend object (i.e., the data is only stored

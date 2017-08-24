@@ -90,11 +90,12 @@ class Backend(s3c.Backend):
     def __str__(self):
         return 'Google Storage bucket %s, prefix %s' % (self.bucket_name, self.prefix)
 
-    def _authorize_request(self, method, path, headers, subres):
+    def _authorize_request(self, method, path, headers, subres, query_string):
         '''Add authorization information to *headers*'''
 
         if not self.use_oauth2:
-            return super()._authorize_request(method, path, headers, subres)
+            return super()._authorize_request(method, path, headers,
+                                              subres, query_string)
 
         headers['Authorization'] = 'Bearer ' + self.access_token[self.password]
 
@@ -237,4 +238,3 @@ class Backend(s3c.Backend):
             self.conn.discard()
         except s3c.NoSuchKeyError:
             raise NoSuchObject(src)
-

@@ -114,12 +114,17 @@ geographically closest storage region, but not the US Standard region
 
 The storage URL for accessing S3 buckets in S3QL has the form ::
 
-    s3://<bucketname>/<prefix>
+    s3://<region>/<bucket>/<prefix>
 
-Here *bucketname* is the name of the bucket, and *prefix* can be an
-arbitrary prefix that will be prepended to all object names used by
-S3QL. This allows you to store several S3QL file systems in the same
-S3 bucket.
+*prefix* can be an arbitrary prefix that will be prepended to all
+object names used by S3QL. This allows you to store several S3QL file
+systems in the same S3 bucket. For example, the storage URL ::
+
+   s3://ap-south-1/foomart.net/data/s3ql_backup/
+
+refers to the *foomart.net* bucket in the *ap-south-1* region. All
+storage objects that S3QL stores in this bucket will be prefixed with
+*data/s3ql_backup/*.
 
 Note that the backend login and password for accessing S3 are not the
 user id and password that you use to log into the Amazon Webpage, but
@@ -186,11 +191,11 @@ authentication, the storage URL is ::
 
    swift://<hostname>[:<port>]/<container>[/<prefix>]
 
-for keystore (v2) authentication, the storage URL is ::
+for Keystone (v2) authentication, the storage URL is ::
 
    swiftks://<hostname>[:<port>]/<region>:<container>[/<prefix>]
 
-Note that when using keystore authentication, you can (and have to)
+Note that when using Keystone authentication, you can (and have to)
 specify the storage region of the container as well.
 
 In both cases, *hostname* name should be the name of the
@@ -202,7 +207,7 @@ to store multiple S3QL file systems in the same container.
 
 When using legacy authentication, the backend login and password
 correspond to the OpenStack username and API Access Key. When using
-keystore authentication, the backend password is your regular
+Keystone authentication, the backend password is your regular
 OpenStack password and the backend login combines you OpenStack
 username and tenant name in the form `<tenant>:<user>`. If no tenant
 is required, the OpenStack username alone may be used as backend
@@ -240,9 +245,25 @@ The OpenStack backend accepts the following backend options:
    performance as object data will be transmitted to the server more
    than once in some circumstances.
 
+.. option:: no-feature-detection
+
+   If this option is specified, S3QL does not try to dynamically detect
+   advanced features of the Swift backend. In this case S3QL can only
+   use the least common denominator of supported Swift versions and
+   configurations.
+
 .. __: http://tools.ietf.org/html/rfc2616#section-8.2.3
 .. _OpenStack: http://www.openstack.org/
 .. _Swift: http://openstack.org/projects/storage/
+
+.. NOTE::
+
+   The Swift API unfortunately lacks a number of features that S3QL
+   normally makes use of. S3QL works around these deficiencies as much
+   as possible. However, this means that storing data using the Swift
+   backend generally requires more network round-trips and transfer
+   volume than the other backends. Also, S3QL requires Swift storage
+   servers to provide immediate consistency for newly created objects.
 
 
 Rackspace CloudFiles
@@ -267,19 +288,6 @@ topmost menu bar).
 
 The Rackspace backend accepts the same backend options as the
 :ref:`OpenStack backend <openstack_backend>`.
-
-.. NOTE::
-
-   As of January 2012, Rackspace does not give any durability or
-   consistency guarantees (see :ref:`durability` for why this is
-   important).  However, Rackspace support agents seem prone to claim
-   very high guarantees.  Unless explicitly backed by their terms of
-   service, any such statement should thus be viewed with
-   suspicion. S3QL developers have also `repeatedly experienced
-   <http://www.rath.org/Tales%20from%20the%20Rackspace%20Support>`_
-   similar issues with the credibility and competence of the Rackspace
-   support.
-
 
 .. _Rackspace: http://www.rackspace.com/
 

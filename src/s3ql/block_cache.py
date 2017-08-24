@@ -8,6 +8,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from . import BUFSIZE
 from .database import NoSuchRowError
+from .backends.common import NoSuchObject
 from .multi_lock import MultiLock
 from .logging import logging # Ensure use of custom logger class
 from collections import OrderedDict
@@ -278,6 +279,9 @@ class BlockCache(object):
 
         if not os.path.exists(self.path):
             os.mkdir(self.path)
+
+        # Initialized fromt the outside to prevent cyclic dependency
+        self.fs = None
 
     def __len__(self):
         '''Get number of objects in cache'''
@@ -686,17 +690,20 @@ class BlockCache(object):
             except QueueEmpty:
                 tmp = FlushSentinel
 
-            if (tmp is FlushSentinel or tmp is QuitSentinel) and ids:
+            if tmp in (FlushSentinel,QuitSentinel) and ids:
                 log.debug('removing: %s', ids)
-                with self.backend_pool() as backend:
-                    backend.delete_multi(['s3ql_data_%d' % i for i in ids])
+                try:
+                    with self.backend_pool() as backend:
+                        backend.delete_multi(['s3ql_data_%d' % i for i in ids])
+                except NoSuchObject:
+                    log.warning('Backend lost object s3ql_data_%d' % ids.pop(0))
+                    self.fs.failsafe = True
                 ids = []
             else:
                 ids.append(tmp)
 
             if tmp is QuitSentinel:
                 break
-
 
     @contextmanager
     def get(self, inode, blockno):
@@ -964,6 +971,9 @@ class BlockCache(object):
         return (len(self.cache), used, dirty_cnt, dirty_size, remove_cnt)
 
     def __del__(self):
+        # break reference loop
+        self.fs = None
+
         if len(self.cache) == 0:
             return
 

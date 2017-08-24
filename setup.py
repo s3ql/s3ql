@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 '''
 setup.py - this file is part of S3QL.
 
@@ -123,7 +124,8 @@ def main():
     # (otherwise we break forward compatibility because compilation with newer
     # compiler may fail if additional warnings are added)
     if DEVELOPER_MODE:
-        compile_args.append('-Werror')
+        if os.environ.get('CI') != 'true':
+            compile_args.append('-Werror')
         compile_args.append('-Wfatal-errors')
         compile_args.append('-Wno-unused-function')
 
@@ -131,9 +133,10 @@ def main():
                      'pycrypto',
                      'requests',
                      'defusedxml',
-                     'dugong >= 3.4',
+                     'dugong >= 3.4, < 4.0',
                      'llfuse >= 1.0, < 2.0',
-                     'google-api-python-client >= 1.4.2', ]
+                     'google-api-python-client >= 1.4.2']
+
 
     setuptools.setup(
           name='s3ql',
