@@ -19,9 +19,8 @@ install:
   - pip install cython==0.24.1 sphinx pycrypto defusedxml requests "llfuse >= 1.0, < 2.0" "dugong >= 3.4, < 4.0" "pytest >= 2.7" pytest-catchlog
 
 script:
-  - |
-    python setup.py build_cython \
-    && python setup.py build_ext --inplace \
-    && python -m pytest tests/ \
-    && python setup.py build_sphinx \
-    && sudo python setup.py install
+  - python setup.py build_cython || travis_terminate 1
+  - python setup.py build_ext --inplace || travis_terminate 1
+  - python -m pytest tests/ || travis_terminate 1
+  - python setup.py build_sphinx || travis_terminate 1
+  - python setup.py install
