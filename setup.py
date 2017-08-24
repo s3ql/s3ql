@@ -96,11 +96,11 @@ class build_docs(setuptools.Command):
             os.rename(os.path.join(dest_dir, 'man', name),
                       os.path.join(basedir, 'contrib', name))
 
-        print('Running pdflatex...')
         for _ in range(3):
             with open('/dev/null', 'wb') as null:
-                subprocess.check_call(['pdflatex', '-interaction', 'batchmode', 'manual.tex'],
-                                      cwd=os.path.join(dest_dir, 'latex'), stdout=null)
+                print('Running pdflatex...')
+                subprocess.check_call(['pdflatex', '-interaction=batchmode', 'manual.tex'],
+                                      cwd=os.path.join(dest_dir, 'latex'))
         os.rename(os.path.join(dest_dir, 'latex', 'manual.pdf'),
                   os.path.join(dest_dir, 'manual.pdf'))
 
