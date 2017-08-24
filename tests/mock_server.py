@@ -500,10 +500,11 @@ class CopySwiftRequestHandler(BasicSwiftRequestHandler):
 class BulkDeleteSwiftRequestHandler(BasicSwiftRequestHandler):
     '''OpenStack Swift handler that emulates bulk middleware (the delete part).'''
 
+    MAX_DELETES = 8 # test deletes 16 objects, so needs two requests
     SWIFT_INFO = {
         "bulk_delete": {
-            "max_failed_deletes": 1000,
-            "max_deletes_per_request": 10000
+            "max_failed_deletes": 5,
+            "max_deletes_per_request": MAX_DELETES
         },
         "swift": {
             "max_meta_count": 90,
@@ -541,9 +542,20 @@ class BulkDeleteSwiftRequestHandler(BasicSwiftRequestHandler):
             response['Response Body'] = reason
             send_response(502)
 
+        def inline_error(http_status, body):
+            '''bail out when processing begun. Always HTTP 200 Ok.'''
+            response['Response Status'] = http_status
+            response['Response Body'] = body
+            send_response(200)
+
         len_ = self._check_encoding()
-        for i in self.rfile.read(len_).decode('utf-8').split("\n"):
-            to_delete = urllib.parse.unquote(i)
+        lines = self.rfile.read(len_).decode('utf-8').split("\n")
+        for index, to_delete in enumerate(lines):
+            if index >= self.MAX_DELETES:
+                return inline_error('413 Request entity too large',
+                                    'Maximum Bulk Deletes: %d per request' %
+                                    self.MAX_DELETES)
+            to_delete = urllib.parse.unquote(to_delete.strip())
             assert to_delete[0] == '/'
             to_delete = to_delete[1:].split('/', maxsplit=1)
             if len(to_delete) < 2:
@@ -559,8 +571,7 @@ class BulkDeleteSwiftRequestHandler(BasicSwiftRequestHandler):
 
         if not (response['Number Deleted'] or
                 response['Number Not Found']):
-            response['Response Status'] = '400 Bad Request'
-            response['Response Body'] = 'Invalid bulk delete.'
+            return inline_error('400 Bad Request', 'Invalid bulk delete.')
         send_response(200)
 
 #: A list of the available mock request handlers with
