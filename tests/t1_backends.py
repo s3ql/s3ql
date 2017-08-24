@@ -21,6 +21,7 @@ from s3ql.backends.gs import Backend as GSBackend
 from s3ql.backends.common import (NoSuchObject, CorruptedObjectError)
 from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
 from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, S3Error
+from s3ql.backends.swift import Backend as SwiftBackend
 from argparse import Namespace
 from common import get_remote_test_info, NoTestSection, CLOCK_GRANULARITY
 from pytest_checklogs import assert_logs
@@ -473,7 +474,7 @@ def test_delete_multi(backend):
         fetch_object(backend, key)
 
     # Delete half of them
-    # We don't use force=True but catch the exemption to increase the
+    # We don't use force=True but catch the exception to increase the
     # chance that some existing objects are not deleted because of the
     # error.
     to_delete = keys[::2]
@@ -485,7 +486,10 @@ def test_delete_multi(backend):
 
     # Without full consistency, deleting an non-existing object
     # may not give an error
-    assert backend.unittest_info.retry_time or len(to_delete) > 0
+    # Swift backend does not return a list of actually deleted objects
+    # so to_delete wil always be empty for Swift and this assertion fails
+    if not isinstance(backend.backend, SwiftBackend):
+        assert backend.unittest_info.retry_time or len(to_delete) > 0
 
     deleted = set(keys[::2]) - set(to_delete)
     assert len(deleted) > 0
