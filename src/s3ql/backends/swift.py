@@ -483,7 +483,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if resp.status is not 200:
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
-        hit = re.match('^application/json(;\s*charset="?(.+?)"?)?$',
+        hit = re.match(r'^application/json(;\s*charset="?(.+?)"?)?$',
                        resp.headers['content-type'])
         if not hit:
             log.error('Unexpected server response. Expected json, got:\n%s',
@@ -497,7 +497,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         log.debug('Response %s', resp_dict)
 
-        hit = re.match('^([0-9]{3})', resp_dict['Response Status'])
+        hit = re.match(r'^([0-9]{3})', resp_dict['Response Status'])
         if not hit:
             log.error('Unexpected server response. Expected valid Response Status, got:\n%s',
                       resp_dict)
@@ -724,7 +724,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 raise HTTPError(resp.status, resp.reason, resp.headers)
 
             if resp.status is 200:
-                hit = re.match('^application/json(;\s*charset="?(.+?)"?)?$',
+                hit = re.match(r'^application/json(;\s*charset="?(.+?)"?)?$',
                 resp.headers['content-type'])
                 if not hit:
                     log.error("Wrong server response. Expected json. Got: \n%s",

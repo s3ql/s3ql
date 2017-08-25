@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 empty_set = set()
 
 def brace_expand(s):
-    hit = re.search('^(.*)\{(.+)\}(.*)$', s)
+    hit = re.search(r'^(.*)\{(.+)\}(.*)$', s)
     if not hit:
         return [s]
     (p, e, s) = hit.groups()
