@@ -2,9 +2,9 @@
   NOTE: We cannot use sophisticated ReST syntax here because this
   file is rendered by Bitbucket.
 
-============
- About S3QL
-============
+======
+ S3QL
+======
 
 S3QL is a file system that stores all its data online using storage
 services like `Google Storage`_, `Amazon S3`_, or OpenStack_. S3QL
@@ -110,12 +110,12 @@ command. Here we are using the Amazon S3 backend, and
 *nikratio-s3ql-bucket* is the S3 bucket in which the file system will
 be stored. ::
 
-  mkfs.s3ql s3://nikratio-s3ql-bucket
+  mkfs.s3ql s3://ap-south-1/nikratio-s3ql-bucket
 
 To mount the S3QL file system stored in the S3 bucket
 *nikratio_s3ql_bucket* in the directory ``/mnt/s3ql``, enter::
 
-  mount.s3ql s3://nikratio-s3ql-bucket /mnt/s3ql
+  mount.s3ql s3://ap-south-1/nikratio-s3ql-bucket /mnt/s3ql
 
 Now you can instruct your favorite backup program to run a backup into
 the directory ``/mnt/s3ql`` and the data will be stored an Amazon
