@@ -256,12 +256,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # Expired auth token
         if resp.status == 401:
-            log.info('OpenStack auth token seems to have expired, requesting new one.')
-            self.conn.disconnect()
-            # Force constructing a new connection with a new token, otherwise
-            # the connection will be reestablished with the same token.
-            self.conn = None
-            raise AuthenticationExpired(resp.reason)
+            self._do_authentication_expired(resp.reason)
+            # raises AuthenticationExpired
 
         # If method == HEAD, server must not return response body
         # even in case of errors
@@ -497,14 +493,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         log.debug('Response %s', resp_dict)
 
-        hit = re.match(r'^([0-9]{3})', resp_dict['Response Status'])
-        if not hit:
-            log.error('Unexpected server response. Expected valid Response Status, got:\n%s',
-                      resp_dict)
+        try:
+            resp_status_code, resp_status_text = _split_response_status(resp_dict['Response Status'])
+        except ValueError:
             raise RuntimeError('Unexpected server reply')
-        resp_status = int(hit.group(1))
 
-        if resp_status is 200:
+        if resp_status_code is 200:
             # No errors occured, everything has been deleted
             del keys[:]
             return
@@ -515,7 +509,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         offset = len(esc_prefix)
         for error in resp_dict['Errors']:
             fullkey = error[0]
-            # stangely the name is url encoded in JSON
+            # strangely the name is url encoded in JSON
             assert fullkey.startswith(esc_prefix)
             key = urllib.parse.unquote(fullkey[offset:])
             failed_keys.append(key)
@@ -524,7 +518,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if key not in failed_keys:
                 keys.remove(key)
 
-        if resp_status in (400, 404) and len(resp_dict['Errors']) == 0:
+        if resp_status_code in (400, 404) and len(resp_dict['Errors']) == 0:
             # Swift returns 400 instead of 404 when files were not found.
             # (but we also accept the correct status code 404 if Swift
             # decides to correct this in the future)
@@ -540,7 +534,36 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             # objects, not the list of deleted objects (as S3 does).
             return
 
-        raise HTTPError(resp_status, resp_dict['Response Body'], {})
+        # At this point it is clear that the server has sent some kind of error response.
+        # Swift is not very consistent in returning errors.
+        # We need to jump through these hoops to get something meaningful.
+
+        error_msg = resp_dict['Response Body']
+        error_code = resp_status_code
+        if not error_msg:
+            if len(resp_dict['Errors']) > 0:
+                error_code, error_msg = _split_response_status(resp_dict['Errors'][0][1])
+            else:
+                error_msg = resp_status_text
+
+        if error_code == 401:
+            # Expired auth token
+            self._do_authentication_expired(error_msg)
+            # raises AuthenticationExpired
+        if 'Invalid bulk delete.' in error_msg:
+            error_code = 400
+            # change error message to something more meaningful
+            error_msg = 'Sent a bulk delete with an empty list of keys to delete'
+        elif 'Max delete failures exceeded' in error_msg:
+            error_code = 502
+        elif 'Maximum Bulk Deletes: ' in error_msg:
+            # Sent more keys in one bulk delete than allowed
+            error_code = 413
+        elif 'Invalid File Name' in error_msg:
+            # get returned when file name is too long
+            error_code = 422
+
+        raise HTTPError(error_code, error_msg, {})
 
     @copy_ancestor_docstring
     def delete_multi(self, keys, force=False):
@@ -750,10 +773,21 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
                 if info.get('bulk_delete', False):
                     detected_features.has_bulk_delete = True
+                    bulk_delete = info['bulk_delete']
+                    assert bulk_delete.get('max_failed_deletes', 1000) <= \
+                           bulk_delete.get('max_deletes_per_request', 10000)
+                    assert bulk_delete.get('max_failed_deletes', 1000) > 0
                     # The block cache removal queue has a capacity of 1000.
-                    # We do not need bigger values than that (the default maximum is 10000).
-                    detected_features.max_deletes = max(1, min(1000,
-                        int(info['bulk_delete'].get('max_deletes_per_request', 1000))))
+                    # We do not need bigger values than that.
+                    # We use max_failed_deletes instead of max_deletes_per_request
+                    # because then we can be sure even when all our delete requests
+                    # get rejected we get a complete error list back from the server.
+                    # If we would set the value higher, _delete_multi() would maybe
+                    # delete some entries from the *keys* list that did not get
+                    # deleted and would miss them in a retry.
+                    detected_features.max_deletes = min(1000,
+                        int(bulk_delete.get('max_failed_deletes', 1000)))
+
 
                 log.info('Detected Swift features for %s:%s: %s',
                          hostname, port, detected_features, extra=LOG_ONCE)
@@ -762,6 +796,29 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                           hostname, port)
 
         self.features = detected_features
+
+    def _do_authentication_expired(self, reason):
+        '''Closes the current connection and raises AuthenticationExpired'''
+        log.info('OpenStack auth token seems to have expired, requesting new one.')
+        self.conn.disconnect()
+        # Force constructing a new connection with a new token, otherwise
+        # the connection will be reestablished with the same token.
+        self.conn = None
+        raise AuthenticationExpired(reason)
+
+def _split_response_status(line):
+    '''Splits a HTTP response line into status code (integer)
+    and status text.
+
+    Returns 2-tuple (int, string)
+
+    Raises ValueError when line is not parsable'''
+    hit = re.match('^([0-9]{3})\s+(.*)$', line)
+    if not hit:
+        log.error('Expected valid Response Status, got: %s',
+                  line)
+        raise ValueError('Expected valid Response Status, got: %s' % line)
+    return (int(hit.group(1)), hit.group(2))
 
 class AuthenticationExpired(Exception):
     '''Raised if the provided Authentication Token has expired'''

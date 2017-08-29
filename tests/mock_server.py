@@ -13,7 +13,6 @@ import socketserver
 import logging
 import hashlib
 import urllib.parse
-import traceback
 from xml.sax.saxutils import escape as xml_escape
 import json
 
@@ -503,7 +502,7 @@ class BulkDeleteSwiftRequestHandler(BasicSwiftRequestHandler):
     MAX_DELETES = 8 # test deletes 16 objects, so needs two requests
     SWIFT_INFO = {
         "bulk_delete": {
-            "max_failed_deletes": 5,
+            "max_failed_deletes": MAX_DELETES,
             "max_deletes_per_request": MAX_DELETES
         },
         "swift": {
