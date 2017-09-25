@@ -354,6 +354,49 @@ The S3 compatible backend accepts the following backend options:
 .. _`S3 COPY API`: http://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectCOPY.html
 .. __: https://doc.s3.amazonaws.com/proposals/copy.html
 
+BackBlaze B2
+============
+`BackBlaze B2 <https://www.backblaze.com/b2/cloud-storage.html>`_ is a low cost
+storage provider, with their own API. To use this storage
+you first need to sign up for an account. The account is free, you only pay for the
+storage and the traffic you actually use. After account creation, you
+need to create a bucket to store data.
+The storage URL for BackBlaze backend is ::
+
+   b2://<bucket>/[</prefix>]
+
+Here *bucket* correspond to as existing bucket name, and *prefix*
+a folder where all s3ql files will be stored.
+
+Note that the login and password for accessing B2 are not the
+ones you use to log into the web interface, but the
+*Account ID* and *Application Key* shown under
+`My Account\\Buckets <https://secure.backblaze.com/b2_buckets.htm>`_.
+
+The BackBlaze backend accept the following options:
+
+.. option:: test-string=<string>
+
+   With this options, the `X-Bz-Test-Mode <https://www.backblaze.com/b2/docs/integration_checklist.html>`_
+   header will be set for all request, with the specified string.
+   This will force the BackBlaze server to randomly produce some
+   artificial failures to test the resiliency of the code. This
+   option should only be used for testing purpose, and never in
+   production environment.
+
+.. option:: ssl-ca-path=<path>
+
+   Instead of using the system's default certificate store, validate
+   the server certificate against the specified CA
+   certificates. :var:`<path>` may be either a file containing
+   multiple certificates, or a directory containing one certificate
+   per file.
+
+.. option:: tcp-timeout
+
+   Specifies the timeout used for TCP connections. If no data can be
+   exchanged with the remote server for longer than this period, the
+   TCP connection is closed and re-established (default: 20 seconds).
 
 Local
 =====
