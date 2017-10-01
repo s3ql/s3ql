@@ -260,8 +260,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise QuietError('Invalid bucket name.', exitcode=2)
 
         prefix = hit.group(2) or ''
-        #remove trailing slash if exist
-        prefix = prefix[:-1] if prefix[-1] == '/' else prefix
+        if prefix != '':
+            # add trailing slash if none
+            prefix = prefix + '/' if prefix[-1] != '/' else prefix
 
         self.bucket_name = bucket_name
         self.prefix = prefix
@@ -272,7 +273,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             body = bytes(json.dumps({'fileName': file['fileName'],
                                      'fileId': file['fileId']}), encoding='UTF-8')
 
-            log.debug('started with /file/%s/%s/%s' % (self.bucket_name, self.prefix, file['fileName']))
+            log.debug('started with /file/%s/%s%s' % (self.bucket_name, self.prefix, file['fileName']))
 
             try:
                 self._do_request('POST',
@@ -293,7 +294,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise ValueError('max_filecount maximum is 1000')
 
         request_dict = dict(bucketId=self.bucket_id, maxFileCount=max_filecount)
-        request_dict['startFileName'] = self.prefix + '/' + self._encode_key(key)
+        request_dict['startFileName'] = self.prefix + self._encode_key(key)
 
         # supposing there is less than 1000 old file version
         body = bytes(json.dumps(request_dict), encoding='UTF-8')
@@ -308,7 +309,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # We suppose there is less than 1000 file version
         for f in j['files']:
-            if self._decode_key(f['fileName']) == self.prefix + '/' + key:
+            if self._decode_key(f['fileName']) == self.prefix + key:
                 r.append({'fileName': f['fileName'],
                           'fileId': f['fileId']})
         return r
@@ -391,7 +392,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         headers['Range'] = "bytes=0-1"  # Only get first byte
 
         resp, data = self._do_request('GET',
-                                      '/file/%s/%s/%s' % (self.bucket_name, self.prefix, key),
+                                      '/file/%s/%s%s' % (self.bucket_name, self.prefix, key),
                                       self.conn_download, headers=headers)
 
         meta = self._extractmeta(resp, key)
@@ -403,7 +404,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         log.debug('started with %s', key)
 
         key = self._encode_key(key)
-        key_with_prefix = "%s/%s" % (self.prefix, key)
+        key_with_prefix = "%s%s" % (self.prefix, key)
         request_dict = {'bucketId': self.bucket_id,
                         'startFileName': key_with_prefix,
                         'maxFileCount': 1}
@@ -428,7 +429,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         key = self._encode_key(key)
 
         resp, data = self._do_request('GET',
-                                      '/file/%s/%s/%s' % (self.bucket_name, self.prefix, key),
+                                      '/file/%s/%s%s' % (self.bucket_name, self.prefix, key),
                                       self.conn_download, download_body=False)
 
         meta = self._extractmeta(resp, key)
@@ -468,7 +469,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         prefix = self._encode_key(prefix)
 
-        next_filename = self.prefix + '/' + prefix
+        next_filename = self.prefix + prefix
         keys_remaining = True
 
         while keys_remaining and next_filename is not None:
@@ -477,9 +478,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             while filelist:
                 file = filelist.pop(0)
 
-                if file.startswith(self.prefix + '/' + prefix):
+                if file.startswith(self.prefix + prefix):
                     # remove prefix before return
-                    r = file[len(self.prefix + '/'):]
+                    r = file[len(self.prefix):]
                     yield self._decode_key(r)
                 else:
                     keys_remaining = False
@@ -631,7 +632,7 @@ class ObjectW(object):
         with HTTPConnection(upload_url.hostname, 443, ssl_context=self.backend.ssl_context) as conn_up:
 
             headers = CaseInsensitiveDict()
-            headers['X-Bz-File-Name'] = self.backend.prefix + '/' + self.key
+            headers['X-Bz-File-Name'] = self.backend.prefix + self.key
             headers['Content-Type'] = 'application/octet-stream'
             headers['Content-Length'] = self.obj_size
             headers['X-Bz-Content-Sha1'] = self.sha1.hexdigest()
