@@ -9,16 +9,12 @@ This work can be distributed under the terms of the GNU GPLv3.
 This module contains common functions used by multiple unit tests.
 '''
 
-from contextlib import contextmanager
-from functools import wraps
-import re
 import time
 import os
 import subprocess
 import stat
 import random
 import configparser
-import logging
 import pytest
 import functools
 
