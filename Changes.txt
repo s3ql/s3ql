@@ -1,7 +1,11 @@
 UNRELEASED CHANGES
 
+  * When terminated by a signal (rather than by an unmount call),
+    mount.s3ql now terminates as quickly as possible (i.e., without
+    cleaning the cache), resulting in an unclean unmount.
+
   * The Swift backend feature detection is no longer affected by the
-    no-ssl backend option (which is intended only for connections to 
+    no-ssl backend option (which is intended only for connections to
     the authentication server).
 
   * Accessing the cn-north-1 S3 storage region is now working.
