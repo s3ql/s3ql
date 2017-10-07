@@ -155,12 +155,23 @@ class Fsck(object):
     def check_cache(self):
         """Commit uncommitted cache files"""
 
-        log.info("Checking cached objects...")
+        log.info("Checking for dirty cache objects...")
         if not os.path.exists(self.cachedir):
             return
+        candidates = os.listdir(self.cachedir)
 
-        for filename in os.listdir(self.cachedir):
-            self.found_errors = True
+        if sys.stdout.isatty():
+            stamp1 = 0
+        else:
+            stamp1 = float('inf')
+
+        for (i, filename) in enumerate(candidates):
+            stamp2 = time.time()
+            if stamp2 - stamp1 > 1:
+                sys.stdout.write('\r..processed %d/%d files (%d%%)..'
+                                 % (i, len(candidates), i/len(candidates)*100))
+                sys.stdout.flush()
+                stamp1 = stamp2
 
             match = re.match('^(\\d+)-(\\d+)$', filename)
             if match:
@@ -169,11 +180,30 @@ class Fsck(object):
             else:
                 raise RuntimeError('Strange file in cache directory: %s' % filename)
 
-            self.log_error("Committing block %d of inode %d to backend", blockno, inode)
-
+            # Calculate block checksum
             with open(os.path.join(self.cachedir, filename), "rb") as fh:
                 size = os.fstat(fh.fileno()).st_size
-                hash_ = sha256_fh(fh)
+                hash_should = sha256_fh(fh)
+            log.debug('%s has checksum %s', filename, hash_should)
+
+            # Check if stored block has same checksum
+            try:
+                block_id = self.conn.get_val('SELECT block_id FROM inode_blocks '
+                                             'WHERE inode=? AND blockno=?',
+                                             (inode, blockno,))
+                hash_is = self.conn.get_val('SELECT hash FROM blocks WHERE id=?',
+                                            (block_id,))
+            except NoSuchRowError:
+                hash_is = None
+            log.debug('Inode %d, block %d has checksum %s', inode, blockno,
+                      hash_is)
+            if hash_should == hash_is:
+                os.unlink(os.path.join(self.cachedir, filename))
+                continue
+
+            self.found_errors = True
+            self.log_error("Writing dirty block %d of inode %d to backend", blockno, inode)
+            hash_ = hash_should
 
             try:
                 (block_id, obj_id) = self.conn.get_row('SELECT id, obj_id FROM blocks WHERE hash=?', (hash_,))
