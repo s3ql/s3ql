@@ -156,7 +156,7 @@ def main(args=None):
 
     param = dict()
     param['revision'] = CURRENT_FS_REV
-    param['seq_no'] = 1
+    param['seq_no'] = int(time.time())
     param['label'] = options.label
     param['max_obj_size'] = options.max_obj_size * 1024
     param['needs_fsck'] = False
