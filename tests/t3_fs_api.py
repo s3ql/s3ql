@@ -119,7 +119,7 @@ class fs_api_tests(unittest.TestCase):
             return fd.read(len_)
 
     def fsck(self):
-        self.block_cache.clear()
+        self.block_cache.drop()
         self.server.inodes.flush()
         fsck = Fsck(self.cachedir + '/cache', self.backend,
                   { 'max_obj_size': self.max_obj_size }, self.db)
@@ -715,7 +715,7 @@ class fs_api_tests(unittest.TestCase):
         (fh, inode) = self.server.create(ROOT_INODE, self.newname(),
                                      self.file_mode(), os.O_RDWR, some_ctx)
         self.server.write(fh, 0, data)
-        self.server.cache.clear()
+        self.server.cache.drop()
         self.assertTrue(self.server.failsafe is False)
 
         datafile = os.path.join(self.backend_dir, 's3ql_data_', 's3ql_data_1')
@@ -754,7 +754,7 @@ class fs_api_tests(unittest.TestCase):
         # Remove completely, should give error after cache flush
         os.unlink(datafile)
         self.server.read(fh, 3, len_//2)
-        self.server.cache.clear()
+        self.server.cache.drop()
         with self.assertRaises(FUSEError) as cm:
             with assert_logs('^Backend lost block',
                               count=1, level=logging.ERROR):
@@ -788,7 +788,7 @@ class fs_api_tests(unittest.TestCase):
         self.server.write(fh, 0, data)
         self.server.release(fh)
 
-        self.block_cache.clear()
+        self.block_cache.drop()
 
         fh = self.server.open(inode.st_ino, os.O_RDWR, some_ctx)
         attr = self.server.getattr(inode.st_ino, some_ctx)

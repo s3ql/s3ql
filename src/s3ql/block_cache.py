@@ -346,12 +346,12 @@ class BlockCache(object):
         This method should be called without the global lock held.
         '''
 
-        log.debug('clearing cache...')
+        log.debug('Dropping cache...')
         try:
             with lock:
-                self.clear()
+                self.drop()
         except NoWorkerThreads:
-            log.error('Unable to flush cache, no upload threads left alive')
+            log.error('Unable to drop cache, no upload threads left alive')
 
         # Signal termination to worker threads. If some of them
         # terminated prematurely, continue gracefully.
@@ -898,7 +898,7 @@ class BlockCache(object):
 
         log.debug('finished')
 
-    def flush(self, inode, blockno):
+    def flush_local(self, inode, blockno):
         """Flush buffers for given block"""
 
         try:
@@ -908,7 +908,7 @@ class BlockCache(object):
 
         el.flush()
 
-    def commit(self):
+    def start_flush(self):
         """Initiate upload of all dirty blocks
 
         When the method returns, all blocks have been registered
@@ -927,8 +927,34 @@ class BlockCache(object):
 
             self.upload(el) # Releases global lock
 
-    def clear(self):
-        """Clear cache
+    def flush(self):
+        """Upload all dirty blocks
+
+        This method releases the global lock.
+        """
+
+        log.debug('started')
+
+        while True:
+            sth_in_transit = False
+            for el in self.cache.values():
+                if not el.dirty:
+                    continue
+                if el not in self.in_transit:
+                    log.debug('uploading %s..', el)
+                    self.upload(el) # Releases global lock
+                sth_in_transit = True
+
+            if not sth_in_transit:
+                break
+
+            log.debug('waiting for transfer threads..')
+            self.wait() # Releases global lock
+
+        log.debug('finished')
+
+    def drop(self):
+        """Drop cache
 
         This method releases the global lock.
         """
