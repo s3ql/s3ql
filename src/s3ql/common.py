@@ -172,7 +172,7 @@ def get_backend_cachedir(storage_url, cachedir):
         raise QuietError('No permission to access cache directory (%s)' % cachedir,
                          exitcode=45)
 
-    return os.path.join(cachedir, _escape(storage_url))
+    return os.path.abspath(os.path.join(cachedir, _escape(storage_url)))
 
 
 def sha256_fh(fh):
