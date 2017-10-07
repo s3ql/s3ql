@@ -1135,6 +1135,9 @@ def parse_args(args):
                       help="If user input is required, exit without prompting.")
     parser.add_argument("--force", action="store_true", default=False,
                       help="Force checking even if file system is marked clean.")
+    parser.add_argument("--force-remote", action="store_true", default=False,
+                      help="Force use of remote metadata even when this would "
+                        "likely result in data loss.")
     options = parser.parse_args(args)
 
     return options
@@ -1210,9 +1213,11 @@ def main(args=None):
 
         print('Enter "continue, I know what I am doing" to use the outdated data anyway:',
               '> ', sep='\n', end='')
-        if options.batch:
+        if options.force_remote:
+            print('(--force-remote specified, continuing anyway)')
+        elif options.batch:
             raise QuietError('(in batch mode, exiting)', exitcode=41)
-        if sys.stdin.readline().strip() != 'continue, I know what I am doing':
+        elif sys.stdin.readline().strip() != 'continue, I know what I am doing':
             raise QuietError(exitcode=42)
 
         param['seq_no'] = seq_no

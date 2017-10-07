@@ -1,5 +1,8 @@
 UNRELEASED CHANGES
 
+  * fsck.s3ql now accepts a new --force-remote parameter. It does
+    dangerous things, and you should probably not use it.
+
   * When terminated by a signal (rather than by an unmount call),
     mount.s3ql now terminates as quickly as possible (i.e., without
     cleaning the cache), resulting in an unclean unmount.
