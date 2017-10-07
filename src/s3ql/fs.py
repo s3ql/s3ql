@@ -237,7 +237,8 @@ class Operations(llfuse.Operations):
         # Handle S3QL commands
         if id_ == CTRL_INODE:
             if name == b's3ql_flushcache!':
-                self.cache.drop()
+                self.inodes.flush()
+                self.cache.flush()
 
             elif name == b'copy':
                 try:
@@ -249,6 +250,7 @@ class Operations(llfuse.Operations):
 
             elif name == b'upload-meta':
                 if self.upload_event is not None:
+                    self.inodes.flush()
                     self.upload_event.set()
                 else:
                     raise llfuse.FUSEError(errno.ENOTTY)
