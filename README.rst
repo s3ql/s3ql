@@ -137,17 +137,15 @@ The following resources are available:
 
 Please report any bugs you may encounter in the `Bitbucket Issue Tracker`_.
 
-Professional Support
-====================
-
-Professional support is available. Please contact Nikolaus Rath
-<Nikolaus@rath.org> for details.
-
 Contributing
 ============
 
 The S3QL source code is available both on GitHub_ and BitBucket_.
 
+Professional Support
+--------------------
+
+Professional support is offered via `Rath Consulting`_.
 
 .. _`S3QL User's Guide`: http://www.rath.org/s3ql-docs/index.html
 .. _`S3QL Wiki`: https://bitbucket.org/nikratio/s3ql/wiki/
@@ -157,3 +155,4 @@ The S3QL source code is available both on GitHub_ and BitBucket_.
 .. _`Bitbucket Issue Tracker`: https://bitbucket.org/nikratio/s3ql/issues
 .. _BitBucket: https://bitbucket.org/nikratio/s3ql/
 .. _GitHub: https://github.com/s3ql/main
+.. _`Rath Consulting`: http://www.rath-consulting.biz/
