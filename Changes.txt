@@ -1,7 +1,14 @@
-UNRELEASED CHANGES
+2017-11-04, S3QL 2.24
+
+  * fsck.s3ql now accepts a new --force-remote parameter. It does
+    dangerous things, and you should probably not use it.
+
+  * When terminated by a signal (rather than by an unmount call),
+    mount.s3ql now terminates as quickly as possible (i.e., without
+    cleaning the cache), resulting in an unclean unmount.
 
   * The Swift backend feature detection is no longer affected by the
-    no-ssl backend option (which is intended only for connections to 
+    no-ssl backend option (which is intended only for connections to
     the authentication server).
 
   * Accessing the cn-north-1 S3 storage region is now working.

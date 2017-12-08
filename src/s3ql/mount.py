@@ -209,9 +209,12 @@ def main(args=None):
         workers = 1 if options.single else None # use default
 
         if options.profile:
-            prof.runcall(llfuse.main, workers)
+            ret = prof.runcall(llfuse.main, workers)
         else:
-            llfuse.main(workers)
+            ret = llfuse.main(workers)
+
+        if ret is not None:
+            raise RuntimeError('Received signal %d, terminating' % (ret,))
 
         # Allow operations to terminate while block_cache is still available
         # (destroy() will be called again when from llfuse.close(), but at that

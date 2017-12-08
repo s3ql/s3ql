@@ -147,7 +147,7 @@ class cache_tests(unittest.TestCase):
         # Create first object (we'll try to remove that)
         with self.cache.get(self.inode, 0) as fh:
             fh.write(b'bar wurfz!')
-        self.cache.commit()
+        self.cache.start_flush()
         self.cache.wait()
 
         # Make sure that upload and removal will fail
@@ -164,7 +164,7 @@ class cache_tests(unittest.TestCase):
         try:
             # Try to clean-up (implicitly calls expire)
             with llfuse.lock_released, \
-                assert_logs('Unable to flush cache, no upload threads left alive',
+                assert_logs('Unable to drop cache, no upload threads left alive',
                               level=logging.ERROR, count=1):
                 with pytest.raises(OSError) as exc_info:
                      self.cache.destroy()
@@ -203,7 +203,7 @@ class cache_tests(unittest.TestCase):
             self.assertEqual(data, fh.read(len(data)))
 
         # Case 3: Object needs to be downloaded
-        self.cache.clear()
+        self.cache.drop()
         with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
             self.assertEqual(data, fh.read(len(data)))
@@ -226,8 +226,8 @@ class cache_tests(unittest.TestCase):
                 fh.write(('%d' % i).encode())
 
         # Flush the 2 most recently accessed ones
-        commit(self.cache, inode, most_recent[-2])
-        commit(self.cache, inode, most_recent[-3])
+        start_flush(self.cache, inode, most_recent[-2])
+        start_flush(self.cache, inode, most_recent[-3])
 
         # We want to expire 4 entries, 2 of which are already flushed
         self.cache.cache.max_entries = 16
@@ -310,7 +310,7 @@ class cache_tests(unittest.TestCase):
             fh.seek(0)
             fh.write(data1)
         self.cache.upload(el1)
-        self.cache.clear()
+        self.cache.drop()
         self.cache.backend_pool.verify()
 
     def test_remove_referenced(self):
@@ -327,7 +327,7 @@ class cache_tests(unittest.TestCase):
         with self.cache.get(inode, blockno2) as fh:
             fh.seek(0)
             fh.write(data)
-        self.cache.clear()
+        self.cache.drop()
         self.cache.backend_pool.verify()
 
         self.cache.backend_pool = MockBackendPool(self.backend_pool)
@@ -451,7 +451,7 @@ class cache_tests(unittest.TestCase):
             fh.seek(0)
             fh.write(data1)
         self.cache.backend_pool = MockBackendPool(self.backend_pool, no_write=1)
-        commit(self.cache, inode)
+        start_flush(self.cache, inode)
         self.cache.backend_pool.verify()
         self.cache.backend_pool = MockBackendPool(self.backend_pool, no_del=1)
         self.cache.remove(inode, 1)
@@ -471,7 +471,7 @@ class cache_tests(unittest.TestCase):
             fh.seek(0)
             fh.write(data1)
         self.cache.backend_pool = MockBackendPool(self.backend_pool, no_write=1)
-        self.cache.clear()
+        self.cache.drop()
         self.cache.backend_pool.verify()
         self.cache.backend_pool = MockBackendPool(self.backend_pool, no_del=1)
         self.cache.remove(inode, 1)
@@ -565,7 +565,7 @@ class MockBackendPool(AbstractBackend):
 
         return self.backend.get_size(key)
 
-def commit(cache, inode, block=None):
+def start_flush(cache, inode, block=None):
     """Upload data for `inode`
 
     This is only for testing purposes, since the method blocks until all current

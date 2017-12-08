@@ -133,7 +133,9 @@ def cycle_metadata(backend, keep=10):
         pass
     cycle_fn("s3ql_metadata_new", "s3ql_metadata")
 
-    if cycle_fn is backend.copy:
+    # Note that we can't compare with "is" (maybe because the bound-method
+    # is re-created on the fly on access?)
+    if cycle_fn == backend.copy:
         backend.delete('s3ql_metadata_new')
 
 def dump_metadata(db, fh):

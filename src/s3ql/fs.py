@@ -237,7 +237,8 @@ class Operations(llfuse.Operations):
         # Handle S3QL commands
         if id_ == CTRL_INODE:
             if name == b's3ql_flushcache!':
-                self.cache.clear()
+                self.inodes.flush()
+                self.cache.flush()
 
             elif name == b'copy':
                 try:
@@ -249,6 +250,7 @@ class Operations(llfuse.Operations):
 
             elif name == b'upload-meta':
                 if self.upload_event is not None:
+                    self.inodes.flush()
                     self.upload_event.set()
                 else:
                     raise llfuse.FUSEError(errno.ENOTTY)
@@ -440,8 +442,7 @@ class Operations(llfuse.Operations):
         db = self.db
 
         # First we make sure that all blocks are in the database
-        self.cache.commit()
-        log.debug('committed cache')
+        self.cache.start_flush()
 
         # Copy target attributes
         # These come from setxattr, so they may have been deleted
@@ -1152,7 +1153,7 @@ class Operations(llfuse.Operations):
             self.inodes.flush_id(fh)
 
         for blockno in range(0, self.inodes[fh].size // self.max_obj_size + 1):
-            self.cache.flush(fh, blockno)
+            self.cache.flush_local(fh, blockno)
 
     def forget(self, forget_list):
         log.debug('started with %s', forget_list)

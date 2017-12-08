@@ -155,12 +155,23 @@ class Fsck(object):
     def check_cache(self):
         """Commit uncommitted cache files"""
 
-        log.info("Checking cached objects...")
+        log.info("Checking for dirty cache objects...")
         if not os.path.exists(self.cachedir):
             return
+        candidates = os.listdir(self.cachedir)
 
-        for filename in os.listdir(self.cachedir):
-            self.found_errors = True
+        if sys.stdout.isatty():
+            stamp1 = 0
+        else:
+            stamp1 = float('inf')
+
+        for (i, filename) in enumerate(candidates):
+            stamp2 = time.time()
+            if stamp2 - stamp1 > 1:
+                sys.stdout.write('\r..processed %d/%d files (%d%%)..'
+                                 % (i, len(candidates), i/len(candidates)*100))
+                sys.stdout.flush()
+                stamp1 = stamp2
 
             match = re.match('^(\\d+)-(\\d+)$', filename)
             if match:
@@ -169,11 +180,30 @@ class Fsck(object):
             else:
                 raise RuntimeError('Strange file in cache directory: %s' % filename)
 
-            self.log_error("Committing block %d of inode %d to backend", blockno, inode)
-
+            # Calculate block checksum
             with open(os.path.join(self.cachedir, filename), "rb") as fh:
                 size = os.fstat(fh.fileno()).st_size
-                hash_ = sha256_fh(fh)
+                hash_should = sha256_fh(fh)
+            log.debug('%s has checksum %s', filename, hash_should)
+
+            # Check if stored block has same checksum
+            try:
+                block_id = self.conn.get_val('SELECT block_id FROM inode_blocks '
+                                             'WHERE inode=? AND blockno=?',
+                                             (inode, blockno,))
+                hash_is = self.conn.get_val('SELECT hash FROM blocks WHERE id=?',
+                                            (block_id,))
+            except NoSuchRowError:
+                hash_is = None
+            log.debug('Inode %d, block %d has checksum %s', inode, blockno,
+                      hash_is)
+            if hash_should == hash_is:
+                os.unlink(os.path.join(self.cachedir, filename))
+                continue
+
+            self.found_errors = True
+            self.log_error("Writing dirty block %d of inode %d to backend", blockno, inode)
+            hash_ = hash_should
 
             try:
                 (block_id, obj_id) = self.conn.get_row('SELECT id, obj_id FROM blocks WHERE hash=?', (hash_,))
@@ -1135,6 +1165,9 @@ def parse_args(args):
                       help="If user input is required, exit without prompting.")
     parser.add_argument("--force", action="store_true", default=False,
                       help="Force checking even if file system is marked clean.")
+    parser.add_argument("--force-remote", action="store_true", default=False,
+                      help="Force use of remote metadata even when this would "
+                        "likely result in data loss.")
     options = parser.parse_args(args)
 
     return options
@@ -1210,9 +1243,11 @@ def main(args=None):
 
         print('Enter "continue, I know what I am doing" to use the outdated data anyway:',
               '> ', sep='\n', end='')
-        if options.batch:
+        if options.force_remote:
+            print('(--force-remote specified, continuing anyway)')
+        elif options.batch:
             raise QuietError('(in batch mode, exiting)', exitcode=41)
-        if sys.stdin.readline().strip() != 'continue, I know what I am doing':
+        elif sys.stdin.readline().strip() != 'continue, I know what I am doing':
             raise QuietError(exitcode=42)
 
         param['seq_no'] = seq_no
