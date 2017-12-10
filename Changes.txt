@@ -1,3 +1,7 @@
+UNRELEASED, S3QL tip
+
+  * s3qlctrl now accepts a new *dropcache* command.
+
 2017-11-04, S3QL 2.24
 
   * fsck.s3ql now accepts a new --force-remote parameter. It does

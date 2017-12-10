@@ -219,6 +219,8 @@ class InodeCache(object):
     def destroy(self):
         '''Flush all entries and empty cache'''
 
+        # Note: this method is currently also used for dropping the cache
+
         for i in range(len(self.cached_rows)):
             id_ = self.cached_rows[i]
             self.cached_rows[i] = None
@@ -249,6 +251,11 @@ class InodeCache(object):
                     pass
                 else:
                     self.setattr(inode)
+
+    def drop(self):
+        '''Drop cache (after flushing)'''
+
+        self.destroy()
 
     def __del__(self):
         if len(self.attrs) == 0:

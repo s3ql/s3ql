@@ -240,6 +240,10 @@ class Operations(llfuse.Operations):
                 self.inodes.flush()
                 self.cache.flush()
 
+            elif name == b's3ql_dropcache!':
+                self.inodes.drop()
+                self.cache.drop()
+
             elif name == b'copy':
                 try:
                     tup = parse_literal(value, (int, int))

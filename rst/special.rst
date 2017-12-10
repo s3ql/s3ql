@@ -112,8 +112,11 @@ For a list of valid options, run `s3qlctrl --help`. `<action>`
 may be either of:
 
   :flushcache:
-	      Flush file system cache. The command blocks until the cache has
-	      been flushed.
+              Flush file system cache. The command blocks until the cache has
+              been flushed.
+  :dropcache:
+              Flush, and then drop file system cache. The command
+              blocks until the cache has been flushed and dropped.
   :log:
 	      Change log level.
   :cachesize:
