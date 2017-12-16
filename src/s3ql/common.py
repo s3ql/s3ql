@@ -448,18 +448,19 @@ class ExceptionStoringThread(threading.Thread):
         except:
             # This creates a circular reference chain
             self._exc_info = sys.exc_info()
+            log.exception('Thread %s terminated with exception', self.name)
 
     def join_get_exc(self):
         self._joined = True
         self.join()
         return self._exc_info
 
-    def join_and_raise(self):
+    def join_and_raise(self, timeout=None):
         '''Wait for the thread to finish, raise any occurred exceptions'''
 
         self._joined = True
         if self.is_alive():
-            self.join()
+            self.join(timeout=timeout)
 
         if self._exc_info is not None:
             # Break reference chain
