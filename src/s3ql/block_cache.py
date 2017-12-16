@@ -502,8 +502,8 @@ class BlockCache(object):
 
         # Calculate checksum
         with lock_released:
+            self._lock_entry(el.inode, el.blockno)
             try:
-                self._lock_entry(el.inode, el.blockno)
                 assert el not in self.in_transit
                 if not el.dirty:
                     log.debug('not dirty, returning')
