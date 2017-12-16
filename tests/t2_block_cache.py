@@ -21,9 +21,9 @@ from s3ql.mkfs import init_tables
 from s3ql.metadata import create_tables
 from s3ql.database import Connection
 from s3ql.common import AsyncFn, time_ns
+import s3ql.block_cache
 from common import safe_sleep
 from pytest_checklogs import assert_logs
-import llfuse
 import errno
 import os
 import logging
@@ -107,10 +107,10 @@ class cache_tests(unittest.TestCase):
 
         # Tested methods assume that they are called from
         # file system request handler
-        llfuse.lock.acquire()
+        s3ql.block_cache.lock = MockLock()
+        s3ql.block_cache.lock_released = MockLock()
 
     def tearDown(self):
-        llfuse.lock.release()
         self.cache.backend_pool = self.backend_pool
         self.cache.destroy()
         shutil.rmtree(self.cachedir)
@@ -163,8 +163,7 @@ class cache_tests(unittest.TestCase):
 
         try:
             # Try to clean-up (implicitly calls expire)
-            with llfuse.lock_released, \
-                assert_logs('Unable to drop cache, no upload threads left alive',
+            with assert_logs('Unable to drop cache, no upload threads left alive',
                               level=logging.ERROR, count=1):
                 with pytest.raises(OSError) as exc_info:
                      self.cache.destroy()
@@ -373,28 +372,23 @@ class cache_tests(unittest.TestCase):
 
         # Make sure entry will be expired
         self.cache.cache.max_entries = 0
-        def e_w_l():
-            with llfuse.lock:
-                self.cache.expire()
 
         # Lock it
         self.cache._lock_entry(inode, blockno, release_global=True)
 
         try:
             # Start expiration, will block on lock
-            t1 = AsyncFn(e_w_l)
+            t1 = AsyncFn(self.cache.expire)
             t1.start()
 
             # Start second expiration, will block
-            t2 = AsyncFn(e_w_l)
+            t2 = AsyncFn(self.cache.expire)
             t2.start()
 
             # Release lock
-            with llfuse.lock_released:
-                safe_sleep(0.1)
-                self.cache._unlock_entry(inode, blockno)
-                t1.join_and_raise()
-                t2.join_and_raise()
+            self.cache._unlock_entry(inode, blockno)
+            t1.join_and_raise()
+            t2.join_and_raise()
 
             assert len(self.cache.cache) == 0
         finally:
@@ -413,28 +407,23 @@ class cache_tests(unittest.TestCase):
         # We want to expire just one element, but have
         # several threads running expire() simultaneously
         self.cache.cache.max_entries = 4
-        def e_w_l():
-            with llfuse.lock:
-                self.cache.expire()
 
         # Lock first element so that we have time to start threads
         self.cache._lock_entry(inode, 0, release_global=True)
 
         try:
             # Start expiration, will block on lock
-            t1 = AsyncFn(e_w_l)
+            t1 = AsyncFn(self.cache.expire)
             t1.start()
 
             # Start second expiration, will block
-            t2 = AsyncFn(e_w_l)
+            t2 = AsyncFn(self.cache.expire)
             t2.start()
 
             # Release lock
-            with llfuse.lock_released:
-                safe_sleep(0.1)
-                self.cache._unlock_entry(inode, 0)
-                t1.join_and_raise()
-                t2.join_and_raise()
+            self.cache._unlock_entry(inode, 0)
+            t1.join_and_raise()
+            t2.join_and_raise()
 
             assert len(self.cache.cache) == 4
         finally:
@@ -582,3 +571,20 @@ def start_flush(cache, inode, block=None):
             continue
 
         cache.upload(el)
+
+
+class MockLock():
+    def __call__(self):
+        return self
+
+    def acquire(self, timeout=None):
+        pass
+
+    def release(self):
+        pass
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, *args):
+        pass
