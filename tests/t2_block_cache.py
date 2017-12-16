@@ -24,6 +24,7 @@ from s3ql.common import AsyncFn, time_ns
 import s3ql.block_cache
 from common import safe_sleep
 from pytest_checklogs import assert_logs
+from unittest.mock import patch
 import errno
 import os
 import logging
@@ -34,6 +35,8 @@ import threading
 import unittest
 import queue
 import pytest
+
+log = logging.getLogger(__name__)
 
 # A dummy removal queue to monkeypatch around the need for removal and upload
 # threads
@@ -258,7 +261,7 @@ class cache_tests(unittest.TestCase):
             fh.seek(0)
             fh.write(data1)
             el1 = fh
-        self.cache.upload(el1)
+        assert self.cache.upload_if_dirty(el1)
         self.cache.backend_pool.verify()
 
         # Case 2: Link new object
@@ -267,7 +270,7 @@ class cache_tests(unittest.TestCase):
             fh.seek(0)
             fh.write(data1)
             el2 = fh
-        self.cache.upload(el2)
+        assert not self.cache.upload_if_dirty(el2)
         self.cache.backend_pool.verify()
 
         # Case 3: Upload old object, still has references
@@ -275,7 +278,7 @@ class cache_tests(unittest.TestCase):
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data2)
-        self.cache.upload(el1)
+        assert self.cache.upload_if_dirty(el1)
         self.cache.backend_pool.verify()
 
         # Case 4: Upload old object, no references left
@@ -283,7 +286,7 @@ class cache_tests(unittest.TestCase):
         with self.cache.get(inode, blockno2) as fh:
             fh.seek(0)
             fh.write(data3)
-        self.cache.upload(el2)
+        assert self.cache.upload_if_dirty(el2)
         self.cache.backend_pool.verify()
 
         # Case 5: Link old object, no references left
@@ -291,7 +294,7 @@ class cache_tests(unittest.TestCase):
         with self.cache.get(inode, blockno2) as fh:
             fh.seek(0)
             fh.write(data2)
-        self.cache.upload(el2)
+        assert not self.cache.upload_if_dirty(el2)
         self.cache.backend_pool.verify()
 
         # Case 6: Link old object, still has references
@@ -301,14 +304,14 @@ class cache_tests(unittest.TestCase):
             fh.seek(0)
             fh.write(data1)
             el3 = fh
-        self.cache.upload(el3)
+        assert self.cache.upload_if_dirty(el3)
         self.cache.backend_pool.verify()
 
         self.cache.backend_pool = MockBackendPool(self.backend_pool)
         with self.cache.get(inode, blockno1) as fh:
             fh.seek(0)
             fh.write(data1)
-        self.cache.upload(el1)
+        assert not self.cache.upload_if_dirty(el1)
         self.cache.drop()
         self.cache.backend_pool.verify()
 
@@ -358,7 +361,7 @@ class cache_tests(unittest.TestCase):
         self.cache.remove(inode, blockno)
 
         # Try to upload it, may happen if CommitThread is interrupted
-        self.cache.upload(fh)
+        self.cache.upload_if_dirty(fh)
 
     def test_expire_race(self):
         # Create element
@@ -368,7 +371,7 @@ class cache_tests(unittest.TestCase):
         with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
             fh.write(data1)
-        self.cache.upload(fh)
+        assert self.cache.upload_if_dirty(fh)
 
         # Make sure entry will be expired
         self.cache.cache.max_entries = 0
@@ -468,6 +471,94 @@ class cache_tests(unittest.TestCase):
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
             self.assertEqual(fh.read(42), b'')
+
+    def test_issue_241(self):
+
+        inode = self.inode
+
+        # Create block
+        with self.cache.get(inode, 0) as fh:
+            fh.write(self.random_data(500))
+
+        # "Fill" cache
+        self.cache.cache.max_entries = 0
+
+        # Mock locking to reproduce race condition
+        mlock = MockMultiLock(self.cache.mlock)
+        with patch.object(self.cache, 'mlock', mlock):
+            # Start first expiration run, will block in upload
+            thread1 = AsyncFn(self.cache.expire)
+            thread1.start()
+
+            # Remove the object while the expiration thread waits
+            # for it to become available.
+            thread2 = AsyncFn(self.cache.remove, inode, 0, 1)
+            thread2.start()
+            mlock.yield_to(thread2)
+            thread2.join_and_raise(timeout=10)
+            assert not thread2.is_alive()
+
+        # Create a new object for the same block
+        with self.cache.get(inode, 0) as fh:
+            fh.write(self.random_data(500))
+
+        # Continue first expiration run
+        mlock.yield_to(thread1, block=False)
+        thread1.join_and_raise(timeout=10)
+        assert not thread1.is_alive()
+
+
+class MockMultiLock:
+    def __init__(self, real_mlock):
+        self.cond = real_mlock.cond
+        self.cleared = set()
+        self.real_mlock = real_mlock
+
+    def yield_to(self, thread, block=True):
+        '''Allow *thread* to proceed'''
+
+        me = threading.current_thread()
+        log.debug('%s blocked in yield_to(), phase 1', me.name)
+        with self.cond:
+            self.cleared.add(thread)
+            self.cond.notify_all()
+
+        if not block:
+            return
+        log.debug('%s blocked in yield_to(), phase 2', me.name)
+        with self.cond:
+            if not self.cond.wait_for(lambda: thread not in self.cleared, 10):
+                pytest.fail('Timeout waiting for lock')
+        log.debug('%s completed yield_to()', me.name)
+
+    @contextmanager
+    def __call__(self, *key):
+        self.acquire(*key)
+        try:
+            yield
+        finally:
+            self.release(*key)
+
+    def acquire(self, *key, timeout=None):
+        me = threading.current_thread()
+        log.debug('%s blocked in acquire()', me.name)
+        with self.cond:
+            if not self.cond.wait_for(lambda: me in self.cleared, 10):
+                pytest.fail('Timeout waiting for lock')
+            self.real_mlock.locked_keys.add(key)
+        log.debug('%s got lock', me.name)
+
+    def release(self, *key, noerror=False):
+        me = threading.current_thread()
+        log.debug('%s blocked in release()', me.name)
+        with self.cond:
+            self.cleared.remove(me)
+            self.cond.notify_all()
+            if noerror:
+                self.real_mlock.locked_keys.discard(key)
+            else:
+                self.real_mlock.locked_keys.remove(key)
+        log.debug('%s released lock', me.name)
 
 
 class MockBackendPool(AbstractBackend):
@@ -570,7 +661,7 @@ def start_flush(cache, inode, block=None):
         if block is not None and el.blockno != block:
             continue
 
-        cache.upload(el)
+        cache.upload_if_dirty(el)
 
 
 class MockLock():

@@ -492,29 +492,39 @@ class BlockCache(object):
                 if self.transfer_completed.wait(timeout=5):
                     return
 
-    def upload(self, el):
-        '''Upload cache entry `el` asynchronously
+    def upload_if_dirty(self, el):
+        '''Upload cache entry asynchronously
 
-        This method releases the global lock.
+        This method releases the global lock. Return True if the object
+        is actually scheduled for upload.
         '''
 
         log.debug('started with %s', el)
 
+        if el in self.in_transit or not el.dirty:
+            return False
+
         # Calculate checksum
         with lock_released:
             self._lock_entry(el.inode, el.blockno)
+            added_to_transit = False
             try:
-                assert el not in self.in_transit
+                if el is not self.cache.get((el.inode, el.blockno), None):
+                    log.debug('%s got removed while waiting for lock', el)
+                    self._unlock_entry(el.inode, el.blockno)
+                    return False
+                if el in self.in_transit:
+                    log.debug('%s already in transit', el)
+                    self._unlock_entry(el.inode, el.blockno)
+                    return False
                 if not el.dirty:
-                    log.debug('not dirty, returning')
+                    log.debug('no longer dirty, returning')
                     self._unlock_entry(el.inode, el.blockno)
-                    return
-                if (el.inode, el.blockno) not in self.cache:
-                    log.debug('%s removed while waiting for lock', el)
-                    self._unlock_entry(el.inode, el.blockno)
-                    return
+                    return False
 
+                log.debug('uploading %s..', el)
                 self.in_transit.add(el)
+                added_to_transit = True
                 sha = hashlib.sha256()
                 el.seek(0)
                 while True:
@@ -524,7 +534,8 @@ class BlockCache(object):
                     sha.update(buf)
                 hash_ = sha.digest()
             except:
-                self.in_transit.discard(el)
+                if added_to_transit:
+                    self.in_transit.discard(el)
                 self._unlock_entry(el.inode, el.blockno)
                 raise
 
@@ -575,7 +586,7 @@ class BlockCache(object):
 
                 if old_block_id == block_id:
                     log.debug('unchanged, block_id=%d', block_id)
-                    return
+                    return False
 
         except:
             self.in_transit.discard(el)
@@ -585,12 +596,13 @@ class BlockCache(object):
                     self._unlock_obj(obj_id)
             raise
 
-        # Check if we have to remove an old block
-        if not old_block_id:
-            log.debug('no old block, returning')
-            return
+        if old_block_id:
+            self._deref_block(old_block_id)
+        else:
+            log.debug('no old block')
 
-        self._deref_block(old_block_id)
+        return obj_lock_taken
+
 
     def _queue_upload(self, obj):
         '''Put *obj* into upload queue'''
@@ -829,21 +841,18 @@ class BlockCache(object):
                 need_entries -= 1
                 need_size -= el.size
 
-                if el.dirty:
-                    if el not in self.in_transit:
-                        log.debug('uploading %s..', el)
-                        self.upload(el) # Releases global lock
+                if self.upload_if_dirty(el): # Releases global lock
                     sth_in_transit = True
                     continue
 
                 self._lock_entry(el.inode, el.blockno, release_global=True)
                 try:
                     # May have changed while we were waiting for lock
+                    if el is not self.cache.get((el.inode, el.blockno), None):
+                        log.debug('%s removed while waiting for lock', el)
+                        continue
                     if el.dirty:
                         log.debug('%s got dirty while waiting for lock', el)
-                        continue
-                    if (el.inode, el.blockno) not in self.cache:
-                        log.debug('%s removed while waiting for lock', el)
                         continue
                     log.debug('removing %s from cache', el)
                     self.cache.remove((el.inode, el.blockno))
@@ -918,14 +927,11 @@ class BlockCache(object):
         This method releases the global lock.
         """
 
-        # Need to make copy, since we aren't allowed to change dict while
-        # iterating through it. Look at the comments in CommitThread.run()
-        # (mount.py) for an estimate of the resulting performance hit.
+        # Need to make copy, since dict() may change while global lock is
+        # released. Look at the comments in CommitThread.run() (mount.py) for an
+        # estimate of the performance impact.
         for el in list(self.cache.values()):
-            if not el.dirty or el in self.in_transit:
-                continue
-
-            self.upload(el) # Releases global lock
+            self.upload_if_dirty(el) # Releases global lock
 
     def flush(self):
         """Upload all dirty blocks
@@ -937,13 +943,13 @@ class BlockCache(object):
 
         while True:
             sth_in_transit = False
-            for el in self.cache.values():
-                if not el.dirty:
-                    continue
-                if el not in self.in_transit:
-                    log.debug('uploading %s..', el)
-                    self.upload(el) # Releases global lock
-                sth_in_transit = True
+
+            # Need to make copy, since dict() may change while global lock is
+            # released. Look at the comments in CommitThread.run() (mount.py)
+            # for an estimate of the performance impact.
+            for el in list(self.cache.values()):
+                if self.upload_if_dirty(el): # Releases global lock
+                    sth_in_transit = True
 
             if not sth_in_transit:
                 break
