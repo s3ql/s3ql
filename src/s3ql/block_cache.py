@@ -836,7 +836,6 @@ class BlockCache(object):
                     sth_in_transit = True
                     continue
 
-                log.debug('removing inode %d, block %d from cache', el.inode, el.blockno)
                 self._lock_entry(el.inode, el.blockno, release_global=True)
                 try:
                     # May have changed while we were waiting for lock
@@ -846,6 +845,7 @@ class BlockCache(object):
                     if (el.inode, el.blockno) not in self.cache:
                         log.debug('%s removed while waiting for lock', el)
                         continue
+                    log.debug('removing %s from cache', el)
                     self.cache.remove((el.inode, el.blockno))
                 finally:
                     self._unlock_entry(el.inode, el.blockno, release_global=True)
