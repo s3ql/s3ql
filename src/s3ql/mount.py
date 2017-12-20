@@ -740,10 +740,7 @@ class CommitThread(Thread):
                         break
                     if stamp - el.last_access < 10:
                         break
-                    if not el.dirty or el in self.block_cache.in_transit:
-                        continue
-
-                    self.block_cache.upload(el)
+                    self.block_cache.upload_if_dirty(el)
                     did_sth = True
 
             if not did_sth:
