@@ -1,4 +1,4 @@
-UNRELEASED, S3QL tip
+2018-01-05, S3QL 2.25
 
   * s3qlctrl now accepts a new *dropcache* command.
   * Fixed a race condition that resulted in mount.s3ql crashing with
