@@ -1,6 +1,9 @@
 UNRELEASED, S3QL tip
 
   * s3qlctrl now accepts a new *dropcache* command.
+  * Fixed a race condition that resulted in mount.s3ql crashing with
+    "I/O operation on closed file". Thanks to www.imCode.com for
+    sponsoring this work!
 
 2017-11-04, S3QL 2.24
 
