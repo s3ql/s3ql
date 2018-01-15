@@ -60,8 +60,6 @@ that is not the case.
   * `dugong <https://bitbucket.org/nikratio/python-dugong/>`_, any
     version between 3.4 (inclusive) and 4.0 (exclusive)
   * `pytest <http://pytest.org/>`_, version 2.7 or newer (optional, to run unit tests)
-  * `pytest-catchlog <https://github.com/eisensheng/pytest-catchlog>`_
-    (optional, to run unit tests)
 
   To check if a specific module :var:`<module>` is installed, execute
   :samp:`python3 -c 'import {<module>};

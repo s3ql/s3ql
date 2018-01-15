@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 '''
-py.test plugin to look for suspicious phrases in messages
-emitted on stdout/stderr or via the logging module.
+pytest_checklogs.py - this file is part of S3QL.
 
-False positives can be registered via a new `reg_output`
-fixture (for messages to stdout/stderr), and a `assert_logs`
-function (for logging messages).
+Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
+
+This work can be distributed under the terms of the GNU GPLv3.
+
+py.test plugin to look for suspicious phrases in messages emitted on
+stdout/stderr or via the logging module.
+
+False positives can be registered via a new `reg_output` fixture (for messages
+to stdout/stderr), and a `assert_logs` function (for logging messages).
 '''
 
 import pytest
@@ -14,9 +19,12 @@ import functools
 import sys
 import logging
 from contextlib import contextmanager
+from distutils.version import LooseVersion
 
 def pytest_configure(config):
-    if not config.pluginmanager.hasplugin('pytest_catchlog'):
+    # pytest-catchlog was integrated in pytest 3.3.0
+    if (LooseVersion(pytest.__version__) < "3.3.0" and
+        not config.pluginmanager.hasplugin('pytest_catchlog')):
         raise ImportError('pytest catchlog plugin not found')
 
 # Fail tests if they result in log messages of severity WARNING or more.
@@ -116,7 +124,10 @@ def reg_output(request):
 def check_output(item):
     pm = item.config.pluginmanager
     cm = pm.getplugin('capturemanager')
-    check_test_output(cm._capturing, item)
+    capmethod = (getattr(cm, '_capturing', None) or
+                 getattr(item, '_capture_fixture', None) or
+                 getattr(cm, '_global_capturing', None))
+    check_test_output(capmethod, item)
     check_test_log(item.catch_log_handler)
 
 @pytest.hookimpl(trylast=True)
