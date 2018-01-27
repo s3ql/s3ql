@@ -645,7 +645,7 @@ def get_proxy(ssl):
             proxy_port = 80
 
         proxy_host = hit.group(2)
-        log.info('Using CONNECT proxy %s:%d', proxy_host, proxy_port,
+        log.info('Using proxy %s:%d', proxy_host, proxy_port,
                  extra=LOG_ONCE)
         proxy = (proxy_host, proxy_port)
     else:
