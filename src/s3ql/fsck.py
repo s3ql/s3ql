@@ -1194,12 +1194,18 @@ def main(args=None):
     seq_no = get_seq_no(backend)
     db = None
 
+    # When there was a crash during metadata rotation, we may end up
+    # without an s3ql_metadata object.
+    meta_obj_name = 's3ql_metadata'
+    if meta_obj_name not in backend:
+        meta_obj_name += '_new'
+
     if os.path.exists(cachepath + '.params'):
         assert os.path.exists(cachepath + '.db')
         param = load_params(cachepath)
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
-            param = backend.lookup('s3ql_metadata')
+            param = backend.lookup(meta_obj_name)
         else:
             log.info('Using cached metadata.')
             db = Connection(cachepath + '.db')
@@ -1209,12 +1215,12 @@ def main(args=None):
             log.warning('File system has not been unmounted cleanly.')
             param['needs_fsck'] = True
 
-        elif backend.lookup('s3ql_metadata')['seq_no'] != param['seq_no']:
+        elif backend.lookup(meta_obj_name)['seq_no'] != param['seq_no']:
             log.warning('Remote metadata is outdated.')
             param['needs_fsck'] = True
 
     else:
-        param = backend.lookup('s3ql_metadata')
+        param = backend.lookup(meta_obj_name)
         assert not os.path.exists(cachepath + '-cache')
         # .db might exist if mount.s3ql is killed at exactly the right instant
         # and should just be ignored.

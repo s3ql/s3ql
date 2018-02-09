@@ -124,10 +124,11 @@ def cycle_metadata(backend, keep=10):
         except NoSuchObject:
             pass
 
-    # However, the current metadata object should always be copied,
-    # so that even if there's a crash we don't end up without it
+    # If we use backend.rename() and crash right after this instruction,
+    # we will end up without an s3ql_metadata object. However, fsck.s3ql
+    # is smart enough to use s3ql_metadata_new in this case.
     try:
-        backend.copy("s3ql_metadata", "s3ql_metadata_bak_0")
+        cycle_fn("s3ql_metadata", "s3ql_metadata_bak_0")
     except NoSuchObject:
         # In case of mkfs, there may be no metadata object yet
         pass

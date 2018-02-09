@@ -361,13 +361,19 @@ def get_metadata(backend, cachepath):
 
     seq_no = get_seq_no(backend)
 
+    # When there was a crash during metadata rotation, we may end up
+    # without an s3ql_metadata object.
+    meta_obj_name = 's3ql_metadata'
+    if meta_obj_name not in backend:
+        meta_obj_name += '_new'
+
     # Check for cached metadata
     db = None
     if os.path.exists(cachepath + '.params'):
         param = load_params(cachepath)
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
-            param = backend.lookup('s3ql_metadata')
+            param = backend.lookup(meta_obj_name)
         elif param['seq_no'] > seq_no:
             raise QuietError("File system not unmounted cleanly, run fsck!",
                              exitcode=30)
@@ -375,7 +381,7 @@ def get_metadata(backend, cachepath):
             log.info('Using cached metadata.')
             db = Connection(cachepath + '.db')
     else:
-        param = backend.lookup('s3ql_metadata')
+        param = backend.lookup(meta_obj_name)
 
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:
