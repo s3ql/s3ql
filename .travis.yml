@@ -3,10 +3,7 @@ sudo: enabled
 
 language: python
 python:
-  - "3.4"
-  - "3.5"
   - "3.6"
-  - "nightly"
 cache: pip
 
 before_install:
