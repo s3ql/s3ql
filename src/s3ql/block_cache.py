@@ -501,7 +501,9 @@ class BlockCache(object):
 
         log.debug('started with %s', el)
 
-        if el in self.in_transit or not el.dirty:
+        if el in self.in_transit:
+            return True
+        elif not el.dirty:
             return False
 
         # Calculate checksum
@@ -516,7 +518,7 @@ class BlockCache(object):
                 if el in self.in_transit:
                     log.debug('%s already in transit', el)
                     self._unlock_entry(el.inode, el.blockno)
-                    return False
+                    return True
                 if not el.dirty:
                     log.debug('no longer dirty, returning')
                     self._unlock_entry(el.inode, el.blockno)
