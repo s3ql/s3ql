@@ -1,3 +1,8 @@
+2018-03-04, S3QL 2.26
+
+  * Added support for py.test 3.3.0
+  * Improved metadata rotation performance.
+
 2018-01-05, S3QL 2.25
 
   * s3qlctrl now accepts a new *dropcache* command.
