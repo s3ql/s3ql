@@ -1,3 +1,8 @@
+UNRELEASED, S3QL tip
+
+  * fsck.s3ql is now able to recover blocks that were in transit
+    during a file system crash.
+
 2018-03-04, S3QL 2.26
 
   * Added support for py.test 3.3.0

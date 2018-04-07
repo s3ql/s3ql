@@ -75,6 +75,7 @@ class Fsck(object):
         self.conn.execute('CREATE INDEX tmp5 ON ext_attributes(name_id)')
         try:
             self.check_lof()
+            self.check_uploads()
             self.check_cache()
             self.check_names_refcount()
 
@@ -150,6 +151,20 @@ class Fsck(object):
                                    'in %(dst_table)s.%(dst_col)s, deleting.', sql_objs)
                     log.error('This should not happen, please report a bug.')
                     self.uncorrectable_errors = True
+
+
+    def check_uploads(self):
+        '''Drop rows for objects that were never successfully uploaded'''
+
+        for (obj_id,) in self.conn.query('SELECT id FROM objects WHERE size == -1'):
+            self.log_error('Cleaning up interrupted upload of object %s', obj_id)
+            self.found_errors = True
+
+            # If there are affected files, they'll be picked up by
+            # check_inode_blocks_block_id().
+            self.conn.execute('DELETE FROM blocks WHERE obj_id = ?', (obj_id,))
+
+        self.conn.execute('DELETE FROM objects WHERE size = -1')
 
 
     def check_cache(self):
@@ -1097,6 +1112,7 @@ class ROFsck(Fsck):
             self.conn.execute('CREATE INDEX tmp5 ON ext_attributes(name_id)')
 
             self.check_lof()
+            self.check_uploads()
             self.check_names_refcount()
 
             self.check_contents_name()
