@@ -987,9 +987,10 @@ def _parse_retry_after(header):
             return None
         val = mktime_tz(*date) - time.time()
 
-    if val > 300 or val < 0:
-        log.warning('Ignoring retry-after value of %.3f s, using 1 s instead', val)
-        val = 1
+    val_clamp = min(300, max(1, val))
+    if val != val_clamp:
+        log.warning('Ignoring retry-after value of %.3f s, using %.3f s instead', val, val_clamp)
+        val = val_clamp
 
     return val
 
