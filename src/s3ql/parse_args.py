@@ -33,12 +33,17 @@ are:
 # Pylint really gets confused by this module
 #pylint: disable-all
 
-
-from . import RELEASE
-from argparse import ArgumentTypeError, ArgumentError
-import argparse
 from .logging import logging # Ensure use of custom logger class
+from . import RELEASE
+from .backends import prefix_map
+from .common import _escape
+from getpass import getpass
+from argparse import ArgumentTypeError, ArgumentError
+import configparser
+import argparse
+import stat
 import os
+import sys
 import re
 
 DEFAULT_USAGE = object()
@@ -202,9 +207,95 @@ class ArgumentParser(argparse.ArgumentParser):
     def parse_args(self, *args, **kwargs):
 
         try:
-            return super().parse_args(*args, **kwargs)
+            options = super().parse_args(*args, **kwargs)
         except ArgumentError as exc:
-            self.exit(str(exc))
+            self.error(str(exc))
+
+        if hasattr(options, 'cachedir'):
+            assert options.storage_url
+            if not os.path.exists(options.cachedir):
+                try:
+                    os.mkdir(options.cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+                except PermissionError:
+                    self.exit(45, 'No permission to create cache directory ' + options.cachedir)
+
+            if not os.access(options.cachedir, os.R_OK | os.W_OK | os.X_OK):
+                self.exit(45, 'No permission to access cache directory ' + options.cachedir)
+
+            options.cachepath = os.path.abspath(os.path.join(options.cachedir,
+                                                             _escape(options.storage_url)))
+            del options.cachedir
+
+        if not hasattr(options, 'authfile'):
+            return options
+        assert options.storage_url
+
+        storage_url = options.storage_url
+        hit = re.match(r'^([a-zA-Z0-9]+)://', storage_url)
+        if not hit:
+            self.exit(2, 'Unable to parse storage url ' + storage_url)
+
+        backend = hit.group(1)
+        try:
+            backend_class = prefix_map[backend]
+        except KeyError:
+            self.exit(11, 'No such backend: ' + backend)
+
+        # Validate backend options
+        backend_options = options.backend_options
+        del options.backend_options
+        for opt in backend_options.keys():
+            if opt not in backend_class.known_options:
+                self.exit(3, 'Unknown backend option: +' % opt)
+
+        # Read authfile
+        config = configparser.ConfigParser()
+        if os.path.isfile(options.authfile):
+            mode = os.stat(options.authfile).st_mode
+            if mode & (stat.S_IRGRP | stat.S_IROTH):
+                self.exit(12, "%s has insecure permissions, aborting."
+                          % options.authfile)
+            config.read(options.authfile)
+        del options.authfile
+
+        backend_login = None
+        backend_passphrase = None
+        fs_passphrase = None
+        for section in config.sections():
+            def getopt(name):
+                try:
+                    return config.get(section, name)
+                except configparser.NoOptionError:
+                    return None
+
+            pattern = getopt('storage-url')
+
+            if not pattern or not storage_url.startswith(pattern):
+                continue
+
+            backend_login = getopt('backend-login') or backend_login
+            backend_passphrase = getopt('backend-password') or backend_passphrase
+            fs_passphrase = getopt('fs-passphrase') or fs_passphrase
+
+        if not backend_login and backend_class.needs_login:
+            if sys.stdin.isatty():
+                backend_login = getpass("Enter backend login: ")
+            else:
+                backend_login = sys.stdin.readline().rstrip()
+
+        if not backend_passphrase and backend_class.needs_login:
+            if sys.stdin.isatty():
+                backend_passphrase = getpass("Enter backend passphrase: ")
+            else:
+                backend_passphrase = sys.stdin.readline().rstrip()
+
+        options.backend_passphrase = backend_passphrase
+        options.fs_passphrase = fs_passphrase
+        options.backend_class = lambda : (
+            backend_class(storage_url, backend_login, backend_passphrase,
+                          backend_options))
+
+        return options
 
 def storage_url_type(s):
     '''Validate and canonicalize storage url'''

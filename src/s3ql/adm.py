@@ -11,8 +11,8 @@ from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.comprenc import ComprencBackend
 from .database import Connection
 from .deltadump import TIME, INTEGER
-from .common import (get_backend_cachedir, get_seq_no, is_mounted, get_backend,
-                     load_params, save_params)
+from .common import (get_seq_no, is_mounted, get_backend, load_params,
+                     save_params)
 from .metadata import dump_and_upload_metadata, download_metadata
 from . import metadata
 from .parse_args import ArgumentParser
@@ -89,15 +89,14 @@ def main(args=None):
 
     with get_backend(options) as backend:
         if options.action == 'upgrade':
-            return upgrade(backend, get_backend_cachedir(options.storage_url,
-                                                          options.cachedir))
+            return upgrade(backend, options)
         elif options.action == 'passphrase':
             return change_passphrase(backend)
 
         elif options.action == 'download-metadata':
-            return download_metadata_cmd(backend, options.storage_url)
+            return download_metadata_cmd(backend, options)
 
-def download_metadata_cmd(backend, storage_url):
+def download_metadata_cmd(backend, options):
     '''Download old metadata backups'''
 
     backups = sorted(backend.list('s3ql_metadata'))
@@ -130,7 +129,7 @@ def download_metadata_cmd(backend, storage_url):
         except:
             log.warning('Invalid input')
 
-    cachepath = get_backend_cachedir(storage_url, '.')
+    cachepath = options.cachepath
     for i in ('.db', '.params'):
         if os.path.exists(cachepath + i):
             raise QuietError('%s already exists, aborting.' % cachepath + i)
@@ -177,13 +176,12 @@ def clear(backend, options):
         raise QuietError()
 
     log.info('Deleting...')
-    cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
     for suffix in ('.db', '.params'):
-        name = cachepath + suffix
+        name = options.cachepath + suffix
         if os.path.exists(name):
             os.unlink(name)
 
-    name = cachepath + '-cache'
+    name = options.cachepath + '-cache'
     if os.path.exists(name):
         shutil.rmtree(name)
 
@@ -206,12 +204,13 @@ def get_old_rev_msg(rev, prog):
         ''' % { 'version': REV_VER_MAP[rev],
                 'prog': prog })
 
-def upgrade(backend, cachepath):
+def upgrade(backend, options):
     '''Upgrade file system to newest revision'''
 
     log.info('Getting file system parameters..')
 
     # Check for cached metadata
+    cachepath = options.cachepath
     db = None
     seq_no = get_seq_no(backend)
     if os.path.exists(cachepath + '.params'):

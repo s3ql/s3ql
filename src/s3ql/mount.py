@@ -10,8 +10,7 @@ from .logging import logging, setup_logging, QuietError
 from . import fs, CURRENT_FS_REV
 from .backends.pool import BackendPool
 from .block_cache import BlockCache
-from .common import (get_backend_cachedir, get_seq_no, get_backend_factory,
-                     load_params, save_params)
+from .common import (get_seq_no, get_backend_factory, load_params, save_params)
 from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
@@ -116,13 +115,12 @@ def main(args=None):
         import pstats
         prof = cProfile.Profile()
 
-    backend_factory = get_backend_factory(options.storage_url, options.backend_options,
-                                          options.authfile, options.compress)
+    backend_factory = get_backend_factory(options)
     backend_pool = BackendPool(backend_factory)
     atexit.register(backend_pool.flush)
 
     # Get paths
-    cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
+    cachepath = options.cachepath
 
     # Retrieve metadata
     with backend_pool() as backend:

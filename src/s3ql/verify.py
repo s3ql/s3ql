@@ -9,8 +9,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 from .logging import logging, setup_logging
 from .mount import get_metadata
 from . import BUFSIZE
-from .common import (get_backend_factory, get_backend_cachedir, pretty_print_size,
-                     AsyncFn)
+from .common import (get_backend_factory, pretty_print_size, AsyncFn)
 from .backends.common import NoSuchObject, CorruptedObjectError
 from .parse_args import ArgumentParser
 from queue import Queue, Full as QueueFull
@@ -90,15 +89,11 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    backend_factory = get_backend_factory(options.storage_url, options.backend_options,
-                                          options.authfile)
-
-    # Get paths
-    cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
+    backend_factory = get_backend_factory(options)
 
     # Retrieve metadata
     with backend_factory() as backend:
-        (param, db) = get_metadata(backend, cachepath)
+        (param, db) = get_metadata(backend, options.cachepath)
 
     retrieve_objects(db, backend_factory, options.corrupted_file,
                      options.missing_file, thread_count=options.parallel,

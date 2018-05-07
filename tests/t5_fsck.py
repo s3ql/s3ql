@@ -12,13 +12,14 @@ if __name__ == '__main__':
     import sys
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from s3ql.common import get_backend_cachedir
 from s3ql.database import Connection
 from common import populate_dir, skip_without_rsync
 import shutil
 import subprocess
 from subprocess import check_output, CalledProcessError
+from os.path import join as pjoin
 import t4_fuse
+from s3ql.common import _escape
 import tempfile
 
 class TestFsck(t4_fuse.TestFuse):
@@ -31,7 +32,8 @@ class TestFsck(t4_fuse.TestFuse):
 
             # Make file system and fake high inode number
             self.mkfs()
-            db = Connection(get_backend_cachedir(self.storage_url, self.cache_dir) + '.db')
+            cachepath = pjoin(self.cache_dir, _escape(self.storage_url))
+            db = Connection(cachepath + '.db')
             db.execute('UPDATE sqlite_sequence SET seq=? WHERE name=?',
                        (2 ** 31 + 10, 'inodes'))
             db.close()
@@ -43,7 +45,7 @@ class TestFsck(t4_fuse.TestFuse):
             self.umount()
 
             # Check that inode watermark is high
-            db = Connection(get_backend_cachedir(self.storage_url, self.cache_dir) + '.db')
+            db = Connection(cachepath + '.db')
             assert db.get_val('SELECT seq FROM sqlite_sequence WHERE name=?',
                               ('inodes',)) > 2 ** 31 + 10
             assert db.get_val('SELECT MAX(id) FROM inodes') > 2 ** 31 + 10
@@ -53,7 +55,7 @@ class TestFsck(t4_fuse.TestFuse):
             self.fsck()
 
             # Check if renumbering was done
-            db = Connection(get_backend_cachedir(self.storage_url, self.cache_dir) + '.db')
+            db = Connection(cachepath + '.db')
             assert db.get_val('SELECT seq FROM sqlite_sequence WHERE name=?',
                                ('inodes',)) < 2 ** 31
             assert db.get_val('SELECT MAX(id) FROM inodes') < 2 ** 31

@@ -13,9 +13,6 @@ from getpass import getpass
 from ast import literal_eval
 from base64 import b64decode, b64encode
 import binascii
-import configparser
-import re
-import stat
 import threading
 import traceback
 import sys
@@ -165,21 +162,6 @@ def _escape(s):
 
     return s
 
-def get_backend_cachedir(storage_url, cachedir):
-    if not os.path.exists(cachedir):
-        try:
-            os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-        except PermissionError:
-            raise QuietError('No permission to create cache directory (%s)' % cachedir,
-                             exitcode=45)
-
-    if not os.access(cachedir, os.R_OK | os.W_OK | os.X_OK):
-        raise QuietError('No permission to access cache directory (%s)' % cachedir,
-                         exitcode=45)
-
-    return os.path.abspath(os.path.join(cachedir, _escape(storage_url)))
-
-
 def sha256_fh(fh):
     fh.seek(0)
 
@@ -260,134 +242,72 @@ def get_backend(options, raw=False):
     ComprencBackend.
     '''
 
-    return get_backend_factory(options.storage_url, options.backend_options,
-                               options.authfile,
-                               getattr(options, 'compress', ('lzma', 2)), raw)()
+    return get_backend_factory(options, raw=raw)()
 
-def get_backend_factory(storage_url, backend_options, authfile,
-                        compress=('lzma', 2), raw=False):
-    '''Return factory producing backend objects for given storage-url
+def get_backend_factory(options, raw=False):
+    '''Return factory producing backend objects
 
     If *raw* is true, don't attempt to unlock and don't wrap into
     ComprencBackend.
     '''
 
-    from .backends import prefix_map
     from .backends.common import (CorruptedObjectError, NoSuchObject, AuthenticationError,
                                   DanglingStorageURLError, AuthorizationError)
     from .backends.comprenc import ComprencBackend
 
-    hit = re.match(r'^([a-zA-Z0-9]+)://', storage_url)
-    if not hit:
-        raise QuietError('Unable to parse storage url "%s"' % storage_url,
-                         exitcode=2)
-
-    backend = hit.group(1)
-    try:
-        backend_class = prefix_map[backend]
-    except KeyError:
-        raise QuietError('No such backend: %s' % backend, exitcode=11)
-
-    # Validate backend options
-    for opt in backend_options.keys():
-        if opt not in backend_class.known_options:
-            raise QuietError('Unknown backend option: %s' % opt,
-                             exitcode=3)
-
-    # Read authfile
-    config = configparser.ConfigParser()
-    if os.path.isfile(authfile):
-        mode = os.stat(authfile).st_mode
-        if mode & (stat.S_IRGRP | stat.S_IROTH):
-            raise QuietError("%s has insecure permissions, aborting." % authfile,
-                             exitcode=12)
-        config.read(authfile)
-
-    backend_login = None
-    backend_passphrase = None
-    fs_passphrase = None
-    for section in config.sections():
-        def getopt(name):
-            try:
-                return config.get(section, name)
-            except configparser.NoOptionError:
-                return None
-
-        pattern = getopt('storage-url')
-
-        if not pattern or not storage_url.startswith(pattern):
-            continue
-
-        backend_login = getopt('backend-login') or backend_login
-        backend_passphrase = getopt('backend-password') or backend_passphrase
-        fs_passphrase = getopt('fs-passphrase') or fs_passphrase
-
-    if not backend_login and backend_class.needs_login:
-        if sys.stdin.isatty():
-            backend_login = getpass("Enter backend login: ")
-        else:
-            backend_login = sys.stdin.readline().rstrip()
-
-    if not backend_passphrase and backend_class.needs_login:
-        if sys.stdin.isatty():
-            backend_passphrase = getpass("Enter backend passphrase: ")
-        else:
-            backend_passphrase = sys.stdin.readline().rstrip()
-
     backend = None
     try:
-        backend = backend_class(storage_url, backend_login, backend_passphrase,
-                                backend_options)
+        try:
+            backend = options.backend_class()
 
-        # Do not use backend.lookup(), this would use a HEAD request and
-        # not provide any useful error messages if something goes wrong
-        # (e.g. wrong credentials)
-        backend.fetch('s3ql_passphrase')
+            # Do not use backend.lookup(), this would use a HEAD request and
+            # not provide any useful error messages if something goes wrong
+            # (e.g. wrong credentials)
+            backend.fetch('s3ql_passphrase')
 
-    except AuthenticationError:
-        raise QuietError('Invalid credentials (or skewed system clock?).',
-                         exitcode=14)
+        except AuthenticationError:
+            raise QuietError('Invalid credentials (or skewed system clock?).',
+                             exitcode=14)
 
-    except AuthorizationError:
-        raise QuietError('No permission to access backend.',
-                         exitcode=15)
+        except AuthorizationError:
+            raise QuietError('No permission to access backend.',
+                             exitcode=15)
 
-    except HostnameNotResolvable:
-        raise QuietError("Can't connect to backend: unable to resolve hostname",
-                         exitcode=19)
+        except HostnameNotResolvable:
+            raise QuietError("Can't connect to backend: unable to resolve hostname",
+                             exitcode=19)
 
-    except DanglingStorageURLError as exc:
-        raise QuietError(str(exc), exitcode=16)
+        except DanglingStorageURLError as exc:
+            raise QuietError(str(exc), exitcode=16)
 
-    except NoSuchObject:
-        encrypted = False
-
-    else:
-        encrypted = True
-
-    finally:
+        except NoSuchObject:
+            encrypted = False
+        else:
+            encrypted = True
+    except:
         if backend is not None:
             backend.close()
+        raise
 
     if raw:
-        return lambda: backend_class(storage_url, backend_login, backend_passphrase,
-                                     backend_options)
+        return options.backend_class
 
-    if encrypted and not fs_passphrase:
+    if encrypted and not options.fs_passphrase:
         if sys.stdin.isatty():
             fs_passphrase = getpass("Enter file system encryption passphrase: ")
         else:
             fs_passphrase = sys.stdin.readline().rstrip()
     elif not encrypted:
         fs_passphrase = None
+    else:
+        fs_passphrase = options.fs_passphrase
 
     if fs_passphrase is not None:
         fs_passphrase = fs_passphrase.encode('utf-8')
 
+    compress = getattr(options, 'compress', ('lzma', 2))
     if not encrypted:
-        return lambda: ComprencBackend(None, compress,
-                                    backend_class(storage_url, backend_login,
-                                                  backend_passphrase, backend_options))
+        return lambda: ComprencBackend(None, compress, options.backend_class())
 
     with ComprencBackend(fs_passphrase, compress, backend) as tmp_backend:
         try:
@@ -395,16 +315,7 @@ def get_backend_factory(storage_url, backend_options, authfile,
         except CorruptedObjectError:
             raise QuietError('Wrong file system passphrase', exitcode=17)
 
-    # To support upgrade, temporarily store the backend
-    # passphrase in every backend object.
-    def factory():
-        b = ComprencBackend(data_pw, compress,
-                            backend_class(storage_url, backend_login,
-                                          backend_passphrase, backend_options))
-        b.fs_passphrase = fs_passphrase
-        return b
-
-    return factory
+    return lambda: ComprencBackend(data_pw, compress, options.backend_class())
 
 def pretty_print_size(i):
     '''Return *i* as string with appropriate suffix (MiB, GiB, etc)'''

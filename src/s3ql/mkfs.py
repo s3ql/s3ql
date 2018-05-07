@@ -10,8 +10,7 @@ from .logging import logging, setup_logging, QuietError
 from . import CURRENT_FS_REV, CTRL_INODE, ROOT_INODE
 from .backends.comprenc import ComprencBackend
 from .backends import s3
-from .common import (get_backend_cachedir, get_backend, split_by_n,
-                     freeze_basic_mapping, time_ns)
+from .common import (get_backend, split_by_n, freeze_basic_mapping, time_ns)
 from .database import Connection
 from .metadata import dump_and_upload_metadata, create_tables
 from .parse_args import ArgumentParser
@@ -138,9 +137,7 @@ def main(args=None):
     backend = ComprencBackend(data_pw, ('lzma', 2), plain_backend)
     atexit.unregister(plain_backend.close)
     atexit.register(backend.close)
-
-    # Setup database
-    cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
+    cachepath = options.cachepath
 
     # There can't be a corresponding backend, so we can safely delete
     # these files.
