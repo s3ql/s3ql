@@ -241,12 +241,6 @@ class ArgumentParser(argparse.ArgumentParser):
         except KeyError:
             self.exit(11, 'No such backend: ' + backend)
 
-        # Validate backend options
-        backend_options = options.backend_options
-        for opt in backend_options.keys():
-            if opt not in backend_class.known_options:
-                self.exit(3, 'Unknown backend option: +' % opt)
-
         # Read authfile
         ini_config = configparser.ConfigParser()
         if os.path.isfile(options.authfile):
@@ -256,7 +250,18 @@ class ArgumentParser(argparse.ArgumentParser):
                           % options.authfile)
             ini_config.read(options.authfile)
 
-        _merge_sections(ini_config, options)
+        # Validate backend options
+        backend_options = options.backend_options
+        for opt in backend_options.keys():
+            if opt not in backend_class.known_options:
+                self.exit(3, 'Unknown backend option: +' % opt)
+
+        valid_keys = backend_class.known_options | {
+            'backend_login', 'backend_password', 'fs_passphrase' }
+        unknown = _merge_sections(ini_config, options, valid_keys)
+        if unknown:
+            self.exit(2, 'Unknown key(s) in configuration file: ' +
+                      ', '.join(unknown))
 
         if not hasattr(options, 'backend_login') and backend_class.needs_login:
             if sys.stdin.isatty():
@@ -275,11 +280,16 @@ class ArgumentParser(argparse.ArgumentParser):
         return options
 
 
-def _merge_sections(ini_config, options):
+def _merge_sections(ini_config, options, valid_keys):
     '''Merge configuration sections from *ini_config* into *options*
 
     Merge the data from all sections that apply to the given storage
     URL. Later sections take precedence over earlier sections.
+
+    Keys in *ini_config* that are neither in *options* nor in *valid_keys* will
+    be returned.
+
+    Dashes will be replaced by underscores.
     '''
 
     storage_url = options.storage_url
@@ -290,10 +300,16 @@ def _merge_sections(ini_config, options):
             continue
 
         for (key, val) in ini_config[section].items():
-            merged[key] = val
+            merged[key.replace('-', '_')] = val
 
+    unknown = set()
     for (key, val) in merged.items():
-        setattr(options, key.replace('-', '_'), val)
+        if key not in valid_keys and not hasattr(options, key):
+            unknown.add(key)
+        else:
+            setattr(options, key, val)
+
+    return unknown
 
 
 def storage_url_type(s):
