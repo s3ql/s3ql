@@ -2,16 +2,17 @@
 
 .. _authinfo:
 
-====================================
- Storing Authentication Information
-====================================
+=============================
+ Storing Backend Information
+=============================
 
 Normally, S3QL reads username and password for the backend as well as
-an encryption passphrase for the file system from the terminal. Most
-commands also accept an :cmdopt:`--authfile` parameter that can be
-used to read this information from a file instead.
+an encryption passphrase for the file system from the
+terminal. Alternatively, these (and some other backend parameters) may
+be specified in a configuration file specified by the
+:cmdopt:`--authfile` parameter.
 
-The authentication file consists of sections, led by a ``[section]``
+The authinfo file consists of sections, led by a ``[section]``
 header and followed by ``name: value`` entries. The section headers
 themselves are not used by S3QL but have to be unique within the file.
 
@@ -32,8 +33,13 @@ In each section, the following entries can be defined:
   Specifies the passphrase to use to decrypt the file system (if
   it is encrypted).
 
+Furthermore, command line parameters that are shared between all S3QL
+commands that work with storage URL may be specified in this file as
+well by omitting the leading dashes, e.g. the ``--backend-options
+notls`` parameter may be written into the authinfo file as
+``backend-options: notls``.
 
-When reading the authentication file, S3QL considers every applicable
+When reading the authinfo file, S3QL considers every applicable
 section in order and uses the last value that it found for each entry.
 For example, consider the following authentication file::
 

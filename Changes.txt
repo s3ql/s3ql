@@ -3,6 +3,11 @@ UNRELEASED, S3QL tip
   * fsck.s3ql is now able to recover blocks that were in transit
     during a file system crash.
 
+  * Command line options that are common to all S3QL commands that
+    accept a storage URL (e.g. ``--cachedir`` or
+    ``--backend-options``) may now also been specified in the
+    *authinfo2* file by omitting the two leading dashes.
+
 2018-03-04, S3QL 2.26
 
   * Added support for py.test 3.3.0
