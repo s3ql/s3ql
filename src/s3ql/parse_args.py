@@ -243,59 +243,58 @@ class ArgumentParser(argparse.ArgumentParser):
 
         # Validate backend options
         backend_options = options.backend_options
-        del options.backend_options
         for opt in backend_options.keys():
             if opt not in backend_class.known_options:
                 self.exit(3, 'Unknown backend option: +' % opt)
 
         # Read authfile
-        config = configparser.ConfigParser()
+        ini_config = configparser.ConfigParser()
         if os.path.isfile(options.authfile):
             mode = os.stat(options.authfile).st_mode
             if mode & (stat.S_IRGRP | stat.S_IROTH):
                 self.exit(12, "%s has insecure permissions, aborting."
                           % options.authfile)
-            config.read(options.authfile)
-        del options.authfile
+            ini_config.read(options.authfile)
 
-        backend_login = None
-        backend_passphrase = None
-        fs_passphrase = None
-        for section in config.sections():
-            def getopt(name):
-                try:
-                    return config.get(section, name)
-                except configparser.NoOptionError:
-                    return None
+        _merge_sections(ini_config, options)
 
-            pattern = getopt('storage-url')
-
-            if not pattern or not storage_url.startswith(pattern):
-                continue
-
-            backend_login = getopt('backend-login') or backend_login
-            backend_passphrase = getopt('backend-password') or backend_passphrase
-            fs_passphrase = getopt('fs-passphrase') or fs_passphrase
-
-        if not backend_login and backend_class.needs_login:
+        if not hasattr(options, 'backend_login') and backend_class.needs_login:
             if sys.stdin.isatty():
-                backend_login = getpass("Enter backend login: ")
+                options.backend_login = getpass("Enter backend login: ")
             else:
-                backend_login = sys.stdin.readline().rstrip()
+                options.backend_login = sys.stdin.readline().rstrip()
 
-        if not backend_passphrase and backend_class.needs_login:
+        if not hasattr(options, 'backend_passphrase') and backend_class.needs_login:
             if sys.stdin.isatty():
-                backend_passphrase = getpass("Enter backend passphrase: ")
+                options.backend_passphrase = getpass("Enter backend passphrase: ")
             else:
-                backend_passphrase = sys.stdin.readline().rstrip()
+                options.backend_passphrase = sys.stdin.readline().rstrip()
 
-        options.backend_passphrase = backend_passphrase
-        options.fs_passphrase = fs_passphrase
-        options.backend_class = lambda : (
-            backend_class(storage_url, backend_login, backend_passphrase,
-                          backend_options))
+        options.backend_class = backend_class
 
         return options
+
+
+def _merge_sections(ini_config, options):
+    '''Merge configuration sections from *ini_config* into *options*
+
+    Merge the data from all sections that apply to the given storage
+    URL. Later sections take precedence over earlier sections.
+    '''
+
+    storage_url = options.storage_url
+    merged = dict()
+    for section in ini_config.sections():
+        pattern = ini_config[section].get('storage-url', None)
+        if not pattern or not storage_url.startswith(pattern):
+            continue
+
+        for (key, val) in ini_config[section].items():
+            merged[key] = val
+
+    for (key, val) in merged.items():
+        setattr(options, key.replace('-', '_'), val)
+
 
 def storage_url_type(s):
     '''Validate and canonicalize storage url'''

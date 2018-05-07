@@ -49,9 +49,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     clear = s3c.Backend.clear
     reset = s3c.Backend.reset
 
-    def __init__(self, storage_url, login, password, options):
+    def __init__(self, options):
         super().__init__()
-        self.options = options
+        self.options = options.backend_options
         self.hostname = None
         self.port = None
         self.container_name = None
@@ -59,15 +59,15 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.auth_token = None
         self.auth_prefix = None
         self.conn = None
-        self.password = password
-        self.login = login
+        self.password = options.backend_login
+        self.login = options.backend_password
         self.features = Features()
 
         # We may need the context even if no-ssl has been specified,
         # because no-ssl applies only to the authentication URL.
-        self.ssl_context = get_ssl_context(options.get('ssl-ca-path', None))
+        self.ssl_context = get_ssl_context(self.options.get('ssl-ca-path', None))
 
-        self._parse_storage_url(storage_url, self.ssl_context)
+        self._parse_storage_url(options.storage_url, self.ssl_context)
         self.proxy = get_proxy(self.ssl_context is not None)
         self._container_exists()
 

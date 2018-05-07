@@ -28,6 +28,7 @@ from s3ql.inode_cache import InodeCache
 from t2_block_cache import DummyQueue
 from common import CLOCK_GRANULARITY, safe_sleep
 from pytest_checklogs import assert_logs
+from argparse import Namespace
 import errno
 import llfuse
 import os
@@ -65,7 +66,8 @@ class fs_api_tests(unittest.TestCase):
 
     def setUp(self):
         self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-        plain_backend = local.Backend('local://' + self.backend_dir, None, None)
+        plain_backend = local.Backend(Namespace(
+            storage_url='local://' + self.backend_dir))
         self.backend_pool = BackendPool(lambda: ComprencBackend(b'schwubl', ('zlib', 6),
                                                               plain_backend))
         self.backend = self.backend_pool.pop_conn()

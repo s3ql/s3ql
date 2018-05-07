@@ -22,6 +22,7 @@ from s3ql.metadata import create_tables
 from s3ql.database import Connection
 from s3ql.common import AsyncFn, time_ns
 import s3ql.block_cache
+from argparse import Namespace
 from common import safe_sleep
 from pytest_checklogs import assert_logs
 from unittest.mock import patch
@@ -72,8 +73,8 @@ class cache_tests(unittest.TestCase):
     def setUp(self):
 
         self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-        self.backend_pool = BackendPool(lambda: local.Backend('local://' + self.backend_dir,
-                                                           None, None))
+        self.backend_pool = BackendPool(lambda: local.Backend(
+            Namespace(storage_url='local://' + self.backend_dir)))
 
         self.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.max_obj_size = 1024

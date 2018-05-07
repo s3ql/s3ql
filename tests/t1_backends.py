@@ -24,6 +24,7 @@ from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, 
 from s3ql.backends.swift import Backend as SwiftBackend
 from argparse import Namespace
 from common import get_remote_test_info, NoTestSection, CLOCK_GRANULARITY
+from argparse import Namespace
 from pytest_checklogs import assert_logs
 import s3ql.backends.common
 import tempfile
@@ -180,7 +181,7 @@ def backend(request):
 
 def yield_local_backend(bi):
     backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-    backend = LocalBackend('local://' + backend_dir, None, None)
+    backend = LocalBackend(Namespace(storage_url='local://' + backend_dir))
     backend.unittest_info = Namespace()
     backend.unittest_info.retry_time = 0
     try:
@@ -198,7 +199,11 @@ def yield_mock_backend(bi):
 
     storage_url = bi.storage_url % { 'host': server.server_address[0],
                                      'port': server.server_address[1] }
-    backend = backend_class(storage_url, 'joe', 'swordfish', { 'no-ssl': True })
+    backend = backend_class(Namespace(
+        storage_url=storage_url,
+        backend_login='joe',
+        backend_password='swordfish',
+        backend_options={ 'no-ssl': True }))
 
     # Enable OAuth when using Google Backend
     if isinstance(backend, GSBackend):
@@ -234,7 +239,9 @@ def yield_remote_backend(bi, _ctr=[0]):
     storage_url += '%d_%d/' % (time.time(), _ctr[0])
 
     backend_class = backends.prefix_map[bi.classname]
-    backend = backend_class(storage_url, bi.login, bi.password, {})
+    backend = backend_class(Namespace(
+        storage_url=storage_url, backend_login=bi.login,
+        backend_password=bi.password, backend_options={}))
 
     backend.unittest_info = Namespace()
     backend.unittest_info.retry_time = 600

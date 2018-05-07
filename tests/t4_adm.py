@@ -14,6 +14,7 @@ if __name__ == '__main__':
 
 from s3ql.backends import local
 from s3ql.backends.comprenc import ComprencBackend
+from argparse import Namespace
 import shutil
 import tempfile
 import unittest
@@ -66,7 +67,8 @@ class AdmTests(unittest.TestCase):
 
         self.assertEqual(proc.wait(), 0)
 
-        plain_backend = local.Backend(self.storage_url, None, None)
+        plain_backend = local.Backend(Namespace(
+            storage_url=self.storage_url))
         backend = ComprencBackend(passphrase_new.encode(), ('zlib', 6), plain_backend)
 
         backend.fetch('s3ql_passphrase') # will fail with wrong pw

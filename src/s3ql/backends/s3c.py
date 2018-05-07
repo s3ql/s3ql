@@ -52,7 +52,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout',
                      'dumb-copy', 'disable-expect100'}
 
-    def __init__(self, storage_url, login, password, options):
+    def __init__(self, options):
         '''Initialize backend object
 
         *ssl_context* may be a `ssl.SSLContext` instance or *None*.
@@ -60,23 +60,24 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         super().__init__()
 
-        if 'no-ssl' in options:
+        if 'no-ssl' in options.backend_options:
             self.ssl_context = None
         else:
-            self.ssl_context = get_ssl_context(options.get('ssl-ca-path', None))
+            self.ssl_context = get_ssl_context(
+                options.backend_options.get('ssl-ca-path', None))
 
-        (host, port, bucket_name, prefix) = self._parse_storage_url(storage_url,
-                                                                    self.ssl_context)
+        (host, port, bucket_name, prefix) = self._parse_storage_url(
+            options.storage_url, self.ssl_context)
 
-        self.options = options
+        self.options = options.backend_options
         self.bucket_name = bucket_name
         self.prefix = prefix
         self.hostname = host
         self.port = port
         self.proxy = get_proxy(self.ssl_context is not None)
         self.conn = self._get_conn()
-        self.password = password
-        self.login = login
+        self.password = options.backend_password
+        self.login = options.backend_login
 
     @property
     @copy_ancestor_docstring

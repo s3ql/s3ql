@@ -28,17 +28,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     needs_login = False
     known_options = set()
 
-    def __init__(self, storage_url, backend_login=None, backend_pw=None,
-                 options=None):
-        '''Initialize local backend
+    def __init__(self, options):
+        '''Initialize local backend'''
 
-        Login and password are ignored.
-        '''
         # Unused argument
         #pylint: disable=W0613
 
         super().__init__()
-        self.prefix = storage_url[len('local://'):].rstrip('/')
+        self.prefix = options.storage_url[len('local://'):].rstrip('/')
 
         if not os.path.exists(self.prefix):
             raise DanglingStorageURLError(self.prefix)

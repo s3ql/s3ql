@@ -242,14 +242,13 @@ def get_backend(options, raw=False):
     ComprencBackend.
     '''
 
-    return get_backend_factory(options, raw=raw)()
+    if raw:
+        return options.backend_class(options)
+    else:
+        return get_backend_factory(options)()
 
-def get_backend_factory(options, raw=False):
-    '''Return factory producing backend objects
-
-    If *raw* is true, don't attempt to unlock and don't wrap into
-    ComprencBackend.
-    '''
+def get_backend_factory(options):
+    '''Return factory producing backend objects'''
 
     from .backends.common import (CorruptedObjectError, NoSuchObject, AuthenticationError,
                                   DanglingStorageURLError, AuthorizationError)
@@ -258,7 +257,7 @@ def get_backend_factory(options, raw=False):
     backend = None
     try:
         try:
-            backend = options.backend_class()
+            backend = options.backend_class(options)
 
             # Do not use backend.lookup(), this would use a HEAD request and
             # not provide any useful error messages if something goes wrong
@@ -289,10 +288,7 @@ def get_backend_factory(options, raw=False):
             backend.close()
         raise
 
-    if raw:
-        return options.backend_class
-
-    if encrypted and not options.fs_passphrase:
+    if encrypted and not hasattr(options, 'fs_passphrase'):
         if sys.stdin.isatty():
             fs_passphrase = getpass("Enter file system encryption passphrase: ")
         else:
@@ -307,7 +303,7 @@ def get_backend_factory(options, raw=False):
 
     compress = getattr(options, 'compress', ('lzma', 2))
     if not encrypted:
-        return lambda: ComprencBackend(None, compress, options.backend_class())
+        return lambda: ComprencBackend(None, compress, options.backend_class(options))
 
     with ComprencBackend(fs_passphrase, compress, backend) as tmp_backend:
         try:
@@ -315,7 +311,7 @@ def get_backend_factory(options, raw=False):
         except CorruptedObjectError:
             raise QuietError('Wrong file system passphrase', exitcode=17)
 
-    return lambda: ComprencBackend(data_pw, compress, options.backend_class())
+    return lambda: ComprencBackend(data_pw, compress, options.backend_class(options))
 
 def pretty_print_size(i):
     '''Return *i* as string with appropriate suffix (MiB, GiB, etc)'''

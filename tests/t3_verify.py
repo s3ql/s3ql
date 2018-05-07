@@ -19,6 +19,7 @@ from s3ql.metadata import create_tables
 from s3ql.database import Connection
 from s3ql import verify
 from pytest_checklogs import assert_logs
+from argparse import Namespace
 import io
 import logging
 import shutil
@@ -28,7 +29,8 @@ import pytest
 @pytest.yield_fixture()
 def backend():
     backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-    be = local.Backend('local://' + backend_dir, None, None)
+    be = local.Backend(Namespace(
+        storage_url='local://' + backend_dir))
     try:
         yield be
     finally:
