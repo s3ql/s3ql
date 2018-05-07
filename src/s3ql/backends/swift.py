@@ -127,11 +127,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # codes where retry is definitely not desired. For 4xx (client error) we
         # do not retry in general, but for 408 (Request Timeout) RFC 2616
         # specifies that the client may repeat the request without
-        # modifications.
+        # modifications. We also retry on 429 (Too Many Requests).
         elif (isinstance(exc, HTTPError) and
               ((500 <= exc.status <= 599
                 and exc.status not in (501,505,508,510,511,523))
-               or exc.status == 408
+               or exc.status in (408,429)
                or 'client disconnected' in exc.msg.lower())):
             return True
 
