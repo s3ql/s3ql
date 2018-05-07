@@ -10,7 +10,7 @@ from ..logging import logging, QuietError # Ensure use of custom logger class
 from . import s3c
 from .s3c import C_DAY_NAMES, C_MONTH_NAMES, HTTPError, S3Error
 from .common import AuthenticationError, retry, NoSuchObject
-from .. import oauth_client
+from ..common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
 from ..inherit_docstrings import copy_ancestor_docstring
 from dugong import CaseInsensitiveDict, HTTPConnection
 from urllib.parse import urlencode
@@ -124,8 +124,8 @@ class Backend(s3c.Backend):
         headers = CaseInsensitiveDict()
         headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=utf-8'
 
-        body = urlencode({'client_id': oauth_client.CLIENT_ID,
-                          'client_secret': oauth_client.CLIENT_SECRET,
+        body = urlencode({'client_id': OAUTH_CLIENT_ID,
+                          'client_secret': OAUTH_CLIENT_SECRET,
                           'refresh_token': self.password,
                           'grant_type': 'refresh_token' })
 

@@ -8,6 +8,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, setup_logging, QuietError
 from .parse_args import ArgumentParser
+from .common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
 import sys
 import textwrap
 import requests
@@ -15,10 +16,6 @@ import time
 
 log = logging.getLogger(__name__)
 
-# S3QL client id and client secret for Google APIs.
-# Don't get your hopes up, this isn't truly secret.
-CLIENT_ID = '381875429714-6pch5vnnmqab454c68pkt8ugm86ef95v.apps.googleusercontent.com'
-CLIENT_SECRET = 'HGl8fJeVML-gZ-1HSZRNZPz_'
 
 def parse_args(args):
     '''Parse command line'''
@@ -72,7 +69,7 @@ def main(args=None):
     # We need full control in order to be able to update metadata
     # cf. https://stackoverflow.com/questions/24718787
     r = cli.post('https://accounts.google.com/o/oauth2/device/code',
-                 data={ 'client_id': CLIENT_ID,
+                 data={ 'client_id': OAUTH_CLIENT_ID,
                         'scope': 'https://www.googleapis.com/auth/devstorage.full_control' },
                  verify=True, allow_redirects=False, timeout=20)
     req_json = _parse_response(r)
@@ -86,8 +83,8 @@ def main(args=None):
         time.sleep(req_json['interval'])
 
         r = cli.post('https://accounts.google.com/o/oauth2/token',
-                     data={ 'client_id': CLIENT_ID,
-                            'client_secret': CLIENT_SECRET,
+                     data={ 'client_id': OAUTH_CLIENT_ID,
+                            'client_secret': OAUTH_CLIENT_SECRET,
                             'code': req_json['device_code'],
                             'grant_type': 'http://oauth.net/grant_type/device/1.0' },
                      verify=True, allow_redirects=False, timeout=20)

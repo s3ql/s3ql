@@ -31,6 +31,11 @@ import contextlib
 
 log = logging.getLogger(__name__)
 
+# S3QL client id and client secret for Google APIs.
+# Don't get your hopes up, this isn't truly secret.
+OAUTH_CLIENT_ID = '381875429714-6pch5vnnmqab454c68pkt8ugm86ef95v.apps.googleusercontent.com'
+OAUTH_CLIENT_SECRET = 'HGl8fJeVML-gZ-1HSZRNZPz_'
+
 file_system_encoding = sys.getfilesystemencoding()
 def path2bytes(s):
     return s.encode(file_system_encoding, 'surrogateescape')
