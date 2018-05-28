@@ -8,6 +8,10 @@ UNRELEASED, S3QL tip
     ``--backend-options``) may now also been specified in the
     *authinfo2* file by omitting the two leading dashes.
 
+  * Fixed a data corruption issue when mount.s3ql is terminated
+    without being able to clean up (e.g. due to SIGKILL or the
+    computer being power cycled).
+
 2018-03-04, S3QL 2.26
 
   * Added support for py.test 3.3.0

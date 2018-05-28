@@ -151,12 +151,12 @@ class CacheEntry(object):
     __slots__ = [ 'dirty', 'inode', 'blockno', 'last_access',
                   'size', 'pos', 'fh', 'removed' ]
 
-    def __init__(self, inode, blockno, filename):
+    def __init__(self, inode, blockno, filename, mode='w+b'):
         super().__init__()
         # Writing 100MB in 128k chunks takes 90ms unbuffered and
         # 116ms with 1 MB buffer. Reading time does not depend on
         # buffer size.
-        self.fh = open(filename, "w+b", 0)
+        self.fh = open(filename, mode, 0)
         self.dirty = False
         self.inode = inode
         self.blockno = blockno
@@ -781,12 +781,12 @@ class BlockCache(object):
             # Need to download corresponding object
             obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (block_id,))
             log.debug('downloading object %d..', obj_id)
-            el = CacheEntry(inode, blockno, filename)
+            tmpfh = open(filename + '.tmp', 'wb')
             try:
                 def do_read(fh):
-                    el.seek(0)
-                    el.truncate()
-                    shutil.copyfileobj(fh, el, BUFSIZE)
+                    tmpfh.seek(0)
+                    tmpfh.truncate()
+                    shutil.copyfileobj(fh, tmpfh, BUFSIZE)
 
                 with lock_released:
                     # Lock object. This ensures that we wait until the object
@@ -798,13 +798,18 @@ class BlockCache(object):
                     self._unlock_obj(obj_id)
                     with self.backend_pool() as backend:
                         backend.perform_read(do_read, 's3ql_data_%d' % obj_id)
-            except:
-                el.unlink()
-                el.close()
-                raise
 
+                tmpfh.flush()
+                os.fsync(tmpfh.fileno())
+                os.rename(tmpfh.name, filename)
+            except:
+                os.unlink(tmpfh.name)
+                raise
+            finally:
+                tmpfh.close()
+
+            el = CacheEntry(inode, blockno, filename, mode='r+b')
             self.cache[(inode, blockno)] = el
-            el.dirty = False # (writing will have set dirty flag)
             self.cache.size += el.size
 
         # In Cache
