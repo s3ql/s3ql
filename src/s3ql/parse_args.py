@@ -228,7 +228,6 @@ class ArgumentParser(argparse.ArgumentParser):
 
             options.cachepath = os.path.abspath(os.path.join(options.cachedir,
                                                              _escape(options.storage_url)))
-            del options.cachedir
 
         return options
 
