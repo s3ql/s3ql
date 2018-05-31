@@ -29,12 +29,13 @@ import pytest
 @pytest.yield_fixture()
 def backend():
     backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-    be = local.Backend(Namespace(
+    plain_backend = local.Backend(Namespace(
         storage_url='local://' + backend_dir))
+    backend = ComprencBackend(b'schnorz', ('zlib', 6), plain_backend)
     try:
-        yield be
+        yield backend
     finally:
-        be.close()
+        backend.close()
         shutil.rmtree(backend_dir)
 
 @pytest.yield_fixture()
@@ -49,61 +50,96 @@ def db():
         db.close()
         dbfile.close()
 
-def test_retrieve(backend, db):
-    plain_backend = backend
-    backend = ComprencBackend(b'schnorz', ('zlib', 6), plain_backend)
+@pytest.mark.parametrize("full", (True, False))
+def test_missing(backend, db, full):
+    # Create two objects, one will be missing
+    obj_ids = (22, 25)
+    for id_ in obj_ids:
+        db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
+                   (id_, 1, 27 * id_))
+    key = 's3ql_data_%d' % obj_ids[0]
+    backend[key] = b'just some data that no-one really cares about'
 
-    # Create a few objects in db
-    obj_ids = (22, 25, 30, 31)
+    # When using a single thread, we can fake the backend factory
+    backend_factory = lambda: backend
+
+    missing_fh = io.StringIO()
+    corrupted_fh = io.StringIO()
+    with assert_logs('^Backend seems to have lost', count=1, level=logging.WARNING):
+        verify.retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
+                                thread_count=1, full=full)
+    assert missing_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[1]
+    assert corrupted_fh.getvalue() == ''
+
+@pytest.mark.parametrize("full", (True, False))
+def test_corrupted_head(backend, db, full):
+    obj_ids = (30, 31)
     for id_ in obj_ids:
         db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
                    (id_, 1, 27 * id_))
 
-    # Object one will be missing in backend
+    # Object one will be fine
+    key = 's3ql_data_%d' % obj_ids[0]
+    backend[key] = b'just some data that no-one really cares about'
 
-    # Object two will have a checksum error in the data
+    # Object two will have a checksum error in the metadata
     key = 's3ql_data_%d' % obj_ids[1]
-    backend[key] = b'some data that will be broken on a data check'
-    (raw, meta) = plain_backend.fetch(key)
-    raw = bytearray(raw)
-    assert len(raw) > 20
-    raw[-10:-6] = b'forg'
-    plain_backend.store(key, raw, meta)
-
-    # Object three will have a checksum error in the metadata
-    key = 's3ql_data_%d' % obj_ids[2]
     backend.store(key, b'some data that will be broken on a metadata check',
                   { 'meta-key1': 'some textual data that just increases',
                     'meta-key2': 'the metadata size so that we can tamper with it' })
-    meta = plain_backend.lookup(key)
+    meta = backend.backend.lookup(key)
     raw = bytearray(meta['data'])
     assert len(raw) > 20
     raw[-10:-6] = b'forg'
     meta['data'] = raw
-    plain_backend.update_meta(key, meta)
-
-    # Object four will be ok
-    backend['s3ql_data_%d' % obj_ids[3]] = b'some data that is well'
+    backend.backend.update_meta(key, meta)
 
     # When using a single thread, we can fake the backend factory
-    def backend_factory():
-        return backend
+    backend_factory = lambda: backend
+
+    missing_fh = io.StringIO()
+    corrupted_fh = io.StringIO()
+    with assert_logs('^Object %d is corrupted', count=1, level=logging.WARNING):
+        verify.retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
+                                thread_count=1, full=full)
+    assert missing_fh.getvalue() == ''
+    assert corrupted_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[1]
+
+@pytest.mark.parametrize("full", (True, False))
+def test_corrupted_body(backend, db, full):
+    obj_ids = (35, 40)
+    for id_ in obj_ids:
+        db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
+                   (id_, 1, 27 * id_))
+
+    # Object one will be fine
+    key = 's3ql_data_%d' % obj_ids[0]
+    backend[key] = b'just some data that no-one really cares about'
+
+    # Object two will have a checksum error in the body
+    key = 's3ql_data_%d' % obj_ids[1]
+    backend[key] = b'some data that will be broken on a data check'
+    (raw, meta) = backend.backend.fetch(key)
+    raw = bytearray(raw)
+    assert len(raw) > 20
+    raw[-10:-6] = b'forg'
+    backend.backend.store(key, raw, meta)
+
+    # When using a single thread, we can fake the backend factory
+    backend_factory = lambda: backend
 
     missing_fh = io.StringIO()
     corrupted_fh = io.StringIO()
 
-    with assert_logs('^Backend seems to have lost', count=1, level=logging.WARNING), \
-         assert_logs('^Object %d is corrupted', count=1, level=logging.WARNING):
+    if full:
+        with assert_logs('^Object %d is corrupted', count=1, level=logging.WARNING):
+            verify.retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
+                                    thread_count=1, full=full)
+            assert missing_fh.getvalue() == ''
+            assert corrupted_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[1]
+    else:
+        # Should not show up when looking just at HEAD
         verify.retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
-                                thread_count=1, full=False)
-    assert missing_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[0]
-    assert corrupted_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[2]
-
-    missing_fh = io.StringIO()
-    corrupted_fh = io.StringIO()
-    with assert_logs('^Backend seems to have lost', count=1, level=logging.WARNING), \
-         assert_logs('^Object %d is corrupted', count=2, level=logging.WARNING):
-        verify.retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
-                                thread_count=1, full=True)
-    assert missing_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[0]
-    assert corrupted_fh.getvalue() == ('s3ql_data_%d\n'*2) % obj_ids[1:3]
+                                thread_count=1, full=full)
+        assert missing_fh.getvalue() == ''
+        assert corrupted_fh.getvalue() == ''
