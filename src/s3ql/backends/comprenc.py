@@ -213,7 +213,7 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             meta_raw['compression'] = 'LZMA'
 
         if self.passphrase is not None:
-            nonce = struct.pack('<f', time.time()) + key.encode('utf-8')
+            nonce = struct.pack('<d', time.time()) + key.encode('utf-8')
             meta_key = sha256(self.passphrase + nonce + b'meta')
             data_key = sha256(self.passphrase + nonce)
             meta_raw['encryption'] = 'AES_v2'
