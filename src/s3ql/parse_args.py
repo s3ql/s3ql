@@ -271,11 +271,11 @@ class ArgumentParser(argparse.ArgumentParser):
             else:
                 options.backend_login = sys.stdin.readline().rstrip()
 
-        if not hasattr(options, 'backend_passphrase') and backend_class.needs_login:
+        if not hasattr(options, 'backend_password') and backend_class.needs_login:
             if sys.stdin.isatty():
-                options.backend_passphrase = getpass("Enter backend passphrase: ")
+                options.backend_password = getpass("Enter backend password: ")
             else:
-                options.backend_passphrase = sys.stdin.readline().rstrip()
+                options.backend_password = sys.stdin.readline().rstrip()
 
         options.backend_class = backend_class
 
@@ -300,7 +300,8 @@ def _merge_sections(ini_config, options, valid_keys):
             continue
 
         for (key, val) in ini_config[section].items():
-            merged[key.replace('-', '_')] = val
+            if key != 'storage-url':
+                merged[key.replace('-', '_')] = val
 
     unknown = set()
     for (key, val) in merged.items():

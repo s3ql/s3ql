@@ -59,8 +59,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.auth_token = None
         self.auth_prefix = None
         self.conn = None
-        self.password = options.backend_login
-        self.login = options.backend_password
+        self.password = options.backend_password
+        self.login = options.backend_login
         self.features = Features()
 
         # We may need the context even if no-ssl has been specified,
