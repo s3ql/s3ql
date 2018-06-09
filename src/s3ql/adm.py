@@ -9,19 +9,23 @@ This work can be distributed under the terms of the GNU GPLv3.
 from .logging import logging, QuietError, setup_logging
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.comprenc import ComprencBackend
+from .backends.common import NoSuchObject
 from .database import Connection
-from .deltadump import TIME, INTEGER
 from .common import (get_seq_no, is_mounted, get_backend, load_params,
-                     save_params)
+                     save_params, handle_on_return, get_backend_factory,
+                     AsyncFn)
 from .metadata import dump_and_upload_metadata, download_metadata
-from . import metadata
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
 from getpass import getpass
-from contextlib import contextmanager
+from queue import Queue, Full as QueueFull
 import os
+import s3ql.backends.common
+import s3ql.backends.s3c
+import hashlib
+import hmac
+import struct
 import shutil
-import functools
 import sys
 import textwrap
 import time
@@ -86,11 +90,11 @@ def main(args=None):
     if options.action == 'clear':
         with get_backend(options, raw=True) as backend:
             return clear(backend, options)
+    elif options.action == 'upgrade':
+        return upgrade(options)
 
     with get_backend(options) as backend:
-        if options.action == 'upgrade':
-            return upgrade(backend, options)
-        elif options.action == 'passphrase':
+        if options.action == 'passphrase':
             return change_passphrase(backend)
 
         elif options.action == 'download-metadata':
@@ -204,10 +208,17 @@ def get_old_rev_msg(rev, prog):
         ''' % { 'version': REV_VER_MAP[rev],
                 'prog': prog })
 
-def upgrade(backend, options):
+@handle_on_return
+def upgrade(options, on_return):
     '''Upgrade file system to newest revision'''
 
+    s3ql.backends.comprenc.UPGRADE_MODE = checksum_basic_mapping_old
+    s3ql.backends.s3c.UPGRADE_MODE = checksum_basic_mapping_old
+
     log.info('Getting file system parameters..')
+
+    backend_factory = get_backend_factory(options)
+    backend = on_return.enter_context(backend_factory())
 
     # Check for cached metadata
     cachepath = options.cachepath
@@ -270,8 +281,9 @@ def upgrade(backend, options):
 
         You should make very sure that this command is not interrupted and
         that no one else tries to mount, fsck or upgrade the file system at
-        the same time.
-
+        the same time. You may interrupt the update with Ctrl+C and resume
+        at a later time, but the filesystem will not be in a usable state
+        until the upgrade is complete.
         '''))
 
     print('Please enter "yes" to continue.', '> ', sep='\n', end='')
@@ -281,74 +293,159 @@ def upgrade(backend, options):
         raise QuietError()
 
     if not db:
-        with monkeypatch_metadata_retrieval():
-            db = download_metadata(backend, cachepath + '.db')
+        db = download_metadata(backend, cachepath + '.db')
 
     log.info('Upgrading from revision %d to %d...', param['revision'], CURRENT_FS_REV)
+
+    # Upgrade all objects, so that we can remove legacy conversion
+    # routines in the next release.
+    if backend.passphrase:
+        update_obj_metadata(backend, backend_factory, db, options)
 
     param['revision'] = CURRENT_FS_REV
     param['last-modified'] = time.time()
     param['seq_no'] += 1
 
-    # Upgrade
-    for name in ('atime', 'mtime', 'ctime'):
-        db.execute('ALTER TABLE inodes ADD COLUMN {time}_ns '
-                   'INT NOT NULL DEFAULT 0'.format(time=name))
-        db.execute('UPDATE inodes SET {time}_ns = {time} * 1e9'.format(time=name))
-
     dump_and_upload_metadata(backend, db, param)
     backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
-
-    # Declare local metadata as outdated so that it won't be used. It still
-    # contains the old [acm]time columns which are NON NULL, and would prevent
-    # us from inserting new rows.
-    param['seq_no'] = 0
-    save_params(cachepath, param)
 
     print('File system upgrade complete.')
 
 
-@contextmanager
-def monkeypatch_metadata_retrieval():
-    create_tables_bak = metadata.create_tables
-    @functools.wraps(metadata.create_tables)
-    def create_tables(conn):
-        create_tables_bak(conn)
-        conn.execute('DROP TABLE inodes')
-        conn.execute("""
-           CREATE TABLE inodes (
-           id        INTEGER PRIMARY KEY AUTOINCREMENT,
-           uid       INT NOT NULL,
-           gid       INT NOT NULL,
-           mode      INT NOT NULL,
-           mtime     REAL NOT NULL,
-           atime     REAL NOT NULL,
-           ctime     REAL NOT NULL,
-           refcount  INT NOT NULL,
-           size      INT NOT NULL DEFAULT 0,
-           rdev      INT NOT NULL DEFAULT 0,
-           locked    BOOLEAN NOT NULL DEFAULT 0
-        )""")
-    metadata.create_tables = create_tables
+def update_obj_metadata(backend, backend_factory, db, options):
+    '''Upgrade metadata of storage objects'''
 
-    DUMP_SPEC_bak = metadata.DUMP_SPEC[2]
-    metadata.DUMP_SPEC[2] = ('inodes', 'id', (('id', INTEGER, 1),
-                                              ('uid', INTEGER),
-                                              ('gid', INTEGER),
-                                              ('mode', INTEGER),
-                                              ('mtime', TIME),
-                                              ('atime', TIME),
-                                              ('ctime', TIME),
-                                              ('size', INTEGER),
-                                              ('rdev', INTEGER),
-                                              ('locked', INTEGER),
-                                              ('refcount', INTEGER)))
+    # No need to update sequence number, since we are going to
+    # write out a new one after the upgrade.
+    extra_objects = { 's3ql_metadata',
+                      's3ql_passphrase', 's3ql_passphrase_bak1',
+                      's3ql_passphrase_bak2', 's3ql_passphrase_bak3' }
+    extra_objects |= { 's3ql_metadata_bak_%d' % i for i in range(30) }
 
-    try:
-        yield
-    finally:
-        metadata.DUMP_SPEC[2] = DUMP_SPEC_bak
-        metadata.create_tables = create_tables_bak
+    def yield_objects():
+        for obj_id in extra_objects:
+            yield obj_id
+        for (id_,) in db.query('SELECT id FROM objects'):
+            yield 's3ql_data_%d' % id_
+    total = db.get_val('SELECT COUNT(id) FROM objects') + len(extra_objects)
+
+    queue = Queue(maxsize=options.threads)
+    threads = []
+    for _ in range(options.threads):
+        t = AsyncFn(upgrade_loop, queue, options, backend_factory)
+        # Don't wait for worker threads, gives deadlock if main thread
+        # terminates with exception
+        t.daemon = True
+        t.start()
+        threads.append(t)
+
+    stamp = time.time()
+    for (i, obj_id) in enumerate(yield_objects()):
+        stamp2 = time.time()
+        if stamp2 - stamp > 1:
+            sys.stdout.write('\r..processed %d/%d objects (%d%%)..'
+                             % (i, total, i/total*100))
+            sys.stdout.flush()
+            stamp = stamp2
+
+            # Terminate early if any thread failed with an exception
+            for t in threads:
+                if not t.is_alive():
+                    t.join_and_raise()
+
+        # Avoid blocking if all threads terminated
+        while True:
+            try:
+                queue.put(obj_id, timeout=1)
+            except QueueFull:
+                pass
+            else:
+                break
+            for t in threads:
+                if not t.is_alive():
+                    t.join_and_raise()
+
+    queue.maxsize += len(threads)
+    for t in threads:
+        queue.put(None)
+
+    for t in threads:
+        t.join_and_raise()
+
+    sys.stdout.write('\n')
+
+def upgrade_loop(queue, options, backend_factory):
+
+    with backend_factory() as backend:
+        while True:
+            key = queue.get()
+            if key is None:
+                break
+
+            # When reading passphrase objects, we have to use the
+            # "outer" password
+            if key.startswith('s3ql_passphrase'):
+                data_pw = backend.passphrase
+                backend.passphrase = options.fs_passphrase
+            try:
+                try:
+                    meta = backend.lookup(key)
+                except NoSuchObject:
+                    continue
+
+                if meta['needs_reupload']:
+                    del meta['needs_reupload']
+                    backend.update_meta(key, meta)
+            finally:
+                if key.startswith('s3ql_passphrase'):
+                    backend.passphrase = data_pw
+
+def checksum_basic_mapping_old(metadata, key=None):
+    '''Compute checksum for mapping of elementary types
+
+    Keys of *d* must be strings. Values of *d* must be of elementary
+    type (i.e., `str`, `bytes`, `int`, `float`, `complex`, `bool` or
+    None). If there is a key named ``signature``, then it is excluded
+    from the checksum computation.
+
+    If *key* is None, compute MD5. Otherwise compute HMAC using *key*.
+    '''
+
+    # In order to compute a safe checksum, we need to convert each object to a
+    # unique representation (i.e, we can't use repr(), as it's output may change
+    # in the future). Furthermore, we have to make sure that the representation
+    # is theoretically reversible, or there is a potential for collision
+    # attacks.
+
+    if key is None:
+        chk = hashlib.md5()
+    else:
+        chk = hmac.new(key, digestmod=hashlib.sha256)
+
+    for mkey in sorted(metadata.keys()):
+        assert isinstance(mkey, str)
+        if mkey == 'signature':
+            continue
+        chk.update(mkey.encode('utf-8'))
+        val = metadata[mkey]
+        if isinstance(val, str):
+            val = b'\0s' + val.encode('utf-8') + b'\0'
+        elif val is None:
+            val = b'\0n'
+        elif isinstance(val, int):
+            val = b'\0i' + ('%d' % val).encode() + b'\0'
+        elif isinstance(val, bool):
+            val = b'\0t' if val else b'\0f'
+        elif isinstance(val, float):
+            val = b'\0d' + struct.pack('<d', val)
+        elif isinstance(val, (bytes, bytearray)):
+            assert len(val).bit_length() <= 32
+            val = b'\0b' + struct.pack('<I', len(val))
+        else:
+            raise ValueError("Don't know how to checksum %s instances" % type(val))
+        chk.update(val)
+
+    return chk.digest()
 
 if __name__ == '__main__':
     main(sys.argv[1:])

@@ -22,13 +22,12 @@ __all__ = [ 'adm', 'backends', 'block_cache', 'common', 'calc_mro',
             'REV_VER_MAP', 'RELEASE', 'BUFSIZE',
             'CTRL_NAME', 'CTRL_INODE' ]
 
-VERSION = '2.26'
+VERSION = '2.27'
 RELEASE = '%s' % VERSION
 
-# TODO: On next revision bump, consider removing support for TIME
-# values from deltadump.pyx. It is only present to allow upgrades
-# from revisions <= 22.
-CURRENT_FS_REV = 23
+# TODO: On next revision bump, remove upgrade code from backend/comprenc.py and
+# backends/s3c.py (activated by UPGRADE_MODE variable).
+CURRENT_FS_REV = 24
 
 # Buffer size when writing objects
 BUFSIZE = 64 * 1024
@@ -40,6 +39,7 @@ CTRL_INODE = 2
 # Maps file system revisions to the last S3QL version that
 # supported this revision.
 REV_VER_MAP = {
+    23: '2.26',
     22: '2.16',
     21: '2.13',
     20: '2.9',

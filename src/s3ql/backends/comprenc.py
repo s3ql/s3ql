@@ -27,6 +27,9 @@ log = logging.getLogger(__name__)
 
 HMAC_SIZE = 32
 
+# Used only by adm.py
+UPGRADE_MODE=False
+
 def sha256(s):
     return hashlib.sha256(s).digest()
 
@@ -125,17 +128,30 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         nonce = metadata['nonce']
         stored_key = metadata['object_id']
         meta_key = sha256(self.passphrase + nonce + b'meta')
-        meta_sig = checksum_basic_mapping(metadata, meta_key)
-        if not hmac.compare_digest(metadata['signature'], meta_sig):
-            raise CorruptedObjectError('HMAC mismatch')
+
+        # TODO: Remove on next file system revision bump
+        if UPGRADE_MODE:
+            if metadata['signature'] == checksum_basic_mapping(metadata,meta_key):
+                update_required = False
+            elif metadata['signature'] == UPGRADE_MODE(metadata, meta_key):
+                update_required = True
+            else:
+                raise CorruptedObjectError('HMAC mismatch')
+        else:
+            meta_sig = checksum_basic_mapping(metadata, meta_key)
+            if not hmac.compare_digest(metadata['signature'], meta_sig):
+                raise CorruptedObjectError('HMAC mismatch')
 
         if stored_key != key:
             raise CorruptedObjectError('Object content does not match its key (%s vs %s)'
                                        % (stored_key, key))
 
         buf = aes_cipher(meta_key).decrypt(meta_buf)
+        meta = thaw_basic_mapping(buf)
+        if UPGRADE_MODE:
+            meta['needs_reupload'] = update_required
         try:
-            return (nonce, thaw_basic_mapping(buf))
+            return (nonce, meta)
         except ThawError:
             raise CorruptedObjectError('Invalid metadata')
 

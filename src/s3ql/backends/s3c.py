@@ -39,6 +39,9 @@ C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
 
 XML_CONTENT_RE = re.compile(r'^(?:application|text)/xml(?:;|$)', re.IGNORECASE)
 
+# Used only by adm.py
+UPGRADE_MODE=False
+
 log = logging.getLogger(__name__)
 
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
@@ -778,6 +781,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 # This should trigger a MD5 mismatch below
                 meta[k] = None
 
+        # TODO: Remove on next file system revision bump
+        if UPGRADE_MODE:
+            md5 = resp.headers.get('%smeta-md5' % self.hdr_prefix, None)
+            if md5 not in (b64encode(checksum_basic_mapping(meta)).decode('ascii'),
+                           b64encode(UPGRADE_MODE(meta)).decode('ascii')):
+                raise BadDigestError('BadDigest', 'Meta MD5 for %s does not match' % obj_key)
+            return meta
+
         # Check MD5. There is a case to be made for treating a mismatch as a
         # `CorruptedObjectError` rather than a `BadDigestError`, because the MD5
         # sum is not calculated on-the-fly by the server but stored with the
@@ -788,6 +799,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         md5 = b64encode(checksum_basic_mapping(meta)).decode('ascii')
         if md5 != resp.headers.get('%smeta-md5' % self.hdr_prefix, None):
             log.warning('MD5 mismatch in metadata for %s', obj_key)
+
+            # When trying to read file system revision 23 or earlier, we
+            # will get a MD5 error because the checksum was calculated
+            # differently. In order to get a better error message, we special case
+            # the s3ql_passphrase object (which is only retrieved once at the
+            # beginning).
+            if obj_key == 's3ql_passphrase':
+                raise CorruptedObjectError('Meta MD5 for %s does not match' % obj_key)
             raise BadDigestError('BadDigest', 'Meta MD5 for %s does not match' % obj_key)
 
         return meta

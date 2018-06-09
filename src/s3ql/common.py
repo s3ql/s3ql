@@ -279,6 +279,10 @@ def get_backend_factory(options):
         except DanglingStorageURLError as exc:
             raise QuietError(str(exc), exitcode=16)
 
+        except CorruptedObjectError:
+            raise QuietError('Backend data corrupted, or file system '
+                             'revision needs upgrade.', exitcode=17)
+
         except NoSuchObject:
             encrypted = False
         else:
@@ -300,6 +304,7 @@ def get_backend_factory(options):
 
     if fs_passphrase is not None:
         fs_passphrase = fs_passphrase.encode('utf-8')
+    options.fs_passphrase = fs_passphrase
 
     compress = getattr(options, 'compress', ('lzma', 2))
     if not encrypted:
@@ -309,7 +314,8 @@ def get_backend_factory(options):
         try:
             data_pw = tmp_backend['s3ql_passphrase']
         except CorruptedObjectError:
-            raise QuietError('Wrong file system passphrase', exitcode=17)
+            raise QuietError('Wrong file system passphrase or '
+                             'outdated filesystem revision.', exitcode=17)
 
     return lambda: ComprencBackend(data_pw, compress, options.backend_class(options))
 

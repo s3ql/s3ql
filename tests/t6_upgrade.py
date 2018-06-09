@@ -63,8 +63,8 @@ class TestUpgrade(t4_fuse.TestFuse):
             print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
         assert proc.wait() == 0
-        self.reg_output(r'^Warning: maximum object sizes less than 1 MiB '
-                        'will seriously degrade performance\.$', count=1)
+        self.reg_output(r'^WARNING: Maximum object sizes less than '
+                        '1 MiB will degrade performance\.$', count=1)
 
     def mount_old(self):
         self.mount_process = subprocess.Popen([os.path.join(self.basedir_old, 'bin', 'mount.s3ql'),
@@ -140,9 +140,18 @@ class TestUpgrade(t4_fuse.TestFuse):
         if not with_cache:
             shutil.rmtree(self.cache_dir)
             self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
-        self.mount(expect_fail=32)
-        self.reg_output(r'^ERROR: File system revision too old, please '
-                        'run `s3qladm upgrade` first\.$', count=1)
+
+        if isinstance(self, RemoteUpgradeTest):
+            self.mount(expect_fail=17)
+            self.reg_output(r'^WARNING: MD5 mismatch in metadata for s3ql_passphrase', count=1)
+            self.reg_output(r'^ERROR: Backend data corrupted, or file system revision needs upgrade', count=1)
+        elif self.passphrase:
+            self.mount(expect_fail=17)
+            self.reg_output(r'^ERROR: Wrong file system passphrase', count=1)
+        else:
+            self.mount(expect_fail=32)
+            self.reg_output(r'^ERROR: File system revision too old', count=1)
+
 
         # Upgrade
         if not with_cache:

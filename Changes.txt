@@ -1,5 +1,14 @@
 UNRELEASED, S3QL tip
 
+  * The internal file system revision has changed. File systems
+    created with S3QL 2.27 or newer are not compatible with prior S3QL
+    versions.
+
+    To update an existing file system to the newest revision, use the
+    's3qladm upgrade' command. During the upgrade, the metadata for
+    all storage objects needs to be updated (so this may take a
+    while).
+
   * fsck.s3ql is now able to recover blocks that were in transit
     during a file system crash.
 
@@ -11,6 +20,28 @@ UNRELEASED, S3QL tip
   * Fixed a data corruption issue when mount.s3ql is terminated
     without being able to clean up (e.g. due to SIGKILL or the
     computer being power cycled).
+
+  * [SECURITY] Fixed a security vulnerability in the validation of object
+    metadata. All past versions of S3QL are affected by a replay
+    attack where a malicious person in control of the backend is able
+    to present old versions of the filesystem metadata database as
+    up-to-date.
+
+    This could be used to e.g. make deleted files appear
+    again (though attempting to read them would result in an error),
+    or make newly created files appear to have vanished.
+
+    Furthermore, an attacker could freely to set the "needs-fsck"
+    flag, the filesystem revison number, and filesystem block
+    size. Manipulating the filesystem revision number would result in
+    most S3QL commands refusing to work, attempting to upgrade the
+    revision with s3qladm would likely result in errors. Manipulating
+    the block size would result in mount.s3ql silently presenting file
+    incorrect file contents (despite the files being intact in the
+    backend): if the block size is increased, mount.s3ql will insert
+    regularly spaced gaps of zero-bytes. If the blocksize is
+    decreased, mount.s3ql will "cut out" regularly spaced windows of
+    data.
 
 2018-03-04, S3QL 2.26
 

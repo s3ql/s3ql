@@ -6,6 +6,8 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This program can be distributed under the terms of the GNU GPLv3.
 '''
 
+# TODO: Consider removing support for TIME values, it is no longer used.
+
 # Analysis of Cython code not really working yet
 #@PydevCodeAnalysisIgnore
 

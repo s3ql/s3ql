@@ -693,7 +693,7 @@ def checksum_basic_mapping(metadata, key=None):
             val = b'\0d' + struct.pack('<d', val)
         elif isinstance(val, (bytes, bytearray)):
             assert len(val).bit_length() <= 32
-            val = b'\0b' + struct.pack('<I', len(val))
+            chk.update(b'\0b' + struct.pack('<I', len(val)))
         else:
             raise ValueError("Don't know how to checksum %s instances" % type(val))
         chk.update(val)
