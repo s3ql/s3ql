@@ -90,12 +90,10 @@ log = logging.getLogger(__name__)
 # Column types
 cdef int _INTEGER = 1
 cdef int _BLOB = 2
-cdef int _TIME = 3
 
 # Make column types available as Python objects
 INTEGER = _INTEGER
 BLOB = _BLOB
-TIME = _TIME
 
 # Integer length codes
 cdef uint8_t INT8 = 127
@@ -206,7 +204,7 @@ cdef int prep_columns(columns, int** col_types_p, int** col_args_p) except -1:
 
     # Initialize col_args and col_types
     for i in range(col_count):
-        if columns[i][1] not in (BLOB, INTEGER, TIME):
+        if columns[i][1] not in (BLOB, INTEGER):
             raise ValueError("Invalid type for column %d" % i)
         col_types[i] = columns[i][1]
 
@@ -290,7 +288,7 @@ def dump_table(table, order, columns, db, fh):
 
     *columns* must a list of 3-tuples, one for each column that should be
     stored. The first element of the tuple must contain the column name and the
-    second element the type of data stored in the column (`INTEGER`, `TIME`
+    second element the type of data stored in the column (`INTEGER`
     or `BLOB`). Times will be converted to nanosecond integers.
 
     For integers and seconds, the third tuple element specifies the expected
@@ -371,13 +369,6 @@ def dump_table(table, order, columns, db, fh):
 
                 if col_types[i] == _INTEGER:
                     int64 = sqlite3_column_int64(stmt, i)
-                    tmp = int64
-                    int64 -= int64_prev[i] + col_args[i]
-                    int64_prev[i] = tmp
-                    write_integer(int64, fp)
-
-                elif col_types[i] == _TIME:
-                    int64 = <int64_t> (sqlite3_column_double(stmt, i) * time_scale)
                     tmp = int64
                     int64 -= int64_prev[i] + col_args[i]
                     int64_prev[i] = tmp
@@ -515,15 +506,6 @@ def load_table(table, columns, db, fh, trx_rows=5000):
                     int64 += col_args[j] + int64_prev[j]
                     int64_prev[j] = int64
                     SQLITE_CHECK_RC(sqlite3_bind_int64(stmt, j + 1, int64),
-                                    SQLITE_OK, sqlite3_db)
-
-                if col_types[j] == _TIME:
-                    read_integer(&int64, fp)
-                    int64 += col_args[j] + int64_prev[j]
-                    int64_prev[j] = int64
-                    # Cast is safe, we know that the integer was converted from
-                    # double at dump time.
-                    SQLITE_CHECK_RC(sqlite3_bind_double(stmt, j + 1, <double> int64 / time_scale),
                                     SQLITE_OK, sqlite3_db)
 
                 elif col_types[j] == _BLOB:
