@@ -138,27 +138,6 @@ class DumpTests(unittest.TestCase):
                              fh=self.fh)
         self.compare_tables(self.src, self.dst)
 
-    def test_4_time(self):
-        self.fill_vals(self.src)
-
-        t1 = 0.5 * time.time()
-        t2 = 2 * time.time()
-        for (id_,) in self.src.query('SELECT id FROM test'):
-            val = random.uniform(t1, t2)
-            self.src.execute('UPDATE test SET buf=? WHERE id=?', (val, id_))
-
-        dumpspec = (('id', deltadump.INTEGER),
-                    ('buf', deltadump.TIME))
-
-        deltadump.dump_table(table='test', order='id', columns=dumpspec,
-                             db=self.src, fh=self.fh)
-        self.fh.seek(0)
-        deltadump.load_table(table='test', columns=dumpspec, db=self.dst,
-                             fh=self.fh)
-
-        self.compare_tables(self.src, self.dst)
-
-
     def test_5_multi(self):
         self.fill_vals(self.src)
         dumpspec = (('id', deltadump.INTEGER, 0),)

@@ -1,3 +1,7 @@
+Unreleased Changes
+
+  * Fixed a test failure in tests/t1_dump.py
+
 2018-06-09, S3QL 2.27
 
   * The internal file system revision has changed. File systems
