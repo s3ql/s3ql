@@ -747,11 +747,10 @@ class CommitThread(Thread):
                 # ... number=500)/500 * 1e3
                 # 1.456586996000624
                 for el in list(self.block_cache.cache.values()):
-                    if self.stop_event.is_set():
+                    if self.stop_event.is_set() or stamp - el.last_access < 10:
                         break
-                    if stamp - el.last_access < 10:
-                        break
-                    if self.block_cache.upload_if_dirty(el):
+                    if el.dirty and el not in self.block_cache.in_transit:
+                        self.block_cache.upload_if_dirty(el)
                         did_sth = True
 
             if not did_sth:
