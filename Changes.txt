@@ -7,6 +7,9 @@ UNRELEASED CHANGES
   * Fixed a busy loop, where mount.s3ql would perform normally but
     consume much more CPU than needed.
 
+  * Temporary SQLite files are now placed in --cachedir rather
+    than the system temp folder (typically /tmp).
+
 2018-06-09, S3QL 2.27.1
 
   * Fixed a test failure in tests/t1_dump.py

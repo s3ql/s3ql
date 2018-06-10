@@ -226,8 +226,9 @@ class ArgumentParser(argparse.ArgumentParser):
             if not os.access(options.cachedir, os.R_OK | os.W_OK | os.X_OK):
                 self.exit(45, 'No permission to access cache directory ' + options.cachedir)
 
-            options.cachepath = os.path.abspath(os.path.join(options.cachedir,
-                                                             _escape(options.storage_url)))
+            cachedir = os.path.abspath(options.cachedir)
+            os.environ['SQLITE_TMPDIR'] = cachedir
+            options.cachepath = os.path.join(cachedir, _escape(options.storage_url))
 
         return options
 
