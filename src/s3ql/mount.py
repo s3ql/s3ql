@@ -10,7 +10,8 @@ from .logging import logging, setup_logging, QuietError
 from . import fs, CURRENT_FS_REV
 from .backends.pool import BackendPool
 from .block_cache import BlockCache
-from .common import (get_seq_no, get_backend_factory, load_params, save_params)
+from .common import (get_seq_no, get_backend_factory, load_params, save_params,
+                     is_mounted)
 from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
@@ -83,6 +84,12 @@ def main(args=None):
 
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.', exitcode=36)
+
+    # Check if fs is mounted on this computer
+    # This is not foolproof but should prevent common mistakes
+    if is_mounted(options.storage_url):
+        raise QuietError('File system already mounted elsewhere on this '
+                         'machine.', exitcode=40)
 
     if options.threads is None:
         options.threads = determine_threads(options)

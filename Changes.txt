@@ -1,3 +1,9 @@
+UNRELEASED CHANGES
+
+  * mount.s3ql now checks /proc/mounts to determine if a storage url
+    is already mounted rather than just relying on flags in the
+    backend.
+
 2018-06-09, S3QL 2.27.1
 
   * Fixed a test failure in tests/t1_dump.py
