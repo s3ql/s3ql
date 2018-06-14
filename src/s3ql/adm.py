@@ -155,6 +155,11 @@ def change_passphrase(backend):
 
     data_pw = backend.passphrase
 
+    print(textwrap.dedent('''\
+       NOTE: If your password has been compromised already, then changing
+       it WILL NOT PROTECT YOUR DATA, because an attacker may have already
+       retrieved the master key.
+       '''))
     if sys.stdin.isatty():
         wrap_pw = getpass("Enter new encryption password: ")
         if not wrap_pw == getpass("Confirm new encryption password: "):
