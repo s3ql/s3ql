@@ -42,6 +42,7 @@ class TestFailsafe(t4_fuse.TestFuse):
             (backend_login, backend_pw,
              self.storage_url) = get_remote_test_info('gs-test')
         except NoTestSection as exc:
+            super().teardown_method(method)
             pytest.skip(exc.reason)
 
         self.backend_login = backend_login
