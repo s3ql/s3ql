@@ -178,6 +178,17 @@ class TestFuse:
         self.umount()
         self.fsck()
 
+        # Test metadata recovery
+        shutil.rmtree(self.cache_dir)
+        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
+        self.fsck()
+
+        shutil.rmtree(self.cache_dir)
+        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
+        self.mount()
+        self.umount()
+
+
     def newname(self):
         self.name_cnt += 1
         return "s3ql_%d" % self.name_cnt
