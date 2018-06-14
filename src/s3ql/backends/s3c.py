@@ -784,8 +784,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # TODO: Remove on next file system revision bump
         if UPGRADE_MODE:
             md5 = resp.headers.get('%smeta-md5' % self.hdr_prefix, None)
-            if md5 not in (b64encode(checksum_basic_mapping(meta)).decode('ascii'),
-                           b64encode(UPGRADE_MODE(meta)).decode('ascii')):
+            if md5 == b64encode(checksum_basic_mapping(meta)).decode('ascii'):
+                meta['needs_reupload'] = False
+            elif md5 == b64encode(UPGRADE_MODE(meta)).decode('ascii'):
+                meta['needs_reupload'] = True
+            else:
                 raise BadDigestError('BadDigest', 'Meta MD5 for %s does not match' % obj_key)
             return meta
 
@@ -800,12 +803,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if md5 != resp.headers.get('%smeta-md5' % self.hdr_prefix, None):
             log.warning('MD5 mismatch in metadata for %s', obj_key)
 
-            # When trying to read file system revision 23 or earlier, we
-            # will get a MD5 error because the checksum was calculated
-            # differently. In order to get a better error message, we special case
-            # the s3ql_passphrase object (which is only retrieved once at the
-            # beginning).
-            if obj_key == 's3ql_passphrase':
+            # When trying to read file system revision 23 or earlier, we will
+            # get a MD5 error because the checksum was calculated
+            # differently. In order to get a better error message, we special
+            # case the s3ql_passphrase and s3ql_metadata object (which are only
+            # retrieved once at program start).
+            if obj_key in ('s3ql_passphrase', 's3ql_metadata'):
                 raise CorruptedObjectError('Meta MD5 for %s does not match' % obj_key)
             raise BadDigestError('BadDigest', 'Meta MD5 for %s does not match' % obj_key)
 

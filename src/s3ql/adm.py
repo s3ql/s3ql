@@ -297,10 +297,7 @@ def upgrade(options, on_return):
 
     log.info('Upgrading from revision %d to %d...', param['revision'], CURRENT_FS_REV)
 
-    # Upgrade all objects, so that we can remove legacy conversion
-    # routines in the next release.
-    if backend.passphrase:
-        update_obj_metadata(backend, backend_factory, db, options)
+    update_obj_metadata(backend, backend_factory, db, options)
 
     param['revision'] = CURRENT_FS_REV
     param['last-modified'] = time.time()

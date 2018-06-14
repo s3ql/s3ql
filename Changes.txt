@@ -1,5 +1,8 @@
 UNRELEASED CHANGES
 
+  * Fixed upgrade process for unencrypted filesystems (was broken in
+    2.27 and 2.27.1).
+
   * mount.s3ql now checks /proc/mounts to determine if a storage url
     is already mounted rather than just relying on flags in the
     backend.

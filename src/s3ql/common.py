@@ -307,15 +307,18 @@ def get_backend_factory(options):
     options.fs_passphrase = fs_passphrase
 
     compress = getattr(options, 'compress', ('lzma', 2))
-    if not encrypted:
-        return lambda: ComprencBackend(None, compress, options.backend_class(options))
 
     with ComprencBackend(fs_passphrase, compress, backend) as tmp_backend:
         try:
-            data_pw = tmp_backend['s3ql_passphrase']
+            if encrypted:
+                data_pw = tmp_backend['s3ql_passphrase']
+            else:
+                data_pw = None
+                # Try to read metadata to detect old file system revision
+                tmp_backend.fetch('s3ql_metadata')
         except CorruptedObjectError:
-            raise QuietError('Wrong file system passphrase or '
-                             'outdated filesystem revision.', exitcode=17)
+            raise QuietError('Backend data corrupted, or file system '
+                             'revision needs upgrade.', exitcode=17)
 
     return lambda: ComprencBackend(data_pw, compress, options.backend_class(options))
 

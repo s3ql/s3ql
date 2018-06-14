@@ -116,9 +116,13 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         meta_buf = metadata['data']
         if not encrypted:
             try:
-                return (None, thaw_basic_mapping(meta_buf))
+                meta = thaw_basic_mapping(meta_buf)
             except ThawError:
                 raise CorruptedObjectError('Invalid metadata')
+            # TODO: Remove on next file system revision bump
+            if UPGRADE_MODE:
+                meta['needs_reupload'] = metadata.get('needs_reupload', False)
+            return (None, meta)
 
         # Encrypted
         for mkey in ('nonce', 'signature', 'object_id'):
@@ -131,10 +135,15 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # TODO: Remove on next file system revision bump
         if UPGRADE_MODE:
-            if metadata['signature'] == checksum_basic_mapping(metadata,meta_key):
+            if 'needs_reupload' in metadata:
+                update_required = metadata['needs_reupload']
+                del metadata['needs_reupload']
+            else:
                 update_required = False
+            if metadata['signature'] == checksum_basic_mapping(metadata,meta_key):
+                pass
             elif metadata['signature'] == UPGRADE_MODE(metadata, meta_key):
-                update_required = True
+                update_required |= True
             else:
                 raise CorruptedObjectError('HMAC mismatch')
         else:
