@@ -349,7 +349,7 @@ The S3 compatible backend accepts the following backend options:
    server only returns ``200 OK`` when the copy operation has been
    completely and successfully carried out. Using this option may be
    neccessary if your storage server does not return a valid response
-   body for a succesfull copy operation.
+   body for a successful copy operation.
 
 .. _`S3 COPY API`: http://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectCOPY.html
 .. __: https://doc.s3.amazonaws.com/proposals/copy.html
