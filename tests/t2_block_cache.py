@@ -541,6 +541,8 @@ class MockMultiLock:
             self.release(*key)
 
     def acquire(self, *key, timeout=None):
+        if timeout == 0:
+            return False
         me = threading.current_thread()
         log.debug('%s blocked in acquire()', me.name)
         with self.cond:
@@ -548,6 +550,7 @@ class MockMultiLock:
                 pytest.fail('Timeout waiting for lock')
             self.real_mlock.locked_keys.add(key)
         log.debug('%s got lock', me.name)
+        return True
 
     def release(self, *key, noerror=False):
         me = threading.current_thread()

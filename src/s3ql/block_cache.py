@@ -321,14 +321,14 @@ class BlockCache(object):
         else:
             self.mlock.release(obj_id, noerror=noerror)
 
-    def _lock_entry(self, inode, blockno, release_global=False):
+    def _lock_entry(self, inode, blockno, release_global=False, timeout=None):
         '''Acquire lock on cache entry'''
 
         if release_global:
             with lock_released:
-                self.mlock.acquire((inode, blockno))
+                return self.mlock.acquire((inode, blockno), timeout=timeout)
         else:
-            self.mlock.acquire((inode, blockno))
+            return self.mlock.acquire((inode, blockno), timeout=timeout)
 
     def _unlock_entry(self, inode, blockno, release_global=False,
                       noerror=False):
@@ -887,30 +887,39 @@ class BlockCache(object):
 
         if end_no is None:
             end_no = start_no + 1
+        blocknos = set(range(start_no, end_no))
 
-        for blockno in range(start_no, end_no):
-            self._lock_entry(inode, blockno, release_global=True)
-            try:
-                if (inode, blockno) in self.cache:
-                    log.debug('removing from cache')
-                    self.cache.remove((inode, blockno))
-
-                try:
-                    block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
-                                               'WHERE inode=? AND blockno=?', (inode, blockno))
-                except NoSuchRowError:
-                    log.debug('block not in db')
+        # First do an opportunistic pass and remove everything where we can
+        # immediately get a lock. This is important when removing a file right
+        # after it has been created. If the upload of the first block has
+        # already started , removal would be stuck behind the upload procedure,
+        # waiting for every block to be uploaded only to remove it afterwards.
+        for timeout in (0, None):
+            for blockno in list(blocknos):
+                if not self._lock_entry(inode, blockno, release_global=True, timeout=timeout):
                     continue
+                blocknos.remove(blockno)
+                try:
+                    if (inode, blockno) in self.cache:
+                        log.debug('removing from cache')
+                        self.cache.remove((inode, blockno))
 
-                # Detach inode from block
-                self.db.execute('DELETE FROM inode_blocks WHERE inode=? AND blockno=?',
-                                (inode, blockno))
+                    try:
+                        block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
+                                                   'WHERE inode=? AND blockno=?', (inode, blockno))
+                    except NoSuchRowError:
+                        log.debug('block not in db')
+                        continue
 
-            finally:
-                self._unlock_entry(inode, blockno, release_global=True)
+                    # Detach inode from block
+                    self.db.execute('DELETE FROM inode_blocks WHERE inode=? AND blockno=?',
+                                    (inode, blockno))
 
-            # Decrease block refcount
-            self._deref_block(block_id)
+                finally:
+                    self._unlock_entry(inode, blockno, release_global=True)
+
+                # Decrease block refcount
+                self._deref_block(block_id)
 
         log.debug('finished')
 

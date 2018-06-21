@@ -1,3 +1,9 @@
+UNRELEASED CHANGES
+
+  * Removal of files that have not yet been uploaded to the backend is
+    now faster, with less data being uploaded only to be removed
+    shortly after.
+
 2018-06-14, S3QL 2.28
 
   * Fixed upgrade process for unencrypted filesystems (was broken in
