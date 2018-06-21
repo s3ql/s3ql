@@ -52,6 +52,8 @@ class MultiLock:
 
             self.locked_keys.add(key)
 
+        return True
+
     def release(self, *key, noerror=False):
         """Release lock on given key
 
