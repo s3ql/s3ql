@@ -213,9 +213,13 @@ def populate_dir(path, entries=1000, size=20*1024*1024,
                 srcname = os.path.join(pooldir, poolnames[idx])
                 if not os.path.isfile(srcname):
                     continue
-                with open(srcname, 'rb') as src:
-                    buf = src.read(size)
-                    dst.write(buf)
+                try:
+                    with open(srcname, 'rb') as src:
+                        buf = src.read(size)
+                except PermissionError:
+                    # Source not readable..
+                    continue
+                dst.write(buf)
                 size -= len(buf)
         files.append(name)
 
