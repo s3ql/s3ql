@@ -177,7 +177,7 @@ def create_tables(conn):
     conn.execute("""
     CREATE TABLE blocks (
         id        INTEGER PRIMARY KEY,
-        hash      BLOB(16) UNIQUE,
+        hash      BLOB(32) UNIQUE,
         refcount  INT,
         size      INT NOT NULL,
         obj_id    INTEGER NOT NULL REFERENCES objects(id)
