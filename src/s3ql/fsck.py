@@ -544,8 +544,8 @@ class Fsck(object):
                     continue
                 self.moved_inodes.add(inode)
 
-                affected_entries = list(self.conn.query('SELECT name, name_id, parent_inode '
-                                                        'FROM contents_v WHERE inode=?', (inode,)))
+                affected_entries = self.conn.get_list('SELECT name, name_id, parent_inode '
+                                                      'FROM contents_v WHERE inode=?', (inode,))
                 for (name, name_id, id_p) in affected_entries:
                     path = get_path(id_p, self.conn, name)
                     self.log_error("File may lack data, moved to /lost+found: %s", to_str(path))
@@ -691,8 +691,8 @@ class Fsck(object):
 
         log.info('Checking blocks (checksums)...')
 
-        for (block_id, obj_id) in list(self.conn.query('SELECT id, obj_id FROM blocks '
-                                                       'WHERE hash IS NULL')):
+        for (block_id, obj_id) in self.conn.get_list('SELECT id, obj_id FROM blocks '
+                                                     'WHERE hash IS NULL'):
             self.found_errors = True
 
             # This should only happen when there was an error during upload,
@@ -989,8 +989,8 @@ class Fsck(object):
 
                     # Copy the list, or we may pick up the same entry again and again
                     # (first from the original location, then from lost+found)
-                    affected_entries = list(self.conn.query('SELECT name, name_id, parent_inode '
-                                                            'FROM contents_v WHERE inode=?', (id_,)))
+                    affected_entries = self.conn.get_list('SELECT name, name_id, parent_inode '
+                                                            'FROM contents_v WHERE inode=?', (id_,))
                     for (name, name_id, id_p) in affected_entries:
                         path = get_path(id_p, self.conn, name)
                         self.log_error("File may lack data, moved to /lost+found: %s", to_str(path))
