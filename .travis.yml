@@ -3,7 +3,15 @@ sudo: enabled
 
 language: python
 python:
+  - "3.3"
+  - "3.4"
+  - "3.5"
   - "3.6"
+  - "3.7-dev"
+matrix:
+  allow_failures:
+    - python: "3.7-dev"
+
 cache: pip
 
 before_install:
@@ -13,7 +21,8 @@ before_install:
 
 install:
   - pip install https://github.com/rogerbinns/apsw/releases/download/3.8.2-r1/apsw-3.8.2-r1.zip
-  - pip install cython==0.24.1 sphinx pycrypto defusedxml requests "llfuse >= 1.0, < 2.0" "dugong >= 3.4, < 4.0" "pytest >= 3.3"
+  - if [[ $TRAVIS_PYTHON_VERSION == 3.3 ]]; then pip install defusedxml==0.4.1; else pip install defusedxml; fi
+  - pip install cython==0.24.1 sphinx pycrypto requests "llfuse >= 1.0, < 2.0" "dugong >= 3.4, < 4.0" "pytest >= 3.3"
 
 script:
   - python setup.py build_cython || travis_terminate 1
