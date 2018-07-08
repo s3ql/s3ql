@@ -135,7 +135,6 @@ The following resources are available:
   `s3ql+subscribe@googlegroups.com
   <mailto:s3ql+subscribe@googlegroups.com>`_.
 
-Please report any bugs you may encounter in the `Bitbucket Issue Tracker`_.
 
 Contributing
 ============
