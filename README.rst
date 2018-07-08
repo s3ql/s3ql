@@ -135,7 +135,7 @@ The following resources are available:
   `s3ql+subscribe@googlegroups.com
   <mailto:s3ql+subscribe@googlegroups.com>`_.
 
-Please report any bugs you may encounter in the `Bitbucket Issue Tracker`_.
+Please report any bugs you may encounter in the `GitHub Issue Tracker`_.
 
 Contributing
 ============
@@ -152,7 +152,7 @@ Professional support is offered via `Rath Consulting`_.
 .. _`Installation Instructions`: https://bitbucket.org/nikratio/s3ql/wiki/Installation
 .. _`S3QL FAQ`: https://bitbucket.org/nikratio/s3ql/wiki/FAQ
 .. _`S3QL Mailing List`: http://groups.google.com/group/s3ql
-.. _`Bitbucket Issue Tracker`: https://bitbucket.org/nikratio/s3ql/issues
+.. _`GitHub Issue Tracker`: https://github.com/s3ql/s3ql/issues
 .. _BitBucket: https://bitbucket.org/nikratio/s3ql/
 .. _GitHub: https://github.com/s3ql/main
 .. _`Rath Consulting`: http://www.rath-consulting.biz/
