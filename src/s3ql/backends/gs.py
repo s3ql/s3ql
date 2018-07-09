@@ -53,6 +53,14 @@ class Backend(s3c.Backend):
         if self.use_oauth2:
             self.hdr_prefix = 'x-goog-'
 
+        self.google_app_credentials = None
+        if self.password == '':
+            log.info('Password empty, using google application default account')
+            # Don't import at top level for backwards compatibility
+            import google.auth
+            credentials, project_id = google.auth.default()
+            self.google_app_credentials = credentials
+
     @staticmethod
     def _parse_storage_url(storage_url, ssl_context):
         # Special case for unit testing against local mock server
@@ -121,6 +129,10 @@ class Backend(s3c.Backend):
     def _get_access_token(self):
         log.info('Requesting new access token')
 
+        if self.google_app_credentials is not None:
+            self._refresh_application_default_token()
+            return
+
         headers = CaseInsensitiveDict()
         headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=utf-8'
 
@@ -171,6 +183,25 @@ class Backend(s3c.Backend):
 
         finally:
             conn.disconnect()
+
+    def _refresh_application_default_token(self):
+        # For backwards compatibility we only use this token method if the
+        # password is empty.
+        assert(self.password == '')
+        try:
+            def requestAdapterFunc(url, method='GET', body=None, headers=None,
+                timeout=None, **kwargs):
+                # TODO
+                # To respect proxy and ssl settings we need to use dugong,
+                # we must write a google.auth.transport adaptor and use it here.
+                import google.auth.transport.requests
+                return google.auth.transport.requests.Request()(url, method=method,
+                    body=body, headers=headers, timeout=timeout, **kwargs)
+
+            self.google_app_credentials.refresh(requestAdapterFunc)
+            self.access_token[self.password] = self.google_app_credentials.token
+        except google.auth.exceptions.GoogleAuthError as e:
+            raise AuthenticationError(str(e))
 
     def _do_request(self, method, path, subres=None, query_string=None,
                     headers=None, body=None):

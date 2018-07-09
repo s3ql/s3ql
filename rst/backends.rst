@@ -63,6 +63,13 @@ ways to access Google storage:
    once, the refresh token will remain valid until you explicitly
    revoke it.
 
+#. Use Google Application Default credentials. In this case set the
+   backend login to ``oauth2`` but specify an empty refresh token
+   for the backend. An oauth2 refresh token will be taken from the
+   environment following `google-auth default application authentication
+   <https://google-auth.readthedocs.io/en/latest/reference/google.auth.html#google.auth.default>`_.
+
+
 To create a Google Storage bucket, you can use e.g. the `Google
 Storage Manager`_. The storage URL for accessing the bucket in S3QL is
 then ::

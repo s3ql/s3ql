@@ -51,6 +51,8 @@ that is not the case.
   * `defusedxml <https://pypi.python.org/pypi/defusedxml/>`_
   * `requests <https://pypi.python.org/pypi/requests/>`_ (optional,
     required for OAuth2 authentication with Google Storage)
+  * `google-auth <https://pypi.python.org/project/google-auth/>`_ (optional,
+    required for OAuth2 default application authentication with Google Storage)
   * `systemd <https://github.com/systemd/python-systemd>`_ (optional,
     for enabling systemd support). Do *not* install the module from
     PyPi, this is from a third-party developer and incompatible with
