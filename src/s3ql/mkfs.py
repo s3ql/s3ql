@@ -95,7 +95,7 @@ def main(args=None):
     atexit.register(plain_backend.close)
 
     log.info("Before using S3QL, make sure to read the user's guide, especially\n"
-             "the 'Important Rules to Avoid Loosing Data' section.")
+             "the 'Important Rules to Avoid Losing Data' section.")
 
     if isinstance(plain_backend, s3.Backend) and '.' in plain_backend.bucket_name:
         log.warning('S3 Buckets with names containing dots cannot be '
