@@ -160,7 +160,10 @@ def main(args=None):
     out_speed = dict()
     for alg in ALGS:
         log.info('compressing with %s-6...', alg)
-        backend = ComprencBackend(b'pass', (alg, 6), Backend('local://' + backend_dir, None, None))
+        temp_parser = argparse.ArgumentParser()
+        temp_parser.add_argument('--storage_url')
+        temp_options = temp_parser.parse_args(['--storage_url','local://' + backend_dir])
+        backend = ComprencBackend(b'pass', (alg, 6),Backend(temp_options))
         def do_write(dst): #pylint: disable=E0102
             src.seek(0)
             stamp = time.time()
