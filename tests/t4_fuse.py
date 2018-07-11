@@ -114,29 +114,18 @@ class TestFuse:
         assert not os.path.ismount(self.mnt_dir)
 
     def fsck(self):
-        # Use fsck to test authinfo reading
-        with tempfile.NamedTemporaryFile('wt') as authinfo_fh:
-            print('[entry1]',
-                  'storage-url: %s' % self.storage_url[:6],
-                  'fs-passphrase: clearly wrong',
-                  'backend-login: bla',
-                  'backend-password: not much better',
-                  '',
-                  '[entry2]',
-                  'storage-url: %s' % self.storage_url,
-                  'fs-passphrase: %s' % self.passphrase,
-                  'backend-login: %s' % self.backend_login,
-                  'backend-password:%s' % self.backend_passphrase,
-                  file=authinfo_fh, sep='\n')
-            authinfo_fh.flush()
-
-            proc = subprocess.Popen(self.s3ql_cmd_argv('fsck.s3ql') +
-                                    [ '--force', '--quiet', '--log', 'none', '--cachedir',
-                                      self.cache_dir, '--authfile',
-                                      authinfo_fh.name, self.storage_url ],
-                                    stdin=subprocess.PIPE, universal_newlines=True)
-            proc.stdin.close()
-            assert proc.wait() == 0
+        proc = subprocess.Popen(self.s3ql_cmd_argv('fsck.s3ql') +
+                                [ '--force', '--quiet', '--log', 'none', '--cachedir',
+                                  self.cache_dir, '--authfile', '/dev/null',
+                                  self.storage_url ],
+                                stdin=subprocess.PIPE, universal_newlines=True)
+        if self.backend_login is not None:
+            print(self.backend_login, file=proc.stdin)
+            print(self.backend_passphrase, file=proc.stdin)
+        if self.passphrase is not None:
+            print(self.passphrase, file=proc.stdin)
+        proc.stdin.close()
+        assert proc.wait() == 0
 
     def teardown_method(self, method):
         with open('/dev/null', 'wb') as devnull:
