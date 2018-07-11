@@ -226,9 +226,8 @@ class Operations(llfuse.Operations):
     def listxattr(self, id_, ctx):
         log.debug('started with %d', id_)
         names = list()
-        with self.db.query('SELECT name FROM ext_attributes_v WHERE inode=?', (id_,)) as res:
-            for (name,) in res:
-                names.append(name)
+        for (name,) in self.db.query('SELECT name FROM ext_attributes_v WHERE inode=?', (id_,)):
+            names.append(name)
         return names
 
     def setxattr(self, id_, name, value, ctx):
