@@ -103,6 +103,26 @@ Cache expiration (i.e., removal of blocks from the cache) is only done
 when the maximum cache size is reached. S3QL always expires the least
 recently used blocks first.
 
+NFS Support
+===========
+
+S3QL filesystems can be exported over NFS. The :cmdopt:`--nfs` option
+is recommended to improve performance when NFS is used, but no harm
+will occur when it is not specified.
+
+NFS supports persistence of client mounts across server restarts. This
+means that if a client has mounted an S3QL file system over NFS, the
+server may unmount and remount the S3QL filesystem (or even reboot)
+without the client being affected beyond temporarily becoming
+unavailable. This poses several challenges, but is supported by S3QL
+as long as no `fsck.s3ql` operation is run:
+
+.. WARNING::
+
+   If `fsck.s3ql` modifies a file system in any way, all NFS
+   clients must unmount and re-mount the NFS share before the
+   S3QL file system is re-mounted on the server.
+
 
 Failure Modes
 =============
