@@ -209,9 +209,8 @@ class ArgumentParser(argparse.ArgumentParser):
         except ArgumentError as exc:
             self.error(str(exc))
 
-        if hasattr(options, 'authfile'):
-            assert options.storage_url
-            self._read_authfile(options)
+        if hasattr(options, 'storage_url'):
+            self._init_backend_factory(options)
 
         if hasattr(options, 'cachedir'):
             assert options.storage_url
@@ -230,7 +229,7 @@ class ArgumentParser(argparse.ArgumentParser):
 
         return options
 
-    def _read_authfile(self, options):
+    def _init_backend_factory(self, options):
         storage_url = options.storage_url
         hit = re.match(r'^([a-zA-Z0-9]+)://', storage_url)
         if not hit:
