@@ -1,4 +1,4 @@
-UNRELEASED CHANGES
+2018-07-21, S3QL 2.29
 
   * Removal of files that have not yet been uploaded to the backend is
     now faster, with less data being uploaded only to be removed
