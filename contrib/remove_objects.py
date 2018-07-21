@@ -30,14 +30,11 @@ def parse_args(args):
 
     parser = ArgumentParser(description='Batch remove objects from an S3QL backend')
 
-    parser.add_authfile()
+    parser.add_storage_url()
     parser.add_quiet()
     parser.add_debug()
     parser.add_backend_options()
     parser.add_version()
-
-    parser.add_argument("storage_url", type=storage_url_type,
-                        help='Storage URL of the backend to delete from')
 
     parser.add_argument("file", type=argparse.FileType(mode='r', encoding='utf-8'),
                         help='File with newline separated object keys to delete')

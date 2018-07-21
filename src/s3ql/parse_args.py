@@ -162,12 +162,6 @@ class ArgumentParser(argparse.ArgumentParser):
                           help="Activate debugging output from all S3QL modules. "
                                + destnote)
 
-    def add_authfile(self):
-        self.add_argument("--authfile", type=str, metavar='<path>',
-                      default=os.path.expanduser("~/.s3ql/authinfo2"),
-                      help='Read authentication credentials from this file '
-                           '(default: `~/.s3ql/authinfo2)`')
-
     def add_cachedir(self):
         self.add_argument("--cachedir", type=str, metavar='<path>',
                       default=os.path.expanduser("~/.s3ql"),
@@ -186,6 +180,10 @@ class ArgumentParser(argparse.ArgumentParser):
         self.add_argument("storage_url", metavar='<storage-url>',
                           type=storage_url_type,
                           help='Storage URL of the backend that contains the file system')
+        self.add_argument("--authfile", type=str, metavar='<path>',
+                      default=os.path.expanduser("~/.s3ql/authinfo2"),
+                      help='Read authentication credentials from this file '
+                           '(default: `~/.s3ql/authinfo2)`')
 
     def add_subparsers(self, **kw):
         '''Pass parent and set prog to default usage message'''

@@ -31,7 +31,6 @@ def parse_args(args):
         description="Initializes an S3QL file system")
 
     parser.add_cachedir()
-    parser.add_authfile()
     parser.add_debug()
     parser.add_quiet()
     parser.add_backend_options()

@@ -49,7 +49,6 @@ def parse_args(args):
                 description='Measure S3QL write performance, uplink bandwidth and '
                             'compression speed and determine limiting factor.')
 
-    parser.add_authfile()
     parser.add_quiet()
     parser.add_debug()
     parser.add_backend_options()

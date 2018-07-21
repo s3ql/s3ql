@@ -44,7 +44,6 @@ def parse_args(args):
     pparser = ArgumentParser(add_help=False, epilog=textwrap.dedent('''\
                Hint: run `%(prog)s --help` to get help on other available actions and
                optional arguments that can be used with all actions.'''))
-    pparser.add_storage_url()
 
     subparsers = parser.add_subparsers(metavar='<action>', dest='action',
                                        help='may be either of')
@@ -61,10 +60,10 @@ def parse_args(args):
     sparser.add_argument("--threads", type=int, default=20,
                         help='Number of threads to use')
 
+    parser.add_storage_url()
     parser.add_debug()
     parser.add_quiet()
     parser.add_log()
-    parser.add_authfile()
     parser.add_backend_options()
     parser.add_cachedir()
     parser.add_version()

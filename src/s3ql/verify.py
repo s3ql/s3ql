@@ -52,7 +52,6 @@ def parse_args(args):
     parser.add_quiet()
     parser.add_version()
     parser.add_cachedir()
-    parser.add_authfile()
     parser.add_backend_options()
     parser.add_storage_url()
 

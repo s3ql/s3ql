@@ -1169,7 +1169,6 @@ def parse_args(args):
 
     parser.add_log('~/.s3ql/fsck.log')
     parser.add_cachedir()
-    parser.add_authfile()
     parser.add_debug()
     parser.add_quiet()
     parser.add_backend_options()
