@@ -11,6 +11,7 @@ from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.comprenc import ComprencBackend
 from .backends.common import NoSuchObject
 from .database import Connection
+from base64 import b64decode
 from .common import (get_seq_no, is_mounted, get_backend, load_params,
                      save_params, handle_on_return, get_backend_factory,
                      AsyncFn)
@@ -25,6 +26,7 @@ import s3ql.backends.s3c
 import hashlib
 import hmac
 import struct
+import re
 import shutil
 import sys
 import textwrap
@@ -50,6 +52,8 @@ def parse_args(args):
     subparsers.add_parser("passphrase", help="change file system passphrase",
                           parents=[pparser])
     subparsers.add_parser("clear", help="delete file system and all data",
+                          parents=[pparser])
+    subparsers.add_parser("recover-key", help="Recover master key from offline copy.",
                           parents=[pparser])
     subparsers.add_parser("download-metadata",
                           help="Interactively download metadata backups. "
@@ -91,6 +95,10 @@ def main(args=None):
             return clear(backend, options)
     elif options.action == 'upgrade':
         return upgrade(options)
+
+    if options.action == 'recover-key':
+        with get_backend(options, raw=True) as backend:
+            return recover(backend, options)
 
     with get_backend(options) as backend:
         if options.action == 'passphrase':
@@ -173,6 +181,33 @@ def change_passphrase(backend):
     backend['s3ql_passphrase_bak2'] = data_pw
     backend['s3ql_passphrase_bak3'] = data_pw
     backend.passphrase = data_pw
+
+def recover(backend, options):
+    print("Enter master key (should be 11 blocks of 4 characters each): ")
+    data_pw = sys.stdin.readline()
+    data_pw = re.sub(r'\s+', '', data_pw)
+    try:
+        data_pw = b64decode(data_pw)
+    except ValueError:
+        raise QuietError("Malformed master key. Expected valid base64.")
+
+    if len(data_pw) != 32:
+        raise QuietError("Malformed master key. Expected length 32, got %d."
+                         % len(data_pw))
+
+    if sys.stdin.isatty():
+        wrap_pw = getpass("Enter new encryption password: ")
+        if not wrap_pw == getpass("Confirm new encryption password: "):
+            raise QuietError("Passwords don't match")
+    else:
+        wrap_pw = sys.stdin.readline().rstrip()
+    wrap_pw = wrap_pw.encode('utf-8')
+
+    backend = ComprencBackend(wrap_pw, ('lzma', 2), backend)
+    backend['s3ql_passphrase'] = data_pw
+    backend['s3ql_passphrase_bak1'] = data_pw
+    backend['s3ql_passphrase_bak2'] = data_pw
+    backend['s3ql_passphrase_bak3'] = data_pw
 
 def clear(backend, options):
     print('I am about to delete all data in %s.' % backend,

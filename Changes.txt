@@ -1,3 +1,8 @@
+UNRELEASED CHANGES
+
+  * s3qladm has gained a new "recover-key" operation to restore the
+    file system passphrase from an offline copy.
+
 2018-07-21, S3QL 2.29
 
   * Removal of files that have not yet been uploaded to the backend is
