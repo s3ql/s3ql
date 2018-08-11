@@ -141,13 +141,14 @@ class TestUpgrade(t4_fuse.TestFuse):
             shutil.rmtree(self.cache_dir)
             self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
 
-        if isinstance(self, RemoteUpgradeTest) or self.passphrase:
+        if isinstance(self, RemoteUpgradeTest):
+            self.mount(expect_fail=32)
+            self.reg_output(r'^ERROR: File system revision needs upgrade', count=1)
+            self.reg_output(r'^WARNING: MD5 mismatch in metadata for '
+                            's3ql_(metadata|passphrase)', count=1)
+        elif self.passphrase:
             self.mount(expect_fail=17)
-            self.reg_output(r'^ERROR: Backend data corrupted, or file system revision '
-                            'needs upgrade', count=1)
-            if isinstance(self, RemoteUpgradeTest):
-                self.reg_output(r'^WARNING: MD5 mismatch in metadata for '
-                                's3ql_(metadata|passphrase)', count=1)
+            self.reg_output(r'^ERROR: Wrong file system passphrase', count=1)
         else:
             self.mount(expect_fail=32)
             self.reg_output(r'^ERROR: File system revision too old', count=1)
