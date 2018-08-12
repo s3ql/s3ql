@@ -254,7 +254,7 @@ class ArgumentParser(argparse.ArgumentParser):
         backend_options = options.backend_options
         for opt in backend_options.keys():
             if opt not in backend_class.known_options:
-                self.exit(3, 'Unknown backend option: +' % opt)
+                self.exit(3, 'Unknown backend option: ' + opt)
 
         valid_keys = backend_class.known_options | {
             'backend_login', 'backend_password', 'fs_passphrase' }
