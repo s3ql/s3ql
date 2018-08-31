@@ -12,7 +12,6 @@ import os
 import re
 import textwrap
 import shutil
-import pickle
 from datetime import datetime, timedelta
 from collections import defaultdict
 
