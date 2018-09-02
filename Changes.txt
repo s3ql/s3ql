@@ -1,7 +1,12 @@
-UNRELEASED CHANGES
+2018-09-02, S3QL 2.30
 
   * s3qladm has gained a new "recover-key" operation to restore the
     file system passphrase from an offline copy.
+
+  * Error messages in a few situations have been improved.
+
+  * Re-generated C files with Cython 0.28.5 - this may fix some
+    compile problems under Python 3.7.
 
 2018-07-21, S3QL 2.29
 
