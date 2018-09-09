@@ -181,11 +181,12 @@ class Backend(s3c.Backend):
         auth_strs.append(urllib.parse.quote(path))
 
         if query_string:
-            s = urllib.parse.urlencode(query_string, doseq=True).split('&')
+            s = urllib.parse.urlencode(query_string, doseq=True,
+                                       quote_via=urllib.parse.quote).split('&')
         else:
             s = []
         if subres:
-            s.append(urllib.parse.quote_plus(subres) + '=')
+            s.append(urllib.parse.quote(subres) + '=')
         if s:
             s = '&'.join(sorted(s))
         else:
