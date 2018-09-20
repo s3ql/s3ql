@@ -33,7 +33,6 @@ import shutil
 import stat
 import tempfile
 import threading
-import unittest
 import queue
 import pytest
 
@@ -68,10 +67,13 @@ class DummyQueue:
     def qsize(self):
         return 0
 
-class cache_tests(unittest.TestCase):
+def random_data(len_):
+    with open("/dev/urandom", "rb") as fh:
+        return fh.read(len_)
 
-    def setUp(self):
-
+@pytest.yield_fixture
+def self():
+        self = Namespace()
         self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
         self.backend_pool = BackendPool(lambda: local.Backend(
             Namespace(storage_url='local://' + self.backend_dir)))
@@ -114,14 +116,17 @@ class cache_tests(unittest.TestCase):
         s3ql.block_cache.lock = MockLock()
         s3ql.block_cache.lock_released = MockLock()
 
-    def tearDown(self):
-        self.cache.backend_pool = self.backend_pool
-        self.cache.destroy()
-        shutil.rmtree(self.cachedir)
-        shutil.rmtree(self.backend_dir)
-        self.dbfile.close()
-        os.unlink(self.dbfile.name)
+        try:
+            yield self
+        finally:
+            self.cache.backend_pool = self.backend_pool
+            self.cache.destroy()
+            shutil.rmtree(self.cachedir)
+            shutil.rmtree(self.backend_dir)
+            self.dbfile.close()
+            os.unlink(self.dbfile.name)
 
+if True:
     def test_thread_hang(self):
         # Make sure that we don't deadlock if uploads threads or removal
         # threads have died and we try to expire or terminate
@@ -168,9 +173,9 @@ class cache_tests(unittest.TestCase):
         try:
             # Try to clean-up (implicitly calls expire)
             with assert_logs('Unable to drop cache, no upload threads left alive',
-                              level=logging.ERROR, count=1):
+                             level=logging.ERROR, count=1):
                 with pytest.raises(OSError) as exc_info:
-                     self.cache.destroy()
+                    self.cache.destroy()
                 assert exc_info.value.errno == errno.ENOTEMPTY
             assert upload_exc
             assert removal_exc
@@ -184,16 +189,10 @@ class cache_tests(unittest.TestCase):
             self.cache.remove(self.inode, 1)
             self.cache.destroy = lambda: None
 
-
-    @staticmethod
-    def random_data(len_):
-        with open("/dev/urandom", "rb") as fh:
-            return fh.read(len_)
-
     def test_get(self):
         inode = self.inode
         blockno = 11
-        data = self.random_data(int(0.5 * self.max_obj_size))
+        data = random_data(int(0.5 * self.max_obj_size))
 
         # Case 1: Object does not exist yet
         with self.cache.get(inode, blockno) as fh:
@@ -203,13 +202,13 @@ class cache_tests(unittest.TestCase):
         # Case 2: Object is in cache
         with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
-            self.assertEqual(data, fh.read(len(data)))
+            assert data == fh.read(len(data))
 
         # Case 3: Object needs to be downloaded
         self.cache.drop()
         with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
-            self.assertEqual(data, fh.read(len(data)))
+            assert data == fh.read(len(data))
 
     def test_expire(self):
         inode = self.inode
@@ -237,13 +236,13 @@ class cache_tests(unittest.TestCase):
         self.cache.backend_pool = MockBackendPool(self.backend_pool, no_write=2)
         self.cache.expire()
         self.cache.backend_pool.verify()
-        self.assertEqual(len(self.cache.cache), 16)
+        assert len(self.cache.cache) == 16
 
         for i in range(20):
             if i in most_recent:
-                self.assertTrue((inode, i) not in self.cache.cache)
+                assert (inode, i) not in self.cache.cache
             else:
-                self.assertTrue((inode, i) in self.cache.cache)
+                assert (inode, i) in self.cache.cache
 
     def test_upload(self):
         inode = self.inode
@@ -252,9 +251,9 @@ class cache_tests(unittest.TestCase):
         blockno2 = 25
         blockno3 = 7
 
-        data1 = self.random_data(datalen)
-        data2 = self.random_data(datalen)
-        data3 = self.random_data(datalen)
+        data1 = random_data(datalen)
+        data2 = random_data(datalen)
+        data3 = random_data(datalen)
 
         # Case 1: create new object
         self.cache.backend_pool = MockBackendPool(self.backend_pool, no_write=1)
@@ -321,7 +320,7 @@ class cache_tests(unittest.TestCase):
         datalen = int(0.1 * self.cache.cache.max_size)
         blockno1 = 21
         blockno2 = 24
-        data = self.random_data(datalen)
+        data = random_data(datalen)
 
         self.cache.backend_pool = MockBackendPool(self.backend_pool, no_write=1)
         with self.cache.get(inode, blockno1) as fh:
@@ -339,7 +338,7 @@ class cache_tests(unittest.TestCase):
 
     def test_remove_cache(self):
         inode = self.inode
-        data1 = self.random_data(int(0.4 * self.max_obj_size))
+        data1 = random_data(int(0.4 * self.max_obj_size))
 
         # Case 1: Elements only in cache
         with self.cache.get(inode, 1) as fh:
@@ -348,12 +347,12 @@ class cache_tests(unittest.TestCase):
         self.cache.remove(inode, 1)
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
-            self.assertEqual(fh.read(42), b'')
+            assert fh.read(42) == b''
 
     def test_upload_race(self):
         inode = self.inode
         blockno = 1
-        data1 = self.random_data(int(0.4 * self.max_obj_size))
+        data1 = random_data(int(0.4 * self.max_obj_size))
         with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
             fh.write(data1)
@@ -368,7 +367,7 @@ class cache_tests(unittest.TestCase):
         # Create element
         inode = self.inode
         blockno = 1
-        data1 = self.random_data(int(0.4 * self.max_obj_size))
+        data1 = random_data(int(0.4 * self.max_obj_size))
         with self.cache.get(inode, blockno) as fh:
             fh.seek(0)
             fh.write(data1)
@@ -404,7 +403,7 @@ class cache_tests(unittest.TestCase):
         # Create elements
         inode = self.inode
         for i in range(5):
-            data1 = self.random_data(int(0.4 * self.max_obj_size))
+            data1 = random_data(int(0.4 * self.max_obj_size))
             with self.cache.get(inode, i) as fh:
                 fh.write(data1)
 
@@ -437,7 +436,7 @@ class cache_tests(unittest.TestCase):
 
     def test_remove_cache_db(self):
         inode = self.inode
-        data1 = self.random_data(int(0.4 * self.max_obj_size))
+        data1 = random_data(int(0.4 * self.max_obj_size))
 
         # Case 2: Element in cache and db
         with self.cache.get(inode, 1) as fh:
@@ -452,12 +451,11 @@ class cache_tests(unittest.TestCase):
 
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
-            self.assertEqual(fh.read(42), b'')
-
+            assert fh.read(42) == b''
 
     def test_remove_db(self):
         inode = self.inode
-        data1 = self.random_data(int(0.4 * self.max_obj_size))
+        data1 = random_data(int(0.4 * self.max_obj_size))
 
         # Case 3: Element only in DB
         with self.cache.get(inode, 1) as fh:
@@ -471,7 +469,7 @@ class cache_tests(unittest.TestCase):
         self.cache.backend_pool.verify()
         with self.cache.get(inode, 1) as fh:
             fh.seek(0)
-            self.assertEqual(fh.read(42), b'')
+            assert fh.read(42) ==  b''
 
     def test_issue_241(self):
 
@@ -479,7 +477,7 @@ class cache_tests(unittest.TestCase):
 
         # Create block
         with self.cache.get(inode, 0) as fh:
-            fh.write(self.random_data(500))
+            fh.write(random_data(500))
 
         # "Fill" cache
         self.cache.cache.max_entries = 0
@@ -501,7 +499,7 @@ class cache_tests(unittest.TestCase):
 
         # Create a new object for the same block
         with self.cache.get(inode, 0) as fh:
-            fh.write(self.random_data(500))
+            fh.write(random_data(500))
 
         # Continue first expiration run
         mlock.yield_to(thread1, block=False)
