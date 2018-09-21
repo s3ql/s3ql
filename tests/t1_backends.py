@@ -12,30 +12,29 @@ if __name__ == '__main__':
     import sys
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from s3ql.logging import logging
-import mock_server
-from dugong import ConnectionClosed
-from s3ql import backends, BUFSIZE
-from s3ql.backends.local import Backend as LocalBackend
-from s3ql.backends.gs import Backend as GSBackend
-from s3ql.backends.common import (NoSuchObject, CorruptedObjectError)
-from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
-from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, S3Error
-from s3ql.backends.swift import Backend as SwiftBackend
 from argparse import Namespace
 from common import get_remote_test_info, NoTestSection, CLOCK_GRANULARITY
-from argparse import Namespace
-from pytest_checklogs import assert_logs
-import s3ql.backends.common
-import tempfile
-import re
-import functools
-import time
-import pytest
+from dugong import ConnectionClosed
 from pytest import raises as assert_raises
+from pytest_checklogs import assert_logs
+from s3ql import backends, BUFSIZE
+from s3ql.backends.common import (NoSuchObject, CorruptedObjectError)
+from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
+from s3ql.backends.gs import Backend as GSBackend
+from s3ql.backends.local import Backend as LocalBackend
+from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, S3Error
+from s3ql.backends.swift import Backend as SwiftBackend
+from s3ql.logging import logging
+import functools
+import mock_server
+import pytest
+import re
+import s3ql.backends.common
 import shutil
 import struct
+import tempfile
 import threading
+import time
 
 log = logging.getLogger(__name__)
 empty_set = set()
@@ -111,11 +110,11 @@ def pytest_generate_tests(metafunc, _info_cache=[]):
     if 'backend' not in metafunc.fixturenames:
         return
 
-    fn = metafunc.function
-    assert hasattr(fn, 'with_backend')
+    with_backend_mark = metafunc.definition.get_closest_marker('with_backend')
+    assert with_backend_mark
 
     test_params = []
-    for spec in fn.with_backend.args:
+    for spec in with_backend_mark.args:
         (backend_spec, comprenc_spec) = spec.split('/')
 
         # Expand compression/encryption specification
@@ -137,10 +136,10 @@ def pytest_generate_tests(metafunc, _info_cache=[]):
                              if x.classname == name ]
 
         # Filter
-        if fn.with_backend.kwargs.get('require_mock_server', False):
+        if with_backend_mark.kwargs.get('require_mock_server', False):
             test_bi = [ x for x in test_bi
                         if 'request_handler' in x ]
-        if fn.with_backend.kwargs.get('require_immediate_consistency', False):
+        if with_backend_mark.kwargs.get('require_immediate_consistency', False):
             test_bi = [ x for x in test_bi
                         if 'request_handler' in x
                         or x.classname in ('local', 'gs') ]
