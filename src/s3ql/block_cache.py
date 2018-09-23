@@ -724,10 +724,6 @@ class BlockCache(object):
         """Get file handle for block `blockno` of `inode`
 
         This method releases the global lock.
-
-        Note: if `get` and `remove` are called concurrently, then it is
-        possible that a block that has been requested with `get` and
-        passed to `remove` for deletion will not be deleted.
         """
 
         #log.debug('started with %d, %d', inode, blockno)
