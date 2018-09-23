@@ -30,8 +30,9 @@ CTRL_NAME = CTRL_NAME.encode('us-ascii')
 # standard logger for this module
 log = logging.getLogger(__name__)
 
-# For long requests, we force a GIL release in the following interval
-GIL_RELEASE_INTERVAL = 0.05
+# During long-running operations, yield to event loop with at least
+# this interval.
+CHECKPOINT_INTERVAL = 0.05
 
 # ACL_ERRNO is the error code returned for requests that try
 # to modify or access extendeda attributes associated with ACL.
@@ -56,6 +57,7 @@ if not hasattr(errno, 'EOPNOTSUPP'):
     ACL_ERRNO = errno.ENOTSUP
 else:
     ACL_ERRNO = errno.EOPNOTSUPP
+
 
 class Operations(pyfuse3.Operations):
     """A full-featured file system for online data storage
@@ -339,33 +341,28 @@ class Operations(pyfuse3.Operations):
             raise FUSEError(errno.EPERM)
 
         log.debug('started with %d', id0)
-        queue = [ id0 ]
+        queue = [ (id0, -1) ]
         self.inodes[id0].locked = True
-        processed = 0 # Number of steps since last GIL release
-        stamp = time_ns() # Time of last GIL release
-        gil_step = 250 # Approx. number of steps between GIL releases
-        while True:
-            id_p = queue.pop()
-            with self.db.query('SELECT inode FROM contents WHERE parent_inode=?',
-                               (id_p,)) as res:
-                for (id_,) in res:
+        while queue:
+            (id_p, off) = queue.pop()
+            log.debug('Processing directory (%d, %d)', id_p, off)
+            processed = 0
+            with self.db.query('SELECT name_id, inode FROM contents WHERE parent_inode=? '
+                               'AND name_id > ? ORDER BY name_id', (id_p, off)) as res:
+                for (name_id, id_) in res:
                     self.inodes[id_].locked = True
-                    processed += 1
 
                     if self.db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
-                        queue.append(id_)
+                        queue.append((id_, -1))
 
-            if not queue:
-                break
+                    # Break every once in a while - note that we can't yield
+                    # right here because there's an active DB query.
+                    processed += 1
+                    if processed > 200:
+                        queue.append((id_p, name_id))
+                        break
 
-            if processed > gil_step:
-                dt = time.time() - stamp
-                gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 250)
-                log.debug('Adjusting gil_step to %d', gil_step)
-                processed = 0
-                await trio.hazmat.checkpoint()
-                log.debug('re-acquired lock')
-                stamp = time.time()
+            await trio.hazmat.checkpoint()
 
         log.debug('finished')
 
@@ -382,8 +379,8 @@ class Operations(pyfuse3.Operations):
 
         id0 = self._lookup(id_p0, name0, ctx=None).id
         queue = [ id0 ]  # Directories that we still need to delete
-        batch_size = 200 # Entries to process before releasing GIL
-        stamp = time.time() # Time of last GIL release
+        batch_size = 200 # Entries to process before checkpointing
+        stamp = time.time() # Time of last checkpoint
         while queue: # For every directory
             id_p = queue.pop()
             is_open = id_p in self.open_inodes
@@ -413,7 +410,7 @@ class Operations(pyfuse3.Operations):
                 queue.append(id_p)
 
             dt = time.time() - stamp
-            batch_size = int(batch_size * GIL_RELEASE_INTERVAL / dt)
+            batch_size = int(batch_size * CHECKPOINT_INTERVAL / dt)
             batch_size = min(batch_size, 200) # somewhat arbitrary...
             batch_size = max(batch_size, 20000)
             log.debug('Adjusting batch_size to %d and yielding', batch_size)
@@ -462,14 +459,12 @@ class Operations(pyfuse3.Operations):
         tmp = make_inode(mtime_ns=now_ns, ctime_ns=now_ns, atime_ns=now_ns,
                          uid=0, gid=0, mode=0, refcount=0)
 
-        queue = [ (src_id, tmp.id, 0) ]
+        queue = [ (src_id, tmp.id, -1) ]
         id_cache = dict()
-        processed = 0 # Number of steps since last GIL release
-        stamp = time.time() # Time of last GIL release
-        gil_step = 250 # Approx. number of steps between GIL releases
         while queue:
             (src_id, target_id, off) = queue.pop()
             log.debug('Processing directory (%d, %d, %d)', src_id, target_id, off)
+            processed = 0
             with db.query('SELECT name_id, inode FROM contents WHERE parent_inode=? '
                           'AND name_id > ? ORDER BY name_id', (src_id, off)) as res:
                 for (name_id, id_) in res:
@@ -511,7 +506,7 @@ class Operations(pyfuse3.Operations):
                                    'WHERE inode = ? GROUP BY id', (id_new,))
 
                         if db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
-                            queue.append((id_, id_new, 0))
+                            queue.append((id_, id_new, -1))
                     else:
                         id_new = id_cache[id_]
                         self.inodes[id_new].refcount += 1
@@ -520,22 +515,14 @@ class Operations(pyfuse3.Operations):
                                (name_id, id_new, target_id))
                     db.execute('UPDATE names SET refcount=refcount+1 WHERE id=?', (name_id,))
 
+                    # Break every once in a while - note that we can't yield
+                    # right here because there's an active DB query.
                     processed += 1
-
-                    if processed > gil_step:
-                        log.debug('Requeueing (%d, %d, %d) to yield lock',
-                                  src_id, target_id, name_id)
+                    if processed > 200:
                         queue.append((src_id, target_id, name_id))
                         break
 
-            if processed > gil_step:
-                dt = time.time() - stamp
-                gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 250)
-                log.debug('Adjusting gil_step to %d and yielding', gil_step)
-                processed = 0
-                await trio.hazmat.checkpoint()
-                log.debug('re-acquired lock')
-                stamp = time.time()
+            await trio.hazmat.checkpoint()
 
         # Make replication visible
         self.db.execute('UPDATE contents SET parent_inode=? WHERE parent_inode=?',
