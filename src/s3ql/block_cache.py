@@ -416,7 +416,10 @@ class BlockCache(object):
 
 
     def _upload_loop(self):
-        '''Process upload queue'''
+        '''Process upload queue.
+
+        This method runs in a separate thread outside the trio event loop.
+        '''
 
         while True:
             tmp = self.to_upload.get()
@@ -428,7 +431,10 @@ class BlockCache(object):
 
 
     def _do_upload(self, el, obj_id):
-        '''Upload object'''
+        '''Upload object.
+
+        This method runs in a separate thread outside the trio event loop.
+        '''
 
         def do_write(fh):
             el.seek(0)
@@ -708,7 +714,10 @@ class BlockCache(object):
         return len(self.in_transit) > 0
 
     def _removal_loop_multi(self):
-        '''Process removal queue'''
+        '''Process removal queue.
+
+        This method runs in a separate thread outside the trio event loop.
+        '''
 
         # This method may look more complicated than necessary, but it ensures
         # that we read as many objects from the queue as we can without
@@ -738,7 +747,10 @@ class BlockCache(object):
                 break
 
     def _removal_loop_simple(self):
-        '''Process removal queue'''
+        '''Process removal queue.
+
+        This method runs in a separate thread outside the trio event loop.
+        '''
 
         while True:
             log.debug('reading from queue..')
