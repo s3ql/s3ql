@@ -109,39 +109,6 @@ class Distributor(object):
         return tmp
 
 
-class SimpleEvent(object):
-    '''
-    Like threading.Event, but without any internal flag. Calls
-    to `wait` always block until some other thread calls
-    `notify` or `notify_all`.
-    '''
-
-    def __init__(self):
-        super().__init__()
-        self.__cond = threading.Condition(threading.Lock())
-
-    def notify_all(self):
-        self.__cond.acquire()
-        try:
-            self.__cond.notify_all()
-        finally:
-            self.__cond.release()
-
-    def notify(self):
-        self.__cond.acquire()
-        try:
-            self.__cond.notify()
-        finally:
-            self.__cond.release()
-
-    def wait(self, timeout=None):
-        self.__cond.acquire()
-        try:
-            return self.__cond.wait(timeout)
-        finally:
-            self.__cond.release()
-
-
 class CacheEntry(object):
     """An element in the block cache
 
@@ -275,7 +242,7 @@ class BlockCache(object):
         self.in_transit = set()
         self.upload_threads = []
         self.removal_threads = []
-        self.transfer_completed = SimpleEvent()
+        self.transfer_completed = trio.Condition()
 
         # Will be initialized once threads are available
         self.to_upload = None
@@ -457,6 +424,8 @@ class BlockCache(object):
 
             await self.mlock.release(obj_id)
             await self.mlock.release(el.inode, el.blockno)
+            async with self.transfer_completed:
+                self.transfer_completed.notify_all()
 
         try:
             with self.backend_pool() as backend:
@@ -475,7 +444,6 @@ class BlockCache(object):
         finally:
             self.in_transit.remove(el)
             self.portal.run(with_event_loop)
-            self.transfer_completed.notify_all()
 
 
     async def wait(self):
@@ -490,8 +458,10 @@ class BlockCache(object):
             if not self.transfer_in_progress():
                 return
 
-            if await trio.run_sync_in_worker_thread(self.transfer_completed.wait, 5):
-                return
+            with trio.move_on_after(5):
+                async with self.transfer_completed:
+                    await self.transfer_completed.wait()
+                    return
 
     async def upload_if_dirty(self, el):
         '''Upload cache entry asynchronously
