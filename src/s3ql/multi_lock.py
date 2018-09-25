@@ -6,9 +6,13 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-import threading
+import trio
 import logging
-from contextlib import contextmanager
+
+try:
+    from contextlib import asynccontextmanager
+except ImportError:
+    from async_generator import asynccontextmanager
 
 __all__ = [ "MultiLock" ]
 
@@ -24,46 +28,61 @@ class MultiLock:
 
     MultiLock instances can be used as context managers.
 
-    Note that it is actually possible for one thread to release a lock that has
+    Note that it is actually possible for one task to release a lock that has
     been obtained by a different thread. This is not a bug but a feature.
     """
 
     def __init__(self):
         self.locked_keys = set()
-        self.cond = threading.Condition(threading.Lock())
+        self.cond = trio.Condition()
 
-    @contextmanager
-    def __call__(self, *key):
-        self.acquire(*key)
+    @asynccontextmanager
+    async def __call__(self, *key):
+        await self.acquire(*key)
         try:
             yield
         finally:
-            self.release(*key)
+            await self.release(*key)
 
-    def acquire(self, *key, timeout=None):
-        '''Acquire lock for given key
+    def acquire_nowait(self, *key):
+        '''Try to acquire lock for given key.
 
-        If timeout is exceeded, return False. Otherwise return True.
+        Return True on success, False on failure.
         '''
 
-        with self.cond:
-            if not self.cond.wait_for(lambda: key not in self.locked_keys, timeout):
+        try:
+            self.cond.acquire_nowait()
+        except trio.WouldBlock:
+            return False
+
+        try:
+            if key in self.locked_keys:
                 return False
+            else:
+                self.locked_keys.add(key)
+                return True
+        finally:
+            self.cond.release()
+
+    async def acquire(self, *key):
+        '''Acquire lock for given key.'''
+
+        async with self.cond:
+            while key in self.locked_keys:
+                await self.cond.wait()
 
             self.locked_keys.add(key)
 
-        return True
-
-    def release(self, *key, noerror=False):
+    async def release(self, *key, noerror=False):
         """Release lock on given key
 
         If noerror is False, do not raise exception if *key* is
         not locked.
         """
 
-        with self.cond:
+        async with self.cond:
             if noerror:
                 self.locked_keys.discard(key)
             else:
                 self.locked_keys.remove(key)
-            self.cond.notifyAll()
+            self.cond.notify_all()

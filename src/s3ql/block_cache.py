@@ -335,26 +335,6 @@ class BlockCache(object):
                 t.start()
                 self.removal_threads.append(t)
 
-    def _lock_obj(self, obj_id):
-        '''Acquire lock on *obj*id*'''
-
-        self.mlock.acquire(obj_id)
-
-    def _unlock_obj(self, obj_id, noerror=False):
-        '''Release lock on *obj*id*'''
-
-        self.mlock.release(obj_id, noerror=noerror)
-
-    def _lock_entry(self, inode, blockno, timeout=None):
-        '''Acquire lock on cache entry'''
-
-        return self.mlock.acquire((inode, blockno), timeout=timeout)
-
-    def _unlock_entry(self, inode, blockno, noerror=False):
-        '''Release lock on cache entry'''
-
-        self.mlock.release((inode, blockno), noerror=noerror)
-
     async def destroy(self, keep_cache=False):
         '''Clean up and stop worker threads'''
 
@@ -445,6 +425,39 @@ class BlockCache(object):
                 fh.write(buf)
             return fh
 
+        success = False
+        async def with_event_loop():
+            if success:
+                self.db.execute('UPDATE objects SET size=? WHERE id=?', (obj_size, obj_id))
+                el.dirty = False
+            else:
+                log.debug('upload of %d failed', obj_id, exc_info=True)
+                # At this point we have to remove references to this storage object
+                # from the objects and blocks table to prevent future cache elements
+                # to be de-duplicated against this (missing) one. However, this may
+                # already have happened during the attempted upload. The only way to
+                # avoid this problem is to insert the hash into the blocks table
+                # *after* successfull upload. But this would open a window without
+                # de-duplication just to handle the special case of an upload
+                # failing.
+                #
+                # On the other hand, we also want to prevent future deduplication
+                # against this block: otherwise the next attempt to upload the same
+                # cache element (by a different upload thread that has not
+                # encountered problems yet) is guaranteed to link against the
+                # non-existing block, and the data will be lost.
+                #
+                # Therefore, we just set the hash of the missing block to NULL,
+                # and rely on fsck to pick up the pieces. Note that we cannot
+                # delete the row from the blocks table, because the id will get
+                # assigned to a new block, so the inode_blocks entries will
+                # refer to incorrect data.
+                #
+                self.db.execute('UPDATE blocks SET hash=NULL WHERE obj_id=?', (obj_id,))
+
+            await self.mlock.release(obj_id)
+            await self.mlock.release(el.inode, el.blockno)
+
         try:
             with self.backend_pool() as backend:
                 if log.isEnabledFor(logging.DEBUG):
@@ -458,45 +471,10 @@ class BlockCache(object):
                 else:
                     obj_size = backend.perform_write(do_write, 's3ql_data_%d'
                                                      % obj_id).get_obj_size()
-
-            def with_lock():
-                self.db.execute('UPDATE objects SET size=? WHERE id=?', (obj_size, obj_id))
-                el.dirty = False
-            self.portal.run_sync(with_lock)
-
-        except Exception as exc:
-            log.debug('upload of %d failed: %s', obj_id, exc)
-            # At this point we have to remove references to this storage object
-            # from the objects and blocks table to prevent future cache elements
-            # to be de-duplicated against this (missing) one. However, this may
-            # already have happened during the attempted upload. The only way to
-            # avoid this problem is to insert the hash into the blocks table
-            # *after* successfull upload. But this would open a window without
-            # de-duplication just to handle the special case of an upload
-            # failing.
-            #
-            # On the other hand, we also want to prevent future deduplication
-            # against this block: otherwise the next attempt to upload the same
-            # cache element (by a different upload thread that has not
-            # encountered problems yet) is guaranteed to link against the
-            # non-existing block, and the data will be lost.
-            #
-            # Therefore, we just set the hash of the missing block to NULL,
-            # and rely on fsck to pick up the pieces. Note that we cannot
-            # delete the row from the blocks table, because the id will get
-            # assigned to a new block, so the inode_blocks entries will
-            # refer to incorrect data.
-            #
-
-            self.portal.run_sync(
-                self.db.execute, 'UPDATE blocks SET hash=NULL WHERE obj_id=?',
-                                (obj_id,))
-            raise
-
+            success = True
         finally:
             self.in_transit.remove(el)
-            self._unlock_obj(obj_id)
-            self._unlock_entry(el.inode, el.blockno)
+            self.portal.run(with_event_loop)
             self.transfer_completed.notify_all()
 
 
@@ -529,42 +507,42 @@ class BlockCache(object):
             return False
 
         # Calculate checksum
-        def with_lock_released():
-            self._lock_entry(el.inode, el.blockno)
-            added_to_transit = False
-            try:
-                if el is not self.cache.get((el.inode, el.blockno), None):
-                    log.debug('%s got removed while waiting for lock', el)
-                    self._unlock_entry(el.inode, el.blockno)
-                    return False
-                if el in self.in_transit:
-                    log.debug('%s already in transit', el)
-                    self._unlock_entry(el.inode, el.blockno)
-                    return True
-                if not el.dirty:
-                    log.debug('no longer dirty, returning')
-                    self._unlock_entry(el.inode, el.blockno)
-                    return False
+        await self.mlock.acquire(el.inode, el.blockno)
+        added_to_transit = False
+        try:
+            if el is not self.cache.get((el.inode, el.blockno), None):
+                log.debug('%s got removed while waiting for lock', el)
+                await self.mlock.release(el.inode, el.blockno)
+                return False
+            if el in self.in_transit:
+                log.debug('%s already in transit', el)
+                await self.mlock.release(el.inode, el.blockno)
+                return True
+            if not el.dirty:
+                log.debug('no longer dirty, returning')
+                await self.mlock.release(el.inode, el.blockno)
+                return False
 
-                log.debug('uploading %s..', el)
-                self.in_transit.add(el)
-                added_to_transit = True
-                sha = hashlib.sha256()
-                el.seek(0)
+            log.debug('uploading %s..', el)
+            self.in_transit.add(el)
+            added_to_transit = True
+            sha = hashlib.sha256()
+            el.seek(0)
+
+            def with_lock_released():
                 while True:
                     buf = el.read(BUFSIZE)
                     if not buf:
                         break
                     sha.update(buf)
                 return sha.digest()
-            except:
-                if added_to_transit:
-                    self.in_transit.discard(el)
-                self._unlock_entry(el.inode, el.blockno)
-                raise
-        hash_ = await trio.run_sync_in_worker_thread(with_lock_released)
-        if hash_ is True or hash_ is False:
-            return hash_
+            hash_ = await trio.run_sync_in_worker_thread(with_lock_released)
+
+        except:
+            if added_to_transit:
+                self.in_transit.discard(el)
+            await self.mlock.release(el.inode, el.blockno)
+            raise
 
         obj_lock_taken = False
         try:
@@ -593,12 +571,9 @@ class BlockCache(object):
                 self.db.execute('INSERT OR REPLACE INTO inode_blocks (block_id, inode, blockno) '
                                 'VALUES(?,?,?)', (block_id, el.inode, el.blockno))
 
-                def with_lock_released():
-                    nonlocal obj_lock_taken
-                    self._lock_obj(obj_id)
-                    obj_lock_taken = True
-                    self._queue_upload((el, obj_id))
-                await trio.run_sync_in_worker_thread(with_lock_released)
+                await self.mlock.acquire(obj_id)
+                obj_lock_taken = True
+                await trio.run_sync_in_worker_thread(self._queue_upload, (el, obj_id))
 
             # There is a block with the same hash
             else:
@@ -611,7 +586,7 @@ class BlockCache(object):
 
                 el.dirty = False
                 self.in_transit.remove(el)
-                self._unlock_entry(el.inode, el.blockno)
+                await self.mlock.release(el.inode, el.blockno)
 
                 if old_block_id == block_id:
                     log.debug('unchanged, block_id=%d', block_id)
@@ -619,9 +594,9 @@ class BlockCache(object):
 
         except:
             self.in_transit.discard(el)
-            self._unlock_entry(el.inode, el.blockno, noerror=True)
+            await self.mlock.release(el.inode, el.blockno, noerror=True)
             if obj_lock_taken:
-                self._unlock_obj(obj_id)
+                await self.mlock.release(obj_id)
             raise
 
         if old_block_id:
@@ -693,20 +668,17 @@ class BlockCache(object):
         # the object is no longer in the database.
         log.debug('adding %d to removal queue', obj_id)
 
-        def with_lock_released():
-            self._lock_obj(obj_id)
-            self._unlock_obj(obj_id)
+        await self.mlock.acquire(obj_id)
+        await self.mlock.release(obj_id)
 
-            if size == -1:
-                # size == -1 indicates that object has not yet been uploaded.
-                # However, since we just acquired a lock on the object, we know
-                # that the upload must have failed. Therefore, trying to remove
-                # this object would just give us another error.
-                return
+        if size == -1:
+            # size == -1 indicates that object has not yet been uploaded.
+            # However, since we just acquired a lock on the object, we know
+            # that the upload must have failed. Therefore, trying to remove
+            # this object would just give us another error.
+            return
 
-            self._queue_removal(obj_id)
-        await trio.run_sync_in_worker_thread(with_lock_released)
-
+        await trio.run_sync_in_worker_thread(self._queue_removal, obj_id)
 
     def transfer_in_progress(self):
         '''Return True if there are any cache entries being uploaded'''
@@ -773,8 +745,7 @@ class BlockCache(object):
         if self.cache.is_full():
             await self.expire()
 
-        await trio.run_sync_in_worker_thread(
-            self._lock_entry, inode, blockno)
+        await self.mlock.acquire(inode, blockno)
         try:
             el = await self._get_entry(inode, blockno)
             oldsize = el.size
@@ -785,7 +756,7 @@ class BlockCache(object):
                 # thread has access to a cache entry at any time.
                 self.cache.size += el.size - oldsize
         finally:
-            self._unlock_entry(inode, blockno)
+            await self.mlock.release(inode, blockno)
 
         #log.debug('finished')
 
@@ -823,14 +794,15 @@ class BlockCache(object):
                     tmpfh.truncate()
                     shutil.copyfileobj(fh, tmpfh, BUFSIZE)
 
+                # Lock object. This ensures that we wait until the object
+                # is uploaded. We don't have to worry about deletion, because
+                # as long as the current cache entry exists, there will always be
+                # a reference to the object (and we already have a lock on the
+                # cache entry).
+                await self.mlock.acquire(obj_id)
+                await self.mlock.release(obj_id)
+
                 def with_lock_released():
-                    # Lock object. This ensures that we wait until the object
-                    # is uploaded. We don't have to worry about deletion, because
-                    # as long as the current cache entry exists, there will always be
-                    # a reference to the object (and we already have a lock on the
-                    # cache entry).
-                    self._lock_obj(obj_id)
-                    self._unlock_obj(obj_id)
                     with self.backend_pool() as backend:
                         backend.perform_read(do_read, 's3ql_data_%d' % obj_id)
                 await trio.run_sync_in_worker_thread(with_lock_released)
@@ -885,8 +857,7 @@ class BlockCache(object):
                     sth_in_transit = True
                     continue
 
-                await trio.run_sync_in_worker_thread(
-                    self._lock_entry, el.inode, el.blockno)
+                await self.mlock.acquire(el.inode, el.blockno)
                 try:
                     # May have changed while we were waiting for lock
                     if el is not self.cache.get((el.inode, el.blockno), None):
@@ -898,7 +869,7 @@ class BlockCache(object):
                     log.debug('removing %s from cache', el)
                     self.cache.remove((el.inode, el.blockno))
                 finally:
-                    self._unlock_entry(el.inode, el.blockno)
+                    await self.mlock.release(el.inode, el.blockno)
 
             if sth_in_transit:
                 log.debug('waiting for transfer threads..')
@@ -929,10 +900,10 @@ class BlockCache(object):
         for timeout in (0, None):
             for blockno in list(blocknos):
                 if timeout == 0:
-                    if not self._lock_entry(inode, blockno, timeout=0):
+                    if not self.mlock.acquire_nowait(inode, blockno):
                         continue
                 else:
-                    await trio.run_sync_in_worker_thread(self._lock_entry, inode, blockno)
+                    await self.mlock.acquire(inode, blockno)
                 blocknos.remove(blockno)
                 try:
                     if (inode, blockno) in self.cache:
@@ -951,7 +922,7 @@ class BlockCache(object):
                                     (inode, blockno))
 
                 finally:
-                    self._unlock_entry(inode, blockno)
+                    await self.mlock.release(inode, blockno)
 
                 # Decrease block refcount
                 await self._deref_block(block_id)

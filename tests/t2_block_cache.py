@@ -372,7 +372,7 @@ async def test_expire_race(ctx):
     ctx.cache.cache.max_entries = 0
 
     # Lock it
-    ctx.cache._lock_entry(inode, blockno)
+    await ctx.cache.mlock.acquire(inode, blockno)
 
     try:
         async with trio.open_nursery() as nursery:
@@ -383,11 +383,11 @@ async def test_expire_race(ctx):
             nursery.start_soon(ctx.cache.expire)
 
             # Release lock
-            ctx.cache._unlock_entry(inode, blockno)
+            await ctx.cache.mlock.release(inode, blockno)
 
         assert len(ctx.cache.cache) == 0
     finally:
-            ctx.cache._unlock_entry(inode, blockno, noerror=True)
+            await ctx.cache.mlock.release(inode, blockno, noerror=True)
 
 
 async def test_parallel_expire(ctx):
@@ -403,7 +403,7 @@ async def test_parallel_expire(ctx):
     ctx.cache.cache.max_entries = 4
 
     # Lock first element so that we have time to start threads
-    ctx.cache._lock_entry(inode, 0)
+    await ctx.cache.mlock.acquire(inode, 0)
 
     try:
         async with trio.open_nursery() as nursery:
@@ -414,11 +414,11 @@ async def test_parallel_expire(ctx):
             nursery.start_soon(ctx.cache.expire)
 
             # Release lock
-            ctx.cache._unlock_entry(inode, 0)
+            await ctx.cache.mlock.release(inode, 0)
 
         assert len(ctx.cache.cache) == 4
     finally:
-            ctx.cache._unlock_entry(inode, 0, noerror=True)
+            await ctx.cache.mlock.release(inode, 0, noerror=True)
 
 
 async def test_remove_cache_db(ctx):
