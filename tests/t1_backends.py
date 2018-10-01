@@ -176,6 +176,7 @@ def backend(request):
             backend = ComprencBackend(None, (comprenc_kind, 6), raw_backend)
 
         backend.unittest_info = raw_backend.unittest_info
+
         yield backend
 
 def yield_local_backend(bi):
@@ -467,6 +468,9 @@ def test_delete(backend):
 # ComprencBackend should just forward this 1:1 to the raw backend.
 @pytest.mark.with_backend('*/aes')
 def test_delete_multi(backend):
+    if not backend.has_delete_multi:
+        pytest.skip('backend does not support delete_multi')
+
     keys = [ newname() for _ in range(30) ]
     value = newvalue()
 

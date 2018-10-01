@@ -288,7 +288,14 @@ class AbstractBackend(object, metaclass=ABCMeta):
     @abstractmethod
     def has_native_rename(self):
         '''True if the backend has a native, atomic rename operation'''
+
         pass
+
+    @property
+    def has_delete_multi(self):
+        '''True if the backend supports `delete_multi`.'''
+
+        return False
 
     def reset(self):
         '''Reset backend
@@ -468,17 +475,7 @@ class AbstractBackend(object, metaclass=ABCMeta):
         error.
         """
 
-        if not isinstance(keys, list):
-            raise TypeError('*keys* parameter must be a list')
-
-        for (i, key) in enumerate(keys):
-            try:
-                self.delete(key, force=force)
-            except:
-                del keys[:i]
-                raise
-
-        del keys[:]
+        raise NotImplemented()
 
     @abstractmethod
     def list(self, prefix=''):

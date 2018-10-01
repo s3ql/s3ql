@@ -297,11 +297,20 @@ class BlockCache(object):
             self.upload_threads.append(t)
 
         self.to_remove = Queue(1000)
-        for _ in range(10):
-            t = threading.Thread(target=self._removal_loop)
+        with self.backend_pool() as backend:
+            has_delete_multi = backend.has_delete_multi
+
+        if has_delete_multi:
+            t = threading.Thread(target=self._removal_loop_multi)
             t.daemon = True # interruption will do no permanent harm
             t.start()
             self.removal_threads.append(t)
+        else:
+            for _ in range(20):
+                t = threading.Thread(target=self._removal_loop_simple)
+                t.daemon = True # interruption will do no permanent harm
+                t.start()
+                self.removal_threads.append(t)
 
     def _lock_obj(self, obj_id, release_global=False):
         '''Acquire lock on *obj*id*'''
@@ -689,13 +698,13 @@ class BlockCache(object):
 
         return len(self.in_transit) > 0
 
-    def _removal_loop(self):
+    def _removal_loop_multi(self):
         '''Process removal queue'''
 
-        # This method may look more complicated than necessary, but
-        # it ensures that we read as many objects from the queue
-        # as we can without blocking, and then hand them over to
-        # the backend all at once.
+        # This method may look more complicated than necessary, but it ensures
+        # that we read as many objects from the queue as we can without
+        # blocking, and then hand them over to the backend all at once.
+
         ids = []
         while True:
             try:
@@ -704,7 +713,7 @@ class BlockCache(object):
             except QueueEmpty:
                 tmp = FlushSentinel
 
-            if tmp in (FlushSentinel,QuitSentinel) and ids:
+            if tmp in (FlushSentinel, QuitSentinel) and ids:
                 log.debug('removing: %s', ids)
                 try:
                     with self.backend_pool() as backend:
@@ -718,6 +727,21 @@ class BlockCache(object):
 
             if tmp is QuitSentinel:
                 break
+
+    def _removal_loop_simple(self):
+        '''Process removal queue'''
+
+        while True:
+            log.debug('reading from queue..')
+            id_ = self.to_remove.get()
+            if id_ is QuitSentinel:
+                break
+            with self.backend_pool() as backend:
+                try:
+                    backend.delete('s3ql_data_%d' % id_)
+                except NoSuchObject:
+                    log.warning('Backend lost object s3ql_data_%d' % id_)
+                    self.fs.failsafe = True
 
     @contextmanager
     def get(self, inode, blockno):

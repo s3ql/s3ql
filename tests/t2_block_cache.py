@@ -50,7 +50,7 @@ class DummyQueue:
 
     def put(self, obj, timeout=None):
         self.obj = obj
-        self.cache._removal_loop()
+        self.cache._removal_loop_simple()
         return True
 
     def get(self, block=True):
@@ -140,14 +140,14 @@ def test_thread_hang(ctx):
         except NotADirectoryError:
             nonlocal upload_exc
             upload_exc = True
-    def _removal_loop(*a, fn=ctx.cache._removal_loop):
+    def _removal_loop_multi(*a, fn=ctx.cache._removal_loop_multi):
         try:
             return fn(*a)
         except NotADirectoryError:
             nonlocal removal_exc
             removal_exc = True
     ctx.cache._upload_loop = _upload_loop
-    ctx.cache._removal_loop = _removal_loop
+    ctx.cache._removal_loop_multi = _removal_loop_multi
 
     # Start threads
     ctx.cache.init(threads=3)

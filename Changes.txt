@@ -1,3 +1,7 @@
+Unreleased Changes
+
+  * Object removal now makes more use of parallelism.
+
 2018-09-02, S3QL 2.30
 
   * s3qladm has gained a new "recover-key" operation to restore the

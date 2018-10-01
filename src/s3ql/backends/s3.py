@@ -70,6 +70,11 @@ class Backend(s3c.Backend):
     def __str__(self):
         return 'Amazon S3 bucket %s, prefix %s' % (self.bucket_name, self.prefix)
 
+    @property
+    @copy_ancestor_docstring
+    def has_delete_multi(self):
+        return True
+
     @copy_ancestor_docstring
     def delete_multi(self, keys, force=False):
         log.debug('started with %s', keys)

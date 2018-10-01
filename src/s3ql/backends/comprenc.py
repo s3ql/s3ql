@@ -63,6 +63,11 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
     def has_native_rename(self):
         return self.backend.has_native_rename
 
+    @property
+    @copy_ancestor_docstring
+    def has_delete_multi(self):
+        return self.backend.has_delete_multi
+
     @copy_ancestor_docstring
     def reset(self):
         self.backend.reset()

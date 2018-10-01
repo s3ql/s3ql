@@ -565,6 +565,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         raise HTTPError(error_code, error_msg, {})
 
+    @property
+    @copy_ancestor_docstring
+    def has_delete_multi(self):
+        return self.features.has_bulk_delete
+
     @copy_ancestor_docstring
     def delete_multi(self, keys, force=False):
         log.debug('started with %s', keys)

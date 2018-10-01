@@ -45,6 +45,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def has_native_rename(self):
         return False
 
+    @property
+    @copy_ancestor_docstring
+    def has_delete_multi(self):
+        return True
+
     def __str__(self):
         return 'local directory %s' % self.prefix
 
@@ -122,6 +127,17 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         except FileNotFoundError:
             return False
         return True
+
+    @copy_ancestor_docstring
+    def delete_multi(self, keys, force=False):
+        for (i, key) in enumerate(keys):
+            try:
+                self.delete(key, force=force)
+            except:
+                del keys[:i]
+                raise
+
+        del keys[:]
 
     @copy_ancestor_docstring
     def delete(self, key, force=False):
