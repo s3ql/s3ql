@@ -91,14 +91,14 @@ class TestFuse:
         self.mount_process.stdin.close()
 
         if expect_fail:
-            retry(30, self.mount_process.poll)
+            retry(10, self.mount_process.poll)
             assert self.mount_process.returncode == expect_fail
         else:
             def poll():
                 if os.path.ismount(self.mnt_dir):
                     return True
                 assert self.mount_process.poll() is None
-            retry(30, poll)
+            retry(10, poll)
 
     def umount(self):
         with open('/dev/null', 'wb') as devnull:
@@ -107,7 +107,7 @@ class TestFuse:
 
         proc = subprocess.Popen(self.s3ql_cmd_argv('umount.s3ql') +
                                 ['--quiet', self.mnt_dir])
-        retry(90, lambda : proc.poll() is not None)
+        retry(30, lambda : proc.poll() is not None)
         assert proc.wait() == 0
 
         assert self.mount_process.poll() == 0
