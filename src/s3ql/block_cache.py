@@ -45,70 +45,6 @@ class NoWorkerThreads(Exception):
 
     pass
 
-class Distributor(object):
-    '''
-    Distributes objects to consumers.
-    '''
-
-    def __init__(self):
-        super().__init__()
-
-        self.slot = None
-        self.cv = threading.Condition()
-
-        #: Number of threads waiting to consume an object
-        self.readers = 0
-
-    def put(self, obj, timeout=None):
-        '''Offer *obj* for consumption
-
-        The method blocks until another thread calls `get()` to consume the
-        object.
-
-        Return `True` if the object was consumed, and `False` if *timeout* was
-        exceeded without any activity in the queue (this means an individual
-        invocation may wait for longer than *timeout* if objects from other
-        threads are being consumed).
-        '''
-
-        if obj is None:
-            raise ValueError("Can't put None into Queue")
-
-        with self.cv:
-            # Wait until a thread is ready to read
-            while self.readers == 0 or self.slot is not None:
-                log.debug('waiting for reader..')
-                if not self.cv.wait(timeout):
-                    log.debug('timeout, returning')
-                    return False
-
-            log.debug('got reader, enqueueing %s', obj)
-            self.readers -= 1
-            assert self.slot is None
-            self.slot = obj
-            self.cv.notify_all() # notify readers
-
-        return True
-
-    def get(self):
-        '''Consume and return an object
-
-        The method blocks until another thread offers an object by calling the
-        `put` method.
-        '''
-        with self.cv:
-            self.readers += 1
-            self.cv.notify_all()
-            while self.slot is None:
-                log.debug('waiting for writer..')
-                self.cv.wait()
-            tmp = self.slot
-            self.slot = None
-            self.cv.notify_all()
-
-        return tmp
-
-
 class CacheEntry(object):
     """An element in the block cache
 
@@ -280,7 +216,7 @@ class BlockCache(object):
         '''Start worker threads'''
 
         self.portal = trio.BlockingTrioPortal()
-        self.to_upload = Distributor()
+        self.to_upload = trio.open_memory_channel(0)
         for _ in range(threads):
             t = threading.Thread(target=self._upload_loop)
             t.start()
@@ -322,7 +258,7 @@ class BlockCache(object):
         log.debug('Signaling upload threads...')
         try:
             for t in self.upload_threads:
-                self._queue_upload(QuitSentinel)
+                await self._queue_upload(QuitSentinel)
         except NoWorkerThreads:
             pass
 
@@ -335,7 +271,7 @@ class BlockCache(object):
 
         log.debug('waiting for upload threads...')
         for t in self.upload_threads:
-            t.join()
+            await trio.run_sync_in_worker_thread(t.join)
 
         log.debug('waiting for removal threads...')
         for t in self.removal_threads:
@@ -369,10 +305,13 @@ class BlockCache(object):
         '''
 
         while True:
-            tmp = self.to_upload.get()
+            log.debug('reading from upload queue...')
+            tmp = self.portal.run(self.to_upload[1].receive)
 
             if tmp is QuitSentinel:
+                log.debug('got QuitSentinel')
                 break
+            log.debug('got work')
 
             self._do_upload(*tmp)
 
@@ -543,7 +482,7 @@ class BlockCache(object):
 
                 await self.mlock.acquire(obj_id)
                 obj_lock_taken = True
-                await trio.run_sync_in_worker_thread(self._queue_upload, (el, obj_id))
+                await self._queue_upload((el, obj_id))
 
             # There is a block with the same hash
             else:
@@ -577,11 +516,12 @@ class BlockCache(object):
         return obj_lock_taken
 
 
-    def _queue_upload(self, obj):
+    async def _queue_upload(self, obj):
         '''Put *obj* into upload queue'''
 
         while True:
-            if self.to_upload.put(obj, timeout=5):
+            with trio.move_on_after(5):
+                await self.to_upload[0].send(obj)
                 return
             for t in self.upload_threads:
                 if t.is_alive():

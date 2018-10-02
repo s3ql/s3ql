@@ -93,14 +93,12 @@ async def ctx():
                                 InodeCache(ctx.db, 0))
     ctx.server.init()
 
-    # monkeypatch around the need for removal and upload threads
+    # Monkeypatch around the need for removal and upload threads
     cache.to_remove = DummyQueue(cache)
-
-    class DummyDistributor:
-        def put(ctx, arg, timeout=None):
-            cache._do_upload(*arg)
-            return True
-    cache.to_upload = DummyDistributor()
+    class DummyChannel:
+        async def send(self, arg):
+            await trio.run_sync_in_worker_thread(cache._do_upload, *arg)
+    cache.to_upload = (DummyChannel(), None)
 
     # Keep track of unused filenames
     ctx.name_cnt = 0
