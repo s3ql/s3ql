@@ -648,7 +648,10 @@ class BlockCache(object):
             # this object would just give us another error.
             return
 
-        await trio.run_sync_in_worker_thread(self._queue_removal, obj_id)
+        try:
+            self.to_remove.put(obj_id, block=False)
+        except QueueFull:
+            await trio.run_sync_in_worker_thread(self._queue_removal, obj_id)
 
     def transfer_in_progress(self):
         '''Return True if there are any cache entries being uploaded'''

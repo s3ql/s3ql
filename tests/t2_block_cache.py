@@ -24,6 +24,7 @@ from s3ql.common import time_ns
 from s3ql.database import Connection
 from s3ql.metadata import create_tables
 from s3ql.mkfs import init_tables
+from queue import Full as QueueFull
 from unittest.mock import patch
 import logging
 import os
@@ -38,8 +39,7 @@ import trio
 
 log = logging.getLogger(__name__)
 
-# A dummy removal queue to monkeypatch around the need for removal and upload
-# threads
+# A dummy removal queue to monkeypatch around the need for removal threads
 class DummyQueue:
     def __init__(self, cache):
         self.obj = None
@@ -48,10 +48,11 @@ class DummyQueue:
     def get_nowait(self):
         return self.get(block=False)
 
-    def put(self, obj, timeout=None):
+    def put(self, obj, block=True, timeout=None):
+        if not block:
+            raise QueueFull()
         self.obj = obj
         self.cache._removal_loop_simple()
-        return True
 
     def get(self, block=True):
         if self.obj is None:
