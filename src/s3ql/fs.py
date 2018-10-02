@@ -436,9 +436,6 @@ class Operations(pyfuse3.Operations):
         make_inode = self.inodes.create_inode
         db = self.db
 
-        # First we make sure that all blocks are in the database
-        await self.cache.start_flush()
-
         # Copy target attributes
         # These come from setxattr, so they may have been deleted
         # without being in open_inodes
@@ -465,6 +462,10 @@ class Operations(pyfuse3.Operations):
             with db.query('SELECT name_id, inode FROM contents WHERE parent_inode=? '
                           'AND name_id > ? ORDER BY name_id', (src_id, off)) as res:
                 for (name_id, id_) in res:
+
+                    # Make sure that all blocks are in the database
+                    if id_ in self.open_inodes:
+                        await self.cache.start_flush(id_)
 
                     if id_ not in id_cache:
                         inode = self.inodes[id_]

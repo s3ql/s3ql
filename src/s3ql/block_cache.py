@@ -852,7 +852,7 @@ class BlockCache(object):
 
         el.flush()
 
-    async def start_flush(self):
+    async def start_flush(self, inode=None):
         """Initiate upload of all dirty blocks
 
         When the method returns, all blocks have been registered
@@ -863,7 +863,13 @@ class BlockCache(object):
         # Need to make copy, since dict() may change while uploading.  Look at
         # the comments in CommitTask.run() (mount.py) for an estimate of the
         # performance impact.
-        for el in list(self.cache.values()):
+        if inode is None:
+            to_flush = list(self.cache.values())
+        else:
+            to_flush = [ x for x in self.cache.values()
+                         if x.inode == inode ]
+
+        for el in to_flush:
             await self.upload_if_dirty(el)
 
     async def flush(self):
