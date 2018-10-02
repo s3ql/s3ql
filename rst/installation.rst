@@ -41,7 +41,7 @@ that is not the case.
 * `SQLite <http://www.sqlite.org/>`_ version 3.7.0 or newer. SQLite
   has to be installed as a *shared library* with development headers.
 
-* `Python <http://www.python.org/>`_ 3.3.0 or newer. Make sure to also
+* `Python <http://www.python.org/>`_ 3.5.0 or newer. Make sure to also
   install the development headers.
 
 * The following Python modules:

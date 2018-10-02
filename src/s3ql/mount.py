@@ -185,10 +185,10 @@ def main(args=None):
         else:
             if stdout_log_handler:
                 logging.getLogger().removeHandler(stdout_log_handler)
-            global crit_log_fh
-            crit_log_fh = open(os.path.join(options.cachedir, 'mount.s3ql_crit.log'), 'a')
-            faulthandler.enable(crit_log_fh)
-            faulthandler.register(signal.SIGUSR1, file=crit_log_fh)
+            crit_log_fd = os.open(os.path.join(options.cachedir, 'mount.s3ql_crit.log'),
+                                  flags=os.O_APPEND|os.O_CREAT|os.O_WRONLY, mode=0o644)
+            faulthandler.enable(crit_log_fd)
+            faulthandler.register(signal.SIGUSR1, file=crit_log_fd)
             daemonize(options.cachedir)
 
         mark_metadata_dirty(backend, cachepath, param)

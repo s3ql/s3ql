@@ -93,10 +93,10 @@ def pytest_configure(config):
         warnings.simplefilter('default')
 
     # Enable faulthandler
-    global faultlog_fh
-    faultlog_fh = open(os.path.join(basedir, 'tests', 'test_crit.log'), 'a')
-    faulthandler.enable(faultlog_fh)
-    faulthandler.register(signal.SIGUSR1, file=faultlog_fh)
+    faultlog_fd = os.open(os.path.join(basedir, 'test_crit.log'),
+                          flags=os.O_APPEND|os.O_CREAT|os.O_WRONLY, mode=0o644)
+    faulthandler.enable(faultlog_fd)
+    faulthandler.register(signal.SIGUSR1, file=faultlog_fd)
 
     # Configure logging. We don't set a default handler but rely on
     # the catchlog pytest plugin.
