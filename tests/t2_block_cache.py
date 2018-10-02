@@ -30,7 +30,6 @@ import logging
 import os
 import pytest
 import queue
-import s3ql.block_cache
 import shutil
 import stat
 import tempfile
