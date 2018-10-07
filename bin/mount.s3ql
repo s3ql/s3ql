@@ -17,10 +17,5 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-# When running from HG repo, enable all warnings
-if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
-    import warnings
-    warnings.simplefilter('default')
-
 import s3ql.mount
 s3ql.mount.main(sys.argv[1:])

@@ -6,6 +6,21 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+# First, enable warnings. This should happen before any imports,
+# so that we can catch warnings emitted by code that runs during
+# the import.
+# Sadly, we cannot simply use $PYTHONWARNINGS, because it
+# does not allow regexes (cf https://bugs.python.org/issue34920)
+import os
+if 'S3QL_ENABLE_WARNINGS' in os.environ:
+    import warnings
+    warnings.resetwarnings()
+    for cat in (DeprecationWarning, PendingDeprecationWarning):
+        warnings.filterwarnings(action='default', category=cat,
+                                module='^s3ql', append=True)
+        warnings.filterwarnings(action='ignore', category=cat, append=True)
+    warnings.filterwarnings(action='default', append=True)
+
 # We must not import s3ql.logging.logging as s3ql.logging,
 # otherwise future imports of s3ql.logging will incorrectly
 # use s3ql.logging.logging.

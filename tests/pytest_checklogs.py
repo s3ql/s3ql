@@ -96,9 +96,11 @@ def check_test_output(capfd, item):
         if count == 0 or count - cnt > 0:
             stderr = cp.sub('', stderr, count=count - cnt)
 
-    for pattern in ('exception', 'error', 'warning', 'fatal', 'traceback',
-                    'fault', 'crash(?:ed)?', 'abort(?:ed)', 'fishy'):
-        cp = re.compile(r'\b{}\b'.format(pattern), re.IGNORECASE | re.MULTILINE)
+    for pattern in (r'exception\b', r'error\b', r'warning\b',
+                    r'\bfatal\b', r'\btraceback\b',
+                    r'(:?seg)?fault\b', r'\bcrash(?:ed)?\b', r'\babort(?:ed)\b',
+                    r'\bfishy\b'):
+        cp = re.compile(pattern, re.IGNORECASE | re.MULTILINE)
         hit = cp.search(stderr)
         if hit:
             raise AssertionError('Suspicious output to stderr (matched "%s")' % hit.group(0))
