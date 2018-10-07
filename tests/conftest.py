@@ -83,6 +83,14 @@ def pytest_configure(config):
     if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
         import warnings
         warnings.resetwarnings()
+
+        # Not sure what this is or what causes it, bug the internet
+        # is full of similar reports so probably a false positive.
+        warnings.filterwarnings(
+            action='ignore', category=ImportWarning,
+            message="can't resolve package from __spec__ or __package__, falling "
+            "back on __name__ and __path__")
+
         for cat in (DeprecationWarning, PendingDeprecationWarning):
             warnings.filterwarnings(action='default', category=cat,
                                     module='s3ql', append=True)
