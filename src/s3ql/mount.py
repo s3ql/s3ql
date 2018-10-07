@@ -18,7 +18,7 @@ from .inode_cache import InodeCache
 from .metadata import (download_metadata, upload_metadata, dump_and_upload_metadata,
                        dump_metadata)
 from .parse_args import ArgumentParser
-from .exit_stack import ExitStack
+from contextlib import ExitStack
 import _thread
 import argparse
 import pyfuse3

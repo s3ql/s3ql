@@ -8,12 +8,6 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-# Python version check
-import sys
-if sys.version_info < (3,3):
-    raise SystemExit('Python version is %d.%d.%d, but S3QL requires Python 3.3 or newer'
-                     % sys.version_info[:3])
-
 try:
     import setuptools
 except ImportError:
@@ -26,6 +20,7 @@ from distutils.version import LooseVersion
 import os
 import subprocess
 import re
+import sys
 from glob import glob
 import faulthandler
 faulthandler.enable()
