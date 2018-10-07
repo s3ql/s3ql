@@ -98,10 +98,7 @@ class Operations(pyfuse3.Operations):
 
     supports_dot_lookup = True
     enable_acl = False
-
-    # Before we can enable this, we need to find a way to force a writeback for
-    # the copy_tree() and remove_tree() operations.
-    enable_writeback_cache = False
+    enable_writeback_cache = True
 
     def __init__(self, block_cache, db, max_obj_size, inode_cache,
                  upload_event=None):

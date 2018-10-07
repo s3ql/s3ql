@@ -85,6 +85,9 @@ def main(args=None):
     except PermissionError:
         raise QuietError('No permission to create target directory')
 
+    # Make sure that write cache is flushed
+    pyfuse3.syncfs(options.target)
+
     fstat_t = os.stat(options.target)
     pyfuse3.setxattr(ctrlfile, 'copy',
                      ('(%d, %d)' % (fstat_s.st_ino, fstat_t.st_ino)).encode())

@@ -52,6 +52,10 @@ def main(args=None):
 
         ctrlfile = assert_fs_owner(name)
         fstat_p = os.stat(os.path.dirname(os.path.abspath(name)))
+
+        # Make sure that write cache is flushed
+        pyfuse3.syncfs(name)
+
         cmd = ('(%d, %r)' % (fstat_p.st_ino,
                              path2bytes(os.path.basename(name)))).encode()
         pyfuse3.setxattr(ctrlfile, 'rmtree', cmd)
