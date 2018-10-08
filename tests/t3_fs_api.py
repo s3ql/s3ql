@@ -765,13 +765,13 @@ def test_create_open(ctx):
     (fh, inode) = ctx.server.create(ROOT_INODE, name, file_mode(),
                                      os.O_RDWR, some_ctx)
     ctx.server.release(fh)
-    ctx.server.forget([(inode, 1)])
+    ctx.server.forget([(inode.st_ino, 1)])
 
     # Open it atomically
     (fh, inode) = ctx.server.create(ROOT_INODE, name, file_mode(),
                                      os.O_RDWR, some_ctx)
     ctx.server.release(fh)
-    ctx.server.forget([(inode, 1)])
+    ctx.server.forget([(inode.st_ino, 1)])
 
     fsck(ctx)
 
