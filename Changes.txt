@@ -1,4 +1,4 @@
-Unreleased Changes
+2018-10-08, S3QL 2.31
 
   * Object removal now makes more use of parallelism.
 
