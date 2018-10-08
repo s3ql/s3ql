@@ -21,8 +21,6 @@ UPDATE_ATTRS = ('mode', 'refcount', 'uid', 'gid', 'size', 'locked',
               'rdev', 'atime_ns', 'mtime_ns', 'ctime_ns')
 UPDATE_STR = ', '.join('%s=?' % x for x in UPDATE_ATTRS)
 
-MAX_INODE = 2 ** 32 - 1
-
 class _Inode:
     '''An inode with its attributes'''
 
@@ -197,10 +195,6 @@ class InodeCache(object):
 
         id_ = self.db.rowid('INSERT INTO inodes (%s) VALUES(%s)' % (columns, values),
                             bindings)
-        if id_ > MAX_INODE - 1:
-            self.db.execute('DELETE FROM inodes WHERE id=?', (id_,))
-            raise OutOfInodesError()
-
         return self[id_]
 
 
@@ -269,10 +263,3 @@ class InodeCache(object):
             exc_info = sys.exc_info()
 
         sys.excepthook(*exc_info)
-
-
-
-class OutOfInodesError(Exception):
-
-    def __str__(self):
-        return 'Could not find free rowid in inode table'

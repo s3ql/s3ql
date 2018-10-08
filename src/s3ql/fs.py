@@ -11,7 +11,6 @@ from . import deltadump, CTRL_NAME, CTRL_INODE
 from .backends.common import NoSuchObject, CorruptedObjectError
 from .common import get_path, parse_literal, time_ns
 from .database import NoSuchRowError
-from .inode_cache import OutOfInodesError
 from io import BytesIO
 import collections
 import errno
@@ -469,15 +468,10 @@ class Operations(pyfuse3.Operations):
 
                     if id_ not in id_cache:
                         inode = self.inodes[id_]
-
-                        try:
-                            inode_new = make_inode(refcount=1, mode=inode.mode, size=inode.size,
-                                                   uid=inode.uid, gid=inode.gid,
-                                                   mtime_ns=inode.mtime_ns, atime_ns=inode.atime_ns,
-                                                   ctime_ns=inode.ctime_ns, rdev=inode.rdev)
-                        except OutOfInodesError:
-                            log.warning('Could not find a free inode')
-                            raise FUSEError(errno.ENOSPC)
+                        inode_new = make_inode(refcount=1, mode=inode.mode, size=inode.size,
+                                               uid=inode.uid, gid=inode.gid,
+                                               mtime_ns=inode.mtime_ns, atime_ns=inode.atime_ns,
+                                               ctime_ns=inode.ctime_ns, rdev=inode.rdev)
 
                         id_new = inode_new.id
 
@@ -995,13 +989,9 @@ class Operations(pyfuse3.Operations):
                 mode |= stat.S_ISGID
         else:
             gid = ctx.gid
-        try:
-            inode = self.inodes.create_inode(mtime_ns=now_ns, ctime_ns=now_ns, atime_ns=now_ns,
-                                             uid=ctx.uid, gid=gid, mode=mode, refcount=1,
-                                             rdev=rdev, size=size)
-        except OutOfInodesError:
-            log.warning('Could not find a free inode')
-            raise FUSEError(errno.ENOSPC)
+        inode = self.inodes.create_inode(mtime_ns=now_ns, ctime_ns=now_ns, atime_ns=now_ns,
+                                         uid=ctx.uid, gid=gid, mode=mode, refcount=1,
+                                         rdev=rdev, size=size)
 
         self.db.execute("INSERT INTO contents(name_id, inode, parent_inode) VALUES(?,?,?)",
                         (self._add_name(name), inode.id, id_p))

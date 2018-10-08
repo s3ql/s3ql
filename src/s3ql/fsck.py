@@ -1211,7 +1211,6 @@ def main(args=None):
         param['needs_fsck'] = True
 
     if (not param['needs_fsck']
-        and param['max_inode'] < 2 ** 31
         and (time.time() - param['last_fsck'])
              < 60 * 60 * 24 * 31): # last check more than 1 month ago
         if options.force:
@@ -1277,15 +1276,9 @@ def main(args=None):
 
     fsck = Fsck(cachepath + '-cache', backend, param, db)
     fsck.check(check_cache)
-    param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
 
     if fsck.uncorrectable_errors:
         raise QuietError("Uncorrectable errors found, aborting.", exitcode=44+128)
-
-    if param['max_inode'] >= 2 ** 31:
-        renumber_inodes(db)
-        param['inode_gen'] += 1
-        param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
 
     if fsck.found_errors and not param['needs_fsck']:
         log.error('File system was marked as clean, yet fsck found problems.')
@@ -1309,61 +1302,6 @@ def main(args=None):
         sys.exit(128)
     else:
         sys.exit(0)
-
-def renumber_inodes(db):
-    '''Renumber inodes'''
-
-    log.info('Renumbering inodes...')
-    for table in ('inodes', 'inode_blocks', 'symlink_targets',
-                  'contents', 'names', 'blocks', 'objects', 'ext_attributes'):
-        db.execute('ALTER TABLE %s RENAME TO %s_old' % (table, table))
-
-    for table in ('contents_v', 'ext_attributes_v'):
-        db.execute('DROP VIEW %s' % table)
-
-    create_tables(db)
-    for table in ('names', 'blocks', 'objects'):
-        db.execute('INSERT INTO %s SELECT * FROM %s_old' % (table, table))
-        db.execute('DROP TABLE %s_old' % table)
-
-    log.info('..mapping..')
-    db.execute('CREATE TEMPORARY TABLE inode_map (rowid INTEGER PRIMARY KEY AUTOINCREMENT, id INTEGER UNIQUE)')
-    db.execute('INSERT INTO inode_map (rowid, id) VALUES(?,?)', (ROOT_INODE, ROOT_INODE))
-    db.execute('INSERT INTO inode_map (rowid, id) VALUES(?,?)', (CTRL_INODE, CTRL_INODE))
-    db.execute('INSERT INTO inode_map (id) SELECT id FROM inodes_old WHERE id > ? ORDER BY id ASC',
-               (CTRL_INODE,))
-
-    log.info('..inodes..')
-    db.execute('INSERT INTO inodes (id,mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size,locked,rdev) '
-               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = inodes_old.id), '
-               '       mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size,locked,rdev FROM inodes_old')
-
-    log.info('..inode_blocks..')
-    db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) '
-               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = inode_blocks_old.inode), '
-               '       blockno, block_id FROM inode_blocks_old')
-
-    log.info('..contents..')
-    db.execute('INSERT INTO contents (inode, parent_inode, name_id) '
-               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = contents_old.inode), '
-               '       (SELECT rowid FROM inode_map WHERE inode_map.id = contents_old.parent_inode), '
-               '       name_id FROM contents_old')
-
-    log.info('..symlink_targets..')
-    db.execute('INSERT INTO symlink_targets (inode, target) '
-               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = symlink_targets_old.inode), '
-               '       target FROM symlink_targets_old')
-
-    log.info('..ext_attributes..')
-    db.execute('INSERT INTO ext_attributes (inode, name_id, value) '
-               'SELECT (SELECT rowid FROM inode_map WHERE inode_map.id = ext_attributes_old.inode), '
-               '       name_id, value FROM ext_attributes_old')
-
-    for table in ('inodes', 'inode_blocks', 'symlink_targets',
-                  'contents', 'ext_attributes'):
-        db.execute('DROP TABLE %s_old' % table)
-
-    db.execute('DROP TABLE inode_map')
 
 
 def escape(path):

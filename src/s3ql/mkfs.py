@@ -151,7 +151,6 @@ def main(args=None):
     param['max_obj_size'] = options.max_obj_size * 1024
     param['needs_fsck'] = False
     param['inode_gen'] = 0
-    param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
     param['last_fsck'] = time.time()
     param['last-modified'] = time.time()
 

@@ -273,7 +273,6 @@ async def main_async(options, stdout_log_handler):
 
     # Do not update .params yet, dump_metadata() may fail if the database is
     # corrupted, in which case we want to force an fsck.
-    param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
     if operations.failsafe:
         log.warning('File system errors encountered, marking for fsck.')
         param['needs_fsck'] = True
@@ -430,12 +429,6 @@ def get_metadata(backend, cachepath):
     if time.time() - param['last_fsck'] > 60 * 60 * 24 * 31:
         log.warning('Last file system check was more than 1 month ago, '
                  'running fsck.s3ql is recommended.')
-
-    if  param['max_inode'] > 2 ** 32 - 50000:
-        raise QuietError('Insufficient free inodes, fsck run required.',
-                         exitcode=34)
-    elif param['max_inode'] > 2 ** 31:
-        log.warning('Few free inodes remaining, running fsck is recommended')
 
     # Download metadata
     if not db:

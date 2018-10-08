@@ -14,12 +14,15 @@ if __name__ == '__main__':
 
 from common import populate_dir, skip_without_rsync, get_remote_test_info, NoTestSection
 from s3ql import backends
+from s3ql.database import Connection
 import shutil
 import subprocess
 from subprocess import check_output, CalledProcessError
 import t4_fuse
 import tempfile
 import pytest
+import os
+from s3ql.common import _escape
 
 class TestFull(t4_fuse.TestFuse):
 
@@ -35,6 +38,14 @@ class TestFull(t4_fuse.TestFuse):
 
             # Copy source data
             self.mkfs()
+
+            # Force 64bit inodes
+            cachepath = os.path.join(self.cache_dir, _escape(self.storage_url))
+            db = Connection(cachepath + '.db')
+            db.execute('UPDATE sqlite_sequence SET seq=? WHERE name=?',
+                       (2 ** 36 + 10, 'inodes'))
+            db.close()
+
             self.mount()
             subprocess.check_call(['rsync', '-aHAX', ref_dir + '/',
                                    self.mnt_dir + '/'])
