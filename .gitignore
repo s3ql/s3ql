@@ -14,5 +14,6 @@ __pycache__/
 /src/s3ql/deltadump.*.so
 /src/s3ql/deltadump.c
 /tests/.cache/
+/tests/.pytest_cache/
 /tests/test.log
 /tests/test_crit.log
