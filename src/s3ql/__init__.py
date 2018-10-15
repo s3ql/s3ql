@@ -35,16 +35,6 @@ if 'S3QL_ENABLE_WARNINGS' in os.environ:
 from . import logging # Ensure use of custom logger class
 from llfuse import ROOT_INODE
 
-# False positives, pylint doesn't grok that these are module names
-#pylint: disable=E0603
-__all__ = [ 'adm', 'backends', 'block_cache', 'common', 'calc_mro',
-            'cp', 'ctrl', 'daemonize', 'database', 'deltadump', 'fs',
-            'fsck', 'inherit_docstrings', 'inode_cache', 'lock',
-            'logging', 'metadata', 'mkfs', 'mount', 'parse_args',
-            'remove', 'statfs', 'umount', 'VERSION', 'CURRENT_FS_REV',
-            'REV_VER_MAP', 'RELEASE', 'BUFSIZE',
-            'CTRL_NAME', 'CTRL_INODE' ]
-
 VERSION = '2.31'
 RELEASE = '%s' % VERSION
 
