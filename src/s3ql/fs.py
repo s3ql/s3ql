@@ -377,51 +377,45 @@ class Operations(llfuse.Operations):
             raise FUSEError(errno.EPERM)
 
         id0 = self._lookup(id_p0, name0, ctx=None).id
-        queue = [ id0 ] # Directories that we still need to delete
-        processed = 0 # Number of steps since last GIL release
+        queue = [ id0 ]  # Directories that we still need to delete
+        batch_size = 200 # Entries to process before releasing GIL
         stamp = time.time() # Time of last GIL release
-        gil_step = 250 # Approx. number of steps between GIL releases
         while queue: # For every directory
-            found_subdirs = False # Does current directory have subdirectories?
             id_p = queue.pop()
-            if id_p in self.open_inodes:
-                inval_entry = lambda x: llfuse.invalidate_entry(id_p, x)
-            else:
-                inval_entry = lambda x: None
+            is_open = id_p in self.open_inodes
 
-            with self.db.query('SELECT name_id, inode FROM contents WHERE '
-                               'parent_inode=?', (id_p,)) as res:
-                for (name_id, id_) in res:
+            # Per https://sqlite.org/isolation.html, results of removing rows
+            # during select are undefined. Therefore, process data in chunks.
+            # This is also a nice opportunity to release the GIL...
+            query_chunk = self.db.get_list(
+                'SELECT name, name_id, inode FROM contents_v WHERE '
+                'parent_inode=? LIMIT %d' % batch_size, (id_p,))
+            reinserted = False
+            for (name, name_id, id_) in query_chunk:
+                if self.db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
+                    # First delete subdirectories
+                    if not reinserted:
+                        queue.append(id_p)
+                        reinserted = True
+                    queue.append(id_)
+                else:
+                    if is_open:
+                        llfuse.invalidate_entry(id_p, name)
+                    self._remove(id_p, name, id_, force=True)
 
-                    if self.db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
-                        if not found_subdirs:
-                            # When current directory has subdirectories, we must reinsert
-                            # it into queue
-                            found_subdirs = True
-                            queue.append(id_p)
-                        queue.append(id_)
+            if query_chunk and not reinserted:
+                # Make sure to re-insert the directory to process the remaining
+                # contents and delete the directory itself.
+                queue.append(id_p)
 
-                    else:
-                        name = self.db.get_val("SELECT name FROM names WHERE id=?", (name_id,))
-                        inval_entry(name)
-                        self._remove(id_p, name, id_, force=True)
-
-                    processed += 1
-                    if processed > gil_step:
-                        # Also reinsert current directory if we need to yield to other threads
-                        if not found_subdirs:
-                            queue.append(id_p)
-                        break
-
-            if processed > gil_step:
-                dt = time.time() - stamp
-                gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 250)
-                log.debug('Adjusting gil_step to %d and yielding', gil_step)
-                processed = 0
-                llfuse.lock.yield_(100)
-                log.debug('re-acquired lock')
-                stamp = time.time()
-
+            dt = time.time() - stamp
+            batch_size = int(batch_size * GIL_RELEASE_INTERVAL / dt)
+            batch_size = min(batch_size, 200) # somewhat arbitrary...
+            batch_size = max(batch_size, 20000)
+            log.debug('Adjusting batch_size to %d and yielding', batch_size)
+            llfuse.lock.yield_(100)
+            log.debug('re-acquired lock')
+            stamp = time.time()
 
         if id_p0 in self.open_inodes:
             log.debug('invalidate_entry(%d, %r)', id_p0, name0)
