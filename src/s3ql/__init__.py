@@ -50,7 +50,7 @@ BUFSIZE = 64 * 1024
 
 # Name and inode of the special s3ql control file
 CTRL_NAME = '.__s3ql__ctrl__'
-CTRL_INODE = 2
+CTRL_INODE = ROOT_INODE+1
 
 # Maps file system revisions to the last S3QL version that
 # supported this revision.
