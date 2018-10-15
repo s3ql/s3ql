@@ -21,6 +21,9 @@ import gc
 import time
 import pytest_trio
 
+
+assert pytest_trio  # suppress unused import warning
+
 # If a test fails, wait a moment before retrieving the captured
 # stdout/stderr. When using a server process (like in t4_fuse.py), this makes
 # sure that we capture any potential output of the server that comes *after* a

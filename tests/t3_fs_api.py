@@ -38,7 +38,6 @@ import shutil
 import stat
 import tempfile
 import trio
-import pyfuse3
 
 # We need to access to protected members
 #pylint: disable=W0212
