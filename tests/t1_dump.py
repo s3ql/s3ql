@@ -17,7 +17,6 @@ from s3ql import deltadump
 import tempfile
 from s3ql.database import Connection
 import random
-import time
 
 class DumpTests(unittest.TestCase):
     def setUp(self):

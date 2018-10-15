@@ -21,7 +21,7 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
 
 from s3ql.logging import logging, setup_logging
 from s3ql.common import get_backend
-from s3ql.parse_args import ArgumentParser, storage_url_type
+from s3ql.parse_args import ArgumentParser
 
 log = logging.getLogger(__name__)
 
