@@ -99,7 +99,7 @@ def pytest_configure(config):
         os.environ['S3QL_ENABLE_WARNINGS'] = '1'
 
     # Enable faulthandler
-    faultlog_fd = os.open(os.path.join(basedir, 'test_crit.log'),
+    faultlog_fd = os.open(os.path.join(basedir, 'tests', 'test_crit.log'),
                           flags=os.O_APPEND|os.O_CREAT|os.O_WRONLY, mode=0o644)
     faulthandler.enable(faultlog_fd)
     faulthandler.register(signal.SIGUSR1, file=faultlog_fd)
