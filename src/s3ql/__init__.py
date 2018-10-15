@@ -29,10 +29,13 @@ if 'S3QL_ENABLE_WARNINGS' in os.environ:
         warnings.filterwarnings(action='ignore', category=cat, append=True)
     warnings.filterwarnings(action='default', append=True)
 
-# We must not import s3ql.logging.logging as s3ql.logging,
+# Ensure use of custom logger class
+# (We must not import s3ql.logging.logging as s3ql.logging,
 # otherwise future imports of s3ql.logging will incorrectly
-# use s3ql.logging.logging.
-from . import logging # Ensure use of custom logger class
+# use s3ql.logging.logging).
+from . import logging
+assert logging.LOG_ONCE  # prevent warnings about unused module
+
 from llfuse import ROOT_INODE
 
 VERSION = '2.31'
