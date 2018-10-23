@@ -11,6 +11,7 @@ from .database import NoSuchRowError
 from .backends.common import NoSuchObject
 from .multi_lock import MultiLock
 from .logging import logging # Ensure use of custom logger class
+from .read_ahead import ReadAhead, ReadAhead_details
 from collections import OrderedDict
 from contextlib import contextmanager
 from llfuse import lock, lock_released
@@ -272,6 +273,7 @@ class BlockCache(object):
         self.upload_threads = []
         self.removal_threads = []
         self.transfer_completed = SimpleEvent()
+        self.read_ahead = ReadAhead()
 
         # Will be initialized once threads are available
         self.to_upload = None
@@ -755,6 +757,31 @@ class BlockCache(object):
         if self.cache.is_full():
             self.expire()
 
+        if inode not in self.read_ahead.ReadAheadData.keys() or self.read_ahead.ReadAheadData[inode].Expired(): # new file, fill the read_ahead data structure
+          try:
+            list_block_no = self.db.get_list('SELECT DISTINCT blockno FROM inode_blocks WHERE inode=?', (inode,))
+            log.debug('inode =%d, list block_no=%s', inode, list_block_no)
+            dict_blockno_objid={}
+        
+            for bn in list_block_no:
+                bn=bn[0] # de-tuple the value
+                #log.debug('inode =%d, bn=%s', inode, bn)
+                try:
+                  block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
+                                'WHERE inode=? AND blockno=?', (inode, bn))
+
+                  obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (block_id,))
+                  dict_blockno_objid[ bn ] = obj_id
+                except NoSuchRowError:
+                    continue
+          except: 
+            log.debug('ahead eccezione catturata inode =%d, dict_blockno_objid=%s', inode, dict_blockno_objid)
+
+          log.debug('inode =%d, dict_blockno_objid=%s', inode, dict_blockno_objid)
+          self.read_ahead.ReadAheadData[inode] = ReadAhead_details(dict_blockno_objid, blockno)
+          log.debug('dopo inode =%d, dict_blockno_objid=%s', inode, dict_blockno_objid)
+
+
         self._lock_entry(inode, blockno, release_global=True)
         try:
             el = self._get_entry(inode, blockno)
@@ -797,33 +824,51 @@ class BlockCache(object):
 
             # Need to download corresponding object
             obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (block_id,))
-            log.debug('downloading object %d..', obj_id)
-            tmpfh = open(filename + '.tmp', 'wb')
-            try:
-                def do_read(fh):
-                    tmpfh.seek(0)
-                    tmpfh.truncate()
-                    shutil.copyfileobj(fh, tmpfh, BUFSIZE)
 
-                with lock_released:
-                    # Lock object. This ensures that we wait until the object
-                    # is uploaded. We don't have to worry about deletion, because
-                    # as long as the current cache entry exists, there will always be
-                    # a reference to the object (and we already have a lock on the
-                    # cache entry).
-                    self._lock_obj(obj_id)
-                    self._unlock_obj(obj_id)
-                    with self.backend_pool() as backend:
-                        backend.perform_read(do_read, 's3ql_data_%d' % obj_id)
+            # check and start asynchronous downloads
+            self.read_ahead.BlockDownloadRequired(self.path, inode, blockno, obj_id, self.backend_pool)
 
-                tmpfh.flush()
-                os.fsync(tmpfh.fileno())
-                os.rename(tmpfh.name, filename)
-            except:
-                os.unlink(tmpfh.name)
-                raise
-            finally:
-                tmpfh.close()
+            log.debug('BlockDownloadRequired finished: inode=%d, blockno=%d, obj_id=%d' % (inode, blockno, obj_id))
+
+            # TODO if the block is in asynchronous download, this thread must wait
+            while os.path.isfile(filename + '.async_tmp'): #obj_id in self.read_ahead.listObjIDDwnInProgress:
+                log.debug('file %s present,, waiting for its end downlaod' % (filename + '.async_tmp'))
+                time.sleep(1000)
+                # adesso questo blocco potrebbe essere nella cache...andrebbe saltata la cache
+                
+            # se e' gia stato scaricato
+            if os.path.isfile(filename):
+              log.debug('ahead found object obj_id=%d already downloaded ' % obj_id)
+              #os.rename(filename + '.async_tmp', filename)
+            else:
+              log.debug('downloading object %d..' % obj_id)
+
+              tmpfh = open(filename + '.tmp', 'wb')
+              try:
+                  def do_read(fh):
+                      tmpfh.seek(0)
+                      tmpfh.truncate()
+                      shutil.copyfileobj(fh, tmpfh, BUFSIZE)
+
+                  with lock_released:
+                      # Lock object. This ensures that we wait until the object
+                      # is uploaded. We don't have to worry about deletion, because
+                      # as long as the current cache entry exists, there will always be
+                      # a reference to the object (and we already have a lock on the
+                      # cache entry).
+                      self._lock_obj(obj_id)
+                      self._unlock_obj(obj_id)
+                      with self.backend_pool() as backend:
+                          backend.perform_read(do_read, 's3ql_data_%d' % obj_id)
+
+                  tmpfh.flush()
+                  os.fsync(tmpfh.fileno())
+                  os.rename(tmpfh.name, filename)
+              except:
+                  os.unlink(tmpfh.name)
+                  raise
+              finally:
+                  tmpfh.close()
 
             el = CacheEntry(inode, blockno, filename, mode='r+b')
             self.cache[(inode, blockno)] = el
