@@ -9,7 +9,10 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 
-import threading, time, os, shutil
+import threading
+import time
+import os
+import shutil
 
 if not __name__ == "__main__":
   from .logging import logging # Ensure use of custom logger class
