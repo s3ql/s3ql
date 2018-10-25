@@ -32,9 +32,16 @@ else:
   log = logging()
 
 
-class ReadAhead_details():
+class ReadAhead_details:
     '''
-    keeps read_ahead variables for each file
+    keeps read_ahead variables for one file
+    
+    Attributes:
+    -----------
+    :last_block_read: number of the last block number read in this file
+    :consec_block_count: number of consecutive block read for this file
+    :RAlast_access: timestamp of the last read access to this file
+    :dict_block_no_objid: dict, key=block_no, value=objid
     '''
     def __init__(self, dict_block_no_objid, blockno):
         self.last_block_read = blockno
@@ -51,7 +58,8 @@ class ReadAhead_details():
 
     def Required(self, blockno):
         '''
-        keeps the number of consecutive block read.
+        Called when a block is required to be downloaded. 
+        If blockno is a new block to download, and if its value is 1 bigger the last blockno, increment the consecutive block counter
         '''
         #log.debug("Required start blockno=%d\n\tconsec_block_count=%d\n\tlast_blockno_read=%d" % (blockno, self.consec_block_count, self.last_block_read))
         
@@ -74,26 +82,20 @@ class ReadAhead_details():
 
     def TriggerOn(self):
         '''
-        rule declaring when some file block can be downloaded
+        rule declaring when asyncronous GET threads can be started for this file
         '''
         return self.consec_block_count >= self.block_count_trigger
       
     def Expired(self):
+        '''
+        when a file is accessed after a while, it is safer to reload its details form BD.
+        This function decide when the stored file details are old
+        '''
       if time.time() - self.RAlast_access > 40:
           return True
       return False
 
-      
-# TODO remove data related to old files
 
-
-#class ThreadVars():
-#    def __init__(self, inode, blockno, fn):
-#        self.inode = inode
-#        self.blockno = blockno
-#        self.filename = fn
-#        self.t = None
- 
 class ReadAhead(object):
     '''
     Read Ahead block logic
