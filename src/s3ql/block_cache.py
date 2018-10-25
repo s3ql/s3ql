@@ -259,6 +259,7 @@ class BlockCache(object):
     :removal_threads: list of threads processing removal queue
     :db: Handle to SQL DB
     :backend_pool: BackendPool instance
+    :read_ahead: ReadAhead instance
     """
 
     def __init__(self, backend_pool, db, cachedir, max_size, max_entries=768):
@@ -756,12 +757,13 @@ class BlockCache(object):
 
         if self.cache.is_full():
             self.expire()
-
-        if inode not in self.read_ahead.ReadAheadData.keys() or self.read_ahead.ReadAheadData[inode].Expired(): # new file, fill the read_ahead data structure
+            
+        # create a read_ahead data structure for each file
+        if inode not in self.read_ahead.ReadAheadData.keys() or self.read_ahead.ReadAheadData[inode].Expired(): 
           try:
             list_block_no = self.db.get_list('SELECT DISTINCT blockno FROM inode_blocks WHERE inode=?', (inode,))
             log.debug('inode =%d, list block_no=%s', inode, list_block_no)
-            dict_blockno_objid={}
+            dict_blockno_objid = {}
         
             for bn in list_block_no:
                 bn=bn[0] # de-tuple the value
