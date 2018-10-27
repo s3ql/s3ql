@@ -3,6 +3,9 @@ UNRELEASED CHANGES
   * Fixed a potential bug in s3qlrm that would probably lead to a
     filesystem crash (hasn't actually been observed though).
 
+  * Clarified installation instructions: S3QL requires the official
+    systemd Python module, not the (third-party) module on PyPi.
+
 2018-10-08, S3QL 2.31
 
   * Object removal now makes more use of parallelism.

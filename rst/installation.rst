@@ -52,7 +52,9 @@ that is not the case.
   * `requests <https://pypi.python.org/pypi/requests/>`_ (optional,
     required for OAuth2 authentication with Google Storage)
   * `systemd <https://github.com/systemd/python-systemd>`_ (optional,
-    for enabling systemd support).
+    for enabling systemd support). Do *not* install the module from
+    PyPi, this is from a third-party developer and incompatible with
+    the official module from the systemd developers.
   * `apsw <https://github.com/rogerbinns/apsw>`_, version 3.7.0 or
     newer.
   * `llfuse <https://bitbucket.org/nikratio/python-llfuse/>`_, any
