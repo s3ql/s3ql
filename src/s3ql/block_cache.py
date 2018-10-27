@@ -11,7 +11,7 @@ from .database import NoSuchRowError
 from .backends.common import NoSuchObject
 from .multi_lock import MultiLock
 from .logging import logging # Ensure use of custom logger class
-from .read_ahead import ReadAhead, ReadAhead_details
+from .read_ahead import ReadAhead, ReadAheadDetails
 from collections import OrderedDict
 from contextlib import contextmanager
 from llfuse import lock, lock_released
@@ -759,7 +759,7 @@ class BlockCache(object):
             self.expire()
             
         # create a read_ahead data structure for each file
-        if inode not in self.read_ahead.ReadAheadData.keys() or self.read_ahead.ReadAheadData[inode].Expired(): 
+        if inode not in self.read_ahead.read_ahead_data.keys() or self.read_ahead.read_ahead_data[inode].expired(): 
           try:
             list_block_no = self.db.get_list('SELECT DISTINCT blockno FROM inode_blocks WHERE inode=?', (inode,))
             log.debug('inode =%d, list block_no=%s', inode, list_block_no)
@@ -780,7 +780,7 @@ class BlockCache(object):
             log.debug('ahead eccezione catturata inode =%d, dict_blockno_objid=%s', inode, dict_blockno_objid)
 
           log.debug('inode =%d, dict_blockno_objid=%s', inode, dict_blockno_objid)
-          self.read_ahead.ReadAheadData[inode] = ReadAhead_details(dict_blockno_objid, blockno)
+          self.read_ahead.read_ahead_data[inode] = ReadAheadDetails(dict_blockno_objid, blockno)
           log.debug('dopo inode =%d, dict_blockno_objid=%s', inode, dict_blockno_objid)
 
 
@@ -828,9 +828,9 @@ class BlockCache(object):
             obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (block_id,))
 
             # check and start asynchronous downloads
-            self.read_ahead.BlockDownloadRequired(self.path, inode, blockno, obj_id, self.backend_pool)
+            self.read_ahead.block_download_required(self.path, inode, blockno, obj_id, self.backend_pool)
 
-            log.debug('BlockDownloadRequired finished: inode=%d, blockno=%d, obj_id=%d' % (inode, blockno, obj_id))
+            log.debug('block_download_required finished: inode=%d, blockno=%d, obj_id=%d' % (inode, blockno, obj_id))
 
             # TODO if the block is in asynchronous download, this thread must wait
             while os.path.isfile(filename + '.async_tmp'): #obj_id in self.read_ahead.listObjIDDwnInProgress:
