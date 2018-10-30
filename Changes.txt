@@ -6,6 +6,9 @@ UNRELEASED CHANGES
   * Clarified installation instructions: S3QL requires the official
     systemd Python module, not the (third-party) module on PyPi.
 
+  * Fixed occasional crashes with a "dugong.StateError" exception.
+    Thanks to Roger Gammans for extensive testing!
+
 2018-10-08, S3QL 2.31
 
   * Object removal now makes more use of parallelism.

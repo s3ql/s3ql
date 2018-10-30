@@ -146,6 +146,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     # that case we will have to implement a custom retry logic there).
     @copy_ancestor_docstring
     def is_temp_failure(self, exc): #IGNORE:W0613
+        if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
+            # We probably can't use the connection anymore, so use this
+            # opportunity to reset it
+            self.conn.reset()
+
         if isinstance(exc, (InternalError, BadDigestError, IncompleteBodyError,
                             RequestTimeoutError, OperationAbortedError,
                             SlowDownError, ServiceUnavailableError)):
@@ -284,12 +289,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                         marker = el.findtext(root_xmlns_prefix + 'Key')
                         yield marker[len(self.prefix):]
                         root.clear()
-
-            except Exception as exc:
-                if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
-                    # We probably can't use the connection anymore
-                    self.conn.disconnect()
-                raise
 
             except GeneratorExit:
                 # Need to read rest of response
@@ -708,45 +707,38 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             return resp
 
         use_expect_100c = not self.options.get('disable-expect100', False)
-        try:
-            log.debug('sending %s %s', method, path)
-            if body is None or isinstance(body, (bytes, bytearray, memoryview)):
-                self.conn.send_request(method, path, body=body, headers=headers)
-            else:
-                body_len = os.fstat(body.fileno()).st_size
-                self.conn.send_request(method, path, expect100=use_expect_100c,
-                                       headers=headers, body=BodyFollowing(body_len))
+        log.debug('sending %s %s', method, path)
+        if body is None or isinstance(body, (bytes, bytearray, memoryview)):
+            self.conn.send_request(method, path, body=body, headers=headers)
+        else:
+            body_len = os.fstat(body.fileno()).st_size
+            self.conn.send_request(method, path, expect100=use_expect_100c,
+                                   headers=headers, body=BodyFollowing(body_len))
 
-                if use_expect_100c:
-                    resp = read_response()
-                    if resp.status != 100: # Error
-                        return resp
+            if use_expect_100c:
+                resp = read_response()
+                if resp.status != 100: # Error
+                    return resp
 
+            try:
+                copyfileobj(body, self.conn, BUFSIZE)
+            except ConnectionClosed:
+                # Server closed connection while we were writing body data -
+                # but we may still be able to read an error response
                 try:
-                    copyfileobj(body, self.conn, BUFSIZE)
-                except ConnectionClosed:
-                    # Server closed connection while we were writing body data -
-                    # but we may still be able to read an error response
-                    try:
-                        resp = read_response()
-                    except ConnectionClosed: # No server response available
-                        pass
-                    else:
-                        if resp.status >= 400: # Got error response
-                            return resp
-                        log.warning('Server broke connection during upload, but signaled '
-                                    '%d %s', resp.status, resp.reason)
+                    resp = read_response()
+                except ConnectionClosed: # No server response available
+                    pass
+                else:
+                    if resp.status >= 400: # Got error response
+                        return resp
+                    log.warning('Server broke connection during upload, but signaled '
+                                '%d %s', resp.status, resp.reason)
 
-                    # Re-raise first ConnectionClosed exception
-                    raise
+                # Re-raise first ConnectionClosed exception
+                raise
 
-            return read_response()
-
-        except Exception as exc:
-            if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
-                # We probably can't use the connection anymore
-                self.conn.disconnect()
-            raise
+        return read_response()
 
     @copy_ancestor_docstring
     def close(self):
