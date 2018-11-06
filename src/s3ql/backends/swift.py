@@ -49,9 +49,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     clear = s3c.Backend.clear
     reset = s3c.Backend.reset
 
-    def __init__(self, storage_url, login, password, options):
+    def __init__(self, options):
         super().__init__()
-        self.options = options
+        self.options = options.backend_options
         self.hostname = None
         self.port = None
         self.container_name = None
@@ -59,15 +59,15 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.auth_token = None
         self.auth_prefix = None
         self.conn = None
-        self.password = password
-        self.login = login
+        self.password = options.backend_password
+        self.login = options.backend_login
         self.features = Features()
 
         # We may need the context even if no-ssl has been specified,
         # because no-ssl applies only to the authentication URL.
-        self.ssl_context = get_ssl_context(options.get('ssl-ca-path', None))
+        self.ssl_context = get_ssl_context(self.options.get('ssl-ca-path', None))
 
-        self._parse_storage_url(storage_url, self.ssl_context)
+        self._parse_storage_url(options.storage_url, self.ssl_context)
         self.proxy = get_proxy(self.ssl_context is not None)
         self._container_exists()
 
@@ -127,11 +127,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # codes where retry is definitely not desired. For 4xx (client error) we
         # do not retry in general, but for 408 (Request Timeout) RFC 2616
         # specifies that the client may repeat the request without
-        # modifications.
+        # modifications. We also retry on 429 (Too Many Requests).
         elif (isinstance(exc, HTTPError) and
               ((500 <= exc.status <= 599
                 and exc.status not in (501,505,508,510,511,523))
-               or exc.status == 408
+               or exc.status in (408,429)
                or 'client disconnected' in exc.msg.lower())):
             return True
 
@@ -564,6 +564,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             error_code = 422
 
         raise HTTPError(error_code, error_msg, {})
+
+    @property
+    @copy_ancestor_docstring
+    def has_delete_multi(self):
+        return self.features.has_bulk_delete
 
     @copy_ancestor_docstring
     def delete_multi(self, keys, force=False):

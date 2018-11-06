@@ -8,9 +8,12 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging, setup_logging, QuietError
 from .parse_args import ArgumentParser
+
 from oauth2client.client import OAuth2WebServerFlow
 from oauth2client.client import AccessTokenCredentials
 from  oauth2client.client import OOB_CALLBACK_URN
+from .common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
+
 import sys
 import textwrap
 import requests
@@ -18,10 +21,6 @@ import time
 
 log = logging.getLogger(__name__)
 
-# S3QL client id and client secret for Google APIs.
-# Don't get your hopes up, this isn't truly secret.
-CLIENT_ID = '381875429714-6pch5vnnmqab454c68pkt8ugm86ef95v.apps.googleusercontent.com'
-CLIENT_SECRET = 'HGl8fJeVML-gZ-1HSZRNZPz_'
 
 def parse_args(args):
     '''Parse command line'''
@@ -38,9 +37,9 @@ def parse_args(args):
 
     options =  parser.parse_args(args)
     if options.client_id == '':
-        options.client_id = CLIENT_ID
+        options.client_id = OAUTH_CLIENT_ID
     if options.client_secret == '':
-        options.client_secret = CLIENT_SECRET
+        options.client_secret = OAUTH_CLIENT_SECRET
     return options
 
 def _log_response(r):
@@ -85,7 +84,7 @@ def googleDrive(options):
     print("password: %s:%s" % (options.client_secret,credentials.refresh_token))
 
 
-    
+
 
 def googleStorage(options):
     cli = requests.Session()
@@ -125,8 +124,8 @@ def googleStorage(options):
 
     print('Success. Your refresh token is:\n',
           resp_json['refresh_token'])
-    
-    
+
+
 def main(args=None):
 
     if args is None:

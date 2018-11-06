@@ -31,7 +31,13 @@ and (if the file system was mounted with :cmdopt:`--allow-other` or
 The following actions may be specified:
 
 flushcache
-  Uploads all changed file data to the backend.
+  Flush file system cache, i.e. upload all changed file data
+  to the backend.  The command blocks until the cache has been
+  flushed.
+
+dropcache
+  Flush, and then drop file system cache. The command
+  blocks until the cache has been flushed and dropped.
 
 upload-meta
   Upload metadata to the backend. All file system operations will

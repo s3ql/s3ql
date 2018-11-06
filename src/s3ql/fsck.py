@@ -11,9 +11,8 @@ from . import CURRENT_FS_REV, BUFSIZE, CTRL_INODE, ROOT_INODE
 from .backends.common import NoSuchObject
 from .backends.comprenc import ComprencBackend
 from .backends.local import Backend as LocalBackend
-from .common import (inode_for_path, sha256_fh, get_path, get_backend_cachedir,
-                     get_seq_no, is_mounted, get_backend, load_params,
-                     save_params, time_ns)
+from .common import (inode_for_path, sha256_fh, get_path, get_seq_no, is_mounted,
+                     get_backend, load_params, save_params, time_ns)
 from .database import NoSuchRowError, Connection
 from .metadata import create_tables, dump_and_upload_metadata, download_metadata
 from .parse_args import ArgumentParser
@@ -58,8 +57,12 @@ class Fsck(object):
         # don't move them there repeatedly)
         self.moved_inodes = set()
 
-    def check(self):
+    def check(self, check_cache=True):
         """Check file system
+
+        If *check_cache* is False, assume that all cache files are clean (aka
+        have been uploaded to the backend). If *check_cache* is ``keep``, do not
+        remove cache files on exit.
 
         Sets instance variable `found_errors`.
         """
@@ -75,7 +78,9 @@ class Fsck(object):
         self.conn.execute('CREATE INDEX tmp5 ON ext_attributes(name_id)')
         try:
             self.check_lof()
-            self.check_cache()
+            self.check_uploads()
+            if check_cache:
+                self.check_cache(check_cache == 'keep')
             self.check_names_refcount()
 
             self.check_contents_name()
@@ -152,7 +157,21 @@ class Fsck(object):
                     self.uncorrectable_errors = True
 
 
-    def check_cache(self):
+    def check_uploads(self):
+        '''Drop rows for objects that were never successfully uploaded'''
+
+        for (obj_id,) in self.conn.query('SELECT id FROM objects WHERE size == -1'):
+            self.log_error('Cleaning up interrupted upload of object %s', obj_id)
+            self.found_errors = True
+
+            # If there are affected files, they'll be picked up by
+            # check_inode_blocks_block_id().
+            self.conn.execute('DELETE FROM blocks WHERE obj_id = ?', (obj_id,))
+
+        self.conn.execute('DELETE FROM objects WHERE size = -1')
+
+
+    def check_cache(self, keep_cache=False):
         """Commit uncommitted cache files"""
 
         log.info("Checking for dirty cache objects...")
@@ -198,7 +217,8 @@ class Fsck(object):
             log.debug('Inode %d, block %d has checksum %s', inode, blockno,
                       hash_is)
             if hash_should == hash_is:
-                os.unlink(os.path.join(self.cachedir, filename))
+                if not keep_cache:
+                    os.unlink(os.path.join(self.cachedir, filename))
                 continue
 
             self.found_errors = True
@@ -239,7 +259,8 @@ class Fsck(object):
                 self.conn.execute('UPDATE blocks SET refcount=refcount-1 WHERE id=?', (old_block_id,))
                 self.unlinked_blocks.add(old_block_id)
 
-            os.unlink(os.path.join(self.cachedir, filename))
+            if not keep_cache:
+                os.unlink(os.path.join(self.cachedir, filename))
 
 
     def check_lof(self):
@@ -530,8 +551,8 @@ class Fsck(object):
                     continue
                 self.moved_inodes.add(inode)
 
-                affected_entries = list(self.conn.query('SELECT name, name_id, parent_inode '
-                                                        'FROM contents_v WHERE inode=?', (inode,)))
+                affected_entries = self.conn.get_list('SELECT name, name_id, parent_inode '
+                                                      'FROM contents_v WHERE inode=?', (inode,))
                 for (name, name_id, id_p) in affected_entries:
                     path = get_path(id_p, self.conn, name)
                     self.log_error("File may lack data, moved to /lost+found: %s", to_str(path))
@@ -677,8 +698,8 @@ class Fsck(object):
 
         log.info('Checking blocks (checksums)...')
 
-        for (block_id, obj_id) in list(self.conn.query('SELECT id, obj_id FROM blocks '
-                                                       'WHERE hash IS NULL')):
+        for (block_id, obj_id) in self.conn.get_list('SELECT id, obj_id FROM blocks '
+                                                     'WHERE hash IS NULL'):
             self.found_errors = True
 
             # This should only happen when there was an error during upload,
@@ -975,8 +996,8 @@ class Fsck(object):
 
                     # Copy the list, or we may pick up the same entry again and again
                     # (first from the original location, then from lost+found)
-                    affected_entries = list(self.conn.query('SELECT name, name_id, parent_inode '
-                                                            'FROM contents_v WHERE inode=?', (id_,)))
+                    affected_entries = self.conn.get_list('SELECT name, name_id, parent_inode '
+                                                            'FROM contents_v WHERE inode=?', (id_,))
                     for (name, name_id, id_p) in affected_entries:
                         path = get_path(id_p, self.conn, name)
                         self.log_error("File may lack data, moved to /lost+found: %s", to_str(path))
@@ -1070,83 +1091,6 @@ class Fsck(object):
         self.conn.execute('DELETE FROM names WHERE refcount=0 AND id=?', (name_id,))
 
 
-class ROFsck(Fsck):
-    '''
-    Check file system database only, and don't correct any errors.
-    '''
-
-    def __init__(self, path):
-
-        db = Connection(path + '.db')
-        db.execute('PRAGMA journal_mode = WAL')
-
-        param = load_params(path)
-        super().__init__(None, None, param, db)
-
-    def check(self):
-
-        self.conn.execute('BEGIN TRANSACTION')
-        try:
-            log.info('Creating temporary indices...')
-            for idx in ('tmp1', 'tmp2', 'tmp3', 'tmp4', 'tmp5'):
-                self.conn.execute('DROP INDEX IF EXISTS %s' % idx)
-            self.conn.execute('CREATE INDEX tmp1 ON blocks(obj_id)')
-            self.conn.execute('CREATE INDEX tmp2 ON inode_blocks(block_id)')
-            self.conn.execute('CREATE INDEX tmp3 ON contents(inode)')
-            self.conn.execute('CREATE INDEX tmp4 ON contents(name_id)')
-            self.conn.execute('CREATE INDEX tmp5 ON ext_attributes(name_id)')
-
-            self.check_lof()
-            self.check_names_refcount()
-
-            self.check_contents_name()
-            self.check_contents_inode()
-            self.check_contents_parent_inode()
-
-            self.check_objects_refcount()
-            self.check_objects_size()
-
-            self.check_blocks_obj_id()
-            self.check_blocks_refcount()
-            self.check_blocks_checksum()
-
-            self.check_inode_blocks_block_id()
-            self.check_inode_blocks_inode()
-
-            self.check_inodes_refcount()
-            self.check_inodes_size()
-
-            self.check_ext_attributes_name()
-            self.check_ext_attributes_inode()
-
-            self.check_symlinks_inode()
-
-            self.check_loops()
-            self.check_unix()
-            self.check_foreign_keys()
-
-        finally:
-            log.info('Dropping temporary indices...')
-            self.conn.execute('ROLLBACK')
-
-    def check_blocks_checksum(self):
-        """Check blocks.hash"""
-
-        log.info('Checking blocks (checksums)...')
-
-        for (block_id,) in self.conn.query('SELECT id FROM blocks WHERE hash IS NULL'):
-            self.found_errors = True
-            self.log_error("No cached checksum for block %d!", block_id)
-
-    def check_objects_size(self):
-        """Check objects.size"""
-
-        log.info('Checking objects (sizes)...')
-
-        for (obj_id,) in self.conn.query('SELECT id FROM objects WHERE size IS NULL'):
-            self.found_errors = True
-            self.log_error("Object %d has no size information!", obj_id)
-
 def parse_args(args):
 
     parser = ArgumentParser(
@@ -1154,13 +1098,14 @@ def parse_args(args):
 
     parser.add_log('~/.s3ql/fsck.log')
     parser.add_cachedir()
-    parser.add_authfile()
     parser.add_debug()
     parser.add_quiet()
     parser.add_backend_options()
     parser.add_version()
     parser.add_storage_url()
 
+    parser.add_argument("--keep-cache", action="store_true", default=False,
+                      help="Do not purge locally cached files on exit.")
     parser.add_argument("--batch", action="store_true", default=False,
                       help="If user input is required, exit without prompting.")
     parser.add_argument("--force", action="store_true", default=False,
@@ -1190,32 +1135,36 @@ def main(args=None):
 
     log.info('Starting fsck of %s', options.storage_url)
 
-    cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
+    cachepath = options.cachepath
     seq_no = get_seq_no(backend)
     db = None
+
+    # When there was a crash during metadata rotation, we may end up
+    # without an s3ql_metadata object.
+    meta_obj_name = 's3ql_metadata'
+    if meta_obj_name not in backend:
+        meta_obj_name += '_new'
 
     if os.path.exists(cachepath + '.params'):
         assert os.path.exists(cachepath + '.db')
         param = load_params(cachepath)
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
-            param = backend.lookup('s3ql_metadata')
+            param = backend.lookup(meta_obj_name)
         else:
             log.info('Using cached metadata.')
             db = Connection(cachepath + '.db')
-            assert not os.path.exists(cachepath + '-cache') or param['needs_fsck']
 
         if param['seq_no'] > seq_no:
             log.warning('File system has not been unmounted cleanly.')
             param['needs_fsck'] = True
 
-        elif backend.lookup('s3ql_metadata')['seq_no'] != param['seq_no']:
+        elif backend.lookup(meta_obj_name)['seq_no'] != param['seq_no']:
             log.warning('Remote metadata is outdated.')
             param['needs_fsck'] = True
 
     else:
-        param = backend.lookup('s3ql_metadata')
-        assert not os.path.exists(cachepath + '-cache')
+        param = backend.lookup(meta_obj_name)
         # .db might exist if mount.s3ql is killed at exactly the right instant
         # and should just be ignored.
 
@@ -1253,17 +1202,6 @@ def main(args=None):
         param['seq_no'] = seq_no
         param['needs_fsck'] = True
 
-    if not db and os.path.exists(cachepath + '-cache'):
-        for i in itertools.count():
-            bak_name = '%s-cache.bak%d' % (cachepath, i)
-            if not os.path.exists(bak_name):
-                break
-        log.warning('Found outdated cache directory (%s), renaming to .bak%d',
-                    cachepath + '-cache', i)
-        log.warning('You should delete this directory once you are sure that '
-                    'everything is in order.')
-        os.rename(cachepath + '-cache', bak_name)
-
     if (not param['needs_fsck']
         and param['max_inode'] < 2 ** 31
         and (time.time() - param['last_fsck'])
@@ -1273,6 +1211,31 @@ def main(args=None):
         else:
             log.info('File system is marked as clean. Use --force to force checking.')
             return
+
+    # When using remote metadata, get rid of outdated local cache (so that we
+    # don't accidentally upload it)
+    outdated_cachedir = False
+    if not db:
+        try:
+            for name_ in os.listdir(cachepath + '-cache'):
+                if name_ not in ('.', '..'):
+                    outdated_cachedir = True
+                    break
+        except FileNotFoundError:
+            pass
+    if outdated_cachedir and param['needs_fsck']:
+        for i in itertools.count():
+            bak_name = '%s-cache.bak%d' % (cachepath, i)
+            if not os.path.exists(bak_name):
+                break
+        log.warning('Renaming outdated cache directory %s to .bak%d',
+                    cachepath + '-cache', i)
+        log.warning('You should delete this directory once you are sure that '
+                    'everything is in order.')
+        os.rename(cachepath + '-cache', bak_name)
+    elif outdated_cachedir:
+        log.info("Flushing outdated local cache...")
+        shutil.rmtree(cachepath + '-cache')
 
     # If using local metadata, check consistency
     if db:
@@ -1291,6 +1254,13 @@ def main(args=None):
     else:
         db = download_metadata(backend, cachepath + '.db')
 
+    # We only read cache files if the filesystem was not
+    # unmounted cleanly. On a clean unmount, the cache files can
+    # not be dirty.
+    check_cache = param['needs_fsck']
+    if check_cache and options.keep_cache:
+        check_cache = 'keep'
+
     # Increase metadata sequence no
     param['seq_no'] += 1
     param['needs_fsck'] = True
@@ -1298,14 +1268,11 @@ def main(args=None):
     save_params(cachepath, param)
 
     fsck = Fsck(cachepath + '-cache', backend, param, db)
-    fsck.check()
+    fsck.check(check_cache)
     param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
 
     if fsck.uncorrectable_errors:
         raise QuietError("Uncorrectable errors found, aborting.", exitcode=44+128)
-
-    if os.path.exists(cachepath + '-cache'):
-        os.rmdir(cachepath + '-cache')
 
     if param['max_inode'] >= 2 ** 31:
         renumber_inodes(db)

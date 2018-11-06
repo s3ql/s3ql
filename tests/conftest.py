@@ -52,14 +52,7 @@ def s3ql_cmd_argv(request):
                                                         os.path.join(basedir, 'bin', cmd) ]
 
 # Enable output checks
-pytest_plugins = ('pytest_checklogs')
-
-# Ignore DeprecationWarnings when running unit tests.  They are
-# unfortunately quite often a result of indirect imports via third party
-# modules, so we can't actually fix them.
-@pytest.fixture(autouse=True)
-def ignore_depreciation_warnings(reg_output):
-    reg_output(r'(Pending)?DeprecationWarning', count=0)
+pytest_plugins = ('pytest_checklogs',)
 
 @pytest.fixture()
 def pass_reg_output(request, reg_output):
@@ -86,17 +79,30 @@ def pytest_configure(config):
             os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
             sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-    # When running from HG repo, enable all warnings
+    # When running from HG repo, enable warnings
     if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
         import warnings
         warnings.resetwarnings()
-        warnings.simplefilter('default')
+
+        # Not sure what this is or what causes it, bug the internet
+        # is full of similar reports so probably a false positive.
+        warnings.filterwarnings(
+            action='ignore', category=ImportWarning,
+            message="can't resolve package from __spec__ or __package__, falling "
+            "back on __name__ and __path__")
+
+        for cat in (DeprecationWarning, PendingDeprecationWarning):
+            warnings.filterwarnings(action='default', category=cat,
+                                    module='s3ql', append=True)
+            warnings.filterwarnings(action='ignore', category=cat, append=True)
+        warnings.filterwarnings(action='default', append=True)
+        os.environ['S3QL_ENABLE_WARNINGS'] = '1'
 
     # Enable faulthandler
-    global faultlog_fh
-    faultlog_fh = open(os.path.join(basedir, 'tests', 'test_crit.log'), 'a')
-    faulthandler.enable(faultlog_fh)
-    faulthandler.register(signal.SIGUSR1, file=faultlog_fh)
+    faultlog_fd = os.open(os.path.join(basedir, 'tests', 'test_crit.log'),
+                          flags=os.O_APPEND|os.O_CREAT|os.O_WRONLY, mode=0o644)
+    faulthandler.enable(faultlog_fd)
+    faulthandler.register(signal.SIGUSR1, file=faultlog_fd)
 
     # Configure logging. We don't set a default handler but rely on
     # the catchlog pytest plugin.

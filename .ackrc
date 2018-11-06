@@ -1,0 +1,4 @@
+--ignore-dir=doc
+--ignore-dir=s3ql.old
+--ignore-dir=build
+--ignore-file=is:deltadump.c

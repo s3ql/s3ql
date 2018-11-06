@@ -20,6 +20,7 @@ import hashlib
 import shutil
 import threading
 import time
+import re
 import sys
 
 # standard logger for this module
@@ -151,17 +152,17 @@ class CacheEntry(object):
     __slots__ = [ 'dirty', 'inode', 'blockno', 'last_access',
                   'size', 'pos', 'fh', 'removed' ]
 
-    def __init__(self, inode, blockno, filename):
+    def __init__(self, inode, blockno, filename, mode='w+b'):
         super().__init__()
         # Writing 100MB in 128k chunks takes 90ms unbuffered and
         # 116ms with 1 MB buffer. Reading time does not depend on
         # buffer size.
-        self.fh = open(filename, "w+b", 0)
+        self.fh = open(filename, mode, 0)
         self.dirty = False
         self.inode = inode
         self.blockno = blockno
         self.last_access = 0
-        self.pos = 0
+        self.pos = self.fh.tell()
         self.size = os.fstat(self.fh.fileno()).st_size
 
     def read(self, size=None):
@@ -223,13 +224,14 @@ class CacheDict(OrderedDict):
         self.max_entries = max_entries
         self.size = 0
 
-    def remove(self, key):
+    def remove(self, key, unlink=True):
         '''Remove *key* from disk and cache, update size'''
 
         el = self.pop(key)
         el.close()
-        el.unlink()
         self.size -= el.size
+        if unlink:
+            el.unlink()
 
     def is_full(self):
         return (self.size > self.max_size
@@ -277,11 +279,29 @@ class BlockCache(object):
         self.to_upload = None
         self.to_remove = None
 
-        if not os.path.exists(self.path):
+        if os.path.exists(self.path):
+            self.load_cache()
+            log.info('Loaded %d entries from cache', len(self.cache))
+        else:
             os.mkdir(self.path)
 
         # Initialized fromt the outside to prevent cyclic dependency
         self.fs = None
+
+    def load_cache(self):
+        '''Initialize cache from disk'''
+
+        for filename in os.listdir(self.path):
+            match = re.match('^(\\d+)-(\\d+)$', filename)
+            if not match:
+                continue
+            inode = int(match.group(1))
+            blockno = int(match.group(2))
+
+            el = CacheEntry(inode, blockno,
+                            os.path.join(self.path, filename), mode='r+b')
+            self.cache[(inode, blockno)] = el
+            self.cache.size += el.size
 
     def __len__(self):
         '''Get number of objects in cache'''
@@ -297,11 +317,20 @@ class BlockCache(object):
             self.upload_threads.append(t)
 
         self.to_remove = Queue(1000)
-        for _ in range(10):
-            t = threading.Thread(target=self._removal_loop)
+        with self.backend_pool() as backend:
+            has_delete_multi = backend.has_delete_multi
+
+        if has_delete_multi:
+            t = threading.Thread(target=self._removal_loop_multi)
             t.daemon = True # interruption will do no permanent harm
             t.start()
             self.removal_threads.append(t)
+        else:
+            for _ in range(20):
+                t = threading.Thread(target=self._removal_loop_simple)
+                t.daemon = True # interruption will do no permanent harm
+                t.start()
+                self.removal_threads.append(t)
 
     def _lock_obj(self, obj_id, release_global=False):
         '''Acquire lock on *obj*id*'''
@@ -321,14 +350,14 @@ class BlockCache(object):
         else:
             self.mlock.release(obj_id, noerror=noerror)
 
-    def _lock_entry(self, inode, blockno, release_global=False):
+    def _lock_entry(self, inode, blockno, release_global=False, timeout=None):
         '''Acquire lock on cache entry'''
 
         if release_global:
             with lock_released:
-                self.mlock.acquire((inode, blockno))
+                return self.mlock.acquire((inode, blockno), timeout=timeout)
         else:
-            self.mlock.acquire((inode, blockno))
+            return self.mlock.acquire((inode, blockno), timeout=timeout)
 
     def _unlock_entry(self, inode, blockno, release_global=False,
                       noerror=False):
@@ -340,18 +369,24 @@ class BlockCache(object):
         else:
             self.mlock.release((inode, blockno), noerror=noerror)
 
-    def destroy(self):
+    def destroy(self, keep_cache=False):
         '''Clean up and stop worker threads
 
         This method should be called without the global lock held.
         '''
 
-        log.debug('Dropping cache...')
+        log.debug('Flushing cache...')
         try:
             with lock:
-                self.drop()
+                if keep_cache:
+                    self.flush() # releases global lock
+                    for el in self.cache.values():
+                        assert not el.dirty
+                        el.close()
+                else:
+                    self.drop()
         except NoWorkerThreads:
-            log.error('Unable to drop cache, no upload threads left alive')
+            log.error('Unable to flush cache, no upload threads left alive')
 
         # Signal termination to worker threads. If some of them
         # terminated prematurely, continue gracefully.
@@ -392,7 +427,8 @@ class BlockCache(object):
         self.upload_threads = None
         self.removal_threads = None
 
-        os.rmdir(self.path)
+        if not keep_cache:
+            os.rmdir(self.path)
 
         log.debug('cleanup done.')
 
@@ -492,29 +528,41 @@ class BlockCache(object):
                 if self.transfer_completed.wait(timeout=5):
                     return
 
-    def upload(self, el):
-        '''Upload cache entry `el` asynchronously
+    def upload_if_dirty(self, el):
+        '''Upload cache entry asynchronously
 
-        This method releases the global lock.
+        This method releases the global lock. Return True if the object
+        is actually scheduled for upload.
         '''
 
         log.debug('started with %s', el)
 
+        if el in self.in_transit:
+            return True
+        elif not el.dirty:
+            return False
+
         # Calculate checksum
         with lock_released:
+            self._lock_entry(el.inode, el.blockno)
+            added_to_transit = False
             try:
-                self._lock_entry(el.inode, el.blockno)
-                assert el not in self.in_transit
+                if el is not self.cache.get((el.inode, el.blockno), None):
+                    log.debug('%s got removed while waiting for lock', el)
+                    self._unlock_entry(el.inode, el.blockno)
+                    return False
+                if el in self.in_transit:
+                    log.debug('%s already in transit', el)
+                    self._unlock_entry(el.inode, el.blockno)
+                    return True
                 if not el.dirty:
-                    log.debug('not dirty, returning')
+                    log.debug('no longer dirty, returning')
                     self._unlock_entry(el.inode, el.blockno)
-                    return
-                if (el.inode, el.blockno) not in self.cache:
-                    log.debug('%s removed while waiting for lock', el)
-                    self._unlock_entry(el.inode, el.blockno)
-                    return
+                    return False
 
+                log.debug('uploading %s..', el)
                 self.in_transit.add(el)
+                added_to_transit = True
                 sha = hashlib.sha256()
                 el.seek(0)
                 while True:
@@ -524,7 +572,8 @@ class BlockCache(object):
                     sha.update(buf)
                 hash_ = sha.digest()
             except:
-                self.in_transit.discard(el)
+                if added_to_transit:
+                    self.in_transit.discard(el)
                 self._unlock_entry(el.inode, el.blockno)
                 raise
 
@@ -575,7 +624,7 @@ class BlockCache(object):
 
                 if old_block_id == block_id:
                     log.debug('unchanged, block_id=%d', block_id)
-                    return
+                    return False
 
         except:
             self.in_transit.discard(el)
@@ -585,12 +634,13 @@ class BlockCache(object):
                     self._unlock_obj(obj_id)
             raise
 
-        # Check if we have to remove an old block
-        if not old_block_id:
-            log.debug('no old block, returning')
-            return
+        if old_block_id:
+            self._deref_block(old_block_id)
+        else:
+            log.debug('no old block')
 
-        self._deref_block(old_block_id)
+        return obj_lock_taken
+
 
     def _queue_upload(self, obj):
         '''Put *obj* into upload queue'''
@@ -675,13 +725,13 @@ class BlockCache(object):
 
         return len(self.in_transit) > 0
 
-    def _removal_loop(self):
+    def _removal_loop_multi(self):
         '''Process removal queue'''
 
-        # This method may look more complicated than necessary, but
-        # it ensures that we read as many objects from the queue
-        # as we can without blocking, and then hand them over to
-        # the backend all at once.
+        # This method may look more complicated than necessary, but it ensures
+        # that we read as many objects from the queue as we can without
+        # blocking, and then hand them over to the backend all at once.
+
         ids = []
         while True:
             try:
@@ -690,7 +740,7 @@ class BlockCache(object):
             except QueueEmpty:
                 tmp = FlushSentinel
 
-            if tmp in (FlushSentinel,QuitSentinel) and ids:
+            if tmp in (FlushSentinel, QuitSentinel) and ids:
                 log.debug('removing: %s', ids)
                 try:
                     with self.backend_pool() as backend:
@@ -705,18 +755,26 @@ class BlockCache(object):
             if tmp is QuitSentinel:
                 break
 
+    def _removal_loop_simple(self):
+        '''Process removal queue'''
+
+        while True:
+            log.debug('reading from queue..')
+            id_ = self.to_remove.get()
+            if id_ is QuitSentinel:
+                break
+            with self.backend_pool() as backend:
+                try:
+                    backend.delete('s3ql_data_%d' % id_)
+                except NoSuchObject:
+                    log.warning('Backend lost object s3ql_data_%d' % id_)
+                    self.fs.failsafe = True
+
     @contextmanager
     def get(self, inode, blockno):
         """Get file handle for block `blockno` of `inode`
 
-        This method releases the global lock. The managed block, however,
-        is executed with the global lock acquired and MUST NOT release
-        it. This ensures that only one thread is accessing a given block
-        at a time.
-
-        Note: if `get` and `remove` are called concurrently, then it is
-        possible that a block that has been requested with `get` and
-        passed to `remove` for deletion will not be deleted.
+        This method releases the global lock.
         """
 
         #log.debug('started with %d, %d', inode, blockno)
@@ -767,12 +825,12 @@ class BlockCache(object):
             # Need to download corresponding object
             obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (block_id,))
             log.debug('downloading object %d..', obj_id)
-            el = CacheEntry(inode, blockno, filename)
+            tmpfh = open(filename + '.tmp', 'wb')
             try:
                 def do_read(fh):
-                    el.seek(0)
-                    el.truncate()
-                    shutil.copyfileobj(fh, el, BUFSIZE)
+                    tmpfh.seek(0)
+                    tmpfh.truncate()
+                    shutil.copyfileobj(fh, tmpfh, BUFSIZE)
 
                 with lock_released:
                     # Lock object. This ensures that we wait until the object
@@ -784,13 +842,18 @@ class BlockCache(object):
                     self._unlock_obj(obj_id)
                     with self.backend_pool() as backend:
                         backend.perform_read(do_read, 's3ql_data_%d' % obj_id)
-            except:
-                el.unlink()
-                el.close()
-                raise
 
+                tmpfh.flush()
+                os.fsync(tmpfh.fileno())
+                os.rename(tmpfh.name, filename)
+            except:
+                os.unlink(tmpfh.name)
+                raise
+            finally:
+                tmpfh.close()
+
+            el = CacheEntry(inode, blockno, filename, mode='r+b')
             self.cache[(inode, blockno)] = el
-            el.dirty = False # (writing will have set dirty flag)
             self.cache.size += el.size
 
         # In Cache
@@ -829,23 +892,20 @@ class BlockCache(object):
                 need_entries -= 1
                 need_size -= el.size
 
-                if el.dirty:
-                    if el not in self.in_transit:
-                        log.debug('uploading %s..', el)
-                        self.upload(el) # Releases global lock
+                if self.upload_if_dirty(el): # Releases global lock
                     sth_in_transit = True
                     continue
 
-                log.debug('removing inode %d, block %d from cache', el.inode, el.blockno)
                 self._lock_entry(el.inode, el.blockno, release_global=True)
                 try:
                     # May have changed while we were waiting for lock
+                    if el is not self.cache.get((el.inode, el.blockno), None):
+                        log.debug('%s removed while waiting for lock', el)
+                        continue
                     if el.dirty:
                         log.debug('%s got dirty while waiting for lock', el)
                         continue
-                    if (el.inode, el.blockno) not in self.cache:
-                        log.debug('%s removed while waiting for lock', el)
-                        continue
+                    log.debug('removing %s from cache', el)
                     self.cache.remove((el.inode, el.blockno))
                 finally:
                     self._unlock_entry(el.inode, el.blockno, release_global=True)
@@ -871,30 +931,39 @@ class BlockCache(object):
 
         if end_no is None:
             end_no = start_no + 1
+        blocknos = set(range(start_no, end_no))
 
-        for blockno in range(start_no, end_no):
-            self._lock_entry(inode, blockno, release_global=True)
-            try:
-                if (inode, blockno) in self.cache:
-                    log.debug('removing from cache')
-                    self.cache.remove((inode, blockno))
-
-                try:
-                    block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
-                                               'WHERE inode=? AND blockno=?', (inode, blockno))
-                except NoSuchRowError:
-                    log.debug('block not in db')
+        # First do an opportunistic pass and remove everything where we can
+        # immediately get a lock. This is important when removing a file right
+        # after it has been created. If the upload of the first block has
+        # already started , removal would be stuck behind the upload procedure,
+        # waiting for every block to be uploaded only to remove it afterwards.
+        for timeout in (0, None):
+            for blockno in list(blocknos):
+                if not self._lock_entry(inode, blockno, release_global=True, timeout=timeout):
                     continue
+                blocknos.remove(blockno)
+                try:
+                    if (inode, blockno) in self.cache:
+                        log.debug('removing from cache')
+                        self.cache.remove((inode, blockno))
 
-                # Detach inode from block
-                self.db.execute('DELETE FROM inode_blocks WHERE inode=? AND blockno=?',
-                                (inode, blockno))
+                    try:
+                        block_id = self.db.get_val('SELECT block_id FROM inode_blocks '
+                                                   'WHERE inode=? AND blockno=?', (inode, blockno))
+                    except NoSuchRowError:
+                        log.debug('block not in db')
+                        continue
 
-            finally:
-                self._unlock_entry(inode, blockno, release_global=True)
+                    # Detach inode from block
+                    self.db.execute('DELETE FROM inode_blocks WHERE inode=? AND blockno=?',
+                                    (inode, blockno))
 
-            # Decrease block refcount
-            self._deref_block(block_id)
+                finally:
+                    self._unlock_entry(inode, blockno, release_global=True)
+
+                # Decrease block refcount
+                self._deref_block(block_id)
 
         log.debug('finished')
 
@@ -918,14 +987,11 @@ class BlockCache(object):
         This method releases the global lock.
         """
 
-        # Need to make copy, since we aren't allowed to change dict while
-        # iterating through it. Look at the comments in CommitThread.run()
-        # (mount.py) for an estimate of the resulting performance hit.
+        # Need to make copy, since dict() may change while global lock is
+        # released. Look at the comments in CommitThread.run() (mount.py) for an
+        # estimate of the performance impact.
         for el in list(self.cache.values()):
-            if not el.dirty or el in self.in_transit:
-                continue
-
-            self.upload(el) # Releases global lock
+            self.upload_if_dirty(el) # Releases global lock
 
     def flush(self):
         """Upload all dirty blocks
@@ -937,13 +1003,13 @@ class BlockCache(object):
 
         while True:
             sth_in_transit = False
-            for el in self.cache.values():
-                if not el.dirty:
-                    continue
-                if el not in self.in_transit:
-                    log.debug('uploading %s..', el)
-                    self.upload(el) # Releases global lock
-                sth_in_transit = True
+
+            # Need to make copy, since dict() may change while global lock is
+            # released. Look at the comments in CommitThread.run() (mount.py)
+            # for an estimate of the performance impact.
+            for el in list(self.cache.values()):
+                if self.upload_if_dirty(el): # Releases global lock
+                    sth_in_transit = True
 
             if not sth_in_transit:
                 break
@@ -1000,7 +1066,10 @@ class BlockCache(object):
         # break reference loop
         self.fs = None
 
-        if len(self.cache) == 0:
+        for el in self.cache.values():
+            if el.dirty:
+                break
+        else:
             return
 
         # Force execution of sys.excepthook (exceptions raised

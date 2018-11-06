@@ -8,4 +8,4 @@
    program.
 
 :2:
-   Invalid command line argument.
+   Invalid command line argument or configuration file key.

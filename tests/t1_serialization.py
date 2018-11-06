@@ -64,3 +64,12 @@ def test_checksum():
     d2['foo'] += 1
 
     assert checksum_basic_mapping(d1) != checksum_basic_mapping(d2)
+
+def test_checksum_bytes():
+    d1 = OrderedDict()
+    d2 = OrderedDict()
+
+    d1['foo'] = b'foo'
+    d2['foo'] = b'f0o'
+
+    assert checksum_basic_mapping(d1) != checksum_basic_mapping(d2)

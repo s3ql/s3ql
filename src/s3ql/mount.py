@@ -10,8 +10,8 @@ from .logging import logging, setup_logging, QuietError
 from . import fs, CURRENT_FS_REV
 from .backends.pool import BackendPool
 from .block_cache import BlockCache
-from .common import (get_backend_cachedir, get_seq_no, get_backend_factory,
-                     load_params, save_params)
+from .common import (get_seq_no, get_backend_factory, load_params, save_params,
+                     is_mounted)
 from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
@@ -24,7 +24,6 @@ import _thread
 import argparse
 import faulthandler
 import llfuse
-import itertools
 import os
 import platform
 import subprocess
@@ -85,6 +84,12 @@ def main(args=None):
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.', exitcode=36)
 
+    # Check if fs is mounted on this computer
+    # This is not foolproof but should prevent common mistakes
+    if is_mounted(options.storage_url):
+        raise QuietError('File system already mounted elsewhere on this '
+                         'machine.', exitcode=40)
+
     if options.threads is None:
         options.threads = determine_threads(options)
 
@@ -116,13 +121,12 @@ def main(args=None):
         import pstats
         prof = cProfile.Profile()
 
-    backend_factory = get_backend_factory(options.storage_url, options.backend_options,
-                                          options.authfile, options.compress)
+    backend_factory = get_backend_factory(options)
     backend_pool = BackendPool(backend_factory)
     atexit.register(backend_pool.flush)
 
     # Get paths
-    cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
+    cachepath = options.cachepath
 
     # Retrieve metadata
     with backend_pool() as backend:
@@ -180,16 +184,16 @@ def main(args=None):
         else:
             if stdout_log_handler:
                 logging.getLogger().removeHandler(stdout_log_handler)
-            global crit_log_fh
-            crit_log_fh = open(os.path.join(options.cachedir, 'mount.s3ql_crit.log'), 'a')
-            faulthandler.enable(crit_log_fh)
-            faulthandler.register(signal.SIGUSR1, file=crit_log_fh)
+            crit_log_fd = os.open(os.path.join(options.cachedir, 'mount.s3ql_crit.log'),
+                                  flags=os.O_APPEND|os.O_CREAT|os.O_WRONLY, mode=0o644)
+            faulthandler.enable(crit_log_fd)
+            faulthandler.register(signal.SIGUSR1, file=crit_log_fd)
             daemonize(options.cachedir)
 
         mark_metadata_dirty(backend, cachepath, param)
 
         block_cache.init(options.threads)
-        cm.callback(block_cache.destroy)
+        cm.callback(block_cache.destroy, options.keep_cache)
 
         metadata_upload_thread.start()
         cm.callback(metadata_upload_thread.join)
@@ -361,13 +365,19 @@ def get_metadata(backend, cachepath):
 
     seq_no = get_seq_no(backend)
 
+    # When there was a crash during metadata rotation, we may end up
+    # without an s3ql_metadata object.
+    meta_obj_name = 's3ql_metadata'
+    if meta_obj_name not in backend:
+        meta_obj_name += '_new'
+
     # Check for cached metadata
     db = None
     if os.path.exists(cachepath + '.params'):
         param = load_params(cachepath)
         if param['seq_no'] < seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
-            param = backend.lookup('s3ql_metadata')
+            param = backend.lookup(meta_obj_name)
         elif param['seq_no'] > seq_no:
             raise QuietError("File system not unmounted cleanly, run fsck!",
                              exitcode=30)
@@ -375,7 +385,7 @@ def get_metadata(backend, cachepath):
             log.info('Using cached metadata.')
             db = Connection(cachepath + '.db')
     else:
-        param = backend.lookup('s3ql_metadata')
+        param = backend.lookup(meta_obj_name)
 
     # Check for unclean shutdown
     if param['seq_no'] < seq_no:
@@ -404,20 +414,14 @@ def get_metadata(backend, cachepath):
     elif param['max_inode'] > 2 ** 31:
         log.warning('Few free inodes remaining, running fsck is recommended')
 
-    if os.path.exists(cachepath + '-cache'):
-        for i in itertools.count():
-            bak_name = '%s-cache.bak%d' % (cachepath, i)
-            if not os.path.exists(bak_name):
-                break
-        log.warning('Found outdated cache directory (%s), renaming to .bak%d',
-                    cachepath + '-cache', i)
-        log.warning('You should delete this directory once you are sure that '
-                    'everything is in order.')
-        os.rename(cachepath + '-cache', bak_name)
-
     # Download metadata
     if not db:
         db = download_metadata(backend, cachepath + '.db')
+
+        # Drop cache
+        if os.path.exists(cachepath + '-cache'):
+            shutil.rmtree(cachepath + '-cache')
+
     save_params(cachepath, param)
 
     return (param, db)
@@ -503,7 +507,6 @@ def parse_args(args):
 
     parser.add_log('~/.s3ql/mount.log')
     parser.add_cachedir()
-    parser.add_authfile()
     parser.add_debug()
     parser.add_quiet()
     parser.add_backend_options()
@@ -520,6 +523,8 @@ def parse_args(args):
                       'this number you have to make sure that your process file descriptor '
                       'limit (as set with `ulimit -n`) is high enough (at least the number '
                       'of cache entries + 100).')
+    parser.add_argument("--keep-cache", action="store_true", default=False,
+                      help="Do not purge locally cached files on exit.")
     parser.add_argument("--allow-other", action="store_true", default=False, help=
                       'Normally, only the user who called `mount.s3ql` can access the mount '
                       'point. This user then also has full access to it, independent of '
@@ -736,15 +741,11 @@ class CommitThread(Thread):
                 # ... number=500)/500 * 1e3
                 # 1.456586996000624
                 for el in list(self.block_cache.cache.values()):
-                    if self.stop_event.is_set():
+                    if self.stop_event.is_set() or stamp - el.last_access < 10:
                         break
-                    if stamp - el.last_access < 10:
-                        break
-                    if not el.dirty or el in self.block_cache.in_transit:
-                        continue
-
-                    self.block_cache.upload(el)
-                    did_sth = True
+                    if el.dirty and el not in self.block_cache.in_transit:
+                        self.block_cache.upload_if_dirty(el)
+                        did_sth = True
 
             if not did_sth:
                 self.stop_event.wait(5)

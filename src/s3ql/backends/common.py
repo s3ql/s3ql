@@ -288,7 +288,14 @@ class AbstractBackend(object, metaclass=ABCMeta):
     @abstractmethod
     def has_native_rename(self):
         '''True if the backend has a native, atomic rename operation'''
+
         pass
+
+    @property
+    def has_delete_multi(self):
+        '''True if the backend supports `delete_multi`.'''
+
+        return False
 
     def reset(self):
         '''Reset backend
@@ -468,17 +475,7 @@ class AbstractBackend(object, metaclass=ABCMeta):
         error.
         """
 
-        if not isinstance(keys, list):
-            raise TypeError('*keys* parameter must be a list')
-
-        for (i, key) in enumerate(keys):
-            try:
-                self.delete(key, force=force)
-            except:
-                del keys[:i]
-                raise
-
-        del keys[:]
+        raise NotImplemented()
 
     @abstractmethod
     def list(self, prefix=''):
@@ -645,7 +642,7 @@ def get_proxy(ssl):
             proxy_port = 80
 
         proxy_host = hit.group(2)
-        log.info('Using CONNECT proxy %s:%d', proxy_host, proxy_port,
+        log.info('Using proxy %s:%d', proxy_host, proxy_port,
                  extra=LOG_ONCE)
         proxy = (proxy_host, proxy_port)
     else:
@@ -693,7 +690,7 @@ def checksum_basic_mapping(metadata, key=None):
             val = b'\0d' + struct.pack('<d', val)
         elif isinstance(val, (bytes, bytearray)):
             assert len(val).bit_length() <= 32
-            val = b'\0b' + struct.pack('<I', len(val))
+            chk.update(b'\0b' + struct.pack('<I', len(val)))
         else:
             raise ValueError("Don't know how to checksum %s instances" % type(val))
         chk.update(val)

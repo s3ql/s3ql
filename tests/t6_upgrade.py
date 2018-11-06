@@ -63,8 +63,8 @@ class TestUpgrade(t4_fuse.TestFuse):
             print(self.passphrase, file=proc.stdin)
         proc.stdin.close()
         assert proc.wait() == 0
-        self.reg_output(r'^Warning: maximum object sizes less than 1 MiB '
-                        'will seriously degrade performance\.$', count=1)
+        self.reg_output(r'^WARNING: Maximum object sizes less than '
+                        '1 MiB will degrade performance\.$', count=1)
 
     def mount_old(self):
         self.mount_process = subprocess.Popen([os.path.join(self.basedir_old, 'bin', 'mount.s3ql'),
@@ -140,9 +140,18 @@ class TestUpgrade(t4_fuse.TestFuse):
         if not with_cache:
             shutil.rmtree(self.cache_dir)
             self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
-        self.mount(expect_fail=32)
-        self.reg_output(r'^ERROR: File system revision too old, please '
-                        'run `s3qladm upgrade` first\.$', count=1)
+
+        if isinstance(self, RemoteUpgradeTest):
+            self.mount(expect_fail=32)
+            self.reg_output(r'^ERROR: File system revision needs upgrade', count=1)
+            self.reg_output(r'^WARNING: MD5 mismatch in metadata for '
+                            's3ql_(metadata|passphrase)', count=1)
+        elif self.passphrase:
+            self.mount(expect_fail=17)
+            self.reg_output(r'^ERROR: Wrong file system passphrase', count=1)
+        else:
+            self.mount(expect_fail=32)
+            self.reg_output(r'^ERROR: File system revision too old', count=1)
 
         # Upgrade
         if not with_cache:
@@ -177,6 +186,7 @@ class RemoteUpgradeTest:
             (backend_login, backend_pw,
              self.storage_url) = get_remote_test_info(name)
         except NoTestSection as exc:
+            super().teardown_method(method)
             pytest.skip(exc.reason)
         self.backend_login = backend_login
         self.backend_passphrase = backend_pw
@@ -203,6 +213,17 @@ class RemoteUpgradeTest:
 for backend_name in backends.prefix_map:
     if backend_name == 'local':
         continue
+
+    # Plain
+    def setup_method(self, method, backend_name=backend_name):
+        RemoteUpgradeTest.setup_method(self, method, backend_name + '-test')
+        self.passphrase = None
+    test_class_name = 'TestPlain' + backend_name + 'Upgrade'
+    globals()[test_class_name] = type(test_class_name,
+                                      (RemoteUpgradeTest, TestUpgrade),
+                                      { 'setup_method': setup_method })
+
+    # Encrypted
     def setup_method(self, method, backend_name=backend_name):
         RemoteUpgradeTest.setup_method(self, method, backend_name + '-test')
     test_class_name = 'Test' + backend_name + 'Upgrade'

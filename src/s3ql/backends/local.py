@@ -28,17 +28,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     needs_login = False
     known_options = set()
 
-    def __init__(self, storage_url, backend_login=None, backend_pw=None,
-                 options=None):
-        '''Initialize local backend
+    def __init__(self, options):
+        '''Initialize local backend'''
 
-        Login and password are ignored.
-        '''
         # Unused argument
         #pylint: disable=W0613
 
         super().__init__()
-        self.prefix = storage_url[len('local://'):].rstrip('/')
+        self.prefix = options.storage_url[len('local://'):].rstrip('/')
 
         if not os.path.exists(self.prefix):
             raise DanglingStorageURLError(self.prefix)
@@ -47,6 +44,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def has_native_rename(self):
         return False
+
+    @property
+    @copy_ancestor_docstring
+    def has_delete_multi(self):
+        return True
 
     def __str__(self):
         return 'local directory %s' % self.prefix
@@ -125,6 +127,17 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         except FileNotFoundError:
             return False
         return True
+
+    @copy_ancestor_docstring
+    def delete_multi(self, keys, force=False):
+        for (i, key) in enumerate(keys):
+            try:
+                self.delete(key, force=force)
+            except:
+                del keys[:i]
+                raise
+
+        del keys[:]
 
     @copy_ancestor_docstring
     def delete(self, key, force=False):

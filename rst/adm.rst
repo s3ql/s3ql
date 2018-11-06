@@ -30,6 +30,16 @@ subcommand::
 
   s3qladm passphrase  <storage url>
 
+That this will not actually re-encrypt all the stored data with the
+new passphrase. Rather, S3QL generates an internal "master key" when
+the file system is created and uses this key to encrypt all stored
+data. The user-supplied passphrase is used to encrypt/decrypt only the
+master key, and can therefore be changed. This means, however, that if
+a passphrase has been disclosed to someone untrusted, changing it
+afterwards will **not revoke access to people who had access to the
+old passphrase** (because they could have decrypted the master key and
+retained a copy).
+
 
 Upgrading the file system
 -------------------------

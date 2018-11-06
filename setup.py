@@ -112,21 +112,21 @@ def main():
 
     compile_args = ['-Wall', '-Wextra', '-Wconversion', '-Wsign-compare']
 
-    # Value-changing conversions should always be explicit.
-    compile_args.append('-Werror=conversion')
-
-    # Note that (i > -1) is false if i is unsigned (-1 will be converted to
-    # a large positive value). We certainly don't want to do this by
-    # accident.
-    compile_args.append('-Werror=sign-compare')
-
     # Enable all fatal warnings only when compiling from Mercurial tip.
     # (otherwise we break forward compatibility because compilation with newer
     # compiler may fail if additional warnings are added)
     if DEVELOPER_MODE:
         if os.environ.get('CI') != 'true':
             compile_args.append('-Werror')
-        compile_args.append('-Wfatal-errors')
+
+        # Value-changing conversions should always be explicit.
+        compile_args.append('-Werror=conversion')
+
+        # Note that (i > -1) is false if i is unsigned (-1 will be converted to
+        # a large positive value). We certainly don't want to do this by
+        # accident.
+        compile_args.append('-Werror=sign-compare')
+
         compile_args.append('-Wno-unused-function')
 
     required_pkgs = ['apsw >= 3.7.0',

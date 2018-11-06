@@ -12,29 +12,29 @@ if __name__ == '__main__':
     import sys
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from s3ql.logging import logging
-import mock_server
-from dugong import ConnectionClosed
-from s3ql import backends, BUFSIZE
-from s3ql.backends.local import Backend as LocalBackend
-from s3ql.backends.gs import Backend as GSBackend
-from s3ql.backends.common import (NoSuchObject, CorruptedObjectError)
-from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
-from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, S3Error
-from s3ql.backends.swift import Backend as SwiftBackend
 from argparse import Namespace
 from common import get_remote_test_info, NoTestSection, CLOCK_GRANULARITY
-from pytest_checklogs import assert_logs
-import s3ql.backends.common
-import tempfile
-import re
-import functools
-import time
-import pytest
+from dugong import ConnectionClosed
 from pytest import raises as assert_raises
+from pytest_checklogs import assert_logs
+from s3ql import backends, BUFSIZE
+from s3ql.backends.common import (NoSuchObject, CorruptedObjectError)
+from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
+from s3ql.backends.gs import Backend as GSBackend
+from s3ql.backends.local import Backend as LocalBackend
+from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, S3Error
+from s3ql.backends.swift import Backend as SwiftBackend
+from s3ql.logging import logging
+import functools
+import mock_server
+import pytest
+import re
+import s3ql.backends.common
 import shutil
 import struct
+import tempfile
 import threading
+import time
 
 log = logging.getLogger(__name__)
 empty_set = set()
@@ -110,11 +110,11 @@ def pytest_generate_tests(metafunc, _info_cache=[]):
     if 'backend' not in metafunc.fixturenames:
         return
 
-    fn = metafunc.function
-    assert hasattr(fn, 'with_backend')
+    with_backend_mark = metafunc.definition.get_closest_marker('with_backend')
+    assert with_backend_mark
 
     test_params = []
-    for spec in fn.with_backend.args:
+    for spec in with_backend_mark.args:
         (backend_spec, comprenc_spec) = spec.split('/')
 
         # Expand compression/encryption specification
@@ -136,10 +136,10 @@ def pytest_generate_tests(metafunc, _info_cache=[]):
                              if x.classname == name ]
 
         # Filter
-        if fn.with_backend.kwargs.get('require_mock_server', False):
+        if with_backend_mark.kwargs.get('require_mock_server', False):
             test_bi = [ x for x in test_bi
                         if 'request_handler' in x ]
-        if fn.with_backend.kwargs.get('require_immediate_consistency', False):
+        if with_backend_mark.kwargs.get('require_immediate_consistency', False):
             test_bi = [ x for x in test_bi
                         if 'request_handler' in x
                         or x.classname in ('local', 'gs') ]
@@ -176,11 +176,12 @@ def backend(request):
             backend = ComprencBackend(None, (comprenc_kind, 6), raw_backend)
 
         backend.unittest_info = raw_backend.unittest_info
+
         yield backend
 
 def yield_local_backend(bi):
     backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-    backend = LocalBackend('local://' + backend_dir, None, None)
+    backend = LocalBackend(Namespace(storage_url='local://' + backend_dir))
     backend.unittest_info = Namespace()
     backend.unittest_info.retry_time = 0
     try:
@@ -198,7 +199,11 @@ def yield_mock_backend(bi):
 
     storage_url = bi.storage_url % { 'host': server.server_address[0],
                                      'port': server.server_address[1] }
-    backend = backend_class(storage_url, 'joe', 'swordfish', { 'no-ssl': True })
+    backend = backend_class(Namespace(
+        storage_url=storage_url,
+        backend_login='joe',
+        backend_password='swordfish',
+        backend_options={ 'no-ssl': True }))
 
     # Enable OAuth when using Google Backend
     if isinstance(backend, GSBackend):
@@ -234,7 +239,9 @@ def yield_remote_backend(bi, _ctr=[0]):
     storage_url += '%d_%d/' % (time.time(), _ctr[0])
 
     backend_class = backends.prefix_map[bi.classname]
-    backend = backend_class(storage_url, bi.login, bi.password, {})
+    backend = backend_class(Namespace(
+        storage_url=storage_url, backend_login=bi.login,
+        backend_password=bi.password, backend_options={}))
 
     backend.unittest_info = Namespace()
     backend.unittest_info.retry_time = 600
@@ -461,6 +468,9 @@ def test_delete(backend):
 # ComprencBackend should just forward this 1:1 to the raw backend.
 @pytest.mark.with_backend('*/aes')
 def test_delete_multi(backend):
+    if not backend.has_delete_multi:
+        pytest.skip('backend does not support delete_multi')
+
     keys = [ newname() for _ in range(30) ]
     value = newvalue()
 

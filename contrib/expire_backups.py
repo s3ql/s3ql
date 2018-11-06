@@ -12,7 +12,6 @@ import os
 import re
 import textwrap
 import shutil
-import pickle
 from datetime import datetime, timedelta
 from collections import defaultdict
 
@@ -122,8 +121,10 @@ def main(args=None):
         log.info('Dry run, not saving state.')
     else:
         log.info('Saving state..')
-        with open(options.state, 'wb') as fh:
+        with open(options.state + '.new', 'wb') as fh:
             fh.write(freeze_basic_mapping(state))
+        os.rename(options.state, options.state + '.bak')
+        os.rename(options.state + '.new', options.state)
 
 def upgrade_to_state(backup_list):
     log.info('Several existing backups detected, trying to convert absolute ages to cycles')

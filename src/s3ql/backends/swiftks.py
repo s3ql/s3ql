@@ -21,9 +21,9 @@ log = logging.getLogger(__name__)
 
 class Backend(swift.Backend):
 
-    def __init__(self, storage_url, login, password, options):
+    def __init__(self, options):
         self.region = None
-        super().__init__(storage_url, login, password, options)
+        super().__init__(options)
 
     @copy_ancestor_docstring
     def _parse_storage_url(self, storage_url, ssl_context):

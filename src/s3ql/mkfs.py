@@ -10,8 +10,7 @@ from .logging import logging, setup_logging, QuietError
 from . import CURRENT_FS_REV, CTRL_INODE, ROOT_INODE
 from .backends.comprenc import ComprencBackend
 from .backends import s3
-from .common import (get_backend_cachedir, get_backend, split_by_n,
-                     freeze_basic_mapping, time_ns)
+from .common import (get_backend, split_by_n, freeze_basic_mapping, time_ns)
 from .database import Connection
 from .metadata import dump_and_upload_metadata, create_tables
 from .parse_args import ArgumentParser
@@ -32,7 +31,6 @@ def parse_args(args):
         description="Initializes an S3QL file system")
 
     parser.add_cachedir()
-    parser.add_authfile()
     parser.add_debug()
     parser.add_quiet()
     parser.add_backend_options()
@@ -96,7 +94,7 @@ def main(args=None):
     atexit.register(plain_backend.close)
 
     log.info("Before using S3QL, make sure to read the user's guide, especially\n"
-             "the 'Important Rules to Avoid Loosing Data' section.")
+             "the 'Important Rules to Avoid Losing Data' section.")
 
     if isinstance(plain_backend, s3.Backend) and '.' in plain_backend.bucket_name:
         log.warning('S3 Buckets with names containing dots cannot be '
@@ -138,9 +136,7 @@ def main(args=None):
     backend = ComprencBackend(data_pw, ('lzma', 2), plain_backend)
     atexit.unregister(plain_backend.close)
     atexit.register(backend.close)
-
-    # Setup database
-    cachepath = get_backend_cachedir(options.storage_url, options.cachedir)
+    cachepath = options.cachepath
 
     # There can't be a corresponding backend, so we can safely delete
     # these files.
@@ -170,6 +166,8 @@ def main(args=None):
     backend.store('s3ql_seq_no_%d' % param['seq_no'], b'Empty')
     with open(cachepath + '.params', 'wb') as fh:
         fh.write(freeze_basic_mapping(param))
+    if os.path.exists(cachepath + '-cache'):
+        shutil.rmtree(cachepath + '-cache')
 
     if data_pw is not None:
         print('Please store the following master key in a safe location. It allows ',

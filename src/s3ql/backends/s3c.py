@@ -39,6 +39,9 @@ C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
 
 XML_CONTENT_RE = re.compile(r'^(?:application|text)/xml(?:;|$)', re.IGNORECASE)
 
+# Used only by adm.py
+UPGRADE_MODE=False
+
 log = logging.getLogger(__name__)
 
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
@@ -52,7 +55,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout',
                      'dumb-copy', 'disable-expect100'}
 
-    def __init__(self, storage_url, login, password, options):
+    def __init__(self, options):
         '''Initialize backend object
 
         *ssl_context* may be a `ssl.SSLContext` instance or *None*.
@@ -60,23 +63,24 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         super().__init__()
 
-        if 'no-ssl' in options:
+        if 'no-ssl' in options.backend_options:
             self.ssl_context = None
         else:
-            self.ssl_context = get_ssl_context(options.get('ssl-ca-path', None))
+            self.ssl_context = get_ssl_context(
+                options.backend_options.get('ssl-ca-path', None))
 
-        (host, port, bucket_name, prefix) = self._parse_storage_url(storage_url,
-                                                                    self.ssl_context)
+        (host, port, bucket_name, prefix) = self._parse_storage_url(
+            options.storage_url, self.ssl_context)
 
-        self.options = options
+        self.options = options.backend_options
         self.bucket_name = bucket_name
         self.prefix = prefix
         self.hostname = host
         self.port = port
         self.proxy = get_proxy(self.ssl_context is not None)
         self.conn = self._get_conn()
-        self.password = password
-        self.login = login
+        self.password = options.backend_password
+        self.login = options.backend_login
 
     @property
     @copy_ancestor_docstring
@@ -142,6 +146,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     # that case we will have to implement a custom retry logic there).
     @copy_ancestor_docstring
     def is_temp_failure(self, exc): #IGNORE:W0613
+        if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
+            # We probably can't use the connection anymore, so use this
+            # opportunity to reset it
+            self.conn.reset()
+
         if isinstance(exc, (InternalError, BadDigestError, IncompleteBodyError,
                             RequestTimeoutError, OperationAbortedError,
                             SlowDownError, ServiceUnavailableError)):
@@ -161,12 +170,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                or exc.status == 408)):
             return True
 
-        # Temporary workaround for
-        # https://bitbucket.org/nikratio/s3ql/issues/87 and
-        # https://bitbucket.org/nikratio/s3ql/issues/252
-        elif (isinstance(exc, ssl.SSLError) and
-              (str(exc).startswith('[SSL: BAD_WRITE_RETRY]') or
-               str(exc).startswith('[SSL: BAD_LENGTH]'))):
+        # Consider all SSL errors as temporary. There are a lot of bug
+        # reports from people where various SSL errors cause a crash
+        # but are actually just temporary. On the other hand, we have
+        # no information if this ever revealed a problem where retrying
+        # was not the right choice.
+        elif isinstance(exc, ssl.SSLError):
             return True
 
         return False
@@ -280,12 +289,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                         marker = el.findtext(root_xmlns_prefix + 'Key')
                         yield marker[len(self.prefix):]
                         root.clear()
-
-            except Exception as exc:
-                if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
-                    # We probably can't use the connection anymore
-                    self.conn.disconnect()
-                raise
 
             except GeneratorExit:
                 # Need to read rest of response
@@ -704,45 +707,38 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             return resp
 
         use_expect_100c = not self.options.get('disable-expect100', False)
-        try:
-            log.debug('sending %s %s', method, path)
-            if body is None or isinstance(body, (bytes, bytearray, memoryview)):
-                self.conn.send_request(method, path, body=body, headers=headers)
-            else:
-                body_len = os.fstat(body.fileno()).st_size
-                self.conn.send_request(method, path, expect100=use_expect_100c,
-                                       headers=headers, body=BodyFollowing(body_len))
+        log.debug('sending %s %s', method, path)
+        if body is None or isinstance(body, (bytes, bytearray, memoryview)):
+            self.conn.send_request(method, path, body=body, headers=headers)
+        else:
+            body_len = os.fstat(body.fileno()).st_size
+            self.conn.send_request(method, path, expect100=use_expect_100c,
+                                   headers=headers, body=BodyFollowing(body_len))
 
-                if use_expect_100c:
-                    resp = read_response()
-                    if resp.status != 100: # Error
-                        return resp
+            if use_expect_100c:
+                resp = read_response()
+                if resp.status != 100: # Error
+                    return resp
 
+            try:
+                copyfileobj(body, self.conn, BUFSIZE)
+            except ConnectionClosed:
+                # Server closed connection while we were writing body data -
+                # but we may still be able to read an error response
                 try:
-                    copyfileobj(body, self.conn, BUFSIZE)
-                except ConnectionClosed:
-                    # Server closed connection while we were writing body data -
-                    # but we may still be able to read an error response
-                    try:
-                        resp = read_response()
-                    except ConnectionClosed: # No server response available
-                        pass
-                    else:
-                        if resp.status >= 400: # Got error response
-                            return resp
-                        log.warning('Server broke connection during upload, but signaled '
-                                    '%d %s', resp.status, resp.reason)
+                    resp = read_response()
+                except ConnectionClosed: # No server response available
+                    pass
+                else:
+                    if resp.status >= 400: # Got error response
+                        return resp
+                    log.warning('Server broke connection during upload, but signaled '
+                                '%d %s', resp.status, resp.reason)
 
-                    # Re-raise first ConnectionClosed exception
-                    raise
+                # Re-raise first ConnectionClosed exception
+                raise
 
-            return read_response()
-
-        except Exception as exc:
-            if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
-                # We probably can't use the connection anymore
-                self.conn.disconnect()
-            raise
+        return read_response()
 
     @copy_ancestor_docstring
     def close(self):
@@ -777,6 +773,17 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 # This should trigger a MD5 mismatch below
                 meta[k] = None
 
+        # TODO: Remove on next file system revision bump
+        if UPGRADE_MODE:
+            md5 = resp.headers.get('%smeta-md5' % self.hdr_prefix, None)
+            if md5 == b64encode(checksum_basic_mapping(meta)).decode('ascii'):
+                meta['needs_reupload'] = False
+            elif md5 == b64encode(UPGRADE_MODE(meta)).decode('ascii'):
+                meta['needs_reupload'] = True
+            else:
+                raise BadDigestError('BadDigest', 'Meta MD5 for %s does not match' % obj_key)
+            return meta
+
         # Check MD5. There is a case to be made for treating a mismatch as a
         # `CorruptedObjectError` rather than a `BadDigestError`, because the MD5
         # sum is not calculated on-the-fly by the server but stored with the
@@ -787,6 +794,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         md5 = b64encode(checksum_basic_mapping(meta)).decode('ascii')
         if md5 != resp.headers.get('%smeta-md5' % self.hdr_prefix, None):
             log.warning('MD5 mismatch in metadata for %s', obj_key)
+
+            # When trying to read file system revision 23 or earlier, we will
+            # get a MD5 error because the checksum was calculated
+            # differently. In order to get a better error message, we special
+            # case the s3ql_passphrase and s3ql_metadata object (which are only
+            # retrieved once at program start).
+            if obj_key in ('s3ql_passphrase', 's3ql_metadata'):
+                raise CorruptedObjectError('Meta MD5 for %s does not match' % obj_key)
             raise BadDigestError('BadDigest', 'Meta MD5 for %s does not match' % obj_key)
 
         return meta
@@ -987,9 +1002,10 @@ def _parse_retry_after(header):
             return None
         val = mktime_tz(*date) - time.time()
 
-    if val > 300 or val < 0:
-        log.warning('Ignoring retry-after value of %.3f s, using 1 s instead', val)
-        val = 1
+    val_clamp = min(300, max(1, val))
+    if val != val_clamp:
+        log.warning('Ignoring retry-after value of %.3f s, using %.3f s instead', val, val_clamp)
+        val = val_clamp
 
     return val
 

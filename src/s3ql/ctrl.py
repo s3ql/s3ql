@@ -40,6 +40,8 @@ def parse_args(args):
     subparsers.required = True
     subparsers.add_parser('flushcache', help='flush file system cache',
                           parents=[pparser])
+    subparsers.add_parser('dropcache', help='drop file system cache',
+                          parents=[pparser])
     subparsers.add_parser('upload-meta', help='Upload metadata',
                           parents=[pparser])
 
@@ -85,7 +87,10 @@ def main(args=None):
     if options.action == 'flushcache':
         llfuse.setxattr(ctrlfile, 's3ql_flushcache!', b'dummy')
 
-    if options.action == 'upload-meta':
+    elif options.action == 'dropcache':
+        llfuse.setxattr(ctrlfile, 's3ql_dropcache!', b'dummy')
+
+    elif options.action == 'upload-meta':
         llfuse.setxattr(ctrlfile, 'upload-meta', b'dummy')
 
     elif options.action == 'log':

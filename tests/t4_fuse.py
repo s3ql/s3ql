@@ -76,11 +76,11 @@ class TestFuse:
         self.reg_output(r'^WARNING: Maximum object sizes less than '
                         '1 MiB will degrade performance\.$', count=1)
 
-    def mount(self, expect_fail=None):
+    def mount(self, expect_fail=None, extra_args=[]):
         cmd = (self.s3ql_cmd_argv('mount.s3ql') +
                ["--fg", '--cachedir', self.cache_dir, '--log', 'none',
                 '--compress', 'zlib', '--quiet', self.storage_url, self.mnt_dir,
-                '--authfile', '/dev/null' ])
+                '--authfile', '/dev/null' ] + extra_args)
         self.mount_process = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                                               universal_newlines=True)
         if self.backend_login is not None:
@@ -113,38 +113,35 @@ class TestFuse:
         assert self.mount_process.poll() == 0
         assert not os.path.ismount(self.mnt_dir)
 
-    def fsck(self):
-        # Use fsck to test authinfo reading
-        with tempfile.NamedTemporaryFile('wt') as authinfo_fh:
-            print('[entry1]',
-                  'storage-url: %s' % self.storage_url[:6],
-                  'fs-passphrase: clearly wrong',
-                  'backend-login: bla',
-                  'backend-password: not much better',
-                  '',
-                  '[entry2]',
-                  'storage-url: %s' % self.storage_url,
-                  'fs-passphrase: %s' % self.passphrase,
-                  'backend-login: %s' % self.backend_login,
-                  'backend-password:%s' % self.backend_passphrase,
-                  file=authinfo_fh, sep='\n')
-            authinfo_fh.flush()
+    def fsck(self, expect_retcode=0, args=[]):
+        proc = subprocess.Popen(self.s3ql_cmd_argv('fsck.s3ql') +
+                                [ '--force', '--quiet', '--log', 'none', '--cachedir',
+                                  self.cache_dir, '--authfile', '/dev/null',
+                                  self.storage_url ] + args,
+                                stdin=subprocess.PIPE, universal_newlines=True)
+        if self.backend_login is not None:
+            print(self.backend_login, file=proc.stdin)
+            print(self.backend_passphrase, file=proc.stdin)
+        if self.passphrase is not None:
+            print(self.passphrase, file=proc.stdin)
+        proc.stdin.close()
+        assert proc.wait() == expect_retcode
 
-            proc = subprocess.Popen(self.s3ql_cmd_argv('fsck.s3ql') +
-                                    [ '--force', '--quiet', '--log', 'none', '--cachedir',
-                                      self.cache_dir, '--authfile',
-                                      authinfo_fh.name, self.storage_url ],
-                                    stdin=subprocess.PIPE, universal_newlines=True)
-            proc.stdin.close()
-            assert proc.wait() == 0
-
-    def teardown_method(self, method):
+    def umount_fuse(self):
         with open('/dev/null', 'wb') as devnull:
             if platform.system() == 'Darwin':
                 subprocess.call(['umount', '-l', self.mnt_dir], stderr=devnull)
             else:
                 subprocess.call(['fusermount', '-z', '-u', self.mnt_dir],
                                 stderr=devnull)
+
+    def flush_cache(self):
+        subprocess.check_call(self.s3ql_cmd_argv('s3qlctrl') +
+                              [ '--quiet', 'flushcache', self.mnt_dir ])
+
+
+    def teardown_method(self, method):
+        self.umount_fuse()
         os.rmdir(self.mnt_dir)
 
         # Give mount process a little while to terminate
@@ -177,6 +174,17 @@ class TestFuse:
         self.tst_bug382()
         self.umount()
         self.fsck()
+
+        # Test metadata recovery
+        shutil.rmtree(self.cache_dir)
+        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
+        self.fsck()
+
+        shutil.rmtree(self.cache_dir)
+        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
+        self.mount()
+        self.umount()
+
 
     def newname(self):
         self.name_cnt += 1
@@ -326,8 +334,7 @@ class TestFuse:
         fstat = os.stat(filename)
         size = fstat.st_size
 
-        subprocess.check_call(self.s3ql_cmd_argv('s3qlctrl') +
-                              [ '--quiet', 'flushcache', self.mnt_dir ])
+        self.flush_cache()
 
         fd = os.open(filename, os.O_RDWR)
 

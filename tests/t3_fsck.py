@@ -19,6 +19,7 @@ from s3ql.metadata import create_tables
 from s3ql.database import Connection, NoSuchRowError
 from s3ql.fsck import Fsck
 from s3ql.common import time_ns
+from argparse import Namespace
 import os
 import shutil
 import hashlib
@@ -35,7 +36,8 @@ class fsck_tests(unittest.TestCase):
 
     def setUp(self):
         self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-        self.backend = local.Backend('local://' + self.backend_dir, None, None)
+        self.backend = local.Backend(Namespace(
+            storage_url='local://' + self.backend_dir))
         self.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.max_obj_size = 1024
 

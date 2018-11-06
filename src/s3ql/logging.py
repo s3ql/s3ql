@@ -8,7 +8,6 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 import logging
 import logging.handlers
-import warnings
 import sys
 import os.path
 

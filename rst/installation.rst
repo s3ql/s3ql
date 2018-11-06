@@ -41,7 +41,7 @@ that is not the case.
 * `SQLite <http://www.sqlite.org/>`_ version 3.7.0 or newer. SQLite
   has to be installed as a *shared library* with development headers.
 
-* `Python <http://www.python.org/>`_ 3.3.0 or newer. Make sure to also
+* `Python <http://www.python.org/>`_ 3.5.0 or newer. Make sure to also
   install the development headers.
 
 * The following Python modules:
@@ -52,7 +52,9 @@ that is not the case.
   * `requests <https://pypi.python.org/pypi/requests/>`_ (optional,
     required for OAuth2 authentication with Google Storage)
   * `systemd <https://github.com/systemd/python-systemd>`_ (optional,
-    for enabling systemd support).
+    for enabling systemd support). Do *not* install the module from
+    PyPi, this is from a third-party developer and incompatible with
+    the official module from the systemd developers.
   * `apsw <https://github.com/rogerbinns/apsw>`_, version 3.7.0 or
     newer.
   * `llfuse <https://bitbucket.org/nikratio/python-llfuse/>`_, any
@@ -60,8 +62,6 @@ that is not the case.
   * `dugong <https://bitbucket.org/nikratio/python-dugong/>`_, any
     version between 3.4 (inclusive) and 4.0 (exclusive)
   * `pytest <http://pytest.org/>`_, version 2.7 or newer (optional, to run unit tests)
-  * `pytest-catchlog <https://github.com/eisensheng/pytest-catchlog>`_
-    (optional, to run unit tests)
 
   To check if a specific module :var:`<module>` is installed, execute
   :samp:`python3 -c 'import {<module>};

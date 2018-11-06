@@ -14,6 +14,7 @@ import os
 import sys
 import tempfile
 import time
+import argparse
 from queue import Queue, Full as QueueFull
 
 # We are running from the S3QL source directory, make sure
@@ -24,8 +25,8 @@ if (os.path.exists(os.path.join(basedir, 'setup.py')) and
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
 from s3ql.logging import logging, setup_logging, QuietError
-from s3ql.common import get_backend_factory, AsyncFn, handle_on_return
-from s3ql.backends.common import DanglingStorageURLError
+from s3ql.common import AsyncFn, handle_on_return
+from s3ql.backends.common import DanglingStorageURLError, NoSuchObject
 from s3ql import BUFSIZE
 from s3ql.parse_args import ArgumentParser, storage_url_type
 
@@ -37,25 +38,50 @@ def parse_args(args):
     parser = ArgumentParser(
                 description='Clone an S3QL file system.')
 
-    parser.add_authfile()
     parser.add_quiet()
     parser.add_debug()
     parser.add_backend_options()
     parser.add_version()
 
+    parser.add_argument("--threads", type=int, default=3,
+                        help='Number of threads to use')
+
+    # Can't use parser.add_storage_url(), because we need both a source
+    # and destination.
+    parser.add_argument("--authfile", type=str, metavar='<path>',
+                      default=os.path.expanduser("~/.s3ql/authinfo2"),
+                      help='Read authentication credentials from this file '
+                      '(default: `~/.s3ql/authinfo2)`')
     parser.add_argument("src_storage_url", metavar='<source-storage-url>',
                         type=storage_url_type,
                         help='Storage URL of the source backend that contains the file system')
-
     parser.add_argument("dst_storage_url", metavar='<destination-storage-url>',
                         type=storage_url_type,
                         help='Storage URL of the destination backend')
 
-    parser.add_argument("--threads", type=int, default=3,
-                        help='Number of threads to use')
 
-    return parser.parse_args(args)
+    options = parser.parse_args(args)
+    setup_logging(options)
 
+    # Print message so that the user has some idea what credentials are
+    # wanted (if not specified in authfile).
+    log.info('Connecting to source backend...')
+    options.storage_url = options.src_storage_url
+    parser._init_backend_factory(options)
+    src_options = argparse.Namespace()
+    src_options.__dict__.update(options.__dict__)
+    options.src_backend_factory = lambda: src_options.backend_class(src_options)
+
+    log.info('Connecting to destination backend...')
+    options.storage_url = options.dst_storage_url
+    parser._init_backend_factory(options)
+    dst_options = argparse.Namespace()
+    dst_options.__dict__.update(options.__dict__)
+    options.dst_backend_factory = lambda: dst_options.backend_class(dst_options)
+    del options.storage_url
+    del options.backend_class
+
+    return options
 
 @handle_on_return
 def copy_loop(queue, src_backend_factory, dst_backend_factory, on_return):
@@ -96,18 +122,17 @@ def copy_loop(queue, src_backend_factory, dst_backend_factory, on_return):
 
 def main(args=None):
     options = parse_args(args)
-    setup_logging(options)
 
+    src_backend_factory = options.src_backend_factory
+    dst_backend_factory = options.dst_backend_factory
+
+    # Try to access both backends before starting threads
     try:
-        options.storage_url = options.src_storage_url
-        src_backend_factory = get_backend_factory(options.src_storage_url,
-                                                  options.backend_options,
-                                                  options.authfile, raw=True)
-
-        options.storage_url = options.dst_storage_url
-        dst_backend_factory = get_backend_factory(options.dst_storage_url,
-                                                  options.backend_options,
-                                                  options.authfile, raw=True)
+        src_backend_factory().lookup('s3ql_metadata')
+        try:
+            dst_backend_factory().lookup('some random object')
+        except NoSuchObject:
+            pass
     except DanglingStorageURLError as exc:
         raise QuietError(str(exc)) from None
 
