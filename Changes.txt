@@ -15,6 +15,9 @@ UNRELEASED CHANGES
     mounted again on the same system without having been mounted
     elsewhere.
 
+  * S3QL now considers all SSL-related errors as temporary and
+    automatically retries (instead of bailing out).
+
 2018-10-08, S3QL 2.31
 
   * Object removal now makes more use of parallelism.

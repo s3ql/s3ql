@@ -170,12 +170,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                or exc.status == 408)):
             return True
 
-        # Temporary workaround for
-        # https://bitbucket.org/nikratio/s3ql/issues/87 and
-        # https://bitbucket.org/nikratio/s3ql/issues/252
-        elif (isinstance(exc, ssl.SSLError) and
-              (str(exc).startswith('[SSL: BAD_WRITE_RETRY]') or
-               str(exc).startswith('[SSL: BAD_LENGTH]'))):
+        # Consider all SSL errors as temporary. There are a lot of bug
+        # reports from people where various SSL errors cause a crash
+        # but are actually just temporary. On the other hand, we have
+        # no information if this ever revealed a problem where retrying
+        # was not the right choice.
+        elif isinstance(exc, ssl.SSLError):
             return True
 
         return False
