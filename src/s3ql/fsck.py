@@ -1315,8 +1315,8 @@ def renumber_inodes(db):
 
     create_tables(db)
     for table in ('names', 'blocks', 'objects'):
-        db.execute('DROP TABLE %s' % table)
-        db.execute('ALTER TABLE %s_old RENAME TO %s' % (table, table))
+        db.execute('INSERT INTO %s SELECT * FROM %s_old' % (table, table))
+        db.execute('DROP TABLE %s_old' % table)
 
     log.info('..mapping..')
     db.execute('CREATE TEMPORARY TABLE inode_map (rowid INTEGER PRIMARY KEY AUTOINCREMENT, id INTEGER UNIQUE)')
