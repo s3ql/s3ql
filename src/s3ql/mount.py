@@ -24,7 +24,6 @@ import _thread
 import argparse
 import faulthandler
 import llfuse
-import itertools
 import os
 import platform
 import subprocess
@@ -194,7 +193,7 @@ def main(args=None):
         mark_metadata_dirty(backend, cachepath, param)
 
         block_cache.init(options.threads)
-        cm.callback(block_cache.destroy)
+        cm.callback(block_cache.destroy, options.keep_cache)
 
         metadata_upload_thread.start()
         cm.callback(metadata_upload_thread.join)
@@ -415,20 +414,14 @@ def get_metadata(backend, cachepath):
     elif param['max_inode'] > 2 ** 31:
         log.warning('Few free inodes remaining, running fsck is recommended')
 
-    if os.path.exists(cachepath + '-cache'):
-        for i in itertools.count():
-            bak_name = '%s-cache.bak%d' % (cachepath, i)
-            if not os.path.exists(bak_name):
-                break
-        log.warning('Found outdated cache directory (%s), renaming to .bak%d',
-                    cachepath + '-cache', i)
-        log.warning('You should delete this directory once you are sure that '
-                    'everything is in order.')
-        os.rename(cachepath + '-cache', bak_name)
-
     # Download metadata
     if not db:
         db = download_metadata(backend, cachepath + '.db')
+
+        # Drop cache
+        if os.path.exists(cachepath + '-cache'):
+            shutil.rmtree(cachepath + '-cache')
+
     save_params(cachepath, param)
 
     return (param, db)
@@ -530,6 +523,8 @@ def parse_args(args):
                       'this number you have to make sure that your process file descriptor '
                       'limit (as set with `ulimit -n`) is high enough (at least the number '
                       'of cache entries + 100).')
+    parser.add_argument("--keep-cache", action="store_true", default=False,
+                      help="Do not purge locally cached files on exit.")
     parser.add_argument("--allow-other", action="store_true", default=False, help=
                       'Normally, only the user who called `mount.s3ql` can access the mount '
                       'point. This user then also has full access to it, independent of '

@@ -166,6 +166,8 @@ def main(args=None):
     backend.store('s3ql_seq_no_%d' % param['seq_no'], b'Empty')
     with open(cachepath + '.params', 'wb') as fh:
         fh.write(freeze_basic_mapping(param))
+    if os.path.exists(cachepath + '-cache'):
+        shutil.rmtree(cachepath + '-cache')
 
     if data_pw is not None:
         print('Please store the following master key in a safe location. It allows ',

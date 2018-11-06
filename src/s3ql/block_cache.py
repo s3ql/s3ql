@@ -20,6 +20,7 @@ import hashlib
 import shutil
 import threading
 import time
+import re
 import sys
 
 # standard logger for this module
@@ -161,7 +162,7 @@ class CacheEntry(object):
         self.inode = inode
         self.blockno = blockno
         self.last_access = 0
-        self.pos = 0
+        self.pos = self.fh.tell()
         self.size = os.fstat(self.fh.fileno()).st_size
 
     def read(self, size=None):
@@ -223,13 +224,14 @@ class CacheDict(OrderedDict):
         self.max_entries = max_entries
         self.size = 0
 
-    def remove(self, key):
+    def remove(self, key, unlink=True):
         '''Remove *key* from disk and cache, update size'''
 
         el = self.pop(key)
         el.close()
-        el.unlink()
         self.size -= el.size
+        if unlink:
+            el.unlink()
 
     def is_full(self):
         return (self.size > self.max_size
@@ -277,11 +279,29 @@ class BlockCache(object):
         self.to_upload = None
         self.to_remove = None
 
-        if not os.path.exists(self.path):
+        if os.path.exists(self.path):
+            self.load_cache()
+            log.info('Loaded %d entries from cache', len(self.cache))
+        else:
             os.mkdir(self.path)
 
         # Initialized fromt the outside to prevent cyclic dependency
         self.fs = None
+
+    def load_cache(self):
+        '''Initialize cache from disk'''
+
+        for filename in os.listdir(self.path):
+            match = re.match('^(\\d+)-(\\d+)$', filename)
+            if not match:
+                continue
+            inode = int(match.group(1))
+            blockno = int(match.group(2))
+
+            el = CacheEntry(inode, blockno,
+                            os.path.join(self.path, filename), mode='r+b')
+            self.cache[(inode, blockno)] = el
+            self.cache.size += el.size
 
     def __len__(self):
         '''Get number of objects in cache'''
@@ -349,18 +369,24 @@ class BlockCache(object):
         else:
             self.mlock.release((inode, blockno), noerror=noerror)
 
-    def destroy(self):
+    def destroy(self, keep_cache=False):
         '''Clean up and stop worker threads
 
         This method should be called without the global lock held.
         '''
 
-        log.debug('Dropping cache...')
+        log.debug('Flushing cache...')
         try:
             with lock:
-                self.drop()
+                if keep_cache:
+                    self.flush() # releases global lock
+                    for el in self.cache.values():
+                        assert not el.dirty
+                        el.close()
+                else:
+                    self.drop()
         except NoWorkerThreads:
-            log.error('Unable to drop cache, no upload threads left alive')
+            log.error('Unable to flush cache, no upload threads left alive')
 
         # Signal termination to worker threads. If some of them
         # terminated prematurely, continue gracefully.
@@ -401,7 +427,8 @@ class BlockCache(object):
         self.upload_threads = None
         self.removal_threads = None
 
-        os.rmdir(self.path)
+        if not keep_cache:
+            os.rmdir(self.path)
 
         log.debug('cleanup done.')
 
@@ -1039,7 +1066,10 @@ class BlockCache(object):
         # break reference loop
         self.fs = None
 
-        if len(self.cache) == 0:
+        for el in self.cache.values():
+            if el.dirty:
+                break
+        else:
             return
 
         # Force execution of sys.excepthook (exceptions raised

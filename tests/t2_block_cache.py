@@ -171,11 +171,9 @@ def test_thread_hang(ctx):
 
     try:
         # Try to clean-up (implicitly calls expire)
-        with assert_logs('Unable to drop cache, no upload threads left alive',
-                          level=logging.ERROR, count=1):
-            with pytest.raises(OSError) as exc_info:
-                 ctx.cache.destroy()
-            assert exc_info.value.errno == errno.ENOTEMPTY
+        with assert_logs('Unable to flush cache, no upload threads left alive',
+                         level=logging.ERROR, count=1):
+            ctx.cache.destroy(keep_cache=True)
         assert upload_exc
         assert removal_exc
     finally:

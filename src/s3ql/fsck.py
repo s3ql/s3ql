@@ -57,8 +57,12 @@ class Fsck(object):
         # don't move them there repeatedly)
         self.moved_inodes = set()
 
-    def check(self):
+    def check(self, check_cache=True):
         """Check file system
+
+        If *check_cache* is False, assume that all cache files are clean (aka
+        have been uploaded to the backend). If *check_cache* is ``keep``, do not
+        remove cache files on exit.
 
         Sets instance variable `found_errors`.
         """
@@ -75,7 +79,8 @@ class Fsck(object):
         try:
             self.check_lof()
             self.check_uploads()
-            self.check_cache()
+            if check_cache:
+                self.check_cache(check_cache == 'keep')
             self.check_names_refcount()
 
             self.check_contents_name()
@@ -166,7 +171,7 @@ class Fsck(object):
         self.conn.execute('DELETE FROM objects WHERE size = -1')
 
 
-    def check_cache(self):
+    def check_cache(self, keep_cache=False):
         """Commit uncommitted cache files"""
 
         log.info("Checking for dirty cache objects...")
@@ -212,7 +217,8 @@ class Fsck(object):
             log.debug('Inode %d, block %d has checksum %s', inode, blockno,
                       hash_is)
             if hash_should == hash_is:
-                os.unlink(os.path.join(self.cachedir, filename))
+                if not keep_cache:
+                    os.unlink(os.path.join(self.cachedir, filename))
                 continue
 
             self.found_errors = True
@@ -253,7 +259,8 @@ class Fsck(object):
                 self.conn.execute('UPDATE blocks SET refcount=refcount-1 WHERE id=?', (old_block_id,))
                 self.unlinked_blocks.add(old_block_id)
 
-            os.unlink(os.path.join(self.cachedir, filename))
+            if not keep_cache:
+                os.unlink(os.path.join(self.cachedir, filename))
 
 
     def check_lof(self):
@@ -1097,6 +1104,8 @@ def parse_args(args):
     parser.add_version()
     parser.add_storage_url()
 
+    parser.add_argument("--keep-cache", action="store_true", default=False,
+                      help="Do not purge locally cached files on exit.")
     parser.add_argument("--batch", action="store_true", default=False,
                       help="If user input is required, exit without prompting.")
     parser.add_argument("--force", action="store_true", default=False,
@@ -1145,7 +1154,6 @@ def main(args=None):
         else:
             log.info('Using cached metadata.')
             db = Connection(cachepath + '.db')
-            assert not os.path.exists(cachepath + '-cache') or param['needs_fsck']
 
         if param['seq_no'] > seq_no:
             log.warning('File system has not been unmounted cleanly.')
@@ -1157,7 +1165,6 @@ def main(args=None):
 
     else:
         param = backend.lookup(meta_obj_name)
-        assert not os.path.exists(cachepath + '-cache')
         # .db might exist if mount.s3ql is killed at exactly the right instant
         # and should just be ignored.
 
@@ -1195,17 +1202,6 @@ def main(args=None):
         param['seq_no'] = seq_no
         param['needs_fsck'] = True
 
-    if not db and os.path.exists(cachepath + '-cache'):
-        for i in itertools.count():
-            bak_name = '%s-cache.bak%d' % (cachepath, i)
-            if not os.path.exists(bak_name):
-                break
-        log.warning('Found outdated cache directory (%s), renaming to .bak%d',
-                    cachepath + '-cache', i)
-        log.warning('You should delete this directory once you are sure that '
-                    'everything is in order.')
-        os.rename(cachepath + '-cache', bak_name)
-
     if (not param['needs_fsck']
         and param['max_inode'] < 2 ** 31
         and (time.time() - param['last_fsck'])
@@ -1215,6 +1211,31 @@ def main(args=None):
         else:
             log.info('File system is marked as clean. Use --force to force checking.')
             return
+
+    # When using remote metadata, get rid of outdated local cache (so that we
+    # don't accidentally upload it)
+    outdated_cachedir = False
+    if not db:
+        try:
+            for name_ in os.listdir(cachepath + '-cache'):
+                if name_ not in ('.', '..'):
+                    outdated_cachedir = True
+                    break
+        except FileNotFoundError:
+            pass
+    if outdated_cachedir and param['needs_fsck']:
+        for i in itertools.count():
+            bak_name = '%s-cache.bak%d' % (cachepath, i)
+            if not os.path.exists(bak_name):
+                break
+        log.warning('Renaming outdated cache directory %s to .bak%d',
+                    cachepath + '-cache', i)
+        log.warning('You should delete this directory once you are sure that '
+                    'everything is in order.')
+        os.rename(cachepath + '-cache', bak_name)
+    elif outdated_cachedir:
+        log.info("Flushing outdated local cache...")
+        shutil.rmtree(cachepath + '-cache')
 
     # If using local metadata, check consistency
     if db:
@@ -1233,6 +1254,13 @@ def main(args=None):
     else:
         db = download_metadata(backend, cachepath + '.db')
 
+    # We only read cache files if the filesystem was not
+    # unmounted cleanly. On a clean unmount, the cache files can
+    # not be dirty.
+    check_cache = param['needs_fsck']
+    if check_cache and options.keep_cache:
+        check_cache = 'keep'
+
     # Increase metadata sequence no
     param['seq_no'] += 1
     param['needs_fsck'] = True
@@ -1240,14 +1268,11 @@ def main(args=None):
     save_params(cachepath, param)
 
     fsck = Fsck(cachepath + '-cache', backend, param, db)
-    fsck.check()
+    fsck.check(check_cache)
     param['max_inode'] = db.get_val('SELECT MAX(id) FROM inodes')
 
     if fsck.uncorrectable_errors:
         raise QuietError("Uncorrectable errors found, aborting.", exitcode=44+128)
-
-    if os.path.exists(cachepath + '-cache'):
-        os.rmdir(cachepath + '-cache')
 
     if param['max_inode'] >= 2 ** 31:
         renumber_inodes(db)
