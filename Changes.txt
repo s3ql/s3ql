@@ -1,4 +1,4 @@
-UNRELEASED CHANGES
+2018-11-06, S3QL 2.32
 
   * Fixed a potential bug in s3qlrm that would probably lead to a
     filesystem crash (hasn't actually been observed though).
