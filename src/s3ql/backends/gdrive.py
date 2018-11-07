@@ -50,16 +50,15 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     VALUE_REF = 'ref:'
     
 
-    def __init__(self, storage_url, login, password, options):
+    def __init__(self, options):
         '''Initialize local backend
         Login and password are ignored.
         '''
         # Unused argument
         #pylint: disable=W0613
-
         super().__init__()
-        self.login = login
-        self.password = password
+        self.login = options.login
+        self.password = options.password
         client_secret_and_refresh_token = self.password.split(':')
         if len(client_secret_and_refresh_token) != 2:
             raise AuthenticationError("Invalid Password format, must be  secretApplication:refreshToken")
@@ -79,7 +78,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # get gdrive folder
         if mainFolder==None:
-            folderPath = storage_url[len('gdrive://'):].rstrip('/')
+            folderPath = options.storage_url[len('gdrive://'):].rstrip('/')
             self.folder = self._lookup_file(folderPath)
             if self.folder != None:
                 if self.folder['mimeType'] != Backend.MIME_TYPE_FOLDER:
