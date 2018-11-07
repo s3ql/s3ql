@@ -64,7 +64,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise AuthenticationError("Invalid Password format, must be  secretApplication:refreshToken")
         self.client_secret = client_secret_and_refresh_token[0]
         self.refresh_token = client_secret_and_refresh_token[1]
-        self.options = options
+        self.options = options.backend_password
         self.delete_map_state = dict()
 
         # get google drive service

@@ -120,7 +120,7 @@ def main():
             compile_args.append('-Werror')
 
         # Value-changing conversions should always be explicit.
-        compile_args.append('-Werror=conversion')
+        #compile_args.append('-Werror=conversion')
 
         # Note that (i > -1) is false if i is unsigned (-1 will be converted to
         # a large positive value). We certainly don't want to do this by
