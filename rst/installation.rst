@@ -18,18 +18,14 @@ running S3QL. Generally, you should first check if your distribution
 already provides a suitable packages and only install from source if
 that is not the case.
 
-* Kernel: Linux 2.6.9 or newer or FreeBSD with `FUSE4BSD
-  <http://www.freshports.org/sysutils/fusefs-kmod/>`_. Starting with
-  kernel 2.6.26 you will get significantly better write performance,
-  so under Linux you should actually use *2.6.26 or newer whenever
-  possible*.
+* Kernel: Linux 3.9 or newer.
 
 * The `psmisc <http://psmisc.sf.net/>`_ utilities.
 
 * `SQLite <http://www.sqlite.org/>`_ version 3.7.0 or newer. SQLite
   has to be installed as a *shared library* with development headers.
 
-* `Python <http://www.python.org/>`_ 3.5.0 or newer. Make sure to also
+* `Python <http://www.python.org/>`_ 3.6 or newer. Make sure to also
   install the development headers.
 
 * The following Python modules:
@@ -39,11 +35,14 @@ that is not the case.
   * `defusedxml <https://pypi.python.org/pypi/defusedxml/>`_
   * `apsw <https://github.com/rogerbinns/apsw>`_, version 3.7.0 or
     newer.
-  * `llfuse <https://pypi.org/project/llfuse/>`_, any
+  * `trio <https://github.com/python-trio/trio`_, version 0.9 or newer.
+  * `pyfuse3 <https://github.com/libfuse/pyfuse3/>`_, any
     version between 1.0 (inclusive) and 2.0 (exclusive)
   * `dugong <https://pypi.org/project/dugong/>`_, any
     version between 3.4 (inclusive) and 4.0 (exclusive)
   * `pytest <http://pytest.org/>`_, version 3.7 or newer (optional, to run unit tests)
+  * `async_generator <https://pypi.org/project/async_generator/>`_
+    (not needed when using Python 3.7 or newer)
   * `systemd <https://github.com/systemd/python-systemd>`_ (optional,
     for enabling systemd support). Do *not* install the module from
     PyPi, this is from a third-party developer and incompatible with
@@ -54,6 +53,7 @@ that is not the case.
     (optional, required for ADC authentication with Google Storage)
   * `google-auth-oauthlib <https://pypi.python.org/project/google-auth-oauthlib/>`_
     (optional, required for browser-based authentication with Google Storage)
+  * `pytest_trio <https://github.com/python-trio/pytest-trio`_ (optional, to run unit tests)
 
   To check if a specific module :var:`<module>` is installed, execute
   :samp:`python3 -c 'import {<module>};
@@ -95,7 +95,7 @@ Development Version
 If you have checked out the unstable development version from the
 Mercurial repository, a bit more effort is required. You'll also need:
 
-* Version 0.24 or newer of the Cython_ compiler.
+* Version 0.28.1 or newer of the Cython_ compiler.
 
 * Version 1.2b1 or newer of the Sphinx_ document processor.
 

@@ -10,7 +10,7 @@ from .logging import logging, setup_logging
 from . import CTRL_NAME
 from .common import assert_s3ql_mountpoint, parse_literal
 from .parse_args import ArgumentParser
-import llfuse
+import pyfuse3
 import os
 import subprocess
 import platform
@@ -123,11 +123,11 @@ def blocking_umount(mountpoint):
     ctrlfile = os.path.join(mountpoint, CTRL_NAME)
 
     log.debug('Flushing cache...')
-    llfuse.setxattr(ctrlfile, 's3ql_flushcache!', b'dummy')
+    pyfuse3.setxattr(ctrlfile, 's3ql_flushcache!', b'dummy')
 
     # Get pid
     log.debug('Trying to get pid')
-    pid = parse_literal(llfuse.getxattr(ctrlfile, 's3ql_pid?'), int)
+    pid = parse_literal(pyfuse3.getxattr(ctrlfile, 's3ql_pid?'), int)
     log.debug('PID is %d', pid)
 
     # Get command line to make race conditions less-likely

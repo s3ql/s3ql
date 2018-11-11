@@ -1,3 +1,14 @@
+UNRELEASED, S3QL HEAD
+
+  * There have been significant changes in the internal implementation. Asynchronous I/O
+    is now used in favor of threads in many places, and libfuse 3.x is used instead of
+    libfuse 2.x.
+
+  * The dependency on the llfuse Python module has been dropped. A dependency on the `trio
+    <https://github.com/python-trio/trio`_ and `pyfuse3
+    <https://github.com/libfuse/pyfuse3/>`_ modules has been added instead.
+
+
 2019-10-20, S3QL 3.3.2
 
   * Fixed occasional crashes with "KeyError" when using Google Storage

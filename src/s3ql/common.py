@@ -21,7 +21,7 @@ import time
 import subprocess
 import errno
 import hashlib
-import llfuse
+import pyfuse3
 import posixpath
 import functools
 import contextlib
@@ -194,7 +194,7 @@ def assert_s3ql_fs(path):
         raise
 
     ctrlfile = os.path.join(path, CTRL_NAME)
-    if not (CTRL_NAME not in llfuse.listdir(path)
+    if not (CTRL_NAME not in pyfuse3.listdir(path)
             and os.path.exists(ctrlfile)):
         raise QuietError('%s is not on an S3QL file system' % path)
 

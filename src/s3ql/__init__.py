@@ -36,7 +36,7 @@ if 'S3QL_ENABLE_WARNINGS' in os.environ:
 from . import logging
 assert logging.LOG_ONCE  # prevent warnings about unused module
 
-from llfuse import ROOT_INODE
+from pyfuse3 import ROOT_INODE
 
 VERSION = '3.3.2'
 RELEASE = '%s' % VERSION

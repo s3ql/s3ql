@@ -12,7 +12,7 @@ if __name__ == '__main__':
     import sys
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-import llfuse
+import pyfuse3
 import os.path
 import s3ql.lock
 import s3ql.remove
@@ -60,4 +60,4 @@ class TestLockRemove(t4_fuse.TestFuse):
             sys.excepthook(*sys.exc_info())
             pytest.fail("s3qlrm raised exception")
 
-        assert 'lock_dir' not in llfuse.listdir(self.mnt_dir)
+        assert 'lock_dir' not in pyfuse3.listdir(self.mnt_dir)

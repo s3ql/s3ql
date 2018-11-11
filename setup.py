@@ -145,9 +145,15 @@ def main():
                      'requests',
                      'defusedxml',
                      'dugong >= 3.4, < 4.0',
-                     'llfuse >= 1.0, < 2.0',
                      'google-auth',
-                     'google-auth-oauthlib']
+                     'google-auth-oauthlib',
+
+                     # earlier trio versions swallow exceptions raised by
+                     # pyfuse3.main().
+                     'trio >= 0.9',
+                     'pyfuse3 >= 1.0, < 2.0' ]
+    if sys.version_info < (3, 7, 0):
+        required_pkgs.append('async_generator')
 
     setuptools.setup(
           name='s3ql',

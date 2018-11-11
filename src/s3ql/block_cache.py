@@ -12,16 +12,20 @@ from .backends.common import NoSuchObject
 from .multi_lock import MultiLock
 from .logging import logging # Ensure use of custom logger class
 from collections import OrderedDict
-from contextlib import contextmanager
-from llfuse import lock, lock_released
 from queue import Queue, Empty as QueueEmpty, Full as QueueFull
 import os
 import hashlib
 import shutil
 import threading
 import time
+import trio
 import re
 import sys
+
+try:
+    from contextlib import asynccontextmanager
+except ImportError:
+    from async_generator import asynccontextmanager
 
 # standard logger for this module
 log = logging.getLogger(__name__)
@@ -244,9 +248,6 @@ class BlockCache(object):
     This class manages access to file blocks. It takes care of creation,
     uploading, downloading and deduplication.
 
-    This class uses the llfuse global lock. Methods which release the lock have
-    are marked as such in their docstring.
-
     Attributes
     ----------
 
@@ -311,6 +312,7 @@ class BlockCache(object):
     def init(self, threads=1):
         '''Start worker threads'''
 
+        self.portal = trio.BlockingTrioPortal()
         self.to_upload = Distributor()
         for _ in range(threads):
             t = threading.Thread(target=self._upload_loop)
@@ -333,59 +335,38 @@ class BlockCache(object):
                 t.start()
                 self.removal_threads.append(t)
 
-    def _lock_obj(self, obj_id, release_global=False):
+    def _lock_obj(self, obj_id):
         '''Acquire lock on *obj*id*'''
 
-        if release_global:
-            with lock_released:
-                self.mlock.acquire(obj_id)
-        else:
-            self.mlock.acquire(obj_id)
+        self.mlock.acquire(obj_id)
 
-    def _unlock_obj(self, obj_id, release_global=False, noerror=False):
+    def _unlock_obj(self, obj_id, noerror=False):
         '''Release lock on *obj*id*'''
 
-        if release_global:
-            with lock_released:
-                self.mlock.release(obj_id, noerror=noerror)
-        else:
-            self.mlock.release(obj_id, noerror=noerror)
+        self.mlock.release(obj_id, noerror=noerror)
 
-    def _lock_entry(self, inode, blockno, release_global=False, timeout=None):
+    def _lock_entry(self, inode, blockno, timeout=None):
         '''Acquire lock on cache entry'''
 
-        if release_global:
-            with lock_released:
-                return self.mlock.acquire((inode, blockno), timeout=timeout)
-        else:
-            return self.mlock.acquire((inode, blockno), timeout=timeout)
+        return self.mlock.acquire((inode, blockno), timeout=timeout)
 
-    def _unlock_entry(self, inode, blockno, release_global=False,
-                      noerror=False):
+    def _unlock_entry(self, inode, blockno, noerror=False):
         '''Release lock on cache entry'''
 
-        if release_global:
-            with lock_released:
-                self.mlock.release((inode, blockno), noerror=noerror)
-        else:
-            self.mlock.release((inode, blockno), noerror=noerror)
+        self.mlock.release((inode, blockno), noerror=noerror)
 
-    def destroy(self, keep_cache=False):
-        '''Clean up and stop worker threads
-
-        This method should be called without the global lock held.
-        '''
+    async def destroy(self, keep_cache=False):
+        '''Clean up and stop worker threads'''
 
         log.debug('Flushing cache...')
         try:
-            with lock:
-                if keep_cache:
-                    self.flush() # releases global lock
-                    for el in self.cache.values():
-                        assert not el.dirty
-                        el.close()
-                else:
-                    self.drop()
+            if keep_cache:
+                await self.flush()
+                for el in self.cache.values():
+                    assert not el.dirty
+                    el.close()
+            else:
+                await self.drop()
         except NoWorkerThreads:
             log.error('Unable to flush cache, no upload threads left alive')
 
@@ -472,9 +453,10 @@ class BlockCache(object):
                     obj_size = backend.perform_write(do_write, 's3ql_data_%d'
                                                      % obj_id).get_obj_size()
 
-            with lock:
+            def with_lock():
                 self.db.execute('UPDATE objects SET size=? WHERE id=?', (obj_size, obj_id))
                 el.dirty = False
+            self.portal.run_sync(with_lock)
 
         except Exception as exc:
             log.debug('upload of %d failed: %s', obj_id, exc)
@@ -500,8 +482,8 @@ class BlockCache(object):
             # refer to incorrect data.
             #
 
-            with lock:
-                self.db.execute('UPDATE blocks SET hash=NULL WHERE obj_id=?',
+            self.portal.run_sync(
+                self.db.execute, 'UPDATE blocks SET hash=NULL WHERE obj_id=?',
                                 (obj_id,))
             raise
 
@@ -512,11 +494,10 @@ class BlockCache(object):
             self.transfer_completed.notify_all()
 
 
-    def wait(self):
+    async def wait(self):
         '''Wait until an object has been uploaded
 
-        If there are no objects in transit, return immediately. This method
-        releases the global lock.
+        If there are no objects in transit, return immediately.
         '''
 
         # Loop to avoid the race condition of a transfer terminating
@@ -525,15 +506,13 @@ class BlockCache(object):
             if not self.transfer_in_progress():
                 return
 
-            with lock_released:
-                if self.transfer_completed.wait(timeout=5):
-                    return
+            if await trio.run_sync_in_worker_thread(self.transfer_completed.wait, 5):
+                return
 
-    def upload_if_dirty(self, el):
+    async def upload_if_dirty(self, el):
         '''Upload cache entry asynchronously
 
-        This method releases the global lock. Return True if the object
-        is actually scheduled for upload.
+        Return True if the object is actually scheduled for upload.
         '''
 
         log.debug('started with %s', el)
@@ -544,7 +523,7 @@ class BlockCache(object):
             return False
 
         # Calculate checksum
-        with lock_released:
+        def with_lock_released():
             self._lock_entry(el.inode, el.blockno)
             added_to_transit = False
             try:
@@ -571,12 +550,15 @@ class BlockCache(object):
                     if not buf:
                         break
                     sha.update(buf)
-                hash_ = sha.digest()
+                return sha.digest()
             except:
                 if added_to_transit:
                     self.in_transit.discard(el)
                 self._unlock_entry(el.inode, el.blockno)
                 raise
+        hash_ = await trio.run_sync_in_worker_thread(with_lock_released)
+        if hash_ is True or hash_ is False:
+            return hash_
 
         obj_lock_taken = False
         try:
@@ -605,10 +587,12 @@ class BlockCache(object):
                 self.db.execute('INSERT OR REPLACE INTO inode_blocks (block_id, inode, blockno) '
                                 'VALUES(?,?,?)', (block_id, el.inode, el.blockno))
 
-                with lock_released:
+                def with_lock_released():
+                    nonlocal obj_lock_taken
                     self._lock_obj(obj_id)
                     obj_lock_taken = True
                     self._queue_upload((el, obj_id))
+                await trio.run_sync_in_worker_thread(with_lock_released)
 
             # There is a block with the same hash
             else:
@@ -621,7 +605,7 @@ class BlockCache(object):
 
                 el.dirty = False
                 self.in_transit.remove(el)
-                self._unlock_entry(el.inode, el.blockno, release_global=True)
+                self._unlock_entry(el.inode, el.blockno)
 
                 if old_block_id == block_id:
                     log.debug('unchanged, block_id=%d', block_id)
@@ -629,14 +613,13 @@ class BlockCache(object):
 
         except:
             self.in_transit.discard(el)
-            with lock_released:
-                self._unlock_entry(el.inode, el.blockno, noerror=True)
-                if obj_lock_taken:
-                    self._unlock_obj(obj_id)
+            self._unlock_entry(el.inode, el.blockno, noerror=True)
+            if obj_lock_taken:
+                self._unlock_obj(obj_id)
             raise
 
         if old_block_id:
-            self._deref_block(old_block_id)
+            await self._deref_block(old_block_id)
         else:
             log.debug('no old block')
 
@@ -672,14 +655,11 @@ class BlockCache(object):
             else:
                 raise NoWorkerThreads('no removal threads')
 
-    def _deref_block(self, block_id):
+    async def _deref_block(self, block_id):
         '''Decrease reference count for *block_id*
 
-        If reference counter drops to zero, remove block and propagate
-        to objects table (possibly removing the referenced object
-        as well).
-
-        This method releases the global lock.
+        If reference counter drops to zero, remove block and propagate to
+        objects table (possibly removing the referenced object as well).
         '''
 
         refcount = self.db.get_val('SELECT refcount FROM blocks WHERE id=?', (block_id,))
@@ -707,7 +687,7 @@ class BlockCache(object):
         # the object is no longer in the database.
         log.debug('adding %d to removal queue', obj_id)
 
-        with lock_released:
+        def with_lock_released():
             self._lock_obj(obj_id)
             self._unlock_obj(obj_id)
 
@@ -719,6 +699,7 @@ class BlockCache(object):
                 return
 
             self._queue_removal(obj_id)
+        await trio.run_sync_in_worker_thread(with_lock_released)
 
 
     def transfer_in_progress(self):
@@ -771,21 +752,19 @@ class BlockCache(object):
                     log.warning('Backend lost object s3ql_data_%d' % id_)
                     self.fs.failsafe = True
 
-    @contextmanager
-    def get(self, inode, blockno):
-        """Get file handle for block `blockno` of `inode`
-
-        This method releases the global lock.
-        """
+    @asynccontextmanager
+    async def get(self, inode, blockno):
+        """Get file handle for block `blockno` of `inode`."""
 
         #log.debug('started with %d, %d', inode, blockno)
 
         if self.cache.is_full():
-            self.expire()
+            await self.expire()
 
-        self._lock_entry(inode, blockno, release_global=True)
+        await trio.run_sync_in_worker_thread(
+            self._lock_entry, inode, blockno)
         try:
-            el = self._get_entry(inode, blockno)
+            el = await self._get_entry(inode, blockno)
             oldsize = el.size
             try:
                 yield el
@@ -794,11 +773,11 @@ class BlockCache(object):
                 # thread has access to a cache entry at any time.
                 self.cache.size += el.size - oldsize
         finally:
-            self._unlock_entry(inode, blockno, release_global=True)
+            self._unlock_entry(inode, blockno)
 
         #log.debug('finished')
 
-    def _get_entry(self, inode, blockno):
+    async def _get_entry(self, inode, blockno):
         '''Get cache entry for `blockno` of `inode`
 
         Assume that cache entry lock has been acquired.
@@ -832,7 +811,7 @@ class BlockCache(object):
                     tmpfh.truncate()
                     shutil.copyfileobj(fh, tmpfh, BUFSIZE)
 
-                with lock_released:
+                def with_lock_released():
                     # Lock object. This ensures that we wait until the object
                     # is uploaded. We don't have to worry about deletion, because
                     # as long as the current cache entry exists, there will always be
@@ -842,6 +821,7 @@ class BlockCache(object):
                     self._unlock_obj(obj_id)
                     with self.backend_pool() as backend:
                         backend.perform_read(do_read, 's3ql_data_%d' % obj_id)
+                await trio.run_sync_in_worker_thread(with_lock_released)
 
                 tmpfh.flush()
                 os.fsync(tmpfh.fileno())
@@ -863,11 +843,8 @@ class BlockCache(object):
 
         return el
 
-    def expire(self):
-        """Perform cache expiry
-
-        This method releases the global lock.
-        """
+    async def expire(self):
+        """Perform cache expiry."""
 
         # Note that we have to make sure that the cache entry is written into
         # the database before we remove it from the cache!
@@ -892,11 +869,12 @@ class BlockCache(object):
                 need_entries -= 1
                 need_size -= el.size
 
-                if self.upload_if_dirty(el): # Releases global lock
+                if await self.upload_if_dirty(el):
                     sth_in_transit = True
                     continue
 
-                self._lock_entry(el.inode, el.blockno, release_global=True)
+                await trio.run_sync_in_worker_thread(
+                    self._lock_entry, el.inode, el.blockno)
                 try:
                     # May have changed while we were waiting for lock
                     if el is not self.cache.get((el.inode, el.blockno), None):
@@ -908,23 +886,21 @@ class BlockCache(object):
                     log.debug('removing %s from cache', el)
                     self.cache.remove((el.inode, el.blockno))
                 finally:
-                    self._unlock_entry(el.inode, el.blockno, release_global=True)
+                    self._unlock_entry(el.inode, el.blockno)
 
             if sth_in_transit:
                 log.debug('waiting for transfer threads..')
-                self.wait() # Releases global lock
+                await self.wait()
 
         log.debug('finished')
 
 
-    def remove(self, inode, start_no, end_no=None):
+    async def remove(self, inode, start_no, end_no=None):
         """Remove blocks for `inode`
 
         If `end_no` is not specified, remove just the `start_no` block.
         Otherwise removes all blocks from `start_no` to, but not including,
          `end_no`.
-
-        This method releases the global lock.
         """
 
         log.debug('started with %d, %d, %s', inode, start_no, end_no)
@@ -940,8 +916,11 @@ class BlockCache(object):
         # waiting for every block to be uploaded only to remove it afterwards.
         for timeout in (0, None):
             for blockno in list(blocknos):
-                if not self._lock_entry(inode, blockno, release_global=True, timeout=timeout):
-                    continue
+                if timeout == 0:
+                    if not self._lock_entry(inode, blockno, timeout=0):
+                        continue
+                else:
+                    await trio.run_sync_in_worker_thread(self._lock_entry, inode, blockno)
                 blocknos.remove(blockno)
                 try:
                     if (inode, blockno) in self.cache:
@@ -960,10 +939,10 @@ class BlockCache(object):
                                     (inode, blockno))
 
                 finally:
-                    self._unlock_entry(inode, blockno, release_global=True)
+                    self._unlock_entry(inode, blockno)
 
                 # Decrease block refcount
-                self._deref_block(block_id)
+                await self._deref_block(block_id)
 
         log.debug('finished')
 
@@ -977,58 +956,50 @@ class BlockCache(object):
 
         el.flush()
 
-    def start_flush(self):
+    async def start_flush(self):
         """Initiate upload of all dirty blocks
 
         When the method returns, all blocks have been registered
         in the database (but the actual uploads may still be
         in progress).
-
-        This method releases the global lock.
         """
 
-        # Need to make copy, since dict() may change while global lock is
-        # released. Look at the comments in CommitThread.run() (mount.py) for an
-        # estimate of the performance impact.
+        # Need to make copy, since dict() may change while uploading.  Look at
+        # the comments in CommitTask.run() (mount.py) for an estimate of the
+        # performance impact.
         for el in list(self.cache.values()):
-            self.upload_if_dirty(el) # Releases global lock
+            await self.upload_if_dirty(el)
 
-    def flush(self):
-        """Upload all dirty blocks
-
-        This method releases the global lock.
-        """
+    async def flush(self):
+        """Upload all dirty blocks."""
 
         log.debug('started')
 
         while True:
             sth_in_transit = False
 
-            # Need to make copy, since dict() may change while global lock is
-            # released. Look at the comments in CommitThread.run() (mount.py)
-            # for an estimate of the performance impact.
+            # Need to make copy, since dict() may change while uploading.  Look
+            # at the comments in CommitTask.run() (mount.py) for an estimate of
+            # the performance impact.
             for el in list(self.cache.values()):
-                if self.upload_if_dirty(el): # Releases global lock
+                if await self.upload_if_dirty(el):
                     sth_in_transit = True
 
             if not sth_in_transit:
                 break
 
             log.debug('waiting for transfer threads..')
-            self.wait() # Releases global lock
+            await self.wait()
 
         log.debug('finished')
 
-    def drop(self):
-        """Drop cache
-
-        This method releases the global lock.
-        """
+    async def drop(self):
+        """Drop cache."""
 
         log.debug('started')
         bak = self.cache.max_entries
         self.cache.max_entries = 0
-        self.expire() # Releases global lock
+        await self.expire()
         self.cache.max_entries = bak
         log.debug('finished')
 

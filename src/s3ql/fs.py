@@ -13,15 +13,16 @@ from .common import get_path, parse_literal, time_ns
 from .database import NoSuchRowError
 from .inode_cache import OutOfInodesError
 from io import BytesIO
-from llfuse import FUSEError
 import collections
 import errno
-import llfuse
+import pyfuse3
+from pyfuse3 import FUSEError
 import math
 import os
 import stat
 import struct
 import time
+import trio
 
 # We work in bytes
 CTRL_NAME = CTRL_NAME.encode('us-ascii')
@@ -56,11 +57,11 @@ if not hasattr(errno, 'EOPNOTSUPP'):
 else:
     ACL_ERRNO = errno.EOPNOTSUPP
 
-class Operations(llfuse.Operations):
+class Operations(pyfuse3.Operations):
     """A full-featured file system for online data storage
 
     This class implements low-level FUSE operations and is meant to be passed to
-    llfuse.init().
+    pyfuse3.init().
 
     The ``access`` method of this class always gives full access, independent of
     file permissions. If the FUSE library is initialized with ``allow_other`` or
@@ -83,13 +84,6 @@ class Operations(llfuse.Operations):
                     of sets of block indices. Broken blocks are removed from the cache
                     when an inode is forgotten.
 
-    Multithreading
-    --------------
-
-    All methods are reentrant and may release the global lock while they
-    are running.
-
-
     Directory Entry Types
     ----------------------
 
@@ -99,6 +93,13 @@ class Operations(llfuse.Operations):
     users relying on unlink()/rmdir() to fail for a directory/file. For that, it
     explicitly checks the st_mode attribute.
     """
+
+    supports_dot_lookup = True
+    enable_acl = False
+
+    # Before we can enable this, we need to find a way to force a writeback for
+    # the copy_tree() and remove_tree() operations.
+    enable_writeback_cache = False
 
     def __init__(self, block_cache, db, max_obj_size, inode_cache,
                  upload_event=None):
@@ -114,13 +115,13 @@ class Operations(llfuse.Operations):
         self.broken_blocks = collections.defaultdict(set)
 
         # Root inode is always open
-        self.open_inodes[llfuse.ROOT_INODE] += 1
+        self.open_inodes[pyfuse3.ROOT_INODE] += 1
 
-    def destroy(self):
-        self.forget(list(self.open_inodes.items()))
+    async def destroy(self):
+        await self.forget(list(self.open_inodes.items()))
         self.inodes.destroy()
 
-    def lookup(self, id_p, name, ctx):
+    async def lookup(self, id_p, name, ctx):
         return self._lookup(id_p, name, ctx).entry_attributes()
 
     def _lookup(self, id_p, name, ctx):
@@ -147,13 +148,13 @@ class Operations(llfuse.Operations):
                 id_ = self.db.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
                                       (name, id_p))
             except NoSuchRowError:
-                raise llfuse.FUSEError(errno.ENOENT)
+                raise FUSEError(errno.ENOENT)
             inode = self.inodes[id_]
 
         self.open_inodes[inode.id] += 1
         return inode
 
-    def getattr(self, id_, ctx):
+    async def getattr(self, id_, ctx):
         log.debug('started with %d', id_)
         if id_ == CTRL_INODE:
             # Make sure the control file is only writable by the user
@@ -165,7 +166,7 @@ class Operations(llfuse.Operations):
 
         return self.inodes[id_].entry_attributes()
 
-    def readlink(self, id_, ctx):
+    async def readlink(self, id_, ctx):
         log.debug('started with %d', id_)
         now_ns = time_ns()
         inode = self.inodes[id_]
@@ -177,11 +178,11 @@ class Operations(llfuse.Operations):
             log.warning('Inode does not have symlink target: %d', id_)
             raise FUSEError(errno.EINVAL)
 
-    def opendir(self, id_, ctx):
+    async def opendir(self, id_, ctx):
         log.debug('started with %d', id_)
         return id_
 
-    def readdir(self, id_, off):
+    async def readdir(self, id_, off, token):
         log.debug('started with %d, %d', id_, off)
         if off == 0:
             off = -1
@@ -196,9 +197,12 @@ class Operations(llfuse.Operations):
                            'WHERE parent_inode=? AND name_id > ? ORDER BY name_id',
                            (id_, off-3)) as res:
             for (next_, name, cid_) in res:
-                yield (name, self.inodes[cid_].entry_attributes(), next_+3)
+                if not pyfuse3.readdir_reply(
+                    token, name, self.inodes[cid_].entry_attributes(), next_+3):
+                    break
+                self.open_inodes[cid_] += 1
 
-    def getxattr(self, id_, name, ctx):
+    async def getxattr(self, id_, name, ctx):
         log.debug('started with %d, %r', id_, name)
         # Handle S3QL commands
         if id_ == CTRL_INODE:
@@ -208,7 +212,7 @@ class Operations(llfuse.Operations):
             elif name == b's3qlstat':
                 return self.extstat()
 
-            raise llfuse.FUSEError(errno.EINVAL)
+            raise FUSEError(errno.EINVAL)
 
         # http://code.google.com/p/s3ql/issues/detail?id=385
         elif name in (b'system.posix_acl_access',
@@ -220,28 +224,28 @@ class Operations(llfuse.Operations):
                 value = self.db.get_val('SELECT value FROM ext_attributes_v WHERE inode=? AND name=?',
                                           (id_, name))
             except NoSuchRowError:
-                raise llfuse.FUSEError(llfuse.ENOATTR)
+                raise FUSEError(pyfuse3.ENOATTR)
             return value
 
-    def listxattr(self, id_, ctx):
+    async def listxattr(self, id_, ctx):
         log.debug('started with %d', id_)
         names = list()
         for (name,) in self.db.query('SELECT name FROM ext_attributes_v WHERE inode=?', (id_,)):
             names.append(name)
         return names
 
-    def setxattr(self, id_, name, value, ctx):
+    async def setxattr(self, id_, name, value, ctx):
         log.debug('started with %d, %r, %r', id_, name, value)
 
         # Handle S3QL commands
         if id_ == CTRL_INODE:
             if name == b's3ql_flushcache!':
                 self.inodes.flush()
-                self.cache.flush()
+                await self.cache.flush()
 
             elif name == b's3ql_dropcache!':
                 self.inodes.drop()
-                self.cache.drop()
+                await self.cache.drop()
 
             elif name == b'copy':
                 try:
@@ -249,14 +253,14 @@ class Operations(llfuse.Operations):
                 except ValueError:
                     log.warning('Received malformed command via control inode')
                     raise FUSEError.EINVAL()
-                self.copy_tree(*tup)
+                await self.copy_tree(*tup)
 
             elif name == b'upload-meta':
                 if self.upload_event is not None:
                     self.inodes.flush()
                     self.upload_event.set()
                 else:
-                    raise llfuse.FUSEError(errno.ENOTTY)
+                    raise FUSEError(errno.ENOTTY)
 
             elif name == b'lock':
                 try:
@@ -264,7 +268,7 @@ class Operations(llfuse.Operations):
                 except ValueError:
                     log.warning('Received malformed command via control inode')
                     raise FUSEError.EINVAL()
-                self.lock_tree(id_)
+                await self.lock_tree(id_)
 
             elif name == b'rmtree':
                 try:
@@ -272,7 +276,7 @@ class Operations(llfuse.Operations):
                 except ValueError:
                     log.warning('Received malformed command via control inode')
                     raise FUSEError.EINVAL()
-                self.remove_tree(*tup)
+                await self.remove_tree(*tup)
 
             elif name == b'logging':
                 try:
@@ -292,7 +296,7 @@ class Operations(llfuse.Operations):
 
             else:
                 log.warning('Received unknown command via control inode')
-                raise llfuse.FUSEError(errno.EINVAL)
+                raise FUSEError(errno.EINVAL)
 
         # http://code.google.com/p/s3ql/issues/detail?id=385
         elif name in (b'system.posix_acl_access',
@@ -310,7 +314,7 @@ class Operations(llfuse.Operations):
                             'VALUES(?, ?, ?)', (id_, self._add_name(name), value))
             self.inodes[id_].ctime_ns = time_ns()
 
-    def removexattr(self, id_, name, ctx):
+    async def removexattr(self, id_, name, ctx):
         log.debug('started with %d, %r', id_, name)
 
         if self.failsafe or self.inodes[id_].locked:
@@ -319,16 +323,16 @@ class Operations(llfuse.Operations):
         try:
             name_id = self._del_name(name)
         except NoSuchRowError:
-            raise llfuse.FUSEError(llfuse.ENOATTR)
+            raise FUSEError(pyfuse3.ENOATTR)
 
         changes = self.db.execute('DELETE FROM ext_attributes WHERE inode=? AND name_id=?',
                                   (id_, name_id))
         if changes == 0:
-            raise llfuse.FUSEError(llfuse.ENOATTR)
+            raise FUSEError(pyfuse3.ENOATTR)
 
         self.inodes[id_].ctime_ns = time_ns()
 
-    def lock_tree(self, id0):
+    async def lock_tree(self, id0):
         '''Lock directory tree'''
 
         if self.failsafe:
@@ -359,13 +363,13 @@ class Operations(llfuse.Operations):
                 gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 250)
                 log.debug('Adjusting gil_step to %d', gil_step)
                 processed = 0
-                llfuse.lock.yield_(100)
+                await trio.hazmat.checkpoint()
                 log.debug('re-acquired lock')
                 stamp = time.time()
 
         log.debug('finished')
 
-    def remove_tree(self, id_p0, name0):
+    async def remove_tree(self, id_p0, name0):
         '''Remove directory tree'''
 
         if self.failsafe:
@@ -400,8 +404,8 @@ class Operations(llfuse.Operations):
                     queue.append(id_)
                 else:
                     if is_open:
-                        llfuse.invalidate_entry(id_p, name)
-                    self._remove(id_p, name, id_, force=True)
+                        pyfuse3.invalidate_entry_async(id_p, name)
+                    await self._remove(id_p, name, id_, force=True)
 
             if query_chunk and not reinserted:
                 # Make sure to re-insert the directory to process the remaining
@@ -413,20 +417,20 @@ class Operations(llfuse.Operations):
             batch_size = min(batch_size, 200) # somewhat arbitrary...
             batch_size = max(batch_size, 20000)
             log.debug('Adjusting batch_size to %d and yielding', batch_size)
-            llfuse.lock.yield_(100)
+            await trio.hazmat.checkpoint()
             log.debug('re-acquired lock')
             stamp = time.time()
 
         if id_p0 in self.open_inodes:
             log.debug('invalidate_entry(%d, %r)', id_p0, name0)
-            llfuse.invalidate_entry(id_p0, name0)
-        self._remove(id_p0, name0, id0, force=True)
+            pyfuse3.invalidate_entry_async(id_p0, name0)
+        await self._remove(id_p0, name0, id0, force=True)
 
-        self.forget([(id0, 1)])
+        await self.forget([(id0, 1)])
         log.debug('finished')
 
 
-    def copy_tree(self, src_id, target_id):
+    async def copy_tree(self, src_id, target_id):
         '''Efficiently copy directory tree'''
 
         if self.failsafe:
@@ -439,7 +443,7 @@ class Operations(llfuse.Operations):
         db = self.db
 
         # First we make sure that all blocks are in the database
-        self.cache.start_flush()
+        await self.cache.start_flush()
 
         # Copy target attributes
         # These come from setxattr, so they may have been deleted
@@ -529,7 +533,7 @@ class Operations(llfuse.Operations):
                 gil_step = max(int(gil_step * GIL_RELEASE_INTERVAL / dt), 250)
                 log.debug('Adjusting gil_step to %d and yielding', gil_step)
                 processed = 0
-                llfuse.lock.yield_(100)
+                await trio.hazmat.checkpoint()
                 log.debug('re-acquired lock')
                 stamp = time.time()
 
@@ -537,11 +541,11 @@ class Operations(llfuse.Operations):
         self.db.execute('UPDATE contents SET parent_inode=? WHERE parent_inode=?',
                         (target_inode.id, tmp.id))
         del self.inodes[tmp.id]
-        llfuse.invalidate_inode(target_inode.id)
+        pyfuse3.invalidate_inode(target_inode.id)
 
         log.debug('finished')
 
-    def unlink(self, id_p, name, ctx):
+    async def unlink(self, id_p, name, ctx):
         log.debug('started with %d, %r', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
@@ -549,13 +553,13 @@ class Operations(llfuse.Operations):
         inode = self._lookup(id_p, name, ctx)
 
         if stat.S_ISDIR(inode.mode):
-            raise llfuse.FUSEError(errno.EISDIR)
+            raise FUSEError(errno.EISDIR)
 
-        self._remove(id_p, name, inode.id)
+        await self._remove(id_p, name, inode.id)
 
-        self.forget([(inode.id, 1)])
+        await self.forget([(inode.id, 1)])
 
-    def rmdir(self, id_p, name, ctx):
+    async def rmdir(self, id_p, name, ctx):
         log.debug('started with %d, %r', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
@@ -566,19 +570,17 @@ class Operations(llfuse.Operations):
             raise FUSEError(errno.EPERM)
 
         if not stat.S_ISDIR(inode.mode):
-            raise llfuse.FUSEError(errno.ENOTDIR)
+            raise FUSEError(errno.ENOTDIR)
 
-        self._remove(id_p, name, inode.id)
+        await self._remove(id_p, name, inode.id)
 
-        self.forget([(inode.id, 1)])
+        await self.forget([(inode.id, 1)])
 
-    def _remove(self, id_p, name, id_, force=False):
+    async def _remove(self, id_p, name, id_, force=False):
         '''Remove entry `name` with parent inode `id_p`
 
         `id_` must be the inode of `name`. If `force` is True, then
         the `locked` attribute is ignored.
-
-        This method releases the global lock.
         '''
 
         log.debug('started with %d, %r', id_p, name)
@@ -589,7 +591,7 @@ class Operations(llfuse.Operations):
         if self.db.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (id_,)):
             log.debug("Attempted to remove entry with children: %s",
                       get_path(id_p, self.db, name))
-            raise llfuse.FUSEError(errno.ENOTEMPTY)
+            raise FUSEError(errno.ENOTEMPTY)
 
         if self.inodes[id_p].locked and not force:
             raise FUSEError(errno.EPERM)
@@ -608,7 +610,7 @@ class Operations(llfuse.Operations):
 
         if inode.refcount == 0 and id_ not in self.open_inodes:
             log.debug('removing from cache')
-            self.cache.remove(id_, 0, int(math.ceil(inode.size / self.max_obj_size)))
+            await self.cache.remove(id_, 0, int(math.ceil(inode.size / self.max_obj_size)))
             # Since the inode is not open, it's not possible that new blocks
             # get created at this point and we can safely delete the inode
             self.db.execute('UPDATE names SET refcount = refcount - 1 WHERE '
@@ -623,7 +625,7 @@ class Operations(llfuse.Operations):
 
         log.debug('finished')
 
-    def symlink(self, id_p, name, target, ctx):
+    async def symlink(self, id_p, name, target, ctx):
         log.debug('started with %d, %r, %r', id_p, name, target)
 
         if self.failsafe:
@@ -644,13 +646,16 @@ class Operations(llfuse.Operations):
         self.open_inodes[inode.id] += 1
         return inode.entry_attributes()
 
-    def rename(self, id_p_old, name_old, id_p_new, name_new, ctx):
+    async def rename(self, id_p_old, name_old, id_p_new, name_new, flags, ctx):
+        if flags:
+            raise FUSEError(errno.ENOTSUP)
+
         log.debug('started with %d, %r, %d, %r', id_p_old, name_old, id_p_new, name_new)
         if name_new == CTRL_NAME or name_old == CTRL_NAME:
             log.warning('Attempted to rename s3ql control file (%s -> %s)',
                       get_path(id_p_old, self.db, name_old),
                       get_path(id_p_new, self.db, name_new))
-            raise llfuse.FUSEError(errno.EACCES)
+            raise FUSEError(errno.EACCES)
 
 
         if (self.failsafe or self.inodes[id_p_old].locked
@@ -661,7 +666,7 @@ class Operations(llfuse.Operations):
 
         try:
             inode_new = self._lookup(id_p_new, name_new, ctx)
-        except llfuse.FUSEError as exc:
+        except FUSEError as exc:
             if exc.errno != errno.ENOENT:
                 raise
             else:
@@ -672,10 +677,10 @@ class Operations(llfuse.Operations):
         if target_exists:
             self._replace(id_p_old, name_old, id_p_new, name_new,
                           inode_old.id, inode_new.id)
-            self.forget([(inode_old.id, 1), (inode_new.id, 1)])
+            await self.forget([(inode_old.id, 1), (inode_new.id, 1)])
         else:
             self._rename(id_p_old, name_old, id_p_new, name_new)
-            self.forget([(inode_old.id, 1)])
+            await self.forget([(inode_old.id, 1)])
 
     def _add_name(self, name):
         '''Get id for *name* and increase refcount
@@ -733,7 +738,7 @@ class Operations(llfuse.Operations):
         if self.db.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (id_new,)):
             log.info("Attempted to overwrite entry with children: %s",
                       get_path(id_p_new, self.db, name_new))
-            raise llfuse.FUSEError(errno.EINVAL)
+            raise FUSEError(errno.EINVAL)
 
         # Replace target
         name_id_new = self.db.get_val('SELECT id FROM names WHERE name=?', (name_new,))
@@ -771,13 +776,13 @@ class Operations(llfuse.Operations):
             del self.inodes[id_new]
 
 
-    def link(self, id_, new_id_p, new_name, ctx):
+    async def link(self, id_, new_id_p, new_name, ctx):
         log.debug('started with %d, %d, %r', id_, new_id_p, new_name)
 
         if new_name == CTRL_NAME or id_ == CTRL_INODE:
             log.warning('Attempted to create s3ql control file at %s',
                       get_path(new_id_p, self.db, new_name))
-            raise llfuse.FUSEError(errno.EACCES)
+            raise FUSEError(errno.EACCES)
 
         now_ns = time_ns()
         inode_p = self.inodes[new_id_p]
@@ -802,7 +807,7 @@ class Operations(llfuse.Operations):
         self.open_inodes[inode.id] += 1
         return inode.entry_attributes()
 
-    def setattr(self, id_, attr, fields, fh, ctx):
+    async def setattr(self, id_, attr, fields, fh, ctx):
         """Handles FUSE setattr() requests"""
         inode = self.inodes[id_]
         if fh is not None:
@@ -830,8 +835,7 @@ class Operations(llfuse.Operations):
         inode.ctime_ns = now_ns
 
         # This needs to go last, because the call to cache.remove and cache.get
-        # will release the global lock and may thus evict the *inode* object
-        # from the cache.
+        # are asynchorouns and may thus evict the *inode* object from the cache.
         if fields.update_size:
             len_ = attr.st_size
 
@@ -845,11 +849,11 @@ class Operations(llfuse.Operations):
 
             # Delete blocks and truncate last one if required
             if cutoff == 0:
-                self.cache.remove(id_, last_block, total_blocks)
+                await self.cache.remove(id_, last_block, total_blocks)
             else:
-                self.cache.remove(id_, last_block + 1, total_blocks)
+                await self.cache.remove(id_, last_block + 1, total_blocks)
                 try:
-                    with self.cache.get(id_, last_block) as fh:
+                    async with self.cache.get(id_, last_block) as fh:
                         fh.truncate(cutoff)
                 except NoSuchObject as exc:
                     log.warning('Backend lost block %d of inode %d (id %s)!',
@@ -866,7 +870,7 @@ class Operations(llfuse.Operations):
 
         return inode.entry_attributes()
 
-    def mknod(self, id_p, name, mode, rdev, ctx):
+    async def mknod(self, id_p, name, mode, rdev, ctx):
         log.debug('started with %d, %r', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
@@ -874,7 +878,7 @@ class Operations(llfuse.Operations):
         self.open_inodes[inode.id] += 1
         return inode.entry_attributes()
 
-    def mkdir(self, id_p, name, mode, ctx):
+    async def mkdir(self, id_p, name, mode, ctx):
         log.debug('started with %d, %r', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
@@ -903,10 +907,10 @@ class Operations(llfuse.Operations):
         return struct.pack('QQQQQQQQQQQQ', entries, blocks, inodes, fs_size, dedup_size,
                            compr_size, self.db.get_size(), *self.cache.get_usage())
 
-    def statfs(self, ctx):
+    async def statfs(self, ctx):
         log.debug('started')
 
-        stat_ = llfuse.StatvfsData()
+        stat_ = pyfuse3.StatvfsData()
 
         # Get number of blocks & inodes
         blocks = self.db.get_val("SELECT COUNT(id) FROM objects")
@@ -943,7 +947,7 @@ class Operations(llfuse.Operations):
 
         return stat_
 
-    def open(self, id_, flags, ctx):
+    async def open(self, id_, flags, ctx):
         log.debug('started with %d', id_)
         if ((flags & os.O_RDWR or flags & os.O_WRONLY)
             and (self.failsafe or self.inodes[id_].locked)):
@@ -951,7 +955,7 @@ class Operations(llfuse.Operations):
 
         return id_
 
-    def access(self, id_, mode, ctx):
+    async def access(self, id_, mode, ctx):
         '''Check if requesting process has `mode` rights on `inode`.
 
         This method always returns true, since it should only be called
@@ -964,7 +968,7 @@ class Operations(llfuse.Operations):
         log.debug('started with %d', id_)
         return True
 
-    def create(self, id_p, name, mode, flags, ctx):
+    async def create(self, id_p, name, mode, flags, ctx):
         log.debug('started with id_p=%d, %s', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
@@ -975,7 +979,7 @@ class Operations(llfuse.Operations):
         except NoSuchRowError:
             inode = self._create(id_p, name, mode, ctx)
         else:
-            self.open(id_, flags, ctx)
+            await self.open(id_, flags, ctx)
             inode = self.inodes[id_]
 
         self.open_inodes[inode.id] += 1
@@ -1020,12 +1024,10 @@ class Operations(llfuse.Operations):
         return inode
 
 
-    def read(self, fh, offset, length):
+    async def read(self, fh, offset, length):
         '''Read `size` bytes from `fh` at position `off`
 
         Unless EOF is reached, returns exactly `size` bytes.
-
-        This method releases the global lock while it is running.
         '''
         #log.debug('started with %d, %d, %d', fh, offset, length)
         buf = BytesIO()
@@ -1038,7 +1040,7 @@ class Operations(llfuse.Operations):
         length = min(size - offset, length)
 
         while length > 0:
-            tmp = self._readwrite(fh, offset, length=length)
+            tmp = await self._readwrite(fh, offset, length=length)
             buf.write(tmp)
             length -= len(tmp)
             offset += len(tmp)
@@ -1052,11 +1054,9 @@ class Operations(llfuse.Operations):
         return buf.getvalue()
 
 
-    def write(self, fh, offset, buf):
-        '''Handle FUSE write requests.
+    async def write(self, fh, offset, buf):
+        '''Handle FUSE write requests.'''
 
-        This method releases the global lock while it is running.
-        '''
         #log.debug('started with %d, %d, datalen=%d', fh, offset, len(buf))
 
         if self.failsafe or self.inodes[fh].locked:
@@ -1065,15 +1065,14 @@ class Operations(llfuse.Operations):
         total = len(buf)
         minsize = offset + total
         while buf:
-            written = self._readwrite(fh, offset, buf=buf)
+            written = await self._readwrite(fh, offset, buf=buf)
             offset += written
             buf = buf[written:]
 
         # Update file size if changed
         # Fuse does not ensure that we do not get concurrent write requests,
         # so we have to be careful not to undo a size extension made by
-        # a concurrent write (because _readwrite() releases the global
-        # lock).
+        # a concurrent write.
         now_ns = time_ns()
         inode = self.inodes[fh]
         inode.size = max(inode.size, minsize)
@@ -1082,7 +1081,7 @@ class Operations(llfuse.Operations):
 
         return total
 
-    def _readwrite(self, id_, offset, *, buf=None, length=None):
+    async def _readwrite(self, id_, offset, *, buf=None, length=None):
         """Read or write as much as we can.
 
         If *buf* is None, read and return up to *length* bytes.
@@ -1091,8 +1090,6 @@ class Operations(llfuse.Operations):
         bytes written.
 
         This is one method to reduce code duplication.
-
-        This method releases the global lock while it is running.
         """
 
         # Calculate required block
@@ -1115,7 +1112,7 @@ class Operations(llfuse.Operations):
             length = self.max_obj_size - offset_rel
 
         try:
-            with self.cache.get(id_, blockno) as fh:
+            async with self.cache.get(id_, blockno) as fh:
                 fh.seek(offset_rel)
                 if write:
                     fh.write(buf[:length])
@@ -1144,15 +1141,15 @@ class Operations(llfuse.Operations):
             # If we can't read enough, add null bytes
             return buf + b"\0" * (length - len(buf))
 
-    def fsync(self, fh, datasync):
+    async def fsync(self, fh, datasync):
         log.debug('started with %d, %s', fh, datasync)
         if not datasync:
             self.inodes.flush_id(fh)
 
         for blockno in range(0, self.inodes[fh].size // self.max_obj_size + 1):
-            self.cache.flush_local(fh, blockno)
+            await self.cache.flush_local(fh, blockno)
 
-    def forget(self, forget_list):
+    async def forget(self, forget_list):
         log.debug('started with %s', forget_list)
 
         for (id_, nlookup) in forget_list:
@@ -1166,7 +1163,7 @@ class Operations(llfuse.Operations):
                 inode = self.inodes[id_]
                 if inode.refcount == 0:
                     log.debug('removing %d from cache', id_)
-                    self.cache.remove(id_, 0, inode.size // self.max_obj_size + 1)
+                    await self.cache.remove(id_, 0, inode.size // self.max_obj_size + 1)
                     # Since the inode is not open, it's not possible that new blocks
                     # get created at this point and we can safely delete the inode
                     self.db.execute('UPDATE names SET refcount = refcount - 1 WHERE '
@@ -1180,18 +1177,18 @@ class Operations(llfuse.Operations):
                     del self.inodes[id_]
 
 
-    def fsyncdir(self, fh, datasync):
+    async def fsyncdir(self, fh, datasync):
         log.debug('started with %d, %s', fh, datasync)
         if not datasync:
             self.inodes.flush_id(fh)
 
-    def releasedir(self, fh):
+    async def releasedir(self, fh):
         log.debug('started with %d', fh)
 
-    def release(self, fh):
+    async def release(self, fh):
         log.debug('started with %d', fh)
 
-    def flush(self, fh):
+    async def flush(self, fh):
         log.debug('started with %d', fh)
 
 

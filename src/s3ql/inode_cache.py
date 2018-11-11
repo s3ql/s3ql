@@ -8,7 +8,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from .logging import logging # Ensure use of custom logger class
 from .database import NoSuchRowError
-import llfuse
+import pyfuse3
 import sys
 
 log = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ class _Inode:
         self.generation = generation
 
     def entry_attributes(self):
-        attr = llfuse.EntryAttributes()
+        attr = pyfuse3.EntryAttributes()
         attr.st_nlink = self.refcount
         attr.st_blocks = (self.size + 511) // 512
         attr.st_ino = self.id

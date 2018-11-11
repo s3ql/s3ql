@@ -12,29 +12,29 @@ if __name__ == '__main__':
     import sys
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
+from argparse import Namespace
+from common import safe_sleep
 from contextlib import contextmanager
+from pytest_checklogs import assert_logs
 from s3ql.backends import local
 from s3ql.backends.common import AbstractBackend
 from s3ql.backends.pool import BackendPool
 from s3ql.block_cache import BlockCache, QuitSentinel
-from s3ql.mkfs import init_tables
-from s3ql.metadata import create_tables
+from s3ql.common import time_ns
 from s3ql.database import Connection
-from s3ql.common import AsyncFn, time_ns
-import s3ql.block_cache
-from argparse import Namespace
-from common import safe_sleep
-from pytest_checklogs import assert_logs
+from s3ql.metadata import create_tables
+from s3ql.mkfs import init_tables
 from unittest.mock import patch
-import os
-import errno
 import logging
+import os
+import pytest
+import queue
+import s3ql.block_cache
 import shutil
 import stat
 import tempfile
 import threading
-import queue
-import pytest
+import trio
 
 log = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ def random_data(len_):
         return fh.read(len_)
 
 @pytest.yield_fixture
-def ctx():
+async def ctx():
         ctx = Namespace()
         ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
         ctx.backend_pool = BackendPool(lambda: local.Backend(
@@ -100,6 +100,7 @@ def ctx():
 
         cache = BlockCache(ctx.backend_pool, ctx.db, ctx.cachedir + "/cache",
                            ctx.max_obj_size * 100)
+        cache.portal = trio.BlockingTrioPortal()
         ctx.cache = cache
 
         # Monkeypatch around the need for removal and upload threads
@@ -111,22 +112,18 @@ def ctx():
                 return True
         cache.to_upload = DummyDistributor()
 
-        # Tested methods assume that they are called from
-        # file system request handler
-        s3ql.block_cache.lock = MockLock()
-        s3ql.block_cache.lock_released = MockLock()
-
         try:
             yield ctx
         finally:
             ctx.cache.backend_pool = ctx.backend_pool
-            ctx.cache.destroy()
+            if ctx.cache.destroy is not None:
+                await ctx.cache.destroy()
             shutil.rmtree(ctx.cachedir)
             shutil.rmtree(ctx.backend_dir)
             ctx.dbfile.close()
             os.unlink(ctx.dbfile.name)
 
-def test_thread_hang(ctx):
+async def test_thread_hang(ctx):
     # Make sure that we don't deadlock if uploads threads or removal
     # threads have died and we try to expire or terminate
 
@@ -153,27 +150,27 @@ def test_thread_hang(ctx):
     ctx.cache.init(threads=3)
 
     # Create first object (we'll try to remove that)
-    with ctx.cache.get(ctx.inode, 0) as fh:
+    async with ctx.cache.get(ctx.inode, 0) as fh:
         fh.write(b'bar wurfz!')
-    ctx.cache.start_flush()
-    ctx.cache.wait()
+    await ctx.cache.start_flush()
+    await ctx.cache.wait()
 
     # Make sure that upload and removal will fail
     os.rename(ctx.backend_dir, ctx.backend_dir + '-tmp')
     open(ctx.backend_dir, 'w').close()
 
     # Create second object (we'll try to upload that)
-    with ctx.cache.get(ctx.inode, 1) as fh:
+    async with ctx.cache.get(ctx.inode, 1) as fh:
         fh.write(b'bar wurfz number two!')
 
     # Schedule a removal
-    ctx.cache.remove(ctx.inode, 0)
+    await ctx.cache.remove(ctx.inode, 0)
 
     try:
         # Try to clean-up (implicitly calls expire)
         with assert_logs('Unable to flush cache, no upload threads left alive',
                          level=logging.ERROR, count=1):
-            ctx.cache.destroy(keep_cache=True)
+            await ctx.cache.destroy(keep_cache=True)
         assert upload_exc
         assert removal_exc
     finally:
@@ -183,55 +180,56 @@ def test_thread_hang(ctx):
 
         # Remove objects from cache and make final destroy
         # call into no-op.
-        ctx.cache.remove(ctx.inode, 1)
-        ctx.cache.destroy = lambda: None
+        await ctx.cache.remove(ctx.inode, 1)
+        ctx.cache.destroy = None
 
-def test_get(ctx):
+async def test_get(ctx):
     inode = ctx.inode
     blockno = 11
     data = random_data(int(0.5 * ctx.max_obj_size))
 
     # Case 1: Object does not exist yet
-    with ctx.cache.get(inode, blockno) as fh:
+    async with ctx.cache.get(inode, blockno) as fh:
         fh.seek(0)
         fh.write(data)
 
     # Case 2: Object is in cache
-    with ctx.cache.get(inode, blockno) as fh:
+    async with ctx.cache.get(inode, blockno) as fh:
         fh.seek(0)
         assert data == fh.read(len(data))
 
     # Case 3: Object needs to be downloaded
-    ctx.cache.drop()
-    with ctx.cache.get(inode, blockno) as fh:
+    await ctx.cache.drop()
+    async with ctx.cache.get(inode, blockno) as fh:
         fh.seek(0)
         assert data == fh.read(len(data))
 
-def test_expire(ctx):
+@pytest.mark.trio
+async def test_expire(ctx):
     inode = ctx.inode
 
     # Define the 4 most recently accessed ones
     most_recent = [7, 11, 10, 8]
     for i in most_recent:
         safe_sleep(0.2)
-        with ctx.cache.get(inode, i) as fh:
+        async with ctx.cache.get(inode, i) as fh:
             fh.write(('%d' % i).encode())
 
     # And some others
     for i in range(20):
         if i in most_recent:
             continue
-        with ctx.cache.get(inode, i) as fh:
+        async with ctx.cache.get(inode, i) as fh:
             fh.write(('%d' % i).encode())
 
     # Flush the 2 most recently accessed ones
-    start_flush(ctx.cache, inode, most_recent[-2])
-    start_flush(ctx.cache, inode, most_recent[-3])
+    await start_flush(ctx.cache, inode, most_recent[-2])
+    await start_flush(ctx.cache, inode, most_recent[-3])
 
     # We want to expire 4 entries, 2 of which are already flushed
     ctx.cache.cache.max_entries = 16
     ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=2)
-    ctx.cache.expire()
+    await ctx.cache.expire()
     ctx.cache.backend_pool.verify()
     assert len(ctx.cache.cache) == 16
 
@@ -241,7 +239,7 @@ def test_expire(ctx):
         else:
             assert (inode, i) in ctx.cache.cache
 
-def test_upload(ctx):
+async def test_upload(ctx):
     inode = ctx.inode
     datalen = int(0.1 * ctx.cache.cache.max_size)
     blockno1 = 21
@@ -254,65 +252,65 @@ def test_upload(ctx):
 
     # Case 1: create new object
     ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
-    with ctx.cache.get(inode, blockno1) as fh:
+    async with ctx.cache.get(inode, blockno1) as fh:
         fh.seek(0)
         fh.write(data1)
         el1 = fh
-    assert ctx.cache.upload_if_dirty(el1)
+    assert await ctx.cache.upload_if_dirty(el1)
     ctx.cache.backend_pool.verify()
 
     # Case 2: Link new object
     ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool)
-    with ctx.cache.get(inode, blockno2) as fh:
+    async with ctx.cache.get(inode, blockno2) as fh:
         fh.seek(0)
         fh.write(data1)
         el2 = fh
-    assert not ctx.cache.upload_if_dirty(el2)
+    assert not await ctx.cache.upload_if_dirty(el2)
     ctx.cache.backend_pool.verify()
 
     # Case 3: Upload old object, still has references
     ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
-    with ctx.cache.get(inode, blockno1) as fh:
+    async with ctx.cache.get(inode, blockno1) as fh:
         fh.seek(0)
         fh.write(data2)
-    assert ctx.cache.upload_if_dirty(el1)
+    assert await ctx.cache.upload_if_dirty(el1)
     ctx.cache.backend_pool.verify()
 
     # Case 4: Upload old object, no references left
     ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_del=1, no_write=1)
-    with ctx.cache.get(inode, blockno2) as fh:
+    async with ctx.cache.get(inode, blockno2) as fh:
         fh.seek(0)
         fh.write(data3)
-    assert ctx.cache.upload_if_dirty(el2)
+    assert await ctx.cache.upload_if_dirty(el2)
     ctx.cache.backend_pool.verify()
 
     # Case 5: Link old object, no references left
     ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_del=1)
-    with ctx.cache.get(inode, blockno2) as fh:
+    async with ctx.cache.get(inode, blockno2) as fh:
         fh.seek(0)
         fh.write(data2)
-    assert not ctx.cache.upload_if_dirty(el2)
+    assert not await ctx.cache.upload_if_dirty(el2)
     ctx.cache.backend_pool.verify()
 
     # Case 6: Link old object, still has references
     # (Need to create another object first)
     ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
-    with ctx.cache.get(inode, blockno3) as fh:
+    async with ctx.cache.get(inode, blockno3) as fh:
         fh.seek(0)
         fh.write(data1)
         el3 = fh
-    assert ctx.cache.upload_if_dirty(el3)
+    assert await ctx.cache.upload_if_dirty(el3)
     ctx.cache.backend_pool.verify()
 
     ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool)
-    with ctx.cache.get(inode, blockno1) as fh:
+    async with ctx.cache.get(inode, blockno1) as fh:
         fh.seek(0)
         fh.write(data1)
-    assert not ctx.cache.upload_if_dirty(el1)
-    ctx.cache.drop()
+    assert not await ctx.cache.upload_if_dirty(el1)
+    await ctx.cache.drop()
     ctx.cache.backend_pool.verify()
 
-def test_remove_referenced(ctx):
+async def test_remove_referenced(ctx):
     inode = ctx.inode
     datalen = int(0.1 * ctx.cache.cache.max_size)
     blockno1 = 21
@@ -320,88 +318,84 @@ def test_remove_referenced(ctx):
     data = random_data(datalen)
 
     ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
-    with ctx.cache.get(inode, blockno1) as fh:
+    async with ctx.cache.get(inode, blockno1) as fh:
         fh.seek(0)
         fh.write(data)
-    with ctx.cache.get(inode, blockno2) as fh:
+    async with ctx.cache.get(inode, blockno2) as fh:
         fh.seek(0)
         fh.write(data)
-    ctx.cache.drop()
+    await ctx.cache.drop()
     ctx.cache.backend_pool.verify()
 
     ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool)
-    ctx.cache.remove(inode, blockno1)
+    await ctx.cache.remove(inode, blockno1)
     ctx.cache.backend_pool.verify()
 
-def test_remove_cache(ctx):
+async def test_remove_cache(ctx):
     inode = ctx.inode
     data1 = random_data(int(0.4 * ctx.max_obj_size))
 
     # Case 1: Elements only in cache
-    with ctx.cache.get(inode, 1) as fh:
+    async with ctx.cache.get(inode, 1) as fh:
         fh.seek(0)
         fh.write(data1)
-    ctx.cache.remove(inode, 1)
-    with ctx.cache.get(inode, 1) as fh:
+    await ctx.cache.remove(inode, 1)
+    async with ctx.cache.get(inode, 1) as fh:
         fh.seek(0)
-        assert fh.read(42) == b''
+        assert fh.read(42) ==  b''
 
-def test_upload_race(ctx):
+async def test_upload_race(ctx):
     inode = ctx.inode
     blockno = 1
     data1 = random_data(int(0.4 * ctx.max_obj_size))
-    with ctx.cache.get(inode, blockno) as fh:
+    async with ctx.cache.get(inode, blockno) as fh:
         fh.seek(0)
         fh.write(data1)
 
     # Remove it
-    ctx.cache.remove(inode, blockno)
+    await ctx.cache.remove(inode, blockno)
 
     # Try to upload it, may happen if CommitThread is interrupted
-    ctx.cache.upload_if_dirty(fh)
+    await ctx.cache.upload_if_dirty(fh)
 
-def test_expire_race(ctx):
+async def test_expire_race(ctx):
     # Create element
     inode = ctx.inode
     blockno = 1
     data1 = random_data(int(0.4 * ctx.max_obj_size))
-    with ctx.cache.get(inode, blockno) as fh:
+    async with ctx.cache.get(inode, blockno) as fh:
         fh.seek(0)
         fh.write(data1)
-    assert ctx.cache.upload_if_dirty(fh)
+    assert await ctx.cache.upload_if_dirty(fh)
 
     # Make sure entry will be expired
     ctx.cache.cache.max_entries = 0
 
     # Lock it
-    ctx.cache._lock_entry(inode, blockno, release_global=True)
+    ctx.cache._lock_entry(inode, blockno)
 
     try:
-        # Start expiration, will block on lock
-        t1 = AsyncFn(ctx.cache.expire)
-        t1.start()
+        async with trio.open_nursery() as nursery:
+            # Start expiration, will block on lock
+            nursery.start_soon(ctx.cache.expire)
 
-        # Start second expiration, will block
-        t2 = AsyncFn(ctx.cache.expire)
-        t2.start()
+            # Start second expiration, will block
+            nursery.start_soon(ctx.cache.expire)
 
-        # Release lock
-        ctx.cache._unlock_entry(inode, blockno)
-        t1.join_and_raise()
-        t2.join_and_raise()
+            # Release lock
+            ctx.cache._unlock_entry(inode, blockno)
 
         assert len(ctx.cache.cache) == 0
     finally:
-            ctx.cache._unlock_entry(inode, blockno, release_global=True,
-                                     noerror=True)
+            ctx.cache._unlock_entry(inode, blockno, noerror=True)
 
 
-def test_parallel_expire(ctx):
+async def test_parallel_expire(ctx):
     # Create elements
     inode = ctx.inode
     for i in range(5):
         data1 = random_data(int(0.4 * ctx.max_obj_size))
-        with ctx.cache.get(inode, i) as fh:
+        async with ctx.cache.get(inode, i) as fh:
             fh.write(data1)
 
     # We want to expire just one element, but have
@@ -409,70 +403,68 @@ def test_parallel_expire(ctx):
     ctx.cache.cache.max_entries = 4
 
     # Lock first element so that we have time to start threads
-    ctx.cache._lock_entry(inode, 0, release_global=True)
+    ctx.cache._lock_entry(inode, 0)
 
     try:
-        # Start expiration, will block on lock
-        t1 = AsyncFn(ctx.cache.expire)
-        t1.start()
+        async with trio.open_nursery() as nursery:
+            # Start expiration, will block on lock
+            nursery.start_soon(ctx.cache.expire)
 
-        # Start second expiration, will block
-        t2 = AsyncFn(ctx.cache.expire)
-        t2.start()
+            # Start second expiration, will block
+            nursery.start_soon(ctx.cache.expire)
 
-        # Release lock
-        ctx.cache._unlock_entry(inode, 0)
-        t1.join_and_raise()
-        t2.join_and_raise()
+            # Release lock
+            ctx.cache._unlock_entry(inode, 0)
 
         assert len(ctx.cache.cache) == 4
     finally:
-            ctx.cache._unlock_entry(inode, 0, release_global=True,
-                                     noerror=True)
+            ctx.cache._unlock_entry(inode, 0, noerror=True)
 
-def test_remove_cache_db(ctx):
+
+async def test_remove_cache_db(ctx):
     inode = ctx.inode
     data1 = random_data(int(0.4 * ctx.max_obj_size))
 
     # Case 2: Element in cache and db
-    with ctx.cache.get(inode, 1) as fh:
+    async with ctx.cache.get(inode, 1) as fh:
         fh.seek(0)
         fh.write(data1)
     ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
-    start_flush(ctx.cache, inode)
+    await start_flush(ctx.cache, inode)
     ctx.cache.backend_pool.verify()
     ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_del=1)
-    ctx.cache.remove(inode, 1)
+    await ctx.cache.remove(inode, 1)
     ctx.cache.backend_pool.verify()
 
-    with ctx.cache.get(inode, 1) as fh:
+    async with ctx.cache.get(inode, 1) as fh:
         fh.seek(0)
         assert fh.read(42) == b''
 
-def test_remove_db(ctx):
+async def test_remove_db(ctx):
     inode = ctx.inode
     data1 = random_data(int(0.4 * ctx.max_obj_size))
 
     # Case 3: Element only in DB
-    with ctx.cache.get(inode, 1) as fh:
+    async with ctx.cache.get(inode, 1) as fh:
         fh.seek(0)
         fh.write(data1)
     ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
-    ctx.cache.drop()
+    await ctx.cache.drop()
     ctx.cache.backend_pool.verify()
     ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_del=1)
-    ctx.cache.remove(inode, 1)
+    await ctx.cache.remove(inode, 1)
     ctx.cache.backend_pool.verify()
-    with ctx.cache.get(inode, 1) as fh:
+    async with ctx.cache.get(inode, 1) as fh:
         fh.seek(0)
         assert fh.read(42) ==  b''
 
-def test_issue_241(ctx):
+# Disabled, still needs to be ported to trio.
+async def XXtest_issue_241(ctx):
 
     inode = ctx.inode
 
     # Create block
-    with ctx.cache.get(inode, 0) as fh:
+    async with ctx.cache.get(inode, 0) as fh:
         fh.write(random_data(500))
 
     # "Fill" cache
@@ -480,27 +472,26 @@ def test_issue_241(ctx):
 
     # Mock locking to reproduce race condition
     mlock = MockMultiLock(ctx.cache.mlock)
-    with patch.object(ctx.cache, 'mlock', mlock):
-        # Start first expiration run, will block in upload
-        thread1 = AsyncFn(ctx.cache.expire)
-        thread1.start()
+    async with trio.open_nursery() as nursery:
+        async with trio.open_nursery() as nursery2:
+            with patch.object(ctx.cache, 'mlock', mlock):
+                # Start expiration, will block on lock
+                await nursery.start(ctx.cache.expire)
 
-        # Remove the object while the expiration thread waits
-        # for it to become available.
-        thread2 = AsyncFn(ctx.cache.remove, inode, 0, 1)
-        thread2.start()
-        mlock.yield_to(thread2)
-        thread2.join_and_raise(timeout=10)
-        assert not thread2.is_alive()
+                # Remove the object while the expiration thread waits
+                # for it to become available.
+                await nursery2.start(ctx.cache.remove, inode, 0, 1)
 
-    # Create a new object for the same block
-    with ctx.cache.get(inode, 0) as fh:
-        fh.write(random_data(500))
+                mlock.yield_to(thread2)
 
-    # Continue first expiration run
-    mlock.yield_to(thread1, block=False)
-    thread1.join_and_raise(timeout=10)
-    assert not thread1.is_alive()
+        # Create a new object for the same block
+        async with ctx.cache.get(inode, 0) as fh:
+            fh.write(random_data(500))
+
+        # Continue first expiration run
+        mlock.yield_to(thread1, block=False)
+        thread1.join_and_raise(timeout=10)
+        assert not thread1.is_alive()
 
 
 class MockMultiLock:
@@ -640,7 +631,7 @@ class MockBackendPool(AbstractBackend):
 
         return self.backend.get_size(key)
 
-def start_flush(cache, inode, block=None):
+async def start_flush(cache, inode, block=None):
     """Upload data for `inode`
 
     This is only for testing purposes, since the method blocks until all current
@@ -656,7 +647,7 @@ def start_flush(cache, inode, block=None):
         if block is not None and el.blockno != block:
             continue
 
-        cache.upload_if_dirty(el)
+        await cache.upload_if_dirty(el)
 
 
 class MockLock():

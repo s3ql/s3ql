@@ -9,7 +9,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 from .logging import logging, setup_logging
 from .common import assert_fs_owner, pretty_print_size
 from .parse_args import ArgumentParser
-import llfuse
+import pyfuse3
 import struct
 import sys
 
@@ -54,7 +54,7 @@ def main(args=None):
     # Use a decent sized buffer, otherwise the statistics have to be
     # calculated three(!) times because we need to invoke getxattr
     # three times.
-    buf = llfuse.getxattr(ctrlfile, 's3qlstat', size_guess=256)
+    buf = pyfuse3.getxattr(ctrlfile, 's3qlstat', size_guess=256)
 
     (entries, blocks, inodes, fs_size, dedup_size,
      compr_size, db_size, cache_cnt, cache_size, dirty_cnt,

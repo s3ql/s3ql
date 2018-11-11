@@ -19,11 +19,10 @@ from .metadata import (download_metadata, upload_metadata, dump_and_upload_metad
                        dump_metadata)
 from .parse_args import ArgumentParser
 from .exit_stack import ExitStack
-from threading import Thread
 import _thread
 import argparse
+import pyfuse3
 import faulthandler
-import llfuse
 import os
 import platform
 import subprocess
@@ -33,6 +32,7 @@ import resource
 import sys
 import tempfile
 import threading
+import trio
 import time
 import shutil
 import atexit
@@ -115,13 +115,61 @@ def main(args=None):
         import cProfile
         import pstats
         prof = cProfile.Profile()
+        prof.runcall(trio.run, main_async, options, stdout_log_handler)
+        with tempfile.NamedTemporaryFile() as tmp, \
+            open('s3ql_profile.txt', 'w') as fh:
+            prof.dump_stats(tmp.name)
+            p = pstats.Stats(tmp.name, stream=fh)
+            p.strip_dirs()
+            p.sort_stats('cumulative')
+            p.print_stats(50)
+            p.sort_stats('time')
+            p.print_stats(50)
+    else:
+        #trio.run(main_async, options, stdout_log_handler,
+        #         instruments=[Tracer()])
+        trio.run(main_async, options, stdout_log_handler)
+
+
+class Tracer(trio.abc.Instrument):
+    def _print_with_task(self, msg, task):
+        print("{}: {}".format(msg, task.name))
+
+    def task_spawned(self, task):
+        self._print_with_task("### new task spawned", task)
+
+    def task_scheduled(self, task):
+        self._print_with_task("### task scheduled", task)
+
+    def before_task_step(self, task):
+        self._print_with_task(">>> about to run one step of task", task)
+
+    def after_task_step(self, task):
+        self._print_with_task("<<< task step finished", task)
+
+    def task_exited(self, task):
+        self._print_with_task("### task exited", task)
+
+    def before_io_wait(self, timeout):
+        if timeout:
+            print("### waiting for I/O for up to {} seconds".format(timeout))
+        else:
+            print("### doing a quick check for I/O")
+        self._sleep_time = trio.current_time()
+
+    def after_io_wait(self, timeout):
+        duration = trio.current_time() - self._sleep_time
+        print("### finished I/O check (took {} seconds)".format(duration))
+
+
+async def main_async(options, stdout_log_handler):
+
+    # Get paths
+    cachepath = options.cachepath
 
     backend_factory = get_backend_factory(options)
     backend_pool = BackendPool(backend_factory)
     atexit.register(backend_pool.flush)
-
-    # Get paths
-    cachepath = options.cachepath
 
     # Retrieve metadata
     with backend_pool() as backend:
@@ -130,6 +178,7 @@ def main(args=None):
     #if param['max_obj_size'] < options.min_obj_size:
     #    raise QuietError('Maximum object size must be bigger than minimum object size.',
     #                     exitcode=2)
+
 
     # Handle --cachesize
     rec_cachesize = options.max_cache_entries * param['max_obj_size'] / 2
@@ -149,28 +198,29 @@ def main(args=None):
     else:
         db.execute('DROP INDEX IF EXISTS ix_contents_inode')
 
-    metadata_upload_thread = MetadataUploadThread(backend_pool, param, db,
-                                                  options.metadata_upload_interval)
+    metadata_upload_task = MetadataUploadTask(backend_pool, param, db,
+                                              options.metadata_upload_interval)
     block_cache = BlockCache(backend_pool, db, cachepath + '-cache',
                              options.cachesize * 1024, options.max_cache_entries)
-    commit_thread = CommitThread(block_cache)
+    commit_task = CommitTask(block_cache)
     operations = fs.Operations(block_cache, db, max_obj_size=param['max_obj_size'],
                                inode_cache=InodeCache(db, param['inode_gen']),
-                               upload_event=metadata_upload_thread.event)
+                               upload_event=metadata_upload_task.event)
     block_cache.fs = operations
-    metadata_upload_thread.fs = operations
+    metadata_upload_task.fs = operations
 
-    with ExitStack() as cm:
+    async with trio.open_nursery() as nursery:
+      with ExitStack() as cm:
         log.info('Mounting %s at %s...', options.storage_url, options.mountpoint)
         try:
-            llfuse.init(operations, options.mountpoint, get_fuse_opts(options))
+            pyfuse3.init(operations, options.mountpoint, get_fuse_opts(options))
         except RuntimeError as exc:
             raise QuietError(str(exc), exitcode=39)
 
         unmount_clean = False
         def unmount():
             log.info("Unmounting file system...")
-            llfuse.close(unmount=unmount_clean)
+            pyfuse3.close(unmount=unmount_clean)
         cm.callback(unmount)
 
         if options.fg or options.systemd:
@@ -188,36 +238,27 @@ def main(args=None):
         mark_metadata_dirty(backend, cachepath, param)
 
         block_cache.init(options.threads)
-        cm.callback(block_cache.destroy, options.keep_cache)
 
-        metadata_upload_thread.start()
-        cm.callback(metadata_upload_thread.join)
-        cm.callback(metadata_upload_thread.stop)
+        nursery.start_soon(metadata_upload_task.run, name='metadata-upload-task')
+        cm.callback(metadata_upload_task.stop)
 
-        commit_thread.start()
-        cm.callback(commit_thread.join)
-        cm.callback(commit_thread.stop)
+        nursery.start_soon(commit_task.run, name='commit-task')
+        cm.callback(commit_task.stop)
 
         exc_info = setup_exchook()
-        workers = 1 if options.single else None # use default
 
         if options.systemd:
             import systemd.daemon
             systemd.daemon.notify('READY=1')
 
-        if options.profile:
-            ret = prof.runcall(llfuse.main, workers)
-        else:
-            ret = llfuse.main(workers)
+        try:
+            ret = await pyfuse3.main()
+        finally:
+            await operations.destroy()
+            await block_cache.destroy(options.keep_cache)
 
         if ret is not None:
             raise RuntimeError('Received signal %d, terminating' % (ret,))
-
-        # Allow operations to terminate while block_cache is still available
-        # (destroy() will be called again when from llfuse.close(), but at that
-        # point the block cache is no longer available).
-        with llfuse.lock:
-            operations.destroy()
 
         # Re-raise if main loop terminated due to exception in other thread
         if exc_info:
@@ -238,7 +279,7 @@ def main(args=None):
         param['needs_fsck'] = True
     with backend_pool() as backend:
         seq_no = get_seq_no(backend)
-        if metadata_upload_thread.db_mtime == os.stat(cachepath + '.db').st_mtime:
+        if metadata_upload_task.db_mtime == os.stat(cachepath + '.db').st_mtime:
             log.info('File system unchanged, not uploading metadata.')
             del backend['s3ql_seq_no_%d' % param['seq_no']]
             param['seq_no'] -= 1
@@ -262,17 +303,6 @@ def main(args=None):
     db.execute('ANALYZE')
     db.execute('VACUUM')
     db.close()
-
-    if options.profile:
-        with tempfile.NamedTemporaryFile() as tmp, \
-            open('s3ql_profile.txt', 'w') as fh:
-            prof.dump_stats(tmp.name)
-            p = pstats.Stats(tmp.name, stream=fh)
-            p.strip_dirs()
-            p.sort_stats('cumulative')
-            p.print_stats(50)
-            p.sort_stats('time')
-            p.print_stats(50)
 
     log.info('All done.')
 
@@ -431,18 +461,10 @@ def mark_metadata_dirty(backend, cachepath, param):
 def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
 
-    fsname=options.fs_name
+    fsname = options.fs_name
     if not fsname:
         fsname = options.storage_url
-
-    fuse_opts = [ "nonempty", 'fsname=%s' % fsname,
-                  'subtype=s3ql', 'big_writes', 'max_write=131072',
-                  'no_remote_lock' ]
-
-    if platform.system() == 'Darwin':
-        # FUSE4X and OSXFUSE claim to support nonempty, but
-        # neither of them actually do.
-        fuse_opts.remove('nonempty')
+    fuse_opts = [ 'fsname=%s' % fsname, 'subtype=s3ql' ]
 
     if options.allow_other:
         fuse_opts.append('allow_other')
@@ -535,8 +557,6 @@ def parse_args(args):
     parser.add_argument("--nfs", action="store_true", default=False,
                       help='Enable some optimizations for exporting the file system '
                            'over NFS. (default: %(default)s)')
-    parser.add_argument("--single", action="store_true", default=False,
-                        help=argparse.SUPPRESS)
     parser.add_argument("--profile", action="store_true", default=False,
                         help=argparse.SUPPRESS)
 
@@ -555,22 +575,16 @@ def parse_args(args):
     if not options.log and not (options.fg or options.systemd):
         parser.error("Please activate logging to a file or syslog, or use the --fg option.")
 
-    if options.profile:
-        options.single = True
-
     if options.metadata_upload_interval == 0:
         options.metadata_upload_interval = None
 
     return options
 
-class MetadataUploadThread(Thread):
+class MetadataUploadTask:
     '''
     Periodically upload metadata. Upload is done every `interval`
     seconds, and whenever `event` is set. To terminate thread,
     set `quit` attribute as well as `event` event.
-
-    This class uses the llfuse global lock. When calling objects
-    passed in the constructor, the global lock is acquired first.
     '''
 
     def __init__(self, backend_pool, param, db, interval):
@@ -579,39 +593,35 @@ class MetadataUploadThread(Thread):
         self.param = param
         self.db = db
         self.interval = interval
-        self.daemon = True
         self.db_mtime = os.stat(db.file).st_mtime
-        self.event = threading.Event()
+        self.event = trio.Event()
         self.quit = False
-        self.name = 'Metadata-Upload-Thread'
 
         # Can't assign in constructor, because Operations instance needs
         # access to self.event as well.
         self.fs = None
 
-    def run(self):
+    async def run(self):
         log.debug('started')
 
         assert self.fs is not None
 
         while not self.quit:
-            self.event.wait(self.interval)
+            with trio.move_on_after(self.interval):
+                await self.event.wait()
             self.event.clear()
 
             if self.quit:
                 break
 
-            with llfuse.lock:
-                if self.quit:
-                    break
-                new_mtime = os.stat(self.db.file).st_mtime
-                if self.db_mtime == new_mtime:
-                    log.info('File system unchanged, not uploading metadata.')
-                    continue
+            new_mtime = os.stat(self.db.file).st_mtime
+            if self.db_mtime == new_mtime:
+                log.info('File system unchanged, not uploading metadata.')
+                continue
 
-                log.info('Dumping metadata...')
-                fh = tempfile.TemporaryFile()
-                dump_metadata(self.db, fh)
+            log.info('Dumping metadata...')
+            fh = tempfile.TemporaryFile()
+            dump_metadata(self.db, fh)
 
             with self.backend_pool() as backend:
                 seq_no = get_seq_no(backend)
@@ -628,7 +638,8 @@ class MetadataUploadThread(Thread):
 
                 # Temporarily decrease sequence no, this is not the final upload
                 self.param['seq_no'] -= 1
-                upload_metadata(backend, fh, self.param)
+                await trio.run_sync_in_worker_thread(
+                    upload_metadata, backend, fh, self.param)
                 self.param['seq_no'] += 1
 
                 fh.close()
@@ -682,50 +693,45 @@ def setup_exchook():
     return exc_info
 
 
-class CommitThread(Thread):
+class CommitTask:
     '''
     Periodically upload dirty blocks.
-
-    This class uses the llfuse global lock. When calling objects
-    passed in the constructor, the global lock is acquired first.
     '''
-
 
     def __init__(self, block_cache):
         super().__init__()
         self.block_cache = block_cache
-        self.stop_event = threading.Event()
-        self.name = 'CommitThread'
+        self.stop_event = trio.Event()
 
-    def run(self):
+    async def run(self):
         log.debug('started')
 
         while not self.stop_event.is_set():
             did_sth = False
 
-            with llfuse.lock:
-                stamp = time.time()
-                # Need to make copy, since we aren't allowed to change
-                # dict while iterating through it. The performance hit doesn't seem
-                # to be that bad:
-                # >>> from timeit import timeit
-                # >>> timeit("k=0\nfor el in list(d.values()):\n k += el",
-                # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',
-                # ... number=500)/500 * 1e3
-                # 1.3769531380003173
-                # >>> timeit("k=0\nfor el in d.values(n:\n k += el",
-                # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',
-                # ... number=500)/500 * 1e3
-                # 1.456586996000624
-                for el in list(self.block_cache.cache.values()):
-                    if self.stop_event.is_set() or stamp - el.last_write < 10:
-                        break
-                    if el.dirty and el not in self.block_cache.in_transit:
-                        self.block_cache.upload_if_dirty(el)
-                        did_sth = True
+            stamp = time.time()
+            # Need to make copy, since we aren't allowed to change
+            # dict while iterating through it. The performance hit doesn't seem
+            # to be that bad:
+            # >>> from timeit import timeit
+            # >>> timeit("k=0\nfor el in list(d.values()):\n k += el",
+            # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',
+            # ... number=500)/500 * 1e3
+            # 1.3769531380003173
+            # >>> timeit("k=0\nfor el in d.values(n:\n k += el",
+            # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',
+            # ... number=500)/500 * 1e3
+            # 1.456586996000624
+            for el in list(self.block_cache.cache.values()):
+                if self.stop_event.is_set() or stamp - el.last_write < 10:
+                    break
+                if el.dirty and el not in self.block_cache.in_transit:
+                    await self.block_cache.upload_if_dirty(el)
+                    did_sth = True
 
             if not did_sth:
-                self.stop_event.wait(5)
+                with trio.move_on_after(5):
+                    await self.stop_event.wait()
 
         log.debug('finished')
 

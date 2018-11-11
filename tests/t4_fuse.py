@@ -15,9 +15,9 @@ if __name__ == '__main__':
 from os.path import basename
 from s3ql import CTRL_NAME
 from s3ql.common import path2bytes
-from common import retry, skip_if_no_fusermount
+from common import retry, skip_if_no_fusermount, RetryTimeoutError
 import filecmp
-import llfuse
+import pyfuse3
 import os.path
 import shutil
 import platform
@@ -199,12 +199,12 @@ class TestFuse:
         os.mkdir(fullname)
         fstat = os.stat(fullname)
         assert stat.S_ISDIR(fstat.st_mode)
-        assert llfuse.listdir(fullname) ==  []
+        assert pyfuse3.listdir(fullname) ==  []
         assert fstat.st_nlink == 1
-        assert dirname in llfuse.listdir(self.mnt_dir)
+        assert dirname in pyfuse3.listdir(self.mnt_dir)
         os.rmdir(fullname)
         assert_raises(FileNotFoundError, os.stat, fullname)
-        assert dirname not in llfuse.listdir(self.mnt_dir)
+        assert dirname not in pyfuse3.listdir(self.mnt_dir)
 
     def tst_symlink(self):
         linkname = self.newname()
@@ -214,10 +214,10 @@ class TestFuse:
         assert stat.S_ISLNK(fstat.st_mode)
         assert os.readlink(fullname) == "/imaginary/dest"
         assert fstat.st_nlink == 1
-        assert linkname in llfuse.listdir(self.mnt_dir)
+        assert linkname in pyfuse3.listdir(self.mnt_dir)
         os.unlink(fullname)
         assert_raises(FileNotFoundError, os.lstat, fullname)
-        assert linkname not in llfuse.listdir(self.mnt_dir)
+        assert linkname not in pyfuse3.listdir(self.mnt_dir)
 
     def tst_mknod(self):
         filename = os.path.join(self.mnt_dir, self.newname())
@@ -226,11 +226,11 @@ class TestFuse:
         fstat = os.lstat(filename)
         assert stat.S_ISREG(fstat.st_mode)
         assert fstat.st_nlink == 1
-        assert basename(filename) in llfuse.listdir(self.mnt_dir)
+        assert basename(filename) in pyfuse3.listdir(self.mnt_dir)
         assert filecmp.cmp(src, filename, False)
         os.unlink(filename)
         assert_raises(FileNotFoundError, os.stat, filename)
-        assert basename(filename) not in llfuse.listdir(self.mnt_dir)
+        assert basename(filename) not in pyfuse3.listdir(self.mnt_dir)
 
     def tst_chown(self):
         filename = os.path.join(self.mnt_dir, self.newname())
@@ -253,7 +253,7 @@ class TestFuse:
 
         os.rmdir(filename)
         assert_raises(FileNotFoundError, os.stat, filename)
-        assert basename(filename) not in llfuse.listdir(self.mnt_dir)
+        assert basename(filename) not in pyfuse3.listdir(self.mnt_dir)
 
     def tst_write(self):
         name = os.path.join(self.mnt_dir, self.newname())
@@ -281,7 +281,7 @@ class TestFuse:
         assert fstat1 == fstat2
         assert fstat1.st_nlink == 2
 
-        assert basename(name2) in llfuse.listdir(self.mnt_dir)
+        assert basename(name2) in pyfuse3.listdir(self.mnt_dir)
         assert filecmp.cmp(name1, name2, False)
         os.unlink(name2)
         fstat1 = os.lstat(name1)
@@ -300,7 +300,7 @@ class TestFuse:
         os.mkdir(subdir)
         shutil.copyfile(src, subfile)
 
-        listdir_is = llfuse.listdir(dir_)
+        listdir_is = pyfuse3.listdir(dir_)
         listdir_is.sort()
         listdir_should = [ basename(file_), basename(subdir) ]
         listdir_should.sort()
@@ -355,8 +355,13 @@ class TestFuse:
         fullname = self.mnt_dir + "/" + dirname
         os.mkdir(fullname)
         assert stat.S_ISDIR(os.stat(fullname).st_mode)
-        assert dirname in llfuse.listdir(self.mnt_dir)
-        cmd = ('(%d, %r)' % (llfuse.ROOT_INODE, path2bytes(dirname))).encode()
-        llfuse.setxattr('%s/%s' % (self.mnt_dir, CTRL_NAME), 'rmtree', cmd)
+        assert dirname in pyfuse3.listdir(self.mnt_dir)
+        cmd = ('(%d, %r)' % (pyfuse3.ROOT_INODE, path2bytes(dirname))).encode()
+        pyfuse3.setxattr('%s/%s' % (self.mnt_dir, CTRL_NAME), 'rmtree', cmd)
+        # Invalidation is asynchronous...
+        try:
+            retry(5, lambda: not os.path.exists(fullname))
+        except RetryTimeoutError:
+            pass # assert_raises should fail
         assert_raises(FileNotFoundError, os.stat, fullname)
-        assert dirname not in llfuse.listdir(self.mnt_dir)
+        assert dirname not in pyfuse3.listdir(self.mnt_dir)

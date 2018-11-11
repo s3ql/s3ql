@@ -25,6 +25,7 @@ import faulthandler
 import signal
 import gc
 import time
+import pytest_trio
 
 # If a test fails, wait a moment before retrieving the captured
 # stdout/stderr. When using a server process (like in t4_fuse.py), this makes
