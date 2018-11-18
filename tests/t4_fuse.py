@@ -147,10 +147,13 @@ class TestFuse:
         # Give mount process a little while to terminate
         if self.mount_process is not None:
             try:
-                retry(90, lambda : self.mount_process.poll() is not None)
+                retry(10, lambda : self.mount_process.poll() is not None)
             except TimeoutError:
-                # Ignore errors  during teardown
-                pass
+                self.mount_process.terminate()
+                try:
+                    self.mount_process.wait(1)
+                except subprocess.TimeoutExpired:
+                    self.mount_process.kill()
 
         shutil.rmtree(self.cache_dir)
         shutil.rmtree(self.backend_dir)
