@@ -57,14 +57,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # Unused argument
         #pylint: disable=W0613
         super().__init__()
-        self.login = options.login
-        self.password = options.password
+        self.login = options.backend_login
+        self.password = options.backend_password        
         client_secret_and_refresh_token = self.password.split(':')
         if len(client_secret_and_refresh_token) != 2:
             raise AuthenticationError("Invalid Password format, must be  secretApplication:refreshToken")
         self.client_secret = client_secret_and_refresh_token[0]
         self.refresh_token = client_secret_and_refresh_token[1]
-        self.options = options.backend_password
+        self.options = options.backend_options
         self.delete_map_state = dict()
 
         # get google drive service
