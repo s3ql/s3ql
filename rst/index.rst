@@ -20,6 +20,7 @@
    authinfo
    contrib
    tips
+   faq
    issues
    man/index
    resources
