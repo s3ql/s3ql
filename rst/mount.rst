@@ -188,8 +188,7 @@ init job (instead of using :file:`/etc/fstab`. When using systemd,
    * file systems mounted in :file:`/etc/fstab` will be unmounted with the
      :program:`umount` command, so your system will not wait until all data has
      been uploaded but shutdown (or restart) immediately (this is a
-     FUSE limitation, see `issue #1
-     <https://bitbucket.org/nikratio/s3ql/issue/1/blocking-fusermount-and-umount>`_).
+     FUSE limitation, cf https://github.com/libfuse/libfuse/issues/1).
 
    * There is no way to tell the system that mounting S3QL requires a
      Python interpreter to be available, so it may attempt to run

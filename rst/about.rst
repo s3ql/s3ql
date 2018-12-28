@@ -6,7 +6,6 @@
 Contributing
 ============
 
-The S3QL source code is available both on GitHub_ and BitBucket_.
+The S3QL source code is available on GitHub_.
 
-.. _BitBucket: https://bitbucket.org/nikratio/s3ql/
 .. _GitHub: https://github.com/s3ql/main

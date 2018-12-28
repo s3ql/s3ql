@@ -102,6 +102,6 @@ Exit Codes
 See Also
 ========
 
-|command| is shipped as part of S3QL, https://bitbucket.org/nikratio/s3ql/.
+|command| is shipped as part of S3QL, https://github.com/s3ql/s3ql/.
 
 .. |command| replace:: :program:`expire_backups`

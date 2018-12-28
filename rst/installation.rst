@@ -10,18 +10,6 @@ installed first. The best method to satisfy these dependencies depends
 on your distribution.
 
 
-The following instructions are for S3QL |version| and should be
-applicable to any system. The `S3QL Wiki
-<https://bitbucket.org/nikratio/s3ql/wiki/Home>`_ contains `additional
-help <https://bitbucket.org/nikratio/s3ql/wiki/Installation>`_ help
-for specific distributions and operating systems. Note, however, that
-S3QL wiki is editable by anyone. The information there has thus not
-been vetted by the S3QL maintainers, and may be wrong, out-of-date, or
-even dangerous. Generally, you should only follow steps from the Wiki
-that you fully understand yourself, and fall back on the instructions
-below when in doubt.
-
-
 Dependencies
 ============
 
@@ -57,9 +45,9 @@ that is not the case.
     the official module from the systemd developers.
   * `apsw <https://github.com/rogerbinns/apsw>`_, version 3.7.0 or
     newer.
-  * `llfuse <https://bitbucket.org/nikratio/python-llfuse/>`_, any
+  * `llfuse <https://pypi.org/project/llfuse/>`_, any
     version between 1.0 (inclusive) and 2.0 (exclusive)
-  * `dugong <https://bitbucket.org/nikratio/python-dugong/>`_, any
+  * `dugong <https://pypi.org/project/dugong/>`_, any
     version between 3.4 (inclusive) and 4.0 (exclusive)
   * `pytest <http://pytest.org/>`_, version 2.7 or newer (optional, to run unit tests)
 
@@ -77,13 +65,13 @@ Installing S3QL
 
 To build and install S3QL itself, proceed as follows:
 
-1. Download S3QL from https://bitbucket.org/nikratio/s3ql/downloads
+1. Download S3QL from https://github.com/s3ql/s3ql/releases
 2. Unpack it into a folder of your choice
 3. Run `python3 setup.py build_ext --inplace` to build S3QL.
 4. Run `python3 -m pytest tests/` to run a self-test. If this fails, ask
    for help on the `mailing list
    <http://groups.google.com/group/s3ql>`_ or report a bug in the
-   `issue tracker <https://bitbucket.org/nikratio/s3ql/issues>`_.
+   `issue tracker <https://github.com/s3ql/s3ql/issues>`_.
 
 Now you have three options:
 
