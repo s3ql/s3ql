@@ -130,10 +130,10 @@ Need Help?
 The following resources are available:
 
 * The `S3QL User's Guide`_.
-* The `S3QL Wiki`_, which also contains the `S3QL FAQ`_.
-* The `S3QL Mailing List`_. You can subscribe by sending a mail to
-  `s3ql+subscribe@googlegroups.com
-  <mailto:s3ql+subscribe@googlegroups.com>`_.
+* The `S3QL Wiki <https://github.com/s3ql/s3ql/wiki>`_
+* The `S3QL Mailing List <http://groups.google.com/group/s3ql>`_. You
+  can subscribe by sending a mail to
+  `s3ql+subscribe@googlegroups.com <mailto:s3ql+subscribe@googlegroups.com>`_.
 
 Please report any bugs you may encounter in the `GitHub Issue Tracker`_.
 
@@ -148,8 +148,6 @@ Professional Support
 Professional support is offered via `Rath Consulting`_.
 
 .. _`S3QL User's Guide`: http://www.rath.org/s3ql-docs/index.html
-.. _`S3QL Wiki`: https://bitbucket.org/nikratio/s3ql/wiki/
-.. _`S3QL FAQ`: https://bitbucket.org/nikratio/s3ql/wiki/FAQ
 .. _`S3QL Mailing List`: http://groups.google.com/group/s3ql
 .. _`GitHub Issue Tracker`: https://github.com/s3ql/s3ql/issues
 .. _GitHub: https://github.com/s3ql/main
