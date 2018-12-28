@@ -1,4 +1,4 @@
-UNRELEASED, S3QL master
+2018-12-28, S3QL 2.33
 
   * Fixed a sporadic test failure in t5_cache.py.
 
