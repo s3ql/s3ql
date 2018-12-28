@@ -19,6 +19,7 @@ import os
 import shutil
 import tempfile
 import subprocess
+import time
 from os.path import join as pjoin
 
 with open(__file__, 'rb') as fh:
@@ -137,6 +138,11 @@ class TestPerstCache(t4_fuse.TestFuse):
         # Kill mount
         self.flush_cache()
         self.upload_meta()
+
+        # Metadata upload is not blocking, so give it some time to
+        # complete
+        time.sleep(1)
+
         self.mount_process.kill()
         self.mount_process.wait()
         self.umount_fuse()
