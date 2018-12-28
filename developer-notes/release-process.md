@@ -2,7 +2,6 @@
 
 * Bump version in `src/s3ql/__init__.py`
 * Add release date to `Changes.txt`
-* Check `hg status -u`, if necessary run `hg purge` to avoid undesired files in the tarball.
 * `./setup.py build_cython build_ext --inplace`
 * `./setup.py build_sphinx sdist`
 * Test tarball:
@@ -10,11 +9,10 @@
   * `./setup.py build_sphinx`
   * `python3 -m pytest tests/`
 * Generate signature: `gpg -sb --armor XXXX.tar.bz2`
-* hg commit, hg tag
+* `git commit --all -m "Released XXX"`
+* `git tag -s release-x.y -m "Tagged release"`
+* `git push && git push --tags`, create release on Github
 * `./setup.py upload_docs`
-* Upload source distribution and signature to BitBucket
-* `hg push && hg push github`
-* Create release on Github
 * Write announcement to mailing list
 
 ## Email template
