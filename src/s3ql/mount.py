@@ -37,11 +37,6 @@ import time
 import shutil
 import atexit
 
-try:
-    from systemd.daemon import notify as sd_notify
-except ImportError:
-    sd_notify = None
-
 log = logging.getLogger(__name__)
 
 def install_thread_excepthook():
@@ -178,7 +173,7 @@ def main(args=None):
             llfuse.close(unmount=unmount_clean)
         cm.callback(unmount)
 
-        if options.fg:
+        if options.fg or options.systemd:
             faulthandler.enable()
             faulthandler.register(signal.SIGUSR1)
         else:
@@ -203,14 +198,12 @@ def main(args=None):
         cm.callback(commit_thread.join)
         cm.callback(commit_thread.stop)
 
-        if options.upstart:
-            os.kill(os.getpid(), signal.SIGSTOP)
-        if sd_notify is not None:
-            sd_notify('READY=1')
-            sd_notify('MAINPID=%d' % os.getpid())
-
         exc_info = setup_exchook()
         workers = 1 if options.single else None # use default
+
+        if options.systemd:
+            import systemd.daemon
+            systemd.daemon.notify('READY=1')
 
         if options.profile:
             ret = prof.runcall(llfuse.main, workers)
@@ -536,9 +529,9 @@ def parse_args(args):
                            'user and the root user.')
     parser.add_argument("--fg", action="store_true", default=False,
                       help="Do not daemonize, stay in foreground")
-    parser.add_argument("--upstart", action="store_true", default=False,
-                      help="Stay in foreground and raise SIGSTOP once mountpoint "
-                           "is up.")
+    parser.add_argument("--systemd", action="store_true", default=False,
+                      help="Run as systemd unit. Consider specifying --log none as well "
+                           "to make use of journald.")
     parser.add_argument("--compress", action="store", default='lzma-6',
                         metavar='<algorithm-lvl>', type=compression_type,
                         help="Compression algorithm and compression level to use when "
@@ -572,14 +565,11 @@ def parse_args(args):
     if options.allow_other and options.allow_root:
         parser.error("--allow-other and --allow-root are mutually exclusive.")
 
-    if not options.log and not options.fg:
+    if not options.log and not (options.fg or options.systemd):
         parser.error("Please activate logging to a file or syslog, or use the --fg option.")
 
     if options.profile:
         options.single = True
-
-    if options.upstart:
-        options.fg = True
 
     if options.metadata_upload_interval == 0:
         options.metadata_upload_interval = None

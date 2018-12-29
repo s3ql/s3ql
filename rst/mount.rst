@@ -177,7 +177,8 @@ Automatic Mounting
 If you want to mount and umount an S3QL file system automatically at
 system startup and shutdown, you should do so with a dedicated S3QL
 init job (instead of using :file:`/etc/fstab`. When using systemd,
-:program:`mount.s3ql` can be run as a service of type ``notify``.
+:program:`mount.s3ql` can be started with :cmdopt:`--systemd` to run
+as a systemd service of type ``notify``.
 
 .. NOTE::
 

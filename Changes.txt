@@ -1,3 +1,11 @@
+Unreleased Changes
+
+  * Added a new `--systemd` option to simplify running mount.s3ql
+    as a systemd unit.
+
+  * Dropped the `--upstart` option - upstart seems to be unused and
+    unmaintained.
+
 2018-12-28, S3QL 2.33
 
   * Fixed a sporadic test failure in t5_cache.py.

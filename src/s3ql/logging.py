@@ -31,6 +31,23 @@ class QuietError(Exception):
     def __str__(self):
         return self.msg
 
+
+SYSTEMD_LOG_LEVEL_MAP = {
+    logging.CRITICAL: 0,
+    logging.ERROR: 3,
+    logging.WARNING: 4,
+    logging.INFO: 6,
+    logging.DEBUG: 7,
+}
+
+class SystemdFormatter(logging.Formatter):
+    def format(self, record):
+        s = super().format(record)
+        prefix = SYSTEMD_LOG_LEVEL_MAP.get(record.levelno, None)
+        if prefix:
+            s = '<%d>%s' % (prefix, s)
+        return s
+
 class MyFormatter(logging.Formatter):
     '''Prepend severity to log message if it exceeds threshold'''
 
@@ -85,7 +102,7 @@ def setup_logging(options):
         root_logger.debug("Logging already initialized.")
         return
 
-    stdout_handler = add_stdout_logging(options.quiet)
+    stdout_handler = add_stdout_logging(options.quiet, getattr(options, 'systemd', False))
     if hasattr(options, 'log') and options.log:
         root_logger.addHandler(create_handler(options.log))
     elif options.debug and (not hasattr(options, 'log') or not options.log):
@@ -134,13 +151,16 @@ def setup_excepthook():
 
     sys.excepthook = excepthook
 
-def add_stdout_logging(quiet=False):
+def add_stdout_logging(quiet=False, systemd=False):
     '''Add stdout logging handler to root logger'''
 
     root_logger = logging.getLogger()
-    formatter = MyFormatter('%(message)s')
+    if systemd:
+        formatter = SystemdFormatter('%(message)s')
+    else:
+        formatter = MyFormatter('%(message)s')
     handler = logging.StreamHandler(sys.stderr)
-    if quiet:
+    if not systemd and quiet:
         handler.setLevel(logging.WARNING)
     else:
         handler.setLevel(logging.INFO)
