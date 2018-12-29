@@ -148,17 +148,13 @@ class Backend(s3c.Backend):
                               errtag.findtext(ns_p + 'Key')[offset:],
                               errtag.findtext(ns_p + 'Code'))
 
-            # If *force*, just modify the passed list and return without
-            # raising an exception, otherwise raise exception for the first error
-            if force:
-                return
-
             errcode = error_tags[0].findtext(ns_p + 'Code')
             errmsg = error_tags[0].findtext(ns_p + 'Message')
             errkey = error_tags[0].findtext(ns_p + 'Key')[offset:]
 
             if errcode == 'NoSuchKeyError':
-                raise NoSuchObject(errkey)
+                if not force:
+                    raise NoSuchObject(errkey)
             else:
                 raise get_S3Error(errcode, 'Error deleting %s: %s' % (errkey, errmsg))
 
