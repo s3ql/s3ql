@@ -6,6 +6,11 @@ Unreleased Changes
   * Dropped the `--upstart` option - upstart seems to be unused and
     unmaintained.
 
+  * Dropped support for legacy ("API key") authentication for Google
+    Storage. Only oauth2 is supported now. This was necessitated by
+    the switch to Google's native API (before S3QL was using Google's
+    S3 compatibility layer).
+
 2018-12-28, S3QL 2.33
 
   * Fixed a sporadic test failure in t5_cache.py.

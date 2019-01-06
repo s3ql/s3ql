@@ -291,17 +291,6 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(content)
 
 
-class GSRequestHandler(S3CRequestHandler):
-    '''A request handler implementing a subset of the Google Storage API.
-
-    Bucket names are ignored, all keys share the same global namespace.
-    '''
-
-    meta_header_re = re.compile(r'x-goog-meta-([a-z0-9_.-]+)$',
-                                re.IGNORECASE)
-    hdr_prefix = 'x-goog-'
-    xml_ns = 'http://doc.s3.amazonaws.com/2006-03-01'
-
 class BasicSwiftRequestHandler(S3CRequestHandler):
     '''A request handler implementing a subset of the OpenStack Swift Interface
 
@@ -578,7 +567,6 @@ class BulkDeleteSwiftRequestHandler(BasicSwiftRequestHandler):
 handler_list = [ (S3CRequestHandler, 's3c://%(host)s:%(port)d/s3ql_test'),
 
                  # Special syntax only for testing against mock server
-                 (GSRequestHandler, 'gs://!unittest!%(host)s:%(port)d/s3ql_test'),
                  (BasicSwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
                  (CopySwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
                  (BulkDeleteSwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test') ]

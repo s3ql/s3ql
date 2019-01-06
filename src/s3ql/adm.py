@@ -253,6 +253,7 @@ def upgrade(options, on_return):
 
     s3ql.backends.comprenc.UPGRADE_MODE = checksum_basic_mapping_old
     s3ql.backends.s3c.UPGRADE_MODE = checksum_basic_mapping_old
+    s3ql.backends.gs.UPGRADE_MODE = checksum_basic_mapping_old
 
     log.info('Getting file system parameters..')
 
