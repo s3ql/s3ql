@@ -30,7 +30,7 @@ from pytest import raises as assert_raises
 # For debugging
 USE_VALGRIND = False
 
-@pytest.mark.usefixtures('s3ql_cmd_argv', 'pass_reg_output')
+@pytest.mark.usefixtures('pass_s3ql_cmd_argv', 'pass_reg_output')
 class TestFuse:
 
     def setup_method(self, method):
