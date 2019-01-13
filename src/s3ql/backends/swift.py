@@ -45,7 +45,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     _extractmeta = s3c.Backend._extractmeta
     _assert_empty_response = s3c.Backend._assert_empty_response
     _dump_response = s3c.Backend._dump_response
-    clear = s3c.Backend.clear
     reset = s3c.Backend.reset
 
     def __init__(self, options):

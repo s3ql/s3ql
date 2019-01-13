@@ -589,25 +589,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return tree
 
-    # NOTE: ! This function is also used by the swift backend. !
-    @prepend_ancestor_docstring
-    def clear(self):
-        """
-        This method may not be able to see (and therefore also not delete)
-        recently uploaded objects.
-        """
-
-        # We have to cache keys, because otherwise we can't use the
-        # http connection to delete keys.
-        for (no, s3key) in enumerate(list(self)):
-            if no != 0 and no % 1000 == 0:
-                log.info('clear(): deleted %d objects so far..', no)
-
-            log.debug('started with %s', s3key)
-
-            # Ignore missing objects when clearing bucket
-            self.delete(s3key, True)
-
     def __str__(self):
         return 's3c://%s/%s/%s' % (self.hostname, self.bucket_name, self.prefix)
 

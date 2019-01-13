@@ -248,7 +248,8 @@ def yield_remote_backend(bi, _ctr=[0]):
     try:
         yield backend
     finally:
-        backend.clear()
+        for name in list(backend.list()):
+            backend.delete(name, force=True)
         backend.close()
 
 def newname(name_counter=[0]):
@@ -512,29 +513,6 @@ def test_delete_multi(backend):
     assert_in_index(backend, remaining)
     for key in remaining:
         fetch_object(backend, key)
-
-# No need to run with different encryption/compression settings,
-# ComprencBackend should just forward this 1:1 to the raw backend.
-@pytest.mark.with_backend('*/aes')
-def test_clear(backend):
-    keys = [ newname() for _ in range(5) ]
-    value = newvalue()
-
-    # Create objects
-    for key in keys:
-        backend[key] = value
-
-    # Wait for them
-    assert_in_index(backend, keys)
-    for key in keys:
-        fetch_object(backend, key)
-
-    # Delete everything
-    backend.clear()
-
-    assert_not_in_index(backend, keys)
-    for key in keys:
-        assert_not_readable(backend, key)
 
 @pytest.mark.with_backend('*/raw', 'local/{plain,aes,zlib}')
 def test_copy(backend):

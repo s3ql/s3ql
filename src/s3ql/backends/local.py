@@ -111,15 +111,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return dest
 
     @copy_ancestor_docstring
-    def clear(self):
-        for name in os.listdir(self.prefix):
-            path = os.path.join(self.prefix, name)
-            if os.path.isdir(path):
-                shutil.rmtree(path)
-            else:
-                os.unlink(path)
-
-    @copy_ancestor_docstring
     def contains(self, key):
         path = self._key_to_path(key)
         try:

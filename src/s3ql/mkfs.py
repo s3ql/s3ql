@@ -45,8 +45,6 @@ def parse_args(args):
                            "Default: %(default)d KiB.")
     parser.add_argument("--plain", action="store_true", default=False,
                       help="Create unencrypted file system.")
-    parser.add_argument("--force", action="store_true", default=False,
-                        help="Overwrite any existing data.")
 
     options = parser.parse_args(args)
 
@@ -102,13 +100,8 @@ def main(args=None):
                     '(cf. https://forums.aws.amazon.com/thread.jspa?threadID=130560)')
 
     if 's3ql_metadata' in plain_backend:
-        if not options.force:
-            raise QuietError("Found existing file system! Use --force to overwrite")
-
-        log.info('Purging existing file system data..')
-        plain_backend.clear()
-        log.info('Please note that the new file system may appear inconsistent\n'
-                 'for a while until the removals have propagated through the backend.')
+        raise QuietError("Refusing to overwrite existing file system! "
+                         "(use `s3qladm clear` to delete)")
 
     if not options.plain:
         if sys.stdin.isatty():

@@ -265,10 +265,6 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         return fh
 
     @copy_ancestor_docstring
-    def clear(self):
-        return self.backend.clear()
-
-    @copy_ancestor_docstring
     def contains(self, key):
         return self.backend.contains(key)
 

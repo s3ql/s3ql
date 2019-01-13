@@ -426,18 +426,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self._parse_json_response(resp)
 
 
-    @prepend_ancestor_docstring
-    def clear(self):
-        """
-        This method may not be able to see (and therefore also not delete)
-        recently uploaded objects.
-        """
-
-        # We have to cache keys, because otherwise we can't use the
-        # http connection to delete keys.
-        for (no, s3key) in enumerate(list(self)):
-            self.delete(s3key, True)
-
     @copy_ancestor_docstring
     def close(self):
         self.conn.disconnect()

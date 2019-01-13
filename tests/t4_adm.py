@@ -79,6 +79,21 @@ class AdmTests(unittest.TestCase):
 
         backend.fetch('s3ql_passphrase') # will fail with wrong pw
 
+    def test_clear(self):
+        self.mkfs()
+
+        proc = subprocess.Popen(self.s3ql_cmd_argv('s3qladm') +
+                                [ '--quiet', '--log', 'none', '--authfile',
+                                  '/dev/null', 'clear', self.storage_url ],
+                                stdin=subprocess.PIPE, universal_newlines=True)
+        print('yes', file=proc.stdin)
+        proc.stdin.close()
+        self.assertEqual(proc.wait(), 0)
+
+        plain_backend = local.Backend(Namespace(
+            storage_url=self.storage_url))
+        assert list(plain_backend.list()) == []
+
 
     def test_key_recovery(self):
         mkfs_output = self.mkfs()

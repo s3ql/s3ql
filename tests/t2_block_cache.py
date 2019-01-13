@@ -609,9 +609,6 @@ class MockBackendPool(AbstractBackend):
     def is_temp_failure(self, exc):
         return self.backend.is_temp_failure(exc)
 
-    def clear(self):
-        return self.backend.clear()
-
     def contains(self, key):
         return self.backend.contains(key)
 

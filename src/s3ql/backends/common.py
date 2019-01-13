@@ -368,11 +368,6 @@ class AbstractBackend(object, metaclass=ABCMeta):
 
         pass
 
-    @abstractmethod
-    def clear(self):
-        """Delete all objects in backend"""
-        pass
-
     def contains(self, key):
         '''Check if `key` is in backend'''
 

@@ -51,8 +51,10 @@ def parse_args(args):
                                        help='may be either of')
     subparsers.add_parser("passphrase", help="change file system passphrase",
                           parents=[pparser])
-    subparsers.add_parser("clear", help="delete file system and all data",
-                          parents=[pparser])
+    sparser = subparsers.add_parser("clear", help="delete file system and all data",
+                                    parents=[pparser])
+    sparser.add_argument("--threads", type=int, default=20,
+                        help='Number of threads to use')
     subparsers.add_parser("recover-key", help="Recover master key from offline copy.",
                           parents=[pparser])
     subparsers.add_parser("download-metadata",
@@ -91,8 +93,7 @@ def main(args=None):
         raise QuietError('Can not work on mounted file system.')
 
     if options.action == 'clear':
-        with get_backend(options, raw=True) as backend:
-            return clear(backend, options)
+        return clear(options)
     elif options.action == 'upgrade':
         return upgrade(options)
 
@@ -209,9 +210,16 @@ def recover(backend, options):
     backend['s3ql_passphrase_bak2'] = data_pw
     backend['s3ql_passphrase_bak3'] = data_pw
 
-def clear(backend, options):
-    print('I am about to delete all data in %s.' % backend,
-          'This includes any S3QL file systems as well as any other stored objects.',
+@handle_on_return
+def clear(options, on_return):
+    backend_factory = lambda: options.backend_class(options)
+    backend = on_return.enter_context(backend_factory())
+
+    print('I am about to DELETE ALL DATA in %s.' % backend,
+          'This includes not just S3QL file systems but *all* stored objects.',
+          'Depending on the storage service, it may be neccessary to run this command',
+          'several times to delete all data, and it may take a while until the ',
+          'removal becomes effective.',
           'Please enter "yes" to continue.', '> ', sep='\n', end='')
     sys.stdout.flush()
 
@@ -228,10 +236,61 @@ def clear(backend, options):
     if os.path.exists(name):
         shutil.rmtree(name)
 
-    backend.clear()
+    queue = Queue(maxsize=options.threads)
 
-    log.info('File system deleted.')
-    log.info('Note: it may take a while for the removals to propagate through the backend.')
+    def removal_loop():
+        with backend_factory() as backend:
+            while True:
+                key = queue.get()
+                if key is None:
+                    return
+                backend.delete(key)
+
+    threads = []
+    for _ in range(options.threads):
+        t = AsyncFn(removal_loop)
+        # Don't wait for worker threads, gives deadlock if main thread
+        # terminates with exception
+        t.daemon = True
+        t.start()
+        threads.append(t)
+
+    stamp = time.time()
+    for (i, obj_id) in enumerate(backend.list()):
+        stamp2 = time.time()
+        if stamp2 - stamp > 1:
+            sys.stdout.write('\r..deleted %d objects so far..' % i)
+            sys.stdout.flush()
+            stamp = stamp2
+
+            # Terminate early if any thread failed with an exception
+            for t in threads:
+                if not t.is_alive():
+                    t.join_and_raise()
+
+        # Avoid blocking if all threads terminated
+        while True:
+            try:
+                queue.put(obj_id, timeout=1)
+            except QueueFull:
+                pass
+            else:
+                break
+            for t in threads:
+                if not t.is_alive():
+                    t.join_and_raise()
+
+    queue.maxsize += len(threads)
+    for t in threads:
+        queue.put(None)
+
+    for t in threads:
+        t.join_and_raise()
+
+    sys.stdout.write('\n')
+    log.info('All visible objects deleted.')
+
+
 
 def get_old_rev_msg(rev, prog):
     return textwrap.dedent('''\
