@@ -37,12 +37,6 @@ that is not the case.
   * `setuptools <https://pypi.python.org/pypi/setuptools>`_, version 1.0 or newer.
   * `cryptography <https://cryptography.io/en/latest/installation/>`_
   * `defusedxml <https://pypi.python.org/pypi/defusedxml/>`_
-  * `requests <https://pypi.python.org/pypi/requests/>`_ (optional,
-    required for OAuth2 authentication with Google Storage)
-  * `systemd <https://github.com/systemd/python-systemd>`_ (optional,
-    for enabling systemd support). Do *not* install the module from
-    PyPi, this is from a third-party developer and incompatible with
-    the official module from the systemd developers.
   * `apsw <https://github.com/rogerbinns/apsw>`_, version 3.7.0 or
     newer.
   * `llfuse <https://pypi.org/project/llfuse/>`_, any
@@ -50,6 +44,14 @@ that is not the case.
   * `dugong <https://pypi.org/project/dugong/>`_, any
     version between 3.4 (inclusive) and 4.0 (exclusive)
   * `pytest <http://pytest.org/>`_, version 2.7 or newer (optional, to run unit tests)
+  * `systemd <https://github.com/systemd/python-systemd>`_ (optional,
+    for enabling systemd support). Do *not* install the module from
+    PyPi, this is from a third-party developer and incompatible with
+    the official module from the systemd developers.
+  * `requests <https://pypi.python.org/pypi/requests/>`_ (optional,
+    required for OAuth2 authentication with Google Storage)
+  * `google-auth <https://pypi.python.org/project/google-auth/>`_
+    (optional, required for ADC authentication with Google Storage)
 
   To check if a specific module :var:`<module>` is installed, execute
   :samp:`python3 -c 'import {<module>};

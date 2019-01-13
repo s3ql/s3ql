@@ -20,6 +20,7 @@ from dugong import (HTTPConnection, is_temp_network_error, BodyFollowing, CaseIn
 from base64 import b64encode, b64decode
 from itertools import count
 from ast import literal_eval
+from argparse import Namespace
 
 import hashlib
 import urllib.parse
@@ -31,6 +32,12 @@ import json
 import threading
 import ssl
 from typing import Optional, Dict, Any
+
+try:
+    import google.auth as g_auth
+except ImportError:
+    g_auth = None
+
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +88,67 @@ class RequestError(Exception):
                 self.code, self.reason)
 
 
+class GAuthHTTPRequestor:
+    '''Carries out HTTP requests for google.auth
+
+    Implements https://google-auth.readthedocs.io/en/latest/reference/google.auth.transport.html#google.auth.transport.Request
+    '''
+
+    def __init__(self, ssl_context: ssl.SSLContext):
+        self.ssl_context = ssl_context
+        self.proxy = get_proxy(ssl=False)
+        self.ssl_proxy = get_proxy(ssl=True)
+        self.conn_pool = dict()  # type: Dict[Tuple[str,int], HTTPConnection]
+
+    def  __call__(self, url: str, method: str = 'GET', body=None,
+                  headers=None, timeout=None):
+
+        # https://github.com/googleapis/google-auth-library-python/issues/318
+        if not isinstance(body, bytes):
+            body = str(body).encode('ascii')
+
+        if timeout is not None:
+            raise ValueError('*timeout* argument is not supported')
+
+        hit = re.match(r'^(https?)://([^:/]+)(?::(\d+))?(.*)$', url)
+        if not hit:
+            raise ValueError('Unsupported URL: ' + url)
+
+        if hit.group(1) == 'https':
+            ssl_context = self.ssl_context
+            proxy = self.ssl_proxy
+        else:
+            ssl_context = None
+            proxy = self.proxy
+        hostname = hit.group(2)
+        if hit.group(3):
+            port = int(hit.group(3))
+        elif ssl_context:
+            port = 443
+        else:
+            port = 80
+
+        path = hit.group(4)
+
+        try:
+            conn = self.conn_pool[(hostname, port)]
+        except KeyError:
+            conn = HTTPConnection(hostname, port, proxy=proxy,
+                                  ssl_context=ssl_context)
+            self.conn_pool[(hostname, port)] = conn
+
+        try:
+            conn.send_request(method, path, headers=headers, body=body)
+            resp = conn.read_response()
+        except (dugong.ConnectionClosed, dugong.InvalidResponse, dugong.UnsupportedResponse,
+                dugong.ConnectionTimedOut, dugong.HostnameNotResolvable,
+                dugong.DNSUnavailable, ssl.SSLError) as exc:
+            raise g_auth.exceptions.TransportError(exc)
+
+        return Namespace(status=resp.status, headers=resp.headers,
+                         data=conn.readall())
+
+
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """A backend to store data in Google Storage"""
 
@@ -92,19 +160,30 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     # access tokens.
     access_token = dict()
     _refresh_lock = threading.Lock()
+    adc = None
 
     def __init__(self, options):
         super().__init__()
 
-        if options.backend_login != 'oauth2':
-            raise QuietError("Google Storage backend requires OAuth2 authentication")
-
         self.ssl_context = get_ssl_context(
             options.backend_options.get('ssl-ca-path', None)) # type: Optional[ssl.Context]
         self.options = options.backend_options  # type: Dict[str, str]
-        self.proxy = get_proxy(self.ssl_context is not None) # type: str
+        self.proxy = get_proxy(ssl=True) # type: str
         self.login = options.backend_login  # type: str
-        self.password = options.backend_password # type: str
+        self.refresh_token = options.backend_password # type: str
+
+        if self.login == 'adc':
+            if g_auth is None:
+                raise QuietError('ADC authentification requires the google.auth module')
+            elif self.adc is None:
+                requestor = GAuthHTTPRequestor(self.ssl_context)
+                try:
+                    credentials, _ = g_auth.default(requestor)
+                    type(self).adc = (credentials, requestor)
+                except g_auth.exceptions.DefaultCredentialsError as exc:
+                    raise QuietError('ADC found no valid credential sources: ' + str(exc))
+        elif self.login != 'oauth2':
+            raise QuietError("Google Storage backend requires OAuth2 or ADC authentication")
 
         # Special case for unit testing against local mock server
         hit = re.match(r'^gs://!unittest!'
@@ -441,13 +520,22 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def _get_access_token(self):
         log.info('Requesting new access token')
 
+        if self.adc:
+            try:
+                self.adc[0].refresh(self.adc[1])
+            except g_auth.exceptions.RefreshError as exc:
+                raise AuthenticationError(
+                    'Failed to refresh credentials: '  + str(exc))
+            self.access_token[self.refresh_token] = self.adc[0].token
+            return
+
         headers = CaseInsensitiveDict()
         headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=utf-8'
 
         body = urllib.parse.urlencode({
             'client_id': OAUTH_CLIENT_ID,
             'client_secret': OAUTH_CLIENT_SECRET,
-            'refresh_token': self.password,
+            'refresh_token': self.refresh_token,
             'grant_type': 'refresh_token' })
 
         conn = HTTPConnection('accounts.google.com', 443, proxy=self.proxy,
@@ -464,7 +552,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if 'error' in json_resp:
                 raise AuthenticationError(json_resp['error'])
             else:
-                self.access_token[self.password] = json_resp['access_token']
+                self.access_token[self.refresh_token] = json_resp['access_token']
         finally:
             conn.disconnect()
 
@@ -571,7 +659,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             path += '?%s' % s
 
         # If we have an access token, try to use it.
-        token = self.access_token.get(self.password, None)
+        token = self.access_token.get(self.refresh_token, None)
         if token is not None:
             headers['Authorization'] = 'Bearer ' + token
             self.conn.send_request(method, path, body=body, headers=headers,
@@ -589,14 +677,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         with self._refresh_lock:
             # Don't refresh if another thread has already done so while
             # we waited for the lock.
-            if token is None or self.access_token.get(self.password, None) == token:
+            if token is None or self.access_token.get(self.refresh_token, None) == token:
                 self._get_access_token()
 
         # Try request again. If this still fails, propagate the error
         # (because we have just refreshed the access token).
         # FIXME: We can't rely on this if e.g. the system hibernated
         # after refreshing the token, but before reaching this line.
-        headers['Authorization'] = 'Bearer ' + self.access_token[self.password]
+        headers['Authorization'] = 'Bearer ' + self.access_token[self.refresh_token]
         self.conn.send_request(method, path, body=body, headers=headers,
                                expect100=expect100)
         resp = self.conn.read_response()
