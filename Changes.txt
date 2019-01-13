@@ -11,6 +11,10 @@ Unreleased Changes
     the switch to Google's native API (before S3QL was using Google's
     S3 compatibility layer).
 
+  * The Google Storage backend now supports Application Default
+    Credentials (ADC). To use this, install the google.auth module
+    and use ``adc`` as your backend login.
+
 2018-12-28, S3QL 2.33
 
   * Fixed a sporadic test failure in t5_cache.py.

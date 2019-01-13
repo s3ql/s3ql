@@ -41,15 +41,23 @@ storage service offered by Google. In order to use it with S3QL, make
 sure that you enable the JSON API in the `GCP Console API Library
 <https://console.cloud.google.com/apis/library/>`_
 
-The Google Storage backend uses use OAuth2 authentication. In S3QL,
-use ``oauth2`` as the backend login and a valid OAuth2 refresh token
-as the backend password. To obtain a refresh token, you can use the
-:ref:`s3ql_oauth_client <oauth_client>` program. It will instruct you
-to open a specific URL in your browser, enter a code and authenticate
-with your Google account. Once this procedure is complete,
-:ref:`s3ql_oauth_client <oauth_client>` will print out the refresh
-token. Note that you need to do this procedure only once, the refresh
-token will remain valid until you explicitly revoke it.
+The Google Storage backend uses OAuth2 authentication or ADC_
+(Application Default Credentials).
+
+.. _ADC: https://cloud.google.com/docs/authentication/production
+
+To use OAuth2 authentication, specify ``oauth2`` as the backend login
+and a valid OAuth2 refresh token as the backend password. To obtain a
+refresh token, you can use the :ref:`s3ql_oauth_client <oauth_client>`
+program. It will instruct you to open a specific URL in your browser,
+enter a code and authenticate with your Google account. Once this
+procedure is complete, :ref:`s3ql_oauth_client <oauth_client>` will
+print out the refresh token. Note that you need to do this procedure
+only once, the refresh token will remain valid until you explicitly
+revoke it.
+
+To use ADC, specify ``adc`` as the backend login and use an arbitrary
+value for the backend password.
 
 To create a Google Storage bucket, you can use e.g. the `Google
 Storage Manager`_. The storage URL for accessing the bucket in S3QL is
