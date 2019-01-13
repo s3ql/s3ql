@@ -9,9 +9,8 @@ This work can be distributed under the terms of the GNU GPLv3.
 from ..logging import logging, QuietError # Ensure use of custom logger class
 from .. import BUFSIZE
 from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
-                     AuthenticationError, DanglingStorageURLError, retry_generator,
-                     get_proxy, get_ssl_context, CorruptedObjectError,
-                     checksum_basic_mapping)
+                     AuthenticationError, DanglingStorageURLError, get_proxy,
+                     get_ssl_context, CorruptedObjectError, checksum_basic_mapping)
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
 from io import BytesIO
@@ -131,15 +130,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         conn.timeout = int(self.options.get('tcp-timeout', 20))
         return conn
 
-    @staticmethod
-    def _tag_xmlns_uri(elem):
-        '''Extract the XML namespace (xmlns) URI from an element'''
-        if elem.tag[0] == '{':
-            uri, ignore, tag = elem.tag[1:].partition("}")
-        else:
-            uri = None
-        return uri
-
     # This method is also used implicitly for the retry handling of
     # `gs.Backend._get_access_token`. When modifying this method, do not forget
     # to check if this makes it unsuitable for use by `_get_access_token` (in
@@ -235,68 +225,57 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             else:
                 raise NoSuchObject(key)
 
-    @retry_generator
     @copy_ancestor_docstring
-    def list(self, prefix='', start_after=''):
-        log.debug('started with %s, %s', prefix, start_after)
-
-        keys_remaining = True
-
-        # Without this, a call to list('foo') would result
-        # in *prefix* being longer than *marker* - which causes
-        # trouble for some S3 implementions (minio).
-        if start_after:
-            marker = self.prefix + start_after
-        else:
-            marker = ''
+    def list(self, prefix=''):
         prefix = self.prefix + prefix
-
-        while keys_remaining:
-            log.debug('requesting with marker=%s', marker)
-
-            keys_remaining = None
-            resp = self._do_request('GET', '/', query_string={ 'prefix': prefix,
-                                                              'marker': marker,
-                                                              'max-keys': 1000 })
-
-            if not XML_CONTENT_RE.match(resp.headers['Content-Type']):
-                raise RuntimeError('unexpected content type: %s' %
-                                   resp.headers['Content-Type'])
-
-            try:
-                itree = iter(ElementTree.iterparse(self.conn, events=("start", "end")))
-                (event, root) = next(itree)
-
-                root_xmlns_uri = self._tag_xmlns_uri(root)
-                if root_xmlns_uri is None:
-                    root_xmlns_prefix = ''
-                else:
-                    # Validate the XML namespace
-                    root_xmlns_prefix = '{%s}' % (root_xmlns_uri, )
-                    if root_xmlns_prefix != self.xml_ns_prefix:
-                        log.error('Unexpected server reply to list operation:\n%s',
-                                  self._dump_response(resp, body=None))
-                        raise RuntimeError('List response has %s as root tag, unknown namespace' % root.tag)
-
-                for (event, el) in itree:
-                    if event != 'end':
-                        continue
-
-                    if el.tag == root_xmlns_prefix + 'IsTruncated':
-                        keys_remaining = (el.text == 'true')
-
-                    elif el.tag == root_xmlns_prefix + 'Contents':
-                        marker = el.findtext(root_xmlns_prefix + 'Key')
-                        yield marker[len(self.prefix):]
-                        root.clear()
-
-            except GeneratorExit:
-                # Need to read rest of response
-                self.conn.discard()
+        strip = len(self.prefix)
+        page_token = None
+        while True:
+            (els, page_token) = self._list_page(prefix, page_token)
+            for el in els:
+                yield el[strip:]
+            if page_token is None:
                 break
 
-            if keys_remaining is None:
-                raise RuntimeError('Could not parse body')
+    @retry
+    def _list_page(self, prefix, page_token=None, batch_size=1000):
+
+        # We can get at most 1000 keys at a time, so there's no need
+        # to bother with streaming.
+        query_string = { 'prefix': prefix, 'max-keys': str(batch_size) }
+        if page_token:
+            query_string['marker'] = page_token
+
+        resp = self._do_request('GET', '/', query_string=query_string)
+
+        if not XML_CONTENT_RE.match(resp.headers['Content-Type']):
+            raise RuntimeError('unexpected content type: %s' %
+                               resp.headers['Content-Type'])
+
+        body = self.conn.readall()
+        etree = ElementTree.fromstring(body)
+        root_xmlns_uri = _tag_xmlns_uri(etree)
+        if root_xmlns_uri is None:
+            root_xmlns_prefix = ''
+        else:
+            # Validate the XML namespace
+            root_xmlns_prefix = '{%s}' % (root_xmlns_uri, )
+            if root_xmlns_prefix != self.xml_ns_prefix:
+                log.error('Unexpected server reply to list operation:\n%s',
+                          self._dump_response(resp, body=body))
+                raise RuntimeError('List response has unknown namespace')
+
+        names = [ x.findtext(root_xmlns_prefix + 'Key')
+                  for x in etree.findall(root_xmlns_prefix + 'Contents') ]
+
+        is_truncated = etree.find(root_xmlns_prefix + 'IsTruncated')
+        if is_truncated.text == 'false':
+            page_token = None
+        else:
+            page_token = names[-1]
+
+        return (names, page_token)
+
 
     @retry
     @copy_ancestor_docstring
@@ -805,6 +784,16 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise BadDigestError('BadDigest', 'Meta MD5 for %s does not match' % obj_key)
 
         return meta
+
+
+def _tag_xmlns_uri(elem):
+    '''Extract the XML namespace (xmlns) URI from an element'''
+    if elem.tag[0] == '{':
+        uri, ignore, tag = elem.tag[1:].partition("}")
+    else:
+        uri = None
+    return uri
+
 
 class ObjectR(object):
     '''An S3 object open for reading'''

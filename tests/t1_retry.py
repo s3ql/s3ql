@@ -12,7 +12,7 @@ if __name__ == '__main__':
     import sys
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from s3ql.backends.common import retry, retry_generator
+from s3ql.backends.common import retry
 from pytest_checklogs import assert_logs
 import logging
 
@@ -35,21 +35,6 @@ class NthAttempt:
         self.count += 1
         raise TemporaryProblem()
 
-    @retry_generator
-    def list_stuff(self, upto=10, start_after=-1):
-        for i in range(upto):
-            if i <= start_after:
-                continue
-            if i == 2 and self.count < 1:
-                self.count += 1
-                raise TemporaryProblem
-
-            if i == 7 and self.count < 4:
-                self.count += 1
-                raise TemporaryProblem
-
-            yield i
-
     @retry
     def test_is_retry(self, is_retry=False):
         assert is_retry == (self.count != 0)
@@ -62,10 +47,6 @@ def test_retry():
     inst = NthAttempt(3)
 
     assert inst.do_stuff()
-
-def test_retry_generator():
-    inst = NthAttempt(3)
-    assert list(inst.list_stuff(10)) == list(range(10))
 
 def test_is_retry():
     inst = NthAttempt(3)
