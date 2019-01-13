@@ -202,12 +202,53 @@ class ArgumentParser(argparse.ArgumentParser):
 
         return super().add_subparsers(**kw)
 
+    def _read_authinfo(self, path, storage_url):
+
+        ini_config = configparser.ConfigParser()
+        if os.path.isfile(path):
+            mode = os.stat(path).st_mode
+            if mode & (stat.S_IRGRP | stat.S_IROTH):
+                self.exit(12, "%s has insecure permissions, aborting." % path)
+            ini_config.read(path)
+
+        merged = dict()
+        for section in ini_config.sections():
+            pattern = ini_config[section].get('storage-url', None)
+            if not pattern or not storage_url.startswith(pattern):
+                continue
+
+            for (key, val) in ini_config[section].items():
+                if key != 'storage-url':
+                    merged[key] = val
+        return merged
+
     def parse_args(self, *args, **kwargs):
 
         try:
             options = super().parse_args(*args, **kwargs)
         except ArgumentError as exc:
             self.error(str(exc))
+
+        if hasattr(options, 'authfile'):
+            storage_url = getattr(options, 'storage_url', '')
+            ini_config = self._read_authinfo(options.authfile, storage_url)
+
+            # Validate configuration file
+            fixed_keys = { 'backend-login', 'backend-password', 'fs-passphrase',
+                           'storage-url' }
+            unknown_keys = (set(ini_config.keys())
+                            - { x.replace('_', '-') for x in options.__dict__.keys() }
+                            - fixed_keys)
+            if unknown_keys:
+                            self.exit(2, 'Unknown keys(s) in configuration file: ' +
+                                      ', '.join(unknown_keys))
+
+            # Update defaults and re-parse arguments
+            defaults = { k.replace('-', '_'): v
+                         for (k,v) in ini_config.items()
+                         if k != 'storage_url' }
+            self.set_defaults(**defaults)
+            options = super().parse_args(*args, **kwargs)
 
         if hasattr(options, 'storage_url'):
             self._init_backend_factory(options)
@@ -241,27 +282,10 @@ class ArgumentParser(argparse.ArgumentParser):
         except KeyError:
             self.exit(11, 'No such backend: ' + backend)
 
-        # Read authfile
-        ini_config = configparser.ConfigParser()
-        if os.path.isfile(options.authfile):
-            mode = os.stat(options.authfile).st_mode
-            if mode & (stat.S_IRGRP | stat.S_IROTH):
-                self.exit(12, "%s has insecure permissions, aborting."
-                          % options.authfile)
-            ini_config.read(options.authfile)
-
-        # Validate backend options
         backend_options = options.backend_options
         for opt in backend_options.keys():
             if opt not in backend_class.known_options:
                 self.exit(3, 'Unknown backend option: ' + opt)
-
-        valid_keys = backend_class.known_options | {
-            'backend_login', 'backend_password', 'fs_passphrase' }
-        unknown = _merge_sections(ini_config, options, valid_keys)
-        if unknown:
-            self.exit(2, 'Unknown key(s) in configuration file: ' +
-                      ', '.join(unknown))
 
         if not hasattr(options, 'backend_login') and backend_class.needs_login:
             if sys.stdin.isatty():
@@ -276,39 +300,6 @@ class ArgumentParser(argparse.ArgumentParser):
                 options.backend_password = sys.stdin.readline().rstrip()
 
         options.backend_class = backend_class
-
-
-def _merge_sections(ini_config, options, valid_keys):
-    '''Merge configuration sections from *ini_config* into *options*
-
-    Merge the data from all sections that apply to the given storage
-    URL. Later sections take precedence over earlier sections.
-
-    Keys in *ini_config* that are neither in *options* nor in *valid_keys* will
-    be returned.
-
-    Dashes will be replaced by underscores.
-    '''
-
-    storage_url = options.storage_url
-    merged = dict()
-    for section in ini_config.sections():
-        pattern = ini_config[section].get('storage-url', None)
-        if not pattern or not storage_url.startswith(pattern):
-            continue
-
-        for (key, val) in ini_config[section].items():
-            if key != 'storage-url':
-                merged[key.replace('-', '_')] = val
-
-    unknown = set()
-    for (key, val) in merged.items():
-        if key not in valid_keys and not hasattr(options, key):
-            unknown.add(key)
-        else:
-            setattr(options, key, val)
-
-    return unknown
 
 
 def storage_url_type(s):
