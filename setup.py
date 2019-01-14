@@ -130,7 +130,7 @@ def main():
         compile_args.append('-Wno-unused-function')
 
     required_pkgs = ['apsw >= 3.7.0',
-                     'pycrypto',
+                     'cryptography',
                      'requests',
                      'defusedxml',
                      'dugong >= 3.4, < 4.0',

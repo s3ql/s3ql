@@ -12,8 +12,8 @@ from .common import AbstractBackend, CorruptedObjectError, checksum_basic_mappin
 from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
 from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
                                   ABCDocstMeta)
-from Crypto.Cipher import AES
-from Crypto.Util import Counter
+import cryptography.hazmat.primitives.ciphers as crypto_ciphers
+import cryptography.hazmat.backends as crypto_backends
 import bz2
 import hashlib
 import hmac
@@ -30,14 +30,28 @@ HMAC_SIZE = 32
 # Used only by adm.py
 UPGRADE_MODE=False
 
+crypto_backend = crypto_backends.default_backend()
+
 def sha256(s):
     return hashlib.sha256(s).digest()
 
-def aes_cipher(key):
+def aes_encryptor(key):
     '''Return AES cipher in CTR mode for *key*'''
 
-    return AES.new(key, AES.MODE_CTR,
-                   counter=Counter.new(128, initial_value=0))
+    cipher = crypto_ciphers.Cipher(
+        crypto_ciphers.algorithms.AES(key),
+        crypto_ciphers.modes.CTR(nonce=bytes(16)),
+        backend=crypto_backend)
+    return cipher.encryptor()
+
+def aes_decryptor(key):
+    '''Return AES cipher in CTR mode for *key*'''
+
+    cipher = crypto_ciphers.Cipher(
+        crypto_ciphers.algorithms.AES(key),
+        crypto_ciphers.modes.CTR(nonce=bytes(16)),
+        backend=crypto_backend)
+    return cipher.decryptor()
 
 class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
     '''
@@ -160,7 +174,8 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             raise CorruptedObjectError('Object content does not match its key (%s vs %s)'
                                        % (stored_key, key))
 
-        buf = aes_cipher(meta_key).decrypt(meta_buf)
+        decryptor = aes_decryptor(meta_key)
+        buf = decryptor.update(meta_buf) + decryptor.finalize()
         meta = thaw_basic_mapping(buf)
         if UPGRADE_MODE:
             meta['needs_reupload'] = update_required
@@ -246,9 +261,10 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             nonce = struct.pack('<d', time.time()) + key.encode('utf-8')
             meta_key = sha256(self.passphrase + nonce + b'meta')
             data_key = sha256(self.passphrase + nonce)
+            encryptor = aes_encryptor(meta_key)
             meta_raw['encryption'] = 'AES_v2'
             meta_raw['nonce'] = nonce
-            meta_raw['data'] = aes_cipher(meta_key).encrypt(meta_buf)
+            meta_raw['data'] = encryptor.update(meta_buf) + encryptor.finalize()
             meta_raw['object_id'] = key
             meta_raw['signature'] = checksum_basic_mapping(meta_raw, meta_key)
         else:
@@ -309,7 +325,8 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
                 meta_buf = freeze_basic_mapping(meta_old)
             else:
                 meta_buf = freeze_basic_mapping(metadata)
-            meta_raw['data'] = aes_cipher(meta_key).encrypt(meta_buf)
+            encryptor = aes_encryptor(meta_key)
+            meta_raw['data'] = encryptor.update(meta_buf) + encryptor.finalize()
             meta_raw['object_id'] = dest
             meta_raw['signature'] = checksum_basic_mapping(meta_raw, meta_key)
         elif metadata is None:
@@ -489,7 +506,7 @@ class EncryptFilter(object):
         self.fh = fh
         self.obj_size = 0
         self.closed = False
-        self.cipher = aes_cipher(key)
+        self.encryptor = aes_encryptor(key)
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
 
     def write(self, data):
@@ -508,7 +525,7 @@ class EncryptFilter(object):
 
         buf = struct.pack(b'<I', len(data)) + data
         self.hmac.update(buf)
-        buf2 = self.cipher.encrypt(buf)
+        buf2 = self.encryptor.update(buf)
         assert len(buf2) == len(buf)
         self.fh.write(buf2)
         self.obj_size += len(buf2)
@@ -522,7 +539,7 @@ class EncryptFilter(object):
             buf = struct.pack(b'<I', 0)
             self.hmac.update(buf)
             buf += self.hmac.digest()
-            buf2 = self.cipher.encrypt(buf)
+            buf2 = self.encryptor.update(buf)
             assert len(buf) == len(buf2)
             self.fh.write(buf2)
             self.obj_size += len(buf2)
@@ -563,7 +580,7 @@ class DecryptFilter(InputFilter):
         self.remaining = 0 # Remaining length of current packet
         self.metadata = metadata
         self.hmac_checked = False
-        self.cipher = aes_cipher(key)
+        self.decryptor = aes_decryptor(key)
         self.hmac = hmac.new(key, digestmod=hashlib.sha256)
 
     def _read_and_decrypt(self, size):
@@ -576,13 +593,11 @@ class DecryptFilter(InputFilter):
         if not buf:
             raise CorruptedObjectError('Premature end of stream.')
 
-        # Work around https://bugs.launchpad.net/pycrypto/+bug/1256172
-        # cipher.decrypt refuses to work with anything but bytes
         if not isinstance(buf, bytes):
             buf = bytes(buf)
 
         len_ = len(buf)
-        buf = self.cipher.decrypt(buf)
+        buf = self.decryptor.update(buf)
         assert len(buf) == len_
 
         return buf

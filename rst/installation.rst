@@ -35,7 +35,7 @@ that is not the case.
 * The following Python modules:
 
   * `setuptools <https://pypi.python.org/pypi/setuptools>`_, version 1.0 or newer.
-  * `pycrypto <https://www.dlitz.net/software/pycrypto/>`_
+  * `cryptography <https://cryptography.io/en/latest/installation/>`_
   * `defusedxml <https://pypi.python.org/pypi/defusedxml/>`_
   * `requests <https://pypi.python.org/pypi/requests/>`_ (optional,
     required for OAuth2 authentication with Google Storage)
