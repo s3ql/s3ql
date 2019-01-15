@@ -17,7 +17,7 @@ before_install:
 install:
   - pip install https://github.com/rogerbinns/apsw/releases/download/3.8.2-r1/apsw-3.8.2-r1.zip
   - pip install defusedxml
-  - pip install cython==0.28.2 sphinx pycrypto requests "llfuse >= 1.0, < 2.0" "dugong >= 3.4, < 4.0" "pytest >= 3.7"
+  - pip install cython==0.28.2 sphinx cryptography requests "llfuse >= 1.0, < 2.0" "dugong >= 3.4, < 4.0" "pytest >= 3.7"
 
 script:
   - python setup.py build_cython || travis_terminate 1
