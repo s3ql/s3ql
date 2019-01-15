@@ -184,11 +184,13 @@ class Fsck(object):
         else:
             stamp1 = float('inf')
 
+        total = len(candidates)
         for (i, filename) in enumerate(candidates):
+            i += 1 # start at 1
             stamp2 = time.time()
-            if stamp2 - stamp1 > 1:
+            if stamp2 - stamp1 > 1 or i == total:
                 sys.stdout.write('\r..processed %d/%d files (%d%%)..'
-                                 % (i, len(candidates), i/len(candidates)*100))
+                                 % (i, total, i/total*100))
                 sys.stdout.flush()
                 stamp1 = stamp2
 
