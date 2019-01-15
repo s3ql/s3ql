@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 def _new_file_type(s, encoding='utf-8'):
     '''An argparse type for a file that does not yet exist'''
 
-    if os.path.exists(s):
+    if os.path.exists(s) and os.stat(s).st_size != 0:
         msg = 'File already exists - refusing to overwrite: %s' % s
         raise argparse.ArgumentTypeError(msg)
 
