@@ -31,7 +31,7 @@ import dugong
 import json
 import threading
 import ssl
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union, Tuple, cast
 
 try:
     import google.auth as g_auth
@@ -101,7 +101,11 @@ class GAuthHTTPRequestor:
         self.conn_pool = dict()  # type: Dict[Tuple[str,int], HTTPConnection]
 
     def  __call__(self, url:str, method: str = 'GET',
-                  body : Optional[bytes] = None, headers=None, timeout=None):
+                  body : Union[bytes, str, None] = None, headers=None, timeout=None):
+
+        if type(body) == str:
+            body = cast(str, body)
+            body = body.encode('utf-8')
 
         if timeout is not None:
             raise ValueError('*timeout* argument is not supported')
@@ -173,8 +177,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 raise QuietError('ADC authentification requires the google.auth module')
             elif self.adc is None:
                 try:
-                    type(self).adc = g_auth.default(
+                  adc, _ = g_auth.default(
                         GAuthHTTPRequestor(self.ssl_context))
+                  type(self).adc = adc
                 except g_auth.exceptions.DefaultCredentialsError as exc:
                     raise QuietError('ADC found no valid credential sources: ' + str(exc))
         elif self.login != 'oauth2':
@@ -529,7 +534,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         if self.adc:
             try:
-                self.adc.refresh()
+                self.adc.refresh(GAuthHTTPRequestor(self.ssl_context))
             except g_auth.exceptions.RefreshError as exc:
                 raise AuthenticationError(
                     'Failed to refresh credentials: '  + str(exc))
