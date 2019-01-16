@@ -178,7 +178,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             elif self.adc is None:
                 requestor = GAuthHTTPRequestor(self.ssl_context)
                 try:
-                    type(self).adc = (g_auth.default(requestor), requestor)
+                    credentials, _ = g_auth.default(requestor)
+                    type(self).adc = (credentials, requestor)
                 except g_auth.exceptions.DefaultCredentialsError as exc:
                     raise QuietError('ADC found no valid credential sources: ' + str(exc))
         elif self.login != 'oauth2':
@@ -525,7 +526,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             except g_auth.exceptions.RefreshError as exc:
                 raise AuthenticationError(
                     'Failed to refresh credentials: '  + str(exc))
-            self.access_token[self.refresh_token] = self.adc.token
+            self.access_token[self.refresh_token] = self.adc[0].token
             return
 
         headers = CaseInsensitiveDict()
