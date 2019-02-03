@@ -178,10 +178,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             elif self.adc is None:
                 requestor = GAuthHTTPRequestor(self.ssl_context)
                 try:
-                    credentials, _ = g_auth.default(requestor)
-                    type(self).adc = (credentials, requestor)
+                    credentials, _ = g_auth.default(
+                        request=requestor,
+                        scopes=['https://www.googleapis.com/auth/devstorage.full_control'])
                 except g_auth.exceptions.DefaultCredentialsError as exc:
                     raise QuietError('ADC found no valid credential sources: ' + str(exc))
+                type(self).adc = (credentials, requestor)
         elif self.login != 'oauth2':
             raise QuietError("Google Storage backend requires OAuth2 or ADC authentication")
 
