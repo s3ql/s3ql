@@ -91,16 +91,21 @@ def get_cmdline(pid):
     '''
 
     try:
-        output = subprocess.check_output(['ps', '-p', str(pid), '-o', 'args='],
-                                         universal_newlines=True).strip()
-    except subprocess.CalledProcessError:
-        log.warning('Unable to execute ps, assuming process %d has terminated.'
+        cmd_path = '/proc/%d/cmdline' % pid
+        if os.path.isfile(cmd_path):
+            with open(cmd_path, 'r') as cmd_file:
+                output = cmd_file.read()
+        else:
+            output = subprocess.check_output(['ps', '-p', str(pid), '-o', 'args='],
+                                             universal_newlines=True).strip()
+        
+        if output:
+            return output
+        else:
+            return None
+    except:
+        log.warning('Unable to determine command line, assuming process %d has terminated.'
                     % pid)
-        return None
-
-    if output:
-        return output
-    else:
         return None
 
 def blocking_umount(mountpoint):
