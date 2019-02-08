@@ -89,7 +89,8 @@ def get_cmdline(pid):
     cannot be determined for other reasons, log warning
     and return None.
     '''
-
+    
+    output = None
     if os.path.isdir('/proc'):
         cmd_path = '/proc/%d/cmdline' % pid
         if os.path.isfile(cmd_path):
