@@ -99,7 +99,7 @@ def get_cmdline(pid):
                     output = cmd_file.read()
 
             except Exception:
-                log.warning('Unable to read from procfs, assuming process %d has terminated.'
+                log.warning('Error when reading from procfs, assuming process %d has terminated.'
                             % pid)
 
     else:
@@ -108,7 +108,7 @@ def get_cmdline(pid):
                                              universal_newlines=True).strip()
 
         except subprocess.CalledProcessError:
-            log.warning('Unable to execute ps, assuming process %d has terminated.'
+            log.warning('Error when executing ps, assuming process %d has terminated.'
                         % pid)
 
     if output:
