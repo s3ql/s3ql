@@ -114,7 +114,7 @@ def get_cmdline(pid):
         return output
     else:
         return None
-    
+
 def blocking_umount(mountpoint):
     '''Invoke fusermount and wait for daemon to terminate.'''
 
