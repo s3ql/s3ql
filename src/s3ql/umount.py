@@ -90,18 +90,26 @@ def get_cmdline(pid):
     and return None.
     '''
 
-    try:
-        output = subprocess.check_output(['ps', '-p', str(pid), '-o', 'args='],
-                                         universal_newlines=True).strip()
-    except subprocess.CalledProcessError:
-        log.warning('Unable to execute ps, assuming process %d has terminated.'
-                    % pid)
-        return None
+    if os.path.isdir('/proc'):
+        try:
+            with open('/proc/%d/cmdline' % pid, 'r') as cmd_file:
+                return cmd_file.read()
 
-    if output:
-        return output
+        except FileNotFoundError:
+            return None
+
     else:
-        return None
+        try:
+            output = subprocess.check_output(['ps', '-p', str(pid), '-o', 'args='],
+                                             universal_newlines=True).strip()
+            if output:
+                return output
+
+        except subprocess.CalledProcessError:
+            log.warning('Error when executing ps, assuming process %d has terminated.'
+                        % pid)
+
+    return None
 
 def blocking_umount(mountpoint):
     '''Invoke fusermount and wait for daemon to terminate.'''

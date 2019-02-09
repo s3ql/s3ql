@@ -21,6 +21,9 @@ Unreleased Changes
     Credentials (ADC). To use this, install the google.auth module
     and use ``adc`` as your backend login.
 
+  * `umount.s3ql` now works correctly on systems where `ps` doesn't
+    accept a `-p` option (as long as /proc is available).
+
 2018-12-28, S3QL 2.33
 
   * Fixed a sporadic test failure in t5_cache.py.
