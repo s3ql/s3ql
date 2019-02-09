@@ -38,7 +38,7 @@ assert logging.LOG_ONCE  # prevent warnings about unused module
 
 from llfuse import ROOT_INODE
 
-VERSION = '2.33'
+VERSION = '3.0'
 RELEASE = '%s' % VERSION
 
 # TODO: On next revision bump, remove upgrade code from backend/comprenc.py and
