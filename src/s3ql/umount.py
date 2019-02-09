@@ -89,32 +89,27 @@ def get_cmdline(pid):
     cannot be determined for other reasons, log warning
     and return None.
     '''
-    
-    output = None
-    if os.path.isdir('/proc'):
-        cmd_path = '/proc/%d/cmdline' % pid
-        if os.path.isfile(cmd_path):
-            try:
-                with open(cmd_path, 'r') as cmd_file:
-                    output = cmd_file.read()
 
-            except Exception:
-                log.warning('Error when reading from procfs, assuming process %d has terminated.'
-                            % pid)
+    if os.path.isdir('/proc'):
+        try:
+            with open('/proc/%d/cmdline' % pid, 'r') as cmd_file:
+                return cmd_file.read()
+
+        except FileNotFoundError:
+            return None
 
     else:
         try:
             output = subprocess.check_output(['ps', '-p', str(pid), '-o', 'args='],
                                              universal_newlines=True).strip()
+            if output:
+                return output
 
         except subprocess.CalledProcessError:
             log.warning('Error when executing ps, assuming process %d has terminated.'
                         % pid)
 
-    if output:
-        return output
-    else:
-        return None
+    return None
 
 def blocking_umount(mountpoint):
     '''Invoke fusermount and wait for daemon to terminate.'''
