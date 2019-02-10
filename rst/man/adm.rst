@@ -46,7 +46,7 @@ passphrase
 upgrade
   Upgrade the file system to the newest revision.
 
-delete
+clear
   Delete the file system with all the stored data.
 
 download-metadata
