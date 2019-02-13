@@ -1,3 +1,7 @@
+2019-03-09, S3QL UNRELEASED
+
+  * Added Onezone-IA storage-option
+
 2019-02-09, S3QL 3.0
 
   * Added a new `--systemd` option to simplify running mount.s3ql
