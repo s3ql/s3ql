@@ -67,16 +67,16 @@ class Fsck(object):
         Sets instance variable `found_errors`.
         """
 
-        # Create indices required for reference checking
-        log.info('Creating temporary extra indices...')
-        for idx in ('tmp1', 'tmp2', 'tmp3', 'tmp4', 'tmp5'):
-            self.conn.execute('DROP INDEX IF EXISTS %s' % idx)
-        self.conn.execute('CREATE INDEX tmp1 ON blocks(obj_id)')
-        self.conn.execute('CREATE INDEX tmp2 ON inode_blocks(block_id)')
-        self.conn.execute('CREATE INDEX tmp3 ON contents(inode)')
-        self.conn.execute('CREATE INDEX tmp4 ON contents(name_id)')
-        self.conn.execute('CREATE INDEX tmp5 ON ext_attributes(name_id)')
         try:
+            self.conn.execute('BEGIN')
+
+            # Create indices required for reference checking
+            self.conn.execute('CREATE INDEX tmp1 ON blocks(obj_id)')
+            self.conn.execute('CREATE INDEX tmp2 ON inode_blocks(block_id)')
+            self.conn.execute('CREATE INDEX tmp3 ON contents(inode)')
+            self.conn.execute('CREATE INDEX tmp4 ON contents(name_id)')
+            self.conn.execute('CREATE INDEX tmp5 ON ext_attributes(name_id)')
+
             self.check_lof()
             self.check_uploads()
             if check_cache:
@@ -110,10 +110,14 @@ class Fsck(object):
             self.check_loops()
             self.check_unix()
             self.check_foreign_keys()
+        except:
+            self.conn.execute('ROLLBACK')
+            raise
         finally:
             log.info('Dropping temporary indices...')
             for idx in ('tmp1', 'tmp2', 'tmp3', 'tmp4', 'tmp5'):
                 self.conn.execute('DROP INDEX %s' % idx)
+            self.conn.execute('COMMIT')
 
     def log_error(self, *a, **kw):
         '''Log file system error if not expected'''
