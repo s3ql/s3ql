@@ -98,7 +98,6 @@ class GAuthHTTPRequestor:
         self.ssl_context = ssl_context
         self.proxy = get_proxy(ssl=False)
         self.ssl_proxy = get_proxy(ssl=True)
-        self.conn_pool = dict()  # type: Dict[Tuple[str,int], HTTPConnection]
 
     def  __call__(self, url: str, method: str = 'GET', body=None,
                   headers=None, timeout=None):
@@ -130,23 +129,20 @@ class GAuthHTTPRequestor:
 
         path = hit.group(4)
 
-        try:
-            conn = self.conn_pool[(hostname, port)]
-        except KeyError:
-            conn = HTTPConnection(hostname, port, proxy=proxy,
-                                  ssl_context=ssl_context)
-            self.conn_pool[(hostname, port)] = conn
+        conn = HTTPConnection(hostname, port, proxy=proxy,
+                              ssl_context=ssl_context)
 
         try:
             conn.send_request(method, path, headers=headers, body=body)
             resp = conn.read_response()
+            return Namespace(status=resp.status, headers=resp.headers,
+                         data=conn.readall())
         except (dugong.ConnectionClosed, dugong.InvalidResponse, dugong.UnsupportedResponse,
                 dugong.ConnectionTimedOut, dugong.HostnameNotResolvable,
                 dugong.DNSUnavailable, ssl.SSLError) as exc:
             raise g_auth.exceptions.TransportError(exc)
-
-        return Namespace(status=resp.status, headers=resp.headers,
-                         data=conn.readall())
+        finally:
+            conn.disconnect()
 
 
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
