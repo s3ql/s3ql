@@ -258,6 +258,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 500 <= exc.code <= 599 or exc.code == 408):
             return True
 
+        elif g_auth and isinstance(exc, g_auth.exceptions.TransportError):
+            return True
+
         # Not clear at all what is happening here, but in doubt we retry
         elif isinstance(exc, ServerResponseError):
             return True
