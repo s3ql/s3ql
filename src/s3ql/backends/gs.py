@@ -18,6 +18,7 @@ from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docs
 from dugong import (HTTPConnection, is_temp_network_error, BodyFollowing, CaseInsensitiveDict,
                     ConnectionClosed)
 from base64 import b64encode, b64decode
+from functools import wraps
 from itertools import count
 from ast import literal_eval
 from argparse import Namespace
@@ -143,6 +144,40 @@ class GAuthHTTPRequestor:
             raise g_auth.exceptions.TransportError(exc)
         finally:
             conn.disconnect()
+
+
+def auth_expiry_retry(method):
+    @wraps(method)
+    def wrapped(*a, **kw):
+        self = a[0]
+
+        # If we have an access token, try to use it.
+        token = self.access_token.get(self.refresh_token, None)
+        if token is not None:
+            try:
+                return method(*a, **kw)
+            except Exception as exc:
+                if not ((isinstance(exc, RequestError) and exc.code == 401) or (
+                   isinstance(exc, AuthenticationError))):
+                    raise exc
+
+        # If we reach this point, then the access token probably have
+        # expired, so we try to get a new one. We use a lock to prevent
+        # multiple threads from refreshing the token simultaneously.
+        with self._refresh_lock:
+            # Don't refresh if another thread has already done so while
+            # we waited for the lock.
+            if token is None or self.access_token.get(self.refresh_token, None) == token:
+                self._get_access_token()
+
+        # Try call again. If this still fails, propagate the error
+        # (because we have just refreshed the access token).
+        # FIXME: We can't rely on this if e.g. the system hibernated
+        # after refreshing the token, but before reaching this line.
+
+        return method(*a, **kw)
+
+    return wrapped
 
 
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
@@ -398,6 +433,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return ObjectW(key, self, metadata)
 
     @retry
+    @auth_expiry_retry # When auth expiry happens during upload.
     def write_fh(self, fh, key: str, md5: bytes,
                  metadata: Optional[Dict[str, Any]] = None,
                  size: Optional[int] = None):
@@ -451,29 +487,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         fh.seek(0)
 
         md5_run = hashlib.md5()
-        try:
-            self.conn.write(body_prefix)
-            while True:
-                buf = fh.read(BUFSIZE)
-                if not buf:
-                    break
-                self.conn.write(buf)
-                md5_run.update(buf)
-            self.conn.write(body_suffix)
-        except ConnectionClosed:
-            # Server closed connection while we were writing body data -
-            # but we may still be able to read an error response
-            try:
-                resp = self.conn.read_response()
-            except ConnectionClosed: # No server response available
-                pass
-            else:
-                if resp.status >= 400: # Got error response
-                    return resp
-                    log.warning('Server broke connection during upload, but signaled '
-                                '%d %s', resp.status, resp.reason)
-            # Re-raise first ConnectionClosed exception
-            raise
+        self.conn.write(body_prefix)
+        while True:
+            buf = fh.read(BUFSIZE)
+            if not buf:
+                break
+            self.conn.write(buf)
+            md5_run.update(buf)
+        self.conn.write(body_suffix)
 
         if md5_run.digest() != md5:
             raise ValueError('md5 passed to write_fd does not match fd data')
@@ -515,9 +536,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     # This method uses a different HTTP connection than its callers, but shares
     # the same retry logic. It is therefore possible that errors with this
-    # connection cause the other connection to be reset - but this should not
-    # be a problem, because there can't be a pending request if we don't have
-    # a valid access token.
+    # connection cause the other connection to be reset.
     def _get_access_token(self):
         log.info('Requesting new access token')
 
@@ -645,6 +664,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return body
 
+    @auth_expiry_retry
     def _do_request(self, method, path, query_string=None, headers=None, body=None):
         '''Send request, read and return response object'''
 
@@ -659,28 +679,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             s = urllib.parse.urlencode(query_string, doseq=True)
             path += '?%s' % s
 
-        # If we have an access token, try to use it.
         token = self.access_token.get(self.refresh_token, None)
-        if token is not None:
-            headers['Authorization'] = 'Bearer ' + token
-            self.conn.send_request(method, path, body=body, headers=headers,
-                                   expect100=expect100)
-            resp = self.conn.read_response()
-            if ((expect100 and resp.status == 100) or
-                (not expect100 and 200 <= resp.status <= 299)):
-                return resp
-            elif resp.status != 401:
-                raise self._parse_error_response(resp)
-
-        # If we reach this point, then the access token must have
-        # expired, so we try to get a new one. We use a lock to prevent
-        # multiple threads from refreshing the token simultaneously.
-        with self._refresh_lock:
-            # Don't refresh if another thread has already done so while
-            # we waited for the lock.
-            if token is None or self.access_token.get(self.refresh_token, None) == token:
-                self._get_access_token()
-
         # Try request again. If this still fails, propagate the error
         # (because we have just refreshed the access token).
         # FIXME: We can't rely on this if e.g. the system hibernated
@@ -734,10 +733,10 @@ def _map_request_error(exc: RequestError, key: str):
 
     if exc.code == 404 and key:
         return NoSuchObject(key)
-    elif exc.message == 'Forbidden':
-        return AuthorizationError()
+    elif exc.message == 'Forbidden' or exc.code == 401:
+        return AuthorizationError(exc.message)
     elif exc.message == 'Login Required':
-        return AuthenticationError()
+        return AuthenticationError(exc.message)
 
     return None
 
