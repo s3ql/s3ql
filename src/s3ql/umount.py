@@ -32,6 +32,7 @@ def parse_args(args):
         Unmounts an S3QL file system. The command returns only after all data
         has been uploaded to the backend.'''))
 
+    parser.add_log()
     parser.add_debug()
     parser.add_quiet()
     parser.add_version()
