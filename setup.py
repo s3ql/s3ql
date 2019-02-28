@@ -194,7 +194,7 @@ def main():
                          ]
                           },
           install_requires=required_pkgs,
-          tests_require=['pytest >= 3.7']
+          tests_require=['pytest >= 3.7'],
           cmdclass={'upload_docs': upload_docs,
                     'build_cython': build_cython,
                     'build_sphinx': build_docs,
