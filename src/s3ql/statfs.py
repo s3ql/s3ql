@@ -21,6 +21,7 @@ def parse_args(args):
     parser = ArgumentParser(
         description="Print file system statistics.")
 
+    parser.add_log()
     parser.add_debug()
     parser.add_quiet()
     parser.add_version()

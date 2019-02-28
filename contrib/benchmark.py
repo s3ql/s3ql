@@ -50,6 +50,7 @@ def parse_args(args):
                             'compression speed and determine limiting factor.')
 
     parser.add_quiet()
+    parser.add_log()
     parser.add_debug()
     parser.add_backend_options()
     parser.add_version()

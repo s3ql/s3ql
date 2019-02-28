@@ -26,6 +26,7 @@ def parse_args(args):
         deleted with s3qlrm.
         '''))
 
+    parser.add_log()
     parser.add_debug()
     parser.add_quiet()
     parser.add_version()

@@ -48,6 +48,7 @@ def parse_args(args):
         every object. It therefore takes a lot longer.
         '''))
 
+    parser.add_log()
     parser.add_debug()
     parser.add_quiet()
     parser.add_version()
