@@ -43,7 +43,7 @@ that is not the case.
     version between 1.0 (inclusive) and 2.0 (exclusive)
   * `dugong <https://pypi.org/project/dugong/>`_, any
     version between 3.4 (inclusive) and 4.0 (exclusive)
-  * `pytest <http://pytest.org/>`_, version 2.7 or newer (optional, to run unit tests)
+  * `pytest <http://pytest.org/>`_, version 3.7 or newer (optional, to run unit tests)
   * `systemd <https://github.com/systemd/python-systemd>`_ (optional,
     for enabling systemd support). Do *not* install the module from
     PyPi, this is from a third-party developer and incompatible with
@@ -102,7 +102,7 @@ tested with ::
 
   python3 setup.py build_cython
   python3 setup.py build_ext --inplace
-  python3 -m pytest tests/
+  python3 setup.py test
 
 Note that when building from the Mercurial or Git repository, building
 and testing is done with several additional checks. This may cause
