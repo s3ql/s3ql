@@ -149,7 +149,7 @@ class CacheEntry(object):
     :pos: current position in file
     """
 
-    __slots__ = [ 'dirty', 'inode', 'blockno', 'last_access',
+    __slots__ = [ 'dirty', 'inode', 'blockno', 'last_write',
                   'size', 'pos', 'fh', 'removed' ]
 
     def __init__(self, inode, blockno, filename, mode='w+b'):
@@ -161,7 +161,7 @@ class CacheEntry(object):
         self.dirty = False
         self.inode = inode
         self.blockno = blockno
-        self.last_access = 0
+        self.last_write = 0
         self.pos = self.fh.tell()
         self.size = os.fstat(self.fh.fileno()).st_size
 
@@ -195,6 +195,7 @@ class CacheEntry(object):
         self.fh.write(buf)
         self.pos += len(buf)
         self.size = max(self.pos, self.size)
+        self.last_write = time.time()
 
     def close(self):
         self.fh.close()
@@ -785,7 +786,6 @@ class BlockCache(object):
         self._lock_entry(inode, blockno, release_global=True)
         try:
             el = self._get_entry(inode, blockno)
-            el.last_access = time.time()
             oldsize = el.size
             try:
                 yield el
