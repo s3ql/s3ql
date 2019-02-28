@@ -1,3 +1,9 @@
+TBD
+
+  * Added a new `--fs-name` option to `mount.s3ql` allowing users
+    to specify a name for the fuse mount (This name is visible
+    in the first column of the system `mount` command output).
+
 2019-02-09, S3QL 3.0
 
   * Added a new `--systemd` option to simplify running mount.s3ql
