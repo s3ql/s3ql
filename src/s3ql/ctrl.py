@@ -31,6 +31,7 @@ def parse_args(args):
                          type=(lambda x: x.rstrip('/')),
                          help='Mountpoint of the file system')
 
+    parser.add_log()
     parser.add_debug()
     parser.add_quiet()
     parser.add_version()

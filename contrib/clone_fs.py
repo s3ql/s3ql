@@ -39,6 +39,7 @@ def parse_args(args):
                 description='Clone an S3QL file system.')
 
     parser.add_quiet()
+    parser.add_log()
     parser.add_debug()
     parser.add_backend_options()
     parser.add_version()

@@ -25,6 +25,7 @@ def parse_args(args):
         including immutable entries.
         '''))
 
+    parser.add_log()
     parser.add_debug()
     parser.add_quiet()
     parser.add_version()

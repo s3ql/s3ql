@@ -32,6 +32,7 @@ def parse_args(args):
         additional storage space.
         '''))
 
+    parser.add_log()
     parser.add_debug()
     parser.add_quiet()
     parser.add_version()
