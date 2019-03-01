@@ -431,7 +431,11 @@ def mark_metadata_dirty(backend, cachepath, param):
 def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
 
-    fuse_opts = [ "nonempty", 'fsname=%s' % options.storage_url,
+    fsname=options.fs_name
+    if not fsname:
+        fsname = options.storage_url
+
+    fuse_opts = [ "nonempty", 'fsname=%s' % fsname,
                   'subtype=s3ql', 'big_writes', 'max_write=131072',
                   'no_remote_lock' ]
 
@@ -529,6 +533,10 @@ def parse_args(args):
                            'user and the root user.')
     parser.add_argument("--fg", action="store_true", default=False,
                       help="Do not daemonize, stay in foreground")
+    parser.add_argument("--fs-name", default=None,
+                      help="Mount name passed to fuse, the name will be shown in the first "
+                           "column of the system mount command output. If not specified your "
+                           "storage url is used.")
     parser.add_argument("--systemd", action="store_true", default=False,
                       help="Run as systemd unit. Consider specifying --log none as well "
                            "to make use of journald.")
