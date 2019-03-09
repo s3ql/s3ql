@@ -51,6 +51,7 @@ def parse_args(args):
         '''))
 
     parser.add_quiet()
+    parser.add_log()
     parser.add_debug()
     parser.add_version()
 

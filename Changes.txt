@@ -1,4 +1,8 @@
-2019-03-09, S3QL UNRELEASED
+TBD
+
+  * Added a new `--fs-name` option to `mount.s3ql` allowing users
+    to specify a name for the fuse mount (This name is visible
+    in the first column of the system `mount` command output).
 
   * Added Onezone-IA storage-option
 

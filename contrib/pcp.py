@@ -33,6 +33,7 @@ def parse_args(args):
         description='Recursively copy source(s) to destination using multiple '
                     'parallel rsync processes.')
 
+    parser.add_log()
     parser.add_quiet()
     parser.add_debug()
     parser.add_version()

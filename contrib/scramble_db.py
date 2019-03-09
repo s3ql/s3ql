@@ -44,6 +44,7 @@ def parse_args(args):
                     "This is intended to preserve privacy when a metadata copy "
                     "needs to be provided to the developers for debugging.")
 
+    parser.add_log()
     parser.add_debug()
     parser.add_quiet()
     parser.add_version()

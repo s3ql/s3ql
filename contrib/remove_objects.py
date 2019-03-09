@@ -32,6 +32,7 @@ def parse_args(args):
 
     parser.add_storage_url()
     parser.add_quiet()
+    parser.add_log()
     parser.add_debug()
     parser.add_backend_options()
     parser.add_version()

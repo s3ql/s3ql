@@ -431,7 +431,11 @@ def mark_metadata_dirty(backend, cachepath, param):
 def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
 
-    fuse_opts = [ "nonempty", 'fsname=%s' % options.storage_url,
+    fsname=options.fs_name
+    if not fsname:
+        fsname = options.storage_url
+
+    fuse_opts = [ "nonempty", 'fsname=%s' % fsname,
                   'subtype=s3ql', 'big_writes', 'max_write=131072',
                   'no_remote_lock' ]
 
@@ -529,6 +533,10 @@ def parse_args(args):
                            'user and the root user.')
     parser.add_argument("--fg", action="store_true", default=False,
                       help="Do not daemonize, stay in foreground")
+    parser.add_argument("--fs-name", default=None,
+                      help="Mount name passed to fuse, the name will be shown in the first "
+                           "column of the system mount command output. If not specified your "
+                           "storage url is used.")
     parser.add_argument("--systemd", action="store_true", default=False,
                       help="Run as systemd unit. Consider specifying --log none as well "
                            "to make use of journald.")
@@ -731,7 +739,7 @@ class CommitThread(Thread):
                 # ... number=500)/500 * 1e3
                 # 1.456586996000624
                 for el in list(self.block_cache.cache.values()):
-                    if self.stop_event.is_set() or stamp - el.last_access < 10:
+                    if self.stop_event.is_set() or stamp - el.last_write < 10:
                         break
                     if el.dirty and el not in self.block_cache.in_transit:
                         self.block_cache.upload_if_dirty(el)
