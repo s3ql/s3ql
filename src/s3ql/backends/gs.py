@@ -88,67 +88,6 @@ class RequestError(Exception):
                 self.code, self.reason)
 
 
-class GAuthHTTPRequestor:
-    '''Carries out HTTP requests for google.auth
-
-    Implements https://google-auth.readthedocs.io/en/latest/reference/google.auth.transport.html#google.auth.transport.Request
-    '''
-
-    def __init__(self, ssl_context: ssl.SSLContext):
-        self.ssl_context = ssl_context
-        self.proxy = get_proxy(ssl=False)
-        self.ssl_proxy = get_proxy(ssl=True)
-        self.conn_pool = dict()  # type: Dict[Tuple[str,int], HTTPConnection]
-
-    def  __call__(self, url: str, method: str = 'GET', body=None,
-                  headers=None, timeout=None):
-
-        # https://github.com/googleapis/google-auth-library-python/issues/318
-        if not isinstance(body, bytes):
-            body = str(body).encode('ascii')
-
-        if timeout is not None:
-            raise ValueError('*timeout* argument is not supported')
-
-        hit = re.match(r'^(https?)://([^:/]+)(?::(\d+))?(.*)$', url)
-        if not hit:
-            raise ValueError('Unsupported URL: ' + url)
-
-        if hit.group(1) == 'https':
-            ssl_context = self.ssl_context
-            proxy = self.ssl_proxy
-        else:
-            ssl_context = None
-            proxy = self.proxy
-        hostname = hit.group(2)
-        if hit.group(3):
-            port = int(hit.group(3))
-        elif ssl_context:
-            port = 443
-        else:
-            port = 80
-
-        path = hit.group(4)
-
-        try:
-            conn = self.conn_pool[(hostname, port)]
-        except KeyError:
-            conn = HTTPConnection(hostname, port, proxy=proxy,
-                                  ssl_context=ssl_context)
-            self.conn_pool[(hostname, port)] = conn
-
-        try:
-            conn.send_request(method, path, headers=headers, body=body)
-            resp = conn.read_response()
-        except (dugong.ConnectionClosed, dugong.InvalidResponse, dugong.UnsupportedResponse,
-                dugong.ConnectionTimedOut, dugong.HostnameNotResolvable,
-                dugong.DNSUnavailable, ssl.SSLError) as exc:
-            raise g_auth.exceptions.TransportError(exc)
-
-        return Namespace(status=resp.status, headers=resp.headers,
-                         data=conn.readall())
-
-
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """A backend to store data in Google Storage"""
 
@@ -176,7 +115,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if g_auth is None:
                 raise QuietError('ADC authentification requires the google.auth module')
             elif self.adc is None:
-                requestor = GAuthHTTPRequestor(self.ssl_context)
+                import google.auth.transport.urllib3
+                import urllib3
+
+                # Deliberately ignore proxy and SSL context when attemping
+                # to connect to Compute Engine Metadata server.
+                requestor = google.auth.transport.urllib3.Request(
+                    urllib3.PoolManager())
                 try:
                     credentials, _ = g_auth.default(
                         request=requestor,
