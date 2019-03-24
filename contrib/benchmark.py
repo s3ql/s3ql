@@ -208,7 +208,7 @@ def main(args=None):
         threads.add(options.threads)
 
     print('%-26s' % 'Threads:',
-          ('%12d' * len(threads)) % tuple(sorted(threads)))
+          ('%16d' * len(threads)) % tuple(sorted(threads)))
 
     for alg in ALGS:
         speeds = []
@@ -229,9 +229,9 @@ def main(args=None):
             speeds.append(speed / 1024)
 
         print('%-26s' % ('Max FS throughput (%s):' % alg),
-              ('%7d KiB/s' * len(threads)) % tuple(speeds))
+              ('%10d KiB/s' * len(threads)) % tuple(speeds))
         print('%-26s' % '..limited by:',
-              ('%12s' * len(threads)) % tuple(limits))
+              ('%16s' * len(threads)) % tuple(limits))
 
     print('')
     print('All numbers assume that the test file is representative and that',
