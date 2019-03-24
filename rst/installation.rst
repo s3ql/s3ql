@@ -102,7 +102,7 @@ tested with ::
 
   python3 setup.py build_cython
   python3 setup.py build_ext --inplace
-  python3 setup.py test
+  python3 -m pytest test
 
 Note that when building from the Mercurial or Git repository, building
 and testing is done with several additional checks. This may cause
