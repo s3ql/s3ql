@@ -684,9 +684,9 @@ def _map_request_error(exc: RequestError, key: str):
     if exc.code == 404 and key:
         return NoSuchObject(key)
     elif exc.message == 'Forbidden':
-        return AuthorizationError()
-    elif exc.message == 'Login Required':
-        return AuthenticationError()
+        return AuthorizationError(exc.message)
+    elif exc.message in ('Login Required', 'Invalid Credentials'):
+        return AuthenticationError(exc.message)
 
     return None
 
