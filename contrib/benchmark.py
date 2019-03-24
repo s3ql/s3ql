@@ -64,6 +64,20 @@ def parse_args(args):
     return parser.parse_args(args)
 
 
+
+class MockBackend:
+    def open_write(key, metadata=None, is_compressed=False):
+        return MockFH()
+
+
+class MockFH:
+    def write(self, buf):
+        pass
+
+    def close(self):
+        pass
+
+
 def main(args=None):
     if args is None:
         args = sys.argv[1:]
@@ -160,7 +174,7 @@ def main(args=None):
     out_speed = dict()
     for alg in ALGS:
         log.info('compressing with %s-6...', alg)
-        backend = ComprencBackend(b'pass', (alg, 6),Backend(argparse.Namespace(storage_url='local://' + backend_dir)))
+        backend = ComprencBackend(b'pass', (alg, 6), MockBackend())
         def do_write(dst): #pylint: disable=E0102
             src.seek(0)
             stamp = time.time()
