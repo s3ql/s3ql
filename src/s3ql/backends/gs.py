@@ -425,10 +425,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             except ConnectionClosed: # No server response available
                 pass
             else:
-                if resp.status >= 400: # Got error response
-                    return resp
-                    log.warning('Server broke connection during upload, but signaled '
-                                '%d %s', resp.status, resp.reason)
+                log.warning('Server broke connection during upload, signaled '
+                            '%d %s', resp.status, resp.reason)
             # Re-raise first ConnectionClosed exception
             raise
 
