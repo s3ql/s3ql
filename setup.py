@@ -20,6 +20,7 @@ except ImportError:
     raise SystemExit('Setuptools package not found. Please install from '
                      'https://pypi.python.org/pypi/setuptools')
 from setuptools import Extension
+from setuptools.command.test import test as TestCommand
 
 from distutils.version import LooseVersion
 import os
@@ -105,6 +106,16 @@ class build_docs(setuptools.Command):
                   os.path.join(dest_dir, 'manual.pdf'))
 
 
+class pytest(TestCommand):
+
+    def run_tests(self):
+        # import here, cause outside the eggs aren't loaded
+        import pytest
+
+        errno = pytest.main(['tests'])
+        sys.exit(errno)
+
+
 def main():
 
     with open(os.path.join(basedir, 'README.rst'), 'r') as fh:
@@ -183,9 +194,11 @@ def main():
                          ]
                           },
           install_requires=required_pkgs,
+          tests_require=['pytest >= 3.7'],
           cmdclass={'upload_docs': upload_docs,
                     'build_cython': build_cython,
-                    'build_sphinx': build_docs },
+                    'build_sphinx': build_docs,
+                    'pytest': pytest },
           command_options={ 'sdist': { 'formats': ('setup.py', 'bztar') } },
          )
 
