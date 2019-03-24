@@ -207,6 +207,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         elif isinstance(exc, ServerResponseError):
             return True
 
+        if g_auth and isinstance(exc, g_auth.exceptions.TransportError):
+            return True
+
         return False
 
     def _assert_empty_response(self, resp):
