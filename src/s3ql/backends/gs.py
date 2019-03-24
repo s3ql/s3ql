@@ -87,6 +87,12 @@ class RequestError(Exception):
                 self.code, self.reason)
 
 
+class AccessTokenExpired(Exception):
+    '''
+    Raised if the access token has expired.
+    '''
+
+
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """A backend to store data in Google Storage"""
 
@@ -200,6 +206,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         elif isinstance(exc, RequestError) and (
                 500 <= exc.code <= 599 or exc.code == 408):
+            return True
+
+        elif isinstance(exc, AccessTokenExpired):
             return True
 
         # Not clear at all what is happening here, but in doubt we retry
@@ -429,6 +438,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         resp = self.conn.read_response()
         if resp.status != 200:
             exc = self._parse_error_response(resp)
+            # If we're really unlucky, then the token has expired while we
+            # were uploading data.
+            if exc.message == 'Invalid Credentials':
+                raise AccessTokenExpired()
             raise _map_request_error(exc, key) or exc
         self._parse_json_response(resp)
 
