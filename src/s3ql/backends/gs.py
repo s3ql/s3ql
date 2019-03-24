@@ -20,7 +20,6 @@ from dugong import (HTTPConnection, is_temp_network_error, BodyFollowing, CaseIn
 from base64 import b64encode, b64decode
 from itertools import count
 from ast import literal_eval
-from argparse import Namespace
 
 import hashlib
 import urllib.parse
