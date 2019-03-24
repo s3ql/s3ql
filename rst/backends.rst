@@ -153,7 +153,13 @@ The Amazon S3 backend accepts the following backend options:
 
 .. option:: ia
 
-   Use infrequent access storage class for new objects.
+   Use STANDARD_IA (infrequent access) storage class for new objects.
+   See `AWS S3 Storage classes<https://docs.aws.amazon.com/AmazonS3/latest/dev/storage-class-intro.html>`_
+
+.. option:: oia
+
+   Use ONEZONE_IA (infrequent access) storage class for new objects.
+   See `AWS S3 Storage classes<https://docs.aws.amazon.com/AmazonS3/latest/dev/storage-class-intro.html>`_
 
 .. option:: rrs
 

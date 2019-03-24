@@ -36,7 +36,7 @@ class Backend(s3c.Backend):
     may or may not be available and can be queried for with instance methods.
     """
 
-    known_options = ((s3c.Backend.known_options | { 'sse', 'rrs', 'ia' })
+    known_options = ((s3c.Backend.known_options | {'sse', 'rrs', 'ia', 'oia'})
                      - {'dumb-copy', 'disable-expect100'})
 
     def __init__(self, options):
@@ -91,7 +91,9 @@ class Backend(s3c.Backend):
             headers['x-amz-server-side-encryption'] = 'AES256'
 
         if 'ia' in self.options:
-            sc =  'STANDARD_IA'
+            sc = 'STANDARD_IA'
+        elif 'oia' in self.options:
+            sc = 'ONEZONE_IA'
         elif 'rrs' in self.options:
             sc = 'REDUCED_REDUNDANCY'
         else:
