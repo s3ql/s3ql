@@ -12,7 +12,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 import argparse
-import atexit
+import contextlib
 import os
 import shutil
 import subprocess
@@ -64,6 +64,44 @@ def parse_args(args):
     return parser.parse_args(args)
 
 
+def test_write_speed(size, blocksize, cachedir, rnd_fh):
+
+    with contextlib.ExitStack() as mgr:
+        mnt_dir = tempfile.mkdtemp(prefix='s3ql-mnt')
+        mgr.callback(shutil.rmtree, mnt_dir)
+
+        backend_dir = tempfile.mkdtemp(prefix='s3ql-benchmark-')
+        mgr.callback(shutil.rmtree, backend_dir)
+
+        subprocess.check_call([exec_prefix + 'mkfs.s3ql', '--plain', 'local://%s' % backend_dir,
+                               '--quiet', '--cachedir', cachedir])
+        subprocess.check_call([exec_prefix + 'mount.s3ql', '--threads', '1', '--quiet',
+                               '--cachesize', '%d' % (2 * size / 1024), '--log',
+                               '%s/mount.log' % backend_dir, '--cachedir', cachedir,
+                               'local://%s' % backend_dir, mnt_dir])
+        try:
+            write_time = 0
+            while write_time < 3:
+                log.debug('Write took %.3g seconds, retrying', write_time)
+                size *= 2
+                with open('%s/bigfile' % mnt_dir, 'wb', 0) as dst:
+                    rnd_fh.seek(0)
+                    write_time = time.time()
+                    copied = 0
+                    while copied < size:
+                        buf = rnd_fh.read(blocksize)
+                        if not buf:
+                            rnd_fh.seek(0)
+                            continue
+                        dst.write(buf)
+                        copied += len(buf)
+                write_time = time.time() - write_time
+                os.unlink('%s/bigfile' % mnt_dir)
+        finally:
+            subprocess.check_call([exec_prefix + 'umount.s3ql', mnt_dir])
+
+    return copied / write_time
+
 
 class MockBackend:
     def open_write(key, metadata=None, is_compressed=False):
@@ -96,43 +134,10 @@ def main(args=None):
             copied += len(buf)
 
     log.info('Measuring throughput to cache...')
-    backend_dir = tempfile.mkdtemp(prefix='s3ql-benchmark-')
-    mnt_dir = tempfile.mkdtemp(prefix='s3ql-mnt')
-    atexit.register(shutil.rmtree, backend_dir)
-    atexit.register(shutil.rmtree, mnt_dir)
-
     block_sizes = [ 2**b for b in range(12, 18) ]
     for blocksize in block_sizes:
-        write_time = 0
         size = 50 * 1024 * 1024
-        while write_time < 3:
-            log.debug('Write took %.3g seconds, retrying', write_time)
-            subprocess.check_call([exec_prefix + 'mkfs.s3ql', '--plain', 'local://%s' % backend_dir,
-                                   '--quiet', '--force', '--cachedir', options.cachedir])
-            subprocess.check_call([exec_prefix + 'mount.s3ql', '--threads', '1', '--quiet',
-                                   '--cachesize', '%d' % (2 * size / 1024), '--log',
-                                   '%s/mount.log' % backend_dir, '--cachedir', options.cachedir,
-                                   'local://%s' % backend_dir, mnt_dir])
-            try:
-                size *= 2
-                with open('%s/bigfile' % mnt_dir, 'wb', 0) as dst:
-                    rnd_fh.seek(0)
-                    write_time = time.time()
-                    copied = 0
-                    while copied < size:
-                        buf = rnd_fh.read(blocksize)
-                        if not buf:
-                            rnd_fh.seek(0)
-                            continue
-                        dst.write(buf)
-                        copied += len(buf)
-
-                write_time = time.time() - write_time
-                os.unlink('%s/bigfile' % mnt_dir)
-            finally:
-                subprocess.check_call([exec_prefix + 'umount.s3ql', mnt_dir])
-
-        fuse_speed = copied / write_time
+        fuse_speed = test_write_speed(size, blocksize, options.cachedir, rnd_fh)
         log.info('Cache throughput with %3d KiB blocks: %d KiB/sec',
                  blocksize / 1024, fuse_speed / 1024)
 
