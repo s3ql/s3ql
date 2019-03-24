@@ -34,7 +34,6 @@ from s3ql.logging import logging, setup_logging, QuietError
 from s3ql.common import get_backend
 from s3ql.backends.common import DanglingStorageURLError
 from s3ql.backends.comprenc import ComprencBackend
-from s3ql.backends.local import Backend
 from s3ql import BUFSIZE
 from s3ql.parse_args import ArgumentParser
 
