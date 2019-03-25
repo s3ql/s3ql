@@ -38,8 +38,11 @@ assert logging.LOG_ONCE  # prevent warnings about unused module
 
 from llfuse import ROOT_INODE
 
+# The RELEASE information is built from 'VERSION RELEASE_SUFFIX'
+# E.g., if VERSION='3.1' and RELEASE_SUFFIX='(beta)', RELEASE will be '3.0 (beta)'
 VERSION = '3.0'
-RELEASE = '%s' % VERSION
+RELEASE_SUFFIX = ''
+RELEASE = ' '.join([VERSION, RELEASE_SUFFIX]).strip()
 
 # TODO: On next revision bump, remove upgrade code from backend/comprenc.py and
 # backends/s3c.py (activated by UPGRADE_MODE variable).
