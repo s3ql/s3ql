@@ -38,7 +38,13 @@ if DEVELOPER_MODE:
 # Add S3QL sources
 sys.path.insert(0, os.path.join(basedir, 'src'))
 sys.path.insert(0, os.path.join(basedir, 'util'))
-import s3ql
+
+# Get S3QL Version & Release from __init__.py
+with open('src/s3ql/__init__.py', 'r') as init_file:
+    content = init_file.read()
+    VERSION = re.compile("^VERSION\s*=\s*'(\d+\.\d+)'", re.MULTILINE).search().groups(0)[0]
+    RELEASE_SUFFIX = re.compile("^RELEASE_SUFFIX\s*=\s*'(.*)'", re.MULTILINE).search().groups(0)[0]
+    RELEASE = ' '.join([VERSION, RELEASE_SUFFIX]).strip()
 
 class build_docs(setuptools.Command):
     description = 'Build Sphinx documentation'
@@ -68,8 +74,8 @@ class build_docs(setuptools.Command):
         src_dir = os.path.join(basedir, 'rst')
 
         confoverrides = {}
-        confoverrides['version'] = s3ql.VERSION
-        confoverrides['release'] = s3ql.RELEASE
+        confoverrides['version'] = VERSION
+        confoverrides['release'] = RELEASE
 
         for builder in ('html', 'latex', 'man'):
             print('Running %s builder...' % builder)
@@ -150,7 +156,7 @@ def main():
     setuptools.setup(
           name='s3ql',
           zip_safe=True,
-          version=s3ql.VERSION,
+          version=VERSION,
           description='a full-featured file system for online data storage',
           long_description=long_desc,
           author='Nikolaus Rath',
