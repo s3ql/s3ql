@@ -34,7 +34,7 @@ are:
 #pylint: disable-all
 
 from .logging import logging # Ensure use of custom logger class
-from . import RELEASE
+from . import VERSION
 from .backends import prefix_map
 from .common import _escape
 from getpass import getpass
@@ -138,7 +138,7 @@ class ArgumentParser(argparse.ArgumentParser):
     def add_version(self):
         self.add_argument('--version', action='version',
                           help="just print program version and exit",
-                          version='S3QL %s' % RELEASE)
+                          version='S3QL %s' % VERSION)
 
     def add_quiet(self):
         self.add_argument("--quiet", action="store_true", default=False,

@@ -39,12 +39,13 @@ if DEVELOPER_MODE:
 sys.path.insert(0, os.path.join(basedir, 'src'))
 sys.path.insert(0, os.path.join(basedir, 'util'))
 
-# Get S3QL Version & Release from __init__.py
-with open('src/s3ql/__init__.py', 'r') as init_file:
-    init_content = init_file.read()
-    VERSION = re.compile("^VERSION\s*=\s*'(\d+\.\d+)'", re.MULTILINE).search(init_content).groups(0)[0]
-    RELEASE_SUFFIX = re.compile("^RELEASE_SUFFIX\s*=\s*'(.*)'", re.MULTILINE).search(init_content).groups(0)[0]
-    RELEASE = ' '.join([VERSION, RELEASE_SUFFIX]).strip()
+# Get S3QL Version from __init__.py
+with open(os.path.join(basedir, 'src', 's3ql', '__init__.py'), 'r') as init_fh:
+    for line in init_fh:
+        match = re.match("^VERSION\s*=\s*'(\d+\.\d+)'", line)
+        if match:
+            VERSION = match.group(1)
+            break
 
 class build_docs(setuptools.Command):
     description = 'Build Sphinx documentation'
@@ -75,7 +76,7 @@ class build_docs(setuptools.Command):
 
         confoverrides = {}
         confoverrides['version'] = VERSION
-        confoverrides['release'] = RELEASE
+        confoverrides['release'] = VERSION
 
         for builder in ('html', 'latex', 'man'):
             print('Running %s builder...' % builder)
