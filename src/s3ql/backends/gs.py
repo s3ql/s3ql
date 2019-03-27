@@ -631,6 +631,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 return resp
             elif resp.status != 401:
                 raise self._parse_error_response(resp)
+            self.conn.discard()
 
         # If we reach this point, then the access token must have
         # expired, so we try to get a new one. We use a lock to prevent
