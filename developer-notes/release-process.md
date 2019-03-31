@@ -14,6 +14,8 @@
 * `git push && git push --tags`, create release on Github
 * `./setup.py upload_docs`
 * Write announcement to mailing list
+  * Get contributors: `git log --pretty="format:%an <%aE>" "${PREV_TAG}..${TAG}" | sort -u`
+  * Update authors: `git log --all --pretty="format:%an <%aE>" | sort -u >> AUTHOR`
 
 ## Email template
 
@@ -29,6 +31,12 @@ I am pleased to announce a new release of S3QL, version XXX.
 From the changelog:
 
 [PASTE CHANGELOG ENTRY]
+
+The following people have contributed code to this release:
+
+[PASTE HERE]
+
+(The full list of contributors is available in the AUTHORS file).
 
 The release is available for download from
 https://github.com/s3ql/s3ql/releases.

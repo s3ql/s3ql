@@ -1,13 +1,16 @@
-TBD
+2019-03-31, S3QL 3.1
 
   * Added a new `--fs-name` option to `mount.s3ql` allowing users
     to specify a name for the fuse mount (This name is visible
     in the first column of the system `mount` command output).
 
-  * Added Onezone-IA storage-option
+  * Added support for "Onezone-IA" to the S3 backend.
 
   * The `s3ql_oauth_client` command is working again now (it was
     broken due to changes in Google's OAuth2 workflow).
+
+  * Fixed refresh of Google Storage authentication tokens (expired
+    tokens were resulting in crashes).
 
 2019-02-09, S3QL 3.0
 
