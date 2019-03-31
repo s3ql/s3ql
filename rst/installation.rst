@@ -52,6 +52,8 @@ that is not the case.
     required for OAuth2 authentication with Google Storage)
   * `google-auth <https://pypi.python.org/project/google-auth/>`_
     (optional, required for ADC authentication with Google Storage)
+  * `google-auth-oauthlib <https://pypi.python.org/project/google-auth-oauthlib/>`_
+    (optional, required for browser-based authentication with Google Storage)
 
   To check if a specific module :var:`<module>` is installed, execute
   :samp:`python3 -c 'import {<module>};

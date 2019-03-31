@@ -6,6 +6,9 @@ TBD
 
   * Added Onezone-IA storage-option
 
+  * The `s3ql_oauth_client` command is working again now (it was
+    broken due to changes in Google's OAuth2 workflow).
+
 2019-02-09, S3QL 3.0
 
   * Added a new `--systemd` option to simplify running mount.s3ql

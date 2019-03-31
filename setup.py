@@ -145,7 +145,9 @@ def main():
                      'requests',
                      'defusedxml',
                      'dugong >= 3.4, < 4.0',
-                     'llfuse >= 1.0, < 2.0' ]
+                     'llfuse >= 1.0, < 2.0',
+                     'google-auth',
+                     'google-auth-oauthlib']
 
     setuptools.setup(
           name='s3ql',
