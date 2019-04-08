@@ -72,9 +72,9 @@ def test_write_speed(size, blocksize, cachedir, rnd_fh):
         backend_dir = tempfile.mkdtemp(prefix='s3ql-benchmark-')
         mgr.callback(shutil.rmtree, backend_dir)
 
-        subprocess.check_call([exec_prefix + 'mkfs.s3ql', '--plain', 'local://%s' % backend_dir,
+        subprocess.check_call([sys.executable, exec_prefix + 'mkfs.s3ql', '--plain', 'local://%s' % backend_dir,
                                '--quiet', '--cachedir', cachedir])
-        subprocess.check_call([exec_prefix + 'mount.s3ql', '--threads', '1', '--quiet',
+        subprocess.check_call([sys.executable, exec_prefix + 'mount.s3ql', '--threads', '1', '--quiet',
                                '--cachesize', '%d' % (2 * size / 1024), '--log',
                                '%s/mount.log' % backend_dir, '--cachedir', cachedir,
                                'local://%s' % backend_dir, mnt_dir])
@@ -97,7 +97,7 @@ def test_write_speed(size, blocksize, cachedir, rnd_fh):
                 write_time = time.time() - write_time
                 os.unlink('%s/bigfile' % mnt_dir)
         finally:
-            subprocess.check_call([exec_prefix + 'umount.s3ql', mnt_dir])
+            subprocess.check_call([sys.executable, exec_prefix + 'umount.s3ql', mnt_dir])
 
     return copied / write_time
 
