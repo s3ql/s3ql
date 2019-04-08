@@ -133,11 +133,11 @@ def main(args=None):
             copied += len(buf)
 
     log.info('Measuring throughput to cache...')
-    block_sizes = [ 2**b for b in range(12, 18) ]
+    block_sizes = [ 2**b for b in range(8, 18) ]
     for blocksize in block_sizes:
         size = 50 * 1024 * 1024
         fuse_speed = test_write_speed(size, blocksize, options.cachedir, rnd_fh)
-        log.info('Cache throughput with %3d KiB blocks: %d KiB/sec',
+        log.info('Cache throughput with %4.1f kB blocks: %d KiB/sec',
                  blocksize / 1024, fuse_speed / 1024)
 
     # Upload random data to prevent effects of compression
