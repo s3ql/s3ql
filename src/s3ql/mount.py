@@ -483,22 +483,6 @@ def parse_args(args):
                                      exitcode=35)
                 args.insert(pos, '--' + opt)
 
-    def compression_type(s):
-        hit = re.match(r'^([a-z0-9]+)(?:-([0-9]))?$', s)
-        if not hit:
-            raise argparse.ArgumentTypeError('%s is not a valid --compress value' % s)
-        alg = hit.group(1)
-        lvl = hit.group(2)
-        if alg not in ('none', 'zlib', 'bzip2', 'lzma'):
-            raise argparse.ArgumentTypeError('Invalid compression algorithm: %s' % alg)
-        if lvl is None:
-            lvl = 6
-        else:
-            lvl = int(lvl)
-        if alg == 'none':
-            alg =  None
-        return (alg, lvl)
-
     parser = ArgumentParser(
         description="Mount an S3QL file system.")
 
@@ -509,6 +493,7 @@ def parse_args(args):
     parser.add_backend_options()
     parser.add_version()
     parser.add_storage_url()
+    parser.add_compress()
 
     parser.add_argument("mountpoint", metavar='<mountpoint>', type=os.path.abspath,
                         help='Where to mount the file system')
@@ -540,12 +525,6 @@ def parse_args(args):
     parser.add_argument("--systemd", action="store_true", default=False,
                       help="Run as systemd unit. Consider specifying --log none as well "
                            "to make use of journald.")
-    parser.add_argument("--compress", action="store", default='lzma-6',
-                        metavar='<algorithm-lvl>', type=compression_type,
-                        help="Compression algorithm and compression level to use when "
-                             "storing new data. *algorithm* may be any of `lzma`, `bzip2`, "
-                             "`zlib`, or none. *lvl* may be any integer from 0 (fastest) "
-                             "to 9 (slowest). Default: `%(default)s`")
     parser.add_argument("--metadata-upload-interval", action="store", type=int,
                       default=24 * 60 * 60, metavar='<seconds>',
                       help='Interval in seconds between complete metadata uploads. '

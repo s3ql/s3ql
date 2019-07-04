@@ -185,6 +185,29 @@ class ArgumentParser(argparse.ArgumentParser):
                       help='Read authentication credentials from this file '
                            '(default: `~/.s3ql/authinfo2)`')
 
+    def add_compress(self):
+        def compression_type(s):
+            hit = re.match(r'^([a-z0-9]+)(?:-([0-9]))?$', s)
+            if not hit:
+                raise argparse.ArgumentTypeError('%s is not a valid --compress value' % s)
+            alg = hit.group(1)
+            lvl = hit.group(2)
+            if alg not in ('none', 'zlib', 'bzip2', 'lzma'):
+                raise argparse.ArgumentTypeError('Invalid compression algorithm: %s' % alg)
+            if lvl is None:
+                lvl = 6
+            else:
+                lvl = int(lvl)
+            if alg == 'none':
+                alg = None
+            return (alg, lvl)
+        self.add_argument("--compress", action="store", default='lzma-6',
+                            metavar='<algorithm-lvl>', type=compression_type,
+                            help="Compression algorithm and compression level to use when "
+                                 "storing new data. *algorithm* may be any of `lzma`, `bzip2`, "
+                                 "`zlib`, or none. *lvl* may be any integer from 0 (fastest) "
+                                 "to 9 (slowest). Default: `%(default)s`")
+
     def add_subparsers(self, **kw):
         '''Pass parent and set prog to default usage message'''
         kw.setdefault('parser_class', argparse.ArgumentParser)

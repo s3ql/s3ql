@@ -1105,6 +1105,7 @@ def parse_args(args):
     parser.add_backend_options()
     parser.add_version()
     parser.add_storage_url()
+    parser.add_compress()
 
     parser.add_argument("--keep-cache", action="store_true", default=False,
                       help="Do not purge locally cached files on exit.")
