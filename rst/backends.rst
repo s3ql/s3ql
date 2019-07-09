@@ -150,6 +150,11 @@ The Amazon S3 backend accepts the following backend options:
     Enable server side encryption. Both costs & benefits of S3 server
     side encryption are probably rather small, and this option does
     *not* affect any client side encryption performed by S3QL itself.
+    
+.. option:: it
+
+   Use INTELLIGENT_TIERING storage class for new objects.
+   See `AWS S3 Storage classes<https://docs.aws.amazon.com/AmazonS3/latest/dev/storage-class-intro.html>`_
 
 .. option:: ia
 
