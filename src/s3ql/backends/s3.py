@@ -36,7 +36,7 @@ class Backend(s3c.Backend):
     may or may not be available and can be queried for with instance methods.
     """
 
-    known_options = ((s3c.Backend.known_options | {'sse', 'rrs', 'ia', 'oia'})
+    known_options = ((s3c.Backend.known_options | {'sse', 'rrs', 'ia', 'oia', 'it'})
                      - {'dumb-copy', 'disable-expect100'})
 
     def __init__(self, options):
@@ -96,6 +96,8 @@ class Backend(s3c.Backend):
             sc = 'ONEZONE_IA'
         elif 'rrs' in self.options:
             sc = 'REDUCED_REDUNDANCY'
+        elif 'it' in self.options:
+            sc = 'INTELLIGENT_TIERING'
         else:
             sc = 'STANDARD'
         headers['x-amz-storage-class'] = sc
