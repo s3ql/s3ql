@@ -1,3 +1,12 @@
+2019-07-17, S3QL 3.2
+
+  * Added a `--compress` option to `fsck.s3ql`.
+
+  * Minor improvements/fixes to `contrib/benchmark.py`.
+
+  * Added support for INTELLIGENT_TIERING storage class to the S3
+    backend.
+
 2019-03-31, S3QL 3.1
 
   * Added a new `--fs-name` option to `mount.s3ql` allowing users
