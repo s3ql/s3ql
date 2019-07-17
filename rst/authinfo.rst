@@ -2,14 +2,14 @@
 
 .. _authinfo:
 
-=============================
- Storing Backend Information
-=============================
+=============================================
+ Storing Backend Information and Credentials
+=============================================
 
 Normally, S3QL reads username and password for the backend as well as
 an encryption passphrase for the file system from the
 terminal. Alternatively, these (and some other backend parameters) may
-be specified in a configuration file specified by the
+be specified in the ``~/.s3ql/authinfo2`` file, or a file specified by the
 :cmdopt:`--authfile` parameter.
 
 The authinfo file consists of sections, led by a ``[section]``
