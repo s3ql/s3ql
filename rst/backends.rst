@@ -381,6 +381,18 @@ The S3 compatible backend accepts the following backend options:
 .. __: https://doc.s3.amazonaws.com/proposals/copy.html
 
 
+Backblaze B2
+============
+
+Backblaze B2 is a cloud storage with its own API.
+
+<bucket-name> must already exist.
+
+The storage URL for backblaze b2 storage is ::
+
+   b2://<bucket-name>[/<prefix>]
+
+
 Local
 =====
 
