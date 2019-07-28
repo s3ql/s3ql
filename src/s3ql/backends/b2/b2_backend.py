@@ -475,8 +475,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             request_dict['metadataDirective'] = 'REPLACE'
             request_dict['contentType'] = 'application/octet-stream'
 
-            fileInfo = CaseInsensitiveDict()
-            self._add_b2_metadata_to_headers(headers, fileInfo)
+            fileInfo = self._create_metadata_dict(metadata)
             request_dict['fileInfo'] = fileInfo
 
         response = self._do_api_call('b2_copy_file', request_dict)
@@ -555,12 +554,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         decoded_s = urllib.parse.unquote_plus(decoded_s)
         return decoded_s
 
-    def _add_b2_metadata_to_headers(self, headers, metadata, chunksize = 2048):
-        '''Add metadata to HTTP headers
-
-        Theoretically there is no limit for the header size but we limit to
-        2014 bytes just to be sure the receiving server will handle it.
-        '''
+    def _create_metadata_dict(self, metadata, chunksize = 2048):
+        metadata_dict = {}
 
         info_header_count = 0
         for key in metadata.keys():
@@ -579,37 +574,58 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             buffer = urllib.parse.quote(buffer, safe = '!@#$^*()=+/?-_\'"><\\| `.,;:~')
 
             if len(buffer) < chunksize:
-                encoded_buffer = self._b2_url_encode(buffer)
-                headers['%smeta-%03d' % (self.info_header_prefix, info_header_count)] = encoded_buffer
+                metadata_dict['meta-%03d' % info_header_count] = buffer
                 info_header_count += 1
             else:
                 i = 0
                 while i * chunksize < len(buffer):
-                    k = '%smeta-%03d' % (self.info_header_prefix, info_header_count)
+                    k = 'meta-%03d' % info_header_count
                     v = buffer[i * chunksize : (i + 1) * chunksize]
-                    encoded_v = self._b2_url_encode(v)
-                    headers[k] = encoded_v
+                    metadata_dict[k] = v
                     i += 1
                     info_header_count += 1
 
         assert info_header_count <= 10 # TODO count correctly!
-        headers[self.info_header_prefix + 'meta-format'] = 'raw2'
+        metadata_dict['meta-format'] = 'raw2'
         md5 = base64.b64encode(checksum_basic_mapping(metadata)).decode('ascii')
-        headers[self.info_header_prefix + 'meta-md5'] = md5
+        metadata_dict['meta-md5'] = md5
+
+        return metadata_dict
+
+    def _add_b2_metadata_to_headers(self, headers, metadata, chunksize = 2048):
+        '''Add metadata to HTTP headers
+
+        Theoretically there is no limit for the header size but we limit to
+        2014 bytes just to be sure the receiving server will handle it.
+        '''
+
+        metadata_dict = self._create_metadata_dict(metadata)
+
+        for key in metadata_dict.keys():
+            header_key = '%s%s' % (self.info_header_prefix, key)
+            encoded_value = self._b2_url_encode(metadata_dict[key])
+
+            headers[header_key] = encoded_value
 
     def _extract_b2_metadata(self, response, obj_key):
         '''Extract metadata from HTTP response object'''
 
-        format_ = response.headers.get('%smeta-format' % self.info_header_prefix, 'raw')
+        headers = CaseInsensitiveDict()
+        for k, v in response.headers.items():
+            # we convert to lower case in order to do case-insensitive comparison
+            if k.lower().startswith(self.info_header_prefix.lower() + 'meta-'):
+                headers[k] = self._b2_url_decode(v)
+
+        format_ = headers.get('%smeta-format' % self.info_header_prefix, 'raw')
         if format_ != 'raw2': # Current metadata format
             raise CorruptedObjectError('invalid metadata format: %s' % format_)
 
         parts = []
         for i in count():
-            part = response.headers.get('%smeta-%03d' % (self.info_header_prefix, i), None)
+            part = headers.get('%smeta-%03d' % (self.info_header_prefix, i), None)
             if part is None:
                 break
-            parts.append(self._b2_url_decode(part))
+            parts.append(part)
 
         buffer = urllib.parse.unquote(','.join(parts))
         meta = literal_eval('{ %s }' % buffer)
@@ -632,7 +648,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # accidentally corrupted in transit than to get accidentally corrupted
         # on the server (which hopefully checksums its storage devices).
         md5 = base64.b64encode(checksum_basic_mapping(meta)).decode('ascii')
-        if md5 != response.headers.get('%smeta-md5' % self.info_header_prefix, None):
+        if md5 != headers.get('%smeta-md5' % self.info_header_prefix, None):
             log.warning('MD5 mismatch in metadata for %s', obj_key)
 
             # When trying to read file system revision 23 or earlier, we will
