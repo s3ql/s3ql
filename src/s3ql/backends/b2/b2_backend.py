@@ -29,6 +29,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """A backend to store data in backblaze b2 cloud storage.
     """
 
+    known_options = { 'account-id' }
+
     available_upload_url_infos = []
 
     def __init__(self, options):
@@ -44,7 +46,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.b2_application_key_id = options.backend_login
         self.b2_application_key = options.backend_password
 
-        self.account_id = None
+        self.account_id = self.options.get('account-id', None)
 
         (bucket_name, prefix) = self._parse_storage_url(options.storage_url, self.ssl_context)
         self.bucket_name = bucket_name
@@ -149,7 +151,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
             j = json.loads(response_body.decode('utf-8'))
 
-            self.account_id = j['accountId']
+            if self.account_id is None:
+                self.account_id = j['accountId']
+
             self.api_url = urlparse(j['apiUrl'])
             self.download_url = urlparse(j['downloadUrl'])
             self.authorization_token = j['authorizationToken']
