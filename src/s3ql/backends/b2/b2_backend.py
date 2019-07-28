@@ -29,6 +29,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """A backend to store data in backblaze b2 cloud storage.
     """
 
+    available_upload_url_infos = []
+
     def __init__(self, options):
         '''Initialize backend object
         '''
@@ -58,10 +60,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.authorization_token = None
         self.api_connection = None
         self.download_connection = None
-
-        self.upload_url = None
-        self.upload_authorization_token = None
-        self.upload_connection = None
 
         self.info_header_prefix = 'X-Bz-Info-'
 
@@ -250,12 +248,20 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return request_response
 
     def _do_upload_request(self, headers = None, body = None):
-        connection = self._get_upload_connection()
+        upload_url_info = self._get_upload_url_info()
+        headers['Authorization'] = upload_url_info['authorizationToken']
 
-        headers['Authorization'] = self.upload_authorization_token
+        upload_url_info['isUploading'] = True
+        response, response_body = self._do_request(upload_url_info['connection'], 'POST', upload_url_info['path'], headers, body)
+        upload_url_info['isUploading'] = False
 
-        response = self._do_request(connection, 'POST', self.upload_url.path, headers, body)
-        return response
+        if response.status == 503:
+            # invalidate upload url, server too busy
+            self._invalidate_upload_url(upload_url_info)
+
+        json_response = json.loads(response_body.decode('utf-8'))
+
+        return json_response
 
     def _get_bucket_id(self):
         if not self.bucket_id:
@@ -485,24 +491,41 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def close(self):
         self._reset_connections()
 
-    def _get_upload_connection(self):
-        if self.upload_connection is None:
-            self._get_upload_url()
+    def _get_upload_url_info(self):
 
-        return self.upload_connection
+        try:
+            upload_url_info = self.available_upload_url_infos.index({ 'isUploading': False })
+        except ValueError:
+            upload_url_info = None
 
-    def _get_upload_url(self):
-        if self.upload_url == None:
-            request_data = {
-                'bucketId': self._get_bucket_id()
-            }
-            response = self._do_api_call('b2_get_upload_url', request_data)
+        if upload_url_info is None:
+            upload_url_info = self._request_upload_url_info()
+            self.available_upload_url_infos.append(upload_url_info)
 
-            self.upload_url = urlparse(response['uploadUrl'])
-            self.upload_authorization_token = response['authorizationToken']
-            self.upload_connection = HTTPConnection(self.upload_url.hostname, 443, ssl_context = self.ssl_context)
+        return upload_url_info
 
-        return self.upload_authorization_token, self.upload_url
+    def _request_upload_url_info(self):
+        request_data = {
+            'bucketId': self._get_bucket_id()
+        }
+        response = self._do_api_call('b2_get_upload_url', request_data)
+
+        new_upload_url = urlparse(response['uploadUrl'])
+        new_authorization_token = response['authorizationToken']
+
+        return {
+            'hostname': new_upload_url.hostname,
+            'connection': HTTPConnection(new_upload_url.hostname, 443, ssl_context=self.ssl_context),
+            'path': new_upload_url.path,
+            'authorizationToken': new_authorization_token,
+            'isUploading': False
+        }
+
+    def _invalidate_upload_url(self, upload_url_info):
+        try:
+            self.available_upload_url_infos.remove(upload_url_info)
+        except ValueError:
+            pass
 
     @staticmethod
     def _b2_url_encode(s):
