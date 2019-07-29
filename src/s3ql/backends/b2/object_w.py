@@ -24,7 +24,7 @@ class ObjectW(object):
         # According to http://docs.python.org/3/library/functions.html#open
         # the buffer size is typically ~8 kB. We process data in much
         # larger chunks, so buffering would only hurt performance.
-        self.fh = tempfile.TemporaryFile(buffering = 0)
+        self.fh = tempfile.TemporaryFile(buffering=0)
 
         # Backblaze uses sha1 hashes
         self.sha1 = hashlib.sha1()

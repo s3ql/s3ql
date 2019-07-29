@@ -7,7 +7,7 @@ log = logging.getLogger(__name__)
 class ObjectR(object):
     '''A Backblaze B2 object open for reading'''
 
-    def __init__(self, key, response, backend, metadata = None):
+    def __init__(self, key, response, backend, metadata=None):
         self.key = key
         self.response = response
         self.backend = backend
@@ -17,7 +17,7 @@ class ObjectR(object):
 
         self.sha1 = hashlib.sha1()
 
-    def read(self, size = None):
+    def read(self, size=None):
         '''Read up to *size* bytes of object data
 
         For integrity checking to work, this method has to be called until
@@ -55,7 +55,7 @@ class ObjectR(object):
         self.close()
         return False
 
-    def close(self, checksum_warning = True):
+    def close(self, checksum_warning=True):
         '''Close object
 
         If *checksum_warning* is true, this will generate a warning message if
