@@ -460,7 +460,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 if file_.startswith(self.prefix + prefix):
                     # remove prefix before return
                     r = file_[len(self.prefix):]
-                    decoded_r = self._b2_url_decode(r)
+                    decoded_r = self._b2_url_decode(r, decode_plus=False)
                     yield decoded_r
                 else:
                     keys_remaining = False
@@ -564,7 +564,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return encoded_s
 
     @staticmethod
-    def _b2_url_decode(s):
+    def _b2_url_decode(s, decode_plus=True):
         """Decodes a Unicode string returned from B2 in an HTTP header.
 
         Returns a Python unicode string.
@@ -576,7 +576,10 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         s = str(s)
         decoded_s = s.replace('=5C', '\\')
-        decoded_s = urllib.parse.unquote_plus(decoded_s)
+        if decode_plus:
+            decoded_s = urllib.parse.unquote_plus(decoded_s)
+        else:
+            decoded_s = urllib.parse.unquote(decoded_s)
         return decoded_s
 
     def _create_metadata_dict(self, metadata, chunksize=2048):
@@ -717,7 +720,3 @@ class HTTPError(Exception):
 
     def __str__(self):
         return '%d %s' % (self.status, self.message)
-
-
-
-
