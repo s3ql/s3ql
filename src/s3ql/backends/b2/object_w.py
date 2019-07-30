@@ -5,6 +5,8 @@ import urllib
 from ...logging import logging
 from ..common import retry
 
+from .b2_error import BadDigestError
+
 log = logging.getLogger(__name__)
 
 class ObjectW(object):
@@ -57,9 +59,17 @@ class ObjectW(object):
         self.headers['Content-Length'] = self.obj_size
         self.headers['X-Bz-Content-Sha1'] = self.sha1.hexdigest()
 
-        response = self.backend._do_upload_request(self.headers, self.fh)
+        # wrong sha1-test-value: '8e4c901a700ce077c8e6a0163c020b2ad1ed830d'
 
-        # TODO check/verify response
+        try:
+            response = self.backend._do_upload_request(self.headers, self.fh)
+        except BadDigestError:
+            # delete may fail, but we don't want to loose the BadDigest exception
+            try:
+                self.backend.delete(self.key)
+            finally:
+                raise BadDigestError(400, 'bad_digest', 'Sha1 mismatch for %s (received: %s, send: %s)' %
+                                     (self.key, response['contentSha1'], self.sha1.hexdigest()))
 
         self.fh.close()
         self.closed = True

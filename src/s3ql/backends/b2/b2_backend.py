@@ -1,6 +1,6 @@
 import base64
 from dugong import (HTTPConnection, CaseInsensitiveDict, is_temp_network_error, BodyFollowing,
-                    ConnectionClosed)
+                    ConnectionClosed, StateError)
 from urllib.parse import urlparse
 import urllib
 import json
@@ -17,18 +17,18 @@ from  typing import Dict, Tuple, Union, List
 
 from ..common import (AbstractBackend, get_ssl_context, retry, checksum_basic_mapping,
                       CorruptedObjectError, NoSuchObject, DanglingStorageURLError)
-from ...inherit_docstrings import (ABCDocstMeta, copy_ancestor_docstring)
+from ...inherit_docstrings import (ABCDocstMeta, copy_ancestor_docstring, prepend_ancestor_docstring)
 from ...logging import logging, QuietError
 from ... import BUFSIZE
 from .object_r import ObjectR
 from .object_w import ObjectW
-from .b2_error import B2Error
+from .b2_error import B2Error, BadDigestError
 
 log = logging.getLogger(__name__)
 
 class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
-    """A backend to store data in backblaze b2 cloud storage.
-    """
+    '''A backend to store data in backblaze b2 cloud storage.
+    '''
 
     known_options = { 'account-id' }
 
@@ -73,7 +73,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def _parse_storage_url(storage_url, ssl_context):
         '''Extract information from storage URL
 
-        Return a tuple * (host, port, bucket_name, prefix) * .
+        Return a tuple * (bucket_name, prefix) * .
         '''
 
         hit = re.match(r'^b2://([^/]+)(?:/(.*))?$', storage_url)
@@ -110,8 +110,11 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self.download_connection = None
 
     def _reset_connections(self):
-        self.api_connection.reset()
-        self.download_connection.reset()
+        if self.api_connection:
+            self.api_connection.reset()
+
+        if self.download_connection:
+            self.download_connection.reset()
 
     def _get_download_connection(self):
         if self.download_connection is None:
@@ -132,8 +135,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return self.account_id
 
     def _authorize_account(self):
-        """Authorize API calls
-        """
+        '''Authorize API calls'''
 
         authorize_host = 'api.backblazeb2.com'
         authorize_url = self.api_url_prefix + 'b2_authorize_account'
@@ -176,7 +178,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if 'Authorization' not in headers:
             headers['Authorization'] = self.authorization_token
 
-        print('\nREQ:', connection.hostname, method, path, headers)
+        log.debug('REQUEST:', connection.hostname, method, path, headers)
 
         if body is None or isinstance(body, (bytes, bytearray, memoryview)):
             connection.send_request(method, path, headers=headers, body=body)
@@ -209,11 +211,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         else:
             response_body = None
 
-        print('\nRES:', response.status, response.headers)
-
-        # Not authorized
-        if response.status == 401:
-            self._reset_authorization_values()
+        log.debug('RESPONSE:', response.status, response.headers)
 
         # File not found
         if response.status == 404:
@@ -221,27 +219,29 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         if response.status != 200:
             json_error_response = json.loads(response_body.decode('utf-8'))
-            raise B2Error(json_error_response['status'], json_error_response['code'], json_error_response['message'], response.headers)
 
-        # TODO       if isinstance(body, (bytes, bytearray, memoryview)):
-        #            headers['Content-MD5'] = md5sum_b64(body)
+            b2_error = B2Error(json_error_response['status'], json_error_response['code'], json_error_response['message'], response.headers)
 
-        # TODO ERROR HANDLING
+            # Not authorized
+            if (b2_error.code == 'bad_auth_token' or
+                b2_error.code == 'expired_auth_token'):
+                self._reset_authorization_values()
 
-        #return response
+            raise b2_error
+
         return response, response_body
 
     def _do_api_call(self, api_call_name, data_dict):
         api_call_url_path = self.api_url_prefix + api_call_name
         body = json.dumps(data_dict).encode('utf-8')
 
-        print('\nAPI REQ:', api_call_name, '\n', json.dumps(data_dict, indent=2))
+        log.debug('API REQUEST:', api_call_name, json.dumps(data_dict, indent=2))
 
         response, body = self._do_request(self._get_api_connection(), 'POST', api_call_url_path, headers=None, body=body)
 
         json_response = json.loads(body.decode('utf-8'))
 
-        print('\nAPI RES:', json.dumps(json_response, indent=2))
+        log.debug('API RESPONSE:', json.dumps(json_response, indent=2))
 
         return json_response
 
@@ -261,18 +261,30 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         headers['Authorization'] = upload_url_info['authorizationToken']
 
         upload_url_info['isUploading'] = True
-        response, response_body = self._do_request(upload_url_info['connection'], 'POST', upload_url_info['path'], headers, body)
-        upload_url_info['isUploading'] = False
 
-        print('\nUPLOAD STATUS:', response.status)
+        try:
+            response, response_body = self._do_request(upload_url_info['connection'], 'POST', upload_url_info['path'], headers, body)
+        except B2Error as exc:
+            if exc.status == 503:
+                # storage url too busy, change it
+                self._invalidate_upload_url(upload_url_info)
+
+            raise
+
+        except (ConnectionClosed, StateError):
+            # storage url too busy, change it
+            self._invalidate_upload_url(upload_url_info)
+            raise
+
+        except:
+            upload_url_info['isUploading'] = False
+            raise
+
+        upload_url_info['isUploading'] = False
 
         json_response = json.loads(response_body.decode('utf-8'))
 
-        if response.status == 503:
-            # invalidate upload url, server too busy
-            self._invalidate_upload_url(upload_url_info)
-
-        print('\nUPLOAD RES:', json.dumps(json_response, indent=2))
+        log.debug('UPLOAD RESPONSE:', json.dumps(json_response, indent=2))
 
         return json_response
 
@@ -313,14 +325,31 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if is_temp_network_error(exc):
             return True
 
-        elif (isinstance(exc, B2Error) and ((500 <= exc.status <= 599) or exc.status == 408)):
+        elif (isinstance(exc, B2Error) and
+              (exc.code == 'bad_auth_token' or
+               exc.code == 'expired_auth_token')):
             return True
 
-        # lots of clients reported SSL problems, ignoring them here # TODO
-        if isinstance(exc, ssl.SSLError):
+        elif (isinstance(exc, B2Error) and
+              ((500 <= exc.status <= 599) or
+               exc.status == 408 or
+               exc.status == 429)):
             return True
 
-        # TODO
+        elif (isinstance(exc, HTTPError) and
+              exc.status == 408):
+            return True
+
+        elif isinstance(exc, StateError):
+            return True
+
+        # Consider all SSL errors as temporary. There are a lot of bug
+        # reports from people where various SSL errors cause a crash
+        # but are actually just temporary. On the other hand, we have
+        # no information if this ever revealed a problem where retrying
+        # was not the right choice.
+        elif isinstance(exc, ssl.SSLError):
+            return True
 
         return False
 
@@ -363,7 +392,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         try:
             response = self._do_download_request('GET', key)
         except NoSuchObject:
-            raise NoSuchObject(key)
+            raise
 
         try:
             metadata = self._extract_b2_metadata(response, key)
@@ -378,12 +407,12 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return ObjectR(key, response, self, metadata)
 
-    @copy_ancestor_docstring
+    @prepend_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
-        """
+        '''
         The returned object will buffer all data and only start the uploads
         when its `close` method is called.
-        """
+        '''
 
         log.debug('started with %s', key)
 
@@ -396,44 +425,58 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return ObjectW(key, self, headers)
 
     @copy_ancestor_docstring
-    def delete(self, key, force=False):
+    def delete(self, key, force=False, is_retry=False):
         log.debug('started with %s', key)
 
         file_ids = self._list_file_versions(key)
+
+        if not file_ids:
+            raise NoSuchObject(key)
+
         for file_id in file_ids:
-            self._delete_file_id(file_id['fileName'], file_id['fileId'])
+            try:
+                self._delete_file_id(file_id['fileName'], file_id['fileId'])
+            except B2Error as exc:
+                if exc.code == 'file_not_present':
+                    # Server may have deleted the object even though we did not
+                    # receive the response.
+                    if force or is_retry:
+                        pass
+                    else:
+                        raise exc
 
     def _delete_file_id(self, file_name, file_id):
         request_dict = {
             'fileName': file_name,
             'fileId': file_id
         }
-        try:
-            response = self._do_api_call('b2_delete_file_version', request_dict)
-        except B2Error as exc:
-            if exc.code == 'file_not_present':
-                # File/version does not exist? Good, we wanted to delete it anyway.
-                pass # TODO how should this be?
-
+        response = self._do_api_call('b2_delete_file_version', request_dict)
         return response
 
     def _list_file_versions(self, key):
         next_filename = self._get_key_with_prefix(key)
         next_file_id = None
 
-        next_filename, next_file_id, versions_list = self._list_file_versions_page(next_filename, next_file_id)
+        keys_remaining = True
 
         versions = []
-        for version in versions_list:
-            decoded_file_name = self._b2_url_decode(version['fileName'])
-            if decoded_file_name == self.prefix + key:
-                versions.append({ 'fileName': version['fileName'], 'fileId': version['fileId']})
+        while keys_remaining and next_filename is not None:
+            next_filename, next_file_id, versions_list = self._list_file_versions_page(next_filename, next_file_id)
+
+            for version in versions_list:
+                decoded_file_name = self._b2_url_decode(version['fileName'], decode_plus=False)
+                if decoded_file_name == self.prefix + key:
+                    versions.append({ 'fileName': version['fileName'], 'fileId': version['fileId']})
+                else:
+                    keys_remaining = False
+                    break
 
         return versions
 
     def _list_file_versions_page(self, next_filename=None, next_file_id=None):
         request_dict = {
-            'maxFileCount': 1000, # maximum is 10000, but will get billed in steps of 1000
+            # maximum is 10000, but will get billed in steps of 1000
+            'maxFileCount': 1000,
             'bucketId': self._get_bucket_id()
         }
 
@@ -469,7 +512,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @retry
     def _list_file_names_page(self, next_filename=None):
         request_dict: Dict[str, Union[str, int]] = {
-            'maxFileCount': 1000, # maximum is 10000, but will get billed in steps of 1000
+            # maximum is 10000, but will get billed in steps of 1000
+            'maxFileCount': 1000,
             'bucketId': self._get_bucket_id()
         }
 
@@ -517,10 +561,12 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     def _get_upload_url_info(self):
 
-        try:
-            upload_url_info = self.available_upload_url_infos.index({ 'isUploading': False })
-        except ValueError:
-            upload_url_info = None
+        def find(f, seq):
+            for item in seq:
+                if f(item):
+                    return item
+
+        upload_url_info = find(lambda info: info['isUploading'] == False, self.available_upload_url_infos)
 
         if upload_url_info is None:
             upload_url_info = self._request_upload_url_info()
@@ -553,10 +599,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @staticmethod
     def _b2_url_encode(s):
-        """URL-encodes a unicode string to be sent to B2 in an HTTP header.
-        """
+        '''URL-encodes a unicode string to be sent to B2 in an HTTP header.
+        '''
 
-        #return urllib.parse.quote(s.encode('utf-8'))
         s = str(s)
         encoded_s = urllib.parse.quote(s.encode('utf-8'), safe='/\\')
         encoded_s = encoded_s.replace('\\', '=5C')
@@ -565,10 +610,10 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @staticmethod
     def _b2_url_decode(s, decode_plus=True):
-        """Decodes a Unicode string returned from B2 in an HTTP header.
+        '''Decodes a Unicode string returned from B2 in an HTTP header.
 
         Returns a Python unicode string.
-        """
+        '''
 
         # Use str() to make sure that the input to unquote is a str, not
         # unicode, which ensures that the result is a str, which allows
@@ -613,7 +658,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     i += 1
                     info_header_count += 1
 
-        assert info_header_count <= 10 # TODO count correctly!
+        # Backblaze B2 only allows 10 metadata headers (2 are used by format and md5)
+        assert info_header_count <= 8
+
         metadata_dict['meta-format'] = 'raw2'
         md5 = base64.b64encode(checksum_basic_mapping(metadata)).decode('ascii')
         metadata_dict['meta-md5'] = md5
@@ -686,10 +733,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             # retrieved once at program start).
             if obj_key in ('s3ql_passphrase', 's3ql_metadata'):
                 raise CorruptedObjectError('Meta MD5 for %s does not match' % obj_key)
-            raise BadDigestError('BadDigest', 'Meta MD5 for %s does not match' % obj_key)
+            raise BadDigestError(400, 'bad_digest', 'Meta MD5 for %s does not match' % obj_key)
 
         return meta
-        # TODO
 
     def __str__(self):
         return 'b2://%s/%s' % (self.bucket_name, self.prefix)

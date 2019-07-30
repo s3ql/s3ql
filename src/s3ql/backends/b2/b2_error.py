@@ -6,7 +6,7 @@ class B2Error(Exception):
     '''
 
     def __init__(self, status, code, message, headers=None):
-        super.__init__(message)
+        super().__init__(message)
         self.status = status
         self.code = code
         self.message = message
@@ -20,3 +20,13 @@ class B2Error(Exception):
 
     def __str__(self):
         return '%s : %s - %s' % (self.status, self.code, self.message)
+
+
+class BadDigestError(B2Error): pass
+
+def _parse_retry_after_header(header):
+    try:
+        value = int(header)
+    except ValueError:
+        value = 1
+    return value

@@ -2,6 +2,8 @@ import hashlib
 
 from ...logging import logging
 
+from .b2_error import BadDigestError
+
 log = logging.getLogger(__name__)
 
 class ObjectR(object):
@@ -44,7 +46,7 @@ class ObjectR(object):
             self.sha1_checked = True
             if remote_sha1 != self.sha1.hexdigest():
                 log.warning('SHA1 mismatch for %s: %s vs %s', self.key, remote_sha1, self.sha1.hexdigest())
-                raise BadDigestError('BadDigest', 'SHA1 header does not agree with calculated SHA1')
+                raise BadDigestError(400, 'bad_digest', 'SHA1 header does not agree with calculated SHA1')
 
         return buffer
 
@@ -68,7 +70,7 @@ class ObjectR(object):
         self.closed = True
 
         # If we have not read all the data, close the entire
-        # connection (otherwise we loose synchronization) TODO - check this!
+        # connection (otherwise we loose synchronization)
         if not self.sha1_checked:
             if checksum_warning:
                 log.warning('Object closed prematurely, can\'t check SHA1, and have to reset connection')

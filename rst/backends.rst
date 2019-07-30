@@ -386,11 +386,22 @@ Backblaze B2
 
 Backblaze B2 is a cloud storage with its own API.
 
-<bucket-name> must already exist.
-
 The storage URL for backblaze b2 storage is ::
 
    b2://<bucket-name>[/<prefix>]
+
+*bucket-name* is an (existing) bucket which has to be accessible with
+the provided account key. The *prefix* will be appended to all names
+used by S3QL and can be used to hold separate S3QL repositories in the
+same bucket.
+
+.. option:: account-id
+
+   Some API calls need the account id which can be passed by using
+   this parameter. If it is not provided, a separate call has to be
+   made to fetch it from the backend.
+
+.. _Backblaze B2 API: https://www.backblaze.com/b2/docs/
 
 
 Local
