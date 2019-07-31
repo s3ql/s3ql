@@ -511,7 +511,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @retry
     def _list_file_names_page(self, next_filename=None):
-        request_dict: Dict[str, Union[str, int]] = {
+        request_dict = {
             # maximum is 10000, but will get billed in steps of 1000
             'maxFileCount': 1000,
             'bucketId': self._get_bucket_id()
