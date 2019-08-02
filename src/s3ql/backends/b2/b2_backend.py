@@ -424,6 +424,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return ObjectW(key, self, headers)
 
+    @retry
     @copy_ancestor_docstring
     def delete(self, key, force=False, is_retry=False):
         log.debug('started with %s', key)
@@ -473,6 +474,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return versions
 
+    @retry
     def _list_file_versions_page(self, next_filename=None, next_file_id=None):
         request_dict = {
             # maximum is 10000, but will get billed in steps of 1000
