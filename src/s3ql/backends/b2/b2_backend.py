@@ -1,6 +1,6 @@
 import base64
 from dugong import (HTTPConnection, CaseInsensitiveDict, is_temp_network_error, BodyFollowing,
-                    ConnectionClosed, StateError)
+                    ConnectionClosed)
 from urllib.parse import urlparse
 import urllib
 import json
@@ -271,7 +271,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
             raise
 
-        except (ConnectionClosed, StateError):
+        except ConnectionClosed:
             # storage url too busy, change it
             self._invalidate_upload_url(upload_url_info)
             raise
@@ -338,9 +338,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         elif (isinstance(exc, HTTPError) and
               exc.status == 408):
-            return True
-
-        elif isinstance(exc, StateError):
             return True
 
         # Consider all SSL errors as temporary. There are a lot of bug
