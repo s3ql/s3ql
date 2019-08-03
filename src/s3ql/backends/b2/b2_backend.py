@@ -30,7 +30,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
     '''A backend to store data in backblaze b2 cloud storage.
     '''
 
-    known_options = { 'account-id' }
+    known_options = { 'account-id', 'disable-versions' }
 
     available_upload_url_infos = []
 
@@ -48,6 +48,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.b2_application_key = options.backend_password
 
         self.account_id = self.options.get('account-id', None)
+
+        self.disable_versions = self.options.get('disable-versions', False)
 
         (bucket_name, prefix) = self._parse_storage_url(options.storage_url, self.ssl_context)
         self.bucket_name = bucket_name
@@ -426,7 +428,16 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def delete(self, key, force=False, is_retry=False):
         log.debug('started with %s', key)
 
-        file_ids = self._list_file_versions(key)
+        if self.disable_versions:
+            response =  self._do_download_request('HEAD', key)
+            file_id = self._b2_url_decode(response.headers['X-Bz-File-Id'])
+            file_name = self._b2_url_decode(response.headers['X-Bz-File-Name'])
+            file_ids = [{
+                'fileName': file_name.replace('\\', '=5C'),
+                'fileId': file_id
+            }]
+        else:
+            file_ids = self._list_file_versions(key)
 
         if not file_ids:
             raise NoSuchObject(key)

@@ -401,6 +401,14 @@ same bucket.
    this parameter. If it is not provided, a separate call has to be
    made to fetch it from the backend.
 
+.. option:: disable-versions
+
+   If versioning of the bucket is not enabled, this option can be set.
+   When deleting objects, the bucket will not be scanned for all file versions
+   because it will be implied that only the one (the most recent) version of a
+   file exists. This will use only one class B transaction instead of
+   (possibly) multiple class C transactions.
+
 .. _Backblaze B2 API: https://www.backblaze.com/b2/docs/
 
 
