@@ -180,7 +180,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if 'Authorization' not in headers:
             headers['Authorization'] = self.authorization_token
 
-        log.debug('REQUEST:', connection.hostname, method, path, headers)
+        log.debug('REQUEST: %s %s %s %s', connection.hostname, method, path, headers)
 
         if body is None or isinstance(body, (bytes, bytearray, memoryview)):
             connection.send_request(method, path, headers=headers, body=body)
@@ -213,7 +213,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         else:
             response_body = None
 
-        log.debug('RESPONSE:', response.status, response.headers)
+        log.debug('RESPONSE: %s %s %s', response.status, response.headers, response_body)
 
         # File not found
         if response.status == 404:
@@ -237,13 +237,13 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         api_call_url_path = self.api_url_prefix + api_call_name
         body = json.dumps(data_dict).encode('utf-8')
 
-        log.debug('API REQUEST:', api_call_name, json.dumps(data_dict, indent=2))
+        log.debug('API REQUEST: %s %s', api_call_name, json.dumps(data_dict, indent=2))
 
         response, body = self._do_request(self._get_api_connection(), 'POST', api_call_url_path, headers=None, body=body)
 
         json_response = json.loads(body.decode('utf-8'))
 
-        log.debug('API RESPONSE:', json.dumps(json_response, indent=2))
+        log.debug('API RESPONSE: %s', json.dumps(json_response, indent=2))
 
         return json_response
 
@@ -286,7 +286,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         json_response = json.loads(response_body.decode('utf-8'))
 
-        log.debug('UPLOAD RESPONSE:', json.dumps(json_response, indent=2))
+        log.debug('UPLOAD RESPONSE: %s', json.dumps(json_response, indent=2))
 
         return json_response
 
