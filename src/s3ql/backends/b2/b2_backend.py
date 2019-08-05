@@ -216,7 +216,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         log.debug('RESPONSE: %s %s %s', response.status, response.headers, response_body)
 
         # File not found
-        if response.status == 404:
+        if response.status == 404 or (response.status != 200 and method == 'HEAD'):
             raise HTTPError(response.status, response.reason, response.headers)
 
         if response.status != 200:
@@ -255,6 +255,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
+            else:
+                raise
 
         return response
 
@@ -339,7 +341,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             return True
 
         elif (isinstance(exc, HTTPError) and
-              exc.status == 408):
+              (exc.status == 408 or
+               exc.status == 401)):
             return True
 
         # Consider all SSL errors as temporary. There are a lot of bug
