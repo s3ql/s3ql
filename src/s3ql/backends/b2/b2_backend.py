@@ -1,6 +1,6 @@
 import base64
 from dugong import (HTTPConnection, CaseInsensitiveDict, is_temp_network_error, BodyFollowing,
-                    ConnectionClosed)
+                    ConnectionClosed, ConnectionTimedOut)
 from urllib.parse import urlparse
 import urllib
 import json
@@ -276,7 +276,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
             raise
 
-        except ConnectionClosed:
+        except (ConnectionClosed, ConnectionTimedOut):
             # storage url too busy, change it
             self._invalidate_upload_url(upload_url_info)
             raise
