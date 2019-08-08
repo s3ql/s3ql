@@ -136,6 +136,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return self.account_id
 
+    @retry
     def _authorize_account(self):
         '''Authorize API calls'''
 
@@ -292,6 +293,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return json_response
 
+    @retry
     def _get_bucket_id(self):
         if not self.bucket_id:
             request_data = {
@@ -457,6 +459,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     else:
                         raise exc
 
+    @retry
     def _delete_file_id(self, file_name, file_id):
         request_dict = {
             'fileName': file_name,
@@ -587,6 +590,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return upload_url_info
 
+    @retry
     def _request_upload_url_info(self):
         request_data = {
             'bucketId': self._get_bucket_id()
