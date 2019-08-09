@@ -30,7 +30,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
     '''A backend to store data in backblaze b2 cloud storage.
     '''
 
-    known_options = { 'account-id', 'disable-versions' }
+    known_options = { 'account-id', 'disable-versions', 'retry-on-cap-exceeded' }
 
     available_upload_url_infos = []
 
@@ -50,6 +50,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.account_id = self.options.get('account-id', None)
 
         self.disable_versions = self.options.get('disable-versions', False)
+        self.retry_on_cap_exceeded = self.options.get('retry-on-cap-exceeded', False)
 
         (bucket_name, prefix) = self._parse_storage_url(options.storage_url, self.ssl_context)
         self.bucket_name = bucket_name
@@ -334,6 +335,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         elif (isinstance(exc, B2Error) and
               (exc.code == 'bad_auth_token' or
                exc.code == 'expired_auth_token')):
+            return True
+
+        elif (isinstance(exc, B2Error) and exc.code == 'cap_exceeded' and self.retry_on_cap_exceeded):
             return True
 
         elif (isinstance(exc, B2Error) and

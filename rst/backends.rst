@@ -409,6 +409,12 @@ same bucket.
    file exists. This will use only one class B transaction instead of
    (possibly) multiple class C transactions.
 
+.. option:: retry-on-cap-exceeded
+
+   If there are data/transaction caps set for the backblaze account, this option
+   controls if operations should be retried as cap counters are reset every day.
+   Otherwise the exception would abort the program.
+
 .. _Backblaze B2 API: https://www.backblaze.com/b2/docs/
 
 
