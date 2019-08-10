@@ -30,7 +30,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
     '''A backend to store data in backblaze b2 cloud storage.
     '''
 
-    known_options = { 'account-id', 'disable-versions', 'retry-on-cap-exceeded' }
+    known_options = { 'account-id', 'disable-versions', 'retry-on-cap-exceeded',
+                      'test-mode-fail-some-uploads', 'test-mode-expire-some-tokens', 'test-mode-force-cap-exceeded' }
 
     available_upload_url_infos = []
 
@@ -51,6 +52,11 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         self.disable_versions = self.options.get('disable-versions', False)
         self.retry_on_cap_exceeded = self.options.get('retry-on-cap-exceeded', False)
+
+        # Test modes
+        self.test_mode_fail_some_uploads = self.options.get('test-mode-fail-some-uploads', False)
+        self.test_mode_expire_some_tokens = self.options.get('test-mode-expire-some-tokens', False)
+        self.test_mode_force_cap_exceeded = self.options.get('test-mode-force-cap-exceeded', False)
 
         (bucket_name, prefix) = self._parse_storage_url(options.storage_url, self.ssl_context)
         self.bucket_name = bucket_name
@@ -182,6 +188,12 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if 'Authorization' not in headers:
             headers['Authorization'] = self.authorization_token
 
+        if self.test_mode_expire_some_tokens:
+            headers['X-Bz-Test-Mode'] = 'expire_some_account_authorization_tokens'
+
+        if self.test_mode_force_cap_exceeded:
+            headers['X-Bz-Test-Mode'] = 'force_cap_exceeded'
+
         log.debug('REQUEST: %s %s %s %s', connection.hostname, method, path, headers)
 
         if body is None or isinstance(body, (bytes, bytearray, memoryview)):
@@ -265,6 +277,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def _do_upload_request(self, headers=None, body=None):
         upload_url_info = self._get_upload_url_info()
         headers['Authorization'] = upload_url_info['authorizationToken']
+
+        if self.test_mode_fail_some_uploads:
+            headers['X-Bz-Test-Mode'] = 'fail_some_uploads'
 
         upload_url_info['isUploading'] = True
 
