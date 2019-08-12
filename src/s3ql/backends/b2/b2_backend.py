@@ -31,7 +31,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
     '''
 
     known_options = { 'account-id', 'disable-versions', 'retry-on-cap-exceeded',
-                      'test-mode-fail-some-uploads', 'test-mode-expire-some-tokens', 'test-mode-force-cap-exceeded' }
+                      'test-mode-fail-some-uploads', 'test-mode-expire-some-tokens', 'test-mode-force-cap-exceeded',
+                      'tcp-timeout' }
 
     available_upload_url_infos = []
 
@@ -47,6 +48,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         self.b2_application_key_id = options.backend_login
         self.b2_application_key = options.backend_password
+
+        self.tcp_timeout = self.options.get('tcp-timeout', 20)
 
         self.account_id = self.options.get('account-id', None)
 
@@ -172,7 +175,10 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self.authorization_token = j['authorizationToken']
 
             self.api_connection = HTTPConnection(self.api_url.hostname, 443, ssl_context=self.ssl_context)
+            self.api_connection.timeout = self.tcp_timeout
+
             self.download_connection = HTTPConnection(self.download_url.hostname, 443, ssl_context=self.ssl_context)
+            self.download_connection.timeout = self.tcp_timeout
 
     def _do_request(self, connection, method, path, headers=None, body=None, download_body=True):
         '''Send request, read and return response object'''
@@ -619,9 +625,12 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         new_upload_url = urlparse(response['uploadUrl'])
         new_authorization_token = response['authorizationToken']
 
+        upload_connection = HTTPConnection(new_upload_url.hostname, 443, ssl_context=self.ssl_context)
+        upload_connection.timeout = self.tcp_timeout
+
         return {
             'hostname': new_upload_url.hostname,
-            'connection': HTTPConnection(new_upload_url.hostname, 443, ssl_context=self.ssl_context),
+            'connection': upload_connection,
             'path': new_upload_url.path,
             'authorizationToken': new_authorization_token,
             'isUploading': False

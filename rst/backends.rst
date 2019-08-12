@@ -433,6 +433,12 @@ same bucket.
    caps were exceeded. Use this only to test the backend implementation for correct/desired
    behavior. Can be useful in conjunction with *retry-on-cap-exceeded* option.
 
+.. option:: tcp-timeout
+
+   Specifies the timeout used for TCP connections. If no data can be
+   exchanged with the remote server for longer than this period, the
+   TCP connection is closed and re-established (default: 20 seconds).
+
 .. _Backblaze B2 API: https://www.backblaze.com/b2/docs/
 
 
