@@ -437,11 +437,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         log.debug('started with %s', key)
 
         if self.disable_versions:
-            response =  self._do_download_request('HEAD', key)
-            file_id = self._b2_url_decode(response.headers['X-Bz-File-Id'])
-            file_name = self._b2_url_decode(response.headers['X-Bz-File-Name'])
+            file_id, file_name = self._get_file_id_and_name(key)
             file_ids = [{
-                'fileName': file_name.replace('\\', '=5C'),
+                'fileName': file_name,
                 'fileId': file_id
             }]
         else:
@@ -544,13 +542,19 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return response['nextFileName'], filelist
 
+    def _get_file_id_and_name(self, key):
+        head_request_response = self._do_download_request('HEAD', key)
+        file_id = self._b2_url_decode(head_request_response.headers['X-Bz-File-Id'])
+        file_name = self._b2_url_decode(head_request_response.headers['X-Bz-File-Name'])
+        file_name = file_name.replace('\\', '=5C')
+        return file_id, file_name
+
     @retry
     @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None):
         log.debug('started with %s, %s', src, dest)
 
-        head_request_response = self._do_download_request('HEAD', src)
-        source_file_id = head_request_response.headers['X-Bz-File-Id']
+        source_file_id, source_file_name = self._get_file_id_and_name(src)
 
         request_dict = {
             'sourceFileId': source_file_id,
