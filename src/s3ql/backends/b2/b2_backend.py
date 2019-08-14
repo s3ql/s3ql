@@ -334,15 +334,14 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         elif (isinstance(exc, B2Error) and exc.code == 'cap_exceeded' and self.retry_on_cap_exceeded):
             return True
 
-        elif (isinstance(exc, B2Error) and
-              ((500 <= exc.status <= 599) or
-               exc.status == 408 or
-               exc.status == 429)):
+        elif isinstance(exc, HTTPError) and exc.code == 401:
+            self._reset_authorization_values()
             return True
 
-        elif (isinstance(exc, HTTPError) and
-              (exc.status == 408 or
-               exc.status == 401)):
+        elif (isinstance(exc, (B2Error, HTTPError)) and
+              ((500 <= exc.status <= 599) or # server errors
+               exc.status == 408 or # request timeout
+               exc.status == 429)): # too many requests
             return True
 
         # Consider all SSL errors as temporary. There are a lot of bug
