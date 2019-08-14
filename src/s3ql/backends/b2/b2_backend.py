@@ -200,7 +200,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if self.test_mode_force_cap_exceeded:
             headers['X-Bz-Test-Mode'] = 'force_cap_exceeded'
 
-        log.debug('REQUEST: %s %s %s %s', connection.hostname, method, path, headers)
+        log.debug('REQUEST: %s %s %s', connection.hostname, method, path)
 
         if body is None or isinstance(body, (bytes, bytearray, memoryview)):
             connection.send_request(method, path, headers=headers, body=body)
@@ -217,10 +217,10 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         else:
             response_body = None
 
-        log.debug('RESPONSE: %s %s %s', response.status, response.headers, response_body)
+        log.debug('RESPONSE: %s %s', response.status, response.reason)
 
-        # File not found
-        if response.status == 404 or (response.status != 200 and method == 'HEAD'):
+        if (response.status == 404 or # File not found
+            (response.status != 200 and method == 'HEAD')): # HEAD responses do not have a body -> we have to raise a HTTPError with the code
             raise HTTPError(response.status, response.reason, response.headers)
 
         if response.status != 200:
@@ -234,14 +234,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         api_call_url_path = self.api_url_prefix + api_call_name
         body = json.dumps(data_dict).encode('utf-8')
 
-        log.debug('API REQUEST: %s %s', api_call_name, json.dumps(data_dict, indent=2))
-
         response, body = self._do_request(self._get_api_connection(), 'POST', api_call_url_path, headers=None, body=body)
 
         json_response = json.loads(body.decode('utf-8'))
-
-        log.debug('API RESPONSE: %s', json.dumps(json_response, indent=2))
-
         return json_response
 
     def _do_download_request(self, method, key):
@@ -287,9 +282,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         upload_url_info['isUploading'] = False
 
         json_response = json.loads(response_body.decode('utf-8'))
-
-        log.debug('UPLOAD RESPONSE: %s', json.dumps(json_response, indent=2))
-
         return json_response
 
     @retry
@@ -323,6 +315,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def is_temp_failure(self, exc):
+        if isinstance(exc, (B2Error, HTTPError)):
+            log.debug('TEMP ERROR: %s %s', exc.status, exc.message)
+
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
             # We better reset our connections
             self._reset_connections()
@@ -619,15 +614,22 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         }
 
     def _invalidate_upload_url(self, upload_url_info):
+        '''Removes a no longer working upload url from the available
+        upload urls.
+        '''
+
+        log.debug('invalidating upload url: %s %s', upload_url_info['hostname'], upload_url_info['path'])
+
         try:
             self.available_upload_url_infos.remove(upload_url_info)
         except ValueError:
             pass
 
+        log.debug('upload urls left: %d', len(self.available_upload_url_infos))
+
     @staticmethod
     def _b2_url_encode(s):
-        '''URL-encodes a unicode string to be sent to B2 in an HTTP header.
-        '''
+        '''URL-encodes a unicode string to be sent to B2 in an HTTP header.'''
 
         s = str(s)
         encoded_s = urllib.parse.quote(s.encode('utf-8'), safe='/\\')
