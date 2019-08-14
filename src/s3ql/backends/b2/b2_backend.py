@@ -275,8 +275,13 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self._invalidate_upload_url(upload_url_info)
             raise
 
-        except:
-            upload_url_info['isUploading'] = False
+        except Exception as exc:
+            if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
+                # we better get a new upload url
+                self._invalidate_upload_url(upload_url_info)
+            else:
+                upload_url_info['connection'].reset()
+                upload_url_info['isUploading'] = False
             raise
 
         upload_url_info['isUploading'] = False
