@@ -208,23 +208,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             body_length = os.fstat(body.fileno()).st_size
             connection.send_request(method, path, headers=headers, body=BodyFollowing(body_length))
 
-            try:
-                copyfileobj(body, connection, BUFSIZE)
-            except ConnectionClosed:
-                # Server closed connection while w were writing body data -
-                # but we may still be able to read an error response
-                try:
-                    response = connection.read_response()
-                except ConnectionClosed: # No server response available
-                    pass
-                else:
-                    if response.status >= 400: # Got error response
-                        return response
-                    log.warning('Server broke connection during upload, but signaled '
-                                '%d %s', response.status, response.reason)
-
-                # Re-raise first ConnectionClosed exception
-                raise
+            copyfileobj(body, connection, BUFSIZE)
 
         response = connection.read_response()
 
