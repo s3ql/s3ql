@@ -225,14 +225,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         if response.status != 200:
             json_error_response = json.loads(response_body.decode('utf-8'))
-
             b2_error = B2Error(json_error_response['status'], json_error_response['code'], json_error_response['message'], response.headers)
-
-            # Not authorized
-            if (b2_error.code == 'bad_auth_token' or
-                b2_error.code == 'expired_auth_token'):
-                self._reset_authorization_values()
-
             raise b2_error
 
         return response, response_body
@@ -340,6 +333,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         elif (isinstance(exc, B2Error) and
               (exc.code == 'bad_auth_token' or
                exc.code == 'expired_auth_token')):
+            self._reset_authorization_values()
             return True
 
         elif (isinstance(exc, B2Error) and exc.code == 'cap_exceeded' and self.retry_on_cap_exceeded):
