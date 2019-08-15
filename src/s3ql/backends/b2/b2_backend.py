@@ -336,7 +336,10 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self._reset_authorization_values()
             return True
 
-        elif (isinstance(exc, B2Error) and exc.code == 'cap_exceeded' and self.retry_on_cap_exceeded):
+        elif (isinstance(exc, B2Error) and
+              (exc.code == 'cap_exceeded' or
+               exc.code == 'test_mode_cap_exceeded') and
+              self.retry_on_cap_exceeded):
             return True
 
         elif isinstance(exc, HTTPError) and exc.code == 401:
