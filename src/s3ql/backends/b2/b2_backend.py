@@ -217,7 +217,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         else:
             response_body = None
 
-        log.debug('RESPONSE: %s %s', response.status, response.reason)
+        content_length = response.headers.get('Content-Length', '0')
+        log.debug('RESPONSE: %s %s %s %s', response.method, response.status, response.reason, content_length)
 
         if (response.status == 404 or # File not found
             (response.status != 200 and method == 'HEAD')): # HEAD responses do not have a body -> we have to raise a HTTPError with the code
