@@ -195,12 +195,13 @@ authentication, the storage URL is ::
 
    swift://<hostname>[:<port>]/<container>[/<prefix>]
 
-for Keystone (v2) authentication, the storage URL is ::
+for Keystone (v2 and v3) authentication, the storage URL is ::
 
    swiftks://<hostname>[:<port>]/<region>:<container>[/<prefix>]
 
 Note that when using Keystone authentication, you can (and have to)
-specify the storage region of the container as well.
+specify the storage region of the container as well. Also note that when
+using Keystone v3 authentication, the `domain` option is required.
 
 In both cases, *hostname* name should be the name of the
 authentication server.  The storage container must already exist (most
@@ -255,6 +256,14 @@ The OpenStack backend accepts the following backend options:
    advanced features of the Swift backend. In this case S3QL can only
    use the least common denominator of supported Swift versions and
    configurations.
+
+.. option:: domain
+
+   If this option is specified, S3QL will use the Keystone v3 API. The
+   default domain for OpenStack installations is `Default`. Note: some
+   instances of the Keystone v3 API prefer the use of UUIDs rather than
+   names for tenant (called project in newer OpenStack versions), and
+   domain.
 
 .. __: http://tools.ietf.org/html/rfc2616#section-8.2.3
 .. _OpenStack: http://www.openstack.org/
