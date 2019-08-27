@@ -76,11 +76,10 @@ class Backend(swift.Backend):
             tenant = None
             user = self.login
 
-        if self.options.get('v3-auth', False):
-            domain = self.options.get('domain', 'Default')
-
+        domain = self.options.get('domain', None)
+        if domain:
             if not tenant:
-                raise ValueError("Tenant is required when v3-auth is enabled")
+                raise ValueError("Tenant is required when Keystone v3 is used")
 
             auth_body = {
                 'auth': {
@@ -110,7 +109,7 @@ class Backend(swift.Backend):
             auth_url_path = '/v3/auth/tokens'
 
         else:
-            # If not v3-auth, assume v2
+            # If a domain is not specified, assume v2
             auth_body = { 'auth':
                           { 'passwordCredentials':
                                 { 'username': user,
