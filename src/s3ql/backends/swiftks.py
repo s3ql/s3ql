@@ -76,18 +76,55 @@ class Backend(swift.Backend):
             tenant = None
             user = self.login
 
-        auth_body = { 'auth':
+        domain = self.options.get('domain', None)
+        if domain:
+            if not tenant:
+                raise ValueError("Tenant is required when Keystone v3 is used")
+
+            auth_body = {
+                'auth': {
+                    'identity': {
+                        'methods': ['password'],
+                        'password': {
+                            'user': {
+                                'name': user,
+                                'domain': {
+                                    'id': domain
+                                },
+                                'password': self.password
+                            }
+                        }
+                    },
+                    'scope': {
+                        'project': {
+                            'id': tenant,
+                            'domain': {
+                                'id': domain
+                            }
+                        }
+                    }
+                }
+            }
+
+            auth_url_path = '/v3/auth/tokens'
+
+        else:
+            # If a domain is not specified, assume v2
+            auth_body = { 'auth':
                           { 'passwordCredentials':
                                 { 'username': user,
                                   'password': self.password } }}
-        if tenant:
-            auth_body['auth']['tenantName'] = tenant
+
+            auth_url_path = '/v2.0/tokens'
+
+            if tenant:
+                auth_body['auth']['tenantName'] = tenant
 
         with HTTPConnection(self.hostname, port=self.port, proxy=self.proxy,
                             ssl_context=ssl_context) as conn:
             conn.timeout = int(self.options.get('tcp-timeout', 20))
 
-            conn.send_request('POST', '/v2.0/tokens', headers=headers,
+            conn.send_request('POST', auth_url_path, headers=headers,
                               body=json.dumps(auth_body).encode('utf-8'))
             resp = conn.read_response()
 
@@ -98,10 +135,16 @@ class Backend(swift.Backend):
                 raise HTTPError(resp.status, resp.reason, resp.headers)
 
             cat = json.loads(conn.read().decode('utf-8'))
-            self.auth_token = cat['access']['token']['id']
+
+            if self.options.get('v3-auth', False):
+                self.auth_token = resp.headers['X-Subject-Token']
+                service_catalog = cat['token']['catalog']
+            else:
+                self.auth_token = cat['access']['token']['id']
+                service_catalog = cat['access']['serviceCatalog']
 
         avail_regions = []
-        for service in cat['access']['serviceCatalog']:
+        for service in service_catalog:
             if service['type'] != 'object-store':
                 continue
 
@@ -110,7 +153,17 @@ class Backend(swift.Backend):
                     avail_regions.append(endpoint['region'])
                     continue
 
-                o = urlsplit(endpoint['publicURL'])
+                if 'publicURL' in endpoint:
+                    # The publicURL nomenclature is found in v2 catalogs
+                    o = urlsplit(endpoint['publicURL'])
+                else:
+                    # Whereas v3 catalogs do 'interface' == 'public' and
+                    # 'url' for the URL itself
+                    if endpoint['interface'] != 'public':
+                        continue
+
+                    o = urlsplit(endpoint['url'])
+
                 self.auth_prefix = urllib.parse.unquote(o.path)
                 if o.scheme == 'https':
                     ssl_context = self.ssl_context

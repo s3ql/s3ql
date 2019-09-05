@@ -39,7 +39,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     hdr_prefix = 'X-Object-'
     known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout',
-                     'disable-expect100', 'no-feature-detection'}
+                     'disable-expect100', 'no-feature-detection',
+                     'domain'}
 
     _add_meta_headers = s3c.Backend._add_meta_headers
     _extractmeta = s3c.Backend._extractmeta
