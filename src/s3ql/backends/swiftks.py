@@ -136,7 +136,7 @@ class Backend(swift.Backend):
 
             cat = json.loads(conn.read().decode('utf-8'))
 
-            if self.options.get('v3-auth', False):
+            if self.options.get('domain', None):
                 self.auth_token = resp.headers['X-Subject-Token']
                 service_catalog = cat['token']['catalog']
             else:
