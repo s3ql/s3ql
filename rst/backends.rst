@@ -260,10 +260,17 @@ The OpenStack backend accepts the following backend options:
 .. option:: domain
 
    If this option is specified, S3QL will use the Keystone v3 API. The
-   default domain for OpenStack installations is `Default`. Note: some
+   default domain for OpenStack installations is `Default`. If this
+   option is specified without setting the `project-domain` option, this
+   will be used for both the project and the user domain. Note: some
    instances of the Keystone v3 API prefer the use of UUIDs rather than
-   names for tenant (called project in newer OpenStack versions), and
-   domain.
+   names for tenant (called project in newer OpenStack versions), as
+   well as domains.
+
+.. option:: project-domain
+   In simple cases, the project domain will be the same as the auth
+   domain. If the `project-domain` option is not specified, it will be
+   assumed to be the same as the user domain.
 
 .. __: http://tools.ietf.org/html/rfc2616#section-8.2.3
 .. _OpenStack: http://www.openstack.org/

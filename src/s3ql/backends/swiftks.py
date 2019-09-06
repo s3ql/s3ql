@@ -81,6 +81,11 @@ class Backend(swift.Backend):
             if not tenant:
                 raise ValueError("Tenant is required when Keystone v3 is used")
 
+            # In simple cases where there's only one domain, the project domain
+            # will be the same as the authentication domain, but this option
+            # allows for them to be different
+            project_domain = self.options.get('project-domain', domain)
+
             auth_body = {
                 'auth': {
                     'identity': {
@@ -99,7 +104,7 @@ class Backend(swift.Backend):
                         'project': {
                             'id': tenant,
                             'domain': {
-                                'id': domain
+                                'id': project_domain
                             }
                         }
                     }
