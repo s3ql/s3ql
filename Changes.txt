@@ -1,3 +1,7 @@
+2019-09-08, S3QL 3.3
+
+  * Added support for Keystone V3 authentication.
+
 2019-07-17, S3QL 3.2
 
   * Added a `--compress` option to `fsck.s3ql`.
