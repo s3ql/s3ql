@@ -641,7 +641,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if metadata is not None:
             self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
             headers['X-Fresh-Metadata'] = 'true'
-        resp = self._do_request('COPY', '/%s%s' % (self.prefix, src), headers=headers)
+        try:
+            resp = self._do_request('COPY', '/%s%s' % (self.prefix, src), headers=headers)
+        except HTTPError as exc:
+            if exc.status == 404:
+                raise NoSuchObject(src)
+            raise
         self._assert_empty_response(resp)
 
     @copy_ancestor_docstring
