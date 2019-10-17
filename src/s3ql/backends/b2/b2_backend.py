@@ -463,7 +463,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     else:
                         raise exc
 
-    @retry
     def _delete_file_id(self, file_name, file_id):
         request_dict = {
             'fileName': file_name,
