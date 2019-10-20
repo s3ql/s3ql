@@ -1,7 +1,12 @@
-UNRELEASED CHANGES
+2019-10-20, S3QL 3.3.2
 
   * Fixed occasional crashes with "KeyError" when using Google Storage
     backend.
+
+  * Switched to semantic versioning. An increase in the major (first) version number will
+    indicate a backwards incompatible change (eg a change in the file system revision), a
+    change in the minor version (the second element) indicates new features, and a change
+    in the third element indicates bugfixes.
 
 2019-09-08, S3QL 3.3
 
