@@ -209,7 +209,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             return True
 
         elif isinstance(exc, AccessTokenExpired):
-            del self.access_token[self.refresh_token]
+            # Delete may fail if multiple threads encounter the same error
+            self.access_token.pop(self.refresh_token, None)
             return True
 
         # Not clear at all what is happening here, but in doubt we retry

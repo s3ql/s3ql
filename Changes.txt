@@ -1,3 +1,8 @@
+UNRELEASED CHANGES
+
+  * Fixed occasional crashes with "KeyError" when using Google Storage
+    backend.
+
 2019-09-08, S3QL 3.3
 
   * Added support for Keystone V3 authentication.
