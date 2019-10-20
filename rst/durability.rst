@@ -72,8 +72,7 @@ your storage provider.
 =======================================   ===================
 Storage Provider                          Consistency Window
 =======================================   ===================
-Amazon S3 in the US standard region       No guarantees
-Amazon S3 in other regions                Immediate
+Amazon S3                                 Immediate
 Google Storage                            Immediate
 =======================================   ===================
 

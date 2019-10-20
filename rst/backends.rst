@@ -102,8 +102,7 @@ traffic that you actually use. After that, you need to create a bucket
 that will hold the S3QL file system, e.g. using the `AWS Management
 Console <https://console.aws.amazon.com/s3/home>`_. For best
 performance, it is recommend to create the bucket in the
-geographically closest storage region, but not the US Standard region
-(see :ref:`durability` for the reason).
+geographically closest storage region.
 
 The storage URL for accessing S3 buckets in S3QL has the form ::
 
