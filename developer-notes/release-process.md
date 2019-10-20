@@ -4,6 +4,7 @@
 * Add release date to `Changes.txt`
 * `./setup.py build_cython build_ext --inplace`
 * `./setup.py build_sphinx sdist`
+* Update authors: `git log --all --pretty="format:%an <%aE>" | sort -u >> AUTHOR`
 * Test tarball:
   * `./setup.py build_ext --inplace`
   * `./setup.py build_sphinx`
@@ -15,7 +16,6 @@
 * `./setup.py upload_docs`
 * Write announcement to mailing list
   * Get contributors: `git log --pretty="format:%an <%aE>" "${PREV_TAG}..${TAG}" | sort -u`
-  * Update authors: `git log --all --pretty="format:%an <%aE>" | sort -u >> AUTHOR`
 
 ## Email template
 
