@@ -475,7 +475,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         resp = self._do_request('POST', '/', subres='bulk-delete', body=body, headers=headers)
 
         # bulk deletes should always return 200
-        if resp.status is not 200:
+        if resp.status != 200:
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
         hit = re.match(r'^application/json(;\s*charset="?(.+?)"?)?$',
@@ -497,7 +497,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         except ValueError:
             raise RuntimeError('Unexpected server reply')
 
-        if resp_status_code is 200:
+        if resp_status_code == 200:
             # No errors occured, everything has been deleted
             del keys[:]
             return
@@ -762,7 +762,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                           self._dump_response(resp, body=conn.read(2048)))
                 raise HTTPError(resp.status, resp.reason, resp.headers)
 
-            if resp.status is 200:
+            if resp.status == 200:
                 hit = re.match(r'^application/json(;\s*charset="?(.+?)"?)?$',
                 resp.headers['content-type'])
                 if not hit:
