@@ -3,21 +3,29 @@ sudo: enabled
 
 language: python
 python:
-  - "3.5"
   - "3.6"
-  - "3.7-dev"
+  - "3.7"
 
 cache: pip
+addons:
+  apt:
+    packages:
+    - gcc
+    - psmisc
+    - pkg-config
+    - libattr1-dev
+    - libsqlite3-dev
+    - libjs-sphinxdoc
+    - texlive-latex-base
+    - texlive-latex-recommended
+    - texlive-latex-extra
+    - texlive-generic-extra
+    - texlive-fonts-recommended
+    - python3-pip
+    - python3-setuptools
+    - ninja-build
 
-before_install:
-  - sudo apt-get update -qq
-  - sudo apt-get install -y fuse psmisc pkg-config libattr1-dev libfuse-dev libsqlite3-dev libjs-sphinxdoc texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-generic-extra texlive-fonts-recommended
-  - "printf 'Current libsqlite3-dev version: %s' $(dpkg-query --show --showformat='${Version}' libsqlite3-dev)"
-
-install:
-  - pip install https://github.com/rogerbinns/apsw/releases/download/3.8.2-r1/apsw-3.8.2-r1.zip
-  - pip install defusedxml
-  - pip install cython sphinx cryptography requests "pyfuse3 >= 1.0, < 2.0" "dugong >= 3.4, < 4.0" "pytest >= 3.7" google-auth google-auth-oauthlib pytest_trio "trio >= 0.70"
+install: tests/travis-install.sh
 
 script:
   - python setup.py build_cython || travis_terminate 1
