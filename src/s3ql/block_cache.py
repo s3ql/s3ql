@@ -121,14 +121,14 @@ class CacheDict(OrderedDict):
 
     Attributes:
 
-    :max_size: maximum size to which cache can grow
+    :get_max_size: function that returns the maximum size to which cache can grow
     :max_entries: maximum number of entries in cache
     :size: current size of all entries together
     '''
 
-    def __init__(self, max_size, max_entries):
+    def __init__(self, get_max_size, max_entries):
         super().__init__()
-        self.max_size = max_size
+        self.get_max_size = get_max_size
         self.max_entries = max_entries
         self.size = 0
 
@@ -142,8 +142,8 @@ class CacheDict(OrderedDict):
             el.unlink()
 
     def is_full(self):
-        return (self.size > self.max_size
-                or len(self) > self.max_entries)
+        return (self.size >= self.get_max_size()
+                or len(self) >= self.max_entries)
 
 class BlockCache(object):
     """Provides access to file blocks
@@ -173,7 +173,8 @@ class BlockCache(object):
         self.path = cachedir
         self.db = db
         self.backend_pool = backend_pool
-        self.cache = CacheDict(max_size, max_entries)
+        self.max_size = max_size
+        self.cache = CacheDict(self._get_max_size, max_entries)
         self.mlock = MultiLock()
         self.in_transit = set()
         self.upload_threads = []
@@ -192,6 +193,17 @@ class BlockCache(object):
 
         # Initialized fromt the outside to prevent cyclic dependency
         self.fs = None
+
+    def _get_max_size(self):
+
+        max_obj_size = 0
+        if self.fs is not None:
+            max_obj_size = self.fs.max_obj_size
+
+        free_disk_space = shutil.disk_usage(self.path)[2]
+        max_available_cache_size = free_disk_space + self.cache.size - 2 * max_obj_size
+
+        return min(max_available_cache_size, self.max_size)
 
     def load_cache(self):
         '''Initialize cache from disk'''
@@ -655,7 +667,7 @@ class BlockCache(object):
 
         #log.debug('started with %d, %d', inode, blockno)
 
-        if self.cache.is_full():
+        while self.cache.is_full():
             await self.expire()
 
         await self.mlock.acquire(inode, blockno)
@@ -749,7 +761,7 @@ class BlockCache(object):
         log.debug('started')
 
         while True:
-            need_size = self.cache.size - self.cache.max_size
+            need_size = self.cache.size - self.cache.get_max_size()
             need_entries = len(self.cache) - self.cache.max_entries
 
             if need_size <= 0 and need_entries <= 0:

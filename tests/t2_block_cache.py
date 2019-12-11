@@ -239,7 +239,7 @@ async def test_expire(ctx):
 
 async def test_upload(ctx):
     inode = ctx.inode
-    datalen = int(0.1 * ctx.cache.cache.max_size)
+    datalen = int(0.1 * ctx.cache.cache.get_max_size())
     blockno1 = 21
     blockno2 = 25
     blockno3 = 7
@@ -310,7 +310,7 @@ async def test_upload(ctx):
 
 async def test_remove_referenced(ctx):
     inode = ctx.inode
-    datalen = int(0.1 * ctx.cache.cache.max_size)
+    datalen = int(0.1 * ctx.cache.cache.get_max_size())
     blockno1 = 21
     blockno2 = 24
     data = random_data(datalen)
