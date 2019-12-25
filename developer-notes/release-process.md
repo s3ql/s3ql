@@ -1,4 +1,4 @@
-# Steps for Releasing a New Version =
+# Steps for Releasing a New Version
 
 * Bump version in `src/s3ql/__init__.py`
 * Add release date to `Changes.txt`
@@ -26,7 +26,7 @@ To: s3ql@googlegroups.com
 
 Dear all,
 
-I am pleased to announce a new release of S3QL, version XXX.
+I am pleased to announce a new release of S3QL, version [PASTE VERSION].
 
 From the changelog:
 
@@ -39,7 +39,7 @@ The following people have contributed code to this release:
 (The full list of contributors is available in the AUTHORS file).
 
 The release is available for download from
-https://github.com/s3ql/s3ql/releases.
+https://github.com/s3ql/s3ql/releases
 
 Please report any bugs on the mailing list (s3ql@googlegroups.com) or
 the issue tracker (https://github.com/s3ql/s3ql/issues).
