@@ -627,6 +627,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         log.debug('invalidating upload url: %s %s', upload_url_info['hostname'], upload_url_info['path'])
 
+        if upload_url_info['connection'] is not None:
+            upload_url_info['connection'].disconnect()
+
         try:
             self.available_upload_url_infos.remove(upload_url_info)
         except ValueError:
