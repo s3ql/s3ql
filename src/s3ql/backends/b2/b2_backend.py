@@ -25,6 +25,7 @@ from ..common import (AbstractBackend, get_ssl_context, retry, checksum_basic_ma
 from ...inherit_docstrings import (ABCDocstMeta, copy_ancestor_docstring, prepend_ancestor_docstring)
 from ...logging import logging, QuietError
 from ... import BUFSIZE
+from ..s3c import HTTPError
 from .object_r import ObjectR
 from .object_w import ObjectW
 from .b2_error import B2Error, BadDigestError
@@ -230,8 +231,10 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise HTTPError(response.status, response.reason, response.headers)
 
         if response.status != 200:
-            json_error_response = json.loads(response_body.decode('utf-8'))
-            b2_error = B2Error(json_error_response['status'], json_error_response['code'], json_error_response['message'], response.headers)
+            json_error_response = json.loads(response_body.decode('utf-8')) if response_body else None
+            code = json_error_response['code'] if json_error_response else None
+            message = json_error_response['message'] if json_error_response else response.reason
+            b2_error = B2Error(json_error_response['status'], code, message, response.headers)
             raise b2_error
 
         return response, response_body
@@ -349,7 +352,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self._reset_authorization_values()
             return True
 
-        elif (isinstance(exc, (B2Error, HTTPError)) and
+        elif (isinstance(exc, HTTPError) and
               ((500 <= exc.status <= 599) or # server errors
                exc.status == 408 or # request timeout
                exc.status == 429)): # too many requests
@@ -777,30 +780,3 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     def __str__(self):
         return 'b2://%s/%s' % (self.bucket_name, self.prefix)
-
-
-def _parse_retry_after_header(header):
-    try:
-        value = int(header)
-    except ValueError:
-        value = 1
-    return value
-
-
-class HTTPError(Exception):
-    '''Represents an HTTP error returned by Backblaze B2
-    '''
-
-    def __init__(self, status, message, headers=None):
-        super().__init__()
-        self.status = status
-        self.message = message
-        self.headers = headers
-
-        if headers and 'Retry-After' in headers:
-            self.retry_after = _parse_retry_after_header(headers['Retry-After'])
-        else:
-            self.retry_after = None
-
-    def __str__(self):
-        return '%d %s' % (self.status, self.message)

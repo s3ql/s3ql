@@ -1,4 +1,6 @@
-class B2Error(Exception):
+from ..s3c import HTTPError
+
+class B2Error(HTTPError):
     '''
     Represents an error returned by Backblaze B2 API call
 
@@ -6,11 +8,8 @@ class B2Error(Exception):
     '''
 
     def __init__(self, status, code, message, headers=None):
-        super().__init__(message)
-        self.status = status
+        super().__init__(status, message, headers)
         self.code = code
-        self.message = message
-        self.headers = headers
 
         if headers and 'Retry-After' in headers:
             self.retry_after = _parse_retry_after_header(headers['Retry-After'])
@@ -19,14 +18,7 @@ class B2Error(Exception):
             self.retry_after = 1
 
     def __str__(self):
-        return '%s : %s - %s' % (self.status, self.code, self.message)
+        return '%s : %s - %s' % (self.status, self.code, self.msg)
 
 
 class BadDigestError(B2Error): pass
-
-def _parse_retry_after_header(header):
-    try:
-        value = int(header)
-    except ValueError:
-        value = 1
-    return value
