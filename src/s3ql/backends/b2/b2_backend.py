@@ -1,3 +1,11 @@
+'''
+backends/b2/b2_backend.py - this file is part of S3QL.
+
+Copyright © 2019 Paul Tirk <paultirk@paultirk.com>
+
+This work can be distributed under the terms of the GNU GPLv3.
+'''
+
 import base64
 from dugong import (HTTPConnection, CaseInsensitiveDict, is_temp_network_error, BodyFollowing,
                     ConnectionClosed, ConnectionTimedOut)
@@ -9,11 +17,8 @@ import ssl
 import binascii
 from ast import literal_eval
 from itertools import count
-import io
 import os
 from shutil import copyfileobj
-
-from  typing import Dict, Tuple, Union, List
 
 from ..common import (AbstractBackend, get_ssl_context, retry, checksum_basic_mapping,
                       CorruptedObjectError, NoSuchObject, DanglingStorageURLError)
@@ -27,7 +32,7 @@ from .b2_error import B2Error, BadDigestError
 log = logging.getLogger(__name__)
 
 class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
-    '''A backend to store data in backblaze b2 cloud storage.
+    '''A backend to store data in Backblaze B2 cloud storage.
     '''
 
     known_options = { 'account-id', 'disable-versions', 'retry-on-cap-exceeded',
@@ -321,9 +326,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def is_temp_failure(self, exc):
-        if isinstance(exc, (B2Error, HTTPError)):
-            log.debug('TEMP ERROR: %s %s', exc.status, exc.message)
-
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
             # We better reset our connections
             self._reset_connections()
@@ -399,10 +401,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @retry
     @copy_ancestor_docstring
     def open_read(self, key):
-        try:
-            response = self._do_download_request('GET', key)
-        except NoSuchObject:
-            raise
+        response = self._do_download_request('GET', key)
 
         try:
             metadata = self._extract_b2_metadata(response, key)
