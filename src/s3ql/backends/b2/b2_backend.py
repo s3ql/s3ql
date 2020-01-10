@@ -85,7 +85,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.info_header_prefix = 'X-Bz-Info-'
 
     def _get_key_with_prefix(self, key):
-        return self._b2_url_encode('%s%s' % (self.prefix, key))
+        return self._b2_escape_backslashes('%s%s' % (self.prefix, key))
 
     @staticmethod
     def _parse_storage_url(storage_url, ssl_context):
@@ -249,7 +249,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return json_response
 
     def _do_download_request(self, method, key):
-        path = '/file/' + self.bucket_name + '/' + self._get_key_with_prefix(key)
+        key_with_prefix = self._get_key_with_prefix(key)
+        path = '/file/' + self.bucket_name + '/' + self._b2_url_encode(key_with_prefix)
 
         try:
             response, body = self._do_request(self._get_download_connection(), method, path, download_body=False)
@@ -483,9 +484,10 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         while keys_remaining and next_filename is not None:
             next_filename, next_file_id, versions_list = self._list_file_versions_page(next_filename, next_file_id)
 
+            key_with_prefix = self._get_key_with_prefix(key)
+
             for version in versions_list:
-                decoded_file_name = self._b2_url_decode(version['fileName'], decode_plus=False)
-                if decoded_file_name == self.prefix + key:
+                if version['fileName'] == key_with_prefix:
                     versions.append({ 'fileName': version['fileName'], 'fileId': version['fileId']})
                 else:
                     keys_remaining = False
@@ -550,7 +552,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         head_request_response = self._do_download_request('HEAD', key)
         file_id = self._b2_url_decode(head_request_response.headers['X-Bz-File-Id'])
         file_name = self._b2_url_decode(head_request_response.headers['X-Bz-File-Name'])
-        file_name = file_name.replace('\\', '=5C')
+        file_name = self._b2_escape_backslashes(file_name)
         return file_id, file_name
 
     @retry
@@ -562,7 +564,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         request_dict = {
             'sourceFileId': source_file_id,
-            'fileName': self.prefix + dest.replace('\\', '=5C') # self._get_key_with_prefix(dest)
+            'fileName': self._get_key_with_prefix(dest)
         }
 
         if metadata is None:
@@ -645,7 +647,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         s = str(s)
         encoded_s = urllib.parse.quote(s.encode('utf-8'), safe='/\\')
-        encoded_s = encoded_s.replace('\\', '=5C')
+        encoded_s = B2Backend._b2_escape_backslashes(encoded_s)
 
         return encoded_s
 
@@ -661,12 +663,20 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # the decoding to work properly.
 
         s = str(s)
-        decoded_s = s.replace('=5C', '\\')
+        decoded_s = B2Backend._b2_unescape_backslashes(s)
         if decode_plus:
             decoded_s = urllib.parse.unquote_plus(decoded_s)
         else:
             decoded_s = urllib.parse.unquote(decoded_s)
         return decoded_s
+
+    @staticmethod
+    def _b2_escape_backslashes(s):
+        return s.replace('\\', '=5C')
+
+    @staticmethod
+    def _b2_unescape_backslashes(s):
+        return s.replace('=5C', '\\')
 
     def _create_metadata_dict(self, metadata, chunksize=2048):
         metadata_dict = {}

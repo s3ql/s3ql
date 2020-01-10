@@ -53,7 +53,9 @@ class ObjectW(object):
 
         self.fh.seek(0)
 
-        self.headers['X-Bz-File-Name'] = self.backend._get_key_with_prefix(self.key)
+        key_with_prefix = self.backend._get_key_with_prefix(self.key)
+
+        self.headers['X-Bz-File-Name'] = self.backend._b2_url_encode(key_with_prefix)
         self.headers['Content-Type'] = 'application/octet-stream'
         self.headers['Content-Length'] = self.obj_size
         self.headers['X-Bz-Content-Sha1'] = self.sha1.hexdigest()
