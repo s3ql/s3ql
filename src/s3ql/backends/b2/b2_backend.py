@@ -32,6 +32,9 @@ from .b2_error import B2Error, BadDigestError
 
 log = logging.getLogger(__name__)
 
+api_url_prefix = '/b2api/v2/'
+info_header_prefix = 'X-Bz-Info-'
+
 class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
     '''A backend to store data in Backblaze B2 cloud storage.
     '''
@@ -72,17 +75,12 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.bucket_id = None
         self.prefix = prefix
 
-        self.api_version = 2
-        self.api_url_prefix = '/b2api/v' + str(self.api_version) + '/'
-
         # are set by _authorize_account
         self.api_url = None
         self.download_url = None
         self.authorization_token = None
         self.api_connection = None
         self.download_connection = None
-
-        self.info_header_prefix = 'X-Bz-Info-'
 
     def _get_key_with_prefix(self, key):
         return self._b2_escape_backslashes('%s%s' % (self.prefix, key))
@@ -157,7 +155,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         '''Authorize API calls'''
 
         authorize_host = 'api.backblazeb2.com'
-        authorize_url = self.api_url_prefix + 'b2_authorize_account'
+        authorize_url = api_url_prefix + 'b2_authorize_account'
 
         id_and_key = self.b2_application_key_id + ':' + self.b2_application_key
         basic_auth_string = 'Basic ' + str(base64.b64encode(bytes(id_and_key, 'UTF-8')), encoding='UTF-8')
@@ -240,7 +238,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return response, response_body
 
     def _do_api_call(self, api_call_name, data_dict):
-        api_call_url_path = self.api_url_prefix + api_call_name
+        api_call_url_path = api_url_prefix + api_call_name
         body = json.dumps(data_dict).encode('utf-8')
 
         response, body = self._do_request(self._get_api_connection(), 'POST', api_call_url_path, headers=None, body=body)
@@ -728,7 +726,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         metadata_dict = self._create_metadata_dict(metadata)
 
         for key in metadata_dict.keys():
-            header_key = '%s%s' % (self.info_header_prefix, key)
+            header_key = '%s%s' % (info_header_prefix, key)
             encoded_value = self._b2_url_encode(metadata_dict[key])
 
             headers[header_key] = encoded_value
@@ -739,16 +737,16 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         headers = CaseInsensitiveDict()
         for k, v in response.headers.items():
             # we convert to lower case in order to do case-insensitive comparison
-            if k.lower().startswith(self.info_header_prefix.lower() + 'meta-'):
+            if k.lower().startswith(info_header_prefix.lower() + 'meta-'):
                 headers[k] = self._b2_url_decode(v)
 
-        format_ = headers.get('%smeta-format' % self.info_header_prefix, 'raw')
+        format_ = headers.get('%smeta-format' % info_header_prefix, 'raw')
         if format_ != 'raw2': # Current metadata format
             raise CorruptedObjectError('invalid metadata format: %s' % format_)
 
         parts = []
         for i in count():
-            part = headers.get('%smeta-%03d' % (self.info_header_prefix, i), None)
+            part = headers.get('%smeta-%03d' % (info_header_prefix, i), None)
             if part is None:
                 break
             parts.append(part)
@@ -774,7 +772,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # accidentally corrupted in transit than to get accidentally corrupted
         # on the server (which hopefully checksums its storage devices).
         md5 = base64.b64encode(checksum_basic_mapping(meta)).decode('ascii')
-        if md5 != headers.get('%smeta-md5' % self.info_header_prefix, None):
+        if md5 != headers.get('%smeta-md5' % info_header_prefix, None):
             log.warning('MD5 mismatch in metadata for %s', obj_key)
 
             # When trying to read file system revision 23 or earlier, we will
