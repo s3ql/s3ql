@@ -133,14 +133,22 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self.download_connection.reset()
 
     def _get_download_connection(self):
-        if self.download_connection is None:
+        if self.download_url is None:
             self._authorize_account()
+
+        if self.download_connection is None:
+            self.download_connection = HTTPConnection(self.download_url.hostname, 443, ssl_context=self.ssl_context)
+            self.download_connection.timeout = self.tcp_timeout
 
         return self.download_connection
 
     def _get_api_connection(self):
-        if self.api_connection is None:
+        if self.api_url is None:
             self._authorize_account()
+
+        if self.api_connection is None:
+            self.api_connection = HTTPConnection(self.api_url.hostname, 443, ssl_context=self.ssl_context)
+            self.api_connection.timeout = self.tcp_timeout
 
         return self.api_connection
 
@@ -176,12 +184,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self.api_url = urlparse(j['apiUrl'])
             self.download_url = urlparse(j['downloadUrl'])
             self.authorization_token = j['authorizationToken']
-
-            self.api_connection = HTTPConnection(self.api_url.hostname, 443, ssl_context=self.ssl_context)
-            self.api_connection.timeout = self.tcp_timeout
-
-            self.download_connection = HTTPConnection(self.download_url.hostname, 443, ssl_context=self.ssl_context)
-            self.download_connection.timeout = self.tcp_timeout
 
     def _do_request(self, connection, method, path, headers=None, body=None, download_body=True):
         '''Send request, read and return response object'''
