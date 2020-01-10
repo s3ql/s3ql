@@ -395,12 +395,6 @@ the provided account key. The *prefix* will be appended to all names
 used by S3QL and can be used to hold separate S3QL repositories in the
 same bucket.
 
-.. option:: account-id
-
-   Some API calls need the account id which can be passed by using
-   this parameter. If it is not provided, a separate call has to be
-   made to fetch it from the backend.
-
 .. option:: disable-versions
 
    If versioning of the bucket is not enabled, this option can be set.
