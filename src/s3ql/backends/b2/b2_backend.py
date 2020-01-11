@@ -681,6 +681,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         metadata_dict = {}
 
         info_header_count = 0
+
+        buffer = ''
         for key in metadata.keys():
             if not isinstance(key, str):
                 raise ValueError('dict keys must be str, not %s' % type(key))
@@ -693,20 +695,19 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if isinstance(value, (bytes, bytearray)):
                 value = base64.b64encode(value)
 
-            buffer = ('%s: %s' % (repr(key), repr(value)))
-            buffer = urllib.parse.quote(buffer, safe='!@#$^*()=+/?-_\'"><\\| `.,;:~')
+            buffer += ('%s: %s,' % (repr(key), repr(value)))
 
-            if len(buffer) < chunksize:
-                metadata_dict['meta-%03d' % info_header_count] = buffer
+        if len(buffer) < chunksize:
+            metadata_dict['meta-%03d' % info_header_count] = buffer
+            info_header_count += 1
+        else:
+            i = 0
+            while i * chunksize < len(buffer):
+                k = 'meta-%03d' % info_header_count
+                v = buffer[i * chunksize : (i + 1) * chunksize]
+                metadata_dict[k] = v
+                i += 1
                 info_header_count += 1
-            else:
-                i = 0
-                while i * chunksize < len(buffer):
-                    k = 'meta-%03d' % info_header_count
-                    v = buffer[i * chunksize : (i + 1) * chunksize]
-                    metadata_dict[k] = v
-                    i += 1
-                    info_header_count += 1
 
         # Backblaze B2 only allows 10 metadata headers (2 are used by format and md5)
         assert info_header_count <= 8
@@ -752,7 +753,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 break
             parts.append(part)
 
-        buffer = urllib.parse.unquote(','.join(parts))
+        buffer = urllib.parse.unquote(''.join(parts))
         meta = literal_eval('{ %s }' % buffer)
 
         # Decode bytes values
