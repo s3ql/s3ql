@@ -11,10 +11,8 @@ class B2Error(HTTPError):
         super().__init__(status, message, headers)
         self.code = code
 
-        if headers and 'Retry-After' in headers:
-            self.retry_after = _parse_retry_after_header(headers['Retry-After'])
-        else:
-            # Force 1s waiting time before retry
+        # Force 1s waiting time before retry
+        if not self.retry_after:
             self.retry_after = 1
 
     def __str__(self):
