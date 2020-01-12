@@ -39,7 +39,7 @@ Features
 * **Dynamic Size.** The size of an S3QL file system grows and shrinks
   dynamically as required.
 
-* **Compression.** Before storage, all data may compressed with the
+* **Compression.** Before storage, all data may be compressed with the
   LZMA, bzip2 or deflate (gzip) algorithm.
 
 * **Encryption.** After compression (but before upload), all data can be
