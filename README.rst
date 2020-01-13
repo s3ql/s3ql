@@ -8,7 +8,7 @@
 
 S3QL is a file system that stores all its data online using storage
 services like `Google Storage`_, `Amazon S3`_, or OpenStack_. S3QL
-effectively provides a hard disk of dynamic, infinite capacity that
+effectively provides a virtual drive of dynamic, infinite capacity that
 can be accessed from any computer with internet access.
 
 S3QL is a standard conforming, full featured UNIX file system that is
@@ -118,7 +118,7 @@ To mount the S3QL file system stored in the S3 bucket
   mount.s3ql s3://ap-south-1/nikratio-s3ql-bucket /mnt/s3ql
 
 Now you can instruct your favorite backup program to run a backup into
-the directory ``/mnt/s3ql`` and the data will be stored an Amazon
+the directory ``/mnt/s3ql`` and the data will be stored on Amazon
 S3. When you are done, the file system has to be unmounted with ::
 
    umount.s3ql /mnt/s3ql
