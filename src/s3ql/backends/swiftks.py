@@ -104,7 +104,7 @@ class Backend(swift.Backend):
                         'project': {
                             'id': tenant,
                             'domain': {
-                                'id': project_domain
+                                'name': project_domain
                             }
                         }
                     }
