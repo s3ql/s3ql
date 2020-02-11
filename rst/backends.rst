@@ -200,7 +200,7 @@ for Keystone (v2 and v3) authentication, the storage URL is ::
 
 Note that when using Keystone authentication, you can (and have to)
 specify the storage region of the container as well. Also note that when
-using Keystone v3 authentication, the `domain` option is required.
+using Keystone v3 authentication, the :var:`domain` option is required.
 
 In both cases, *hostname* name should be the name of the
 authentication server.  The storage container must already exist (most
@@ -213,9 +213,12 @@ When using legacy authentication, the backend login and password
 correspond to the OpenStack username and API Access Key. When using
 Keystone authentication, the backend password is your regular
 OpenStack password and the backend login combines you OpenStack
-username and tenant name in the form `<tenant>:<user>`. If no tenant
-is required, the OpenStack username alone may be used as backend
-login.
+username and tenant/project in the form :var:`<tenant>:<user>`.
+If no tenant is required, the OpenStack username alone may be used as
+backend login. For Keystone v2 :var:`<tenant>` needs to be the
+tenant name (:envvar:`!OS_TENANT_NAME` in the OpenStack RC File).
+For Keystone v3 :var:`<tenant>` needs to be the project ID
+(:envvar:`!OS_TENANT_ID` in the OpenStack RC File).
 
 The OpenStack backend accepts the following backend options:
 
@@ -259,17 +262,20 @@ The OpenStack backend accepts the following backend options:
 .. option:: domain
 
    If this option is specified, S3QL will use the Keystone v3 API. The
-   default domain for OpenStack installations is `Default`. If this
-   option is specified without setting the `project-domain` option, this
-   will be used for both the project and the user domain. Note: some
-   instances of the Keystone v3 API prefer the use of UUIDs rather than
-   names for tenant (called project in newer OpenStack versions), as
-   well as domains.
+   default domain ID for OpenStack installations is :var:`default`. If this
+   option is specified without setting the :var:`project-domain` option, this
+   will be used for both the project and the user domain.
+   You need to provide the domain ID not the domain name to this option.
+   If your provider did not give you a domain ID, then it is most likely
+   :var:`default`.
 
 .. option:: project-domain
    In simple cases, the project domain will be the same as the auth
-   domain. If the `project-domain` option is not specified, it will be
+   domain. If the :var:`project-domain` option is not specified, it will be
    assumed to be the same as the user domain.
+   You need to provide the domain ID not the domain name to this option.
+   If your provider did not give you a domain ID, then it is most likely
+   :var:`default`.
 
 .. __: http://tools.ietf.org/html/rfc2616#section-8.2.3
 .. _OpenStack: http://www.openstack.org/
