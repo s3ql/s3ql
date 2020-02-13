@@ -324,6 +324,9 @@ def get_backend_factory(options):
             except CorruptedObjectError:
                 raise QuietError('File system revision needs upgrade '
                                  '(or backend data is corrupted)', exitcode=32)
+            except NoSuchObject:
+                raise QuietError('No S3QL file system found at given storage URL.',
+                                 exitcode=18)
 
     return lambda: ComprencBackend(data_pw, compress, options.backend_class(options))
 
