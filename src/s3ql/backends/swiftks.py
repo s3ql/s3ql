@@ -94,7 +94,7 @@ class Backend(swift.Backend):
                             'user': {
                                 'name': user,
                                 'domain': {
-                                    'name': domain
+                                    'id': domain
                                 },
                                 'password': self.password
                             }
