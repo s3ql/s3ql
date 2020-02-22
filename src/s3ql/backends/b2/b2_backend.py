@@ -186,9 +186,17 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 self.bucket_id = allowed_info.get('bucketId')
                 self.bucket_name = allowed_info.get('bucketName')
 
+            if not self._check_key_capabilities(allowed_info):
+                raise RuntimeError('Provided API key does not have the required capabilities.')
+
             self.api_url = urlparse(j['apiUrl'])
             self.download_url = urlparse(j['downloadUrl'])
             self.authorization_token = j['authorizationToken']
+
+    def _check_key_capabilities(self, allowed_info):
+        capabilities = allowed_info.get('capabilities')
+        needed_capabilities = [ 'listBuckets', 'listFiles', 'readFiles', 'writeFiles', 'deleteFiles' ]
+        return all(capability in capabilities for capability in needed_capabilities)
 
     def _do_request(self, connection, method, path, headers=None, body=None, download_body=True):
         '''Send request, read and return response object'''
