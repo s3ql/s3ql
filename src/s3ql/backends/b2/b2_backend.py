@@ -187,7 +187,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             allowed_info = j.get('allowed')
             if allowed_info.get('bucketId'):
                 self.bucket_id = allowed_info.get('bucketId')
-                self.bucket_name = allowed_info.get('bucketName')
+                if allowed_info.get('bucketName') != self.bucket_name:
+                    raise RuntimeError('Provided API key can not access desired bucket.')
 
             if not self._check_key_capabilities(allowed_info):
                 raise RuntimeError('Provided API key does not have the required capabilities.')
