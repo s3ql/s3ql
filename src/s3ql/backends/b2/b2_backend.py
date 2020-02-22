@@ -177,6 +177,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             response = connection.read_response()
             response_body = connection.readall()
 
+            if response.status != 200:
+                raise RuntimeError('Authorization failed.')
+
             j = json.loads(response_body.decode('utf-8'))
 
             self.account_id = j['accountId']
