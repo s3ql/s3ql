@@ -181,6 +181,11 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
             self.account_id = j['accountId']
 
+            allowed_info = j.get('allowed')
+            if allowed_info.get('bucketId'):
+                self.bucket_id = allowed_info.get('bucketId')
+                self.bucket_name = allowed_info.get('bucketName')
+
             self.api_url = urlparse(j['apiUrl'])
             self.download_url = urlparse(j['downloadUrl'])
             self.authorization_token = j['authorizationToken']
