@@ -533,27 +533,23 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def list(self, prefix=''):
         next_filename = self._get_key_with_prefix(prefix)
-        keys_remaining = True
 
-        while keys_remaining and next_filename is not None:
-            next_filename, filelist = self._list_file_names_page(next_filename)
+        while next_filename is not None:
+            next_filename, filelist = self._list_file_names_page(prefix, next_filename)
 
             for file_ in filelist:
-                if file_.startswith(self.prefix + prefix):
-                    # remove prefix before return
-                    r = file_[len(self.prefix):]
-                    decoded_r = self._b2_url_decode(r, decode_plus=False)
-                    yield decoded_r
-                else:
-                    keys_remaining = False
-                    break
+                # remove prefix before return
+                r = file_[len(self.prefix):]
+                decoded_r = self._b2_url_decode(r, decode_plus=False)
+                yield decoded_r
 
     @retry
-    def _list_file_names_page(self, next_filename=None):
+    def _list_file_names_page(self, prefix='', next_filename=None):
         request_dict = {
             # maximum is 10000, but will get billed in steps of 1000
             'maxFileCount': 1000,
-            'bucketId': self._get_bucket_id()
+            'bucketId': self._get_bucket_id(),
+            'prefix': self._get_key_with_prefix(prefix)
         }
 
         if next_filename is not None:
