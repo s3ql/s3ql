@@ -560,6 +560,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return response['nextFileName'], filelist
 
+    @retry
     def _get_file_id_and_name(self, key):
         head_request_response = self._do_download_request('HEAD', key)
         file_id = self._b2_url_decode(head_request_response.headers['X-Bz-File-Id'])
