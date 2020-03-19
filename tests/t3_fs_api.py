@@ -86,7 +86,7 @@ async def ctx():
 
     cache = BlockCache(ctx.backend_pool, ctx.db, ctx.cachedir + "/cache",
                        ctx.max_obj_size * 5)
-    cache.portal = trio.BlockingTrioPortal()
+    cache.trio_token = trio.hazmat.current_trio_token()
     ctx.cache = cache
     ctx.server = fs.Operations(cache, ctx.db, ctx.max_obj_size,
                                 InodeCache(ctx.db, 0))
@@ -96,7 +96,7 @@ async def ctx():
     cache.to_remove = DummyQueue(cache)
     class DummyChannel:
         async def send(self, arg):
-            await trio.run_sync_in_worker_thread(cache._do_upload, *arg)
+            await trio.to_thread.run_sync(cache._do_upload, *arg)
     cache.to_upload = (DummyChannel(), None)
 
     # Keep track of unused filenames

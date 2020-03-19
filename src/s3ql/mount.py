@@ -602,7 +602,6 @@ class MetadataUploadTask:
         while not self.quit:
             with trio.move_on_after(self.interval):
                 await self.event.wait()
-            self.event.clear()
 
             if self.quit:
                 break
@@ -631,7 +630,7 @@ class MetadataUploadTask:
 
                 # Temporarily decrease sequence no, this is not the final upload
                 self.param['seq_no'] -= 1
-                await trio.run_sync_in_worker_thread(
+                await trio.to_thread.run_sync(
                     upload_metadata, backend, fh, self.param)
                 self.param['seq_no'] += 1
 

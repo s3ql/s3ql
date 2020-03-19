@@ -215,7 +215,7 @@ class BlockCache(object):
     def init(self, threads=1):
         '''Start worker threads'''
 
-        self.portal = trio.BlockingTrioPortal()
+        self.trio_token = trio.hazmat.current_trio_token()
         self.to_upload = trio.open_memory_channel(0)
         for _ in range(threads):
             t = threading.Thread(target=self._upload_loop)
@@ -271,7 +271,7 @@ class BlockCache(object):
 
         log.debug('waiting for upload threads...')
         for t in self.upload_threads:
-            await trio.run_sync_in_worker_thread(t.join)
+            await trio.to_thread.run_sync(t.join)
 
         log.debug('waiting for removal threads...')
         for t in self.removal_threads:
@@ -306,7 +306,8 @@ class BlockCache(object):
 
         while True:
             log.debug('reading from upload queue...')
-            tmp = self.portal.run(self.to_upload[1].receive)
+            tmp = trio.from_thread.run(
+                self.to_upload[1].receive, trio_token=self.trio_token)
 
             if tmp is QuitSentinel:
                 log.debug('got QuitSentinel')
@@ -382,7 +383,7 @@ class BlockCache(object):
             success = True
         finally:
             self.in_transit.remove(el)
-            self.portal.run(with_event_loop)
+            trio.from_thread.run(with_event_loop, trio_token=self.trio_token)
 
 
     async def wait(self):
@@ -445,7 +446,7 @@ class BlockCache(object):
                         break
                     sha.update(buf)
                 return sha.digest()
-            hash_ = await trio.run_sync_in_worker_thread(with_lock_released)
+            hash_ = await trio.to_thread.run_sync(with_lock_released)
 
         except:
             if added_to_transit:
@@ -591,7 +592,7 @@ class BlockCache(object):
         try:
             self.to_remove.put(obj_id, block=False)
         except QueueFull:
-            await trio.run_sync_in_worker_thread(self._queue_removal, obj_id)
+            await trio.to_thread.run_sync(self._queue_removal, obj_id)
 
     def transfer_in_progress(self):
         '''Return True if there are any cache entries being uploaded'''
@@ -718,7 +719,7 @@ class BlockCache(object):
                 def with_lock_released():
                     with self.backend_pool() as backend:
                         backend.perform_read(do_read, 's3ql_data_%d' % obj_id)
-                await trio.run_sync_in_worker_thread(with_lock_released)
+                await trio.to_thread.run_sync(with_lock_released)
 
                 tmpfh.flush()
                 os.fsync(tmpfh.fileno())
