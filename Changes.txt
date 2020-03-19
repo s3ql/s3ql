@@ -1,4 +1,4 @@
-UNRELEASED, S3QL HEAD
+2020-03-19, S3QL 3.4.0
 
   * There have been significant changes in the internal implementation. Asynchronous I/O
     is now used in favor of threads in many places, and libfuse 3.x is used instead of
