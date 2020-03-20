@@ -30,11 +30,6 @@ Known Issues
   fixed in the kernel.  Unfortunately it does not look as if this is
   going to be fixed anytime soon (as of 2016/2/28).
 
-* S3QL always updates file and directory access times as if the ``relatime``
-  mount option has been specified: the access time ("atime") is only updated
-  if it is currently earlier than either the status change time
-  ("ctime") or modification time ("mtime").
-
 * S3QL directories always have an `st_nlink` value of 1. This may confuse
   programs that rely on directories having `st_nlink` values of *(2 +
   number of sub directories)*.

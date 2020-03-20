@@ -63,8 +63,8 @@ class SetattrFields:
 
 some_ctx = Ctx()
 
-@pytest.fixture
-async def ctx():
+@pytest.fixture(params=(True, False))
+async def ctx(request):
     ctx = Namespace()
     ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
     plain_backend = local.Backend(Namespace(
@@ -89,7 +89,7 @@ async def ctx():
     cache.trio_token = trio.hazmat.current_trio_token()
     ctx.cache = cache
     ctx.server = fs.Operations(cache, ctx.db, ctx.max_obj_size,
-                                InodeCache(ctx.db, 0))
+                                InodeCache(ctx.db, 0), noatime=request.param)
     ctx.server.init()
 
     # Monkeypatch around the need for removal and upload threads
@@ -255,7 +255,10 @@ async def test_read(ctx):
     safe_sleep(CLOCK_GRANULARITY)
     assert await ctx.server.read(fh, off, len_) == data
     inode_after = await ctx.server.getattr(inode.st_ino, some_ctx)
-    assert inode_after.st_atime_ns > inode_before.st_atime_ns
+    if not ctx.server.noatime:
+        assert inode_after.st_atime_ns > inode_before.st_atime_ns
+    else:
+        assert inode_after.st_atime_ns == inode_before.st_atime_ns
     assert await ctx.server.read(fh, 0, len_) == b"\0" * off + data[:off]
     assert await ctx.server.read(fh, ctx.max_obj_size, len_) == data[off:]
     await ctx.server.release(fh)

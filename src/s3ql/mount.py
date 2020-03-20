@@ -205,6 +205,7 @@ async def main_async(options, stdout_log_handler):
     commit_task = CommitTask(block_cache)
     operations = fs.Operations(block_cache, db, max_obj_size=param['max_obj_size'],
                                inode_cache=InodeCache(db, param['inode_gen']),
+                               noatime=options.noatime,
                                upload_event=metadata_upload_task.event)
     block_cache.fs = operations
     metadata_upload_task.fs = operations
@@ -547,6 +548,8 @@ def parse_args(args):
     parser.add_argument("--threads", action="store", type=int,
                       default=None, metavar='<no>',
                       help='Number of parallel upload threads to use (default: auto).')
+    parser.add_argument("--noatime", action="store_true", default=False,
+                      help="Do not update inode access times on this filesystem.")
     parser.add_argument("--nfs", action="store_true", default=False,
                       help='Enable some optimizations for exporting the file system '
                            'over NFS. (default: %(default)s)')

@@ -99,7 +99,7 @@ class Operations(pyfuse3.Operations):
     enable_acl = False
     enable_writeback_cache = True
 
-    def __init__(self, block_cache, db, max_obj_size, inode_cache,
+    def __init__(self, block_cache, db, max_obj_size, inode_cache, noatime,
                  upload_event=None):
         super().__init__()
 
@@ -111,6 +111,7 @@ class Operations(pyfuse3.Operations):
         self.cache = block_cache
         self.failsafe = False
         self.broken_blocks = collections.defaultdict(set)
+        self.noatime = noatime
 
         # Root inode is always open
         self.open_inodes[pyfuse3.ROOT_INODE] += 1
@@ -168,7 +169,7 @@ class Operations(pyfuse3.Operations):
         log.debug('started with %d', id_)
         now_ns = time_ns()
         inode = self.inodes[id_]
-        if inode.atime_ns < inode.ctime_ns or inode.atime_ns < inode.mtime_ns:
+        if not self.noatime and (inode.atime_ns < inode.ctime_ns or inode.atime_ns < inode.mtime_ns):
             inode.atime_ns = now_ns
         try:
             return self.db.get_val("SELECT target FROM symlink_targets WHERE inode=?", (id_,))
@@ -186,7 +187,7 @@ class Operations(pyfuse3.Operations):
             off = -1
 
         inode = self.inodes[id_]
-        if inode.atime_ns < inode.ctime_ns or inode.atime_ns < inode.mtime_ns:
+        if not self.noatime and (inode.atime_ns < inode.ctime_ns or inode.atime_ns < inode.mtime_ns):
             inode.atime_ns = time_ns()
 
         # NFS treats offsets 1 and 2 special, so we have to exclude
@@ -1023,7 +1024,7 @@ class Operations(pyfuse3.Operations):
         # Inode may have expired from cache
         inode = self.inodes[fh]
 
-        if inode.atime_ns < inode.ctime_ns or inode.atime_ns < inode.mtime_ns:
+        if not self.noatime and (inode.atime_ns < inode.ctime_ns or inode.atime_ns < inode.mtime_ns):
             inode.atime_ns = time_ns()
 
         return buf.getvalue()
