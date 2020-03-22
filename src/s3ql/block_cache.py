@@ -70,7 +70,9 @@ class CacheEntry(object):
         self.blockno = blockno
         self.last_write = 0
         self.pos = self.fh.tell()
-        self.size = os.fstat(self.fh.fileno()).st_size
+        # use allocation size instead of st_size
+        # to properly account for small files
+        self.size = os.fstat(self.fh.fileno()).st_blocks * 512
 
     def read(self, size=None):
         buf = self.fh.read(size)
