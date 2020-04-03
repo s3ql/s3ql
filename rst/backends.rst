@@ -270,6 +270,7 @@ The OpenStack backend accepts the following backend options:
    :var:`default`.
 
 .. option:: project-domain
+
    In simple cases, the project domain will be the same as the auth
    domain. If the :var:`project-domain` option is not specified, it will be
    assumed to be the same as the user domain.
