@@ -1,3 +1,8 @@
+UNRELEASED CHANGES
+
+  * Fixed mount.s3ql "NoneType can't be used in 'await' expression" crash.
+
+
 2020-03-19, S3QL 3.4.0
 
   * There have been significant changes in the internal implementation. Asynchronous I/O
