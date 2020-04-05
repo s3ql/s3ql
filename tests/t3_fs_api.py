@@ -703,6 +703,18 @@ async def test_write(ctx):
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
 
+async def test_fsync(ctx):
+    len_ = ctx.max_obj_size
+    data = random_data(len_)
+    off = ctx.max_obj_size // 2
+    (fh, inode) = await ctx.server.create(ROOT_INODE, newname(ctx),
+                                 file_mode(), os.O_RDWR, some_ctx)
+    await ctx.server.write(fh, off, data)
+    await ctx.server.fsync(fh, datasync=False)
+    await ctx.server.release(fh)
+    await ctx.server.forget([(inode.st_ino, 1)])
+
+
 async def test_failsafe(ctx):
     len_ = ctx.max_obj_size
     data = random_data(len_)

@@ -1122,7 +1122,7 @@ class Operations(pyfuse3.Operations):
             self.inodes.flush_id(fh)
 
         for blockno in range(0, self.inodes[fh].size // self.max_obj_size + 1):
-            await self.cache.flush_local(fh, blockno)
+            self.cache.flush_local(fh, blockno)
 
     async def forget(self, forget_list):
         log.debug('started with %s', forget_list)

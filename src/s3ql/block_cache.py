@@ -845,7 +845,7 @@ class BlockCache(object):
 
         log.debug('finished')
 
-    async def flush_local(self, inode, blockno):
+    def flush_local(self, inode, blockno):
         """Flush buffers for given block"""
 
         try:
@@ -853,7 +853,7 @@ class BlockCache(object):
         except KeyError:
             return
 
-        await el.flush()
+        el.flush()
 
     async def start_flush(self, inode=None):
         """Initiate upload of all dirty blocks
