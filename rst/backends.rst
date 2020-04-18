@@ -395,6 +395,15 @@ the provided account key. The *prefix* will be appended to all names
 used by S3QL and can be used to hold separate S3QL repositories in the
 same bucket.
 
+It is also possible to use an application key. The required key capabilities
+are the following:
+
+   - `listBuckets`
+   - `listFiles`
+   - `readFiles`
+   - `writeFiles`
+   - `deleteFiles`
+
 .. option:: disable-versions
 
    If versioning of the bucket is not enabled, this option can be set.
